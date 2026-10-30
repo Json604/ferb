@@ -12,7 +12,10 @@ server) stay reachable, so they must be told apart. Measured on macOS 26.6 (F5a 
   FERB's profile is the one sandbox that denies reading FERB's run folder and allows FERB's workspace: unsandboxed
   programs are allowed both, other sandboxes (Apple's daemons, App Store apps) deny both. A server keeps its
   sandbox when it detaches from the command that started it (pg_ctl, a daemonizing server).
-- Seatbelt profiles are fixed when a command starts, so the list is the one at that moment."""
+- Seatbelt profiles are fixed when a command starts, so the list is the one at that moment. A server that starts
+  listening later (another program's, or a FERB command's) is therefore reached only through FERB's proxy, which
+  checks each connection's listener (local.py); the shell profile allows directly only the ports whose listeners
+  all ran inside FERB's containment when the command started (sandbox.py)."""
 
 import ctypes
 import os
@@ -70,9 +73,10 @@ def _listening(text: str, udp: bool) -> list[tuple[int, int | None]]:
     return out
 
 
-def outside_ports(ferb_home: Path, workspace: Path) -> set[int] | None:
-    """Ports of this Mac's servers that run outside FERB's containment (any address: every listener is on one of the
-    Mac's own). None when the listing can't be read, so the caller keeps every local server out."""
+def local_listeners(ferb_home: Path, workspace: Path) -> tuple[set[int], set[int]] | None:
+    """(outside, inside): ports of this Mac's servers that run outside FERB's containment, and ports whose every
+    listener runs inside it (a FERB command's own server), as listed now. None when the listing can't be read, so the
+    caller keeps every local server out."""
     found: list[tuple[int, int | None]] = []
     for proto in ("tcp", "udp"):
         try:
@@ -86,4 +90,12 @@ def outside_ports(ferb_home: Path, workspace: Path) -> set[int] | None:
     for _, pid in found:
         if pid is not None and pid not in inside:
             inside[pid] = contained(pid, ferb_home, workspace)
-    return {port for port, pid in found if pid is None or not inside[pid]}
+    outside = {port for port, pid in found if pid is None or not inside[pid]}
+    return outside, {port for port, _ in found} - outside
+
+
+def outside_ports(ferb_home: Path, workspace: Path) -> set[int] | None:
+    """Ports of this Mac's servers that run outside FERB's containment (any address: every listener is on one of the
+    Mac's own). None when the listing can't be read, so the caller keeps every local server out."""
+    both = local_listeners(ferb_home, workspace)
+    return None if both is None else both[0]

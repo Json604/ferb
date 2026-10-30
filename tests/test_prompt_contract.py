@@ -121,19 +121,27 @@ SENTENCES = [
      "security answers, and pressing the page's sign-in or Continue button) is not an account-security change: "
      "declare it `edit`."),
     # owner 2026-10-24, visa task: nine escape questions in two minutes, one per command reading a Chrome profile folder
+    # hands decision 1 (2026-10-30): one read question per protected folder per task
     ("worker.md",
-     "A command that needs escape (one shell_rules rule lifted) asks the owner, and the approval covers that exact "
-     "command once. Before asking, look where no escape is needed: a public page about it (an extension's Web Store "
-     "listing shows its permissions) or a tool that already reads it. When a protected folder really must be read, get "
-     "everything you need from it in one command, never one command per file or step."),
+     "A command that needs escape (one shell_rules rule lifted) asks the owner. A read of a protected folder is asked "
+     "once for the task: after the owner's Yes, later reads of that folder (commands or file tools) run without asking; "
+     "a write or admin escape covers that exact command once. Before asking, look where no escape is needed: a public "
+     "page about it (an extension's Web Store listing shows its permissions) or a tool that already reads it. When a "
+     "protected folder really must be read, get everything you need from it in one command, never one command per file "
+     "or step."),
+    # hands decision 4 (2026-10-30): a refused write in a visible folder goes to file tools or a which-folder question
+    ("worker.md",
+     "Shell commands can't change the owner's visible folders (~/Documents, ~/Desktop, ~/Downloads, iCloud Drive, other "
+     "disks) unless the task names the folder; change the owner's files there with fs_write, fs_edit or fs_trash (each "
+     "keeps a recovery copy), or ask the orchestrator which folder the task is about, never through a terminal."),
     # live 2026-10-25 (task 6f5b8589): the sandbox refused `ps` and a socket, and the worker typed the command into
     # the owner's VS Code terminal unasked; owner: "it should've just said that I'm getting blocked I just wanna run
     # this can I?" (D31: the escape hatch, or a terminal input FERB asks about every time)
     ("worker.md",
-     'When FERB\'s sandbox refuses a command you need (for example "Operation not permitted"), request the escape '
-     "that shell_rules names for it, so the owner answers once for that exact command. When no shell_rules rule "
-     "covers it, you may type the command into a terminal (a terminal app or an editor's terminal): FERB asks the "
-     "owner first, showing the exact command, every time."),
+     'When FERB\'s sandbox refuses a command you need for another reason (for example "Operation not permitted"), '
+     "request the escape that shell_rules names for it, so the owner answers once for that exact command. When no "
+     "shell_rules rule covers it, you may type the command into a terminal (a terminal app or an editor's terminal): "
+     "FERB asks the owner first, showing the exact command, every time."),
         ("worker.md",
      'When the owner hands the work to a particular agent or person that does it on its own (a coding agent like Codex Astra, a colleague, a service), that one does it, not you. An app you drive as a tool (WhatsApp, Spotify, Gmail, a browser) is not that: you do the work through it. Your part is to start the agent, give it what it needs (answer its questions, supply data or files, do the browser or Mac steps it cannot), monitor it and check its result. If it is stuck, help it, or use owner_ask; do none of its work yourself unless the owner says so (the orchestrator relays the answer), and then say in your report that you did it.'),
     ("worker.md",

@@ -245,8 +245,9 @@ class Desktop:
         self.proxy = EgressProxy(self._allow_destination, redactor=self.redact if isinstance(self.redact, Redactor)
                                  else None, excluded=getattr(self.redact, "excluded_host", None),
                                  inspect_sni=lambda proc, host, port: True,
-                                 local_access=LocalAccess(self.protection) if self.protection.local_ports else None,
-                                 allow_local=self._allow_local_destination)
+                                 local_access=LocalAccess(self.protection),
+                                 allow_local=self._allow_local_destination,
+                                 on_destination=self._shell_destination)
         self.sandbox = Sandbox(self.protection, self.home / "run" / "sandbox",
                                lambda: self.proxy.port if self.proxy is not None else None, socket=self.server.path)
         self.sandbox.sweep()

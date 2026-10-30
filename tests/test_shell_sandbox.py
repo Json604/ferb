@@ -16,7 +16,8 @@ from pathlib import Path
 import pytest
 
 from ferb.act.shell.manager import ShellManager
-from ferb.act.shell.sandbox import APP_SERVICES, CERT_BUNDLE, NETWORK_SERVICES, SANDBOX_EXEC, SECURITY_SERVER, TRUST_SERVICES, Sandbox
+from ferb.act.shell.sandbox import (APP_SERVICES, CERT_BUNDLE, NETWORK_SERVICES, SANDBOX_EXEC, SECURITY_SERVER,
+                                    TRUST_SERVICES, WINDOW_SERVER, Sandbox)
 from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
 from ferb.core.types import Identity
@@ -163,9 +164,26 @@ def test_direct_network_is_denied_inside_the_sandbox(daemon: RunningDaemon) -> N
     threading.Thread(target=lambda: srv.accept(), daemon=True).start()
     r = call(daemon, g, "shell.run", command=f"python3 -c 'import socket; socket.create_connection((\"127.0.0.1\", {port}), 2)' 2>&1; echo rc=$?")
     assert "rc=0" not in r["content"]["output"] and "Operation not permitted" in r["content"]["output"]   # not FERB's
+    # A server that starts listening during the command, its own included, is reached only through the proxy (a raw
+    # socket can't); a server a FERB command already runs when the next command starts is reached directly
     r = call(daemon, g, "shell.run", command="python3 -c 'import socket; s=socket.socket(); s.bind((\"127.0.0.1\", 0)); "
-                                             "s.listen(1); socket.create_connection(s.getsockname(), 2); print(\"reached\")'")
-    assert not r["is_error"] and "reached" in r["content"]["output"]                   # a dev server of its own: yes
+                                             "s.listen(1); socket.create_connection(s.getsockname(), 2); print(\"reached\")' "
+                                             "2>&1; echo rc=$?")
+    assert "rc=0" not in r["content"]["output"] and "Operation not permitted" in r["content"]["output"]
+    free = socket.socket(); free.bind(("127.0.0.1", 0)); port = free.getsockname()[1]; free.close()
+    server = call(daemon, g, "shell.start", command=f"python3 -c 'import socket,time; s=socket.socket(); "
+                  f"s.bind((\"127.0.0.1\", {port})); s.listen(1); time.sleep(30)'")
+    sid = server["content"]["id"]
+    try:
+        for _ in range(100):                                             # listening, as netstat lists it
+            if f".{port} " in subprocess.run(["netstat", "-an", "-p", "tcp"], capture_output=True, text=True).stdout:
+                break
+            time.sleep(0.05)
+        r = call(daemon, g, "shell.run", command=f"python3 -c 'import socket; socket.create_connection((\"127.0.0.1\", {port}), 2); "
+                                                 f"print(\"reached\")'")
+        assert not r["is_error"] and "reached" in r["content"]["output"]          # a dev server of its own: yes
+    finally:
+        call(daemon, g, "shell.kill", id=sid)
 
 
 def test_the_shell_names_apples_certificate_bundle(daemon: RunningDaemon) -> None:
@@ -299,7 +317,8 @@ def test_the_apps_profile_differs_only_by_the_app_rules_and_keeps_every_other_de
     (ferb / "workspace").mkdir(parents=True)
     sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p", listeners=lambda: {9999})   # fixed: comparable
     shell_only = set(sb.profile().splitlines()) - set(sb.profile(apps=True).splitlines())
-    assert shell_only == {*(f'(deny mach-lookup (global-name "{n}"))' for n in APP_SERVICES)}
+    assert shell_only == {*(f'(deny mach-lookup (global-name "{n}"))' for n in APP_SERVICES),
+                          "(deny mach-lookup " + " ".join(f'(global-name "{n}")' for n in WINDOW_SERVER) + ")"}
     # D31 review round 1: Apple Events reach only the app the call names (none named: none); round 2 (N7): no app
     # launch or document open (lsopen) and no program but osascript itself, so `do shell script` can't run
     lockdown = {"(deny process-exec)", '(allow process-exec (literal "/usr/bin/osascript"))'}
@@ -628,12 +647,12 @@ def test_the_shell_cannot_move_anything_into_or_out_of_a_trash(tmp_path: Path) -
             assert r.returncode != 0 and "Operation not permitted" in r.stderr, (lift, command, r.stderr)
         assert (ws / "evil").read_text() == "payload" and sorted(p.name for p in trash.iterdir()) == ["old.txt"]
         assert sorted(p.name for p in icloud.iterdir()) == ["synced.txt"] and not (ws / "stolen").exists()
-        argv = sb.wrap(["/bin/sh", "-c", f"echo ok > '{home}/ok-{lift}'"], lift)   # everything else still runs
+        argv = sb.wrap(["/bin/sh", "-c", f"echo ok > '{home}/.ok-{lift}'"], lift)   # everything else still runs
         try:
             subprocess.run(argv, capture_output=True, text=True, timeout=10)
         finally:
             sb.cleanup(sb.profile_path(argv))
-        assert (home / f"ok-{lift}").read_text() == "ok\n"
+        assert (home / f".ok-{lift}").read_text() == "ok\n"
     (trash / "old.txt").unlink()
     trash.rmdir()                                                   # a missing Trash can't be planted as a link
     assert run_under(plain, ["ln", "-s", str(ws), str(trash)]).returncode != 0 and not os.path.lexists(trash)

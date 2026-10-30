@@ -639,9 +639,8 @@ def protection_check(home: Path) -> Check:
     except FerbError as e:
         return Check("protection", "fail", str(e), "fix [protection] in ~/.ferb/config.toml (or the workspace), then "
                      "`ferb setup --update`")
-    files = "may read the never-read stores" if p.fs_reads_never_read else "stay out of the never-read stores"
     return Check("protection", "ok", f"{len(p.reads)} never-read and {len(p.writes)} never-write entries; FERB's "
-                 f"tools that name files {files}")
+                 "shell and file tools follow both (a task asks you before it opens one)")
 
 
 def database_check(home: Path) -> Check | None:

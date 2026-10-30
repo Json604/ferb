@@ -328,9 +328,13 @@ def test_a_background_process_that_ends_after_its_task_is_journaled_when_it_exit
         await daemon.daemon.shells.end_task(grant.task_id)   # background: it keeps running past its task
         return sites_contacted(daemon.daemon.spans, grant.task_id)
     assert daemon.run(end_task()) == []                    # still running: nothing final to record yet
+    proc = daemon.daemon.shells._procs[pid][0]                                 # type: ignore[union-attr]
     go.write_text("")
-    done = gateway_tool_call(daemon, grant, "shell.wait", id=pid, timeout_s=10)
-    assert done["content"]["exit_code"] == 0, done["content"]
+    assert daemon.run(proc.wait(10)) == 0
+    deadline = time.monotonic() + 10                     # its record goes out, then its entry (hands fix list)
+    while pid in {p.id for p in daemon.daemon.shells.list()}:                   # type: ignore[union-attr]
+        assert time.monotonic() < deadline, "the ended process was never dropped"
+        time.sleep(0.05)
     assert daemon.run(sites()) == [TEST_HOST]
 
 

@@ -133,26 +133,31 @@ def test_managed_start_is_owned_and_ends_with_task(daemon):
     started = call(daemon, g, 'shell.start', command='cat')
     assert not started['is_error']
     pid = started['content']['id']
+    proc = daemon.daemon.shells._procs[pid][0]                               # type: ignore[union-attr]
     daemon.run(daemon.daemon._task_end('managed-cleanup'))
-    ended = call(daemon, g, 'shell.wait', id=pid, timeout_s=5)['content']
-    assert not ended['running'] and ended['exit_code'] is not None
+    assert proc.exit_code is not None                                         # killed at task end
+    ended = call(daemon, g, 'shell.wait', id=pid, timeout_s=5)               # and forgotten (its record was out)
+    assert ended['is_error'] and 'no process' in ended['content']['error']
+    assert pid not in {p.id for p in daemon.daemon.shells.list()}             # type: ignore[union-attr]
 
 
 def test_task_end_kills_its_processes_but_background_ones_survive_until_stop(daemon: RunningDaemon) -> None:
     g = task(daemon, "e", Identity.OWNER, OWNER_SHELL, {"run_command"})
     fg = call(daemon, g, "shell.run", command="sleep 30", timeout_s=1)["content"]["id"]
     bg = call(daemon, g, "shell.run", command="sleep 30", timeout_s=1, background=True)["content"]["id"]
+    fg_proc = daemon.daemon.shells._procs[fg][0]                             # type: ignore[union-attr]
     daemon.run(daemon.daemon._task_end("e"))
     time.sleep(0.5)
     running = {p.id: p.running for p in daemon.daemon.shells.list()}           # type: ignore[union-attr]
-    assert running[fg] is False and running[bg] is True
+    assert fg not in running and fg_proc.exit_code is not None and running[bg] is True   # killed, then forgotten
     from ferb.cli.client import Client
     c = Client(daemon.sock)
     try:
         assert any(p["id"] == bg for p in c.call("ps.list")["processes"])
+        bg_proc = daemon.daemon.shells._procs[bg][0]                          # type: ignore[union-attr]
         c.call("stop.engage")                                                 # 10.5: kills task-owned processes
         time.sleep(3)
-        assert {p.id: p.running for p in daemon.daemon.shells.list()}[bg] is False  # type: ignore[union-attr]
+        assert bg_proc.exit_code is not None
     finally:
         c.call("stop.lift")
         c.close()

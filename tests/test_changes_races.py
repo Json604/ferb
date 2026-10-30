@@ -27,7 +27,7 @@ def _home(tmp_path: Path) -> tuple[Path, Path, Path, Changes]:
     secret.write_text('{"refresh_token": "%s"}\n' % TOKEN)
     (home / ".ssh").mkdir()
     (home / ".ssh" / "id_ed25519_work_github").write_text("PRIVATE KEY " + TOKEN)
-    protection = Protection(home, ferb, ["~/.ssh"], [], [], True)
+    protection = Protection(home, ferb, ["~/.ssh"], [], [])
     store = Changes(ferb / "changes", closed=lambda p: protection.read_denied(p) is not None, home=home)
     return home, ferb, secret, store
 

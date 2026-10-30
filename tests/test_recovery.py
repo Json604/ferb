@@ -179,12 +179,12 @@ def test_no_copy_means_no_change(daemon: RunningDaemon, monkeypatch: pytest.Monk
 
 
 def test_an_unknown_outcome_keeps_the_copy(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A write that raised may or may not have changed the file: the copy stays."""
+    """A write that raised something unexpected may or may not have changed the file: the copy stays."""
     f = _ws(daemon) / "half.txt"
     f.write_text("before")
 
     def boom(p: Path, text: str, closed: Any = None) -> None:
-        raise OSError(5, "I/O error")
+        raise RuntimeError("the writer broke")
     monkeypatch.setattr(files, "atomic_text", boom)
     grant = _fs_grant(daemon)
     out = _write(daemon, grant, f, "after")
@@ -192,6 +192,22 @@ def test_an_unknown_outcome_keeps_the_copy(daemon: RunningDaemon, monkeypatch: p
     rec = _recovery_rows(daemon)[-1]
     assert rec["kind"] == "clone" and rec["written_sha256"] is None
     assert len(_copies(daemon)) == 1
+
+
+def test_an_os_error_is_a_plain_failure_and_drops_the_unneeded_copy(daemon: RunningDaemon,
+                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hands fix list: an OS refusal before the file changed is the tool's plain error (nothing was written), not an
+    outcome the ledger must treat as unknown; the file is still what the copy holds, so the copy goes."""
+    f = _ws(daemon) / "half.txt"
+    f.write_text("before")
+
+    def boom(p: Path, text: str, closed: Any = None) -> None:
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(files, "atomic_text", boom)
+    out = _write(daemon, _fs_grant(daemon), f, "after")
+    error = out["content"]["error"]
+    assert out["is_error"] and "outcome unknown" not in error and "No space left" in error and "nothing" in error
+    assert f.read_text() == "before" and _copies(daemon) == []
 
 
 def test_copies_live_inside_the_recovery_root_owner_only(daemon: RunningDaemon) -> None:
@@ -485,18 +501,27 @@ def test_an_agent_asks_for_a_snapshot_and_it_is_recorded(daemon: RunningDaemon) 
     assert daemon.run(ledger()) == 0                                        # reversible: no ledger row
 
 
-def test_at_most_one_snapshot_per_fifteen_minutes_across_tasks(daemon: RunningDaemon) -> None:
+def test_the_last_snapshot_is_reused_only_while_no_command_ran_since(daemon: RunningDaemon) -> None:
+    """Hands decision 4 (B): a fresh snapshot before each shell command, skipped only when no command ran since the
+    last one (replacing "at most one per 15 minutes"); an agent's own request follows the same rule."""
     fake = _Snapshots()
     _snaps(daemon, fake)
-    grant, _ = gateway_setup(daemon, set(), gateway_request("tidy"), [])
+    shell = _Ordered("shell.fake", Kind.RUN_SHELL, fake.order)
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("tidy"), [shell])
     first = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk rename")["content"]
     again = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk delete")["content"]
-    assert again["reused"] is True and again["snapshot"] == first["snapshot"] and fake.n == 1
-    assert "reused" in again["note"]
-    daemon.call_soon(daemon.daemon.clock.advance, 16 * 60)
+    assert again["reused"] is True and again["snapshot"] == first["snapshot"] and fake.n == 1   # nothing ran since
+    assert "no command ran since" in again["note"]
+    a = gateway_tool_call(daemon, grant, "shell.fake", text="make")          # nothing ran since the first: reused
+    b = gateway_tool_call(daemon, grant, "shell.fake", text="make install")  # a command ran: a fresh one
+    c = gateway_tool_call(daemon, grant, "shell.fake", text="make clean")
+    assert a["content"]["recovery_snapshot"]["reused"] is True and fake.n == 3
+    assert not b["content"]["recovery_snapshot"]["reused"] and not c["content"]["recovery_snapshot"]["reused"]
+    assert fake.order == ["snapshot", "shell.fake", "snapshot", "shell.fake", "snapshot", "shell.fake"]
+    daemon.call_soon(daemon.daemon.clock.advance, 16 * 60)                  # time alone never decides
     later = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk delete")["content"]
-    assert fake.n == 2 and later["snapshot"] != first["snapshot"] and "reused" not in later
-    assert len(_snapshot_rows(daemon)) == 2
+    assert fake.n == 4 and "reused" not in later
+    assert len(_snapshot_rows(daemon)) == 4
 
 
 def test_a_shell_call_takes_a_snapshot_first_and_trash_and_writes_take_none(daemon: RunningDaemon, trash: Path) -> None:
@@ -530,24 +555,27 @@ def test_a_permanent_delete_takes_a_snapshot_first(ferb_yes: FerbAnswers, daemon
     assert len(_snapshot_rows(daemon)) == 1
 
 
-def test_a_failed_snapshot_never_refuses_a_call_and_counts_toward_the_rate_limit(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+def test_a_failed_snapshot_never_refuses_a_call_says_so_and_is_tried_again(ferb_yes: FerbAnswers,
+                                                                          daemon: RunningDaemon) -> None:
     ferb_yes.expect("floor:delete_permanent")   # FERB's own question(s) on the way (F5a floor)
     for fail in ("boom", "none"):
         fake = _Snapshots(fail=fail)
         _snaps(daemon, fake)
         gone = _Ordered(f"fs.fake_delete_{fail}", Kind.DELETE_PERMANENT, fake.order)
         grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("delete"), [gone])
-        for text in ("a", "b"):                                          # one attempt in 15 minutes; both calls run
-            assert not gateway_tool_call(daemon, grant, gone.name, text=text)["is_error"]
+        for text in ("a", "b"):          # both run anyway; right after a failure the next call doesn't wait on tmutil
+            out = gateway_tool_call(daemon, grant, gone.name, text=text)
+            assert not out["is_error"] and "no snapshot was taken" in out["content"]["snapshot_error"]
         assert fake.order == ["snapshot", gone.name, gone.name]
-        asked = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk")
-        assert asked["is_error"] and "under 15 minutes ago" in asked["content"]["error"]
-        daemon.call_soon(daemon.daemon.clock.advance, 16 * 60)           # the window passed: it tries again
-        assert not gateway_tool_call(daemon, grant, gone.name, text="c")["is_error"]
+        daemon.daemon.clock.advance(61)                                  # the pause after a failure has passed
+        out = gateway_tool_call(daemon, grant, gone.name, text="c")
+        assert not out["is_error"] and "no snapshot was taken" in out["content"]["snapshot_error"]
         assert fake.order == ["snapshot", gone.name, gone.name, "snapshot", gone.name]
-        daemon.call_soon(daemon.daemon.clock.advance, 16 * 60)
+        asked = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk")
+        assert asked["is_error"] and "no snapshot was taken" in asked["content"]["error"]
+        daemon.daemon.clock.advance(61)
     spans = _spans(daemon, "recovery.snapshot")
-    assert len(spans) == 6 and all(s["error"] for s in spans) and _snapshot_rows(daemon) == []
+    assert spans and all(s["error"] for s in spans) and _snapshot_rows(daemon) == []
 
 
 def test_a_cancelled_wait_still_records_the_snapshot_for_the_next_request(daemon: RunningDaemon) -> None:

@@ -32,8 +32,8 @@ class Retention:
 
     def _purge_records(self) -> dict[str, int]:
         """D21: spans of tasks that ended more than trace_days ago (once their episode exists) and loose spans;
-        Jev decisions older than decision_days; evidence (screenshots, snapshots, recordings) older than
-        evidence_days (V1, D20: 7); recovery copies and records older than recovery_days (S1: 7). Never the task list,
+        Jev decisions older than decision_days; evidence (screenshots, snapshots, recordings) and shell output logs
+        older than evidence_days (V1, D20: 7); recovery copies and records older than recovery_days (S1: 7). Never the task list,
         episodes, journal or memory. One synchronous pass (tests, call sites); the hourly loop runs the same steps in
         `_purge_pass`."""
         plan = self._purge_plan()
@@ -113,7 +113,19 @@ class Retention:
         if self.perception is not None:
             self.perception.purge_text()
         return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies, "downloads": trashed,
-                "resources": self._purge_resources(plan)}
+                "resources": self._purge_resources(plan), "shell_logs": self._purge_shell_logs(plan)}
+
+    def _purge_shell_logs(self, plan: _PurgePlan) -> int:
+        """Shell output logs (redacted, owner-only) of finished commands older than evidence_days (7): output is
+        evidence of what a command did, kept as long as screenshots. Isolated: a failure is journaled and the pass
+        goes on."""
+        if self.shells is None:
+            return 0
+        try:
+            return self.shells.purge_logs((plan.now - timedelta(days=plan.evidence_days)).timestamp())
+        except Exception as e:
+            self._journal().append("retention.failed", {"shell_logs": True, "error": f"{type(e).__name__}: {e}"})
+            return 0
 
     def _purge_resources(self, plan: _PurgePlan) -> int:
         """L30: resource samples older than resource_days, by local day. Isolated: a failure is journaled and the pass

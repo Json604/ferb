@@ -241,7 +241,7 @@ class Rpc:
             locks = ["file:" + str(Path(row["original"]).resolve())] if row["kind"] in ("clone", "trash") else []
             async with self._gateway().locks.hold(locks, "owner:ferb restore"):
                 back = await recovery.restore_async(row["id"], kept.db, kept.root,
-                                                    self._gateway()._path_closed("recovery.restore"))
+                                                    self._gateway()._path_closed("recovery.restore", owner=True))
         except recovery.NotRestorable as e:
             raise FerbError(str(e)) from None
         original = Path(row["original"])

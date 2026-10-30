@@ -52,8 +52,9 @@ def test_local_ports_are_loaded_and_defaults_preserve_owner_choice(tmp_path: Pat
 def test_configured_port_is_denied_directly_even_before_a_listener_exists(tmp_path: Path) -> None:
     p = protection(tmp_path, [{"port": 8765, "executable": "/usr/bin/python3"}])
     sb = Sandbox(p, tmp_path / "profiles", lambda: 4321, listeners=lambda: set())
-    assert '(deny network-outbound (remote ip "localhost:8765"))' in sb.profile()
-    assert '(allow network-outbound (remote tcp "localhost:4321"))' in sb.profile()
+    profile = sb.profile()
+    assert '(deny network-outbound (remote ip "*:*"))' in profile and "localhost:8765" not in profile
+    assert '(allow network-outbound (remote tcp "localhost:4321"))' in profile
 
 
 def test_trustd_is_one_liftable_rule_and_leaves_every_other_deny_intact(tmp_path: Path) -> None:

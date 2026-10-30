@@ -7,7 +7,7 @@ from typing import Any, AsyncIterator
 
 from ferb.act.shell.manager import ProcInfo
 from ferb.act.shell.proxy import local_host
-from ferb.core.errors import FerbError
+from ferb.core.errors import FerbError, Refused
 from ferb.daemon.server import Session
 from ferb.policy import confirm
 
@@ -25,8 +25,9 @@ class Egress:
             return False, "FERB could not check this destination"
 
     def _allow_local_destination(self, proc: str, host: str, port: int) -> tuple[bool, str]:
-        """Only the proxy calls this, after verifying an explicit local connected peer against its configured pin.
-        The pin is the standing local permission; task ownership and an explicit No still apply."""
+        """Only the proxy calls this, after verifying an explicit local connected peer: its configured pin, or a server
+        running inside FERB's containment. That is the standing local permission; task ownership and an explicit No
+        still apply."""
         try:
             assert self.gateway is not None and self._loop is not None
             fut = asyncio.run_coroutine_threadsafe(
@@ -69,6 +70,13 @@ class Egress:
         tunnel's own thread when a setsid child closes it, so the write is scheduled on the daemon loop."""
         self._journal_from_any_thread("shell.network", {"task_id": info.owner_task, "process": info.id, **facts})
 
+    def _shell_destination(self, proc: str, host: str, port: int) -> None:
+        """A shell process's first connection to a host and port, journaled as it happens (from a proxy thread), so a
+        crash before the final record (`_shell_network`) still leaves where the command went."""
+        task = self.shells.owner_of(proc) if self.shells is not None else None
+        self._journal_from_any_thread("shell.destination", {"task_id": task, "process": proc, "host": host,
+                                                            "port": port})
+
     def _journal_from_any_thread(self, kind: str, record: dict[str, Any]) -> None:
         """A journal row from the daemon loop or another thread (written on the loop)."""
         def write() -> None:
@@ -104,8 +112,12 @@ class Egress:
         try:
             yield {'lease': lease, 'id': proc_id}
             while True:
-                text, offset, _ = await self.shells.read(handle, offset)
-                info = self.shells.info(handle)
+                try:
+                    text, offset, _ = await self.shells.read(handle, offset)
+                    info = self.shells.info(handle)
+                except Refused:                  # it ended after its task and FERB forgot it: nothing more to show
+                    yield {'text': '', 'offset': offset, 'running': False, 'exit_code': None, 'forgotten': True}
+                    return
                 yield {'text': text, 'offset': offset, 'running': info.running, 'exit_code': info.exit_code}
                 if not info.running:
                     return
@@ -115,5 +127,6 @@ class Egress:
 
     async def _ps_send(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         assert self.shells
-        self.shells.owner_send(str(params.get('id', '')), str(params.get('lease', '')), str(params.get('text', '')))
-        return {'sent': True}
+        text = str(params.get('text', ''))
+        took = self.shells.owner_send(str(params.get('id', '')), str(params.get('lease', '')), text)
+        return {'sent': took == len(text.encode()), 'bytes': took}

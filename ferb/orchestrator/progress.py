@@ -55,6 +55,7 @@ KINDS: dict[str, tuple[str, str]] = {
     Kind.ACCOUNT_SECURITY: ("changing account security in {}", "changing account security"),
     Kind.CALL: ("starting a call in {}", "starting a call"),
     Kind.SNAPSHOT: ("saving a recovery point", "saving a recovery point"),
+    Kind.STOP_PROCESS: ("stopping a command", "stopping a command"),
     "owner_question": ("asking you", "asking you"),
 }
 

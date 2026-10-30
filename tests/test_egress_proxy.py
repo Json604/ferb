@@ -178,22 +178,47 @@ def test_servers_started_in_the_shell_are_reachable_and_other_local_servers_are_
     server, then curl), never a server another program runs on this Mac (it could relay off the Mac unrecorded:
     a local proxy, an ssh tunnel, a browser's debugging port). The proxy doesn't reopen this Mac's own addresses."""
     g = task(daemon, "l", Identity.OWNER, SHELL)
-    r = call(daemon, g, "shell.run", command=f"curl -sS --max-time 3 http://127.0.0.1:{origin}/x 2>&1; echo rc=$?")
-    assert "rc=7" in r["content"]["output"] and "hello" not in r["content"]["output"]
-    r = call(daemon, g, "shell.run", command=f"curl -s -o /dev/null -w '%{{http_code}}' --noproxy '' "
-                                             f"http://127.0.0.1:{origin}/x")
+    r = call(daemon, g, "shell.run", command=f"curl -sS --noproxy '*' --max-time 3 http://127.0.0.1:{origin}/x 2>&1; "
+                                             "echo rc=$?")
+    assert "rc=7" in r["content"]["output"] and "hello" not in r["content"]["output"]      # directly: refused
+    r = call(daemon, g, "shell.run", command=f"curl -s -o /dev/null -w '%{{http_code}}' "
+                                             f"http://127.0.0.1:{origin}/x")             # NO_PROXY is empty
     assert r["content"]["output"].strip() == "403"
     refused = r["content"]["network"]["refused"]
-    assert refused[0]["host"] == "127.0.0.1" and "this Mac's own address" in refused[0]["why"]
+    assert refused[0]["host"] == "127.0.0.1" and "outside FERB" in refused[0]["why"]
     assert _Origin.seen == []
     # A dev server the shell starts (detached from the command's own process tree), then reached from another command
     server = ("python3 -c 'import http.server as h, socketserver as s; srv=h.HTTPServer((\"127.0.0.1\", 0), "
               "h.SimpleHTTPRequestHandler); print(\"port\", srv.server_port, flush=True); srv.serve_forever()'")
     sid = call(daemon, g, "shell.start", command=server, background=True)["content"]["id"]
     port = _port_of(daemon, g, sid)
-    r = call(daemon, g, "shell.run", command=f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{port}/")
+    r = call(daemon, g, "shell.run", command=f"curl -s -o /dev/null -w '%{{http_code}}' --noproxy '*' "
+                                             f"http://127.0.0.1:{port}/")               # listening at start: direct
     assert r["content"]["output"].strip() == "200" and r["content"]["network"]["destinations"] == []
+    r = call(daemon, g, "shell.run", command=f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{port}/")
+    assert r["content"]["output"].strip() == "200"                                       # and through the proxy
+    assert [d["host"] for d in r["content"]["network"]["destinations"]] == ["localhost"]
     call(daemon, g, "shell.kill", id=sid)
+
+
+def test_a_server_that_starts_listening_after_the_command_began_is_reached_only_through_the_proxy(
+        daemon: RunningDaemon) -> None:
+    """Hands fix list: the profile is fixed when a command starts, so a port another program opens later must not be
+    reachable around the proxy. A long command that started before the outside server can't reach it directly, and
+    the proxy refuses it (not FERB's, not pinned); a contained server that started later is reached through the
+    proxy only."""
+    g = task(daemon, "late", Identity.OWNER, SHELL)
+    free = socket.socket(); free.bind(("127.0.0.1", 0)); port = free.getsockname()[1]; free.close()
+    probe = (f"sleep 1; python3 -c 'import socket; socket.create_connection((\"127.0.0.1\", {port}), 2)' 2>&1; "
+             f"echo direct=$?; curl -s -o /dev/null -w 'proxy=%{{http_code}}' http://127.0.0.1:{port}/")
+    sid = call(daemon, g, "shell.start", command=probe)["content"]["id"]
+    outside = socket.socket(); outside.bind(("127.0.0.1", port)); outside.listen()   # opens after the command began
+    try:
+        out = call(daemon, g, "shell.wait", id=sid, timeout_s=15)["content"]
+    finally:
+        outside.close()
+    assert "direct=0" not in out["output"] and "Operation not permitted" in out["output"]
+    assert "proxy=403" in out["output"]
 
 
 def _port_of(d: RunningDaemon, g: Any, sid: str) -> int:
@@ -379,9 +404,9 @@ def test_outside_listeners_are_denied_by_port_and_unknown_means_none(tmp_path: P
     try:
         sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p", lambda: 4321, listeners=lambda: {port, 4321})
         text = sb.profile()
-        assert f'(deny network-outbound (remote ip "localhost:{port}"))' in text
-        assert '(deny network-outbound (remote ip "localhost:4321"))' not in text      # the proxy is never denied
-        assert text.index(f'localhost:{port}"))') < text.index('(allow network-outbound (remote tcp "localhost:4321"))')
+        assert f'localhost:{port}"' not in text                                       # denied with every port
+        assert text.index('(deny network-outbound (remote ip "*:*"))') < \
+            text.index('(allow network-outbound (remote tcp "localhost:4321"))')      # the proxy allowed after it
         r = run_under(sb, ["/usr/bin/python3", "-c", f"import socket; socket.create_connection(('127.0.0.1', {port}), 2)"])
         assert r.returncode != 0 and "Operation not permitted" in r.stderr
         # Listing failed: every local server is out, FERB's proxy still in
@@ -424,7 +449,8 @@ print(" ".join(f"{f.__name__}={attempt(f)}" for f in (unix_connect, unix_bind, n
 def test_every_kind_of_socket_task_2_refused_stays_refused(tmp_path: Path) -> None:
     """The outbound rules became filters (a port deny is ignored after an unfiltered network deny: measured), so each
     socket kind Task 2's `(deny network*)` refused is pinned: any unix socket, kernel controls, ICMP, IPv6. A server of
-    the command's own still listens and is reachable."""
+    the command's own still listens, but a port that starts listening during the command is reached only through the
+    proxy (no direct connect: the hands fix list's late-listener rule)."""
     import tempfile
     home, ferb = tmp_path / "h", tmp_path / "h" / ".ferb"
     (ferb / "workspace").mkdir(parents=True)
@@ -436,7 +462,7 @@ def test_every_kind_of_socket_task_2_refused_stays_refused(tmp_path: Path) -> No
         sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p", lambda: None, listeners=lambda: set())
         r = run_under(sb, ["/usr/bin/python3", "-c", SOCKET_PROBE, str(short / "s")])
         assert r.stdout.split() == ["unix_connect=EPERM", "unix_bind=EPERM", "ntstat=EPERM", "icmp=EPERM", "v6=EPERM",
-                                    "listen=ok"], r.stdout + r.stderr
+                                    "listen=EPERM"], r.stdout + r.stderr
     finally:
         srv.close()
         shutil.rmtree(short, ignore_errors=True)

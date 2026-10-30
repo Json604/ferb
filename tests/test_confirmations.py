@@ -429,7 +429,7 @@ def test_a_shell_command_gets_a_snapshot_first(daemon: RunningDaemon) -> None:  
     assert not r["is_error"] and fake.n == 1 and r["content"]["recovery_snapshot"]["snapshot"]
     assert r["content"]["recovery_snapshot"]["reused"] is False
     again = gateway_tool_call(daemon, grant, "shell.fake", text="make again")
-    assert fake.n == 1 and again["content"]["recovery_snapshot"]["reused"] is True   # reused inside the window
+    assert fake.n == 2 and again["content"]["recovery_snapshot"]["reused"] is False  # a command ran: a fresh one
 
 
 def test_a_shell_command_runs_when_no_snapshot_can_be_taken(daemon: RunningDaemon) -> None:   # OPEN QUESTION 3

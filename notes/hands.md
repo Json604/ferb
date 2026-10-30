@@ -139,6 +139,16 @@ from installed apps, terminal detection fails closed)*
 - notes/gateway.md consumes the facts produced here.
 - notes/storage.md decision 5: extension minimum version in the upgrade path.
 
+## Rulings (step 5a, technical)
+- Late localhost listeners: a command connects directly only to FERB-sandboxed listeners that existed when it
+  started; anything later goes through the proxy (closes the bypass; clients that ignore proxy settings can't reach
+  a server started in the same command).
+- Visible folders include files directly in `~` and tool folders like `~/go`; a task that needs one names it
+  (the plan line), and snapshots cover mistakes.
+- After a failed snapshot the next attempt waits 60 s (a hanging tmutil can't add its timeout to every command);
+  each result still states that no snapshot was taken.
+- `shell.send` into a command started with a lift is refused.
+
 ## Measurements (step 0, 2026-10-30)
 - **Sandbox semantics, measured with `sandbox-exec` on scratch folders:**
   - `deny file-write-unlink` blocks unlink, rmdir, renaming a file out of or within the folder, and renaming onto an
@@ -158,8 +168,11 @@ from installed apps, terminal detection fails closed)*
 ## Fix list
 - [ ] One extension protocol bump covering tab groups, card fields secret, and daemon→extension signing/pairing
       (manifest, JS/Python protocol and minimum versions together).
-- [ ] Shell: localhost ports opened after a command starts must not bypass the proxy; deny signals to processes
-      outside the task's group (a command can't kill the daemon or proxy).
+- [x] Shell: localhost ports opened after a command starts must not bypass the proxy; deny signals to processes
+      outside the task's group (a command can't kill the daemon or proxy). (5a: direct only to ports whose listeners
+      were all contained at command start, plus pinned ports; anything later only through the proxy, which now
+      checks contained listeners too and gets NO_PROXY empty; `(deny signal)(allow signal (target same-sandbox))`,
+      measured: own children/setsid descendants yes, other programs and other FERB commands no.)
 - [ ] Mac: PID typing releases the GUI lock between chunks.
 - [ ] Browser: remove page-detectable markers (`ferb-armed` event, `data-ferb-*` attributes) where possible.
 - [ ] Investigate the top failure causes: profile not matched/connected (110), ScreenCaptureKit "Failed to start
@@ -168,7 +181,8 @@ from installed apps, terminal detection fails closed)*
 - [ ] Secret-field rule (password, one-time-code, cc-number/cc-csc/cc-exp) applied to type, press and fill, in the
       browser and Mac; secret values never captured; boxes masked.
 - [ ] Structural facts reported: form submit + action host/method, field types, focused element/app that received
-      input, secure field, page URL; best-effort page amounts.
+      input, secure field, page URL; best-effort page amounts. (5a: the shared shape `ActionFacts` in
+      ferb/core/types.py, recorded on the call's span; fs tools report writes/deletes. Browser/Mac reporting: 5b/5c.)
 - [ ] Stable P19 identity: browser page URL + backendDOMNodeId/path; Mac bundle + window + element path.
 - [ ] Browser: connection-independent tab identity (no orphans); outbox flushed after welcome; read errors = failed;
       mask `list_tabs`/dialog URLs; remember the chosen window; closed-shadow `deepActive`; sign daemon→extension and
@@ -179,14 +193,23 @@ from installed apps, terminal detection fails closed)*
       mechanism honoured or rejected for select/focus; fix `ferb watch`; remove marks and dead helpers.
 - [ ] Key-combo guard (decision 2).
 - [ ] Tab groups (decision 3), replacing connection-scoped tab ownership.
-- [ ] Per-task folder read lift (decision 1), shared by the escape hatch and file tools.
-- [ ] Shell: kill the whole process group at task end regardless of exit; prune `_procs`; `shell.send` respects
+- [x] Per-task folder read lift (decision 1), shared by the escape hatch and file tools. (5a: one key per rule per
+      tree, `confirm.read_lift_key`; gateway `_file_lifts` and `_escape`.)
+- [x] Shell: kill the whole process group at task end regardless of exit; prune `_procs`; `shell.send` respects
       escape grants; never-read write denies after any lift; FERB's launchd plist never liftable; correct `shell.kill`
-      kind; durable host records; purge shell logs; report partial/dropped sends.
+      kind; durable host records; purge shell logs; report partial/dropped sends. (5a: after the leader exits the
+      group is signalled only if every member is contained and the id isn't another command's; sends into a lifted
+      command refused; both FERB LaunchAgents are FERB_SERVICE, never lifted; kind `stop_process`; first connection
+      per host journaled `shell.destination`; logs purged after evidence_days; over-long canonical lines refused.)
 - [x] Measured sandbox rename semantics (see Measurements).
-- [ ] Shell profile denies the window server (blocks event posting and screen capture from commands); measured.
-- [ ] Shell scope + snapshot (decision 4): sandbox denies writes/unlink/rename in visible folders except named
-      ones; snapshot before each command.
-- [ ] Files: preserve mode/xattrs/newlines on write and edit; catch decode/OS errors as plain errors; trash acts on the
-      link; restore honours protection lists; fs I/O in a thread.
-- [ ] One protection check shared by shell and file tools, with the lift rule of gateway decision 2 and decision 1 here.
+- [x] Shell profile denies the window server (blocks event posting and screen capture from commands); measured.
+      (5a: shell profile only; mac.applescript's unchanged.)
+- [x] Shell scope + snapshot (decision 4): sandbox denies writes/unlink/rename in visible folders except named
+      ones; snapshot before each command. (5a: `ToolContext.folders` from `Gateway.task_folders`, empty until step 8's
+      planner field; non-hidden files directly in ~ count as visible too; a failed snapshot is retried at the next
+      command and stated in the result.)
+- [x] Files: preserve mode/xattrs/newlines on write and edit; catch decode/OS errors as plain errors; trash acts on the
+      link; restore honours protection lists; fs I/O in a thread. (5a: APFS clone then rewrite, else mode+xattrs
+      copied; a hard-linked file is rewritten in place; `ferb restore` checks only the never-lifted rules.)
+- [x] One protection check shared by shell and file tools, with the lift rule of gateway decision 2 and decision 1 here.
+      (5a: `Protection.fs_rules`; `fs_reads_never_read` gone.)

@@ -125,19 +125,65 @@ class Target:
     item: str | None = None                  # what a declared delete removes, as the agent says it is shown (a note)
 
 
+# The kinds of input field a capability can report (`ActionFacts.field_kinds`), from the field's own markup or
+# accessibility role (autocomplete / input type / AXSecureTextField), never from its label's words.
+FieldKind = Literal["password", "new_password", "one_time_code", "card_number", "card_csc", "card_expiry"]
+
+
+@dataclass(frozen=True)
+class ReceivedBy:
+    """What received an input, as the driver found it when it delivered the input (facts, never a guess)."""
+    bundle_id: str | None = None             # the app's bundle id
+    window: str | None = None                # the window's title or id
+    role: str | None = None                  # the element's role (AXTextField, textbox, button…)
+
+
+@dataclass(frozen=True)
+class ActionFacts:
+    """Structural facts a capability reports about its call (gateway decision 1, notes/gateway.md): read by code from
+    the page, the app or the file system, never the worker's words and never a judgment of intent. Every field is
+    optional; None or empty means not known. Step 6 decides from them; until then the gateway passes them through to
+    the call's record untouched."""
+    submits_form: bool | None = None         # the input submits a form (a submit control, Enter in a form's field)
+    form_action_host: str | None = None      # the host the submitted form posts to (its action URL's host)
+    form_method: str | None = None           # the submitted form's method, upper case (GET, POST)
+    field_kinds: tuple[FieldKind, ...] = ()  # the kinds of the fields the input fills, or the submitted form holds
+    page_amount: str | None = None           # an amount read from the page or app by code, as shown (with currency)
+    page_merchant: str | None = None         # who that amount is paid to, as the page shows it
+    received_by: ReceivedBy | None = None    # the app / window / element that received the input
+    secure_field: bool | None = None         # the element receiving input is a secure (password-class) field
+    terminal_target: bool | None = None      # the input reaches a terminal (ferb/policy/terminal.py's facts)
+    deletes: tuple[str, ...] = ()            # paths the call takes away from where they are (Trash or deleted)
+    writes: tuple[str, ...] = ()             # paths the call creates or changes
+
+    def recorded(self) -> dict[str, Any]:
+        """The known facts only, for a call's record (empty fields left out)."""
+        out: dict[str, Any] = {}
+        for name in self.__dataclass_fields__:
+            value = getattr(self, name)
+            if value is None or value == ():
+                continue
+            if isinstance(value, ReceivedBy):
+                value = {k: v for k, v in vars(value).items() if v is not None}
+            out[name] = list(value) if isinstance(value, tuple) else value
+        return out
+
+
 @dataclass(frozen=True)
 class ActionSpec:
     """Capability.describe(args): what the call does, recorded for tracing and result inspection. `kind` is the
     physical operation the capability derives from its arguments; `declared` a kind the agent's stated purpose adds
     (a click it says sends or calls); `effect_kind` the kind the agent's declared effect adds (ferb/policy/rules.py
     `declare`). Every declared kind is kept, and can only add a confirmation, never remove one (W2). `place` is
-    where the call happens as the owner knows it (an app's name), for FERB's questions; else the target's site."""
+    where the call happens as the owner knows it (an app's name), for FERB's questions; else the target's site.
+    `facts`: what code read about the call before it runs (ActionFacts)."""
     kind: str
     target: Target = Target()
     content: str | None = None
     declared: str | None = None
     place: str | None = None
     effect_kind: str | None = None
+    facts: ActionFacts | None = None
 
 
 # ---------- runtimes ----------
@@ -285,6 +331,9 @@ class ToolContext:
     path_closed: Callable[[Path, str], str | None] | None = None
     escape: EscapeGrant | None = None
     terminal: TerminalGrant | None = None    # the owner's Yes to the one terminal input this call makes (D31)
+    # The task's folders, resolved by the planner from the owner's words (hands decision 4): the only visible folders
+    # FERB's shell may change. Empty until the planner sets them (step 8).
+    folders: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -294,6 +343,7 @@ class ToolResult:
     read_sources: tuple[tuple[str, str], ...] = ()   # (source kind, id) annotations for the data read by this call
     image: bytes | None = None                        # JPEG for the model and the evidence store (V1); never logged
     evidence: dict[str, Any] | None = None            # source observations used by result inspection
+    facts: ActionFacts | None = None                  # what code measured while the call ran (ActionFacts)
 
 
 # ---------- browsers ----------

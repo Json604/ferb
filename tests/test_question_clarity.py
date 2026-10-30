@@ -252,10 +252,9 @@ def _escape(daemon: Any, tmp_path: Any, rule: str, choice: int = 2) -> list[Any]
 
 @pytest.mark.parametrize('rule, want', [
     ('read:~/Library/Application Support/Google/Chrome',
-     "FERB wants to read ~/Library/Application Support/Google/Chrome once, with one command (normally off-limits: a "
-     "private store FERB's shell never reads)."),
-    ('write:~/.zshrc', "FERB wants to change ~/.zshrc once, with one command (normally off-limits: FERB's shell never "
-                       "writes there)."),
+     "FERB wants to read ~/Library/Application Support/Google/Chrome for this task (normally off-limits: a private "
+     "store FERB stays out of)."),
+    ('write:~/.zshrc', "FERB wants to change ~/.zshrc once (normally off-limits: FERB never changes it on its own)."),
     ('trustd', "FERB wants to let one command use macOS's certificate service, trustd (normally off: it reaches "
                "certificate addresses outside FERB's proxy)."),
 ])

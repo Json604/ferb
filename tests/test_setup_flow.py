@@ -295,11 +295,11 @@ def test_doctor_shows_the_protection_lists_and_why_a_malformed_one_stops_ferb(wo
     world["inst"].install()
     env, out = make_env(world, [])
     S.doctor(env)
-    assert "✓ protection:" in out.getvalue() and "may read the never-read stores" in out.getvalue()
-    Config(world["home"]).set("protection", "fs_reads_never_read", False)
+    assert "✓ protection:" in out.getvalue() and "shell and file tools follow both" in out.getvalue()
+    Config(world["home"]).set("protection", "fs_reads_never_read", False)    # an old config's switch: read harmlessly
     env, out = make_env(world, [])
     S.doctor(env)
-    assert "✓ protection:" in out.getvalue() and "stay out of the never-read stores" in out.getvalue()
+    assert "✓ protection:" in out.getvalue() and "a task asks you before it opens one" in out.getvalue()
     Config(world["home"]).set("protection", "never_read", "~/.ssh")
     env, out = make_env(world, [])
     assert S.doctor(env) == 1

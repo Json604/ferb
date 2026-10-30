@@ -150,7 +150,8 @@ redact, image redaction, origins).
 - [ ] Single Need pipeline; remove the four duplicated confirmation loops (G:1086-1190, 1192-1255, 1418-1440, 1448-1490).
 - [ ] Move non-authorization features out of `_call`/`_execute` into post-call hooks.
 - [ ] Constructor-passed dependencies instead of ~20 injected attributes; protection and recovery fail closed.
-- [ ] Tool-reported facts for pay / account security / delete / send (decision 1).
+- [ ] Tool-reported facts for pay / account security / delete / send (decision 1). (5a: `ActionFacts` shape on
+      ActionSpec/ToolResult, recorded untouched on the span; deciding from it is step 6.)
 - [ ] P19 stable identity; failed-before-acting is not unknown.
 - [ ] One payment, one question (decision 4): page-read amount and merchant; tab-chain scope; bank-page amount check;
       final-click check where there is no bank page; remove the separate outside-value question on a page amount.
@@ -163,4 +164,6 @@ redact, image redaction, origins).
 - [ ] Window Yeses record destinations like normal Yeses; the 30-minute window stays daemon-wide (owner rule 9).
 - [ ] Keep the test-mode send allowlist step (live send tests, CLAUDE.md rule 22), set through config; no CLI command.
 - [ ] Remove dead code listed above.
-- [ ] File tools bound by never-read / never-write, lift: reads once per folder per task, writes per action (decision 2; hands decision 1).
+- [x] File tools bound by never-read / never-write, lift: reads once per folder per task, writes per action (decision 2; hands decision 1).
+      (5a: `Gateway._file_lifts`, asked before the span; step 6 folds it into the single Need pipeline with `_confirmed`
+      and `_escape`.)

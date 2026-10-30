@@ -129,7 +129,7 @@ def _closed_home(tmp_path: Path) -> tuple[Path, Path, Changes]:
     ferb = home / ".ferb"
     (ferb / "codex-home").mkdir(parents=True)
     (ferb / "codex-home" / "auth.json").write_text(f'{{"refresh_token": "{TOKEN}"}}\n{{"account": "me"}}\n')
-    protection = Protection(home, ferb, ["~/.ssh"], [], [], True)
+    protection = Protection(home, ferb, ["~/.ssh"], [], [])
     store = Changes(ferb / "changes", closed=lambda p: protection.read_denied(p) is not None, home=home)
     return home, ferb, store
 

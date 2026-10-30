@@ -7,10 +7,13 @@ except its workspace, and the workspace's upload staging (a copy the browser is 
 them and no escape hatch lifts them (rule 10). A path nobody may read is a path nobody may write.
 
 FERB's own tools that name files (`fs.*`, uploads, recordings: each declares `file_paths`) never touch FERB's own
-state. They also stay out of the never-read stores while `protection.fs_reads_never_read` is false (OPEN QUESTION 6,
-built as recommended: until F5b's redaction is measured, a secret in a credential store would otherwise reach a model
-or a site). That refusal is never lifted by the escape hatch, which is for FERB's shell: a secret a task needs comes
-through the sealed secret path (D8, D12, D28), and a file from a store is the owner's to send.
+state, and follow the never-read and never-write lists like the shell (gateway decision 2, 2026-10-30): a never-read
+store is closed to their reads, writes and removals, a never-write place to their writes and removals. A task that
+needs one asks the owner (the gateway): a read once per protected folder per task, a change per action (hands decision
+1). The old `protection.fs_reads_never_read` switch is gone; an old config.toml that still has it is read harmlessly.
+
+FERB's own service definitions (its launchd LaunchAgents, `SERVICE_LABELS`) are FERB's own like its state: never
+written or removed by its tools or its shell, and no lift reopens them (rule 10). Reading them stays open.
 
 FERB.app (L27), when FERB runs from one, holds the daemon's own code, its interpreter and its secret helper: it is
 closed to writes and removal by FERB's tools and its shell, wherever the app sits, and no escape hatch lifts that
@@ -56,7 +59,7 @@ EXTRA_NEVER_READ = (
     "~/.cargo/credentials.toml",
 )
 DEFAULT_NEVER_READ = _PLAN_NEVER_READ + EXTRA_NEVER_READ
-# SQ5: where FERB's shell never writes (changes there go through FERB's fs tools, with S1 copies).
+# SQ5: where FERB's shell and file tools never write (gateway decision 2: the owner can lift it for one change).
 DEFAULT_NEVER_WRITE = (
     "~/.ssh", "~/Library/Keychains", "~/Library/LaunchAgents", "/Library/LaunchAgents", "/Library/LaunchDaemons",
     "~/.zshrc", "~/.zprofile", "~/.zshenv", "~/.zlogin", "~/.bash_profile", "~/.bashrc", "~/.profile",
@@ -72,6 +75,11 @@ DEFAULT_TERMINAL_APPS = ("com.apple.Terminal", "com.googlecode.iterm2", "dev.war
                          "com.raphaelamorim.rio", "org.contourterminal.contour")
 FERB_STATE, NETWORK, ADMIN, TRUSTD = "ferb_state", "network", "admin", "trustd"
 FERB_APP = "ferb_app"                                   # the FERB.app the daemon runs from: never written, never lifted
+FERB_SERVICE = "ferb_service"                           # FERB's own launchd definitions: never written, never lifted
+# FERB's LaunchAgents (ferb/device/install.py LABEL and APP_LOGIN_LABEL; a test keeps them equal), as plists in
+# ~/Library/LaunchAgents: the daemon's own and FERB.app's login fallback
+SERVICE_LABELS = ("com.ferb.daemon", "com.ferb.FERB.login")
+NEVER_LIFTED = frozenset({FERB_STATE, NETWORK, FERB_APP, FERB_SERVICE})
 WORKSPACE, UPLOADS = "workspace", "uploads"
 READ, WRITE, REMOVE = "read", "write", "remove"         # FileAccess (ferb/core/types.py): what a call does to a file
 # A call that takes a path away with everything inside it: a folder holding protected content is protected for it.
@@ -292,16 +300,12 @@ def load(get: Callable[[str, str, Any], Any], home: Path, ferb_home: Path) -> "P
     return Protection(home, ferb_home, get("protection", "never_read", DEFAULT_NEVER_READ),
                       get("protection", "never_write", DEFAULT_NEVER_WRITE),
                       get("protection", "terminal_apps", DEFAULT_TERMINAL_APPS),
-                      get("protection", "fs_reads_never_read", True),
                       local_ports=get("protection", "local_ports", []), app_bundle=paths.app_bundle())
 
 
 class Protection:
     def __init__(self, home: Path, ferb_home: Path, never_read: Iterable[str], never_write: Iterable[str],
-                 terminal_apps: Iterable[str], fs_reads_never_read: bool = False, *,
-                 local_ports: Any = (), app_bundle: Path | None = None) -> None:
-        if not isinstance(fs_reads_never_read, bool):
-            raise BadProtection("protection.fs_reads_never_read in config.toml must be true or false")
+                 terminal_apps: Iterable[str], *, local_ports: Any = (), app_bundle: Path | None = None) -> None:
         self.home = home
         self.ferb_home = _real(ferb_home)
         self.workspace = self.ferb_home / WORKSPACE          # literal: never where a link there points
@@ -313,7 +317,12 @@ class Protection:
         self.reads = self._entries("read", _strings(never_read, "never_read", "paths"))
         self.writes = self._entries("write", _strings(never_write, "never_write", "paths"))
         self.terminal_apps = frozenset(a.lower() for a in _strings(terminal_apps, "terminal_apps", "app bundle ids"))
-        self.fs_reads_never_read = fs_reads_never_read
+        # FERB's own launchd definitions, as written and resolved (a link there is followed by the check)
+        self.service_files = tuple(home / "Library" / "LaunchAgents" / f"{label}.plist" for label in SERVICE_LABELS)
+        # (never opened, like an entry: as written, resolved and firmlinked)
+        self._service_roots = tuple(dict.fromkeys(f for s in self.service_files
+                                                  for f in (_typed(s), _real(s), _firmlinked(_real(s)))
+                                                  if f is not None))
         self.local_ports = _local_ports(local_ports)
         self.app_bundle = app_bundle
         self._app_roots = _forms(app_bundle) if app_bundle is not None else ()   # resolved and as typed
@@ -363,22 +372,43 @@ class Protection:
         forms = self._forms(path)
         return self.read_denied(path) or (FERB_APP if self._app(forms) else self._hit(self.writes, forms))
 
-    def fs_denied(self, path: Path, access: str) -> str | None:
-        """FERB's own tools that name files (`access`: read, write, remove; a trash or permanent-delete kind counts as
-        remove). FERB's own state is closed to them (rule 10), and so is a folder holding it for a call that takes the
-        folder away. The never-read stores are closed to them too while fs_reads_never_read is false (OPEN QUESTION 6),
-        including a folder that holds one for a call that removes (trashing ~/.config would hand over ~/.config/gh);
-        readable, labelled private, when the owner sets it true (SQ3 revised). Never-write entries don't bind them:
-        changes there go through them, with S1 copies (SQ5)."""
+    def _service(self, forms: tuple[Path, ...], removes: bool = False) -> bool:
+        """One of FERB's own launchd definitions; for a call that removes, also a folder holding one."""
+        return any(_under(p, s) or (removes and _under(s, p)) for p in forms for s in self._service_roots)
+
+    def fs_rules(self, path: Path, access: str) -> list[str]:
+        """Every rule that closes `path` to FERB's own tools that name files (`access`: read, write, remove, metadata;
+        a trash or permanent-delete kind counts as remove), the never-lifted ones alone when one applies:
+        - FERB's own state (rule 10), and for a call that takes a folder away, a folder holding it: [FERB_STATE];
+        - FERB.app and FERB's launchd definitions, for any change: [FERB_APP] / [FERB_SERVICE];
+        - else each never-read entry it is inside (for a removal, also one inside it: trashing ~/.config would hand
+          over ~/.config/gh), for reads, writes and removals; and each never-write entry, for writes and removals.
+        The entry rules are liftable by the owner (the gateway asks); metadata is never closed by them."""
         forms, removes = self._forms(path), access in _REMOVES
         if self._state(forms, removes):
-            return FERB_STATE
-        if access not in (READ, "metadata") and self._app(forms, removes):
-            return FERB_APP                         # the daemon's own code (L27, rule 10): read, never changed
-        return None if access == "metadata" or self.fs_reads_never_read else self._hit(self.reads, forms, removes)
+            return [FERB_STATE]
+        if access in (READ, "metadata"):
+            return [] if access == "metadata" else self._hits(self.reads, forms)
+        if self._app(forms, removes):
+            return [FERB_APP]                       # the daemon's own code (L27, rule 10): read, never changed
+        if self._service(forms, removes):
+            return [FERB_SERVICE]
+        return list(dict.fromkeys(self._hits(self.reads, forms, removes) + self._hits(self.writes, forms, removes)))
+
+    def fs_denied(self, path: Path, access: str) -> str | None:
+        """The first rule `fs_rules` names for the call, or None when nothing closes it."""
+        rules = self.fs_rules(path, access)
+        return rules[0] if rules else None
+
+    @staticmethod
+    def _hits(entries: list[Entry], forms: tuple[Path, ...], removes: bool = False) -> list[str]:
+        return list(dict.fromkeys(e.id for e in entries for p in forms
+                                  for root in (e.path, e.typed, e.kernel) if root is not None
+                                  if _under(p, root) or (removes and _under(root, p))))
 
     def liftable(self, rule_id: str) -> bool:
-        return rule_id in (ADMIN, TRUSTD) or any(e.id == rule_id for e in (*self.reads, *self.writes))
+        return rule_id not in NEVER_LIFTED and (rule_id in (ADMIN, TRUSTD)
+                                                or any(e.id == rule_id for e in (*self.reads, *self.writes)))
 
     def entry(self, rule_id: str) -> Entry | None:
         return next((e for e in (*self.reads, *self.writes) if e.id == rule_id), None)
@@ -403,6 +433,7 @@ class Protection:
         roots = [p for e in (*self.reads, *self.writes) for p in (e.path, e.typed)]
         roots += [up for _, _, up in self._state_roots]
         roots += list(self._app_roots)
+        roots += list(self._service_roots)
         return sorted({parent for r in roots for parent in r.parents if parent != parent.parent})
 
     def rules(self) -> list[dict[str, Any]]:
@@ -415,6 +446,8 @@ class Protection:
              "(shell.rules says whether it is running)", "liftable": False},
             *([{"id": FERB_APP, "kind": "write", "path": str(self.app_bundle), "liftable": False}]
               if self.app_bundle is not None else []),
+            {"id": FERB_SERVICE, "kind": "write", "path": "FERB's own background-service definitions ("
+             + ", ".join(_shown(self.home, f) for f in self.service_files) + ")", "liftable": False},
             {"id": ADMIN, "kind": "admin", "path": "a command that needs your Mac password (sudo)", "liftable": True},
             {"id": TRUSTD, "kind": "service", "path": "macOS certificate trust evaluation (trustd): enabling it "
              "lets the certificate service fetch certificate URLs outside FERB's proxy; Go TLS may need it",

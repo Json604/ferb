@@ -10,7 +10,9 @@ def test_owner_input_lease_excludes_worker_and_stale_owner(tmp_path):
     class Pty:
         exit_code = None
         sent = []
-        def send(self, data): self.sent.append(data)
+        def send(self, data): self.sent.append(data); return len(data.encode())
+        def write(self, data): self.sent.append(data.decode()); return len(data)
+        def line_limit(self): return None
     manager = ShellManager(tmp_path, lambda text: text)
     pty = Pty()
     manager._procs['p-1'] = (pty, ProcInfo('p-1', 'task', 'agent', str(tmp_path), 0, True, None, False))

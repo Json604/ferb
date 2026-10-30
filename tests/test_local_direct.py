@@ -24,7 +24,7 @@ PIN = "/usr/bin/python3"
 PROCESS = "p-1234abcd"
 TAG = f"ferb {PROCESS} {'0' * 32}"
 DIRECT = f'(allow network-outbound (with report) (with message "{TAG}") (remote tcp "localhost:8765"))'
-DENIED = '(deny network-outbound (remote ip "localhost:8765"))'
+DENIED = '(deny network-outbound (remote ip "*:*"))'          # every port denied first, each allowed one after
 
 
 def protection(tmp_path: Path, entries: object = ()) -> Protection:
@@ -102,7 +102,8 @@ def test_no_direct_port_when_the_listener_list_cant_be_read(tmp_path: Path, monk
                  listeners=lambda: None)
     listening(monkeypatch, {123: PIN})
     lines, direct = contained(sb)
-    assert '(deny network-outbound (remote ip "localhost:*"))' in lines
+    assert [line for line in lines if line.startswith("(allow network-outbound")] == [
+        '(allow network-outbound (remote tcp "localhost:4321"))']                 # only the proxy
     assert DIRECT not in lines and direct == ()
 
 

@@ -63,7 +63,7 @@ def test_a_new_folder_is_walked_only_through_the_handle_that_was_checked(tmp_pat
     ferb.mkdir(parents=True)
     (home / ".ssh").mkdir()
     (home / ".ssh" / "id_ed25519_work_github").write_text("k")
-    protection = Protection(home, ferb, ["~/.ssh"], [], [], True)
+    protection = Protection(home, ferb, ["~/.ssh"], [], [])
     store = Changes(ferb / "changes", closed=lambda p: protection.read_denied(p) is not None, home=home)
     proj = home / "Documents" / "proj"
     proj.mkdir(parents=True)

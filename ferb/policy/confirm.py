@@ -76,6 +76,12 @@ ROUTINE = frozenset({FOREGROUND, BROWSER_PAGE, "floor:new_recipient", PAIR})
 ALLOW_WINDOW_S = 1800.0
 
 
+def read_lift_key(rule: str) -> str:
+    """The one question key for reading a protected folder in a task tree (hands decision 1): every read of it there,
+    by FERB's file tools or a shell read escape, is covered by one Yes."""
+    return "lift:read:" + rule
+
+
 def routine(n: "Need") -> bool:
     """Whether a window of "don't ask" may answer this need: the routine rules, and an escape that only reads."""
     return n.rule in ROUTINE or (n.rule.startswith("escape:") and n.values.get("lift") == "read")
@@ -723,8 +729,9 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
 
 
 _LIFTED = {   # what an escape lifts, in the owner's terms (D31): the protection list's kinds (protection.rules)
-    "read": "read {path} once, with one command (normally off-limits: a private store FERB's shell never reads)",
-    "write": "change {path} once, with one command (normally off-limits: FERB's shell never writes there)",
+    # hands decision 1: a read covers the task (file tools and shell alike); a change one call or one command
+    "read": "read {path} for this task (normally off-limits: a private store FERB stays out of)",
+    "write": "change {path} once (normally off-limits: FERB never changes it on its own)",
     "admin": ("run one command as administrator (sudo), with your Mac password (normally off-limits: FERB's shell "
               "never uses admin rights)"),
     "service": ("let one command use macOS's certificate service, trustd (normally off: it reaches certificate "

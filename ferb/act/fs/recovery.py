@@ -38,7 +38,6 @@ TRASH_COPY = "trash copy"                 # L39: the copy kept of a file FERB mo
 TRASH_RECORD_MAX_DAYS = 90                # a trash record stays while its item is in the Trash, at most this long
 SNAPSHOT_TIMEOUT_S = 30.0
 SNAPSHOT_DELETE_TIMEOUT_S = 120.0         # measured 15.5 s for one delete (2026-10-09)
-SNAPSHOT_EVERY_S = 15 * 60                # at most one snapshot per 15 minutes, across all tasks
 STARTUP_DISK = "/"
 SNAPSHOT_HOW = ("a recovery point of the whole disk. FERB can't open it (that needs admin rights); you can, from macOS "
                 "Recovery or Time Machine")
@@ -450,16 +449,25 @@ def _put_back(r: dict[str, Any], root: Path, closed: Closed = None) -> Path:
     if r["kind"] == "snapshot":
         raise NotRestorable(f"{r['saved_to']} is {SNAPSHOT_HOW}")
     if r["kind"] == "clone":
-        return _restore_copy(r, original, original.resolve(), root)   # the file itself, through any symlink
+        return _restore_copy(r, original, original.resolve(), root, closed)   # the file itself, through any symlink
     if r["kind"] == "trash":
         return _restore_trashed(r, original, closed)
     raise NotRestorable(f"unknown record kind {r['kind']!r}")
 
 
-def _restore_copy(r: dict[str, Any], original: Path, dest: Path, root: Path) -> Path:
+def _restore_copy(r: dict[str, Any], original: Path, dest: Path, root: Path, closed: Closed = None) -> Path:
+    """The copy back in place, or beside the file; each place it would write checked first against the protection
+    lists (`closed`, through the folder as macOS opens it), so a link planted since can't send it into FERB's own
+    state or a protected place."""
     copy = _inside(root, r["saved_to"])
     if copy is None or not copy.is_file():
         raise NotRestorable(f"the copy FERB kept of {short(original)} is gone")
+
+    def check(target: Path) -> None:
+        refusal = files.destination_closed(target, (lambda q: closed(q, "write")) if closed is not None else None)
+        if refusal:
+            raise NotRestorable(f"{refusal}; the copy stays in FERB's recovery folder")
+    check(dest)
     if not os.path.lexists(dest):
         dest.parent.mkdir(parents=True, exist_ok=True)
         _copy_new(copy, dest)
@@ -476,7 +484,10 @@ def _restore_copy(r: dict[str, Any], original: Path, dest: Path, root: Path) -> 
             finally:
                 tmp.unlink(missing_ok=True)
             return dest
-    return _beside(dest, BEFORE_FERB, lambda target: _copy_new(copy, target))
+    def put(target: Path) -> None:
+        check(target)
+        _copy_new(copy, target)
+    return _beside(dest, BEFORE_FERB, put)
 
 
 def _restore_trashed(r: dict[str, Any], original: Path, closed: Closed = None) -> Path:
@@ -715,34 +726,51 @@ async def delete_local_snapshot(name: str, timeout_s: float = SNAPSHOT_DELETE_TI
     return done is not None and done[0] == 0
 
 
+RETRY_AFTER_FAILURE_S = 60                # after a failed snapshot, the next attempt waits this long
+
+
 class Snapshots:
-    """S1 snapshots, before bulk or destructive work: when an agent asks (`recovery.snapshot`; agents judge what is
-    bulk, rule 6) and before a permanent delete. At most one attempt every SNAPSHOT_EVERY_S across all tasks, taken or
-    failed: a request inside that window reuses the last snapshot and says so, or reports the recent failure. Each
-    snapshot is a `recovery` row (kind snapshot) that `ferb restore` lists with how to use it. Best effort: `request`
-    returns a failure as a result and never raises one (only its own caller's cancellation), so a snapshot never
-    refuses a call; a finished attempt's future is never reused. `take` None: off (tests)."""
+    """S1 snapshots (hands decision 4, owner 2026-10-30): a fresh local APFS snapshot before each shell command and
+    each permanent delete (`changes=True`), and when an agent asks (`recovery.snapshot`; agents judge what is bulk,
+    rule 6). The last snapshot is reused only when no such call ran since it was taken: nothing a command could change
+    has happened since. Across tasks; a restart starts with none to reuse. Concurrent requests share one attempt.
+    Each snapshot is a `recovery` row (kind snapshot) that `ferb restore` lists with how to use it. Best effort:
+    `request` returns a failure as a result, which the call's result then states, and never raises one (only its own
+    caller's cancellation), so a snapshot never refuses a call; a failure is tried again at the next request. A
+    finished attempt's future is never reused. `take` None: off (tests)."""
 
     def __init__(self, take: Callable[[], str | None] | None, db: Any, clock: Any, ids: Any,
-                 redact: Callable[[Any], Any], every_s: float = SNAPSHOT_EVERY_S) -> None:
-        self.take, self.db, self.clock, self.ids, self.every_s = take, db, clock, ids, every_s
+                 redact: Callable[[Any], Any]) -> None:
+        self.take, self.db, self.clock, self.ids = take, db, clock, ids
         self.redact = redact                                  # the agent's `before` words are stored redacted
         self._running: asyncio.Future[dict[str, Any]] | None = None
         self._failed: tuple[datetime, str] | None = None     # the last failed attempt: when, and why
+        self._last: dict[str, Any] | None = None             # the last snapshot taken (its result)
+        self._changed = True                                  # a command or delete may have run since `_last`
 
-    async def request(self, task_id: str | None, reason: str) -> dict[str, Any]:
-        last = self._recent()
-        if last is not None:
-            return last | {"reused": True}
-        if self.take is None:
-            return {"error": "snapshots are turned off for this FERB"}
-        failed = self._failed
-        if failed is not None and self.clock.now() - failed[0] < timedelta(seconds=self.every_s):
-            return {"error": f"no snapshot was taken: the last attempt, under 15 minutes ago, failed ({failed[1]}); "
-                             "FERB tries again after that"}
+    async def request(self, task_id: str | None, reason: str, *, changes: bool = False) -> dict[str, Any]:
+        """A snapshot as of now: the last one when nothing ran since, else a new one. `changes`: the caller is a shell
+        command or a permanent delete about to run, so the next request takes a fresh one (whatever this one gave)."""
+        try:
+            return await self._request(task_id, reason)
+        finally:
+            if changes:
+                self._changed = True
+
+    async def _request(self, task_id: str | None, reason: str) -> dict[str, Any]:
         running = self._running
-        mine = running is None or running.done()     # a finished one (taken, failed or cancelled) is never reused
-        if running is None or mine:
+        if running is not None and not running.done():
+            mine = False                                     # one attempt in flight: shared, it is as of now
+        elif not self._changed and self._last is not None:
+            return self._last | {"reused": True}
+        elif self.take is None:
+            return {"error": "snapshots are turned off for this FERB"}
+        elif self._failed is not None and (self.clock.now() - self._failed[0]).total_seconds() < RETRY_AFTER_FAILURE_S:
+            # a hanging tmutil must not add its timeout to every command: say so, try again after a pause
+            return {"error": f"no snapshot was taken (the last attempt failed: {self._failed[1]}; FERB tries again "
+                             f"within {RETRY_AFTER_FAILURE_S} s)"}
+        else:
+            mine = True
             running = self._running = asyncio.ensure_future(self._run(task_id, reason))
         try:
             result = await asyncio.shield(running)
@@ -755,18 +783,14 @@ class Snapshots:
             return {"error": f"no snapshot was taken ({type(e).__name__})"}
         return result | ({} if mine or "error" in result else {"reused": True})
 
-    def _recent(self) -> dict[str, Any] | None:
-        since = (self.clock.now() - timedelta(seconds=self.every_s)).isoformat()
-        r = self.db.conn.execute("SELECT id, saved_to, at FROM recovery WHERE kind = 'snapshot' AND at >= ? "
-                                 "ORDER BY at DESC, rowid DESC LIMIT 1", (since,)).fetchone()
-        return None if r is None else {"snapshot": r["saved_to"], "record": r["id"], "taken_at": r["at"]}
-
     async def _run(self, task_id: str | None, reason: str) -> dict[str, Any]:
         take = self.take
         assert take is not None
+        self._changed = False                                 # a change reported from now on needs the next one
         try:
             name = await asyncio.wait_for(asyncio.to_thread(take), SNAPSHOT_TIMEOUT_S + 5)
         except asyncio.CancelledError:
+            self._changed = True
             raise
         except Exception as e:
             return self._fail(type(e).__name__)
@@ -777,13 +801,15 @@ class Snapshots:
         # Redacted first, then cut: a secret straddling the cut is still whole when the redactor sees it.
         stored = str(self.redact({"name": name})["name"])[:200]
         before = str(self.redact({"before": reason})["before"])[:200]
-        self.db.conn.execute(_INSERT, (eid, task_id, "snapshot", STARTUP_DISK, stored, before,
-                                       self.clock.now().isoformat(), None, None))
+        at = self.clock.now().isoformat()
+        self.db.conn.execute(_INSERT, (eid, task_id, "snapshot", STARTUP_DISK, stored, before, at, None, None))
+        self._last = {"snapshot": stored, "record": eid, "taken_at": at}
         return {"snapshot": stored, "record": eid}
 
     def _fail(self, why: str) -> dict[str, Any]:
-        """A failed attempt counts toward the rate limit too: at most one attempt per window."""
+        """A failed attempt: nothing to reuse; the next request tries again once RETRY_AFTER_FAILURE_S passed."""
         self._failed = (self.clock.now(), why)
+        self._changed = True
         return {"error": f"no snapshot was taken ({why})"}
 
     def last_failure(self) -> dict[str, Any] | None:
@@ -799,9 +825,9 @@ class Snapshots:
 class RecoverySnapshot:
     """`recovery.snapshot`: an agent asks for a recovery point before bulk or destructive work it judged as such."""
     name = "recovery.snapshot"
-    description = ("Before bulk or destructive file work (many files changed, moved or deleted at once, e.g. a shell "
-                   "command over a folder), take a local snapshot of the Mac's disk as a recovery point the owner can "
-                   "open. At most one every 15 minutes: a recent one is reused. Best effort. Not needed for single "
+    description = ("Before bulk or destructive file work, take a local snapshot of the Mac's disk as a recovery point "
+                   "the owner can open. FERB already takes one before every shell command and permanent delete; the "
+                   "last one is reused when no command ran since. Best effort. Not needed for single "
                    "fs.write / fs.edit / fs.trash calls: FERB keeps those recoverable itself.")
     scopes: set[str] = set()
     identities = {Identity.OWNER, Identity.FERB}
@@ -822,5 +848,5 @@ class RecoverySnapshot:
             return ToolResult(out | {"next": "Decide whether the work is still right without a snapshot; if you go "
                                              "on, say in your report that no snapshot was taken."}, is_error=True)
         how = f"The owner can open it from macOS Recovery or Time Machine (admin rights): {out['snapshot']}."
-        reused = "A snapshot from the last 15 minutes is reused. " if out.get("reused") else ""
+        reused = "The last snapshot is reused: no command ran since it was taken. " if out.get("reused") else ""
         return ToolResult(out | {"note": reused + how})

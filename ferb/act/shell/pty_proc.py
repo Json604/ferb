@@ -3,6 +3,7 @@
 A task's process group and owner-only redacted output log. Offsets address the full log, not a lossy ring."""
 
 import asyncio
+import ctypes
 import errno
 import os
 import pty
@@ -11,7 +12,7 @@ import subprocess
 import termios
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from ferb.sanitize.redact import RedactionStream, Redactor
 
@@ -200,9 +201,36 @@ class PtyProc:
                         chunk += f.read(1)
         return chunk.decode('utf-8', errors='replace'), start + len(chunk), False
 
-    def send(self, text: str) -> None:
-        if self.exit_code is None and self._master >= 0:
-            os.write(self._master, text.encode())
+    def line_limit(self) -> int | None:
+        """The longest line, in bytes with its newline, the command's terminal takes while it reads lines (canonical
+        mode): a longer line is dropped whole by the terminal driver while the write still reports every byte
+        (measured: 1,023 characters and a newline arrive, 1,024 don't; MAX_CANON is 1,024). None when the command reads
+        raw input (no such limit) or isn't running."""
+        if self.exit_code is not None or self._master < 0:
+            return None
+        try:
+            if not termios.tcgetattr(self._master)[3] & termios.ICANON:
+                return None
+            return int(os.fpathconf(self._master, "PC_MAX_CANON"))
+        except (OSError, termios.error, ValueError):
+            return None
+
+    def write(self, data: bytes) -> int:
+        """Writes what the terminal takes now and returns how many bytes went in (0 once the command ended); never
+        blocks: a full input buffer takes fewer bytes, or none."""
+        if self.exit_code is not None or self._master < 0 or not data:
+            return 0
+        try:
+            return os.write(self._master, data)
+        except BlockingIOError:
+            return 0
+        except OSError as e:
+            if e.errno in (errno.EIO, errno.EBADF):          # the terminal closed: the command ended
+                return 0
+            raise
+
+    def send(self, text: str) -> int:
+        return self.write(text.encode())
 
     async def wait(self, timeout: float) -> int | None:
         try:
@@ -211,13 +239,52 @@ class PtyProc:
             return None
         return self.exit_code
 
-    async def kill(self) -> None:
-        if self.proc is None or self.exit_code is not None:
+    async def kill(self, members_ours: Callable[[list[int]], bool] | None = None) -> None:
+        """End the command's whole process group: TERM, then KILL. While the command's own process runs, its group id
+        can't belong to anyone else. Once it has ended, children it left (`cmd &`, a daemonized server) keep the group
+        alive, but if they're gone too the id could since name an unrelated process's group (a reused pid): then the
+        group is signalled only after `members_ours` confirms every process now in it is the command's (FERB's
+        sandbox); without that check, or if it can't tell, nothing is signalled."""
+        if self.proc is None:
             return
+        pgid = self.proc.pid
         for sig, grace in ((signal.SIGTERM, 2.0), (signal.SIGKILL, 2.0)):
+            if self.exit_code is not None:
+                members = group_members(pgid)
+                if not members or members_ours is None or not members_ours(members):
+                    return
             try:
-                os.killpg(self.proc.pid, sig)
-            except ProcessLookupError:
+                os.killpg(pgid, sig)
+            except (ProcessLookupError, PermissionError):
                 return
-            if await self.wait(grace) is not None:
-                return
+            if self.exit_code is None and await self.wait(grace) is None:
+                continue
+            for _ in range(int(grace / 0.05)):               # the leader is gone: wait for the rest of its group
+                if not group_members(pgid):
+                    return
+                await asyncio.sleep(0.05)
+
+
+_PROC_PGRP_ONLY = 2                               # libproc's proc_listpids type: the processes of one group
+try:
+    _listpids: Any = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True).proc_listpids
+    _listpids.argtypes = (ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_int)
+    _listpids.restype = ctypes.c_int
+except (OSError, AttributeError):                 # not macOS: no group listing, so no signal after the command ended
+    _listpids = None
+
+
+def group_members(pgid: int) -> list[int]:
+    """The processes now in process group `pgid` (libproc proc_listpids); empty when none, or when it can't be read."""
+    if _listpids is None or pgid <= 0:
+        return []
+    size = 256
+    while True:
+        buf = (ctypes.c_int * size)()
+        n = _listpids(_PROC_PGRP_ONLY, pgid, buf, ctypes.sizeof(buf))
+        if n <= 0:
+            return []
+        count = n // ctypes.sizeof(ctypes.c_int)
+        if count < size:
+            return [pid for pid in buf[:count] if pid > 0]
+        size *= 4

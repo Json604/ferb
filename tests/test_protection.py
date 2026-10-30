@@ -23,7 +23,7 @@ from ferb.policy.protection import (DEFAULT_NEVER_READ, DEFAULT_NEVER_WRITE, DEF
                                     BadProtection, Protection)
 from ferb.policy.rules import Kind
 from ferb.trace.compose import walk
-from tests.conftest import RunningDaemon, gateway_setup, gateway_tool_call
+from tests.conftest import Answers, RunningDaemon, gateway_setup, gateway_tool_call
 from tests.support.trash import use_trash
 
 
@@ -191,33 +191,58 @@ def test_entries_for_the_profile_builder(tmp_path: Path) -> None:
     assert p.write_entries() == [(home.resolve() / ".zshrc", True)]
 
 
-def test_fs_tools_are_kept_out_of_the_never_read_stores_unless_the_owner_opens_them(tmp_path: Path) -> None:
-    """OPEN QUESTION 6, built as recommended: protection.fs_reads_never_read = false keeps FERB's fs tools out of the
-    never-read stores (reads and writes alike) until F5b's redaction is measured; true is SQ3 as written. Never-write
-    entries don't bind the fs tools (SQ5: changes there go through them, with S1 copies). Nothing opens FERB's own state."""
+def test_fs_tools_follow_the_never_read_and_never_write_lists(tmp_path: Path) -> None:
+    """Gateway decision 2 (2026-10-30): FERB's file tools follow both lists like the shell: a never-read store is closed
+    to their reads, writes and removals, a never-write place to their writes and removals (the gateway asks the owner
+    to lift either). FERB's own state is never opened, and the old fs_reads_never_read switch is gone."""
     home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
     (ferb / "workspace" / "uploads").mkdir(parents=True)
-    closed = Protection(home, ferb, ["~/.ssh"], ["~/.zshrc"], [])
-    opened = Protection(home, ferb, ["~/.ssh"], ["~/.zshrc"], [], fs_reads_never_read=True)
+    p = Protection(home, ferb, ["~/.ssh"], ["~/.zshrc", "~/.ssh"], [])
     for kind in (Kind.READ, Kind.WRITE_FILE, Kind.TRASH):
-        assert closed.fs_denied(home / ".ssh" / "id_ed25519", kind) == "read:~/.ssh", kind
-        assert opened.fs_denied(home / ".ssh" / "id_ed25519", kind) is None, kind
-        assert closed.fs_denied(home / ".zshrc", kind) is None and closed.fs_denied(home / "notes.txt", kind) is None
-        assert opened.fs_denied(ferb / "ferb.db", kind) == "ferb_state", kind
+        assert p.fs_denied(home / ".ssh" / "id_ed25519", kind) == "read:~/.ssh", kind
+        assert p.fs_denied(home / "notes.txt", kind) is None, kind
+        assert p.fs_denied(ferb / "ferb.db", kind) == "ferb_state", kind
+    assert p.fs_denied(home / ".zshrc", Kind.READ) is None                      # readable, not changeable
+    assert p.fs_denied(home / ".zshrc", "write") == "write:~/.zshrc"
+    assert p.fs_denied(home / ".zshrc", Kind.TRASH) == "write:~/.zshrc"
+    assert p.fs_rules(home / ".ssh" / "authorized_keys", "write") == ["read:~/.ssh", "write:~/.ssh"]
+    assert p.fs_rules(home / ".ssh" / "authorized_keys", "read") == ["read:~/.ssh"]
+    assert p.fs_rules(home / ".zshrc", "metadata") == [] and p.fs_rules(home / ".ssh" / "x", "metadata") == []
+    assert not hasattr(p, "fs_reads_never_read")
+
+
+def test_ferbs_own_service_definition_is_never_changed_or_lifted(tmp_path: Path) -> None:
+    """Rule 10: FERB's launchd definitions (~/Library/LaunchAgents/com.ferb.daemon.plist and the app's login fallback)
+    are FERB's own: file tools may read them, never change or remove them (nor the folder holding them), whatever
+    the lists say, and no lift reopens them. The labels match the installer's."""
+    from ferb.device.install import APP_LOGIN_LABEL, LABEL
+    from ferb.policy.protection import FERB_SERVICE, SERVICE_LABELS
+    assert SERVICE_LABELS == (LABEL, APP_LOGIN_LABEL)
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    agents = home / "Library" / "LaunchAgents"
+    agents.mkdir(parents=True)
+    (agents / "com.ferb.daemon.plist").write_text("<plist/>")
+    p = Protection(home, ferb, [], [], [])
+    for label in SERVICE_LABELS:
+        plist = agents / f"{label}.plist"
+        assert p.fs_denied(plist, "read") is None
+        assert p.fs_rules(plist, "write") == [FERB_SERVICE] and p.fs_rules(plist, Kind.TRASH) == [FERB_SERVICE]
+    assert p.fs_denied(agents, Kind.TRASH) == FERB_SERVICE and p.fs_denied(agents / "other.plist", "write") is None
+    assert not p.liftable(FERB_SERVICE)
+    assert any(r["id"] == FERB_SERVICE and r["liftable"] is False for r in p.rules())
 
 
 def test_removing_a_folder_that_holds_a_never_read_store_is_refused(tmp_path: Path) -> None:
-    """Trashing ~/.config would hand over ~/.config/gh in the Trash: while the switch is false a removal of a folder
-    holding a never-read store is refused with that store's rule. Reading the folder itself (a listing) is fine."""
+    """Trashing ~/.config would hand over ~/.config/gh in the Trash: a removal of a folder holding a never-read store is
+    closed with that store's rule. Reading the folder itself (a listing) is fine."""
     home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
     entries = ["~/.config/gh", "~/Library/Application Support/Google/Chrome"]
     closed = Protection(home, ferb, entries, [], [])
-    opened = Protection(home, ferb, entries, [], [], fs_reads_never_read=True)
     for access in ("remove", Kind.TRASH, Kind.DELETE_PERMANENT):
         assert closed.fs_denied(home / ".config", access) == "read:~/.config/gh", access
         assert (closed.fs_denied(home / "Library" / "Application Support", access)
                 == "read:~/Library/Application Support/Google/Chrome"), access
-        assert opened.fs_denied(home / ".config", access) is None, access
     assert closed.fs_denied(home / ".config", "read") is None and closed.fs_denied(home / ".config", "write") is None
     assert closed.fs_denied(home / ".config" / "other", "remove") is None
 
@@ -258,8 +283,6 @@ def test_a_malformed_list_or_switch_is_refused_not_guessed(tmp_path: Path) -> No
         Protection(home, ferb, [], ["~/.zshrc", 3], [])          # type: ignore[list-item]
     with pytest.raises(ValueError, match="terminal_apps"):
         Protection(home, ferb, [], [], "com.apple.Terminal")     # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="fs_reads_never_read"):
-        Protection(home, ferb, [], [], [], fs_reads_never_read="false")   # type: ignore[arg-type]
     with pytest.raises(BadProtection, match="never_read"):                # a TOML inline table: never its keys
         Protection(home, ferb, {"~/.ssh": True}, [], [])        # type: ignore[arg-type]
     with pytest.raises(BadProtection, match="never_write"):
@@ -400,16 +423,18 @@ def test_uploads_and_recordings_are_checked_like_fs_tools(daemon: RunningDaemon,
     grant, _ = gateway_setup(daemon, {"browser:act", "browser:read", "fs:read", "fs:write"}, None,
                              [act, record])                               # type: ignore[list-item]
     daemon.daemon.gateway.roots.protection = Protection(fake, home, ["~/.ssh"], [], [])
+    no = Answers(daemon, choice=2)                                      # the owner says no to reading ~/.ssh
     for files in ([str(home / "run" / "token-x")], [str(home / "ferb.db")], [str(fake / ".ssh" / "id")]):
         r = gateway_tool_call(daemon, grant, "browser.act", tab="t1", element="e1", action="upload", files=files)
         assert r["is_error"] and ("FERB's own" in r["content"]["error"] or "~/.ssh" in r["content"]["error"]), files
         assert "secret-token" not in str(r) and "PRIVATE-KEY-BYTES" not in str(r)
     r = gateway_tool_call(daemon, grant, "recording.inspect", path=str(fake / ".ssh" / "old.mp4"))
-    assert r["is_error"] and "~/.ssh" in r["content"]["error"]
+    assert r["is_error"] and "~/.ssh" in r["content"]["error"]           # the owner's No to ~/.ssh stays final
     r = gateway_tool_call(daemon, grant, "browser.record", tab="t1", path=str(home / "run" / "task.mp4"))
     assert r["is_error"] and "FERB's own" in r["content"]["error"]
+    no.stop()
     assert driver.used == [] and recordings.started == [] and not (home / "workspace" / "uploads").exists()
-    assert not (home / "run" / "task.mp4").exists()
+    assert not (home / "run" / "task.mp4").exists() and len(no.asked) == 1
 
 
 def test_recording_stop_declares_the_video_it_publishes() -> None:
@@ -421,10 +446,13 @@ def test_recording_stop_declares_the_video_it_publishes() -> None:
     assert stop.file_paths(stop.Input(id="rec-x")) == [("/somewhere/task.mp4", "write")]
 
 
-def _ctx(ws: Path, prot: Protection) -> ToolContext:
+def _ctx(ws: Path, prot: Protection, lifted: bool = False) -> ToolContext:
+    """`lifted`: the owner lifted the lists' rules for this call (only FERB's own never-lifted rules close)."""
+    from ferb.policy.protection import NEVER_LIFTED
+
     def closed(path: Path, access: str) -> str | None:
         rule = prot.fs_denied(path, access)
-        return f"closed by {rule}" if rule else None
+        return f"closed by {rule}" if rule and (not lifted or rule in NEVER_LIFTED) else None
     return ToolContext("t", "w", "r", Identity.OWNER, frozenset({"fs:read", "fs:write"}), "dev", None, str(ws), (), (),
                        path_closed=closed)
 
@@ -455,23 +483,67 @@ def test_fs_tools_check_what_they_really_opened(tmp_path: Path) -> None:
     assert go(FsRead(), path="notes.txt").content["text"] == "fine"
 
 
-def test_fs_tools_and_a_never_read_store_follow_the_owners_switch(daemon: RunningDaemon, tmp_path: Path) -> None:
-    """The refusal says why in plain words and names the sealed secret path; with the switch true the same read runs."""
+def test_a_never_read_store_asks_once_per_task_for_reads_and_per_call_for_changes(daemon: RunningDaemon,
+                                                                                 tmp_path: Path) -> None:
+    """Gateway decision 2, hands decision 1: a file tool's read of a protected folder asks the owner once for the task
+    (every later read of that folder runs); a change asks every time; a No refuses with nothing read or written."""
     fake = tmp_path / "fakehome"
     (fake / ".aws").mkdir(parents=True)
     (fake / ".aws" / "config").write_text("region = eu-west-1\n")
+    (fake / ".aws" / "credentials").write_text("[default]\n")
     roots = daemon.daemon.gateway.roots
     grant, _ = gateway_setup(daemon, {"fs:read", "fs:write"}, None, [])
     roots.protection = Protection(fake, daemon.daemon.home, ["~/.aws"], [], [])
-    r = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".aws" / "config"))
-    error = r["content"]["error"]
-    assert r["is_error"] and "eu-west-1" not in str(r)
-    assert "~/.aws" in error and "passwords" in error and "sealed secret" in error and "escape hatch" in error
-    r = gateway_tool_call(daemon, grant, "fs.write", path=str(fake / ".aws" / "new"), content="x")
-    assert r["is_error"] and not (fake / ".aws" / "new").exists()
-    roots.protection = Protection(fake, daemon.daemon.home, ["~/.aws"], [], [], fs_reads_never_read=True)
-    r = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".aws" / "config"))
-    assert not r["is_error"] and "eu-west-1" in r["content"]["text"]
+    no = Answers(daemon, choice=2)
+    try:
+        r = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".aws" / "config"))
+    finally:
+        no.stop()
+    assert r["is_error"] and "eu-west-1" not in str(r) and len(no.asked) == 1
+    assert "read ~/.aws for this task" in no.asked[0].summary
+    r = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".aws" / "credentials"))   # the No is final
+    assert r["is_error"] and "already said no" in r["content"]["error"]
+
+
+def test_a_yes_to_reading_a_protected_folder_covers_the_task_and_changes_ask_each_time(daemon: RunningDaemon,
+                                                                                     tmp_path: Path) -> None:
+    fake = tmp_path / "fakehome"
+    (fake / ".aws").mkdir(parents=True)
+    (fake / ".aws" / "config").write_text("region = eu-west-1\n")
+    (fake / ".aws" / "credentials").write_text("[default]\n")
+    grant, _ = gateway_setup(daemon, {"fs:read", "fs:write"}, None, [])
+    daemon.daemon.gateway.roots.protection = Protection(fake, daemon.daemon.home, ["~/.aws"], [], [])
+    yes = Answers(daemon, choice=1)
+    try:
+        first = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".aws" / "config"))
+        again = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".aws" / "credentials"))
+        listed = gateway_tool_call(daemon, grant, "fs.list", path=str(fake / ".aws"))
+        asked_reads = len(yes.asked)
+        w1 = gateway_tool_call(daemon, grant, "fs.write", path=str(fake / ".aws" / "new"), content="x")
+        w2 = gateway_tool_call(daemon, grant, "fs.write", path=str(fake / ".aws" / "new2"), content="y")
+    finally:
+        yes.stop()
+    assert not first["is_error"] and "eu-west-1" in first["content"]["text"]
+    assert not again["is_error"] and not listed["is_error"] and asked_reads == 1
+    assert not w1["is_error"] and not w2["is_error"] and len(yes.asked) == 3              # each change asked
+    assert "change ~/.aws once" in yes.asked[1].summary
+    assert (fake / ".aws" / "new").read_text() == "x" and (fake / ".aws" / "new2").read_text() == "y"
+
+
+def test_a_never_write_place_asks_before_a_file_tool_changes_it(daemon: RunningDaemon, tmp_path: Path) -> None:
+    """~/.zshrc (never-write) reads freely; a write asks first and a No leaves it as it was (no S1 copy needed)."""
+    fake = tmp_path / "fakehome"
+    fake.mkdir()
+    (fake / ".zshrc").write_text("export A=1\n")
+    daemon.daemon.gateway.roots.protection = Protection(fake, daemon.daemon.home, [], ["~/.zshrc"], [])
+    grant, _ = gateway_setup(daemon, {"fs:read", "fs:write"}, None, [])
+    assert not gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".zshrc"))["is_error"]
+    no = Answers(daemon, choice=2)
+    try:
+        r = gateway_tool_call(daemon, grant, "fs.edit", path=str(fake / ".zshrc"), old_text="A=1", new_text="A=2")
+    finally:
+        no.stop()
+    assert r["is_error"] and len(no.asked) == 1 and (fake / ".zshrc").read_text() == "export A=1\n"
 
 
 def test_config_gets_the_protection_defaults_once(daemon: RunningDaemon) -> None:
@@ -479,9 +551,9 @@ def test_config_gets_the_protection_defaults_once(daemon: RunningDaemon) -> None
     assert cfg.get("protection", "never_read") == list(DEFAULT_NEVER_READ)
     assert cfg.get("protection", "never_write") == list(DEFAULT_NEVER_WRITE)
     assert cfg.get("protection", "terminal_apps") == list(DEFAULT_TERMINAL_APPS)
-    assert cfg.get("protection", "fs_reads_never_read") is True
+    assert cfg.get("protection", "fs_reads_never_read") is None                  # the switch is gone (decision 2)
     cfg.set("protection", "never_read", ["~/mine"])
-    cfg.set("protection", "fs_reads_never_read", True)
+    cfg.set("protection", "fs_reads_never_read", True)                          # an old config keeps it, harmlessly
     cfg.ensure_privacy_defaults()
     assert cfg.get("protection", "never_read") == ["~/mine"]                     # the owner's edit stays
     assert cfg.get("protection", "fs_reads_never_read") is True
@@ -491,12 +563,12 @@ def test_the_daemon_builds_protection_from_the_owners_config(home: Path) -> None
     """The daemon reads [protection] once at start and hands the same object to its fs tools (and, later, its shell)."""
     cfg = Config(home)
     cfg.set("protection", "never_read", ["~/.aws"])
-    cfg.set("protection", "fs_reads_never_read", True)
+    cfg.set("protection", "fs_reads_never_read", True)                          # an old config's switch: ignored
     d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False)
     try:
         prot = d.daemon.protection
         assert prot is d.daemon.gateway.roots.protection
-        assert [e.id for e in prot.reads] == ["read:~/.aws"] and prot.fs_reads_never_read is True
+        assert [e.id for e in prot.reads] == ["read:~/.aws"]
         assert [e.id for e in prot.writes] == [f"write:{e}" for e in DEFAULT_NEVER_WRITE]
         assert prot.ferb_home == home.resolve()
     finally:
@@ -515,11 +587,16 @@ def test_an_upload_is_checked_as_typed_too(daemon: RunningDaemon, tmp_path: Path
     daemon.daemon.gateway.roots.protection = Protection(fake, home, ["~/.ssh"], [], [])
     (fake / ".ssh").rmdir()
     (fake / ".ssh").symlink_to(fake / "elsewhere")
-    r = gateway_tool_call(daemon, grant, "browser.act", tab="t1", element="e1", action="upload",
-                          files=[str(fake / ".ssh" / "id")])
-    assert r["is_error"] and "~/.ssh" in r["content"]["error"] and driver.used == []
-    r = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".ssh" / "id"))
-    assert r["is_error"] and "~/.ssh" in r["content"]["error"] and "PRIVATE-KEY-BYTES" not in str(r)
+    no = Answers(daemon, choice=2)
+    try:
+        r = gateway_tool_call(daemon, grant, "browser.act", tab="t1", element="e1", action="upload",
+                              files=[str(fake / ".ssh" / "id")])
+        assert r["is_error"] and "~/.ssh" in r["content"]["error"] and driver.used == []
+        r = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".ssh" / "id"))
+        assert r["is_error"] and "~/.ssh" in r["content"]["error"] and "PRIVATE-KEY-BYTES" not in str(r)
+    finally:
+        no.stop()
+    assert len(no.asked) == 1                                          # asked as the store, by its typed spelling
 
 
 class _OneTab:
@@ -883,8 +960,8 @@ def test_fs_trash_never_moves_a_trash_side_swap_out_of_the_trash(tmp_path: Path,
         os.rename(evil, trash / victim.name)
     use_trash(monkeypatch, trash, after_move=swap_in_the_trash)
     where = os.path.realpath(victim)
-    r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(victim)),
-                                  _ctx(ws, Protection(home, ferb, [], DEFAULT_NEVER_WRITE, []))))
+    r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(victim)),       # the owner lifted never-write for it
+                                  _ctx(ws, Protection(home, ferb, [], DEFAULT_NEVER_WRITE, []), lifted=True)))
     assert not os.path.lexists(victim), "nothing is planted where the owner's file was"
     assert (trash / victim.name).read_text() == "ATTACKER PAYLOAD"
     landed = os.path.realpath(trash / victim.name)

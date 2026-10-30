@@ -2,13 +2,21 @@
 
 File list/read/write/edit/trash using normal OS access. Relative paths resolve in the workspace.
 Read provenance is recorded; it does not remove capabilities. Each tool declares the file it names (`file_paths`) for the
-gateway's protection check (rule 10), and checks again the file it really opened (`ToolContext.path_closed`)."""
+gateway's protection check (rule 10), and checks again the file it really opened (`ToolContext.path_closed`).
+The file work runs in a worker thread, never on the daemon's loop; an OS or decoding error is the tool's plain error
+(nothing changed), never an exception the gateway would record as an unknown outcome.
+A write or edit keeps the file as the owner had it apart from its text: its line endings (an edit never rewrites the
+rest of the file), mode, extended attributes and ACL (the new version starts as an APFS clone of the old one; where
+cloning isn't possible, mode and extended attributes are copied), and its hard links: a file with more than one name
+is rewritten in place, so every name still shows the new text (not atomic, but S1's copy was kept first)."""
 
+import asyncio
 import ctypes
 import errno
 import fcntl
 import os
 import secrets
+import stat
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +24,7 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, Field
 
-from ferb.core.types import ActionSpec, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
+from ferb.core.types import ActionFacts, ActionSpec, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 
 READ_DEFAULT, READ_MAX, LIST_MAX = 256 * 1024, 2 * 1024 * 1024, 500
 
@@ -112,7 +120,7 @@ def make_folders(folder: Path, closed: Callable[[Path], str | None] | None = Non
 def _sibling_temp(folder: int, name: str) -> tuple[int, str]:
     """A new temp file next to `name` inside the opened folder, never an existing file or link (0600)."""
     for _ in range(100):
-        temp = f".{name}.{secrets.token_hex(4)}.ferb-tmp"
+        temp = _temp_name(name)
         try:
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
             return os.open(temp, flags, 0o600, dir_fd=folder), temp
@@ -121,28 +129,167 @@ def _sibling_temp(folder: int, name: str) -> tuple[int, str]:
     raise FileExistsError(f"no free temporary name next to {name}")
 
 
-def atomic_text(p: Path, text: str, closed: Callable[[Path], str | None] | None = None) -> None:
-    """Exclusive sibling temp preserves atomic replacement without touching a pre-existing scratch file. The temp is
-    made and renamed inside one opened folder; `closed` checks that folder as macOS opened it (the protection lists),
-    so a folder swapped for a link after the gateway's check can't move the write (raises PathRefused)."""
+def _temp_name(name: str) -> str:
+    return f".{name}.{secrets.token_hex(4)}.ferb-tmp"
+
+
+try:
+    _clonefileat: Any = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True).clonefileat
+    _clonefileat.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32)
+    _clonefileat.restype = ctypes.c_int
+except (OSError, AttributeError):                 # not macOS: the copy fallback carries mode and xattrs
+    _clonefileat = None
+_CLONE_NOFOLLOW = 0x0001
+
+
+def _clone_temp(folder: int, name: str) -> str | None:
+    """An APFS clone of `name` next to it (clonefileat, never through a link): the old version's data, mode, extended
+    attributes, ACL and flags, ready to be rewritten. None when the volume can't clone (the caller copies instead)."""
+    if _clonefileat is None:
+        return None
+    for _ in range(100):
+        temp = _temp_name(name)
+        if _clonefileat(folder, os.fsencode(name), folder, os.fsencode(temp), _CLONE_NOFOLLOW) == 0:
+            return temp
+        code = ctypes.get_errno()
+        if code != errno.EEXIST:
+            return None
+    return None
+
+
+def _xattr_fns() -> Any:
+    """macOS's fd extended-attribute calls (Python's os has none on macOS), or None where they're missing."""
+    try:
+        lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+        lib.flistxattr.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_int)
+        lib.flistxattr.restype = ctypes.c_ssize_t
+        lib.fgetxattr.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32,
+                                  ctypes.c_int)
+        lib.fgetxattr.restype = ctypes.c_ssize_t
+        lib.fsetxattr.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32,
+                                  ctypes.c_int)
+        lib.fsetxattr.restype = ctypes.c_int
+        return lib
+    except (OSError, AttributeError):
+        return None
+
+
+_XATTR = _xattr_fns()
+
+
+def _xattrs(fd: int) -> dict[bytes, bytes]:
+    """Every extended attribute of an open file (best effort: one that can't be read is left out)."""
+    if _XATTR is None:
+        return {}
+    size = _XATTR.flistxattr(fd, None, 0, 0)
+    if size <= 0:
+        return {}
+    names = ctypes.create_string_buffer(size)
+    size = _XATTR.flistxattr(fd, names, size, 0)
+    out = {}
+    for name in names.raw[:max(size, 0)].split(b"\0"):
+        if not name:
+            continue
+        length = _XATTR.fgetxattr(fd, name, None, 0, 0, 0)
+        if length < 0:
+            continue
+        value = ctypes.create_string_buffer(max(length, 1))
+        got = _XATTR.fgetxattr(fd, name, value, length, 0, 0)
+        if got >= 0:
+            out[name] = value.raw[:got]
+    return out
+
+
+def _copy_attributes(src: int, dst: int) -> None:
+    """The fallback when cloning isn't possible: the old version's mode and extended attributes onto the new one
+    (its ACL can't be copied this way). Best effort for attributes macOS won't let FERB set."""
+    os.fchmod(dst, stat.S_IMODE(os.fstat(src).st_mode))
+    if _XATTR is None:
+        return
+    for name, value in _xattrs(src).items():
+        _XATTR.fsetxattr(dst, name, value, len(value), 0, 0)
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        n = os.write(fd, view)
+        view = view[n:]
+
+
+@dataclass(frozen=True)
+class Written:
+    """How a text file was written: replaced atomically (the usual), or rewritten in place because it has other hard
+    links (`links` names in all), which a replacement would have cut off from the new text."""
+    in_place: bool = False
+    links: int = 1
+
+
+def atomic_text(p: Path, text: str, closed: Callable[[Path], str | None] | None = None) -> Written:
+    """Write `text` (UTF-8, line endings exactly as given) to `p`. The new version is made next to it and renamed over
+    it inside one opened folder; `closed` checks that folder as macOS opened it (the protection lists), so a folder
+    swapped for a link after the gateway's check can't move the write (raises PathRefused). An existing file keeps its
+    mode, extended attributes and ACL (an APFS clone of it is rewritten; elsewhere mode and extended attributes are
+    copied), and one with other hard links is rewritten in place (see the module). A folder at `p` raises PathRefused.
+    An OSError means nothing was changed, except in place, where the file may be part written (S1 kept its copy)."""
     try:
         folder = os.open(p.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     except OSError as e:
         raise PathRefused(f"FERB couldn't open the folder for {p.name} ({e.strerror or e}); nothing was written") from None
+    data = text.encode("utf-8")
     try:
         _check_in(folder, p.name, closed)
-        fd, temp = _sibling_temp(folder, p.name)
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                stream.write(text)
+            old = os.stat(p.name, dir_fd=folder, follow_symlinks=False)
+        except FileNotFoundError:
+            old = None
+        if old is not None and stat.S_ISDIR(old.st_mode):
+            raise PathRefused(f"{p} is a folder, not a file; nothing was written")
+        if old is not None and stat.S_ISREG(old.st_mode) and old.st_nlink > 1:
+            fd = os.open(p.name, os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=folder)
+            try:
+                st = os.fstat(fd)
+                if (st.st_dev, st.st_ino) != (old.st_dev, old.st_ino):
+                    raise PathRefused(f"{p} changed while FERB wrote it; nothing was written")
+                os.ftruncate(fd, 0)
+                _write_all(fd, data)
+            finally:
+                os.close(fd)
+            return Written(in_place=True, links=old.st_nlink)
+        regular = old is not None and stat.S_ISREG(old.st_mode)
+        temp = _clone_temp(folder, p.name) if regular else None
+        cloned = temp is not None
+        try:
+            if cloned:
+                assert old is not None and temp is not None
+                # the clone has the old mode; the owner's write bit for the rewrite, the old mode back after
+                os.chmod(temp, stat.S_IMODE(old.st_mode) | stat.S_IWUSR, dir_fd=folder, follow_symlinks=False)
+                fd = os.open(temp, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=folder)
+            else:
+                fd, temp = _sibling_temp(folder, p.name)
+            try:
+                _write_all(fd, data)
+                if cloned:
+                    assert old is not None
+                    os.fchmod(fd, stat.S_IMODE(old.st_mode))
+                elif regular:
+                    src = os.open(p.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=folder)
+                    try:
+                        _copy_attributes(src, fd)
+                    finally:
+                        os.close(src)
+            finally:
+                os.close(fd)
             os.rename(temp, p.name, src_dir_fd=folder, dst_dir_fd=folder)     # replaces atomically (POSIX rename)
         finally:
-            try:
-                os.unlink(temp, dir_fd=folder)
-            except FileNotFoundError:
-                pass
+            if temp is not None:
+                try:
+                    os.unlink(temp, dir_fd=folder)
+                except FileNotFoundError:
+                    pass
     finally:
         os.close(folder)
+    return Written()
 
 
 def _write_check(ctx: ToolContext) -> Callable[[Path], str | None] | None:
@@ -218,10 +365,17 @@ def _err(msg: str) -> ToolResult:
     return ToolResult({"error": msg}, is_error=True)
 
 
+def _os_error(e: OSError, what: str) -> ToolResult:
+    """An OS refusal as the tool's plain error, naming what didn't happen (Full Disk Access advice when it applies)."""
+    where = f" ({e.filename})" if getattr(e, "filename", None) else ""
+    return _err(f"{e.strerror or e}{where}: {what}")
+
+
 class _Base:
     identities = {Identity.OWNER, Identity.FERB}
     target_args = ("path",)                            # Target.path, normalized by the gateway (P19 hash)
     access: FileAccess = "read"
+    undone = "nothing was read"                        # what an OS error means for this tool
 
     def file_paths(self, args: BaseModel) -> list[tuple[str, FileAccess]]:
         """The file this call names and what it does to it, for the gateway's protection check (rule 10)."""
@@ -238,12 +392,30 @@ class _Base:
         """One file at a time per path; the path as given (relative ones are the workspace's)."""
         return [f"file:{self.describe_path(args)}"]
 
+    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        """The file work in a worker thread; an OS or decoding error is a plain error (nothing changed)."""
+        return await asyncio.to_thread(self._guarded, args, ctx)
+
+    def _guarded(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        try:
+            return self._run(args, ctx)
+        except PathRefused as e:
+            return _err(str(e))
+        except UnicodeDecodeError as e:
+            return _err(f"the file isn't UTF-8 text (byte {e.start}): {self.undone}; use a binary-aware tool")
+        except OSError as e:
+            return _os_error(e, self.undone)
+
+    def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        raise NotImplementedError
+
 
 class FsList(_Base):
     name, description = "fs.list", "List every folder candidate through offset pages, including full path, source, size, owner and modification time."
     scopes, risk, reversible = {"fs:read"}, RiskLevel.LOW, True
     observation = True                                 # only reads: the final checker may use it (V3, W4)
     probe_safe = True  # reads state, moves nothing, returns at once: a loop's probe may use it (L31)
+    undone = "nothing was listed"
 
     class Input(BaseModel):
         path: str = Field(description="Folder path (absolute, ~, or relative to FERB's workspace)")
@@ -253,11 +425,8 @@ class FsList(_Base):
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec("read", Target(path=self.describe_path(args)))
 
-    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        try:
-            p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
-        except PathRefused as e:
-            return _err(str(e))
+    def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
         if not p.is_dir():
             return _err(f"{p} is not a folder")
         folder = os.open(p, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
@@ -297,11 +466,8 @@ class FsRead(_Base):
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec("read", Target(path=self.describe_path(args)))
 
-    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        try:
-            p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
-        except PathRefused as e:
-            return _err(str(e))
+    def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
         if not p.is_file():
             return _err(f"{p} is not a file")
         offset, count = int(getattr(args, "offset")), int(getattr(args, "max_bytes"))
@@ -338,10 +504,20 @@ class FsRead(_Base):
                           read_sources=(_source(p, ctx),))
 
 
+def _written_facts(p: Path, how: Written) -> dict[str, Any]:
+    """What a write left, read back; a failure to read it back after the write is said, never an error (it ran)."""
+    out: dict[str, Any] = {"in_place": True, "hard_links": how.links} if how.in_place else {}
+    try:
+        return {**identity(p), "bytes": p.stat().st_size, **out}
+    except OSError as e:
+        return {"path": str(p), "written": True, "readback_error": e.strerror or str(e), **out}
+
+
 class FsWrite(_Base):
     name, description = "fs.write", "Create or overwrite a text file."
     scopes, risk, reversible = {"fs:write"}, RiskLevel.MEDIUM, False
     access = "write"
+    undone = "nothing was written"
 
     class Input(BaseModel):
         path: str
@@ -349,31 +525,32 @@ class FsWrite(_Base):
         overwrite: bool = False
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec("write_file", Target(path=self.describe_path(args)), content=str(getattr(args, "content")))
+        path = self.describe_path(args)
+        return ActionSpec("write_file", Target(path=path), content=str(getattr(args, "content")),
+                          facts=ActionFacts(writes=(path,)))
 
     def recovery_reason(self, args: BaseModel) -> str | None:
         """S1: why the gateway copies an existing file first; None when this call can't change one (no overwrite)."""
         return "overwrite" if getattr(args, "overwrite") else None
 
-    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        try:
-            p = resolve(str(getattr(args, "path")), ctx, must_exist=False)
-        except PathRefused as e:
-            return _err(str(e))
+    def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        p = resolve(str(getattr(args, "path")), ctx, must_exist=False)
+        if p.is_dir():
+            return _err(f"{p} is a folder, not a file; nothing was written")
         if p.exists() and not getattr(args, "overwrite"):
             return _err(f"{p} exists (set overwrite=true to replace it)")
-        try:
-            make_folders(p.parent, _write_check(ctx))
-            atomic_text(p, str(getattr(args, "content")), _write_check(ctx))
-        except PathRefused as e:
-            return _err(str(e))
-        return ToolResult({**identity(p), "bytes": p.stat().st_size})
+        make_folders(p.parent, _write_check(ctx))
+        how = atomic_text(p, str(getattr(args, "content")), _write_check(ctx))
+        return ToolResult(_written_facts(p, how))
 
 
 class FsEdit(_Base):
-    name, description = "fs.edit", "Replace one exact occurrence of old_text with new_text in a file."
+    name, description = ("fs.edit", "Replace one exact occurrence of old_text with new_text in a UTF-8 text file. The "
+                         "rest of the file stays byte for byte, its line endings too (in a file with CRLF line "
+                         "endings, \\n in old_text and new_text means its CRLF).")
     scopes, risk, reversible = {"fs:write"}, RiskLevel.MEDIUM, False
     access = "write"
+    undone = "nothing was changed"
 
     class Input(BaseModel):
         path: str
@@ -381,49 +558,69 @@ class FsEdit(_Base):
         new_text: str
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec("write_file", Target(path=self.describe_path(args)), content=str(getattr(args, "new_text")))
+        path = self.describe_path(args)
+        return ActionSpec("write_file", Target(path=path), content=str(getattr(args, "new_text")),
+                          facts=ActionFacts(writes=(path,)))
 
     def recovery_reason(self, args: BaseModel) -> str | None:
         """S1: the gateway copies the file before an edit (an edit that refuses drops the copy)."""
         return "edit"
 
-    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        try:
-            p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
-        except PathRefused as e:
-            return _err(str(e))
-        with open(p, encoding="utf-8") as stream:
+    def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
+        if not p.is_file():
+            return _err(f"{p} is not a file; nothing was changed")
+        with open(p, "rb") as stream:
             refusal = opened_closed(ctx, stream.fileno(), self.access)
             if refusal:
                 return _err(refusal)
-            text = stream.read()
-        old = str(getattr(args, "old_text"))
+            text = stream.read().decode("utf-8")          # as stored: no line-ending translation
+        old, new = str(getattr(args, "old_text")), str(getattr(args, "new_text"))
         n = text.count(old)
+        if n == 0 and "\r\n" in text and "\n" in old and "\r" not in old:
+            # the file's own line endings: the worker's \n stands for its CRLF (a mechanical spelling, not a guess)
+            crlf_old, crlf_new = old.replace("\n", "\r\n"), new.replace("\r\n", "\n").replace("\n", "\r\n")
+            if text.count(crlf_old):
+                old, new, n = crlf_old, crlf_new, text.count(crlf_old)
         if n != 1:
             return _err(f"old_text occurs {n} times; it must occur exactly once")
-        try:
-            atomic_text(p, text.replace(old, str(getattr(args, "new_text")), 1), _write_check(ctx))
-        except PathRefused as e:
-            return _err(str(e))
-        return ToolResult({"path": str(p), "replaced": 1}, read_sources=(_source(p, ctx),))
+        how = atomic_text(p, text.replace(old, new, 1), _write_check(ctx))
+        out: dict[str, Any] = {"path": str(p), "replaced": 1}
+        if how.in_place:
+            out |= {"in_place": True, "hard_links": how.links}
+        return ToolResult(out, read_sources=(_source(p, ctx),))
+
+
+def link_path(path: str, workspace: str) -> Path:
+    """The item a call names, its last part never followed: a link names the link itself (fs.trash moves the link,
+    not what it points to). Its folder is resolved as the OS does."""
+    raw = owner_path(path, workspace)
+    return raw.parent.resolve() / raw.name
 
 
 class FsTrash(_Base):
-    name, description = "fs.trash", "Move a file or folder to the Trash (recoverable)."
+    name, description = ("fs.trash", "Move a file or folder to the Trash (recoverable). A link goes itself; what it "
+                         "points to stays.")
     scopes, risk, reversible = {"fs:write"}, RiskLevel.LOW, True
     access = "remove"
+    undone = "nothing was moved"
 
     class Input(BaseModel):
         path: str
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec("trash", Target(path=self.describe_path(args)))
+        path = self.describe_path(args)
+        return ActionSpec("trash", Target(path=path), facts=ActionFacts(deletes=(path,)))
 
-    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        try:
-            p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
-        except PathRefused as e:
-            return _err(str(e))
+    def real_path(self, args: BaseModel, workspace: str) -> Path:
+        """The item itself (`link_path`): a link is locked, and kept by S1's record, as the link."""
+        return link_path(str(getattr(args, "path")), workspace)
+
+    def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        given = str(getattr(args, "path"))
+        p = link_path(given, ctx.workspace)
+        if not os.path.lexists(p):
+            return _err(f"{given} does not exist")
         try:
             folder = os.open(p.parent, O_SEARCH | os.O_DIRECTORY | os.O_CLOEXEC)
         except OSError as e:

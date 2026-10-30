@@ -20,15 +20,14 @@ TOKEN = "rt-OPAQUE-VALUE-123"
 
 def _protected(tmp_path: Path) -> tuple[Path, Path, Protection, Changes]:
     """A home with FERB's state at ~/.ferb and the never-read store ~/.ssh, the change record closed as the shell's
-    sandbox is (Protection.read_denied: the installed fs_reads_never_read = true leaves the stores open to FERB's
-    file tools, never to its shell)."""
+    sandbox is (Protection.read_denied: the shell's never-read stores)."""
     home = (tmp_path / "home").resolve()
     ferb = home / ".ferb"
     (ferb / "codex-home").mkdir(parents=True)
     (ferb / "codex-home" / "auth.json").write_text('{"refresh_token": "%s"}' % TOKEN)
     (home / ".ssh").mkdir()
     (home / ".ssh" / "id_ed25519").write_text("PRIVATE KEY " + TOKEN)
-    protection = Protection(home, ferb, ["~/.ssh"], [], [], True)
+    protection = Protection(home, ferb, ["~/.ssh"], [], [])
     store = Changes(ferb / "changes", closed=lambda p: protection.read_denied(p) is not None, home=home)
     return home, ferb, protection, store
 
@@ -197,7 +196,7 @@ def test_one_lock_per_task_and_the_index_is_written_only_on_change(tmp_path: Pat
 
 def test_the_daemons_change_record_is_closed_as_the_shell_sandbox_is(daemon) -> None:
     """C1 wiring: the daemon's record closes what the shell's sandbox denies to reads (Protection.read_denied), even
-    where FERB's own file tools may read (fs_reads_never_read = true)."""
+    where FERB's own file tools may read with the owner's Yes."""
     protection = daemon.daemon.protection
     store = daemon.daemon.changes
     entry = protection.reads[0].path / "inside"

@@ -26,6 +26,7 @@ class Kind:
     CALL = "call"                                         # starting a voice / video call
     CLICK = "click"                                       # a plain click on a page control (no floor word, no form)
     SNAPSHOT = "snapshot"                                 # a local disk snapshot, a recovery point (S1)
+    STOP_PROCESS = "stop_process"                         # ending one of the task's own processes (shell.kill)
 
 
 # W2: input whose physical kind says nothing of what it does (a click, typing or a key, an app's control or menu item,

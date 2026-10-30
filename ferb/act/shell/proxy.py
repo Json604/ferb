@@ -13,7 +13,9 @@ bodies, headers, paths or query strings (rule 14).
 - The proxy resolves names itself (the sandbox has no DNS) and connects only to an address it checked. This Mac's
   own addresses are refused unless the owner configured executable-pinned local ports. Those explicit local
   destinations are checked before dial and against the actual connected peer before forwarding; their address and
-  executable are recorded. Contained servers also remain reachable directly (sandbox.py, listeners.py).
+  executable are recorded. The same per-connection check lets a command reach a server a FERB command started (its
+  listener runs inside FERB's containment), including one that started listening after the command began: the shell
+  profile allows directly only the contained servers listening when the command started (sandbox.py, listeners.py).
 - CONNECT tunnels any TCP port as opaque bytes (TLS stays end to end). Both directions start at once; the first
   client bytes are inspected inline. Non-TLS is forwarded with no delay. A TLS ClientHello's SNI (a hostname, a
   destination fact like the CONNECT host, never content) is recorded; when `inspect_sni` says so (the daemon: always)
@@ -25,8 +27,10 @@ bodies, headers, paths or query strings (rule 14).
   Bytes are counted before they are passed on, so a record is complete by the time the client has the data. A
   connection that FERB's shell opened and a setsid child keeps after the shell exits goes on being counted: `forget`
   revokes the credential but the process's record is kept and reported only once its last connection closes.
-- NO_PROXY keeps loopback direct by default; it is empty when owner-approved local ports need the proxy. Nothing is
-  logged; byte counts are recorded, never capped.
+- NO_PROXY keeps loopback direct only when the proxy has no local check; the daemon always gives it one, so NO_PROXY
+  is empty and HTTP clients reach this Mac's servers through it. Nothing is logged; byte counts are recorded, never
+  capped. Each destination's first connection is told to `on_destination` as it happens, so the record of where a
+  command went survives a crash before its final record (the daemon journals it).
 - Abuse is bounded without an owner-visible limit: a connection that hasn't authenticated gets a short timeout, and
   only unauthenticated connections are capped; an authenticated tunnel has no idle timeout, so streaming APIs,
   WebSockets and SSE stay up, and there is no per-credential cap. A malformed request or an over-long response head
@@ -211,8 +215,11 @@ class EgressProxy:
     def __init__(self, allow: Allow, *, resolve: Resolve = addresses, redactor: Secrets | None = None,
                  excluded: Callable[[str], bool] | None = None, on_report: Report | None = None,
                  inspect_sni: Callable[[str, str, int], bool] | None = None,
-                 local_access: LocalAccess | None = None, allow_local: Allow | None = None) -> None:
+                 local_access: LocalAccess | None = None, allow_local: Allow | None = None,
+                 on_destination: Callable[[str, str, int], None] | None = None) -> None:
         self.allow, self.resolve, self.redactor = allow, resolve, redactor
+        # a process's first connection to a host and port, as it opens (the daemon journals it at once: durable)
+        self.on_destination = on_destination
         # S4: whether to hold a CONNECT's TLS ClientHello to check its SNI (the daemon: always); default off
         self.inspect_sni = inspect_sni or (lambda proc, host, port: False)
         self.excluded = excluded or (lambda host: False)    # the owner's exclusion list: such a host is never shown
@@ -313,11 +320,11 @@ class EgressProxy:
                             target, source = upstream.getpeername(), upstream.getsockname()
                             peer = local.connected((str(target[0]), int(target[1])),
                                                    (str(source[0]), int(source[1])))
-                            # Only after both executable checks: a configured local port is standing permission;
-                            # task ownership and an explicit tree No still apply. Other contained servers follow
-                            # the ordinary gate here; their existing direct socket route is unchanged.
-                            gate = proxy.allow_local if port in local.pins else proxy.allow
-                            ok, why = gate(proc, host, port)
+                            # Only after both checks of the listener (its pinned executable, or FERB's containment
+                            # for a server a FERB command started): standing permission; task ownership and an
+                            # explicit tree No still apply. This is how a command reaches a local server that started
+                            # listening after it began (its profile doesn't allow that port directly: sandbox.py)
+                            ok, why = proxy.allow_local(proc, host, port)
                             if not ok:
                                 raise LocalRefused(why or "FERB refused this destination")
                     except LocalRefused as e:
@@ -643,6 +650,7 @@ class EgressProxy:
             if proc not in self._tokens:
                 return False
             f = self._facts.setdefault(proc, {"destinations": {}, "refused": {}})
+            first = (host, port) not in f["destinations"]
             d = f["destinations"].setdefault((host, port), {"bytes_out": 0, "bytes_in": 0, "connections": 0})
             d["connections"] += 1
             if local_peer is not None:
@@ -650,7 +658,24 @@ class EgressProxy:
                 key = (host, port, local_peer.address, local_peer.executable)
                 records[key] = records.get(key, 0) + 1
             self._active[proc] = self._active.get(proc, 0) + 1
+        if first:
+            self._first(proc, host, port)
         return True
+
+    def _first(self, proc: str, host: str, port: int) -> None:
+        """Tell `on_destination` of a process's first connection to a host (an excluded host as "excluded"); its
+        failure never touches the connection."""
+        if self.on_destination is None:
+            return
+        try:
+            self.on_destination(proc, "excluded" if self.excluded(host) else host, port)
+        except Exception:
+            pass
+
+    def pending(self, proc_id: str) -> bool:
+        """Whether a final record for this process is still to come (it connected, and isn't reported yet)."""
+        with self._lock:
+            return proc_id in self._facts
 
     def _closed(self, proc: str) -> None:
         """A connection ended. If the process was forgotten and this was its last connection, report it now (with the
@@ -687,7 +712,10 @@ class EgressProxy:
             f = self._facts.get(proc)
             if f is None:
                 return
+            first = (sni, port) not in f["destinations"]
             f["destinations"].setdefault((sni, port), {"bytes_out": 0, "bytes_in": 0, "connections": 0})
+        if first:
+            self._first(proc, sni, port)
 
     def _sni_gate(self, chunk: bytes, client: socket.socket, proc: str, host: str, port: int,
                   sni_check: Callable[[], bool]) -> bytes | None:

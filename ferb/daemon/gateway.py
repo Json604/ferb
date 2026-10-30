@@ -26,9 +26,11 @@ call.
 L39: before a call that can change files (a file tool, a shell command, an AppleScript), the change record copies the
 existing files it names and lists their folders (ferb/act/fs/changes.py), so the step's checker reads what changed.
 Rule 10: a tool that names files declares them (`file_paths(args)`: each path and whether it reads, writes or removes
-it); none of them may be FERB's own state, nor (while protection.fs_reads_never_read is false) inside or holding a
-never-read store (ferb/policy/protection.py). Refused before anything runs, leaving a tool.refused span; the fs tools
-check again what they really opened (ToolContext.path_closed).
+it); none of them may be FERB's own state, FERB.app or FERB's launchd definitions (refused before anything runs,
+leaving a tool.refused span). Gateway decision 2: one inside or holding a never-read store, or a never-write place it
+changes, asks the owner first (`_file_lifts`): a read once per protected folder per task tree (the same Yes covers
+the shell's read escape of that folder, hands decision 1), a change per call; the fs tools check again what they
+really opened (ToolContext.path_closed), with the rules the owner lifted for this call.
 D23 floor, D33, S4, SQ6: before a consequential call runs (or any call with a declared purpose: it can only add a
 question, W2), code decides from facts whether it needs the owner (ferb/policy/confirm.py): a payment or an
 account-security change always; a permanent delete or a send to someone the owner didn't name; private data to a new
@@ -70,7 +72,7 @@ from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger,
 from ferb.orchestrator.tree import TaskTree
 from ferb.policy import confirm, provenance, terminal as terminals, urls
 from ferb.policy.destinations import Confirmations, KnownDestinations
-from ferb.policy.protection import FERB_APP, FERB_STATE, Protection
+from ferb.policy.protection import FERB_APP, FERB_SERVICE, FERB_STATE, NEVER_LIFTED, READ, Protection
 from ferb.policy.rules import EFFECTS, declare, declared_kinds
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
@@ -112,10 +114,15 @@ FS_FERB_APP = ("{name} can't change {path}: it is or holds FERB.app, FERB's own 
                "(rule 10)")
 FS_UNDECLARED = ("{name} has file access but doesn't declare the files it names, so FERB can't check them against its "
                  "protection lists; it didn't run")
-FS_NEVER_READ = ("{name} can't open or change {path}: it is inside or holds {store}, where passwords, keys, sign-ins or "
-                 "private messages are kept. FERB's tools stay out of these stores until FERB can reliably keep "
-                 "secrets out of what models see. A secret a task needs comes only through FERB's sealed secret path, "
-                 "and a file from one of these stores is the owner's to send; the escape hatch does not open them")
+FS_FERB_SERVICE = ("{name} can't change {path}: it is or holds FERB's own background-service definition, which "
+                   "FERB's tools may read but never change; only the owner's setup changes it (rule 10)")
+FS_NEVER_READ = ("{name} can't open or change {path} without the owner's Yes: it is inside or holds {store}, where "
+                 "passwords, keys, sign-ins or private messages are kept. A secret a task needs comes only through "
+                 "FERB's sealed secret path")
+FS_NEVER_WRITE = ("{name} can't change {path} without the owner's Yes: it is inside {store}, a place FERB never changes "
+                  "on its own (system, startup or shell settings)")
+FS_PROBE_LIFT = ("{error}. A loop's probe can't ask the owner; read it from a step first, so FERB asks once for this "
+                 "task")
 RETRY_STALE = ("the action was tried again while the owner was being asked, so this answer is out of date; check what "
                "happened, then ask again with the newest retry_action")
 # D33, S4: FERB's own question about a call, and what the worker is told when it doesn't run.
@@ -235,6 +242,26 @@ def snapshot_facts(out: dict[str, Any]) -> dict[str, Any]:
         return {"snapshot_error": out["error"]}
     return {"recovery_snapshot": {"snapshot": out.get("snapshot"), "record": out.get("record"),
                                   "reused": bool(out.get("reused"))}}
+
+
+def lift_how(access: str) -> str:
+    """What a lift of a protection rule covers for a file access: "read" (a read or a look), else "change"."""
+    return "read" if access in (READ, "metadata") else "change"
+
+
+def lift_need(protection: Protection, rule: str, how: str, call: str) -> confirm.Need:
+    """FERB's question for lifting a protection rule (gateway decision 2, hands decision 1): a read covers every read
+    of that folder in the task tree (its key names the rule only, shared by the file tools and the shell's read
+    escape); a change covers this one call (always asked)."""
+    entry = protection.entry(rule)
+    shown = entry.shown if entry else rule
+    if how == "read":
+        return confirm.Need("escape:" + rule, confirm.read_lift_key(rule),
+                            {"text": f"let FERB read {shown} for this task (rule {rule})", "lift": "read",
+                             "path": shown})
+    return confirm.Need("escape:" + rule, "lift:change:" + rule + ":" + escape_key(rule, call, ""),
+                        {"text": f"let FERB change {shown} once (rule {rule})", "lift": "write", "path": shown},
+                        always=True)
 
 
 @dataclass
@@ -469,6 +496,10 @@ class Gateway:
         # D31: the Yes a task's approved terminal text left for its one Return, valid only as the task's very next
         # acting call (review round 1, finding 3): any other acting call clears it
         self._terminal_arms: dict[str, str] = {}
+        # Hands decision 4: each task tree's folders, resolved by the planner from the owner's words, the only visible
+        # folders its shell commands may change (ToolContext.folders). Step 8 sets them from the planner's `folders`
+        # field; until then none, so commands change only hidden folders, ~/Library, temp and the workspace.
+        self.task_folders: dict[str, tuple[str, ...]] = {}
 
     def _in_background(self, work: Awaitable[Any], what: str) -> None:
         """Fire-and-forget work, kept referenced until it ends; a failure is journaled (`journal_problem`), never lost
@@ -553,16 +584,18 @@ class Gateway:
             args = cap.Input.model_validate(dict(arguments))
             if hasattr(cap, "precheck") and (refusal := cap.precheck(args)):
                 return refused(refusal)
-            closed = self._files_closed(cap, name, args)
+            lifted = self._reads_lifted(rec.tree_id or grant.task_id)   # a probe never asks: earlier Yeses only
+            closed = self._files_closed(cap, name, args, lifted)
             if closed is not None:
-                return refused(closed[1])
+                return refused(FS_PROBE_LIFT.format(error=closed[1]) if closed[0].startswith("a protected") else
+                               closed[1])
             spec = cap.describe(args)
             ctx = ToolContext(task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                               identity=next(iter(cap.identities)) if len(cap.identities) == 1 else grant.identity,
                               scopes=grant.scopes, device_id=self.device_id, span_id=span_id,
                               workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
                               untrusted_roots=self.roots.untrusted_roots, observe_only=True, probe=True,
-                              path_closed=self._path_closed(name))
+                              path_closed=self._path_closed(name, lifted))
             lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
             async with self.locks.hold(lock_keys, grant.worker_id):
                 result = await cap.run(args, ctx)
@@ -584,8 +617,9 @@ class Gateway:
                                   local_approved: bool = False) -> tuple[bool, str]:
         """Any remote host for a shell process FERB tracks: shell networking never asks, and the proxy records each
         host, port and byte count (L2, owner 2026-10-13). The proxy calls before DNS and again for a differing TLS SNI.
-        A process that has ended, or that FERB can't attribute to a task, gets nothing. A local address needs the proxy's executable-pinned
-        permission (`local_approved`, supplied only after the proxy checked the listener against its pin). The owner's
+        A process that has ended, or that FERB can't attribute to a task, gets nothing. A local address needs the proxy's check of
+        its listener (`local_approved`, supplied only after the proxy found it runs its pinned executable, or inside
+        FERB's containment: a server a FERB command started). The owner's
         No to a host in this tree (the browser's S4 question; SQ6 shares the key) stays final for the shell too, even
         after the owner's follow-up reopened it: the shell never asks, so only a new Yes to the browser's question
         lifts it."""
@@ -805,7 +839,8 @@ class Gateway:
             self._refused(grant, rec, name, conversation_refusal)
             return reply({'error': conversation_refusal}, True, {origin.FERB})
         real = self._real_path(cap, args, spec)
-        closed = self._files_closed(cap, name, args)     # rule 10: before the span and the ledger, nothing ran
+        # rule 10, gateway decision 2: before the span and the ledger, nothing ran; a protected place asks the owner
+        lifted, closed = await self._file_lifts(grant, rec, cap, name, args, why)
         if closed is not None:
             self._refused(grant, rec, name, closed[0])
             return reply({"error": closed[1]}, True, {origin.FERB})
@@ -845,6 +880,10 @@ class Gateway:
         if covered.standing and covered.refused is None:  # D30: runs inside a standing permission, logged as such
             extra["standing"] = {"task": rec.tree_id or grant.task_id, "rules": covered.standing}
         claimed = Claimed(covered.spent)
+        if spec.facts is not None and (facts := spec.facts.recorded()):
+            extra["facts"] = facts                       # what the tool reported (ActionFacts): recorded, decides nothing
+        if lifted:
+            extra["lifted"] = sorted(f"{how}:{rule}" for rule, how in lifted)
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                input={"tool": name, "args": arguments, "effect": effect, "kind": spec.kind,
                                       "target": _target_dict(checked.target)}
@@ -887,7 +926,7 @@ class Gateway:
                     self._finish_call(span, name, refused, True, error=str(refused["error"]))
                     return reply(refused, True, {origin.FERB})
             result = await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed,
-                                      arguments, escape, terminal)
+                                      arguments, escape, terminal, lifted)
             if terminal is not None and terminal.input.enter and not result.get("is_error"):
                 self._terminal_arms[grant.task_id] = terminal.confirmation_id   # its one Return, next action only
             return result
@@ -901,7 +940,8 @@ class Gateway:
     async def _held(self, cap: Any, name: str, args: Any, spec: Any, action: ActionRequest, grant: RunGrant, rec: Any,
                     span: Any, reply: Callable[..., dict[str, Any]], real: Path | None, claimed: Claimed,
                     arguments: dict[str, Any], escape: EscapeGrant | None = None,
-                    terminal: TerminalGrant | None = None) -> dict[str, Any]:
+                    terminal: TerminalGrant | None = None,
+                    lifted: frozenset[tuple[str, str]] = frozenset()) -> dict[str, Any]:
         """The call under its resource locks, with the disturbance record around it."""
         lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
         if name.startswith("fs.") and real is not None:
@@ -917,7 +957,7 @@ class Gateway:
                     await self.disturbance.before_action(grant.task_id, span.id, name, arguments, on_screen(cap))
                 try:
                     result = await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real, claimed,
-                                                 escape, terminal)
+                                                 escape, terminal, lifted)
                     if name == "mac.snapshot" and not result.get("is_error"):
                         await self._preview_target(cap, name, args, grant, rec, result.get("content"))
                     return result
@@ -1379,47 +1419,139 @@ class Gateway:
         self._finish_call(q_span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
         return Answer(yes, ids, "" if yes else SAID_NO.format(line=text), "" if yes else OWNER_DECIDED_NEXT)
 
-    def _files_closed(self, cap: Any, name: str, args: Any) -> tuple[str, str] | None:
-        """(the trace's reason, the worker's error) when the protection lists close a file this call declares
-        (`file_paths`: each path, read / write / remove), else None (rule 10, OPEN QUESTION 6). Each path is checked as
-        the call would name it (~ expanded, a relative one the workspace's) and as the OS reaches it now. A tool with a
-        files scope that declares nothing is refused: what it would touch can't be checked."""
+    def _file_rules(self, cap: Any, name: str,
+                    args: Any) -> tuple[list[tuple[Path, str, list[str]]], tuple[str, str] | None]:
+        """Each file this call declares (`file_paths`: path, read / write / remove) with the protection rules that close
+        it, as the call would name it (~ expanded, a relative one the workspace's) and as the OS reaches it now; or the
+        refusal when one is never lifted (FERB's own state, FERB.app, FERB's launchd definitions), or when a tool with
+        a files scope declares nothing (what it would touch can't be checked)."""
         protection, declared = self.roots.protection, getattr(cap, "file_paths", None)
         if protection is None:
-            return None
+            return [], None
         if declared is None:
             if any(str(s).startswith("fs:") for s in cap.scopes):
-                return "no file_paths declared", FS_UNDECLARED.format(name=name)
-            return None
+                return [], ("no file_paths declared", FS_UNDECLARED.format(name=name))
+            return [], None
+        found = []
         for given, access in declared(args):
-            closed = self._closed(protection, name, owner_path(given, self.roots.workspace), access)
-            if closed is not None:
-                return closed
+            path = owner_path(given, self.roots.workspace)
+            rules = protection.fs_rules(path, access)
+            if rules and rules[0] in NEVER_LIFTED:
+                return [], self._closed(protection, name, path, access, rules)
+            if rules:
+                found.append((path, access, rules))
+        return found, None
+
+    def _files_closed(self, cap: Any, name: str, args: Any,
+                      lifted: frozenset[tuple[str, str]] = frozenset()) -> tuple[str, str] | None:
+        """(the trace's reason, the worker's error) when the protection lists close a file this call declares and the
+        owner hasn't lifted that rule for it (`lifted`: (rule, "read" | "change")), else None (rule 10)."""
+        found, refused = self._file_rules(cap, name, args)
+        if refused is not None:
+            return refused
+        protection = self.roots.protection
+        for path, access, rules in found:
+            left = [r for r in rules if (r, lift_how(access)) not in lifted]
+            if left and protection is not None:
+                return self._closed(protection, name, path, access, left)
         return None
 
+    def _reads_lifted(self, root: str) -> frozenset[tuple[str, str]]:
+        """The protected folders the owner let this task tree read (hands decision 1): Yeses already recorded."""
+        protection = self.roots.protection
+        if protection is None or self.confirmations is None:
+            return frozenset()
+        reopened = self.spans.reopened_answers(root)
+        return frozenset((e.id, "read") for e in protection.reads
+                         if (row := self.confirmations.find(root, confirm.read_lift_key(e.id), reopened))
+                         and row["granted"])
+
+    async def _file_lifts(self, grant: RunGrant, rec: Any, cap: Any, name: str, args: Any,
+                          why: str) -> tuple[frozenset[tuple[str, str]], tuple[str, str] | None]:
+        """Gateway decision 2, hands decision 1: the rules the owner lifted for this call, or the refusal. A file inside
+        or holding a never-read store, or a never-write place the call changes, needs the owner's Yes first: a read once
+        per protected folder per task tree (the Yes covers every later read of it in the tree, the shell's read escape
+        of that folder included), a change (write or removal) for this one call. All of a call's questions go in one,
+        asked while nothing is held; a No is final for the tree's reads of that folder. Never-lifted rules refuse.
+        Step 6 folds this into the single Need pipeline (`_confirmed`)."""
+        found, refused = self._file_rules(cap, name, args)
+        if refused is not None or not found:
+            return frozenset(), refused
+        protection, confirmations = self.roots.protection, self.confirmations
+        assert protection is not None
+        wanted: dict[tuple[str, str], Path] = {}
+        for path, access, rules in found:
+            for rule in rules:
+                wanted.setdefault((rule, lift_how(access)), path)
+        if confirmations is None:
+            path, access, rules = found[0]
+            return frozenset(), self._closed(protection, name, path, access, rules)
+        root = rec.tree_id or grant.task_id
+        allowed: set[tuple[str, str]] = set()
+        ask: list[tuple[tuple[str, str], confirm.Need]] = []
+        async with self._confirming.setdefault(root, asyncio.Lock()):
+            reopened = self.spans.reopened_answers(root)
+            for (rule, how), path in wanted.items():
+                need = lift_need(protection, rule, how, f"{name} {path}")
+                if how == "read":
+                    row = confirmations.find(root, need.key, reopened)
+                    if row is not None and row["granted"]:
+                        allowed.add((rule, how))
+                        continue
+                    if row is not None:
+                        return frozenset(), (f"a protected folder ({rule}): the owner said no",
+                                             f"the owner already said no to FERB reading {need.values['path']} in "
+                                             "this task; don't try another way. Report that it wasn't done.")
+                ask.append(((rule, how), need))
+            if ask:
+                shown = self.redact({"v": f"{name} " + ", ".join(sorted({str(p) for p in wanted.values()}))})["v"]
+                answer = await self.ask_confirmation(grant, rec, [n for _, n in ask], None, shown, why)
+                if not answer:
+                    return frozenset(), (f"a protected folder ({', '.join(r for (r, _), _ in ask)}): not approved",
+                                         answer.error)
+                for ((rule, how), _), cid in zip(ask, answer.ids):
+                    allowed.add((rule, how))
+                    if how == "change":
+                        confirmations.use(cid)           # one change: spent by this call
+        return frozenset(allowed), None
+
     @staticmethod
-    def _closed(protection: Protection, name: str, path: Path, access: str) -> tuple[str, str] | None:
-        rule = protection.fs_denied(path, access)
-        if rule is None:
-            return None
+    def _closed(protection: Protection, name: str, path: Path, access: str,
+                rules: list[str] | None = None) -> tuple[str, str]:
+        rules = rules if rules is not None else protection.fs_rules(path, access)
+        rule = rules[0]
         if rule == FERB_STATE:
             return "FERB's own state", FS_FERB_STATE.format(name=name, path=recovery.short(path))
         if rule == FERB_APP:
             return "FERB's own code", FS_FERB_APP.format(name=name, path=recovery.short(path))
+        if rule == FERB_SERVICE:
+            return "FERB's own service", FS_FERB_SERVICE.format(name=name, path=recovery.short(path))
         entry = protection.entry(rule)
-        return (f"a never-read store ({rule})",
-                FS_NEVER_READ.format(name=name, path=recovery.short(path), store=entry.shown if entry else rule))
+        store = entry.shown if entry else rule
+        text = FS_NEVER_READ if rule.startswith("read:") else FS_NEVER_WRITE
+        return f"a protected folder ({rule})", text.format(name=name, path=recovery.short(path), store=store)
 
-    def _path_closed(self, name: str) -> Callable[[Path, str], str | None] | None:
+    def _path_closed(self, name: str, lifted: frozenset[tuple[str, str]] = frozenset(), *,
+                     owner: bool = False) -> Callable[[Path, str], str | None] | None:
         """For a tool to check the file it really opened (macOS F_GETPATH) against the lists, closing the gap between
-        the check above and its open: the error to return, else None."""
+        the check above and its open: the error to return, else None. `lifted`: the rules the owner lifted for this
+        call. `owner`: the owner's own command (`ferb restore`): only the never-lifted rules apply, since the lists
+        bound what FERB does on its own, and the owner is the one acting."""
         protection = self.roots.protection
         if protection is None:
             return None
 
         def check(path: Path, access: str) -> str | None:
-            closed = self._closed(protection, name, path, access)
-            return closed[1] if closed else None
+            rules = protection.fs_rules(path, access)
+            if not rules:
+                return None
+            if rules[0] not in NEVER_LIFTED:
+                if owner:
+                    return None
+                rules = [r for r in rules if (r, lift_how(access)) not in lifted]
+                if not rules:
+                    return None
+            return self._closed(protection, name, path, access, rules)[1]
         return check
 
     def _started(self, grant: RunGrant, name: str, args: dict[str, Any], kind: str, site: str | None) -> None:
@@ -1446,12 +1578,30 @@ class Gateway:
         cwd = file_real_path(args.cwd or self.roots.workspace, self.roots.workspace)
         if not cwd.is_dir():
             raise Refused("the escape command's working folder does not exist")
-        key = escape_key(rule, command, str(cwd))
         root = rec.tree_id or grant.task_id
         if self.confirmations is None:
             raise Refused("FERB cannot record the escape approval")
         lifted = next(row for row in protection.rules() if row["id"] == rule)
         shown = lifted["path"]
+        if lifted["kind"] == "read":
+            # Hands decision 1: one Yes per protected folder per task tree, shared with the file tools' reads of it:
+            # never spent, so later read escapes of this folder in the tree run without asking
+            need = lift_need(protection, rule, "read", command)
+            async with self._confirming.setdefault(root, asyncio.Lock()):
+                row = self.confirmations.find(root, need.key, self.spans.reopened_answers(root))
+                if row is not None and not row["granted"]:
+                    raise Refused(f"you already said no to FERB reading {shown} in this task")
+                if row is None:
+                    answer = await self.ask_confirmation(grant, rec, [need], None,
+                                                          self.redact({"v": command + " (in " + str(cwd) + ")"})["v"],
+                                                          why)
+                    if not answer:
+                        raise Refused(answer.error)
+                    confirmation_id = answer.ids[0]
+                else:
+                    confirmation_id = row["id"]
+            return EscapeGrant(rule, confirmation_id, command, str(cwd))
+        key = escape_key(rule, command, str(cwd))
         need = confirm.Need("escape:" + rule, key,
                             {"text": f"this exact command needs rule {rule} lifted once: {shown}",
                              "lift": lifted["kind"], "path": shown}, always=True)
@@ -1564,7 +1714,8 @@ class Gateway:
     async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
                        grant: RunGrant, rec: Any, span: Any, reply: Callable[..., dict[str, Any]],
                        real: Path | None = None, claimed: Claimed | None = None,
-                       escape: EscapeGrant | None = None, terminal: TerminalGrant | None = None) -> dict[str, Any]:
+                       escape: EscapeGrant | None = None, terminal: TerminalGrant | None = None,
+                       lifted: frozenset[tuple[str, str]] = frozenset()) -> dict[str, Any]:
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
             try:
@@ -1583,8 +1734,9 @@ class Gateway:
                               scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
                               workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
                               untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id,
-                              observe_only=grant.observe_only, path_closed=self._path_closed(name), escape=escape,
-                              terminal=terminal)
+                              observe_only=grant.observe_only, path_closed=self._path_closed(name, lifted),
+                              escape=escape, terminal=terminal,
+                              folders=self.task_folders.get(rec.tree_id or grant.task_id, ()))
             if spec.target.path is not None:             # file events it causes are FERB's: the file it really writes
                 self.on_path(str(real) if real is not None else spec.target.path, grant.task_id)
         except Exception as e:                           # nothing ran: failed, not unknown (it must not block a retry)
@@ -1688,6 +1840,8 @@ class Gateway:
                 self._finish_call(span, name, content, result.is_error, output=content | {"evidence_error": "cancelled"},
                                   error=content.get("error") if result.is_error else None, origins=origins)
                 raise
+        if result.facts is not None and (measured := result.facts.recorded()):
+            output = output | {"facts": measured}      # what the tool measured (ActionFacts): recorded, decides nothing
         self._finish_call(span, name, content, result.is_error,
                           output=output | ({"change_record": watched} if watched else {}),
                           error=content.get("error") if result.is_error else None, origins=origins)
@@ -1787,7 +1941,7 @@ class Gateway:
         if self.recovery is None or getattr(cap, "creates_new_only", False) is True:
             return None
         if spec.kind == Kind.TRASH:                      # L39, S1: the Trash plus a backup copy of a file
-            if real is None or not real.is_file():
+            if real is None or real.is_symlink() or not real.is_file():   # a link goes itself: nothing to copy
                 return None
             r = self.recovery
             return await recovery.preserve_async(real, reason=recovery.TRASH_COPY, task_id=grant.task_id, db=r.db,
@@ -1873,8 +2027,9 @@ class Gateway:
             return {"error": error_name(e)}
 
     async def _snapshot_before(self, name: str, grant: RunGrant, rec: Any, before: str) -> dict[str, Any]:
-        """S1: a local APFS snapshot before a permanent delete or a shell command (recovery.Snapshots: at most one per
-        15 minutes, a recent one reused), on its own span; returns what the call's result says about it
+        """S1: a local APFS snapshot before a permanent delete or a shell command (recovery.Snapshots: a fresh one,
+        unless no such call ran since the last, hands decision 4), on its own span; returns what the call's result
+        says about it
         (`snapshot_facts`). Code can't tell a shell delete from a build (rule 6), so every shell command gets one.
         Best effort: a failure is recorded and never stops the call (OPEN QUESTION 3: `ferb doctor` shows the last
         failure); only this call's own cancellation propagates."""
@@ -1883,7 +2038,7 @@ class Gateway:
         span = self.spans.start("recovery.snapshot", task_id=grant.task_id, parent_id=rec.span_id,
                                 device_id=self.device_id, input={"before": name, "before_span": before})
         try:
-            out = await self.snapshots.request(grant.task_id, f"before {name}")
+            out = await self.snapshots.request(grant.task_id, f"before {name}", changes=True)
         except asyncio.CancelledError:
             self.spans.finish(span, error="cancelled")
             raise

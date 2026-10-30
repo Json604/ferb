@@ -3,8 +3,9 @@
 ShellManager: start / read / send / wait / kill / list, with task ownership and cleanup.
 
 Processes belong to the task that started them; a worker only sees its own task's. When the task ends its
-processes are killed unless started as long-lived (servers); `ferb stop` kills them all; `ferb ps` / `ferb kill`
-list and end them. Commands run through /bin/sh in a clean environment (no FERB tokens, no API keys), under FERB's
+processes' whole groups are killed unless started as long-lived (servers), even when the command's own process has
+already exited (children it left keep its group); then their entries go once their network record is out. `ferb stop`
+kills them all; `ferb ps` / `ferb kill` list and end them. Output logs are purged after the evidence window (7 days). Commands run through /bin/sh in a clean environment (no FERB tokens, no API keys), under FERB's
 sandbox (sandbox.py): the daemon never starts a command without it, and a child process can't shed the profile
 (macOS applies it to the whole tree). The sandbox bounds files, the Keychain, app/URL launches, launchd jobs and
 outbound network (what each rule covers, and its measured residuals, is in sandbox.py and the F5a Task 2 and 3
@@ -25,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from ferb.act.shell.listeners import contained
 from ferb.act.shell.local import DirectReports, report_tag
 from ferb.act.shell.proxy import EgressProxy
 from ferb.act.shell.pty_proc import PtyProc
@@ -35,6 +37,7 @@ from ferb.policy.protection import ADMIN, LocalPort
 from ferb.core.errors import Refused
 
 CLEAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "SHELL", "TMPDIR")
+SEND_WAIT_S = 2.0                         # how long shell.send keeps typing into a command that reads slowly
 
 
 def clean_env(sandbox: Sandbox | None = None) -> dict[str, str]:
@@ -95,7 +98,8 @@ class ShellManager:
         self.local_refused = local_refused        # whether a task's tree said No to one of this Mac's addresses
         self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}   # connection closes, so a setsid child's late bytes count)
         self._owner_input: dict[str, str] = {}
-        self._report_on_exit: set[str] = set()   # running when their task ended: their record is due when they exit
+        self._report_on_exit: set[str] = set()   # running when their task ended: retired when they exit
+        self._retiring: set[str] = set()         # finished, task ended: dropped once the proxy reports their record
         if proxy is not None:
             proxy.on_report = self._report
 
@@ -106,8 +110,10 @@ class ShellManager:
         return env
 
     async def start(self, command: str, cwd: Path, owner_task: str, long_lived: bool = False,
-                    *, lift: str | None = None, escape: EscapeGrant | None = None) -> ProcHandle:
-        """Run the command text through /bin/sh, under the sandbox profile (with `lift`'s one rule lifted)."""
+                    *, lift: str | None = None, escape: EscapeGrant | None = None,
+                    folders: tuple[str, ...] = ()) -> ProcHandle:
+        """Run the command text through /bin/sh, under the sandbox profile (with `lift`'s one rule lifted, and the
+        task's `folders` the only visible folders it may change)."""
         pid = "p-" + secrets.token_hex(4)
         direct: tuple[LocalPort, ...] = ()
         if escape is not None:
@@ -126,20 +132,20 @@ class ShellManager:
             rule = None if lift == ADMIN else lift
             if self.proxy is not None and not (self.local_refused is not None and self.local_refused(owner_task)):
                 tag = report_tag(pid)                 # in its profile only: the command can't read it there
-                argv, direct = await asyncio.to_thread(self.sandbox.contain, command, tag, rule)
+                argv, direct = await asyncio.to_thread(self.sandbox.contain, command, tag, rule, folders)
                 if direct and self.reports is not None:
                     self.reports.expect(pid, tag)
             else:
-                argv = await asyncio.to_thread(self.sandbox.argv, command, rule)
+                argv = await asyncio.to_thread(self.sandbox.argv, command, rule, folders)
             profile = self.sandbox.profile_path(argv)
         secret = escape.secret if escape is not None else None
         if secret and self.redactor is not None:
             self.redactor.retain_secret(secret)
         def finished() -> None:
             Sandbox.cleanup(profile)
-            if self.proxy is not None and pid in self._report_on_exit:   # outlived its task: its record is due now
+            if pid in self._report_on_exit:          # outlived its task: its record is due now, then it goes
                 self._report_on_exit.discard(pid)
-                self.proxy.forget(pid)
+                self._retire(pid)
             if secret and self.redactor is not None:
                 self.redactor.release_secret(secret)
         p = PtyProc(argv, cwd, self._env(pid), self.log_dir / f"{pid}.log", self.redact_text, self.stream_factory,
@@ -176,10 +182,34 @@ class ShellManager:
         text, offset, _ = p.read(since, limit)
         return text, offset, p.total
 
-    async def send(self, h: ProcHandle, data: str) -> None:
+    async def send(self, h: ProcHandle, data: str, wait_s: float = SEND_WAIT_S) -> tuple[int, int]:
+        """Type `data` into the command's terminal: (bytes that went in, bytes given). A command that reads slowly gets
+        the rest for up to `wait_s`; whatever didn't go in by then is reported, never claimed. Refused, before
+        anything is typed: a command the owner took over, one started with an owner-approved lift (D31: the Yes covered
+        that exact command, not what is typed into it later), and a line longer than its terminal takes while it reads
+        lines (the terminal would drop it whole and report it sent)."""
         if h.id in self._owner_input:
             raise Refused('You have taken over this process. Worker input is paused until you detach.')
-        self._get(h).send(data)
+        p = self._get(h)
+        lifted = self._procs[h.id][1].lifted
+        if lifted is not None:
+            raise Refused(f"This command runs with the owner's one-time lift of {lifted}; FERB doesn't type into it, "
+                          "because the owner's Yes covered that exact command, not later input. Put the input in the "
+                          "approved command itself (a here-document or a file), and ask again if it needs the lift.")
+        raw = data.encode()
+        limit = p.line_limit()
+        if limit is not None:
+            *full, last = raw.split(b"\n")
+            if any(len(line) + 1 > limit for line in full) or len(last) > limit - 1:
+                raise Refused(f"A line longer than {limit - 1} bytes can't go to this command: its terminal reads "
+                              "line by line and drops a longer line whole. Nothing was sent. Write the text to a file "
+                              "in the workspace and pass the file, or send shorter lines.")
+        sent, deadline = 0, time.monotonic() + wait_s
+        while True:
+            sent += p.write(raw[sent:])
+            if sent >= len(raw) or p.exit_code is not None or time.monotonic() >= deadline:
+                return sent, len(raw)
+            await asyncio.sleep(0.02)
 
     def take_input(self, proc_id: str) -> str:
         if proc_id not in self._procs or self._procs[proc_id][0].exit_code is not None:
@@ -190,10 +220,11 @@ class ShellManager:
         self._owner_input[proc_id] = lease
         return lease
 
-    def owner_send(self, proc_id: str, lease: str, data: str) -> None:
+    def owner_send(self, proc_id: str, lease: str, data: str) -> int:
+        """The owner's own typing into an attached process: what the terminal took (bytes)."""
         if not lease or not secrets.compare_digest(self._owner_input.get(proc_id, ''), lease):
             raise Refused('This attachment does not own process input.')
-        self._procs[proc_id][0].send(data)
+        return self._procs[proc_id][0].send(data)
 
     def release_input(self, proc_id: str, lease: str) -> None:
         if lease and secrets.compare_digest(self._owner_input.get(proc_id, ''), lease):
@@ -208,7 +239,26 @@ class ShellManager:
         return await self._get(h).wait(timeout)
 
     async def kill(self, h: ProcHandle) -> None:
-        await self._get(h).kill()
+        await self._get(h).kill(self._ours(h.id))
+
+    def _ours(self, proc_id: str) -> Callable[[list[int]], bool]:
+        """For killing a group whose first process has ended (PtyProc.kill): every process now in it runs inside
+        FERB's sandbox, and its id isn't another running command's own (a reused id would name that command's group).
+        Without a sandbox (unit tests of the plumbing) nothing can be checked, and that is accepted there."""
+        hit = self._procs.get(proc_id)
+        leader = hit[0].proc.pid if hit is not None and hit[0].proc is not None else None
+        others = {p.proc.pid for pid, (p, _) in self._procs.items()
+                  if pid != proc_id and p.proc is not None and p.exit_code is None}
+        sandbox = self.sandbox
+
+        def check(members: list[int]) -> bool:
+            if leader is None or leader in others:
+                return False
+            if sandbox is None:
+                return True
+            prot = sandbox.protection
+            return all(contained(m, prot.ferb_home, prot.workspace) for m in members)
+        return check
 
     def network(self, h: ProcHandle) -> dict[str, Any]:
         """What this process reached through FERB's proxy and what FERB refused it (proxy.py), so far."""
@@ -260,52 +310,91 @@ class ShellManager:
         hit = self._procs.get(proc_id)
         if hit is None:
             return False
-        await hit[0].kill()
+        await hit[0].kill(self._ours(proc_id))
         return True
 
     async def end_task(self, task_id: str) -> int:
-        """Task finished: kill its processes, except long-lived ones; report and forget the finished ones' network."""
+        """Task finished: kill its processes' whole groups, except long-lived ones, whether or not the command's own
+        process has ended (`cmd &` children live on in its group); report and forget the finished ones' network, and
+        drop them. Returns how many were still running."""
         n = 0
-        for p, info in list(self._procs.values()):
-            if info.owner_task == task_id and not info.long_lived and p.exit_code is None:
-                await p.kill()
-                n += 1
+        for pid, (p, info) in list(self._procs.items()):
+            if info.owner_task == task_id and not info.long_lived:
+                n += p.exit_code is None
+                await p.kill(self._ours(pid))
         self._settle(lambda info: info.owner_task == task_id)
         return n
 
     async def kill_all(self) -> int:
         n = 0
-        for p, _ in list(self._procs.values()):
-            if p.exit_code is None:
-                await p.kill()
-                n += 1
+        for pid, (p, _) in list(self._procs.items()):
+            n += p.exit_code is None
+            await p.kill(self._ours(pid))
         self._settle(lambda info: True)
         return n
 
     def _settle(self, which: Callable[[ProcInfo], bool]) -> None:
-        """Finished processes: forget their credential (it stops working now). The proxy keeps the record and reports
-        it through `_report` once the process's last connection closes, so a setsid child's late bytes still count.
-        A running process is left alone, so later reads still show it; it is forgotten, and its record reported, when
-        it exits."""
-        if self.proxy is None:
-            return
+        """Processes whose task ended: a finished one is retired now (`_retire`); a running one (long-lived) is left
+        alone, so later reads still show it, and retired when it exits."""
         for info in self.list():
             if which(info) and info.running:
                 self._report_on_exit.add(info.id)
             elif which(info):
-                self.proxy.forget(info.id)
+                self._retire(info.id)
+
+    def _retire(self, proc_id: str) -> None:
+        """A finished process whose task ended: its proxy credential is forgotten (it stops working now) and its entry
+        goes once its network record is out. The proxy keeps the record and reports it through `_report` once the
+        process's last connection closes, so a setsid child's late bytes still count; the entry waits for that."""
+        if self.proxy is not None:
+            self.proxy.forget(proc_id)
+            if self.proxy.pending(proc_id):
+                self._retiring.add(proc_id)
+                return
+        self._drop(proc_id)
+
+    def _drop(self, proc_id: str) -> None:
+        self._retiring.discard(proc_id)
+        self._owner_input.pop(proc_id, None)
+        self._procs.pop(proc_id, None)
+
+    def purge_logs(self, before: float) -> int:
+        """Output logs last written before `before` (a Unix time), of processes FERB no longer tracks (retention: the
+        evidence window, 7 days). Returns how many went."""
+        tracked = set(self._procs)
+        n = 0
+        try:
+            entries = list(os.scandir(self.log_dir))
+        except FileNotFoundError:
+            return 0
+        for entry in entries:
+            if not entry.name.endswith(".log") or entry.name[:-4] in tracked:
+                continue
+            try:
+                if entry.is_file(follow_symlinks=False) and entry.stat(follow_symlinks=False).st_mtime < before:
+                    os.unlink(entry.path)
+                    n += 1
+            except OSError:
+                continue
+        return n
 
     def _report(self, proc_id: str, facts: dict[str, Any]) -> None:
         """The proxy's final record for a forgotten process (from the daemon loop, or a tunnel's thread at close)."""
         hit = self._procs.get(proc_id)
         if hit is None or self.on_network is None:
+            if hit is not None and proc_id in self._retiring:
+                self._drop(proc_id)
             return
         info = hit[1]
-        # The direct local ports it connected to, as the kernel reported them, or all of them when that's unknown (L24)
-        used = [d for d in self._direct(info) if d["reported_connections"] is None or d["reported_connections"] > 0]
-        if info.direct and self.reports is not None:
-            self.reports.forget(proc_id)
-        if used:
-            facts = {**facts, "local_direct": used}
-        if facts["destinations"] or facts["refused"] or used:
-            self.on_network(info, facts)
+        try:
+            # The direct local ports it connected to, as the kernel reported them, or all of them when unknown (L24)
+            used = [d for d in self._direct(info) if d["reported_connections"] is None or d["reported_connections"] > 0]
+            if info.direct and self.reports is not None:
+                self.reports.forget(proc_id)
+            if used:
+                facts = {**facts, "local_direct": used}
+            if facts["destinations"] or facts["refused"] or used:
+                self.on_network(info, facts)
+        finally:
+            if proc_id in self._retiring:           # its record was what its entry waited for
+                self._drop(proc_id)

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from ferb.act.shell import guard
 from ferb.act.shell.manager import ProcHandle, ShellManager
 from ferb.act.shell.proxy import DEST_REFUSED_NO
-from ferb.act.shell.sandbox import NESTED_SANDBOX, NETWORK_FACT, NO_APPS
+from ferb.act.shell.sandbox import NESTED_SANDBOX, NETWORK_FACT, NO_APPS, SCOPE_FACT, SCOPE_REFUSED
 from ferb.core.errors import Refused
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.protection import Protection
@@ -44,6 +44,18 @@ def _err(msg: str) -> ToolResult:
     return ToolResult({"error": msg}, is_error=True)
 
 
+# What macOS prints for a write the sandbox refused (EPERM's own text): the folder scope's refusals among them
+_EPERM = "Operation not permitted"
+
+
+def _scope_note(out: dict[str, Any], failed: bool) -> None:
+    """A failed command whose output shows macOS refusing an operation gets the folder scope's reason and what to do
+    instead (hands decision 4). A fact about the result, never a judgment of the command: other sandbox rules refuse
+    with the same words, so it says what the scope means rather than claiming it was the cause."""
+    if failed and _EPERM in str(out.get("output") or ""):
+        out["sandbox_note"] = SCOPE_REFUSED
+
+
 class _Base:
     identities = {Identity.OWNER, Identity.FERB}
     scopes = {"shell"}
@@ -73,8 +85,8 @@ class ShellStart(_Base):
                    "directly, without nohup or trailing &: the id tracks this command, not detached children. "
                    "background=true keeps it alive after task completion (servers); it is not needed to work "
                    "asynchronously during a task. Starting a process does not prove it is ready or successful. "
-                   "Commands run inside FERB's sandbox (shell.rules lists what it keeps out). " + NO_APPS + " "
-                   + NETWORK_FACT + " " + NESTED_SANDBOX)
+                   "Commands run inside FERB's sandbox (shell.rules lists what it keeps out). " + SCOPE_FACT + " "
+                   + NO_APPS + " " + NETWORK_FACT + " " + NESTED_SANDBOX)
     target_args = ("cwd",)                             # Target.path, normalized by the gateway (P19 hash)
     method_args = ("background", "timeout_s", "escape", "external_source")
     ledger_key = "shell.run"                           # shell.start and shell.run run the same command: one action
@@ -102,7 +114,7 @@ class ShellStart(_Base):
         if lift and (ctx.escape is None or ctx.escape.rule != lift):
             raise Refused("this command has no owner-approved escape grant")
         return await self.shells.start(cmd, cwd, ctx.task_id, bool(getattr(args, "background")),
-                                       lift=lift, escape=ctx.escape)
+                                       lift=lift, escape=ctx.escape, folders=ctx.folders)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         h = await self._start(args, ctx)
@@ -119,6 +131,7 @@ async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> Too
            "retrieval": "shell.read with since=offset until more=false" if offset < total else None}
     if (nxt := _refused_next(network)) is not None:      # S4: only for a refused destination, never a bare null
         out["next"] = nxt
+    _scope_note(out, info.exit_code not in (None, 0))
     return ToolResult(out, is_error=info.exit_code not in (None, 0) or bool(info.capture_error),
                       read_sources=(_sources(network) or (("origin", OUTPUT_ORIGIN),)) + (("file", info.read_path),)
                       if info.read_path else _sources(network))
@@ -129,8 +142,8 @@ class ShellRun(ShellStart):
     description = ("Run a shell command (/bin/sh), waiting up to timeout_s. A live process returns its id; use "
                    "shell.wait to await its exit or shell.read for output. For immediate asynchronous start use "
                    "shell.start, without nohup or trailing &. background=true survives task completion (servers). "
-                   "Commands run inside FERB's sandbox (shell.rules lists what it keeps out). " + NO_APPS + " "
-                   + NETWORK_FACT + " " + NESTED_SANDBOX)
+                   "Commands run inside FERB's sandbox (shell.rules lists what it keeps out). " + SCOPE_FACT + " "
+                   + NO_APPS + " " + NETWORK_FACT + " " + NESTED_SANDBOX)
     origin = OUTPUT_ORIGIN
 
     class Input(ShellStart.Input):
@@ -152,6 +165,7 @@ class ShellRun(ShellStart):
         out["network"] = network = self.shells.network(h)
         if (nxt := _refused_next(network)) is not None:      # S4: a refused destination needs the owner, not a retry
             out["next"] = nxt
+        _scope_note(out, code not in (None, 0))
         return ToolResult(out, is_error=code not in (None, 0) or bool(info.capture_error),
                           read_sources=(_sources(network) or (("origin", OUTPUT_ORIGIN),)) + (("file", info.read_path),)
                           if info.read_path else _sources(network))
@@ -200,7 +214,9 @@ class ShellRead(_Base):
 
 
 class ShellSend(_Base):
-    name, description = "shell.send", "Send text (e.g. an answer plus a newline) to a running command's input."
+    name, description = ("shell.send", "Send text (e.g. an answer plus a newline) to a running command's input. A "
+                         "command that reads lines takes at most 1,023 bytes per line; a command started with an "
+                         "owner-approved escape takes no input from FERB.")
     on_screen = True                  # the command reading it can act on the screen
 
     class Input(BaseModel):
@@ -211,20 +227,26 @@ class ShellSend(_Base):
         return ActionSpec(Kind.RUN_SHELL, content=str(getattr(args, "text")))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        await self.shells.send(self.shells.handle(str(getattr(args, "id")), ctx.task_id), str(getattr(args, "text")))
-        return ToolResult({"sent": True})
+        sent, total = await self.shells.send(self.shells.handle(str(getattr(args, "id")), ctx.task_id),
+                                             str(getattr(args, "text")))
+        if sent < total:
+            return ToolResult({"sent": False, "bytes_sent": sent, "bytes": total,
+                               "error": f"only {sent} of {total} bytes went in: the command ended or isn't reading "
+                                        "its input; check its output (shell.read) before sending the rest"},
+                              is_error=True)
+        return ToolResult({"sent": True, "bytes": total})
 
 
 class ShellKill(_Base):
     name, description = "shell.kill", "Stop one of this task's commands (and its children)."
     on_screen = True                  # ending a process can close its windows
-    risk, reversible = RiskLevel.LOW, True
+    risk, reversible = RiskLevel.LOW, False
 
     class Input(BaseModel):
         id: str
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec(Kind.OPEN_TAB)                   # ending FERB's own process: reversible bookkeeping
+        return ActionSpec(Kind.STOP_PROCESS)               # ending a process loses its state: not reversible
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         await self.shells.kill(self.shells.handle(str(getattr(args, "id")), ctx.task_id))
@@ -269,14 +291,14 @@ class ShellRules(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         port = self.shells.sandbox.proxy_port() if self.shells.sandbox is not None else None
-        local = ("this Mac's own servers only if started inside FERB's shell (other programs' servers, as they were "
-                 "when the command started, are out of reach directly); protection.local_ports allows approved "
+        local = ("this Mac's own servers only if started inside FERB's shell: directly when one was already "
+                 "listening as the command started, else through the proxy, which checks each connection's listener "
+                 "(NO_PROXY is empty, so HTTP clients take the proxy route); other programs' servers are out of "
+                 "reach; protection.local_ports allows approved "
                  "TCP services: directly when the port's listener runs its approved executable as the command "
                  "starts (listed under the command's network local_direct, with the connections the kernel "
                  "reported: a lower bound, at least one per program that connected), "
-                 "and through the proxy, which checks the executable for each connection and records its bytes. "
-                 "With local ports configured, NO_PROXY is empty, so HTTP clients take the proxy route; contained "
-                 "servers still accept direct connections when the client explicitly bypasses the proxy.")
+                 "and through the proxy, which checks the executable for each connection and records its bytes.")
         network = (f"no network beyond this Mac; FERB's proxy is not running; {local}" if port is None else
                    f"any remote host, without asking, only through FERB's proxy on 127.0.0.1:{port}, which records "
                    f"each host, port and byte count (clients that ignore HTTPS_PROXY/HTTP_PROXY get no network; no "
