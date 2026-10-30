@@ -80,13 +80,19 @@ class Chat:
             started = self.tasks.column(r["task_id"], "created_at")
             if started is not None:
                 r["started_at"] = started
+            card = self.supervisor.card_state(r["task_id"]) if self.supervisor else None
+            if card is not None:          # decision 19: a multi-part task's rows, rebuilt from the record
+                r["card"] = self.redact(card)
         results = []
         for row in rows:
             recorded = json.loads(row['outcome_json'] or '{}')
             # request_id and at: a client whose chat.send stream ended early still places the answer (L6, L7)
             results.append({key: row[key] for key in ('task_id', 'request_id', 'at', 'status', 'goal', 'answer')} |
                            {'artifacts': recorded.get('artifacts', []), 'verified': recorded.get('verified'),
-                            'verification': recorded.get('verification', [])})
+                            'verification': recorded.get('verification', [])} |
+                           # the answer's own fields (a multi-part task's card and footer; its lines; decision 19)
+                           {key: recorded[key] for key in ('card', 'note', 'correction', 'lines', 'runtime_switch')
+                            if recorded.get(key)})
         return {"results": results, "running": running, "approvals": self.redact(pending),
                 "persona": {'state': persona['state'], **({'error': persona['error']} if persona.get('error') else {})},
                 "notices": self.attention_notices.unseen() if self.attention_notices else [],

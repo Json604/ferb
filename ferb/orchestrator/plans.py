@@ -102,6 +102,21 @@ class SendScope(BaseModel):
                          ('any message body' if self.content is None else self.content)).split())
 
 
+class Part(BaseModel):
+    """One of the owner's asks in a message that asks for several things (orchestration decision 19), in the owner's
+    order: not a plan step. Its words (`quote`, quote-checked), a short label for its row, and exactly one answer
+    source: `direct` (answered in the first reply, no tools; "" when code's receipt for this turn's reminder, memory or
+    schedule entry answers it) or `answer_step` (the step whose checked answer is the part's answer; SINGLE when the
+    task has no plan). `conditions`: the indexes of the task's success conditions this part's answer must meet (each
+    success condition belongs to exactly one part; a direct part has none)."""
+    id: str
+    quote: str
+    label: str
+    direct: str | None = None
+    answer_step: str | None = None
+    conditions: list[int] = Field(default_factory=list)
+
+
 class Plan(BaseModel):
     steps: list[Step]
     input_paths: list[str] = Field(default_factory=list)
@@ -154,6 +169,91 @@ def single(goal: str) -> Plan:
 SINGLE = 'worker'          # the one step of a single task's plan (its worker's task id is "<tree>.worker")
 DONE = ('done', 'done_unverified')                        # a step that finished (confirmed, or done but unconfirmed)
 ENDED = DONE + ('failed', 'blocked', 'cancelled', 'needs_user')   # never run again without the owner (reopen)
+
+
+def card(parts: list[Part]) -> bool:
+    """Several asks: the turn opens a card with a row per part that isn't answered directly. One ask (no parts, or one
+    part) answers as a single task always did: one answer, no card, no count."""
+    return len(parts) >= 2
+
+
+def answer_steps(plan: Plan | None, parts: list[Part]) -> list[str]:
+    """The steps whose checked answers are the task's answer (decision 19: no summing-up call after them): each part's
+    answer step, in the owner's order; with no part naming one, a single task's one step, or a plan's last step (the one
+    no other step depends on; a plan saved before step 8d may end in several)."""
+    named = [p.answer_step for p in parts if p.answer_step]
+    if named:
+        return named
+    if plan is None:
+        return [SINGLE]
+    needed = {d for step in plan.steps for d in step.depends_on}
+    return [step.id for step in plan.steps if step.id not in needed]
+
+
+def part_problems(parts: list[Part], plan: Plan | None, conditions: int) -> list[str]:
+    """Structural facts about the planner's parts (decision 19), told back for repair; the quote check is the
+    supervisor's (`memory.items.quoted`, against the owner's typed words). Each part has exactly one answer source; an
+    answer step is a step of the plan (SINGLE without one) that isn't a wait or an ask, and answers one part only;
+    every success condition belongs to exactly one part, a direct part has none; every step leads to a part's answer
+    (so no step sums up or combines answers already posted). Without parts, a plan ends in one step whose checked answer
+    is the answer."""
+    errors: list[str] = []
+    steps = {step.id: step for step in plan.steps} if plan is not None else {}
+    if not parts:
+        if plan is not None and len(answer_steps(plan, parts)) != 1:
+            errors.append('A plan for one ask ends in exactly one step (no other step depends on it): its checked '
+                          'answer is the answer, and every other step leads to it. For several asks, list each in '
+                          'parts with its own answer_step.')
+        return errors
+    ids = [p.id for p in parts]
+    if len(set(ids)) != len(ids) or any(not i.strip() or ':' in i for i in ids):
+        errors.append('Part ids must be unique, nonempty and contain no colon.')
+    if all(p.direct is not None for p in parts):
+        errors.append('Every part is answered directly: answer with a reply instead of a task.')
+    owners: dict[int, list[str]] = {}
+    answering: dict[str, list[str]] = {}
+    for p in parts:
+        if (p.direct is None) == (p.answer_step is None):
+            errors.append(f'part {p.id}: give exactly one of direct (answered now) or answer_step.')
+        if not p.label.strip():
+            errors.append(f'part {p.id}: needs a short label for its row.')
+        if p.answer_step is not None:
+            answering.setdefault(p.answer_step, []).append(p.id)
+            if plan is None and p.answer_step != SINGLE:
+                errors.append(f'part {p.id}: a task without a plan answers with its one step, answer_step '
+                              f'"{SINGLE}".')
+            elif plan is not None and p.answer_step not in steps:
+                errors.append(f'part {p.id}: answer_step {p.answer_step!r} is not a step of the plan.')
+            elif plan is not None and steps[p.answer_step].kind in ('wait', 'ask'):
+                errors.append(f"part {p.id}: a {steps[p.answer_step].kind} step can't answer a part.")
+            if not p.conditions:
+                errors.append(f'part {p.id}: name the success conditions its answer must meet (their indexes).')
+        elif p.conditions:
+            errors.append(f'part {p.id}: a part answered directly has no success conditions.')
+        for index in p.conditions:
+            owners.setdefault(index, []).append(p.id)
+    for step_id, named in answering.items():
+        if len(named) > 1:
+            errors.append(f'step {step_id} answers several parts ({", ".join(named)}): each part has its own '
+                          'answer step.')
+    for index, named in sorted(owners.items()):
+        if not 0 <= index < conditions:
+            errors.append(f"parts {', '.join(named)}: success condition {index} doesn't exist.")
+        elif len(named) > 1:
+            errors.append(f'success condition {index} belongs to several parts ({", ".join(named)}).')
+    if missing := [i for i in range(conditions) if i not in owners]:
+        errors.append(f'success conditions {missing} belong to no part: every condition belongs to exactly one.')
+    if plan is not None:
+        leads = set(answering) & set(steps)
+        grew = True
+        while grew:                                  # every step an answer step depends on, transitively
+            before = len(leads)
+            leads |= {d for key in list(leads) for d in steps[key].depends_on if d in steps}
+            grew = len(leads) > before
+        if idle := [key for key in steps if key not in leads]:
+            errors.append(f"steps {idle} lead to no part's answer: each part's answer is posted on its own once its "
+                          "answer step is checked, so no step sums up or combines them (FERB adds the done count).")
+    return errors
 
 
 def problems(plan: Plan, facts: list[dict[str, Any]], *, context_tokens: int) -> list[str]:

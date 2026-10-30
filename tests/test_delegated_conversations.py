@@ -244,7 +244,7 @@ def test_converse_uses_gateway_then_checked_worker_and_handover(daemon):
     worker = json.dumps({'status': 'done', 'summary': 'Owner-controlled contact expressed interest.',
         'artifacts': [], 'evidence': ['scripted:observed-self-chat'], 'conversation_action': 'handover'})
     script = install(daemon, [sup('task', 'Preparing the conversation scope.', spec)],
-        {'conversation.contact.1': worker, 'worker': done('Conversation handed over with evidence.')})
+        {'conversation.contact.1': worker})
     async def answer():
         while not daemon.daemon.state.approvals.pending():
             await asyncio.sleep(0)
@@ -255,7 +255,11 @@ def test_converse_uses_gateway_then_checked_worker_and_handover(daemon):
     events = chat(daemon, 'Discuss my project in the self-chat and hand over when interested')
     result = outcome(events)
     future.result(3)
-    assert result['verified'], result
+    # decision 19: no summarizing worker after the conversation; where it ends (handover), a check of the task's own
+    # conditions confirms its answer, as the removed final worker's check did
+    assert result['status'] == 'done' and result['verified'] and 'expressed interest' in result['answer'], result
+    end_checks = [c for _, k, c, _ in script.contexts if k == 'conversation.contact.1.verify']
+    assert len(end_checks) == 2 and 'Discuss the project and hand over a lead' in end_checks[-1]
     async def stored():
         root = result['task_id']
         rows = daemon.daemon.supervisor.conversations.list(root)
@@ -268,7 +272,7 @@ def test_converse_uses_gateway_then_checked_worker_and_handover(daemon):
     assert turn_row[0] == 'done'           # a turn that succeeded ends done, never swept to `interrupted` (step 8a)
     assert any(json.loads(row['input_json']).get('tool') == 'conversation.read' for row in calls)
     roles = [role for _, role, _, _ in script.contexts]
-    assert 'conversation.contact.1.verify' in roles and 'worker.verify' in roles
+    assert 'conversation.contact.1.verify' in roles and 'worker' not in roles
     turn = next(ctx for _, role, ctx, _ in script.contexts if role == 'conversation.contact.1')
     # L36 §4: a converse member sees its parent task's goal above its own
     assert turn.index('Parent task goal: Discuss the project and hand over a lead') < turn.index(

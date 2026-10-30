@@ -12,7 +12,7 @@ from pydantic import BaseModel, model_validator
 
 from ferb.clock.when import DAY_WORDS, WHEN_SCHEMA, When
 from ferb.policy.targets import Targets
-from ferb.orchestrator.plans import STEP_KINDS, Plan, SendScope
+from ferb.orchestrator.plans import STEP_KINDS, Part, Plan, SendScope
 from ferb.orchestrator.probes import PROBE_SCHEMA, Probe
 
 CHECK_KINDS = ["none", "file_exists", "file_contains", "tab_url", "account", "after_change", "after_value"]
@@ -69,6 +69,10 @@ PLAN_SCHEMA = _obj({"steps": {"type": "array", "items": STEP_SCHEMA}, "input_pat
                     "big_job": {"type": "boolean"}, "time_estimate": {"type": "string"},
                     "cost_estimate": {"type": "string"},
                     "standing_sends": {"type": "array", "items": SEND_SCOPE_SCHEMA}})
+# Decision 19 (answers in steps): one of the owner's asks, in their order; exactly one of direct / answer_step
+PART_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}, "label": {"type": "string"},
+                    "direct": _nullable("string"), "answer_step": _nullable("string"),
+                    "conditions": {"type": "array", "items": {"type": "integer"}}})
 TASK_SCHEMA: dict[str, Any] = _obj({
     "goal": {"type": "string"},
     "identity": {"type": "string", "enum": ["owner", "ferb"]},
@@ -81,6 +85,8 @@ TASK_SCHEMA: dict[str, Any] = _obj({
     "folders": _strings(),
     # hands decision 3: the owner asked to keep the task's tabs open (at its end they leave the group and stay open)
     "keep_tabs_open": {"type": "boolean"},
+    # decision 19: the owner's separate asks (empty for one ask): each posts once, in its own row, when checked
+    "parts": {"type": "array", "items": PART_SCHEMA},
 })
 
 # L36 §6: a remembered item's last day in the owner's own date words; code works out the date
@@ -154,16 +160,19 @@ _CONVERSATION = {"conversation_action": {"type": "string", "enum": ["wait", "han
 _WATCH = {"watch_met": {"type": ["boolean", "null"]}}       # whether the watched condition holds now (null: unseen)
 _LOOP = {"loop_action": {"type": "string", "enum": ["continue", "finished", "blocked"]},
          "probe": {"anyOf": [{"type": "null"}, PROBE_SCHEMA]}}
+# decision 19: a step of a multi-part task that finds an answer already posted to the owner is wrong or out of date
+_PARTS = {"part_updates": {"type": "array", "items": _obj({"part": {"type": "string"}, "text": {"type": "string"},
+                                                           "why": {"type": "string"}})}}
 
 
 def worker_schema(*, inputs: bool = False, proposals: bool = False, conversation: bool = False, watch: bool = False,
-                  loop: bool = False) -> dict[str, Any]:
+                  loop: bool = False, parts: bool = False) -> dict[str, Any]:
     """The report schema for one worker run: the shared report, plus input notes (a do step with an input list),
     conversation proposals (a step a converse step takes its scopes from), a conversation turn's action, a watch's
-    watch_met, a loop round's action and probe."""
+    watch_met, a loop round's action and probe, a multi-part task's step's corrections to answers already posted."""
     props = dict(_REPORT)
     for wanted, extra in ((inputs, _INPUT_NOTES), (proposals, _PROPOSALS), (conversation, _CONVERSATION),
-                          (watch, _WATCH), (loop, _LOOP)):
+                          (watch, _WATCH), (loop, _LOOP), (parts, _PARTS)):
         if wanted:
             props |= extra
     return _obj(props)
@@ -171,11 +180,12 @@ def worker_schema(*, inputs: bool = False, proposals: bool = False, conversation
 
 WORKER_SCHEMA: dict[str, Any] = worker_schema()
 # Each role's schema as a constant too, so the provider-shape test covers every one
-WORKER_STEP_SCHEMA: dict[str, Any] = worker_schema(inputs=True, proposals=True)
+WORKER_STEP_SCHEMA: dict[str, Any] = worker_schema(inputs=True, proposals=True, parts=True)
 WORKER_CONVERSATION_SCHEMA: dict[str, Any] = worker_schema(conversation=True)
 WORKER_WATCH_SCHEMA: dict[str, Any] = worker_schema(watch=True)
 WORKER_LOOP_SCHEMA: dict[str, Any] = worker_schema(loop=True)
-WORKER_ALL_SCHEMA: dict[str, Any] = worker_schema(inputs=True, proposals=True, conversation=True, watch=True, loop=True)
+WORKER_ALL_SCHEMA: dict[str, Any] = worker_schema(inputs=True, proposals=True, conversation=True, watch=True, loop=True,
+                                                  parts=True)
 
 # The merged checker (owner decision 3, prompts decision 1): it judges each condition and chooses what's next. Code
 # checks the choice against the checker's own verdicts (`Supervisor._next`); it never judges content.
@@ -256,6 +266,7 @@ class TaskSpec(BaseModel):
     plan: Plan | None = None
     folders: list[str] = []          # resolved folders (hands decision 4); a spec saved before step 8c has none
     keep_tabs_open: bool = False     # the owner asked to keep its tabs open (hands decision 3)
+    parts: list[Part] = []           # the owner's separate asks (decision 19); a spec saved before step 8d has none
 
 
 class Until(BaseModel):
@@ -385,6 +396,7 @@ class WorkerReport(BaseModel):
     watch_met: bool | None = None
     loop_action: Literal['continue', 'finished', 'blocked'] | None = None
     probe: Probe | None = None
+    part_updates: list[dict[str, Any]] = []
 
 
 class QuestionOutcome(BaseModel):

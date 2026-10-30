@@ -1,8 +1,12 @@
-"""L33: where FERB is about to act, for FERB's on-screen cursor. Geometry only: never a label, value, URL or text.
+"""L33: where FERB is about to act, for FERB's on-screen cursor (`point`), and the surface it works on, for the live
+preview (`preview_target`, notes/preview.md): both are a capability's declarations about one call, beside `on_screen`.
+The point is geometry only: never a label, value, URL or text.
 
 A capability's `point()` must not block the event loop: synchronous Accessibility or Quartz work goes through
-`asyncio.to_thread`, so the POINT_TIMEOUT_S bound holds."""
+`asyncio.to_thread`, so the POINT_TIMEOUT_S bound holds. `preview_target()` is synchronous and does no lookup at all: its
+`resolve` does that, off the loop, only when the app asks for a frame."""
 import math
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -36,3 +40,14 @@ def display_of(rect: tuple[float, float, float, float]) -> int | None:
     x, y, w, h = rect
     err, ids, count = Quartz.CGGetDisplaysWithPoint((x + w / 2, y + h / 2), 1, None, None)
     return int(ids[0]) if err == 0 and count else None
+
+
+@dataclass(frozen=True)
+class PreviewTarget:
+    """The surface one call works on, for the live preview: its scope (the same scope is the same surface), a short
+    label for the owner ("Safari", "the browser"), and how to capture it, resolved only when a frame is wanted: the
+    capture target's facts and a coroutine function returning one masked frame (bytes, or bytes and a masking note).
+    None: FERB works there but has no window of it to show yet."""
+    scope: str
+    label: str
+    resolve: Callable[[], Awaitable[tuple[dict[str, Any], Callable[[], Awaitable[Any]]]]] | None = None

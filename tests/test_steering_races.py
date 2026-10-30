@@ -300,7 +300,8 @@ def test_correction_during_failed_plan_child_cleanup_reaches_root_worker(daemon,
     failed = json.dumps({'status': 'failed', 'summary': 'Nearby location is unavailable',
                          'artifacts': [], 'evidence': []})
     script = install(daemon, [sup('task', 'Searching.', spec)],
-                     {'step.search': failed, 'worker': done('Updated lunch request handled')})
+                     {'step.search': [failed, done('Found three places under 300.')],
+                      'step.compare': done('Updated lunch request handled')})
     stops = forbid_stop(supervisor, monkeypatch)
     with running_chat(daemon, 'Find nearby egg curry with breads and compare prices', release) as (initial, thread):
         assert entered.wait(5)
@@ -308,11 +309,12 @@ def test_correction_during_failed_plan_child_cleanup_reaches_root_worker(daemon,
         route_update(script, tree_ids[0])
         chat(daemon, CORRECTION, session=SESSION, timeout=2)
         release.set()
-    root_contexts = [ctx for _, key, ctx, _ in script.contexts if key == 'worker']
-    assert len(root_contexts) == 1, 'failed child cleanup must not discard its accepted correction'
-    assert CORRECTION in root_contexts[0]
-    assert 'Nearby location is unavailable' in root_contexts[0]
-    assert 'blocked' in root_contexts[0] and 'compare' in root_contexts[0]
-    assert not any(key == 'step.compare' for _, key, _, _ in script.contexts)
-    assert outcome(initial)['status'] == 'done'
+    # decision 19 (no final worker): the correction reaches the work still to do; the step that ended unfinished runs
+    # again under it, then the rest of the plan
+    searches = [ctx for _, key, ctx, _ in script.contexts if key == 'step.search']
+    assert len(searches) == 2, 'failed child cleanup must not discard its accepted correction'
+    assert CORRECTION in searches[1] and 'Nearby location is unavailable' in searches[1]
+    assert any(key == 'step.compare' for _, key, _, _ in script.contexts)
+    final = outcome(initial)
+    assert final['status'] == 'done' and final['answer'].startswith('Updated lunch request handled')
     assert not stops

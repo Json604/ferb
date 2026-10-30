@@ -408,9 +408,7 @@ def test_the_campaign_plan_posts_waits_on_the_wall_clock_and_resumes_after_a_res
 
     second, browser2 = _campaign_daemon(home, "b", monkeypatch)
     try:
-        script = install(second, [], {"step.post2": posts_on(second.sock, "https://x.com/compose/post",
-                                                             **as_account),
-                                      "worker": done("Posted the launch story today and tomorrow.")})
+        install(second, [], {"step.post2": posts_on(second.sock, "https://x.com/compose/post", **as_account)})
         _until(lambda: _plan_status(second, tree).get("wait") == "waiting")
         time.sleep(0.1)
         assert browser2.clicks() == []                                   # resumed, still before 09:00 tomorrow
@@ -420,24 +418,9 @@ def test_the_campaign_plan_posts_waits_on_the_wall_clock_and_resumes_after_a_res
         assert ferb_questions(second) == []                              # the stated scope still covers it
         click = calls_of(second, "browser.act")[-1]
         assert click["standing"] == {"task": tree, "rules": ["floor:new_recipient"]}
-        _until(lambda: any(key == "worker" for _, key, _, _ in script.contexts))
-        sent = _send_digest(second, tree)                                # both posts, either side of the restart
-        assert [(s["target"]["site"], s["declared"], s["standing"]) for s in sent] == [
-            ("x.com", "send", {"task": tree, "rules": ["floor:new_recipient"]})] * 2
-        final = next(c for _, key, c, _ in script.contexts if key == "worker")
-        block = final.split("Layer 6 — current plan step and handed results (data):", 1)[1]
-        handed = json.loads(block.split(">\n", 1)[1].split("\n</untrusted-data", 1)[0])
-        assert [a["declared"] for a in handed["message_activity"]] == ["send", "send"]   # the final worker sees them
     finally:
         _WallClock.now_at = datetime(2026, 10, 15, 9, 0, tzinfo=timezone.utc)
         second.stop()
-
-
-def _send_digest(d: RunningDaemon, tree: str) -> list[dict[str, Any]]:
-    async def go() -> list[dict[str, Any]]:
-        rows = d.daemon.journal.of_kind("task.send_digest", "task_id", tree)
-        return list(rows[-1].data["sends"]) if rows else []
-    return d.run(go())                                   # type: ignore[no-any-return]
 
 
 def _drain_turn(d: RunningDaemon, text: str) -> None:

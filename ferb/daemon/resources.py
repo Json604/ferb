@@ -181,6 +181,7 @@ class _Mark:
     # children_cpu()) hasn't shown yet: taken off that counter's growth in a later window
     owed: Owed = field(default_factory=dict)
     app: dict[Key, float] = field(default_factory=dict)      # FERB.app's processes' CPU at the sample
+    preview: dict[str, float] = field(default_factory=dict)  # the live preview's counters at the sample
 
 
 class ResourceLog:
@@ -188,8 +189,9 @@ class ResourceLog:
 
     def __init__(self, db: Any, clock: Any, readings: Readings, redact: Callable[[str], str],
                  perception: Callable[[], tuple[int, dict[str, int]]] = lambda: (0, {}),
-                 pid: int | None = None) -> None:
+                 pid: int | None = None, preview: Callable[[], dict[str, float]] = lambda: {}) -> None:
         self.db, self.clock, self.readings, self.redact, self.perception = db, clock, readings, redact, perception
+        self.preview = preview                  # the live preview's cumulative counters (notes/preview.md decision 3)
         self.pid = os.getpid() if pid is None else pid
         tree, walked = self._walk()
         app = self._app(walked | {self.pid})
@@ -198,7 +200,7 @@ class ResourceLog:
                            self._perception(),
                            {key: _Seen(proc.cpu_s, proc.children_cpu_s, parent, depth)
                             for key, (proc, parent, depth) in tree.items()},
-                           app={key: proc.cpu_s for key, proc in app.items()})
+                           app={key: proc.cpu_s for key, proc in app.items()}, preview=self._preview())
 
     def sample(self) -> dict[str, Any]:
         """One window's row, written and returned. Nothing is kept from a sample that fails: the next covers both."""
@@ -213,6 +215,10 @@ class ResourceLog:
         work["top"] = [[self.redact(os.path.basename(self.readings.path(key[0]) or "") or "unknown"), round(cpu, 3)]
                        for cpu, key in busiest]
         counts = self._perception()
+        previews = self._preview()
+        # the live preview's work in the window (decision 3: measured before any frame-rate cap is decided)
+        work["preview"] = {key: round(value - mark.preview.get(key, 0), 1) if isinstance(value, float)
+                           else value - int(mark.preview.get(key, 0)) for key, value in previews.items()}
         work["perception"] = {"wakes": max(0, counts[0] - mark.perception[0]),
                               "batches": {reason: n - mark.perception[1].get(reason, 0)
                                           for reason, n in sorted(counts[1].items())
@@ -227,11 +233,11 @@ class ResourceLog:
                "app_footprint": sum(proc.footprint for proc in app.values()) if app else None,
                "db_bytes": store_size(Path(self.db.path)),
                "work_json": json.dumps({key: work[key] for key in ("events", "perception", "jev", "models",
-                                                                   "tool_calls", "tasks_running", "top")})}
+                                                                   "tool_calls", "tasks_running", "top", "preview")})}
         self.db.conn.execute(f"INSERT INTO resource_samples ({', '.join(COLUMNS)}) "
                              f"VALUES ({', '.join('?' * len(COLUMNS))})", [row[column] for column in COLUMNS])
         self._mark = _Mark(mono, own, reaped, cursors, counts, tracked, owed,
-                           {key: proc.cpu_s for key, proc in app.items()})
+                           {key: proc.cpu_s for key, proc in app.items()}, previews)
         return row
 
     def _walk(self) -> tuple[dict[Key, tuple[Process, Key | None, int]], set[int]]:
@@ -316,6 +322,13 @@ class ResourceLog:
                          "models": {kind: n for kind, n in models.items() if kind != "tool.call"},
                          "tool_calls": models.get("tool.call", 0),
                          "tasks_running": int(c.execute(RUNNING).fetchone()[0])}
+
+    def _preview(self) -> dict[str, float]:
+        """The live preview's cumulative counters (requests, frames, capture_ms, cached, busy); {} when unreadable."""
+        try:
+            return dict(self.preview() or {})
+        except Exception:
+            return {}
 
     def _perception(self) -> tuple[int, dict[str, int]]:
         wakes, batches = self.perception()

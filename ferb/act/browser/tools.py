@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, model_validator
 from ferb.act.browser.downloads import SETTLE_S
 from ferb.act.browser.snapshot import for_model
 from ferb.act.fs.files import owner_path
-from ferb.act.point import Point, display_of
+from ferb.act.point import Point, PreviewTarget, display_of
 from ferb.core.errors import DriverError, FerbError, Refused
 from ferb.core.interfaces import BrowserDriver
 from ferb.core.types import (ActionFacts, ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
@@ -164,6 +164,22 @@ class _Base:
     def locks(self, args: BaseModel) -> list[str]:
         tab = getattr(args, "tab", None)
         return [f"tab:{self.family.prefix}/{tab}"] if tab else []
+
+    def preview_target(self, args: BaseModel, owner: str,
+                       observed: dict[str, Any] | None = None) -> PreviewTarget | None:
+        """The live preview's surface (notes/preview.md): the tab the call names, only while it is `owner`'s (each frame
+        checks that again). Nothing is looked up here; a result adds nothing (None)."""
+        tab = getattr(args, "tab", None)
+        if not tab or observed is not None:
+            return None
+        driver = self.driver
+
+        async def resolve() -> tuple[dict[str, Any], Any]:
+            def source() -> tuple[dict[str, Any], Any]:
+                held = driver.owned_by(str(tab), owner)                    # type: ignore[attr-defined]
+                return driver.recording_source(held, owner)                # type: ignore[attr-defined,no-any-return]
+            return await asyncio.to_thread(source)
+        return PreviewTarget(f"tab:{self.family.prefix}/{tab}", "the browser", resolve)
 
     def _site(self, args: BaseModel) -> str | None:
         return _host(self.driver.tab_url(str(getattr(args, "tab", ""))))

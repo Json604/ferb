@@ -21,7 +21,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 from pydantic import BaseModel, ValidationError
 
 from ferb.core.errors import AlreadyRunning, AuthError, FerbError, Unsupported
-from ferb.daemon.auth import RunGrant, RunTokens, Role, allowed, check_cli_peer, check_native_host
+from ferb.daemon.auth import APP_ONLY, RunGrant, RunTokens, Role, allowed, check_cli_peer, check_native_host
 
 MAX_MESSAGE = 1024 * 1024
 
@@ -38,6 +38,9 @@ CLIENT_WAIT_S = 10.0
 # answer to macOS's prompt, and a runtime check makes one model call (L34 C, the setup window)
 LONG_WAITS = {"reports.build": 120.0, "setup.browser_pair": 90.0, "setup.browsers_pair_all": 90.0, "reports.diagnostic": 60.0, "setup.permission_request": 120.0, "automation.request": 120.0,
               "runtimes.check": 60.0}
+# Calls that end when their caller leaves (notes/preview.md): an abandoned preview request stops its capture
+CANCEL_WHEN_LEFT = frozenset({"tasks.preview"})
+LEFT_POLL_S = 0.1
 # The journal kinds the daemon records `on_internal` and `on_slow` under; `ferb stats` lists them
 INTERNAL_ERROR, SLOW_CALL = "daemon.internal_error", "daemon.slow_call"
 
@@ -60,6 +63,8 @@ class Session:
     role: Role
     grant: RunGrant | None = None
     pid: int | None = None                    # a CLI's process, as its socket reports it (L12)
+    token: bytes | None = None                # and its audit token (who it is, for APP_ONLY methods)
+    app: bool | None = None                   # whether that process is FERB.app (checked once, on first need)
 
 
 Unary = Callable[[Session, dict[str, Any]], Awaitable[dict[str, Any]]]
@@ -129,6 +134,14 @@ class Server:
         # its type), and an owner-side call that took `CLIENT_WAIT_S` or longer (its method and seconds)
         self.on_internal: Callable[[str, BaseException], None] = lambda method, error: None
         self.on_slow: Callable[[str, float], None] = lambda method, seconds: None
+        # whether a cli connection's process is FERB.app (its audit token -> bool; app_peer.AppPeers in the daemon):
+        # the gate of auth.APP_ONLY methods. Fails closed until the daemon sets it.
+        self.is_app: Callable[[bytes | None], bool] = Server.is_app_default
+
+    @staticmethod
+    def is_app_default(token: bytes | None) -> bool:
+        """No check in place: nobody is FERB.app (fails closed)."""
+        return False
 
     @staticmethod
     def _tell(hook: Callable[..., None], *args: Any) -> None:
@@ -219,7 +232,8 @@ class Server:
             hello = Hello.model_validate(req.params)
             if hello.role is Role.CLI:
                 check_cli_peer(uid, self.owner_uid)
-                session = Session(Role.CLI, pid=_peer(writer))
+                from ferb.daemon.app_peer import peer_token
+                session = Session(Role.CLI, pid=_peer(writer), token=peer_token(writer.get_extra_info("socket")))
             elif hello.role is Role.MCP_SHIM:
                 session = Session(Role.MCP_SHIM, self.tokens.validate(hello.token or ""))
             else:
@@ -253,11 +267,18 @@ class Server:
         if not allowed(session.role, req.method):
             await self._send(writer, _error(req.id, UNAUTHORIZED, f"{req.method} not allowed for {session.role.value}"))
             return True
+        if req.method in APP_ONLY and not self._app(session):
+            await self._send(writer, _error(req.id, UNAUTHORIZED, f"{req.method} is for FERB.app only"))
+            return True
         if req.method in self.unary:
             started = time.monotonic()
             try:
                 if session.role is Role.MCP_SHIM:
                     result = await self._watched(session, req, reader, writer)
+                    if result is None:
+                        return False
+                elif req.method in CANCEL_WHEN_LEFT:
+                    result = await self._while_caller_stays(session, req, reader)
                     if result is None:
                         return False
                 else:
@@ -281,6 +302,34 @@ class Server:
             return True
         await self._send(writer, _error(req.id, METHOD_NOT_FOUND, f"no method {req.method}"))
         return True
+
+    def _app(self, session: Session) -> bool:
+        """Whether this connection's process is FERB.app (auth.APP_ONLY), checked once per connection."""
+        if session.app is None:
+            try:
+                session.app = session.role is Role.CLI and bool(self.is_app(session.token))
+            except Exception:
+                session.app = False
+        return session.app
+
+    async def _while_caller_stays(self, session: Session, req: Request,
+                                  reader: asyncio.StreamReader) -> dict[str, Any] | None:
+        """A call that ends when its caller leaves (CANCEL_WHEN_LEFT): the connection's end of input, seen without
+        reading anything a caller sends after the call, cancels it. None: the caller left."""
+        call = asyncio.ensure_future(self.unary[req.method](session, req.params))
+        try:
+            while True:
+                done, _ = await asyncio.wait({call}, timeout=LEFT_POLL_S)
+                if done:
+                    return call.result()
+                if reader.at_eof():
+                    call.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await call
+                    return None
+        finally:
+            if not call.done():
+                call.cancel()
 
     async def _watched(self, session: Session, req: Request, reader: asyncio.StreamReader,
                        writer: asyncio.StreamWriter) -> dict[str, Any] | None:

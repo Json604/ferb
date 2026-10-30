@@ -317,12 +317,16 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         self.db.on_wal_kept = lambda after, details: self._journal().append(
             "store.wal_not_truncated", {"after": after, **details})
         self.server.on_internal = self._record_internal
+        if self.server.is_app is Server.is_app_default:      # tests may have put their own check in place
+            from ferb.daemon.app_peer import AppPeers
+            self.server.is_app = AppPeers()                   # auth.APP_ONLY: FERB.app's own process only
         self.server.on_slow = lambda method, seconds: self._repeats.record(
             SLOW_CALL, (SLOW_CALL, method), {"method": method, "seconds": round(seconds, 1)})
         if self.run_resources:                  # its first window starts here, so start-up's own work is in it
             try:
-                self.resource_log = resource_use.ResourceLog(self.db, self.clock, resource_use.MacReadings(),
-                                                          self._redact_text, self._perception_counts)
+                self.resource_log = resource_use.ResourceLog(
+                    self.db, self.clock, resource_use.MacReadings(), self._redact_text, self._perception_counts,
+                    preview=lambda: self.gateway.hooks.previews.snapshot() if self.gateway is not None else {})
             except Exception as e:              # FERB runs without it; the next start tries again
                 self.journal.append("resources.failed", {"error": f"{type(e).__name__}: {e}"})
         if not self.journal.of_kind("config.upgraded", "upgrade", LIMITS_DECIDED):   # once, and journaled: never silent

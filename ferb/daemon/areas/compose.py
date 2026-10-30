@@ -170,6 +170,8 @@ class Compose:
                                       else [], self._username_sources))
         from ferb.orchestrator.conversation_tools import ConversationRead
         self.registry.add(ConversationRead(self.supervisor.conversations, self.tasks.tree_of))
+        # the live preview's state over its last frame (notes/preview.md decision 2), from the supervisor's records
+        self.gateway.hooks.previews.status = self.supervisor.preview_status
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
 

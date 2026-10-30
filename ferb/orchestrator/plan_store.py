@@ -94,6 +94,12 @@ class PlanStore:
             # Ended trees revoke standing grants. A resumed send plan must display/approve its scope again.
             self.db.conn.execute("UPDATE task_plans SET status='running', approved=0 WHERE task_id=?", (task_id,))
 
+    def retry_unfinished(self, task_id: str) -> None:
+        """A running tree's steps that ended unfinished run again (an owner correction arrived after they ended);
+        finished steps stay done and the plan's statement and grants stay as they are."""
+        self.db.conn.execute("UPDATE plan_steps SET status='pending' WHERE task_id=? AND status IN "
+                             "('failed', 'blocked', 'needs_user', 'cancelled')", (task_id,))
+
     def replace(self, task_id: str, plan: Plan) -> None:
         """A follow-up with a new goal brought its own plan for this ended task (L11). A finished step the new plan
         keeps unchanged (same id and definition) stays done, so it is never redone; the old plan's other finished

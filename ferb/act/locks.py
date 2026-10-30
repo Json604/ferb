@@ -43,5 +43,30 @@ class ResourceLocks:
                 self._holders.pop(k, None)
                 self._locks[k].release()
 
+    @asynccontextmanager
+    async def try_hold(self, keys: list[str], holder: str) -> AsyncIterator[bool]:
+        """Take every lock only if each is free and nobody waits for it, else take none and yield False at once: a
+        bystander (the live preview, notes/preview.md) never queues ahead of a worker's next call. Free locks are taken
+        on asyncio's fast path, without yielding to the loop, so no worker can slip in between the look and the take.
+        (Whether anyone waits is read from asyncio.Lock's private waiter list: a lock just released to a waiter that
+        hasn't woken yet looks free otherwise.)"""
+        order = ordered(keys)
+        locks = [self._locks.setdefault(k, asyncio.Lock()) for k in order]
+        if any(lock.locked() or any(not w.cancelled() for w in (getattr(lock, "_waiters", None) or ()))
+               for lock in locks):
+            yield False
+            return
+        taken: list[str] = []
+        try:
+            for k, lock in zip(order, locks):
+                await lock.acquire()
+                taken.append(k)
+                self._holders[k] = holder
+            yield True
+        finally:
+            for k in reversed(taken):
+                self._holders.pop(k, None)
+                self._locks[k].release()
+
     def holder(self, key: str) -> str | None:
         return self._holders.get(key)

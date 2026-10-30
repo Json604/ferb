@@ -7,10 +7,9 @@ stops or changes the call's authorization, and none is run before the owner's qu
 
 import asyncio
 import dataclasses
-import json
 import logging
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from ferb.act.fs import changes as file_changes
 from ferb.act.fs.files import owner_path
@@ -61,13 +60,23 @@ def error_name(e: BaseException) -> str:
     return type(e).__name__ + (f" (errno {errno})" if errno is not None else "")
 
 
+def _screen_recording_allowed() -> bool:
+    """Whether macOS lets FERB record the screen (read only when a preview capture failed, to say why)."""
+    try:
+        from ferb.device import permissions
+        return permissions.screen_recording() is permissions.Status.GRANTED
+    except Exception:
+        return True
+
+
 class CallHooks:
     """The gateway's hooks around a call (`gw` is the gateway: its locks, redactor, stores and events)."""
 
     def __init__(self, gw: Any) -> None:
         from ferb.daemon.task_preview import TaskPreviews
         self.gw = gw
-        self.previews = TaskPreviews()
+        self.previews = TaskPreviews(self._frame_sanitized, lambda keys, holder: self.gw.locks.try_hold(keys, holder),
+                                     _screen_recording_allowed)
         self.looked: dict[tuple[str, str], set[str]] = {}   # (task, worker) -> apps whose window it has as evidence
         self._sampled: set[str] = set()                    # calls sampled before they ran (their span ids)
 
@@ -119,77 +128,32 @@ class CallHooks:
         except Exception:
             return dataclasses.replace(result, image=None), {"image_withheld": "image redaction unavailable"}
 
-    async def preview(self, cap: Any, name: str, args: Any, grant: RunGrant, rec: Any,
-                              observed: dict[str, Any] | None = None) -> None:
-        """Keep the verified surface between steps; never choose the owner's front window."""
-        root = rec.tree_id or grant.task_id
-        driver = getattr(cap, "driver", None)
-        if driver is None:
-            return
-        token = self.previews.resolving(root)
-        source: Callable[[], Awaitable[Any]]
-        if name.startswith(("browser.", "ferb_browser.")) and getattr(args, "tab", None):
-            scope = "tab:" + str(args.tab)
-            self.previews.retain_scope(root, scope)
-            token = self.previews.resolving(root)
-            try:
-                tab = driver.owned_by(args.tab, grant.task_id)
-                target, source = await asyncio.to_thread(driver.recording_source, tab, grant.task_id)
-            except Exception:
-                if self.previews.is_current(root, token):
-                    self.previews.remove({root})
-                return
-        elif name.startswith("mac.") and getattr(args, "app", None):
-            try:
-                app = await asyncio.to_thread(driver.app, args.app) if hasattr(driver, "app") else None
-                scope = "app:" + (f"{app.bundle_id}:{app.pid}" if app is not None else args.app)
-            except Exception:
-                if self.previews.is_current(root, token):
-                    self.previews.remove({root})
-                return
-            if not self.previews.is_current(root, token):
-                return
-            self.previews.retain_scope(root, scope)
-            token = self.previews.resolving(root)
-            window, shot = getattr(args, "window", None), getattr(args, "shot", None)
-            element = getattr(args, "element", None)
-            if observed is not None:
-                windows = [w for w in observed.get("windows", []) if w.get("current") is True]
-                if len(windows) != 1:
-                    return
-                window = str(windows[0]["id"])
-            if name == "mac.act" and getattr(args, "action", None) == "key":
-                element = None  # keys go to app focus, not the optional element (driver.acts_on)
-            if not (window or shot or element or observed):
-                return
-            try:
-                if shot:
-                    target, source = await asyncio.to_thread(driver.recording_source, args.app, shot)
-                else:
-                    target, source = await asyncio.to_thread(driver.preview_source, args.app, window=window,
-                                                             element=element)
-            except Exception:
-                # A stale explicit window/shot cannot stand in for a different surface.
-                if (window or shot) and self.previews.is_current(root, token):
-                    self.previews.remove({root})
-                return
-        else:
-            return
+    def preview(self, cap: Any, args: Any, grant: RunGrant, rec: Any, locks: list[str],
+                observed: dict[str, Any] | None = None) -> None:
+        """The live preview's surface for this call, as the capability declares it (`preview_target(args, owner,
+        observed)`, beside `point` and `on_screen`; never a list of tool names or arguments here). Before the call, what
+        it works on (none: a call on no surface, which freezes the preview on its last frame); after a successful call,
+        what its result shows (`observed`, e.g. a snapshot's current window), when that says more. Nothing is resolved
+        or captured now (the first frame request does that), so it never delays the call; a declaration that fails is
+        no surface, and never touches the call or its result (notes/preview.md fix list)."""
+        declare = getattr(cap, "preview_target", None)
+        target = None
+        try:
+            if callable(declare):
+                target = declare(args, grant.task_id, observed)
+        except Exception:
+            target = None
+        if observed is not None and target is None:
+            return                                       # the result adds nothing: the call's own surface stands
+        root = (getattr(rec, "tree_id", None) if rec is not None else None) or grant.task_id.split(".", 1)[0]
+        self.previews.declare(root, grant.task_id, target, tuple(locks))
 
-        async def sanitized() -> bytes:
-            from ferb.sanitize.images import ImageRedactor
-            keys = cap.locks(args) if hasattr(cap, "locks") else []
-            async with self.gw.locks.hold(keys, "preview:" + root):
-                frame = await source()
-                image = frame[0] if isinstance(frame, tuple) else frame
-            redactor = self.gw.redact if isinstance(self.gw.redact, Redactor) else Redactor()
-            return await asyncio.to_thread(ImageRedactor(redactor), image)
-
-        if self.previews.is_current(root, token):
-            identity = json.dumps(target, sort_keys=True) if target else ""
-            if scope.startswith("tab:"):
-                identity += ":" + grant.task_id  # a retained source checks this tab's exact task owner
-            self.previews.bind(root, sanitized, scope, identity=identity)
+    async def _frame_sanitized(self, image: bytes) -> bytes:
+        """A preview frame through the same masking as every image (L13): its codes, card numbers and known secrets
+        painted over by text recognition, off the loop."""
+        from ferb.sanitize.images import ImageRedactor
+        redactor = self.gw.redact if isinstance(self.gw.redact, Redactor) else Redactor()
+        return await asyncio.to_thread(ImageRedactor(redactor), image)
 
     async def point(self, cap: Any, args: Any, grant: RunGrant) -> None:
         """L33: the element this action is about to touch, for FERB's cursor (geometry only, `cursor.point`), named by

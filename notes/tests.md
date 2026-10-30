@@ -86,6 +86,10 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       chat's task stopped, a stop after finished work, folders in the plan line and shell scope, keep the tabs open,
       context order, long-chat bounds (planner and summary calls), question kinds, a fact's source after a clarifying
       question, a misrouted answer, a mid-task identity change said.)
+      Step 8d: tests/test_answers_in_steps.py: one ask unchanged, a one-ask plan answers with its last step (no
+      summarizing call), two parts fill out of order once each, a direct part in the first reply, a part asks while
+      another fills, a failed part (2 of 3), a paused part, an updated row, a restart posts nothing twice, parts repair;
+      tests/test_task_preview.py rewritten as behaviour guards.)
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.

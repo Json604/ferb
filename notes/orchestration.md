@@ -90,6 +90,12 @@ to commit c6621c3. S = supervisor.py, M = main.py.
     buttons inside a row, the plan-line bubble style, and the typing-dots bubble (not in the notch today). Not the
     mock's pink dashed explanation labels or "code" chips. Functional UI work done here; the owner polishes.
 
+21. **The notch opens itself; banners only when it can't** (owner, 2026-10-31): when a part needs the owner (question
+    or Yes) and when the whole task finishes, the notch opens itself without taking keyboard focus or switching apps
+    (as answers already do, NotchModel.swift:808/826). Rows that fill quietly only update the card (no opening, no
+    banner). A macOS banner is the fallback only when the notch can't show: a full-screen app/video covers the notch
+    area, the display is asleep, or FERB.app is quit; tapping it opens the notch.
+
 ## What exists today (verified)
 
 - Core shape: planner (no tools) → worker through the gateway → observe-only checker → code writes the status from
@@ -173,6 +179,59 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - The legacy continuity upgrade (pre-0012 owner words, pre-task-context tasks) runs once at start, journaled; conflicting
   records are skipped and counted, never guessed between.
 - Scheduled runs now get the environment (Layer 1, worker types) like chat turns.
+
+## Rulings (step 8d, technical)
+- A card opens only for two or more parts. One part is one ask: no card, no rows, no count; its `answer_step` only names
+  which step answers. A task whose parts are all direct, or whose only part is direct, is told back (reply instead).
+- A part's `conditions` are indexes into `success_conditions`. An answer step is checked against its part's conditions
+  first, then its own step conditions; a one-ask plan's one last step (no step depends on it) gets all of them. Repair
+  facts: a one-ask plan must end in exactly one step; every step must lead to some answer step (this is how a summing-up
+  or combining step is refused, structurally); answer steps are distinct and not wait/ask; each condition in exactly one
+  part; a direct part has none, an answer part at least one; quotes pass `items.quoted`. Without a plan the answer step
+  is "worker" (the task's one step).
+- `direct`: null = not direct; "" is allowed (code's receipt of this turn's reminder/memory/schedule answers it). Direct
+  parts are recorded once as done `chat.part` rows when the plan line goes out (never sent as part events) and count as
+  done.
+- Records: one `chat.part` journal row per posted change (done, failed, updated, and direct), keyed by (task, part)
+  across turns (the same part id and quote; a reused id with other words is another ask), with the redacted text, note,
+  correction, why, verified, the turn that posted it and `card_request_id` (the turn whose card first showed it). `seq` is the UTC time to the microsecond as an ISO
+  string, strictly increasing also across a restart (a millisecond integer was redacted by the journal's redactor as a
+  long number and crashed the read-back). Events: on the task's stream and on the bus as `task.part` (CRITICAL); a
+  resumed task's parts go only on the bus (not again inside `task.resumed_event`).
+- A part posts its own answer once (`Card.settle`): a rerun of its answer step in the same run (a restart after it posted)
+  never posts again, and a later failure never replaces an answer. A changed answer is one `updated` row: a failed part a
+  correction carried through ("done after your correction"), or a part a follow-up turn changed ("changed after your
+  follow-up"); the same answer posts nothing. A row
+  changes after posting only through a later step's `part_updates` (worker report field of a multi-part task's plan
+  steps; the step is shown the answers already posted, fresh each attempt; its checker sees the corrections as part of
+  its report; posted once the check accepts, only for a done/updated row and a different text).
+- A multi-part turn says its receipts (Remembered, 🗓 Scheduled) in the first reply and not again at the end; one ask
+  keeps them at the end as before.
+- Status of a multi-part task: done when every part is done (done_unverified when a row stands unconfirmed); failed when
+  a part couldn't be done; a stop: cancelled/failed with a headline above the footer. The outcome's `answer` is composed
+  by code from the posted rows (history, voice, task results, older clients); `card` carries the footer for the app.
+- Upgrades: a spec saved before 8d has no parts. A saved plan that ends in several steps (made for the removed final
+  worker) answers with those steps' saved answers joined; the task's success conditions stay unconfirmed (nothing checks
+  them now). An answer step that finished before a restart answers from its saved output (its answer, note, correction,
+  verification are kept in the step output).
+- A loop or delegated conversation that is an answer step: the check at its end also judges the task's success
+  conditions it answers (a loop's end check judges end_when and them; a conversation that hands over or finishes gets
+  that check), as the removed final worker's check did, so it ends done when they are verified. They never decide a
+  loop's end, only whether its answer is confirmed.
+- Removed with the final worker: its step context and the `task.send_digest` journal row (only it read that).
+- The final worker also carried a correction that arrived after a step ended unfinished (no worker left to hear it).
+  Now the plan's unfinished steps run again under it (`PlanStore.retry_unfinished`), only when a step that ended
+  unfinished never saw the latest correction (`steers_seen` in its output); a failed row that the rerun carries through
+  updates to its answer ("done after your correction"). Past-bug guard: tests/test_steering_races.py.
+- A running task's parts, like its plan steps, don't change while it runs: a correction without a plan of its own is not
+  checked against parts and leaves them as they are (its new conditions reach the workers through the correction; a
+  part's answer step is checked against that part's conditions).
+- A continue of a multi-part task never shows a finished part again: the continued run's card carries only the parts not
+  finished before it (and any it changes); finished ones stay as posted in the card that showed them; the done count
+  covers all of the task's asks; the answer kept for the record holds only that card's rows.
+- Each row and part event names `step_task_id` (the step's task id): a confirmation the gateway asks for a task id under
+  it belongs to that row (the app ties `approval.requested` by `task_id` prefix); FERB's own questions in a step also
+  carry `part` on `approval.requested`.
 
 ## Fix list
 - [x] The plan line states resolved `folders` whenever there are any ("I'll work in …"), not only for big jobs or
@@ -273,6 +332,22 @@ to commit c6621c3. S = supervisor.py, M = main.py.
       branch (S:1393-1405), legacy continuity shims after a one-time migration.
       (Step 8c: removed, with `tasks.conversation_roots`/`max_rowid`/`recent_roots` and `ChatSession.task_floor`;
       `continuity.upgrade_legacy` runs once at start (journaled `store.upgraded`).)
+
+### Answers in steps (decisions 19-20)
+- [x] Planner schema `parts` and code validation. (Step 8d: `plans.Part`, `part_problems`, `answer_steps`; quote check in
+      `Supervisor._problems`; TASK_SCHEMA `parts`; minimal supervisor.md lines.)
+- [x] First reply: direct answers, receipts, plan line; the card with a row per other part. (Step 8d: `_plan_event`;
+      `plan_line`, `direct`, `receipts`, `lines`, `work_in`, `card` fields; `plan_delta` streams `plan_line`.)
+- [x] Each part posts once when its answer step's check accepts it, recorded durably, never twice also across restarts.
+      (Step 8d: `ferb/orchestrator/parts.py` Card, journal `chat.part`, event `part` / bus `task.part`, `_post_part`,
+      `_close_rows`; resumed plan event carries the card from the record; `chat.status` running tasks carry `card`.)
+- [x] No final summarizing call; code adds only its fixed lines and "N of M done". (Step 8d: final worker removed;
+      `tree.answering` for one-ask plans; `_final_card`; `_code_lines`.)
+- [x] Per-part states: asks (question and approval tied to the part, `part` on `approval.requested`), failed ("Couldn't
+      do: reason"), paused (5-attempt check-in), updated (`part_updates`, one record, no new message).
+- [x] Structured fields for the app: outcome `note` / `correction` / `lines`; plan `work_in`; `runtime_switch`, `merged`
+      as before.
+- [ ] The notch UI (decision 20): turn card, row states, footer, in-row questions, typing dots (step 8d part 2, `ui/`).
 
 ### Planner context
 - [x] Recent conversation + summary instead of filling the window (S:1709-1710; core/context.py:185, 284).

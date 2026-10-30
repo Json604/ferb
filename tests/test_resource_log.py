@@ -213,7 +213,9 @@ def test_the_work_counts_are_what_was_added_since_the_last_sample(tmp_path: Path
     _trail(db, "accessibility", "accessibility")                     # before start-up: never counted
     _decision(db, "d0", None)
     _span(db, "s0", "worker")
-    log = ResourceLog(db, clock, fake, lambda text: text, lambda: counters[-1], pid=DAEMON)
+    previews = [{"requests": 4, "frames": 3, "capture_ms": 90.0, "cached": 1, "busy": 0}]
+    log = ResourceLog(db, clock, fake, lambda text: text, lambda: counters[-1], pid=DAEMON,
+                      preview=lambda: previews[-1])
     _trail(db, "accessibility", "app_focus", "accessibility", "app_focus", "accessibility")
     _decision(db, "d1", "not sampled")
     _decision(db, "d2", "not sampled")
@@ -224,12 +226,15 @@ def test_the_work_counts_are_what_was_added_since_the_last_sample(tmp_path: Path
     _task(db, "a", "running")
     _task(db, "b", "done")
     counters.append((7, {"age": 2, "tokens": 1}))
+    previews.append({"requests": 10, "frames": 8, "capture_ms": 340.5, "cached": 2, "busy": 1})
     work = json.loads(_sample(log, clock)["work_json"])
     assert work == {"events": {"accessibility": 3, "app_focus": 2},
                     "perception": {"wakes": 5, "batches": {"age": 1, "tokens": 1}},
                     "jev": {"asked": 2, "not_sampled": 2},
                     "models": {"model.learning": 1, "model.turn": 1, "worker": 1}, "tool_calls": 3,
-                    "tasks_running": 1, "top": []}
+                    "tasks_running": 1, "top": [],
+                    # the live preview's work in the window (notes/preview.md decision 3)
+                    "preview": {"requests": 6, "frames": 5, "capture_ms": 250.5, "cached": 1, "busy": 1}}
     # Deleting rows the last sample already counted (retention, forget) changes nothing.
     for table in ("trail", "decisions", "spans"):
         db.conn.execute(f"DELETE FROM {table}")
@@ -237,7 +242,7 @@ def test_the_work_counts_are_what_was_added_since_the_last_sample(tmp_path: Path
     work = json.loads(_sample(log, clock)["work_json"])
     assert work == {"events": {"file": 1}, "perception": {"wakes": 0, "batches": {}},
                     "jev": {"asked": 0, "not_sampled": 0}, "models": {}, "tool_calls": 0, "tasks_running": 1,
-                    "top": []}
+                    "top": [], "preview": {"requests": 0, "frames": 0, "capture_ms": 0.0, "cached": 0, "busy": 0}}
 
 
 def test_the_work_counts_are_range_searches_never_a_table_scan(tmp_path: Path) -> None:

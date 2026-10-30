@@ -292,24 +292,26 @@ def test_a_new_goal_without_a_plan_never_reruns_the_old_plan_s_unfinished_steps(
 
 def test_a_new_plan_keeps_an_unchanged_finished_step_and_shows_the_others_as_data(daemon: RunningDaemon) -> None:
     """A finished send that the new plan keeps unchanged isn't redone and stays visible; a finished step the new plan
-    drops is handed to the new steps as data."""
+    drops is handed to the new steps as data. (Decision 19: each plan ends in the step that answers.)"""
     old = task(OLD_GOAL)
     send = Step(id='send', kind='do', goal='Send the application to admissions')
-    old['plan'] = Plan(steps=[Step(id='fill', kind='do', goal='Fill the Origins field'), send]).model_dump()
+    old['plan'] = Plan(steps=[Step(id='fill', kind='do', goal='Fill the Origins field'), send,
+                              Step(id='report', kind='do', goal='Report both', depends_on=['fill', 'send'])]).model_dump()
     install(daemon, [sup('task', 'Filling it in.', old)],
             {'step.fill': done('Filled the Origins field.'), 'step.send': done('Sent the application.'),
-             'worker': done('Filled and sent.')})
+             'step.report': done('Filled and sent.')})
     tree = outcome(chat(daemon, 'fill the Origins field and send it', session='origins'))['task_id']
-    plan = Plan(steps=[send, Step(id='note', kind='do', goal='Write a note about the Origins wording')])
+    plan = Plan(steps=[send, Step(id='note', kind='do', goal='Write a note about the Origins wording',
+                                  depends_on=['send'])])
     script = install(daemon, [_continue(tree, NEW_GOAL, True, plan)],
-                     {'step.note': done('Wrote the note.'), 'step.send': done('Sent again.'), 'worker': done('Done.')})
+                     {'step.note': done('Wrote the note.'), 'step.send': done('Sent again.')})
     second = outcome(chat(daemon, 'now write a note about the wording', session='origins'))
     assert second['task_id'] == tree
     assert not any(key == 'step.send' for _, key, _, _ in script.contexts)          # the finished send isn't redone
     note = next(ctx for _, key, ctx, _ in script.contexts if key == 'step.note')
     assert 'Filled the Origins field.' in note                                    # the dropped step's result, as data
-    final = next(ctx for _, key, ctx, _ in script.contexts if key == 'worker')
-    assert 'Sent the application.' in final
+    assert 'Sent the application.' in note                                        # the kept step's, as its input
+    assert second['answer'].startswith('Wrote the note.')
 
 
 def test_continue_without_a_new_goal_on_a_task_without_a_plan_stays_in_that_task(daemon: RunningDaemon, unattended) -> None:

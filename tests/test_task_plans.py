@@ -91,18 +91,19 @@ def test_restart_retains_completed_steps_and_durable_wait(tmp_path):
     db.close()
 
 
-def test_plan_steps_use_normal_workers_and_final_inspection(daemon):
+def test_plan_steps_use_normal_workers_and_the_last_step_is_checked_against_the_task(daemon):
+    """Decision 19: no final worker; the last step's check judges the task's success conditions."""
     from tests.conftest import chat, done, install, outcome, sup, task
     spec = task('Read sessions and rank them')
     spec['plan'] = Plan(steps=[Step(id='read', kind='do', goal='Read the session notes'),
                               Step(id='rank', kind='do', goal='Rank the read notes', depends_on=['read'])]).model_dump()
     script = install(daemon, [sup('task', 'Reading your sessions.', spec)],
-                     {'step.read': done('Session notes read.'), 'step.rank': done('Sessions ranked.'),
-                      'worker': done('Ranking checked.')})
+                     {'step.read': done('Session notes read.'), 'step.rank': done('Sessions ranked.')})
     result = outcome(chat(daemon, 'Read sessions and rank them'))
-    assert result['verified']
+    assert result['verified'] and result['answer'].startswith('Sessions ranked.')
     roles = [role for _, role, _, _ in script.contexts]
-    assert roles.index('step.read') < roles.index('step.rank') < roles.index('worker') < roles.index('worker.verify')
+    assert roles.index('step.read') < roles.index('step.rank') < roles.index('step.rank.verify')
+    assert 'worker' not in roles
     async def stored():
         return daemon.daemon.supervisor.plans.steps(result['task_id'])
     states = daemon.run(stored())
@@ -227,25 +228,3 @@ def test_inventory_leaves_out_what_macos_wont_let_ferb_look_at(tmp_path):
     finally:
         locked.chmod(0o700)
     assert [f['path'] for f in facts] == [str((tree / 'a.txt').resolve())]
-
-
-def test_a_plan_sends_one_answer_at_the_end_never_part_messages(daemon):
-    """Owner 2026-10-29: "turn off the early part messages completely. better than receiving 2 same messages". The
-    10-27 part messages (dc11e6b) arrived twice in live tasks (9c16fa45's `report` step, 71d365a5's `combine`): the
-    planner marked the final summing-up step as a part, and the final answer repeated the parts in full. A plan now
-    answers once, at the end; an old saved plan step carrying `tells_owner` still loads."""
-    import json
-    from tests.conftest import chat, install, sup, task
-    spec = task('Delete the Android SDK and explain what Homebrew stores')
-    spec['plan'] = Plan(steps=[Step(id='delete', kind='do', goal='Delete the Android SDK'),
-                               Step(id='explain', kind='do', goal="Explain Homebrew's storage")]).model_dump()
-    spec['plan']['steps'][0]['tells_owner'] = True                     # as a plan saved before the removal
-    Plan.model_validate(spec['plan'])
-
-    def said(text: str) -> str:
-        return json.dumps({"status": "done", "summary": text, "answer": text, "artifacts": [], "evidence": []})
-    install(daemon, [sup('task', 'On it.', spec)],
-            {'step.delete': said('Deleted the Android SDK.'), 'step.explain': said('Homebrew holds 9 GB.'),
-             'worker': said('Both done.')})
-    events = chat(daemon, 'delete the android sdk and tell me what homebrew is storing')
-    assert not [e for e in events if e['type'] == 'part'] and [e['type'] for e in events].count('outcome') == 1

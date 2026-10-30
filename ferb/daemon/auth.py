@@ -44,6 +44,12 @@ METHODS: dict[Role, frozenset[str]] = {
 }
 
 
+# Methods of the cli role that only FERB.app's own process may call (notes/preview.md: the live preview's masked window
+# pictures borrow FERB's Screen Recording permission; any other program running as the owner gets "unauthorized").
+# The server checks the peer's code signature (app_peer.py) once per connection.
+APP_ONLY: frozenset[str] = frozenset({"tasks.preview"})
+
+
 def allowed(role: Role, method: str) -> bool:
     return method in METHODS[role]
 

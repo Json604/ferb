@@ -1095,7 +1095,8 @@ def test_a_rounds_checker_resources_are_released_before_the_next_round(daemon, m
 
 def test_finished_needs_the_end_condition_checked_separately(daemon, monkeypatch):
     """Round 1 says finished but the separate check of the owner's end condition finds it not met: the loop goes on.
-    Round 2 says finished and the check agrees: the loop ends and the plan's final worker answers."""
+    Round 2 says finished and the check agrees: the loop ends, and its result is the plan's answer (decision 19: no
+    summarizing call after it)."""
     from tests.conftest import chat, done, install, outcome, sup
     _fast(monkeypatch)
     _state_cap(daemon, [True, False])                        # round 1's probe: baseline, then a trip
@@ -1105,13 +1106,30 @@ def test_finished_needs_the_end_condition_checked_separately(daemon, monkeypatch
                      {'loop.keep': [_round('finished', summary='Checks look green.'),
                                     _round('finished', probe=False, summary='All checks passed.')],
                       # each round: its own check, then (it said finished) the check of end_when alone
-                      'loop.keep.verify': [met(True), met(False), met(True), met(True)],
-                      'worker': done('All checks passed.')})
+                      'loop.keep.verify': [met(True), met(False), met(True), met(True)]})
     result = outcome(chat(daemon, 'loop until the checks pass'))
     assert _roles(script).count('loop.keep') == 2
     assert _roles(script).count('loop.keep.verify') == 4
-    assert 'worker' in _roles(script)
-    assert result['status'] in ('done', 'done_unverified')
+    assert 'worker' not in _roles(script)
+    assert result['status'] in ('done', 'done_unverified') and 'All checks passed.' in result['answer']
+
+
+def test_a_loop_that_answers_a_one_ask_plan_ends_done_when_its_end_check_confirms_the_task(daemon, monkeypatch):
+    """Decision 19 (no summarizing worker after it): the check of the owner's end condition also judges the task's own
+    success conditions, so a loop that is a one-ask plan's last step ends done, never "Couldn't confirm"."""
+    from tests.conftest import chat, install, outcome, sup
+    _fast(monkeypatch)
+    _state_cap(daemon, [True, False])
+    script = install(daemon, [sup('task', 'Watching the checks.', _loop_plan('Watch PR 12 checks', 'the checks pass'))],
+                     {'loop.keep': [_round('finished', summary='All checks passed.')],
+                      'loop.keep.verify': [json.dumps({'results': [{'index': 0, 'met': True, 'evidence': 'round'}]}),
+                                           json.dumps({'results': [{'index': 0, 'met': True, 'evidence': 'ended'},
+                                                                   {'index': 1, 'met': True, 'evidence': 'green'}]})]})
+    result = outcome(chat(daemon, 'loop until the checks pass'))
+    end_check = [c for _, k, c, _ in script.contexts if k == 'loop.keep.verify'][-1]
+    assert '0. the checks pass' in end_check and '1. Watch PR 12 checks' in end_check     # the task's own condition
+    assert result['status'] == 'done' and result['verified'] and 'All checks passed.' in result['answer']
+    assert "Couldn't confirm" not in result['answer'] and 'worker' not in _roles(script)
 
 
 def _journal(daemon, *kinds):

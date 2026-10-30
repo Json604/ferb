@@ -192,20 +192,29 @@ class Rpc:
         return task_id
 
     async def _task_preview(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """Owner-only, backpressured frame delivery; one fresh masked capture per request."""
+        """`tasks.preview {task_id, worker?}` (FERB.app only, auth.APP_ONLY): the live preview now (notes/preview.md).
+        `state`: working (here) / working_elsewhere / asking / waiting / paused / done / none (no window yet); `line`:
+        what FERB is doing, for the app to draw over the frame; `image`: the masked frame (base64 JPEG/PNG), fresh or
+        the frozen last one (`fresh`); `step`/`worker`: which step's surface it shows (parallel steps each have one);
+        `masking`: only text recognition masked it; `problem`: why the last capture gave no frame (withheld, gone,
+        not_allowed, slow, failed), the last frame kept; `busy`: FERB was acting there, so no new capture. Never
+        waits for the worker; ends when the app leaves. Pixels are in memory only."""
         import base64
         if self.gateway is None:
             return {"state": "unavailable"}
         task_id = str(params.get("task_id") or "")
+        worker = params.get("worker")
         try:
-            frame = await self.gateway.hooks.previews.frame(task_id)
+            answer = await self.gateway.hooks.previews.frame(task_id, str(worker) if worker else None)
         except asyncio.CancelledError:
             raise
         except Exception:
             return {"state": "unavailable"}
-        if frame is None:
-            return {"state": "waiting"}
-        return {"state": "frame", "image": base64.b64encode(frame).decode("ascii")}
+        image = answer.pop("image", None)
+        answer = self.redact(answer)
+        if image is not None:
+            answer["image"] = base64.b64encode(image).decode("ascii")
+        return answer
 
     async def _trace(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         task_id = str(params.get("task_id") or "last")

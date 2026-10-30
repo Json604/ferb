@@ -26,31 +26,73 @@ current call targets, never the whole screen. Built 2026-10-29 (758ce419); asses
   `tasks.preview`, so a notch built from the checkout gets "unauthorized" and retries every second until the update.
 
 ## Fix list
-- [ ] Never queue on worker locks: try the lock without waiting; busy → the cached last frame with a state. One capture
+- [x] Never queue on worker locks: try the lock without waiting; busy → the cached last frame with a state. One capture
       at a time per task; daemon time limit under the app's 10 s; cancel the capture when the app disconnects (today
       abandoned requests queue and run ahead of the worker's next call, server.py:262, locks.py FIFO).
-- [ ] Decision 2: the daemon reports a preview state with each frame (working here / working elsewhere / asking /
+      (Step 8d: `ResourceLocks.try_hold`; `TaskPreviews` one job per task, PREVIEW_LIMIT_S 8 s; server
+      CANCEL_WHEN_LEFT ends the call when its caller's connection ends, and the capture when nobody waits for it.)
+- [x] Decision 2: the daemon reports a preview state with each frame (working here / working elsewhere / asking /
       waiting / paused / done) plus a short line; the app draws it over the frozen last frame. The target freezes
       when FERB's call leaves that surface, the task pauses (`interrupt_tasks` keeps it today, gateway.py:711-715) or
-      waits.
+      waits. (Step 8d: `state` working / working_elsewhere / asking / waiting / paused / done / none and `line`;
+      `Supervisor.preview_status` from FERB's records; a call on no surface, a question, a pause, a wait or a step that
+      isn't running freezes the surface on its last frame and captures nothing. The app draws the state: part 2.)
 - [ ] Capture only while someone can see it: no capture when the panel is covered, the screen is locked or the
       display sleeps (decision 1 keeps it always live when visible).
-- [ ] Decision 3: count preview frames and capture milliseconds in `resource_samples.work_json`; step 13 A/B.
+- [x] Decision 3: count preview frames and capture milliseconds in `resource_samples.work_json`; step 13 A/B.
+      (Step 8d: `work_json.preview` = requests, frames, capture_ms, cached, busy per window. The A/B is step 13.)
 - [ ] Decision 4: `sharingType = .none` on the preview popover and floating panel (TaskActivityBubble.swift:131-150).
-- [ ] Restrict `tasks.preview` to FERB.app's session (today any program running as the owner can pull masked
+- [x] Restrict `tasks.preview` to FERB.app's session (today any program running as the owner can pull masked
       window pictures through the `cli` role, auth.py:40, rpc.py:198-201).
-- [ ] Target choice by capability declaration (`preview_target(args, result)`, like `point`/`on_screen`), shared
+      (Step 8d: auth.APP_ONLY; the server checks the peer's audit token with the Security framework against FERB.app's
+      own designated requirement, app_peer.py. Ruling below.)
+- [x] Target choice by capability declaration (`preview_target(args, result)`, like `point`/`on_screen`), shared
       with the cursor-point resolution; remove the name/argument lists (call_hooks.py:131-177).
-- [ ] Target setup lazily on the first frame request; until then wrap the hook in try/except with a timeout like
+      (Step 8d: `preview_target(args, owner, observed)` on the Mac and browser capability bases (MacAct: a key names no
+      window); `PreviewTarget` lives beside `Point` in ferb/act/point.py; the gateway's hook asks the capability and
+      no longer checks tool names or `mac.snapshot`.)
+- [x] Target setup lazily on the first frame request; until then wrap the hook in try/except with a timeout like
       `point` (a hook failure must not lose a successful `mac.snapshot`, gateway.py:1446, 1457).
-- [ ] Keep the masking note: when AX can't read a window and only OCR masked it, say so (call_hooks.py:184 drops it).
+      (Step 8d: the declaration does no lookup; `resolve` runs at the first frame request; the hook never raises.)
+- [x] Keep the masking note: when AX can't read a window and only OCR masked it, say so (call_hooks.py:184 drops it).
+      (Step 8d: `masking` in each answer.)
 - [ ] Clear app states: no visual surface yet / Screen Recording not allowed / window minimised / withheld / daemon
       too old; keep the last frame on brief failures.
-- [ ] Parallel steps in one task: key the preview by root task + worker, or label which step it shows.
+      (Step 8d daemon side: state `none`; `problem` kind withheld / gone / not_allowed / slow / failed with the last
+      frame kept. A minimised window shows as gone or failed. The app's states and "daemon too old": part 2.)
+- [x] Parallel steps in one task: key the preview by root task + worker, or label which step it shows.
+      (Step 8d: by the step's task id; the answer names `step` and `worker`; `worker` picks one.)
 - [ ] 8d: a watch button on the working part's row in the turn card; the streamed plan text (`plan_delta`) merges into
       decision 19's plan line (one path).
-- [ ] Tests: an abandoned request doesn't hold up the worker; no frame after task end or for a tab the task doesn't
+      (Step 8d daemon side: each row carries `step_task_id`, which `tasks.preview {worker}` takes; `plan_delta` streams
+      the plan event's `plan_line`. The button and the merge in the notch: part 2.)
+- [x] Tests: an abandoned request doesn't hold up the worker; no frame after task end or for a tab the task doesn't
       own; nothing persisted. Drop wiring-only tests in tests/test_task_preview.py.
+      (Step 8d: tests/test_task_preview.py rewritten: those, plus freeze states, parallel steps, a failing declaration,
+      the slow limit, only FERB.app may call, the real peer check failing closed, the counters.)
+
+## Rulings (step 8d, technical)
+- App-only access: the soundest mechanism available is the kernel's audit token of the socket peer (LOCAL_PEERTOKEN, so
+  a reused pid can't stand in) checked by the Security framework (SecCodeCopyGuestWithAttributes + SecCodeCheckValidity,
+  through ctypes; no new dependency) against FERB.app's own designated requirement: an ad-hoc build passes only with
+  its exact code hash, a release build with FERB's release certificate (or Developer ID team). Which FERB.app: the bundle
+  the daemon runs from; for a daemon run from FERB's own venv (~/.ferb/venv, how `ferb setup --update` installs it and
+  how the owner's install runs today), the installed FERB.app (setup records no location, so /Applications/FERB.app then
+  ~/Applications/FERB.app, with FERB's bundle id com.ferb.FERB); no FERB.app found: nobody passes. The requirement is
+  derived again whenever that bundle's signature changes (its CodeResources or main executable: inode, size, mtime),
+  checked per connection, so an app update never locks the notch out until a daemon restart. Only a daemon run from a
+  source checkout (`<repo>/.venv` beside pyproject.toml, never under FERB's home) accepts validly signed code with the
+  notch's identifiers (com.ferb.FERB, dev.ferb.notch), which any ad-hoc-signed program could claim; development only.
+  Any failure to check fails closed. Consequence: a notch run from the checkout build (dev.ferb.notch, ad-hoc) against
+  the installed daemon gets no preview; FERB.app does. Considered and not taken: a
+  dedicated role with a secret (any owner process can read the owner's files; Keychain is out of bounds here), bundle id
+  or path checks (spoofable).
+- A preview capture holds the surface's resource locks only when they are free (`try_hold`, asyncio's fast path, no
+  yield between the look and the take; it reads asyncio.Lock's private waiter list so a lock just handed to a waking
+  worker counts as busy). A cancelled capture's in-flight thread step (AX, ScreenCaptureKit) finishes in the background;
+  no further step runs and the locks are released.
+- A new surface replaces the last one only once it has a frame of its own; until then the last frame stays (frozen) with
+  "Working in <app>". The default answer shows the step whose latest call is on a surface, most recent first.
 
 ## Live checks (step 13)
 - Same browser task with the preview open vs closed: daemon CPU and call durations; no `daemon.slow_call` for previews.

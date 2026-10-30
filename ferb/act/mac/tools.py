@@ -16,7 +16,7 @@ from ferb.act.mac import applescript, browsers
 from ferb.act.mac.driver import OWN_APP, UNTRUSTED_APPS, MacComputerDriver, acts_on
 from ferb.act.mac.input import Yielded
 from ferb.act.mac.screenshot import window_on_screen
-from ferb.act.point import Point, display_of
+from ferb.act.point import Point, PreviewTarget, display_of
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import (ActionSpec, ComputerAction, FileAccess, Identity, RiskLevel, Target, TerminalInput,
                              ToolContext, ToolResult)
@@ -190,6 +190,34 @@ class _Base:
             except (StaleRef, Refused, ValueError, LookupError):
                 return None
         return await asyncio.to_thread(find)
+
+    def preview_target(self, args: BaseModel, owner: str,
+                       observed: dict[str, Any] | None = None) -> PreviewTarget | None:
+        """The live preview's surface (notes/preview.md): the app the call names; its window only when the call names
+        it exactly (a window, the shot the worker saw, an element's own window) or, after a snapshot, the one window it
+        reports current. Never the app's front window. Nothing is looked up here: `resolve` does it, off the loop,
+        when a frame is wanted. `observed` without a `windows` list adds nothing (None)."""
+        app = getattr(args, "app", None)
+        if not app:
+            return None
+        window, shot, element = getattr(args, "window", None), getattr(args, "shot", None), getattr(args, "element", None)
+        if observed is not None:
+            if not isinstance(observed.get("windows"), list):
+                return None
+            current = [w for w in observed["windows"] if isinstance(w, dict) and w.get("current") is True]
+            if len(current) != 1:
+                return None
+            window, shot, element = str(current[0].get("id")), None, None
+        name, driver = str(app), self.driver
+        if not (window or shot or element):
+            return PreviewTarget(f"app:{name}", name)      # FERB works in this app; no exact window to show yet
+
+        async def resolve() -> tuple[dict[str, Any], Any]:
+            if shot:
+                return await asyncio.to_thread(driver.recording_source, name, str(shot))
+            return await asyncio.to_thread(driver.preview_source, name, window=str(window) if window else None,
+                                           element=str(element) if element else None)
+        return PreviewTarget(f"app:{name}", name, resolve)
 
     def _shown(self, args: BaseModel) -> str:
         """The app's name as the owner knows it (for FERB's questions), else what the agent called it."""
@@ -452,6 +480,13 @@ class MacAct(_Base):
                               amount=getattr(args, "amount", None), window=getattr(args, "window", None),
                               allow_foreground=bool(getattr(args, "allow_foreground", False)),
                               mechanism=getattr(args, "mechanism", None))
+
+    def preview_target(self, args: BaseModel, owner: str,
+                       observed: dict[str, Any] | None = None) -> PreviewTarget | None:
+        """Keys go to the app's focus, not the optional element (`acts_on`): a key press names no window."""
+        if getattr(args, "action", None) == "key":
+            args = args.model_copy(update={"element": None})
+        return super().preview_target(args, owner, observed)
 
     async def point(self, args: BaseModel, grant: Any) -> Point | None:
         """L33: the element, unless the driver would refuse the act or send it elsewhere (`acts_on`: keys go to the

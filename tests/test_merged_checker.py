@@ -247,7 +247,7 @@ def test_every_per_role_report_schema_fits_the_providers_limits() -> None:
     from ferb.orchestrator.schemas import CHECKER_SCHEMA, WORKER_SCHEMA, worker_schema
     from ferb.runtimes.schema_shape import (ANTHROPIC_MAX_OPTIONAL, ANTHROPIC_MAX_UNIONS, complexity, for_anthropic,
                                             for_gemini)
-    flags = ("inputs", "proposals", "conversation", "watch", "loop")
+    flags = ("inputs", "proposals", "conversation", "watch", "loop", "parts")
     schemas = [worker_schema(**dict(zip(flags, on))) for on in product((False, True), repeat=len(flags))]
     for schema in [*schemas, CHECKER_SCHEMA]:
         unions, optional = complexity(for_anthropic(schema).wire)

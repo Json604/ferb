@@ -1443,7 +1443,7 @@ class Gateway:
         self.observer.tool_call(grant, done=False)
         try:
             async with self.locks.hold(c.lock_keys, grant.worker_id):
-                await self.hooks.preview(cap, name, c.args, grant, c.rec)
+                self.hooks.preview(cap, c.args, grant, c.rec, c.lock_keys)
                 await self.hooks.point(cap, c.args, grant)
                 try:
                     await self.hooks.screen_before(grant, span.id, name, c.arguments, cap)
@@ -1453,8 +1453,8 @@ class Gateway:
                     pass
                 try:
                     result = await self._execute(c, span, reply, covered, lifted, escape, terminal)
-                    if name == "mac.snapshot" and not result.get("is_error"):
-                        await self.hooks.preview(cap, name, c.args, grant, c.rec, result.get("content"))
+                    if not result.get("is_error") and isinstance(result.get("content"), dict):
+                        self.hooks.preview(cap, c.args, grant, c.rec, c.lock_keys, result["content"])
                     return result
                 finally:
                     await self.hooks.screen_after(span.id)   # idempotent: normally taken right after the tool ran

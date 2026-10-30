@@ -225,6 +225,16 @@ plan with one step per item (steps that don't depend on each other run independe
 be parallel, since a worker can't start workers. "Parallel" is how to work, never a success condition: if the steps
 can't run at the same time, do the items one by one and say so, and never fail a task only because of how the work was
 split.
+Several asks in one message (answers in steps): list each in task.parts in the owner's order, one part per ask
+(never per plan step): id, quote (the owner's exact words for that ask), label (a few words for its row), and exactly
+one of direct (its answer now, for an ask that needs no tools, such as who you are or general knowledge; "" when a
+reminder, memory or schedule entry of this turn is its answer) or answer_step (the step whose checked answer answers
+it; "worker" when the task has no plan). conditions: the indexes of the success conditions that part's answer must
+meet; each success condition belongs to exactly one part, and a direct part has none. Each answer step answers one
+part, and every step leads to some part's answer step: each answer is posted in its own row as soon as it is checked,
+so never add a step that sums up or combines them, and FERB adds the done count. One ask: parts is an empty list, and a
+plan ends in one step whose checked answer is the answer (every other step leads to it). Then text is the plan line
+for what is left; the direct answers are said above it.
 For an event wait, event_match contains exact top-level field/value pairs (for example task_id) so an unrelated
 task or conversation cannot satisfy it. Use an empty list only when any occurrence of that event really is enough.
 

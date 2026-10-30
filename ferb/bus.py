@@ -28,7 +28,8 @@ CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "ta
             "task.paused", "task.resumed",   # owner decision 8: a task waits for the owner in place / carries on
             "loop.status",       # a loop's state change (L31): the notch's standing work must never miss its last
             "memory.confirmed_derived", "memory.forgot_derived", "memory.rollback",
-            "memory.forgot"}   # a forget the owner said Yes to from the notch's buttons (I2)
+            "memory.forgot",   # a forget the owner said Yes to from the notch's buttons (I2)
+            "task.part"}       # decision 19: a multi-part task's row filled, failed, asks, was updated (never missed)
 TELEMETRY = {"tool.called", "tool.finished", "trail.event", "action.observed", "browser.connected", "browser.disconnected", "browser.profiles_changed",
              "memory.proposed", "browser.dialog", "browser.file_chooser", "browser.download", "browser.cleanup_failed",
              "browser.connection_refused",   # protocol 18: a native-host connection no known browser started
