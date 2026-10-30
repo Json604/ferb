@@ -255,12 +255,16 @@ def test_a_word_answer_is_hidden_in_any_case_and_other_values_stay_exact() -> No
     assert holds_sealed("I said PIZZA", r.secret_values())
 
 
-@pytest.mark.parametrize("text", ["call 914829137700", "pin=482913482913"])
-def test_a_digit_run_in_free_text_is_no_id(text: str) -> None:
-    """Ruling 6: an id read from free text has an a-f letter; twelve digits are a phone, UPI or Aadhaar number."""
+def test_a_short_known_value_never_matches_inside_a_longer_number() -> None:
+    """Step 6a (replaces ruling 6's digit-run case): a short known value (an OTP, 6 characters or fewer) is no hit
+    inside a longer number, so a phone number, a UPI or Aadhaar number and a JSON number keep their digits; alone, or
+    beside a label, it is still hidden."""
     r = _redactor("482913")
-    assert "482913" not in r.text(text)
-    assert holds_sealed(text, r.secret_values())
+    assert r.text("call 914829137700") == "call 914829137700"
+    assert not holds_sealed("call 914829137700", r.secret_values())
+    assert r.text('{"n": 14829137, "m": 482913}') == '{"n": 14829137, "m": [redacted]}'
+    assert r.text("call 482913 now") == "call [redacted] now" and holds_sealed("x 482913", r.secret_values())
+    assert "482913" not in r.text("pin=482913482913")                # the label hides the whole value
 
 
 def test_an_id_under_an_id_key_keeps_its_form_without_hex_letters() -> None:

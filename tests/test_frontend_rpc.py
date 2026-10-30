@@ -108,6 +108,15 @@ def test_known_secret_never_enters_attachment_metadata_or_ordinary_chat(daemon):
     assert 'hidden-canary-314159' not in str(script.contexts)
 
 
+def test_an_attachment_name_that_only_reads_like_a_label_is_accepted(daemon):
+    """Step 6a: the attachment check refuses a specific hit only (a saved secret, a credential format), never a name
+    redaction would merely change ("PIN 1234 notes.txt")."""
+    install(daemon, [sup('reply', 'Got it.')])
+    send(daemon, 'Inspect this file', ['PIN 1234 notes.txt'])
+    with pytest.raises(RpcError, match='protected secret text'):
+        send(daemon, 'Inspect this file', ['ghp_' + 'Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zQ7ab.txt'])
+
+
 def test_status_and_trace_recover_recorded_artifacts_after_result_was_shown(daemon):
     artifact = str(daemon.daemon.home / 'workspace' / 'report.md')
     worker = json.dumps({'status': 'done', 'summary': 'Report ready.', 'artifacts': [artifact], 'evidence': []})

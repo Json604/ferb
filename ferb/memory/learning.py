@@ -19,7 +19,7 @@ from ferb.core.errors import FerbError
 from ferb.memory.items import query_terms, weighted
 from ferb.memory.lineage import REQUEST_REFERENCE, call_sources, direct
 from ferb.orchestrator import episodes
-from ferb.sanitize.redact import INTERNAL_ID_KEYS, NODE_TEXT, REDACTED, holds_sealed
+from ferb.sanitize.redact import REDACTED, Redactor, first_format, holds_sealed, secret_key
 
 
 class LearningRefused(FerbError):
@@ -34,6 +34,9 @@ ID_KEYED = frozenset({'episode', 'episode_annotation', 'episode_intent'})
 # an action ran on nor a call the gateway records no provenance for is outside (plan 2026-10-23 Task 2). A card an
 # older composer built is rebuilt once by the hourly pass.
 CARD_MAKER = 'code:evidence-card/4'
+# The error the redactor before step 6a parked cards with (redaction wasn't idempotent; notes/memory.md): such a card
+# is read again (`cards_to_read`); a second failure records a new error, so it is tried once.
+PARKED_BY_REDACTION = 'redaction would still change it'
 # The composer before C1 (fixed in e0e344b): it copied into a card the refs of every block its planner was shown, and
 # every earlier version's. A store holding its cards gets the one-time clean-out (`prune_card_sources`, run by setup).
 COPYING_CARD_MAKER = 'code:evidence-card/1'
@@ -99,55 +102,38 @@ def prompt_json(value: Any) -> str:
     return line_safe(encoded(value))
 
 
-def spaced(value: Any) -> str:
-    """`value` as JSON with a space after each ',' and ':', as `redacted_json` reads it: the redactor reads text as
-    prose, and in compact JSON a word near a string's end ("Pin", "Token", "password") would label a "value" running
-    across the following keys to the next space (L29 re-review R1)."""
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(', ', ': '), default=str)
-
-
-def redacted_json(redact: Callable[[str], str], value: Any, secrets: Iterable[str] = ()) -> Any:
-    """`value` with its secrets redacted, still JSON (rule 14), or LearningRefused. Every whole-text pass reads it
-    `spaced` (stored compact). In order, the first that parses:
-    1. its text redacted whole, which also catches a secret its key labels ("password": "…") or that spans items (a
-       private key's lines);
-    2. when that broke the JSON (a redaction inside a number: a card-like number, a registered value within one), the
-       same whole text with every number and boolean written as a string: back in the value's shape, each number or
-       boolean whose text changed becomes REDACTED; when the redaction changed the shape, that parse as it stands
-       (strings where the numbers were);
-    3. else each value redacted together with its key (the `"key": value` text as one unit, nested values in turn, a
-       list's strings also joined, so a private key split across items is caught), REDACTED where that doesn't parse.
-    Then each string is redacted on its own too, as the prose it is: inside JSON the redactor misses a secret that
-    ends a string ("my password is sunshine" followed by another key), and each pair of neighbouring values is read as
-    two lines (a code whose label ends the previous value, "PIN" then "4821"). Last, the result is checked: redacted
-    once more as a whole it must not change, and the compact text to be stored must hold none of the owner's registered
-    secret `secrets` where the redactor would replace one (`holds_sealed`, L36 §7: a word-like value as a whole word,
-    never strictly inside one of FERB's id bodies; one spanning JSON punctuation, e.g. `1234,5678` in `[1234,5678]`,
-    matches only there). Else it is refused, as before this helper existed (L29 re-review N1, R1, Q1)."""
-    try:
-        out = json.loads(redact(spaced(value)))
-    except ValueError:
-        try:
-            seen = json.loads(redact(spaced(_quoted(value))))
-        except ValueError:
-            out = _units(redact, value, None)
-        else:
-            try:
-                out = _restored(value, seen)
-            except ValueError:
-                out = seen
-    out = _siblings(redact, _strings_alone(redact, out))
-    text, stored = spaced(out), encoded(out)
-    if redact(text) != text or holds_sealed(stored, secrets):
-        raise LearningRefused('could not be stored safely: redaction would still change it')
+def redacted_json(redact: Callable[[str], str], value: Any, secrets: Iterable[str] = (),
+                  redact_value: Callable[[Any], Any] | None = None) -> Any:
+    """`value` with its secrets redacted, still JSON with every key (rule 14): redacted by structure (`redact_value`,
+    the daemon's `Redactor` walk: keys, values a label names, numbers, sibling nodes), never as one text, so a
+    redaction can't break the JSON or drop a key. Refused only on a specific hit in the text to be stored: one of the
+    owner's known values `secrets` (`holds_sealed`) or a secret format, e.g. one spanning JSON punctuation (`1234,5678`
+    in `[1234,5678]`). Without `redact_value`, `redact`'s own Redactor walks it when it is one's `text`, else each
+    string and number is read by `redact` alone."""
+    walk = redact_value
+    if walk is None:
+        owner = getattr(redact, '__self__', None)
+        walk = owner if isinstance(owner, Redactor) else (lambda v: _each(redact, v))
+    out = walk(value)
+    stored = encoded(out)
+    found = 'a saved secret' if holds_sealed(stored, secrets) else first_format(stored)
+    if found:
+        raise LearningRefused(f'could not be stored safely: it still holds {found}')
     return out
 
 
-def _line(value: Any) -> str | None:
-    """A scalar as a line of prose: a string as written, a number as JSON; None for anything else."""
+def _each(redact: Callable[[str], str], value: Any) -> Any:
+    """Each key and string redacted by `redact`, and each number whose text it changes masked."""
+    if isinstance(value, dict):
+        return {redact(k) if isinstance(k, str) else k: REDACTED if secret_key(str(k)) and v not in (None, '', [], {})
+                and not isinstance(v, bool) else _each(redact, v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_each(redact, v) for v in value]
     if isinstance(value, str):
-        return value
-    return encoded(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+        return redact(value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value if redact(encoded(value)) == encoded(value) else REDACTED
+    return value
 
 
 def _one_line(value: Any) -> str:
@@ -272,134 +258,6 @@ def reindex_search(db: Any, *, batch_bytes: int = REINDEX_BATCH_BYTES,
     return did
 
 
-def _node_text(item: Any) -> str | None:
-    """A list item's own text: a node's first text field (`NODE_TEXT`, as the redactor reads a page's nodes)."""
-    if not isinstance(item, dict):
-        return None
-    return next((k for k in NODE_TEXT if isinstance(item.get(k), str) and item[k].strip()), None)
-
-
-# Keys whose values are FERB's own ids (an action's id, a label's intent id, a procedure example's card, step evidence):
-# never read as a neighbour or masked by that reading (L29 re-review 5, V1); the other passes still redact them.
-_SIBLING_ID_KEYS = frozenset(INTERNAL_ID_KEYS | {'id', 'intent_id', 'episode', 'evidence'})
-
-
-def _siblings(redact: Callable[[str], str], value: Any) -> Any:
-    """`value` with each pair of neighbouring scalar values (an object's in key order, a list's items, a list's nodes by
-    their text) also read as two lines of prose, as the redactor reads a page's neighbouring nodes: a value that
-    reading masks becomes REDACTED (a code whose label ends the previous value: "PIN" then "4821"; L29 re-review Q1)."""
-    ids: set[int] = set()
-    if isinstance(value, dict):
-        keys: list[Any] | None = sorted(value, key=str)
-        ids = {i for i, k in enumerate(keys or ()) if k in _SIBLING_ID_KEYS}
-        values = [value[k] if i in ids else _siblings(redact, value[k]) for i, k in enumerate(keys or ())]
-        texts: list[str | None] = [None] * len(values)
-    elif isinstance(value, list):
-        keys, values = None, [_siblings(redact, v) for v in value]
-        texts = [_node_text(v) for v in values]
-    else:
-        return value
-    lines = [None if i in ids else values[i][t] if t is not None else _line(values[i])
-             for i, t in enumerate(texts)]
-    # a string is already redacted on its own (`_strings_alone`); a number is read alone here
-    alone = [redact(line) if isinstance(values[i], (int, float)) and texts[i] is None and line is not None else line
-             for i, line in enumerate(lines)]
-    out = list(values)
-    for i in range(1, len(values)):
-        a, b = lines[i - 1], lines[i]
-        if a is None or b is None:
-            continue
-        pair = redact(a + '\n' + b)
-        if pair == f'{alone[i - 1]}\n{alone[i]}':
-            continue
-        parts = pair.split('\n')
-        if len(parts) != a.count('\n') + b.count('\n') + 2:
-            out[i - 1], out[i] = _masked(out[i - 1], texts[i - 1]), _masked(out[i], texts[i])
-            continue
-        cut = a.count('\n') + 1
-        if '\n'.join(parts[cut:]) != alone[i]:
-            out[i] = _masked(out[i], texts[i])
-        if '\n'.join(parts[:cut]) != alone[i - 1]:
-            out[i - 1] = _masked(out[i - 1], texts[i - 1])
-    return dict(zip(keys, out)) if keys is not None else out
-
-
-def _masked(value: Any, text: str | None) -> Any:
-    """A value the sibling reading masked: REDACTED, or for a node its text field."""
-    return value | {text: REDACTED} if text is not None else REDACTED
-
-
-def _strings_alone(redact: Callable[[str], str], value: Any) -> Any:
-    """`value` with each string redacted on its own."""
-    if isinstance(value, dict):
-        return {k: _strings_alone(redact, v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_strings_alone(redact, v) for v in value]
-    return redact(value) if isinstance(value, str) else value
-
-
-def _quoted(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(k): _quoted(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_quoted(v) for v in value]
-    if value is None or isinstance(value, str):
-        return value
-    return encoded(value) if isinstance(value, (bool, int, float)) else str(value)
-
-
-def _restored(value: Any, seen: Any) -> Any:
-    """`value` with the redacted forms `seen` holds (`_quoted(value)` encoded, so with its keys sorted, and redacted),
-    or ValueError when the shapes differ."""
-    if isinstance(value, dict):
-        if not isinstance(seen, dict) or len(seen) != len(value):
-            raise ValueError('the redacted text changed the shape')
-        ordered = sorted(value.items(), key=lambda item: str(item[0]))
-        return {k: _restored(v, w) for (_, v), (k, w) in zip(ordered, seen.items())}
-    if isinstance(value, (list, tuple)):
-        if not isinstance(seen, list) or len(seen) != len(value):
-            raise ValueError('the redacted text changed the shape')
-        return [_restored(v, w) for v, w in zip(value, seen)]
-    if value is None:
-        return None if seen is None else REDACTED
-    if isinstance(value, (bool, int, float)):
-        return value if seen == encoded(value) else REDACTED
-    if not isinstance(seen, str):
-        raise ValueError('the redacted text changed the shape')
-    return seen
-
-
-def _units(redact: Callable[[str], str], value: Any, key: str | None) -> Any:
-    """`redacted_json`'s last resort: each value with its key (`key`, None at the top) as one redacted unit."""
-    if isinstance(value, dict):
-        return {_unit(redact, None, str(k)): _units(redact, v, str(k)) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        texts = [v for v in value if isinstance(v, str)]
-        joined = '\n'.join(texts)
-        if len(texts) > 1 and redact(joined) != '\n'.join(redact(t) for t in texts):
-            return REDACTED                 # a secret only the items together show (a private key's lines)
-        return [_units(redact, v, key) for v in value]
-    return _unit(redact, key, value)
-
-
-def _unit(redact: Callable[[str], str], key: str | None, value: Any) -> Any:
-    """One scalar redacted beside its key (`{"key": value}` as one text), and a string alone too; REDACTED when the
-    redacted text doesn't parse back to one value, or a number, boolean or null changed."""
-    if not isinstance(value, (str, bool, int, float)) and value is not None:
-        value = str(value)
-    try:
-        seen = json.loads(redact(spaced(value if key is None else {key: value})))
-    except ValueError:
-        return REDACTED
-    if key is not None:
-        if not isinstance(seen, dict) or len(seen) != 1:
-            return REDACTED
-        seen = next(iter(seen.values()))
-    if isinstance(value, str):
-        return redact(seen) if isinstance(seen, str) else REDACTED
-    return value if type(seen) is type(value) and seen == value else REDACTED
-
-
 def memory_origin(label: str) -> str:
     return {'owner_stated': origin.OWNER, 'observed': origin.PRIVATE, 'inferred': origin.INFERRED,
             'third_party': origin.external('memory')}.get(label, origin.external('unlabeled'))
@@ -412,11 +270,14 @@ def shown_state(node: dict[str, Any]) -> str:
 
 class Learning:
     def __init__(self, db: Any, clock: Any, publish: Callable[..., Any], redact: Callable[[str], str],
-                 redact_id: Callable[[str], str] | None = None) -> None:
+                 redact_id: Callable[[str], str] | None = None,
+                 redact_value: Callable[[Any], Any] | None = None) -> None:
         """`redact_id`: redaction for a key that is one of FERB's own ids (ID_KEYED), by structure
-        (`Redactor.ident`), so a registered value inside a task id can't alter the card's key; default `redact`."""
+        (`Redactor.ident`), so a registered value inside a task id can't alter the card's key; default `redact`.
+        `redact_value`: a body redacted by structure (the daemon's `Redactor`); default `redacted_json`'s reading."""
         self.db, self.clock, self.publish, self.redact = db, clock, publish, redact
         self.redact_id = redact_id or redact
+        self.redact_value = redact_value
         self.home = str(Path.home())   # the owner's home folder (embeddings, tests set it)
         self.embedder: Any = None
         # where a problem the owner should be able to find later is recorded (the daemon: its journal)
@@ -530,7 +391,7 @@ class Learning:
             raise LearningRefused('the owner said this suggestion was not right')
         if origin_label == origin.OWNER and not owner:
             raise LearningRefused('a derived record cannot invent owner authority')
-        body = redacted_json(self.redact, body, self.secret_values())
+        body = redacted_json(self.redact, body, self.secret_values(), self.redact_value)
         key = self.redact_id(key) if kind in ID_KEYED else self.redact(key)
         refs = sorted(set(sources))
         labels = set(labels) if labels is not None else self.labels(refs)
@@ -803,15 +664,17 @@ class Learning:
         """The tasks whose card must be read (again), oldest first: no card yet, or a card read from other inputs (a
         new verdict, a rebuilt episode, an older composer). A failed read is tried once more on the next pass (a reader
         may have crashed); failed twice on the same inputs, it waits for them to change, unless `force` (`ferb memory
-        consolidate`). A card built on forgotten content is never read again."""
+        consolidate`), or unless it was parked by the old redactor's idempotence refusal (`PARKED_BY_REDACTION`), which
+        the structural redaction no longer makes: those are read again once. A card built on forgotten content is
+        never read again."""
         current = self.card_inputs()
-        recorded = {r[0]: (r[1], r[2]) for r in self.db.conn.execute(
-            'SELECT task_id, inputs, status FROM learning_card_inputs')}
+        recorded = {r[0]: (r[1], r[2], r[3] or '') for r in self.db.conn.execute(
+            'SELECT task_id, inputs, status, error FROM learning_card_inputs')}
         gone = {r[0] for r in self.db.conn.execute("SELECT id FROM learning_forgotten WHERE id LIKE 'key-%'")}
         order = [r[0] for r in self.db.conn.execute('SELECT task_id FROM episodes ORDER BY ended_at')]
         return [t for t in order if self.card_key(t) not in gone and (
-            recorded.get(t, ('', ''))[0] != current.get(t) or recorded[t][1] == 'failed' or
-            (force and recorded[t][1] == 'parked'))]
+            recorded.get(t, ('', '', ''))[0] != current.get(t) or recorded[t][1] == 'failed' or
+            (recorded[t][1] == 'parked' and (force or PARKED_BY_REDACTION in recorded[t][2])))]
 
     def card_read(self, task_id: str, inputs: str, error: str | None = None) -> None:
         """Record the inputs a card was read from, or failed to be read from with the error: 'failed' the first time

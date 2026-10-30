@@ -185,7 +185,8 @@ class MemoryGlue:
             from ferb.memory.learning import Learning
             db = Database(path)
             try:
-                own = Learning(db, l.clock, lambda *event: events.append(event), l.redact, l.redact_id)
+                own = Learning(db, l.clock, lambda *event: events.append(event), l.redact, l.redact_id,
+                               l.redact_value)
                 own.secret_values = l.secret_values
                 index_summaries(own, stop=lambda: False)
             finally:

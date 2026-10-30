@@ -491,6 +491,21 @@ def test_text_holding_a_saved_secret_is_never_typed_into_a_terminal(daemon: Runn
     assert _questions(daemon) == [] and ax.landed == []
 
 
+def test_a_command_that_only_reads_like_a_label_is_asked_not_refused(daemon: RunningDaemon,
+                                                                     monkeypatch: Any) -> None:
+    """Step 6a: the refusal needs a specific hit (a saved secret or a credential format), never "redaction would
+    change it": `echo 'PIN 1234'` was refused before; now it is asked like any terminal input and typed on a Yes."""
+    grant, ax = _live(daemon, monkeypatch, focus="term108")
+    owner = Owner(daemon, [True])
+    try:
+        out = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=_snap(daemon, grant)[TERMINAL_LABEL],
+                                action="type", mechanism="pid", text="echo 'PIN 1234'")
+    finally:
+        owner.stop()
+    assert not out["is_error"], out
+    assert [q["answer"] for q in _questions(daemon)] == [YES] and ax.landed == [("term108", "type echo 'PIN 1234'")]
+
+
 def test_a_paste_whose_clipboard_holds_a_secret_is_refused_naming_the_field(daemon: RunningDaemon,
                                                                             monkeypatch: Any) -> None:
     """Round 2, N1: a command holding a saved secret is refused, whatever field holds it; the error names the field,

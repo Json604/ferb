@@ -51,7 +51,8 @@ class Compose:
         assert self.db is not None
         self.memory = Memory(self.db, self.clock, self.ids, self._publish, on_change=self._export_memory,
                              redact=self._redact_text)
-        self.learning = Learning(self.db, self.clock, self._publish, self._redact_text, redact_id=self._redact_id)
+        self.learning = Learning(self.db, self.clock, self._publish, self._redact_text, redact_id=self._redact_id,
+                                 redact_value=lambda value: self.redact(value))
         self.timers = Timers(self.db, self.clock, self.ids, self._timer_fired, on_error=self._timer_failed)
         self.timers.cancel_all_sleeps()
         self.schedules = Schedules(self.db, self.clock, self.ids)

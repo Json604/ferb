@@ -486,7 +486,8 @@ def test_snapshot_nodes_split_into_a_label_and_its_code_are_related() -> None:
 
 @pytest.mark.parametrize("key", ["code", "access", "otp"])
 def test_a_long_line_with_a_class_word_and_no_secret_is_never_replaced_by_the_oversized_marker(key) -> None:
-    """Review of fix wave 2 (probe p8): a 130 KB JSON line holding "access" came out as the oversized marker."""
+    """Review of fix wave 2 (probe p8): a 130 KB JSON line holding "access" came out as the oversized marker. One
+    vocabulary (step 6a): `"otp": 200` in text is masked as the dict {"otp": 200} is; the line still streams."""
     import json
     items = [{"id": i, "name": f"pkg{i}", "description": "a library for parsing things quickly"} for i in range(1500)]
     line = json.dumps({key: 200, "items": items}) + "\n"
@@ -495,7 +496,8 @@ def test_a_long_line_with_a_class_word_and_no_secret_is_never_replaced_by_the_ov
         out += stream.feed(data[i:i + 4096])
     early = len(out)
     out += stream.feed(b"", final=True)
-    assert out.decode() == line and early > len(data) // 2          # streamed as it came, not held to the end
+    assert out.decode() == Redactor().text(line) and early > len(data) // 2   # streamed as it came, not held to the end
+    assert (f'"{key}": 200' in out.decode()) is (key != "otp") and b"oversized" not in out
 
 
 def test_a_long_line_still_masks_a_code_near_its_end() -> None:
@@ -890,13 +892,13 @@ def test_the_layouts_mask_only_the_value_lines(raw, expected) -> None:
 
 
 @pytest.mark.parametrize("label", ["", "Backup codes:\n", "Your verification code is:\n"])
-def test_a_read_relates_its_new_lines_once_and_unmasked_lines_never(label, monkeypatch) -> None:
-    """Re-review 4 (P1): each read worked out the relations of every line it held two or three times, each after the
-    masks before the labelled classes (`Redactor.before_labels`), so number-only output cost 8-15 times a76b076. A
-    line's relations are now worked out once per read, and the masks only for a line holding a class word's stem."""
+def test_a_read_masks_only_its_own_lines_and_a_few_lines_of_context(label, monkeypatch) -> None:
+    """Re-review 4 (P1), on the rebuilt stream: each read masks its new lines with the line or two they can relate to
+    as context (`stream._context`), never everything read so far, so number-only output costs work per read in
+    proportion to the read."""
     seen: list[str] = []
-    real = Redactor.before_labels
-    monkeypatch.setattr(Redactor, "before_labels", lambda self, s: seen.append(s) or real(self, s))
+    real = Redactor.text
+    monkeypatch.setattr(Redactor, "text", lambda self, s: seen.append(s) or real(self, s))
     redactor = Redactor()
     text = label + "".join(f"{n}\n" for n in range(1000, 30000))
     data, stream, out, reads = text.encode(), redactor.stream(), b"", 0
@@ -904,9 +906,9 @@ def test_a_read_relates_its_new_lines_once_and_unmasked_lines_never(label, monke
         out += stream.feed(data[i:i + 1024])
         reads += 1
     out += stream.feed(b"", final=True)
-    assert out.decode() == redactor.text(text)
-    assert len(seen) <= reads + 1, len(seen)
-    assert all(label.strip() in line for line in seen)
+    assert "".join(map(str, [out.decode()])) == real(redactor, text)
+    assert len(seen) <= 3 * (reads + 1), len(seen)
+    assert max(map(len, seen[:-1])) <= 1024 + 64
 
 
 # Re-review 4 follow-up (concern 3a): a code alone on its line inside brackets or parentheses, or led by a list dash or

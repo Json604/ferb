@@ -114,6 +114,16 @@ redact, image redaction, origins).
   branches (G:1103-1111, 1571; confirm.py:516-518), legacy confirmation rules in the DB. (Step 3: the looks machinery
   and `tools_for_task` removed; the rest left.)
 
+## Rulings (step 6a, technical)
+- All reviewed OTP rules kept (email layouts, markup, backup-code lists): their tests guard real past leaks.
+- Cards are checked over every window of digit groups (catches `qty 2 <card>`); grouped order numbers are masked a
+  bit more often (about 19% vs 11%). Hiding too much is the safe side.
+- Expiry is masked only in MM/YY form after an expiry label or right after a card; CVV only beside its label.
+- The daemon preloads saved-secret values (and API keys only for runtimes in use) at start, so they're masked
+  before their first fill. Test daemons never preload (an early test run read API-key entries from the owner's
+  login Keychain inside a short-lived test process; values stayed in that process's memory, only a count was written,
+  in a temp home since deleted; fixed and guarded by a test).
+
 ## Target design
 1. **One pipeline, one Need loop.** Admission → validate → tool-reported facts → `needs(facts)` (protection, pay,
    account security, delete, new recipient, sink, TLS-off, foreground, browser page, terminal, escape all as Need
@@ -161,9 +171,19 @@ redact, image redaction, origins).
 - [ ] Known destinations (decision 5): mentioned sites known except for private-data sends after outside reads.
 - [ ] Card fields secret + sealed card fill + CVV/expiry redaction (decision 6). (5c: card fields are secret in the
       extension (values never captured, boxes painted, no typing or text keys, no login code into them) and reported
-      as field kinds; filling one goes through browser.secret's sealed path today. A stored-card handle and the
-      redactor's CVV/expiry rules: step 6.)
-- [ ] Redaction rebuild (target 4).
+      as field kinds; filling one goes through browser.secret's sealed path today. 6a: the redactor masks CVV beside
+      its label, expiry beside a card or its label, the CVV after a card and expiry, cards over every window of digit
+      groups (`qty 2 4111 …` fixed), and a record's `cc-number`/`cc-csc`/`cc-exp` value. Left: a stored-card handle.)
+- [x] Redaction rebuild (target 4). (6a, `ferb/sanitize/`: `known.py` registry (preloaded at start from FERB's
+      Keychain handles and owner secrets, `Daemon._preload_secrets`; escaped forms incl. URL and HTML; a value of 6
+      characters or fewer never matches inside a longer number), `formats.py` one named vendor table, `labels.py` one
+      vocabulary (dict keys, `KEY=`, `"key":`, URL params, field metadata; entropy check after `*_KEY`-style keys)
+      and the reviewed OTP rules, `redact.py` spans found on the text as given and masked once, then a fixed point,
+      so `text(text(x)) == text(x)`; structures redacted by shape (keys too, colliding keys kept, ints, bytes);
+      returned strings marked so later sinks skip them; `stream.py` rebuilt on the same rules. Gates ask
+      `Redactor.hit` (known value or format): terminal input, chat `input_paths`, learning card storage. Process
+      exception hooks write redacted tracebacks to stderr (`redacting_hooks`). Not changed: the destination and
+      confirmation key checks in `policy/destinations.py`, which compare stored keys, not gate actions.)
 - [ ] Run tokens expire with the task (the Claude token file is owned by notes/runtimes.md).
 - [ ] Conversation-guard Yes release (G:1588-1594).
 - [ ] Browser app list, U+200E, extension/about pages; terminal fail-closed; TLS cases. (5b: all but the TLS cases:

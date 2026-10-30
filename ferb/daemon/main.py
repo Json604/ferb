@@ -79,7 +79,7 @@ from ferb.store.db import Database
 from ferb.store.spans import SpanStore
 from ferb.store.task_results import TaskResults
 
-__all__ = ["Daemon", "main", "LOG_FILTERS", "mcp_shim_command"]
+__all__ = ["Daemon", "main", "LOG_FILTERS", "mcp_shim_command", "redacting_hooks"]
 
 LOOP_RESTART_S, LOOP_RESTART_MAX_S = 1.0, 60.0    # a background loop that raised starts again after this (`_supervise`)
 
@@ -93,7 +93,8 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
                  watch_owner_input: bool = True, watchers: bool = True, distill: bool = True,
                  notifications: bool = True, retention: bool = True, resources: bool = True,
                  snapshots: bool = True,
-                 persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True) -> None:
+                 persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True,
+                 preload_secrets: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
@@ -104,6 +105,7 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         self._automation_checks: dict[str, Any] = {}
         self._redact_override = redact
         self.redact: Redact = redact or Redactor()
+        self.preload_secrets = preload_secrets      # the redactor learns FERB's Keychain values at start (step 6a)
         from ferb.sense.daily import DailyActivity
         self.daily_activity = DailyActivity(self.home / 'activity' / 'today.jsonl', self.clock.now)
         self.bus = Bus(self.clock)
@@ -305,6 +307,8 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         self.db.migrate()
         self.db.conn.execute(SOURCE_REF_INDEX)  # one an interrupted store clean-out lost (a no-op when it is there)
         self.journal = Journal(self.db, self.clock, self.ids, self.redact)
+        if self.preload_secrets:
+            self._spawn(self._preload_secrets(), "secret preload")
         self._reindex_task = asyncio.get_running_loop().create_task(self._reindex_search())   # searches wait for it
         self.db.on_wal_kept = lambda after, details: self._journal().append(
             "store.wal_not_truncated", {"after": after, **details})
@@ -570,5 +574,29 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         return self.journal
 
 
+def redacting_hooks(redact: Callable[[str], str], err: Any = None) -> None:
+    """Exceptions that reach the interpreter (the main thread, another thread, an unraisable one in a finalizer) are
+    printed to stderr (launchd's `daemon.err.log`) redacted by the daemon's redactor, never raw: a traceback's message
+    can hold a value FERB read (rule 14). One that the redactor itself fails on prints only its type."""
+    import threading
+    import traceback
+
+    def write(kind: type[BaseException] | None, error: BaseException | None, tb: Any, where: str = "") -> None:
+        out = err or sys.stderr
+        try:
+            text = "".join(traceback.format_exception(kind, error, tb)) if kind is not None else ""
+            out.write((f"FERB: {where}\n" if where else "") + str(redact(text)))
+        except Exception:
+            out.write(f"FERB: an unhandled {getattr(kind, '__name__', 'error')} (its text withheld)\n")
+        out.flush()
+    sys.excepthook = lambda kind, error, tb: write(kind, error, tb)
+    threading.excepthook = lambda a: write(a.exc_type, a.exc_value, a.exc_traceback,
+                                           f"in thread {getattr(a.thread, 'name', '?')}")
+    sys.unraisablehook = lambda u: write(type(u.exc_value) if u.exc_value is not None else None, u.exc_value,
+                                         u.exc_traceback, str(redact(str(u.err_msg or "unraisable exception"))))
+
+
 def main() -> None:
-    asyncio.run(Daemon().run())
+    daemon = Daemon()
+    redacting_hooks(daemon._redact_text)
+    asyncio.run(daemon.run())

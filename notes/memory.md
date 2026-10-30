@@ -134,7 +134,11 @@ to commit c6621c3.
       (Step 3: consolidate.py, intents.py, strict.py, intent.md, consolidate.md and the procedure/lesson/receipt/outside_* code in learning.py removed, with the rollups (day/week/month/year `summary` and `entity` nodes); the day-summary indexing (`activity_summary`) kept as `learning.index_summaries`. Daemon and supervisor procedure parts, `procedure_id`/`procedure_slots` and the prompt text removed. Episode cards, card search and embeddings stay.)
 - [x] Hourly pass keeps only distill; no intent-label or consolidate calls.
       (Step 3: the hourly pass is distill, the episode-card refresh (`_refresh_cards`: cards whose inputs changed, e.g. a verdict; then day-summary indexing and embeddings) and the embedding restore.)
-- [ ] Parked cards: find why redaction isn't idempotent for 15 cards (learning.py:146-180), fix, re-capture.
+- [x] Parked cards: find why redaction isn't idempotent for 15 cards (learning.py:146-180), fix, re-capture.
+      (6a: masking removed context that had exempted another value, and one pass consumed text another rule needed;
+      the rebuilt redactor masks spans found on the original text, then reaches a fixed point, and `redacted_json`
+      redacts by structure and refuses only a known value or a secret format. A card parked with the old error
+      ("redaction would still change it") is read again once (`PARKED_BY_REDACTION` in `cards_to_read`).)
 - [ ] Card source fan-out: 1.5M `learning_sources` rows, up to 58,250 per card, from refs inside tool results
       (lineage.py:44-76). Keep only refs needed for origin labels.
 - [ ] Whole-table reads with all refs (learning.py:694-706; main.py:1720 on every verdict): read only what's needed.
@@ -161,7 +165,9 @@ to commit c6621c3.
       and clipboard check only app exclusions. Apply the browser checks (as windows.py:3-5 does).
 - [ ] Activity search indexes JSON keys as words (daily.py:180): index values only, prefer recent rows.
 - [ ] `today.jsonl` stores each row's data twice (`data` and `where`, main.py:4521-4522).
-- [ ] Redaction runs ~6 times per event (watcher, trail, four in `_publish` main.py:4517-4528): once.
+- [x] Redaction runs ~6 times per event (watcher, trail, four in `_publish` main.py:4517-4528): once.
+      (Step 2: one events object. 6a: every string the redactor returns is marked for the current known values, so
+      the trail's, the events object's and other later passes over an already-redacted value skip its text.)
 - [ ] Software watcher re-reads TCC and all LaunchAgent plists every second (watchers/software.py:20-37): on change.
 - [ ] `purge_text` rewrites and fsyncs `today.jsonl` once per expired 7-day-old row, which can never be in today's
       file (perception.py:152 → daily.py:117-122).

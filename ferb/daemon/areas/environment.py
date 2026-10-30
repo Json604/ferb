@@ -174,6 +174,36 @@ class Environment:
         if add is not None:
             add(value)
 
+    def _keychain_values(self) -> tuple[list[str], int]:
+        """The values of FERB's Keychain handles ([secrets], and the API keys of the providers this home's runtime
+        table uses) and of the owner's saved secrets, read through their stores (a worker thread: each read is a helper
+        or `security` call). A home that names none reads nothing."""
+        from ferb.identity.owner_secrets import OwnerSecrets
+        from ferb.runtimes.catalog import ROLES
+        from ferb.runtimes.keys import stored_api_keys
+        values, unreadable = self.secrets.values()
+        try:
+            owner, missed = OwnerSecrets(self.home).values()
+            values, unreadable = values + owner, unreadable + missed
+        except Exception:                          # the handles file can't be read: those values come at first use
+            unreadable += 1
+        try:
+            values += stored_api_keys({self._runtime_for(role) for role in ROLES})
+        except Exception:
+            unreadable += 1
+        return values, unreadable
+
+    async def _preload_secrets(self) -> None:
+        """The known-value registry, preloaded at start (step 6a): FERB's Keychain handles and the owner's saved
+        secrets are known before this run first uses them, so a page, an error or a model's echo of one is hidden from
+        the start. Values stay in the daemon's memory; only counts are journaled."""
+        preload = getattr(self.redact, "preload", None)
+        if preload is None:
+            return
+        values, unreadable = await asyncio.to_thread(self._keychain_values)
+        if values or unreadable:
+            self._journal().append("secret.registry_preloaded", {"values": preload(values), "unreadable": unreadable})
+
     def _facts(self) -> str:
         address = self.config.get("mailbox", "address", "")
         lines = [f"- FERB's own email (its identity, never the owner's): {address}" if address else

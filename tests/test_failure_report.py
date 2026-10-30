@@ -203,7 +203,8 @@ def test_the_redactor_hides_a_sealed_values_escaped_forms_everywhere() -> None:
         assert form not in json.dumps(r({"value": f"x {form} y"})), form
     word = SealedWord("naïve")
     forms = escaped_forms(word)
-    assert {str(f) for f in forms} == {"na\\u00efve", "na\\xefve"} and all(isinstance(f, SealedWord) for f in forms)
+    assert {str(f) for f in forms} == {"na\\u00efve", "na\\xefve", "na%C3%AFve"}           # JSON, repr, URL
+    assert all(isinstance(f, SealedWord) for f in forms)
     ascii_form = next(f for f in forms if "u00ef" in f)
     assert sealed_spans('"na\\u00efve"', ascii_form) and not sealed_spans("na\\u00efvety", ascii_form)
     assert escaped_forms("plain-value-1") == ()

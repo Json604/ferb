@@ -53,6 +53,28 @@ class KeychainSecretStore:
     async def present(self, ref: SecretRef) -> bool:
         return ref.key in self._specs() and (await self._find(ref, reveal=False))[0] == 0
 
+    def values(self) -> tuple[list[str], int]:
+        """Every configured secret's value, for the redactor's known-value registry only (read inside the daemon at
+        start, in a thread), and how many couldn't be read."""
+        import subprocess
+        found, unreadable = [], 0
+        for key in list(self._specs()):
+            try:
+                if not self._keychain:
+                    from ferb.identity.helper import request
+                    value = str(request({'operation': 'lookup', 'service': SERVICE, 'account': key}).get('value', ''))
+                else:
+                    out = subprocess.run(["security", "find-generic-password", "-s", SERVICE, "-a", key, "-w",
+                                          *self._keychain], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                    value = out.stdout.decode().removesuffix("\n") if out.returncode == 0 else ""
+            except Exception:
+                value = ""
+            if value:
+                found.append(value)
+            else:
+                unreadable += 1
+        return found, unreadable
+
     async def _reveal(self, ref: SecretRef) -> str:
         if ref.key not in self._specs():
             raise SecretUnavailable(ref.key)

@@ -1667,8 +1667,10 @@ class Gateway:
         return TerminalGrant(inp, answer.ids[0]), None
 
     def _secret_field(self, inp: TerminalInput) -> str | None:
-        """The first field of a terminal input whose raw text redaction would change (a saved secret, a credential's
-        shape), by its name for the owner, never its value; None when no field holds one (D31 round 2, N1)."""
+        """The first field of a terminal input that holds a specific secret (a saved secret's value or a credential's
+        format: `Redactor.hit`), by its name for the owner, never its value; None when no field holds one (D31 round
+        2, N1). Text that only reads like a label ("echo 'PIN 1234'") is no hit: it is typed after the owner's Yes,
+        shown redacted in the question."""
         fields = [("the text", inp.text if not inp.paste else None), ("the clipboard's text", inp.text if inp.paste
                                                                        else None),
                   ("the editor's selection", inp.selection), ("the active file's name", inp.file),
@@ -1677,9 +1679,15 @@ class Gateway:
         fields += [(f"the file {i + 1}", text) for i, (_, _, text) in enumerate(inp.files)]
         fields += [(f"the path of file {i + 1}", path) for i, (path, _, _) in enumerate(inp.files)]
         for name, raw in fields:
-            if raw and self.redact({"v": raw})["v"] != raw:
+            if raw and self._secret_hit(raw):
                 return name
         return None
+
+    def _secret_hit(self, text: str) -> bool:
+        """Whether `text` holds a known secret value or a credential format (a redactor without `hit` fails closed:
+        any change redaction would make counts)."""
+        hit = getattr(self.redact, "hit", None)
+        return bool(hit(text)) if hit is not None else self.redact({"v": text})["v"] != text
 
     async def _admin_password(self, grant: RunGrant, rec: Any) -> str | None:
         if not isinstance(self.redact, Redactor) or rec.task.request_id in self.state.approvals.unattended:

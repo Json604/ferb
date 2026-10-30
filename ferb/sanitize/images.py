@@ -95,11 +95,12 @@ class ImageRedactor:
             # regions secret fields for this frame; ordinary private sentences stay visible.
             code_frame = any(OTP_LABEL.search(r.text) for r in regions)
             # C1: a code word or secret word on one line reaches a code or value on the line after it, in Vision's
-            # order (`neighbour_spans`).
+            # order (`neighbour_spans`). A region the text redactor finds any span in (the same rules as text) is
+            # painted whole.
             labelled = neighbour_spans([r.text for r in regions])
             for i, region in enumerate(regions):
                 text = region.text
-                if (self.redactor.text(text) != text or any(payment_card(m.group()) for m in CARD_DIGITS.finditer(text))
+                if (self.redactor.spans(text) or any(payment_card(m.group()) for m in CARD_DIGITS.finditer(text))
                         or (code_frame and FRAME_CODE.search(text))
                         or i in labelled or PASSWORD_DOTS.fullmatch(re.sub(r"\s", "", text))):
                     boxes.append(region.box)

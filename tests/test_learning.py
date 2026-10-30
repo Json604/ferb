@@ -167,35 +167,34 @@ def redacting(tmp_path):
 
 
 def test_a_body_whose_text_redaction_breaks_its_json_is_stored_redacted_and_valid(redacting):
-    """A card-like number, or a registered secret inside a number, made the redacted text invalid JSON and the write
-    raise. The body is redacted part by part instead: such a number becomes the redaction marker, and a code its key
-    labels is still caught (it is only redacted beside its key)."""
+    """A card-like number made the redacted text invalid JSON and the write raise. The body is redacted by structure:
+    such a number becomes the redaction marker, a code its key labels is caught, and a short known value (an OTP) is
+    no hit inside a longer number (step 6a), so 12345 keeps its digits while "pin 2345" loses its value."""
     from ferb.sanitize.redact import REDACTED
     store, _ = redacting
     node = store.put('lesson', 'numbers', {'card': 4111111111111111, 'qty': 12345, 'code': '482913', 'dish': 'paneer',
-                                           'count': 3, 'note': 'pin 2345 inside', 'ok': True}, [],
+                                           'count': 3, 'zz_note': 'pin 2345 inside', 'ok': True}, [],
                      made_by='model:test')
     body = node['body']
     text = json.dumps(body)
-    assert '4111111111111111' not in text and '2345' not in text and '482913' not in text
-    assert body['card'] == REDACTED and body['qty'] == REDACTED and body['code'] == REDACTED
-    assert (body['dish'], body['count'], body['ok']) == ('paneer', 3, True)
+    assert '4111111111111111' not in text and ' 2345' not in text and '482913' not in text
+    assert body['card'] == REDACTED and body['qty'] == 12345 and body['code'] == REDACTED
+    assert (body['dish'], body['count'], body['ok'], body['zz_note']) == ('paneer', 3, True, 'pin [redacted] inside')
 
 
-def test_redacted_json_falls_back_value_by_value_when_structure_breaks():
-    """The last resort: a redaction that breaks the JSON even with every number written as a string (here one that
-    eats a closing quote) redacts each value with its key as one unit; a unit that no longer parses, or a number
-    whose text changes, becomes the marker. A redaction that isn't stable on the stored text is refused."""
+def test_redacted_json_walks_the_structure_and_refuses_only_a_specific_hit():
+    """Step 6a: the body is redacted by structure (each key, string and number), never as one text, so JSON stays
+    valid with every key; it is refused only when the text to be stored still shows a known value or a secret format,
+    never because a second redaction would change it (the 15 parked cards)."""
     from ferb.memory.learning import redacted_json
-    from ferb.sanitize.redact import REDACTED
-
-    def quote_eating(text: str) -> str:
-        return text.replace('7', '#').replace('tok"', '[r]')
-    assert redacted_json(quote_eating, {'a': 17, 'b': 'tok', 'c': [2, 'q'], 'd': None, 'e': False, 'f': 'x7'}) == \
-        {'a': REDACTED, 'b': REDACTED, 'c': [2, 'q'], 'd': None, 'e': False, 'f': 'x#'}
+    from ferb.sanitize.redact import REDACTED, Redactor
+    assert redacted_json(lambda t: t.replace('7', '#'), {'a': 17, 'b': 'x7', 'c': [2, 'q'], 'd': None, 'e': False}) \
+        == {'a': REDACTED, 'b': 'x#', 'c': [2, 'q'], 'd': None, 'e': False}
     assert redacted_json(lambda t: t, {'a': 17, 'b': 'x7'}) == {'a': 17, 'b': 'x7'}       # no redaction: unchanged
-    with pytest.raises(LearningRefused, match='stored safely'):                            # never stable: refused
-        redacted_json(lambda t: t + ' ', {'a': 1})
+    r = Redactor()
+    assert redacted_json(r.text, {"a": "Password: '", "b": "typed key '"}) == {"a": "Password: '", "b": "typed key '"}
+    with pytest.raises(LearningRefused, match='Stripe key'):            # a format only the stored text shows
+        redacted_json(lambda t: t, {'k': 'sk_' + 'live_' + 'Ab3dEf6hIj9kLm2nOp5q'})
 
 
 # L29 fix round 2 (re-review N1, N3): the last resort never stores a secret the whole text shows ------------------
@@ -229,11 +228,11 @@ def test_a_body_is_never_stored_with_a_secret_only_its_whole_text_shows(redactin
 
 
 def test_a_shape_changing_redaction_keeps_its_numbers_as_strings_parse(redacting):
-    """When the numbers-as-strings pass parses but its shape changed (a private key's lines joined into one marker),
-    that parse is kept, strings where the numbers were."""
+    """A private key split across list items: each of its lines is masked (step 6a: by structure, so the list keeps
+    its length)."""
     store, _ = redacting
     node = store.put('lesson', 'k', {'k': _KEY, 'n': 4111111111111111}, [], made_by='model:test')
-    assert node['body'] == {'k': ['[redacted]'], 'n': '[redacted]'}
+    assert node['body'] == {'k': ['[redacted]'] * 3, 'n': '[redacted]'}           # step 6a: the shape is kept
 
 
 def test_a_secret_that_spans_two_numbers_is_refused_rather_than_stored(tmp_path):
@@ -247,7 +246,7 @@ def test_a_secret_that_spans_two_numbers_is_refused_rather_than_stored(tmp_path)
     store = Learning(db, Clock(), lambda *args: None, redactor.text)
     store.secret_values = redactor.secret_values                   # as the daemon wires it
     try:
-        with pytest.raises(LearningRefused, match='could not be stored safely: redaction would still change it'):
+        with pytest.raises(LearningRefused, match='could not be stored safely: it still holds a saved secret'):
             store.put('lesson', 'k', {'a': [1234, 5678]}, [], made_by='model:test')
     finally:
         db.close()
@@ -361,16 +360,15 @@ def test_a_code_labelled_by_its_previous_sibling_is_redacted(redacting, body, co
 
 def test_the_sibling_reading_leaves_ordinary_bodies_as_they_were(monkeypatch):
     """The 216 ordinary cards and re-review 4's 443 realistic bodies: never refused, and stored exactly as without the
-    sibling reading ("Pin message" beside an id, "Token usage" beside a count, "Enter OTP" beside a date)."""
-    import ferb.memory.learning as learning_module
+    sibling reading ("Pin message" beside a tab number, "Token usage" beside a count, "Enter OTP" beside a date)."""
     from ferb.memory.learning import encoded, redacted_json
     from ferb.sanitize.redact import Redactor
     from tests.support.redaction_corpus import ordinary_cards, realistic_bodies
     redactor = Redactor()
     bodies = [*ordinary_cards(), *realistic_bodies()]
     stored = {name: encoded(redacted_json(redactor.text, body, ())) for name, body in bodies}
-    monkeypatch.setattr(learning_module, '_siblings', lambda redact, value: value)
-    without = {name: encoded(redacted_json(redactor.text, body, ())) for name, body in bodies}
+    monkeypatch.setattr(Redactor, "_sibling_hits", lambda self, lines, raw: set())
+    without = {name: encoded(redacted_json(Redactor().text, body, ())) for name, body in bodies}
     assert len(stored) == 659 and [n for n in stored if stored[n] != without[n]] == []
 
 
@@ -386,6 +384,28 @@ def test_the_sibling_reading_never_masks_ferbs_own_ids(redacting, label):
 
 
 # L29 fix round 4 (re-review O3): slot types are a closed set, never redacted -----------------------------------
+
+def test_a_card_parked_by_the_old_redaction_refusal_is_read_again_once(tmp_path):
+    """notes/memory.md (15 parked cards): a card parked because redaction wasn't idempotent is read again once with
+    the structural redaction, and stored; one parked for any other reason waits for its inputs to change."""
+    from tests.support.cards import card_store, finished_task
+    db, _, spans, store = card_store(tmp_path)
+    try:
+        for t in ('t-old', 't-other'):
+            finished_task(db, spans, store, t)
+            inputs = store.card_inputs(t)[t]
+            error = ('could not be stored safely: redaction would still change it' if t == 't-old'
+                     else 'the reader crashed')
+            store.card_read(t, inputs, error)
+            store.card_read(t, inputs, error)                       # failed twice on the same inputs: parked
+        assert db.conn.execute("SELECT status FROM learning_card_inputs WHERE task_id='t-old'").fetchone()[0] == \
+            'parked'
+        assert store.cards_to_read() == ['t-old']
+        store.capture_episode('t-old')
+        assert store.current_card('t-old') is not None and store.cards_to_read() == []
+    finally:
+        db.close()
+
 
 def test_a_card_read_before_the_provenance_fix_is_read_again_once(tmp_path):
     """L29 Task 6 review I1: a card the earlier composer built marks every targeted action outside; it is read again

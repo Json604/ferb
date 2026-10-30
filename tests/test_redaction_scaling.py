@@ -16,7 +16,7 @@ from typing import Callable
 
 import pytest
 
-from ferb.sanitize import images, redact
+from ferb.sanitize import formats, images, known, labels, redact, stream
 from ferb.sanitize.redact import RedactionStream, Redactor
 
 FLOOR = 0.0002              # seconds: below this a ratio is timer noise
@@ -79,12 +79,13 @@ RUNS = [" ", "\t", "\xa0", " \t\xa0\u2003", "*", "_", "`", "'", '"', "'\"", " *"
 PREFIXES = ["", "482913", "one", "backup", "api", "my", "Your code:", "password is", "verification", "bearer"]
 SUFFIX = " ab cd efgh"
 SEARCHING = {"search", "finditer", "findall", "sub", "subn", "split"}
+MODULES = (known, formats, labels, stream, redact, images)
 
 
 def _calls() -> dict[str, set[str]]:
     """The methods the redaction modules call on each name ("URL.match(…)", "self.PRIVATE_END.search(…)")."""
     calls: dict[str, set[str]] = {}
-    for module in (redact, images):
+    for module in MODULES:
         for node in ast.walk(ast.parse(pathlib.Path(module.__file__ or "").read_text())):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 owner = node.func.value
@@ -99,19 +100,24 @@ def _patterns() -> list[tuple[str, re.Pattern[str], set[str]]]:
     the modules call it: searching through a text, or matching at a position. A pattern whose calls the source scan
     can't see is tried every way."""
     found: dict[int, tuple[str, re.Pattern[str]]] = {}
-    for module in (redact, images):
+    for module in MODULES:
         for name, value in vars(module).items():
             if isinstance(value, re.Pattern):
                 found.setdefault(id(value), (name, value))
     for i, value in enumerate(redact.SECRET_PATTERNS):
         found.setdefault(id(value), (f"SECRET_PATTERNS[{i}]", value))
+    for table, values in (("_VALUE_QUOTES", labels._VALUE_QUOTES), ("_QUOTED", formats._QUOTED),
+                          ("_QUOTE_CLOSE", labels._QUOTE_CLOSE)):
+        for i, value in enumerate(values.values()):
+            found.setdefault(id(value), (f"{table}[{i}]", value))
     for name, value in vars(redact.RedactionStream).items():
         if isinstance(value, re.Pattern):
             found.setdefault(id(value), (f"RedactionStream.{name}", value))
     out, called = [], _calls()
     for name, pattern in found.values():
         short = name.split(".")[-1].split("[")[0]
-        calls = {"sub", "finditer"} if short == "SECRET_PATTERNS" else called.get(short, set())
+        calls = {"sub", "finditer"} if short == "SECRET_PATTERNS" else {"match"} if short in (
+            "_VALUE_QUOTES", "_QUOTED") else {"search"} if short == "_QUOTE_CLOSE" else called.get(short, set())
         ways = ({"search"} if calls & SEARCHING else set()) | (calls & {"match", "fullmatch"})
         out.append((name, pattern, ways or {"search", "match", "fullmatch"}))
     return sorted(out, key=lambda item: item[0])

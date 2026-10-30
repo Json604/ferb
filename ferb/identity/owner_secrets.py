@@ -250,6 +250,22 @@ class OwnerSecrets:
                   for p in _linked(records, target, sites)]
         return out | ({'linked': linked} if linked else {})
 
+    def values(self) -> tuple[list[str], int]:
+        """Every saved entry's value, for the redactor's known-value registry only (read inside the daemon at start,
+        never returned anywhere else), and how many couldn't be read."""
+        found, unreadable = [], 0
+        for record in self._load()['records'].values():
+            for account in record['entries'].values():
+                try:
+                    value = self.keychain(account)
+                except Exception:
+                    value = None
+                if value:
+                    found.append(value)
+                else:
+                    unreadable += 1
+        return found, unreadable
+
     def reveal(self, handle: str, target: str) -> str:
         refuse_whole_browser(target)                    # a handle saved that way before the rule is never filled
         account = self._load()['records'].get(target, _empty())['entries'].get(handle)

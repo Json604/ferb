@@ -290,7 +290,8 @@ class Chat:
         if not isinstance(paths, list) or not all(isinstance(p, str) and p.strip() and '\x00' not in p for p in paths):
             raise FerbError('input_paths must be a list of nonempty filesystem paths')
         input_paths = list(dict.fromkeys(normalize_path(p, str(self.home / 'workspace')) for p in paths))
-        if self.redact(input_paths) != input_paths:
+        hit = getattr(self.redact, "hit", None)            # a specific secret only: a saved value or a credential format
+        if any(hit(p) for p in input_paths) if hit is not None else self.redact(input_paths) != input_paths:
             raise FerbError('input_paths contains protected secret text; rename the attachment before sharing its path')
         session_id = str(params.get("session_id", "default"))
         text = self._hide_code_reply(self.redact(str(params.get("text", ""))), session_id)

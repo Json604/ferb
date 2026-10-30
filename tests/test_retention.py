@@ -388,7 +388,7 @@ def test_the_retention_loop_goes_on_when_even_its_failure_cant_be_journaled(tmp_
     from ferb.daemon.main import Daemon
     from tests.support.virtual_time import run_virtual
     d = Daemon(tmp_path / ".ferb", watchers=False, distill=False, retention=False, resources=False,
-               notifications=False, snapshots=False, watch_owner_input=False)
+               notifications=False, snapshots=False, watch_owner_input=False, preload_secrets=False)
     passes: list[int] = []
 
     async def failing() -> dict[str, int]:

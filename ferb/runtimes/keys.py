@@ -5,6 +5,7 @@ it is never an argument); runtimes read it at call time and the daemon adds it t
 
 import asyncio
 import subprocess
+from typing import Iterable
 
 from ferb.identity.secrets import SERVICE
 
@@ -23,6 +24,20 @@ async def api_key(provider: str) -> str | None:
     out, _ = await proc.communicate()
     key = out.decode().strip() if proc.returncode == 0 else ""
     return key or None
+
+
+def stored_api_keys(providers: Iterable[str]) -> list[str]:
+    """The API keys of `providers` (the ones the owner's runtime table uses), for the redactor's known-value registry
+    only (read inside the daemon at start, in a thread); a provider with no key is skipped, and no other provider's
+    key is ever read."""
+    from ferb.runtimes.catalog import api_providers
+    found = []
+    for provider in sorted(set(providers) & set(api_providers())):
+        out = subprocess.run(["security", "find-generic-password", "-s", SERVICE, "-a", account(provider), "-w"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        if out.returncode == 0 and (key := out.stdout.decode().strip()):
+            found.append(key)
+    return found
 
 
 def has_api_key(provider: str) -> bool:
