@@ -110,7 +110,8 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
 - [ ] Incremental vacuum + `journal_size_limit`; WAL truncate after the hourly pass.
 - [ ] One-time cleanup step (decision 4).
 - [ ] Upgrade path from any older build (decision 5), tested on copies of real older databases and configs.
-- [ ] Migration runner: checksums, newer-DB refusal, numbering check.
+- [x] Migration runner: checksums, newer-DB refusal, numbering check, duplicate numbers (step 1; tests/test_migrations.py;
+      accepted the live DB's 44 versions with gaps and backfilled their checksums).
 - [ ] Continued-tree episodes; non-ASCII search; exposure origins in episodes.
 - [ ] Schedule reconciliation and the global stop for scheduled runs: built in notes/orchestration.md.
 - [ ] Drop `owner_questions`, `notification_rules`/`notification_told`, the dead learning tables (jobs, receipts,
