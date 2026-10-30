@@ -134,7 +134,7 @@ def test_question_projection_is_separate_from_authoritative_reason(daemon):
         client.close()
 
 
-def test_a_late_stop_shows_what_the_worker_had_found(daemon):
+def test_a_late_stop_shows_what_the_worker_had_found(daemon, unattended):
     from ferb.orchestrator.supervisor import STOPPED_BY_YOU
     worker = json.dumps({'status': 'blocked', 'summary': 'Source missing.', 'artifacts': [], 'evidence': []})
     recovery = json.dumps({'action': 'ask', 'worker_type': 'default', 'question': 'Which source?',
@@ -152,7 +152,7 @@ def test_a_late_stop_shows_what_the_worker_had_found(daemon):
     assert result['answer'] == "Stopped, as you asked.\n\nWhat I'd found before stopping (not checked): Source missing."
 
 
-def test_a_stop_reports_what_the_worker_had_found(daemon):
+def test_a_stop_reports_what_the_worker_had_found(daemon, unattended):
     """The hotspot diagnosis stopped at 02:46 answered only "Stopped, as you asked.", dropping what the worker had
     already found."""
     from ferb.orchestrator.supervisor import STOPPED_BY_YOU

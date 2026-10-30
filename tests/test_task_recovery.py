@@ -39,9 +39,11 @@ def test_learned_input_failures_are_observations_not_permissions() -> None:
     assert p.status("example.app", "pid_keys") == "landed"
 
 
-def test_followup_keeps_the_original_owner_words_and_browser_choice(daemon) -> None:
+def test_followup_keeps_the_original_owner_words_and_browser_choice(daemon, monkeypatch) -> None:
     import json
     from tests.conftest import chat, install, sup, task, outcome
+    # needing the owner pauses an attended task in place; here each run ends at once with its question (unattended)
+    monkeypatch.setattr(type(daemon.daemon.supervisor), "_unattended", lambda self, task: True)
     first = task("use Work profile to order lunch on shop.example", "owner", sites=("shop.example",))
     install(daemon, [sup("task", "Starting.", first)], {"worker": json.dumps({"status": "needs_user",
         "summary": "Login needed", "artifacts": [], "evidence": []})})

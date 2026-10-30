@@ -10,13 +10,12 @@ import dataclasses
 import inspect
 import json
 import re
-import time
 import hashlib
 from pathlib import Path
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable, Literal, cast
 from urllib.parse import urlsplit
 
 from pydantic import ValidationError
@@ -45,7 +44,9 @@ from ferb.orchestrator.steering import (CONVERSATION_ASK, EDIT_MEMORY_ASK, FERB_
                                        apply as apply_steering, choices, grant_stated, not_covered, not_typed)
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
-from ferb.orchestrator.plans import Plan, SendScope, Step, inventory, problems as plan_problems
+from ferb.orchestrator.plans import (DONE, SINGLE, Plan, SendScope, Step, inventory, problems as plan_problems)
+from ferb.orchestrator.attempts import (KEEP_GOING, STOP_HERE, Attempts, check_in_question,
+                                        stopped_after)
 from ferb.orchestrator.plan_store import EARLIER, PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
 from ferb.orchestrator.ports import (BrowserPort, DesktopPort, EnvironmentPort, MemoryPort, NotifyPort,
@@ -54,8 +55,8 @@ from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.orchestrator.evidence import PAGE_CHARS, memory_origin, recorded_calls
 from ferb.orchestrator.guards import STALL_S, Activity
-from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line, round_reason,
-                                     short_label)
+from ferb.orchestrator.loops import (LOOP_ROUND, PAUSED, LoopRunner, LoopStore, look_only_round, loop_line,
+                                     round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
 from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA,
                                        WORKER_SCHEMA, AnswerQuestion, Check, Condition, DispatchOutcome, QuestionOutcome,
@@ -87,7 +88,8 @@ RETRY_USED_STATUS = "outcome unknown; the owner approved one retry, which has be
 # L31 with P19: a loop round left an action whose outcome is unknown; the loop pauses until the owner replies
 LOOP_UNKNOWN = ("Something I did in the last round may or may not have gone through (I couldn't see how it ended), "
                 "so I won't do it again without you.")
-WORKER = "worker"                                # the one worker's step id (task id "<tree>.worker")
+WORKER = SINGLE                                  # the one worker's step id (task id "<tree>.worker")
+assert WORKER == "worker"
 
 # F4 live fixes (task 79bc5bfa): every check also judges the report the owner will see against the recorded evidence.
 # Code adds this condition and hands the checker the report; the checker judges it (rule 6). The owner hears of it
@@ -159,10 +161,11 @@ PLAIN_YES_NO = "Is that a Yes or a No to this? {question}"
 PLAIN_CHOICE = "Is that {choices} for this? {question}"
 WHICH_ONE = "More than one question is waiting, and “{words}” could answer either. Which one is it for?"
 PLAN_STATED = "Here's the plan; I'm starting now. Reply to change anything:"
-TASK_STATE = {"running": "still running", "planned": "about to start", "done": "done",
-              "done_unverified": "done but not confirmed", "failed": "failed",
-              "needs_user": "waiting for the owner", "cancelled": "cancelled", "interrupted": "interrupted by a restart",
-              "unknown": "outcome unclear", "skipped": "skipped"}
+PAUSED_SAID = "I've paused it; nothing is lost. Tell me how you'd like to go on, or say stop."
+NOT_RUNNING = "That task isn't running, so there's nothing to pause."
+TASK_STATE = {"running": "still running", "planned": "about to start", "paused": "paused, waiting for the owner",
+              "done": "done", "done_unverified": "done but not confirmed", "failed": "failed",
+              "needs_user": "waiting for the owner", "cancelled": "cancelled", "interrupted": "interrupted by a restart"}
 
 
 def _plain_choice(ap: Any) -> str:
@@ -391,89 +394,68 @@ class _Tree:
     # no owner present (a scheduled or resumed run): the only standing scopes it may be granted, recorded by an owner
     # turn; None when the owner started it from chat (D30, L3)
     unattended_scopes: list[Any] | None = None
+    step_id: str = WORKER                # the plan step this tree's worker runs (a single task's one step: "worker")
+    asks_in_place: bool = True           # needing the owner pauses this attempt loop and asks (a loop round and a
+                                         # conversation turn hand it to their own runner instead)
+    schedule_id: str | None = None       # the schedule whose run this tree is (its runs never overlap)
 
 
 LOOP_ASK = "loop.ask"                 # a paused loop's question to the owner (L31 item 8)
 LOOP_STOP, LOOP_KEEP = "Stop", "Keep watching"
+# "Needs the owner" means one thing: the step pauses in place and FERB asks (owner decisions 7, 8; hands decision 3).
+# A task's own question goes out as a plan question (`plan.ask`), which the planner may also answer from the owner's
+# chat words; a paused loop's keeps its own capability (LOOP_ASK) so a reply in chat stays a correction of the task.
+TASK_ASK = "plan.ask"
+CONTINUE, STOP = "Continue", "Stop"
 
 
-class _LoopQuestion:
-    """A paused loop asks the owner with a real owner question: the notch's card with buttons, and its notification
-    (owner, 2026-10-25: "shouldn't it ask 'hey, should I stop the task since you closed the tab' when it notices the
-    task is not there"). When a tab the loop held is gone (closed: the browser driver's fact), FERB asks in its own
-    words whether to stop, with Stop / Keep watching; any other pause asks the round's own question, with Stop. Stop is
-    the owner's stop of the task; Keep watching, or the owner's own typed words, starts the next round. A reply in chat
-    steers the task as before: this question isn't offered to the planner as one to answer, and the steer that resumes
-    the loop closes it. One per pause; asked again after a restart (rule 9: it never expires while its task waits)."""
+@dataclass
+class OwnerReply:
+    """How a wait for the owner ended: their answer to the question (`answer`: their typed words, or the option they
+    chose), their reply in chat that the planner made a correction of the task (`steer`), a No (`denied`), the task's
+    stop (`stopped`), or nobody there to ask in an unattended run (`declined`, at once)."""
+    kind: str
+    words: str = ''
+    choice: str | None = None
+    question: str = ''
 
-    def __init__(self, sup: "Supervisor", tree: "_Tree", step: Step, child: Task) -> None:
-        self.sup, self.tree, self.step, self.child = sup, tree, step, child
-        self.wake: Callable[[], None] = lambda: None
-        self.approval: Any = None
-        self._watch: asyncio.Future[None] | None = None
-        self.known_closed: set[str] = set()     # the owner's held tabs already closed by the last round or question
 
-    def _closed(self) -> dict[str, dict[str, Any]]:
-        """The owner's own tabs the loop holds that the browser reports closed (a tab FERB opened, such as a helper
-        or an OAuth popup, is never "the tab you asked me to keep going")."""
-        return {str(t['tab']): t for t in self.sup.task_tabs(self.child.id) if t.get('closed') and t.get('taken_over_from')}
+@dataclass
+class _Wait:
+    """One open wait for the owner: a step's question, or a pause of the whole tree (the owner's pause, a tab they
+    closed). Several waiters of one tree pause share it: one question, one reply."""
+    tree_id: str
+    question: str = ''
+    options: tuple[str, ...] = ()
+    origin: str = origins_.FERB
+    capability: str = TASK_ASK
+    approval: Any = None
+    opened: bool = False                 # its first waiter asked; later ones wait for its reply
+    reply: OwnerReply | None = None
+    done: asyncio.Event = field(default_factory=asyncio.Event)
 
-    def round_ended(self, pausing: bool) -> None:
-        """A round that doesn't pause carried on past whatever closed before it: those tabs are known."""
-        if not pausing:
-            self.known_closed = set(self._closed())
+
+class _HeldTabs:
+    """The owner's own tabs a loop holds that the browser reports closed (a tab FERB opened, such as a helper or an
+    OAuth popup, is never "the tab you asked me to keep going"), each asked about once (review I1: a tab closed
+    earlier, already asked about or carried past, never comes back in a later, unrelated pause)."""
+
+    def __init__(self, task_tabs: Callable[[str], list[dict[str, Any]]], task_id: str) -> None:
+        self.task_tabs, self.task_id = task_tabs, task_id
+        self.known: set[str] = set()
+
+    def _closed(self) -> list[dict[str, Any]]:
+        return [t for t in self.task_tabs(self.task_id) if t.get('closed') and t.get('taken_over_from')]
+
+    def carried_on(self) -> None:
+        """A round that didn't pause went past whatever closed before it."""
+        self.known |= {str(t['tab']) for t in self._closed()}
 
     def gone(self) -> list[dict[str, Any]]:
-        """The owner's held tabs closed since the last round or question (review I1: a tab closed earlier, already
-        asked about or carried past, never comes back in a later, unrelated pause)."""
-        closed = self._closed()
-        fresh = [tab for key, tab in closed.items() if key not in self.known_closed]
-        self.known_closed |= set(closed)
+        """Closed since the last round or question; known from now on."""
+        fresh = [t for t in self._closed() if str(t['tab']) not in self.known]
+        self.known |= {str(t['tab']) for t in fresh}
         return fresh
-
-    async def ask(self, result: dict[str, Any] | None) -> None:
-        sup, child = self.sup, self.child
-        if self.approval is not None or child.request_id in sup.state.approvals.unattended:
-            return
-        question, options, origin = sup._pause_question(self.tree.id, self.step, result, self.gone())
-        action = ActionRequest(LOOP_ASK, 'owner_question', child.identity, frozenset(), child.id, child.id,
-                               child.request_id, frozenset(child.scopes), content=question)
-        self.approval = ap = sup.state.approvals.question(action, question, options)
-        sup.journal.append('loop.question', {'task_id': self.tree.id, 'step': self.step.id, 'approval_id': ap.id,
-                                             'question': question, 'options': options}, origin=origin)
-        sup.publish('approval.requested', {'approval_id': ap.id, 'capability': LOOP_ASK, 'kind': 'owner_question',
-                                           'reason': question, 'options': options, 'task_id': child.id,
-                                           'request_id': child.request_id})
-        self._watch = asyncio.ensure_future(self._answered(ap))
-
-    async def _answered(self, ap: Any) -> None:
-        """The runner sleeps up to POLL_S while paused: wake it as the owner answers."""
-        while ap.state == 'pending':
-            await asyncio.sleep(self.sup.gateway.hold_poll_s)
-        self.wake()
-
-    def answer(self) -> dict[str, Any] | None:
-        ap = self.approval
-        if ap is None or ap.state != 'granted':
-            return None
-        self.approval = None
-        words = ap.choice or ap.answer or ''
-        self.sup.journal.append('loop.answer', {'task_id': self.tree.id, 'step': self.step.id, 'approval_id': ap.id,
-                                                'answer': words}, origin=origins_.OWNER)
-        if ap.choice == LOOP_STOP:
-            self.sup.stop_tree(self.tree.id)            # the owner's stop: the loop and its task end
-            return None
-        if ap.choice == LOOP_KEEP:
-            return {'why': f'you chose "{LOOP_KEEP}"'}
-        return {'why': 'your answer to my question', 'question': ap.reason, 'answer': words}
-
-    def close(self) -> None:
-        if self._watch is not None:
-            self._watch.cancel()
-            self._watch = None
-        if self.approval is not None and self.sup.state.approvals.supersede(self.approval.id) is not None:
-            self.sup.publish('approval.resolved', {'approval_id': self.approval.id, 'state': 'superseded'})
-        self.approval = None
 
 
 class _Watch(Observer):
@@ -571,6 +553,9 @@ class Supervisor(WorkerRuns):
         self.on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]] | None = notify.on_resumed_outcome
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
+        self._pauses: dict[str, _Wait] = {}       # tree id -> its pause (the owner's, a closed tab), until resumed
+        self._waiting: dict[str, int] = {}        # tree id -> how many of its steps wait for the owner now
+        self._questions: dict[str, str] = {}      # tree id -> the question its latest open wait asked
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
         self._retrying: dict[str, tuple[str, str]] = {}   # worker id -> (runtime, last retry) since its last progress
         self._connection: dict[str, ConnectionNotice] = {}   # worker id -> its run's connection lines (fix wave 7)
@@ -855,14 +840,20 @@ class Supervisor(WorkerRuns):
             self.state.approvals.unattended.add(request_id)
             final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": NO_OUTCOME,
                                      "goal": sched.request}
+            if self._suspending:            # FERB is shutting down: the run starts after the restart's resume, if at all
+                return final | {"suspended": True}
             async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
                                           conversation_id=session.id,      # the next run sees this one's answer
                                           origins=self._env.get(request_id, {}).get("turn_origins"),
                                           unattended_scopes=recorded_scopes,
                                           start_grant=(recorded_scopes, SCHEDULE_GRANT + sched.id),
-                                          watch=sched.watch != "none"):
+                                          watch=sched.watch != "none",
+                                          schedule={"id": sched.id, "overdue_s": overdue_s, "retry": retry,
+                                                    "watch": sched.watch != "none"}):
                 if ev.get("type") == "outcome":
                     final = ev
+            if final.get("answer") == NO_OUTCOME and self._suspending:
+                return final | {"suspended": True}      # suspended by FERB's shutdown: it resumes, and reports, later
             return final
         finally:
             self._env.pop(request_id, None)
@@ -908,6 +899,226 @@ class Supervisor(WorkerRuns):
         self.cancel_tree(tree)
         return True
 
+    # ---------- one status, one stop check, one wait for the owner ----------
+
+    def _set_status(self, task_id: str, status: str, outcome: dict[str, Any] | None = None) -> None:
+        """Every task row's status (a tree, a step, a loop's task, a conversation turn, a check), at the injected
+        clock's time."""
+        self.tasks.set_status(task_id, status, outcome, self.clock.now().isoformat())
+
+    def _stopped(self, tree: _Tree) -> bool:
+        """The one stop check: the task was stopped (by the owner, or FERB was stopped), and FERB isn't merely shutting
+        down (a shutdown suspends the tree; it resumes after the restart)."""
+        return bool(tree.stop) and not self._suspending
+
+    @staticmethod
+    def _stop_status(tree: _Tree) -> Literal["cancelled", "failed"]:
+        """What a stopped task's rows end as: cancelled when the owner stopped it, failed for any other stop."""
+        return "cancelled" if tree.stop == STOPPED_BY_YOU else "failed"
+
+    def _unattended(self, task: Task) -> bool:
+        return task.request_id in self.state.approvals.unattended
+
+    def task_paused(self, task_id: str) -> bool:
+        """Whether this task's tree is paused (owner decision 8; hands decision 3): its tab group stays, nothing of it is
+        released. True too for a tree suspended by a restart while one of its steps waited for the owner."""
+        root = self.tasks.tree_of(task_id) or task_id.split(".", 1)[0]
+        return root in self._pauses or self._waiting.get(root, 0) > 0 or self.plans.paused(root)
+
+    def pause_tree(self, tree_id: str, question: str = '', options: tuple[str, ...] = (), *,
+                   origin: str = origins_.FERB, capability: str = TASK_ASK) -> bool:
+        """Pause this task in place (owner decision 8): the current attempt ends (a model turn can't freeze, so its run
+        is cancelled, as a stop cancels it), nothing is released or reported, a loop keeps its state; every step waits
+        for the owner (`_hold_pause`). The owner's reply that the planner makes a correction of the task resumes it in
+        place; `question`: FERB asks it too (a tab the owner closed: whether to continue), and its answer resumes or
+        stops it."""
+        tree = self._tree_of.get(tree_id)
+        if tree is None or tree.stop or tree.id != tree_id:
+            return False
+        if tree_id not in self._pauses:
+            self._pauses[tree_id] = _Wait(tree_id, question, tuple(options), origin, capability)
+            self.journal.append('task.paused', {'task_id': tree_id, 'question': question}, origin=origin)
+            self._set_status(tree_id, 'paused')
+            self.publish('task.paused', {'task_id': tree_id})
+        self._interrupt(tree)
+        if tree_id in self._plan_runs:
+            self._plan_runs[tree_id].wake()
+        self.wake_loops(tree_id)
+        return True
+
+    def _is_paused(self, tree: _Tree) -> bool:
+        return tree.id in self._pauses
+
+    async def _hold_pause(self, tree: _Tree, task: Task, step_id: str) -> OwnerReply:
+        """A step of a paused tree waits here for the owner: the tree's one wait (one question when it has one). A No,
+        or Stop, stops the task; an unattended run can't be asked, so a pause with a question stops it there."""
+        wait = self._pauses.get(tree.id)
+        if wait is None:
+            return OwnerReply('steer')
+        reply = await self._wait_for_owner(tree, task, wait, step_id=step_id, decline=bool(wait.question))
+        if self._pauses.get(tree.id) is wait:
+            del self._pauses[tree.id]
+            self._resumed(tree)
+        if reply.kind in ('denied', 'declined') or (reply.kind == 'answer' and reply.choice in (STOP, LOOP_STOP)):
+            self.stop_tree(tree.id)
+            return OwnerReply('stopped')
+        return reply
+
+    async def _wait_for_owner(self, tree: _Tree, task: Task, wait: _Wait, *, step_id: str,
+                              steer_resumes: bool = True, decline: bool = True) -> OwnerReply:
+        """"Needs the owner" means one thing everywhere (a task's or a plan step's question, a check-in, a paused loop,
+        an ask step, a pause): the step pauses in place and FERB asks. The task and its step show `paused` while it
+        waits; nothing expires (rule 9). It ends with the owner's answer, their reply in chat made a correction of the
+        task (`steer_resumes`), a No, or the task's stop. An unattended (scheduled) run can't be asked: `declined` at
+        once (`decline`). Waiters that share `wait` (a pause of the tree) get its one reply."""
+        if decline and self._unattended(task):
+            return OwnerReply('declined', question=wait.question)
+        self._mark_waiting(tree, task, step_id, wait, True)
+        try:
+            if wait.opened:
+                while not wait.done.is_set() and not self._stopped(tree):
+                    await asyncio.sleep(self.gateway.hold_poll_s)
+                return wait.reply or OwnerReply('stopped')
+            wait.opened = True
+            return await self._ask_and_wait(tree, task, step_id, wait, steer_resumes)
+        finally:
+            self._mark_waiting(tree, task, step_id, wait, False)
+
+    async def _ask_and_wait(self, tree: _Tree, task: Task, step_id: str, wait: _Wait,
+                            steer_resumes: bool) -> OwnerReply:
+        seen = len(tree.steering.messages)
+        question = wait.question
+        loop = wait.capability == LOOP_ASK
+        if question:
+            # a model-written question is labelled as the task's (D33); FERB's own (a check-in, a closed tab) isn't
+            if wait.origin != origins_.FERB and not question.startswith(confirm.TASK_QUESTION):
+                question = confirm.task_question(printable(question))
+            options = [confirm.from_task(" ".join(printable(o).split())) for o in wait.options]
+            action = ActionRequest(wait.capability, 'owner_question', task.identity, frozenset(), task.id, task.id,
+                                   task.request_id, frozenset(task.scopes), content=question)
+            wait.approval = ap = self.state.approvals.question(action, question, options)
+            self._questions[tree.id] = question
+            self.journal.append('loop.question' if loop else 'plan.question',
+                                {'task_id': tree.id, 'step': step_id, 'approval_id': ap.id, 'question': question,
+                                 'options': options}, origin=wait.origin)
+            self.publish('approval.requested', {'approval_id': ap.id, 'capability': wait.capability,
+                                                'kind': 'owner_question', 'reason': question, 'options': options,
+                                                'task_id': task.id, 'request_id': task.request_id})
+        reply = OwnerReply('stopped', question=question)
+        try:
+            while not self._stopped(tree):
+                ap = wait.approval
+                if ap is not None and ap.state != 'pending':
+                    if ap.state == 'granted' and (ap.choice or ap.answer):
+                        words = ap.choice or ap.answer or ''
+                        self.journal.append('loop.answer' if loop else 'plan.answer',
+                                            {'task_id': tree.id, 'step': step_id, 'approval_id': ap.id,
+                                             'answer': words}, origin=origins_.OWNER)
+                        reply = OwnerReply('answer', words, ap.choice, question)
+                    elif ap.state in ('denied', 'granted'):     # a No, or skipped with no answer
+                        reply = OwnerReply('denied', question=question)
+                    else:                       # set aside by the owner's correction (L3): it carries on from that
+                        reply = OwnerReply('steer', tree.steering.messages[-1] if tree.steering.messages else '',
+                                           question=question)
+                    break
+                if steer_resumes and len(tree.steering.messages) > seen:
+                    reply = OwnerReply('steer', tree.steering.messages[-1], question=question)
+                    break
+                await asyncio.sleep(self.gateway.hold_poll_s)
+        finally:
+            # an open question nobody can answer any more (resumed another way, or stopped) is closed, never a No;
+            # one left open by FERB's shutdown is asked again after the restart (the step is saved paused)
+            if wait.approval is not None and not self._suspending and \
+                    self.state.approvals.supersede(wait.approval.id) is not None:
+                self.publish('approval.resolved', {'approval_id': wait.approval.id, 'state': 'superseded'})
+            if not self._suspending:
+                wait.reply = reply
+                wait.done.set()
+        return reply
+
+    def _mark_waiting(self, tree: _Tree, task: Task, step_id: str, wait: _Wait, on: bool) -> None:
+        """The task, its step and its tree show `paused` while a step waits for the owner; `running` again once no
+        step of the tree waits. The step's row keeps the question, so a restart asks it again."""
+        if self._suspending:
+            return                          # a shutdown suspends the tree as it is: it is asked again after the restart
+        count = self._waiting.get(tree.id, 0) + (1 if on else -1)
+        if count > 0:
+            self._waiting[tree.id] = count
+        else:
+            self._waiting.pop(tree.id, None)
+            self._questions.pop(tree.id, None)
+        if on:
+            self._set_status(task.id, 'paused')
+            self._set_status(tree.id, 'paused')
+            if step_id in self._plan_steps(tree.id):
+                self.plans.finish(tree.id, step_id, {'status': 'paused', 'question': wait.question,
+                                                     'options': list(wait.options), 'origin': wait.origin})
+            self._tell_tree(tree.id, {'type': 'subtask', 'id': step_id, 'status': 'paused', 'role': 'worker',
+                                      'summary': wait.question or 'Paused.'})
+            return
+        if tree.stop:
+            return
+        self._set_status(task.id, 'running')
+        if step_id in self._plan_steps(tree.id):          # running again: a later restart doesn't ask it again
+            self.plans.finish(tree.id, step_id, {'status': 'running'})
+        self._resumed(tree)
+
+    def _resumed(self, tree: _Tree) -> None:
+        """The tree runs again once no step of it waits for the owner and it isn't paused."""
+        if tree.stop or self._suspending or self._waiting.get(tree.id, 0) > 0 or tree.id in self._pauses:
+            return
+        if self.tasks.column(tree.id, 'status') == 'paused':
+            self._set_status(tree.id, 'running')
+            self.publish('task.resumed', {'task_id': tree.id})
+
+    def _plan_steps(self, tree_id: str) -> set[str]:
+        try:
+            return set(self.plans.steps(tree_id))
+        except Exception:
+            return set()
+
+    def _interrupt(self, tree: _Tree, *, stop: bool = False) -> None:
+        """End what the tree is doing now (its model runs, its tool calls in flight), for a stop (its tasks may call no
+        tool again) or a pause (they may, once resumed)."""
+        ids = self._tree_task_ids(tree)
+        if stop:
+            self.gateway.cancel_tasks(ids)
+        else:
+            self.gateway.interrupt_tasks(ids)
+        for worker_id, (_, run) in list(self._worker_runs.items()):
+            if run.task_id in ids:
+                self.tokens.revoke_worker(worker_id)
+        for rt, run in list(self._active.values()):
+            if run.task_id in ids:
+                asyncio.get_event_loop().create_task(rt.cancel(run))
+
+    def owner_stopped_part(self, data: dict[str, Any]) -> bool:
+        """Hands decision 3: the owner closed a tab FERB holds for a task, or its whole group (`browser.owner_stopped`).
+        That counts as the owner stopping that part: the task pauses and FERB asks whether to continue (a loop: whether
+        to stop it, Stop / Keep watching)."""
+        task_id = str(data.get('task_id') or '')
+        tree = self._tree_of.get(task_id)
+        if tree is None or tree.stop:
+            return False
+        group = data.get('part') == 'group'
+        what = "the task's tab group" if group else "a tab I was using"
+        capability = TASK_ASK
+        if '.loop.' in task_id:
+            # a loop holding the owner's own tab names its site, as the loop's own closed-tab question does (L31)
+            tab = next((t for t in self.task_tabs(task_id) if str(t.get('tab')) == str(data.get('tab'))), {})
+            page = str((tab.get('taken_over_from') or {}).get('url') or '')
+            host = urlsplit(page).hostname or '' if page else ''
+            question = (f"The {host or ''} tab you asked me to keep going was closed. Stop this task?".replace(
+                "The  tab", "The tab") if tab.get('taken_over_from') else
+                f"You closed {what} for this: {short_label(tree.spec.goal)}. Stop this task?")
+            options, capability = (LOOP_STOP, LOOP_KEEP), LOOP_ASK
+        else:
+            question, options = (f"You closed {what} for this: {short_label(tree.spec.goal)}. Should I continue?",
+                                 (CONTINUE, STOP))
+        self.journal.append('task.owner_stopped', {'task_id': tree.id, 'part': 'group' if group else 'tab',
+                                                   'borrowed': bool(data.get('borrowed'))})
+        return self.pause_tree(tree.id, question, options, capability=capability)
+
     def _status_facts(self, session: ChatSession) -> tuple[list[dict[str, Any]], set[str], list[str]]:
         """FERB's own record of the tasks a progress question can be about: each running tree (running, paused while
         one of its loops waits for the owner, blocked when its latest worker report or a plan step is blocked, failed
@@ -932,12 +1143,15 @@ class Supervisor(WorkerRuns):
                         counts[str(step["status"])] = counts.get(str(step["status"]), 0) + 1
             stuck = ("blocked", "needs_user", "failed")
             loops = self._loop_facts(key)
+            paused = key in self._pauses or self._waiting.get(key, 0) > 0
             state = ("stopping" if tree.stop else
-                     "paused" if any(loop["state"] == "paused" for loop in loops) else
+                     "paused" if paused or any(loop["state"] == "paused" for loop in loops) else
                      "blocked" if (last is not None and last.get("status") in stuck) or any(s in counts for s in stuck)
                      else "running")
             row: dict[str, Any] = {"task_id": key, "goal": first_line(tree.spec.goal), "state": state,
                                    "worker_reports": len(tree.reports)}
+            if paused and (question := self._questions.get(key) or getattr(self._pauses.get(key), 'question', '')):
+                row["question"] = first_line(question)
             if last is not None:
                 row["last_report"] = first_line(last.get("summary"))
             if tree.spec.plan:
@@ -967,7 +1181,7 @@ class Supervisor(WorkerRuns):
 
     def _pause_question(self, tree_id: str, step: Step, result: dict[str, Any] | None,
                         gone: list[dict[str, Any]]) -> tuple[str, list[str], str]:
-        """A paused loop's question to the owner, its options and its origin (`_LoopQuestion`). One of the owner's own
+        """A paused loop's question to the owner, its options and its origin (`_loop_step`'s wait_owner). One of the owner's own
         tabs the loop held, closed since the last round or question (`gone`), and no action whose outcome is unknown
         (a P19 question is always its own): FERB's own words naming its site, Stop / Keep watching. Otherwise the
         round's own question (model-written, labelled as the task's, D33; after a restart, the last round's as
@@ -1018,20 +1232,21 @@ class Supervisor(WorkerRuns):
                 if not self._restart_safe(tree_id)]
 
     def _restart_safe(self, tree_id: str) -> bool:
+        """Each step in progress is a plan wait, a loop resting between rounds, or a step waiting for the owner (a
+        paused step is asked again after the restart)."""
         if tree_id not in self._plan_runs:
             return False
-        kinds = {step.id: step.kind for step in self.plans.load(tree_id)['plan'].steps}
+        steps = {step.id: step for step in self.plans.load(tree_id)['plan'].steps}
         for key, state in self.plans.steps(tree_id).items():
-            if key.startswith(EARLIER) or state['status'] not in ('running', 'waiting'):
+            if key.startswith(EARLIER) or state['status'] not in ('running', 'waiting', 'paused'):
                 continue
-            step = key.split(':', 1)[0]                      # a map batch's row is "<step>:<n>"
-            if kinds.get(step) == 'wait' and state['status'] == 'waiting':
+            step = steps.get(key)
+            if state['status'] == 'paused' or (step is not None and step.kind == 'wait' and state['status'] == 'waiting'):
                 continue
-            if kinds.get(step) == 'loop' and f'{tree_id}.loop.{step}' in self._resting:
+            if step is not None and step.loops and f'{tree_id}.loop.{key}' in self._resting:
                 continue
             return False
         return True
-
 
     def cancel_all(self) -> None:
         """Stop hook: cancel every running supervisor/worker run."""
@@ -1057,14 +1272,18 @@ class Supervisor(WorkerRuns):
         held = self._plan_topics.get(key)
         revision = self.plans.revisions.get(key, 0)
         if held is None or held[0] is not run or held[1] != revision:
-            topics = frozenset(s.event for s in self.plans.load(key)['plan'].steps if s.event)
+            topics = frozenset(s.wakes_on for s in self.plans.load(key)['plan'].steps if s.wakes_on)
             self._plan_topics[key] = held = (run, revision, topics)
         return held[2]
 
     def notify_plan_event(self, topic: str, data: dict[str, Any]) -> None:
         # Only persist events a currently registered plan actually waits for; no retention policy is invented here.
         # `data` comes redacted (the daemon's events redact once). Plans are not loaded per event: each one's topics
-        # are read once (`_waits_for`).
+        # are read once (`_waits_for`). The owner closing a FERB tab or the task's group mid-task pauses the task and
+        # asks whether to continue (hands decision 3); a tab the owner took out of the group is theirs (the browser
+        # driver let go of it), which changes nothing here: the task's next look at it is told so.
+        if topic == 'browser.owner_stopped':
+            self.owner_stopped_part(data)
         for key in [k for k in self._plan_topics if k not in self._plan_runs]:
             del self._plan_topics[key]
         interested = [(key, run) for key, run in self._plan_runs.items() if topic in self._waits_for(key, run)]
@@ -1075,7 +1294,10 @@ class Supervisor(WorkerRuns):
                 self.wake_loops(key)            # a loop step waiting on this event looks now (L31)
 
     async def resume_plans(self) -> None:
-        """Restore exactly the same tree, so completed steps and P19 uncertain-action checks retain their identity."""
+        """Restore exactly the same tree, so completed steps and P19 uncertain-action checks retain their identity. Every
+        task is a plan (a single task a one-step plan), so every tree a shutdown or crash cut off resumes. A scheduled
+        run resumes unattended (nobody is there to ask) and its result still goes through the schedule's bookkeeping
+        (`schedule` in the outcome event)."""
         if self.state.stopped:
             return
         async def restore(tree_id: str) -> None:
@@ -1086,19 +1308,25 @@ class Supervisor(WorkerRuns):
             self.state.requests.record(Request(request_id, data['words'], spec.targets.targets(), payload=data['payload'],
                                                asked_origins=frozenset(self.spans.asked_origins(tree_id))))
             self._env[request_id] = {'message_origin': set(data.get('message_origins', []))}
+            schedule = data.get('schedule') if isinstance(data.get('schedule'), dict) else None
+            if data.get('unattended'):
+                self.state.approvals.unattended.add(request_id)
             # resuming a loop posts nothing to chat: no plan line (L31)
-            quiet = bool(spec.plan) and any(s.kind == 'loop' for s in spec.plan.steps)
+            quiet = saved.get('plan') is not None and any(s.loops for s in saved['plan'].steps)
             try:                # the tree's per-request context goes when it ends (final review M4)
                 # nobody started this from chat: only the scope already granted to this tree, and still in force,
                 # carries
                 self._withdraw_lapsed(tree_id)
                 async for event in self.run_tree(spec, 'Continuing your saved plan.', request_id, data['payload'],
                         conversation_id=saved['conversation'], origins=set(data.get('origins', [])),
-                        resume_id=tree_id, unattended_scopes=self.standing.scopes(tree_id)):
+                        resume_id=tree_id, unattended_scopes=self.standing.scopes(tree_id), restored=True,
+                        schedule=schedule, watch=bool(schedule and schedule.get('watch'))):
                     if quiet and event.get('type') == 'plan':
                         continue
                     # no chat stream stamps these: each names its request and when it was sent, as task.result does
                     event = {**event, 'request_id': request_id, 'at': self.clock.now().isoformat()}
+                    if event.get('type') == 'outcome' and schedule is not None:
+                        event['schedule'] = schedule
                     self.publish('task.resumed_event', event)
                     if event.get('type') == 'outcome' and self.on_resumed_outcome:
                         await self.on_resumed_outcome(event)
@@ -1108,6 +1336,10 @@ class Supervisor(WorkerRuns):
         for result in results:
             if isinstance(result, Exception):
                 self.journal.append('plan.resume_failed', {'error': f'{type(result).__name__}: {result}'})
+
+    def schedule_running(self, schedule_id: str) -> bool:
+        """A run of this schedule is under way (a resumed one included): its next run must not overlap it."""
+        return any(tree.schedule_id == schedule_id for key, tree in self._tree_of.items() if key == tree.id)
 
     def _grant_in_force(self, approval_id: str) -> bool:
         """A schedule's grant (`schedule:<id>`) holds only while that schedule may still run with it (D30)."""
@@ -1393,6 +1625,24 @@ class Supervisor(WorkerRuns):
                     self._env.pop(request_id, None)
                 return
             active = self._tree_of.get(control.task_id)
+            if control.action == 'pause':
+                # owner decision 8: the running task pauses in place, losing nothing; the owner's next words resume it
+                # (a correction of the task, action continue) or stop it
+                paused = active is not None and not active.stop and active.accepting_updates and \
+                    self.pause_tree(active.id)
+                said = ((confirm.from_task_lines(self.gateway.redact(out.text)) if out.text.strip() else PAUSED_SAID)
+                        if paused else NOT_RUNNING)
+                side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins,
+                                                answered=answered_tree)
+                reply = self._with_lines({"type": "reply", "text": said}, side.lines)
+                self._record_reply(session.id, request_id, reply["text"], turn_origins)
+                try:
+                    for event in side.events:
+                        yield event
+                    yield reply
+                finally:
+                    self._env.pop(request_id, None)
+                return
             if control.action == 'continue' and active is not None and not active.stop and active.accepting_updates:
                 named = frozenset(active.spec.targets.sites)    # the sites the task named before this steer (L36 §5)
                 reopened = self._reopen_noes(control.task_id, request_id, entry, m.own_words)
@@ -2197,20 +2447,25 @@ class Supervisor(WorkerRuns):
                        origins: set[str] | None = None, resume_id: str | None = None,
                        unattended_scopes: list[Any] | None = None,
                        start_grant: tuple[list[Any], str] | None = None,
-                       watch: bool = False) -> AsyncIterator[dict[str, Any]]:
-        """`origins`: what the request's planning turn was given (S3); unknown means unlabeled outside content.
-        `watch`: a watch's check (fix wave 6c): its check judges the reported condition, and clients hear of it only
-        when the daemon publishes its result (review I3)."""
+                       watch: bool = False, restored: bool = False,
+                       schedule: dict[str, Any] | None = None) -> AsyncIterator[dict[str, Any]]:
+        """One execution path for every task: its plan (a single task's is one step, plans.single) runs through the plan
+        executor, step by step. `origins`: what the request's planning turn was given (S3); unknown means unlabeled
+        outside content. `watch`: a watch's check (fix wave 6c): its check judges the reported condition, and clients
+        hear of it only when the daemon publishes its result (review I3). `restored`: resumed after a restart (its steps
+        carry on as saved). `schedule`: the schedule run this is (kept with the plan, so a resumed run still reports to
+        its schedule)."""
         await self._work_open.wait()                     # L34 Phase G: an update's hold (the shutdown ends the wait)
         tree_id = resume_id or self.ids.new_id()
         now = self.clock.now()
-        limit = None  # the owner may give a task of any length; explicit stop still cancels all input
         identity = Identity(spec.identity)
         scopes = set().union(*(c.scopes for c in self.gateway.caps.values()))
-        root = Task(tree_id, None, spec.goal, self.device_id, Identity.OWNER, set(), "mixed", request_id, [], limit)
+        # the owner may give a task of any length: no deadline; an explicit stop still cancels all input
+        root = Task(tree_id, None, spec.goal, self.device_id, Identity.OWNER, set(), "mixed", request_id, [], None)
         worker = Task(f"{tree_id}.{WORKER}", tree_id, spec.goal, self.device_id, identity, scopes, "worker",
-                      request_id, [c.text for c in spec.success_conditions], limit)
-        tree = _Tree(tree_id, spec, worker, prior_task=prior_task, unattended_scopes=unattended_scopes, watch=watch)
+                      request_id, [c.text for c in spec.success_conditions], None)
+        tree = _Tree(tree_id, spec, worker, prior_task=prior_task, unattended_scopes=unattended_scopes, watch=watch,
+                     schedule_id=str(schedule['id']) if schedule else None)
         tree.intake_receipts = self._env.get(request_id, {}).get("intake_receipts", [])
         front = self._env.get(request_id, {}).get("front_window")
         if front is not None:                       # L12: the worker starts from the planner's picture (D26 clarified)
@@ -2250,10 +2505,15 @@ class Supervisor(WorkerRuns):
         self.tasks.add(TaskRecord(worker, now, root_span.id, tree_id), status="planned")
         if conversation_id is not None:
             self.continuity.save(tree_id, conversation_id, spec, request.words, prior_task, request.payload)
+        unattended = request_id in self.state.approvals.unattended
+        saved = {'spec': spec.model_dump(), 'request_id': request_id, 'words': request.words,
+                 'payload': request.payload, 'origins': sorted(origins or []),
+                 'message_origins': sorted(request_origins), 'unattended': unattended,
+                 **({'schedule': schedule} if schedule else {})}
         if spec.plan:
-            self.plans.create(tree_id, spec.plan, {'spec': spec.model_dump(), 'request_id': request_id,
-                'words': request.words, 'payload': request.payload, 'origins': sorted(origins or []),
-                'message_origins': sorted(request_origins)}, conversation_id)
+            self.plans.create(tree_id, spec.plan, saved, conversation_id)
+        else:
+            self.plans.create_single(tree_id, spec.goal, saved, conversation_id, restored=restored)
         if tree.intake_receipts:
             receipt_span = self.spans.start("task.intake", task_id=tree_id, parent_id=root_span.id,
                                             input={"request_id": request_id, "layer": "chat"})
@@ -2263,7 +2523,6 @@ class Supervisor(WorkerRuns):
         if not watch:
             self.publish("task.created", {"task_id": tree_id, "goal": spec.goal})
         runner: asyncio.Task[None] | None = None
-        unattended = request_id in self.state.approvals.unattended
         try:
             if start_grant is not None and start_grant[0]:   # D30: scopes recorded with the owner earlier (a schedule's)
                 if self._grant_in_force(start_grant[1]):     # checked again now: it may have changed since it was read
@@ -2282,8 +2541,8 @@ class Supervisor(WorkerRuns):
                 stated = "\n" + self.gateway.redact(self._plan_statement(
                     spec.plan, self._allowed_scopes(tree, spec.plan), unattended=unattended,
                     attended=tree.unattended_scopes is None))
-            if spec.plan and any(s.kind == 'loop' for s in spec.plan.steps):     # how each loop ends (L31)
-                stated += "\n" + self.gateway.redact("\n".join(loop_line(s) for s in spec.plan.steps if s.kind == 'loop'))
+            if spec.plan and any(s.loops for s in spec.plan.steps):     # how each loop ends (L31)
+                stated += "\n" + self.gateway.redact("\n".join(loop_line(s) for s in spec.plan.steps if s.loops))
             # the planner's words: a line of them that reads like FERB's own check is marked as the task's (D33)
             yield {"type": "plan", "text": confirm.from_task_lines(text + stated), "task_id": tree_id, "goal": spec.goal,
                    "identity": spec.identity,
@@ -2322,61 +2581,71 @@ class Supervisor(WorkerRuns):
             raise
         finally:
             self._live.pop(tree_id, None)
-            # Generator closure and cancellation skip ordinary result flow; the harness still must
-            # terminate observation and persist an interrupted outcome before releasing ownership.
+            # FERB's shutdown suspends the tree: it isn't over, and resumes after the restart (resume_plans), so nothing
+            # records an end the planner, chat or learning would later read as how it ended, and nothing of the
+            # task-end clean-up runs (its change records, which startup keeps for it, and its desktop summary)
+            suspended = self._suspending and (tree.outcome is None or tree.stop == SHUT_DOWN)
             try:
-                if self.on_task_finish is not None:
+                if self.on_task_finish is not None and not suspended:
                     await asyncio.shield(self.on_task_finish(tree_id))
             finally:
-                self._record_planner_reads(tree, root_span.id, request_id)   # a stream closed at the plan line
-                final = self.gateway.redact(self._final(tree))
-                # FERB's shutdown suspends a plan: it isn't over, and resumes after the restart (resume_plans), so
-                # nothing records an end the planner, chat or learning would later read as how it ended
-                suspended = bool(spec.plan) and self._suspending
-                if spec.plan:
-                    self.plans.set_status(tree_id, 'suspended' if self._suspending else final['status'])
-                if not suspended:                           # a correction can state a scope for any running tree
-                    self.standing.revoke(tree_id)
-                final["goal"] = spec.goal
-                if suspended:
-                    self.spans.finish(root_span, output={"status": "suspended", "summary": SHUT_DOWN}, error=SHUT_DOWN)
-                    # never left 'running': start-up would offer to pick it up again, though it resumes by itself
-                    self.tasks.set_status(tree_id, "interrupted", {"status": "interrupted", "summary": SHUT_DOWN})
-                else:
-                    from ferb.orchestrator.language import internal_terms
-                    if terms := internal_terms(final['answer']):
-                        self.journal.append('language.audit', {'task_id': tree_id, 'terms': terms})
-                    made = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id))   # model-written (MP2)
-                    self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id,
-                                                        "status": final["status"], "text": final["answer"]}
-                                        | ({"watch_met": final["watch_met"]} if "watch_met" in final else {}),
-                                        origin=made)
-                    self.spans.finish(root_span, output=final)
-                    self.tasks.set_status(tree_id, final["status"], final)
-                    self.journal.append("task.outcome", {"task_id": tree_id, "status": final["status"],
-                                                         "summary": final["summary"], "verified": final["verified"],
-                                                         "verification": final["verification"],
-                                                         "subtasks": final["subtasks"], "resources": tree.resources},
-                                        origin=made)
-                    self.publish("task.finished", {"task_id": tree_id, "status": final["status"]})
-                self.gateway.forget_tasks(self._tree_task_ids(tree))
-                self.state.forget_request(request_id)
-                for tid in [k for k, v in self._tree_of.items() if v.id == tree.id]:
-                    self._tree_of.pop(tid, None)
-                    self.tasks.remove(tid)
-                tree.finished.set()
-                for row in self.tasks.rows(tree_id):
-                    if row["status"] in ("running", "planned"):
-                        self.tasks.set_status(row["id"], "cancelled" if tree.stop == STOPPED_BY_YOU else "interrupted",
-                                              {"summary": tree.stop or "Task ended before this step completed"})
-                # Its permanent record (L1), composed from the trace once everything above is recorded. Last, so
-                # nothing it does can skip the cleanup; it never raises for a failed build or write. A suspended plan
-                # gets its record and capture when its resumed run ends.
-                if not suspended:
-                    episodes.record(self.spans, self.journal, tree_id, self.clock.now().isoformat())
-                    self._capture_after_outcome(tree_id)
+                final = self._finish_tree(tree, root_span, request_id, suspended)
         if not suspended:                    # no outcome for a suspended plan: no result, no "while you were away"
             yield final
+
+    def _finish_tree(self, tree: _Tree, root_span: Any, request_id: str, suspended: bool) -> dict[str, Any]:
+        """The one finish of a task tree, however it ended: its outcome recorded once (`task.answer`, `task.outcome`,
+        `task.finished`, its rows' statuses), or, suspended by a shutdown, nothing but its plan marked to resume. Then
+        its live state goes, and its episode is recorded. Generator closure and cancellation skip ordinary result flow;
+        this still runs."""
+        tree_id, spec = tree.id, tree.spec
+        self._record_planner_reads(tree, root_span.id, request_id)   # a stream closed at the plan line
+        final: dict[str, Any] = self.gateway.redact(self._final(tree))
+        self.plans.set_status(tree_id, 'suspended' if suspended else final['status'])
+        if not suspended:                           # a correction can state a scope for any running tree
+            self.standing.revoke(tree_id)
+        final["goal"] = spec.goal
+        if suspended:
+            self.spans.finish(root_span, output={"status": "suspended", "summary": SHUT_DOWN}, error=SHUT_DOWN)
+            # never left 'running': start-up would offer to pick it up again, though it resumes by itself
+            self._set_status(tree_id, "interrupted", {"status": "interrupted", "summary": SHUT_DOWN})
+        else:
+            from ferb.orchestrator.language import internal_terms
+            if terms := internal_terms(final['answer']):
+                self.journal.append('language.audit', {'task_id': tree_id, 'terms': terms})
+            made = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id))   # model-written (MP2)
+            self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id,
+                                                "status": final["status"], "text": final["answer"]}
+                                | ({"watch_met": final["watch_met"]} if "watch_met" in final else {}),
+                                origin=made)
+            self.spans.finish(root_span, output=final)
+            self._set_status(tree_id, final["status"], final)
+            self.journal.append("task.outcome", {"task_id": tree_id, "status": final["status"],
+                                                 "summary": final["summary"], "verified": final["verified"],
+                                                 "verification": final["verification"],
+                                                 "subtasks": final["subtasks"], "resources": tree.resources},
+                                origin=made)
+            self.publish("task.finished", {"task_id": tree_id, "status": final["status"]})   # once per tree
+        self.gateway.forget_tasks(self._tree_task_ids(tree))
+        self.state.forget_request(request_id)
+        for tid in [k for k, v in self._tree_of.items() if v.id == tree.id]:
+            self._tree_of.pop(tid, None)
+            self.tasks.remove(tid)
+        for held in (self._pauses, self._waiting, self._questions):
+            held.pop(tree_id, None)
+        tree.finished.set()
+        if not suspended:
+            # a step still marked as running or waiting when its tree ended: the tree's stop, or ended before it did
+            for row in self.tasks.rows(tree_id):
+                if row["status"] in ("running", "planned", "paused"):
+                    self._set_status(row["id"], self._stop_status(tree) if tree.stop else "cancelled",
+                                     {"summary": tree.stop or "Task ended before this step completed"})
+            # Its permanent record (L1), composed from the trace once everything above is recorded. Last, so nothing it
+            # does can skip the cleanup; it never raises for a failed build or write. A suspended plan gets its record
+            # and capture when its resumed run ends.
+            episodes.record(self.spans, self.journal, tree_id, self.clock.now().isoformat())
+            self._capture_after_outcome(tree_id)
+        return final
 
     def _capture_after_outcome(self, tree_id: str) -> None:
         """The task's episode card (whose lineage resolution reads every entry and task the planner was shown) runs
@@ -2435,38 +2704,19 @@ class Supervisor(WorkerRuns):
             self.spans.finish(captured, output=_exposure_output(exposure), origin=exposure['origin'])
 
     async def _plan_question(self, tree: _Tree, question: str, options: list[str],
-                             capability: str = 'plan.ask') -> dict[str, Any]:
+                             capability: str = 'plan.ask', step_id: str = WORKER) -> dict[str, Any]:
         """A plan's ask step (D30), or a delegated conversation's scope approval (`CONVERSATION_ASK`, F9: answered like
-        FERB's own checks), labelled as the task's (D33). A stop of the task closes it as superseded, never a No (L3);
-        a cancelled wait whose task still runs leaves it open."""
-        task = tree.worker
-        if task.request_id in self.state.approvals.unattended:
-            return {'status': 'blocked', 'summary': "You need to answer this before I continue: " + question}
-        question = confirm.task_question(printable(question))
-        options = [confirm.from_task(" ".join(printable(o).split())) for o in options]
-        action = ActionRequest(capability, 'owner_question', task.identity, frozenset(), task.id, task.id,
-                               task.request_id, frozenset(task.scopes), content=question)
-        approval = self.state.approvals.question(action, question, options)
-        self.journal.append('plan.question', {'task_id': tree.id, 'approval_id': approval.id, 'question': question})
-        self.publish('approval.requested', {'approval_id': approval.id, 'capability': capability,
-                     'kind': 'owner_question', 'reason': question, 'options': options, 'task_id': task.id,
-                     'request_id': task.request_id})
-        try:
-            while approval.state == 'pending' and not tree.stop:          # no expiry: it waits for the owner (§8.1)
-                await asyncio.sleep(self.gateway.hold_poll_s)
-        except asyncio.CancelledError:
-            # only a real stop of the task closes it; a cancelled waiter (a suspension) leaves it for the owner
-            if (tree.stop or self.state.stopped) and self.state.approvals.supersede(approval.id) is not None:
-                self.publish('approval.resolved', {'approval_id': approval.id, 'state': 'superseded'})
-            raise
-        if tree.stop and self.state.approvals.supersede(approval.id) is not None:
-            self.publish('approval.resolved', {'approval_id': approval.id, 'state': 'superseded'})
-        if approval.state != 'granted':
+        FERB's own checks), labelled as the task's (D33), through the one wait for the owner: the step pauses and waits
+        for the answer (a reply in chat answers it only through the planner's answer); a run nobody attends can't be
+        asked and reports it at once. A stop of the task closes it as superseded, never a No (L3)."""
+        wait = _Wait(tree.id, question, tuple(options), origins_.INFERRED, capability)
+        reply = await self._wait_for_owner(tree, tree.worker, wait, step_id=step_id, steer_resumes=False)
+        if reply.kind == 'declined':
+            return {'status': 'needs_user', 'summary': "You need to answer this before I continue: " + question,
+                    'question': question}
+        if reply.kind != 'answer' or wait.approval is None:
             return {'status': 'blocked', 'summary': 'I need your answer before I continue.'}
-        answer = approval.choice or approval.answer or ''
-        self.journal.append('plan.answer', {'task_id': tree.id, 'approval_id': approval.id, 'answer': answer},
-                            origin=origins_.OWNER)
-        return {'status': 'done', 'summary': answer, 'answer': answer, 'approval_id': approval.id}
+        return {'status': 'done', 'summary': reply.words, 'answer': reply.words, 'approval_id': wait.approval.id}
 
     def _safe_scopes(self, plan: Plan) -> list[SendScope]:
         return [SendScope.model_validate(self.gateway.redact(s.model_dump())) for s in plan.standing_sends]
@@ -2516,8 +2766,10 @@ class Supervisor(WorkerRuns):
         return "\n".join(lines)
 
     async def _execute_plan(self, tree: _Tree, span: str, queue: asyncio.Queue[dict[str, Any]]) -> Outcome:
-        plan = tree.spec.plan
-        assert plan is not None
+        """The one execution path: the tree's saved plan through the plan executor (a single task's plan is its one
+        step, run by the tree's own worker against the task's own conditions; a planned task's steps each run by a
+        worker of their own, then a final worker answers)."""
+        plan = self.plans.load(tree.id)['plan']
         plan_revision = len(tree.steering.messages)
         if (plan.big_job or plan.standing_sends) and not self.plans.load(tree.id)['approved']:
             # D24/D30 (L3): the plan line stated the plan and its standing scope; work starts at once and the owner
@@ -2539,13 +2791,35 @@ class Supervisor(WorkerRuns):
             self.plans.db.conn.execute('UPDATE task_plans SET approved=1 WHERE task_id=?', (tree.id,))
             if attended and allowed:
                 self.standing.grant(tree.id, allowed, 'stated:' + stated.id)
+        single = tree.spec.plan is None             # a single task: its one step is the tree's own worker
+        ran: list[Outcome] = []
+        crashed: list[Exception] = []               # a single task's attempt loop that broke: told as the task's failure
+
         async def execute(step: Step, inputs: list[str], prior: dict[str, Any]) -> dict[str, Any]:
             if step.kind == 'ask':
-                return await self._plan_question(tree, step.question, step.options)
+                return await self._plan_question(tree, step.question, step.options, step_id=step.id)
             if step.kind == 'converse':
                 return await self._conversation_steps(tree, step, span, queue, prior)
-            if step.kind == 'loop':
+            if step.loops:
                 return await self._loop_step(tree, step, span, prior)
+            previous = prior.get('previous_attempt') or {}
+            if previous.get('status') == 'paused' and tree.id not in self._pauses:
+                # it waited for the owner when FERB restarted: it pauses again and asks again (rule 9)
+                self._pauses[tree.id] = _Wait(tree.id, str(previous.get('question') or ''),
+                                              tuple(previous.get('options') or ()),
+                                              str(previous.get('origin') or origins_.FERB))
+            if single:
+                try:
+                    out = await self._worker(tree, span)
+                except Exception as exc:
+                    crashed.append(exc)
+                    raise
+                if self._suspending:        # a shutdown cut it short: it reports nothing and runs again after restart
+                    raise asyncio.CancelledError
+                ran.append(out)
+                return {'status': self._finish_step(tree, out), 'summary': out.summary, 'answer': tree.owner_answer,
+                        'artifacts': out.artifacts, 'evidence': out.evidence,
+                        **({'question': tree.owner_question} if out.status == 'needs_user' else {})}
             child_spec = tree.spec.model_copy(deep=True)
             child_spec.plan = None
             child_spec.goal, child_spec.worker_type = step.goal, step.worker_type
@@ -2555,19 +2829,23 @@ class Supervisor(WorkerRuns):
             child = dataclasses.replace(tree.worker, id=tree.id + '.step.' + step.id, goal=step.goal,
                                          success_conditions=[c.text for c in child_spec.success_conditions])
             member = _Tree(tree.id, child_spec, child, prior_task=tree.prior_task,
-                steering=tree.steering, parent_goal=tree.spec.goal,
-                required_inputs=inputs if ':' in step.id else [],
+                steering=tree.steering, parent_goal=tree.spec.goal, required_inputs=list(inputs), step_id=step.id,
                 step_context=json.dumps({'step': step.model_dump(), 'inputs': inputs, 'prior': prior,
                     **({'earlier_plan_results': earlier} if (earlier := self.plans.earlier(tree.id)) else {}),
-                    'requirement': 'Write one input_notes entry per input with the complete note and evidence references.'}))
+                    **({'requirement': 'Write one input_notes entry per input with the complete note and evidence '
+                                       'references.'} if inputs else {})}))
             self._tree_of[child.id] = member
             self.tasks.add(TaskRecord(child, self.clock.now(), span, tree.id), status='planned')
             await queue.put({'type': 'subtask', 'id': step.id, 'task_id': child.id, 'status': 'started', 'role': 'worker'})
             try:
                 out = await self._worker(member, span)
-                output = {'status': out.status, 'summary': out.summary, 'answer': member.owner_answer,
+                if self._suspending:        # as for a single task's step: it runs again after the restart
+                    raise asyncio.CancelledError
+                status = self._finish_step(member, out)
+                output = {'status': status, 'summary': out.summary, 'answer': member.owner_answer,
                           'artifacts': out.artifacts, 'evidence': out.evidence, 'input_notes': member.input_notes,
-                          'conversation_proposals': member.conversation_proposals}
+                          'conversation_proposals': member.conversation_proposals,
+                          **({'question': member.owner_question} if out.status == 'needs_user' else {})}
                 directory = Path(self.workspace) / 'task-notes' / tree.id
                 path = directory / (hashlib.sha256(step.id.encode()).hexdigest() + '.json')
                 from ferb.act.fs.files import atomic_text, make_folders
@@ -2578,21 +2856,34 @@ class Supervisor(WorkerRuns):
                 output['notes_file'] = str(path)
                 self.journal.append('plan.step', {'task_id': tree.id, 'step': step.id, **output},
                                     origin=origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
-                self.tasks.set_status(child.id, out.status, {'summary': out.summary})
                 await queue.put({'type': 'subtask', 'id': step.id, 'task_id': child.id,
-                                 'status': out.status, 'summary': out.summary, 'role': 'worker'})
+                                 'status': status, 'summary': out.summary, 'role': 'worker'})
                 return output
             finally:
                 await self._release_resources(member, span)
                 tree.resources.extend(member.resources)
                 tree.cleanup_errors.extend(member.cleanup_errors)
-        engine = PlanExecutor(self.plans, execute, lambda: bool(tree.stop) and not self._suspending)
+        engine = PlanExecutor(self.plans, execute, lambda: self._stopped(tree), self.clock.now)
         self._plan_runs[tree.id] = engine
         try:
             result = await engine.run(tree.id)
         finally:
             self._plan_runs.pop(tree.id, None)
         states = self.plans.steps(tree.id)
+        if single:
+            if crashed:
+                raise crashed[-1]
+            if ran:
+                return ran[-1]
+            # the run stopped before its step ran, or the step had already ended before a restart
+            saved = states.get(SINGLE, {}).get('output', {})
+            status = str(saved.get('status') or 'failed')
+            if status in DONE:
+                tree.stands_unconfirmed, status = status != 'done', 'done'
+            if self._stopped(tree) or status not in ('done', 'failed', 'blocked', 'needs_user', 'cancelled'):
+                status = 'cancelled' if self._stopped(tree) else 'failed'
+            return Outcome(tree.worker.id, cast(Any, status), str(saved.get('summary') or tree.stop or ''),
+                           list(saved.get('artifacts', [])), list(saved.get('evidence', [])))
         outputs = [states[s.id]['output'] for s in plan.steps]
         artifacts = list(dict.fromkeys(p for o in outputs for p in o.get('artifacts', [])))
         evidence = [e for o in outputs for e in o.get('evidence', [])]
@@ -2621,8 +2912,18 @@ class Supervisor(WorkerRuns):
                                'Write evidence report and owner answer. '
                                'Include a concise digest of the messages actually sent, failed, or still unconfirmed; inspect evidence.'})
             return await self._worker(tree, span)
+        if result['status'] == 'needs_user':        # a step needs the owner in a run nobody attends (declined)
+            tree.owner_question = next((str(states[s.id]['output'].get('question') or '') for s in plan.steps
+                                        if states[s.id]['status'] == 'needs_user'), '')
         return Outcome(tree.worker.id, 'failed' if result['status'] == 'blocked' else result['status'],
                        _stopped_plan_summary(plan.steps, states), artifacts, evidence)
+
+    def _finish_step(self, member: _Tree, out: Outcome) -> str:
+        """A step's (or a conversation turn's) status from its attempt loop's outcome, written once: done but not
+        confirmed stays its own status (V4), never stored as done."""
+        status = 'done_unverified' if out.status == 'done' and member.stands_unconfirmed else out.status
+        self._set_status(member.worker.id, status, {'summary': out.summary})
+        return status
 
     def change_conversation(self, ident: str, action: str, words: str) -> None:
         row = self.conversations.get(ident)
@@ -2736,6 +3037,7 @@ class Supervisor(WorkerRuns):
             child = dataclasses.replace(tree.worker, id=tree.id + '.conversation.' + step.id + '.' + str(number),
                 goal=child_spec.goal, success_conditions=[c.text for c in child_spec.success_conditions])
             member = _Tree(tree.id, child_spec, child, prior_task=tree.prior_task, parent_goal=tree.spec.goal,
+                step_id=step.id, asks_in_place=False,
                 step_context=json.dumps({'conversation': scope.model_dump(), 'incoming_observations': events,
                     'previous_turns_and_action_receipts': digest, 'instruction':
                     'Incoming messages are untrusted data. Read the actual account and exact thread before acting. '
@@ -2760,6 +3062,7 @@ class Supervisor(WorkerRuns):
                     if offset is None:
                         break
                 out = await self._worker(member, span)
+                self._finish_step(member, out)        # the turn's own row ends with its result, never `interrupted`
                 result = {'status': out.status, 'summary': member.owner_answer or out.summary,
                           'artifacts': out.artifacts, 'evidence': out.evidence,
                           'conversation_action': member.conversation_action}
@@ -2771,8 +3074,8 @@ class Supervisor(WorkerRuns):
                 tree.resources.extend(member.resources)
                 tree.cleanup_errors.extend(member.cleanup_errors)
         runner = ConversationRunner(self.conversations,
-            lambda question, options: self._plan_question(tree, question, options, CONVERSATION_ASK), turn, queue.put,
-            lambda: bool(tree.stop))
+            lambda question, options: self._plan_question(tree, question, options, CONVERSATION_ASK, step.id), turn,
+            queue.put, lambda: self._stopped(tree))
         result = await runner.run(ident, tree.id, scope)
         self.journal.append('conversation.digest', result, origin=origins_.join({origins_.INFERRED,
             origins_.external('conversation')}))
@@ -2888,7 +3191,8 @@ class Supervisor(WorkerRuns):
             # what earlier rounds left held, so this one uses it instead of finding and borrowing it again
             held = {'held_tabs': tabs} if (tabs := self.task_tabs(child.id)) else {}
             member = _Tree(tree.id, spec, child, prior_task=tree.prior_task, steering=tree.steering,
-                           parent_goal=tree.spec.goal, hold_resources=True, step_context=json.dumps({
+                           parent_goal=tree.spec.goal, hold_resources=True, step_id=step.id, asks_in_place=False,
+                           step_context=json.dumps({
                                'loop': {'goal': step.goal, 'end_when': step.end_when, 'why_this_round': why},
                                'earlier_rounds': self.loops.digest(tree.id, step.id), **held, **handed,
                                'instruction': LOOP_ROUND}))
@@ -2925,7 +3229,8 @@ class Supervisor(WorkerRuns):
             result = {'status': status, 'summary': member.owner_answer or out.summary, 'evidence': out.evidence,
                       'loop_action': member.loop_action, 'finished_verified': finished, 'question': question,
                       'unknown': unknown, 'unchecked': bool(member.unchecked)}
-            asker.round_ended(member.loop_action == 'blocked' or status in ('needs_user', 'blocked'))
+            if not (member.loop_action == 'blocked' or status in ('needs_user', 'blocked')):
+                closed_tabs.carried_on()             # a round that carried on went past whatever closed before it
             self.spans.finish(round_span, output=result | {'probe': probe.model_dump() if probe else None})
             self.journal.append('loop.round', {'task_id': tree.id, 'step': step.id, 'number': cause.get('number'),
                                                **result},
@@ -2988,7 +3293,7 @@ class Supervisor(WorkerRuns):
 
         def event(cursor: int) -> tuple[int, dict[str, Any]] | None:
             try:
-                return self.plans.event_seq_after(step.event or '', cursor, step.event_match)
+                return self.plans.event_seq_after(step.wakes_on or '', cursor, step.wakes_match)
             except Exception as exc:
                 self._loop_failed(tree.id, step.id, 'event', exc)
                 return None
@@ -3016,17 +3321,44 @@ class Supervisor(WorkerRuns):
             except Exception as exc:
                 self._loop_failed(tree.id, step.id, 'status', exc)
 
-        asker = _LoopQuestion(self, tree, step, child)
+        closed_tabs = _HeldTabs(self.task_tabs, child.id)
+
+        async def wait_owner(result: dict[str, Any] | None) -> dict[str, Any] | None:
+            """A paused loop waits through the one wait for the owner (L31 item 8): a pause of the task (the owner's,
+            a tab they closed) is the tree's wait; any other pause asks the round's own question, or, when one of the
+            owner's tabs the loop held was closed, FERB's own question naming its site, Stop / Keep watching. Stop is
+            the owner's stop of the task; Keep watching, the owner's typed words or their reply in chat start the next
+            round. Asked again after a restart (`result` None; rule 9)."""
+            if result is None and self._is_paused(tree):
+                closed_tabs.gone()                   # a tab closed before this pause is known from now on
+                reply = await self._hold_pause(tree, child, step.id)
+            else:
+                question, options, origin = self._pause_question(tree.id, step, result, closed_tabs.gone())
+                wait = _Wait(tree.id, question, tuple(options), origin, LOOP_ASK)
+                reply = await self._wait_for_owner(tree, child, wait, step_id=step.id)
+                if reply.kind == 'denied' or (reply.kind == 'answer' and reply.choice == LOOP_STOP):
+                    self.stop_tree(tree.id)            # the owner's stop: the loop and its task end
+                    return None
+            if reply.kind == 'declined':
+                return {'declined': True, 'summary': reply.question}
+            if reply.kind == 'stopped':
+                return None
+            if reply.kind == 'steer':
+                return {'why': 'your message'}
+            if reply.choice in (LOOP_KEEP, CONTINUE):
+                return {'why': f'you chose "{reply.choice}"', 'owner': True}
+            return {'why': 'your answer to my question', 'question': reply.question, 'answer': reply.words,
+                    'owner': True}
+
         runner = LoopRunner(
             store=self.loops, task_id=tree.id, step=step, round=round_, arm=arm, probe=read, record=record,
-            event=event if step.event else None, steers=lambda: len(tree.steering.messages), notify=notify,
-            status=status, stopped=lambda: bool(tree.stop) and not self._suspending,
-            now=time.time, event_cursor=self.plans.event_cursor(), question=asker)
-        asker.wake = runner.wake
+            event=event if step.wakes_on else None, steers=lambda: len(tree.steering.messages), notify=notify,
+            status=status, stopped=lambda: self._stopped(tree), now=lambda: self.clock.now().timestamp(),
+            wait_owner=wait_owner, paused=lambda: self._is_paused(tree), event_cursor=self.plans.event_cursor())
         self._loops.setdefault(tree.id, set()).add(runner)
         try:
             result = await runner.run()
-            self.tasks.set_status(child.id, result['status'], {'summary': result['summary']})
+            self._set_status(child.id, result['status'], {'summary': result['summary']})
             return result
         finally:
             runners = self._loops.get(tree.id, set())
@@ -3116,7 +3448,7 @@ class Supervisor(WorkerRuns):
                 await queue.put({"type": "subtask", "id": WORKER, "task_id": worker.id, "status": "started",
                                  "role": "worker"})
                 try:
-                    out = await (self._execute_plan(tree, span, queue) if tree.spec.plan else self._worker(tree, span))
+                    out = await self._execute_plan(tree, span, queue)      # one path: a single task is a one-step plan
                 except Exception as exc:
                     self.journal.append("task.execution_failed", {"task_id": worker.id,
                                          "error": f"{type(exc).__name__}: {exc}"})
@@ -3124,12 +3456,11 @@ class Supervisor(WorkerRuns):
                     out = Outcome(worker.id, "failed", couldnt("continue this task", exc, self.gateway.redact),
                                   previous.get("artifacts", []), previous.get("evidence", []))
             if tree.stop and out.status != "cancelled":
-                out = Outcome(worker.id, "cancelled" if tree.stop == STOPPED_BY_YOU else "failed",
-                              tree.stop if tree.stop != STOPPED_BY_YOU else STOPPED_BY_YOU, out.artifacts, out.evidence)
+                out = Outcome(worker.id, self._stop_status(tree), tree.stop, out.artifacts, out.evidence)
             tree.outcome = out
             tree.accepting_updates = False
-            self.tasks.set_status(worker.id, out.status, {"summary": out.summary})
-            await queue.put({"type": "subtask", "id": WORKER, "task_id": worker.id, "status": out.status,
+            status = self._finish_step(tree, out)
+            await queue.put({"type": "subtask", "id": WORKER, "task_id": worker.id, "status": status,
                              "summary": out.summary, "role": "worker"})
         finally:
             await queue.put({"type": "_done"})
@@ -3147,22 +3478,26 @@ class Supervisor(WorkerRuns):
         if tree.id in self._plan_runs:
             self._plan_runs[tree.id].wake()
         self.wake_loops(tree.id)
-        ids = self._tree_task_ids(tree)
-        self.gateway.cancel_tasks(ids)
-        for worker_id, (_, run) in list(self._worker_runs.items()):
-            if run.task_id in ids:
-                self.tokens.revoke_worker(worker_id)
-        for rt, run in list(self._active.values()):
-            if run.task_id in ids:
-                asyncio.get_event_loop().create_task(rt.cancel(run))
+        self._interrupt(tree, stop=True)
 
     async def _worker(self, tree: _Tree, span: str) -> Outcome:
+        """The attempt loop of one task or plan step (a loop's round and a conversation's turn have their own): an
+        attempt (the worker, then its check), then the next-attempt choice. Needing the owner pauses here in place and
+        asks (`asks_in_place`); a pause of the task holds here; after CHECK_IN_AFTER failed attempts FERB asks whether to
+        keep going (owner decision 7: `attempts`, counted only where a retry is chosen)."""
         task = tree.worker
         instructions = ""
         artifacts: list[str] = []
         evidence: list[str] = []
         recheck: Outcome | None = None       # L39 I4: the done report whose check alone runs again ("recheck")
+        attempts = Attempts()
         while not tree.stop:
+            if self._is_paused(tree):        # owner decision 8: the step waits here; resuming starts a fresh attempt
+                reply = await self._hold_pause(tree, task, tree.step_id)
+                if reply.kind == 'stopped' or tree.stop:
+                    break
+                instructions, recheck = self._owner_continuation(reply), None
+                continue
             tree.unlooked = []
             if recheck is not None:          # only the check runs again: the same work and change records, no worker
                 out, recheck = recheck, None
@@ -3181,10 +3516,12 @@ class Supervisor(WorkerRuns):
                 tree.loop_action = None          # and a loop round's choice and probe likewise (L31)
                 tree.probe = None
                 tree.unchecked = ''
-                self.tasks.set_status(task.id, "running")
+                self._set_status(task.id, "running")
                 raw, _ = await self.run_worker(tree, task, "worker.md", (await self._context(tree, learned=True)) + [ContextBlock(instructions, "current continuation", protected=True)],
                                                WORKER_SCHEMA, span)
                 attempt_revision = len(tree.steering.messages)
+                if self._is_paused(tree) and not tree.stop:
+                    continue                 # the pause ended this attempt: its report is dropped, and it isn't counted
                 try:
                     w = raw if isinstance(raw, Outcome) else WorkerOutcome.model_validate(raw)
                     out = Outcome(task.id, w.status, w.summary, w.artifacts, w.evidence)
@@ -3233,7 +3570,7 @@ class Supervisor(WorkerRuns):
                                                          f"The check couldn't run: {type(exc).__name__}: {exc}")
                                          for i, c in enumerate(checked_conditions(tree.spec, tree.watch,
                                                                                   tree.watch_met))]
-                if checking_revision != len(tree.steering.messages) and not tree.stop:
+                if (checking_revision != len(tree.steering.messages) or self._is_paused(tree)) and not tree.stop:
                     tree.verification = []
                     continue
                 unresolved = [f"{r.text}: {r.evidence}" for r in tree.verification if r.met is not True]
@@ -3258,7 +3595,7 @@ class Supervisor(WorkerRuns):
             tree.reports.append({"worker_type": tree.spec.worker_type, "status": out.status,
                                  "summary": out.summary, "artifacts": artifacts, "evidence": evidence,
                                  "resources": tree.resources, "cleanup_errors": tree.cleanup_errors})
-            if attempt_revision != len(tree.steering.messages) and not tree.stop:
+            if (attempt_revision != len(tree.steering.messages) or self._is_paused(tree)) and not tree.stop:
                 continue
             if tree.stop or out.status in ("done", "cancelled"):
                 return out
@@ -3279,7 +3616,7 @@ class Supervisor(WorkerRuns):
                 return Outcome(task.id, "cancelled" if tree.stop else "failed",
                                tree.stop or _sentence(out.summary) + f"I couldn't plan the next attempt{problem}.",
                                artifacts, evidence)
-            if attempt_revision != len(tree.steering.messages) and not tree.stop:
+            if (attempt_revision != len(tree.steering.messages) or self._is_paused(tree)) and not tree.stop:
                 continue
             if choice.action == "recheck" and checked_done is None:
                 # N5: nothing was checked (the attempt didn't finish as done): the dispatcher gets that fact and
@@ -3300,6 +3637,16 @@ class Supervisor(WorkerRuns):
                 continue
             if choice.action == "ask":
                 tree.owner_question = choice.question
+                if tree.asks_in_place:       # "needs the owner": the step pauses here and asks; nobody there declines
+                    wait = _Wait(tree.id, choice.question, (),
+                                 origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
+                    reply = await self._wait_for_owner(tree, task, wait, step_id=tree.step_id)
+                    if reply.kind in ('answer', 'steer'):
+                        tree.owner_question = ''
+                        instructions = self._owner_continuation(reply)
+                        continue
+                    if reply.kind == 'stopped' or tree.stop:
+                        break
                 return Outcome(task.id, "needs_user", choice.question, artifacts, evidence)
             if choice.action == "finish":
                 # The real reason is shown with the conditions (V5). Without one from the orchestrator, the attempt's
@@ -3317,7 +3664,44 @@ class Supervisor(WorkerRuns):
             if choice.worker_type in self.worker_types():    # else `_dispatch` was already told once: same type
                 tree.spec.worker_type = choice.worker_type
             instructions = "\nOrchestrator continuation: " + choice.instructions
+            if attempts.failed_one():        # owner decision 7: the check-in before another attempt
+                keep = await self._check_in(tree, task, attempts)
+                if keep is None:
+                    break
+                if keep is False:
+                    tree.finish_chosen = True
+                    return Outcome(task.id, "failed", out.summary, artifacts, evidence)
+                instructions += keep
         return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, artifacts, evidence)
+
+    @staticmethod
+    def _owner_continuation(reply: OwnerReply) -> str:
+        """What the next attempt is told after the owner answered or replied (their reply itself reaches it as the
+        latest owner correction)."""
+        if reply.kind == 'answer' and reply.question:
+            return f"\nThe owner's answer to the question “{reply.question}”: {reply.words}"
+        return "\nThe owner replied: their words are in the latest owner corrections. Carry on from there."
+
+    async def _check_in(self, tree: _Tree, task: Task, attempts: Attempts) -> str | Literal[False] | None:
+        """Owner decision 7: after CHECK_IN_AFTER failed attempts, "keep going?". Yes (or the owner's own words) allows
+        CHECK_IN_AFTER more and returns what the next attempt is told ('' for a plain Yes); No stops with what it found
+        (False, its reason in `stop_reason`). A run nobody attends stops here and reports (False). None: stopped."""
+        unattended = self._unattended(task)
+        if not unattended:
+            wait = _Wait(tree.id, check_in_question(attempts.failed, short_label(tree.spec.goal)),
+                         (KEEP_GOING, STOP_HERE))
+            reply = await self._wait_for_owner(tree, task, wait, step_id=tree.step_id)
+            if reply.kind == 'stopped' or tree.stop:
+                return None
+            if reply.kind not in ('denied', 'declined') and reply.choice != STOP_HERE:
+                attempts.allow_more()
+                self.journal.append('task.check_in', {'task_id': tree.id, 'step': tree.step_id,
+                                                      'attempts': attempts.failed, 'keep_going': True})
+                return '' if reply.choice == KEEP_GOING else self._owner_continuation(reply)
+        self.journal.append('task.check_in', {'task_id': tree.id, 'step': tree.step_id, 'attempts': attempts.failed,
+                                              'keep_going': False, 'unattended': unattended})
+        tree.stop_reason = stopped_after(attempts.failed, unattended=unattended)
+        return False
 
     def _look_only(self, tree: _Tree) -> str:
         """A loop round that reported `continue` with a probe and only looked (`loops.look_only_round`): why its model
@@ -3693,7 +4077,7 @@ class Supervisor(WorkerRuns):
                                          "how": NO_LOOK_HOW.format(files=shown)}) if r.met is True else r
                     for r in verdict.results]})
         tree.checked_report = claim              # the report this check judged (FERB's report condition)
-        self.tasks.set_status(vtask.id, "done", verdict.model_dump())
+        self._set_status(vtask.id, "done", verdict.model_dump())
         got = {r.index: r for r in verdict.results}
         return [ConditionResult(i, c.text, got[i].met if i in got else None, "verifier",
                                 got[i].evidence if i in got else "The check gave no answer for this.",
@@ -3715,16 +4099,16 @@ class Supervisor(WorkerRuns):
                 self.journal.append("task.check_rerun", {"task_id": vtask.parent_id, "reason": raw.summary})
                 raw, _ = await self.run_worker(tree, vtask, "verifier.md", plain, VERIFIER_SCHEMA, span, effort=effort)
             if isinstance(raw, Outcome):
-                self.tasks.set_status(vtask.id, "cancelled" if raw.status == "cancelled" else "failed",
-                                      {"summary": raw.summary})
+                self._set_status(vtask.id, "cancelled" if raw.status == "cancelled" else "failed",
+                                 {"summary": raw.summary})
                 detail = "; ".join(raw.evidence) or raw.summary         # the exact failure, for recovery
                 tree.check_problem = raw.summary                         # and the owner's words for it
                 return [ConditionResult(i, c.text, None, UNCHECKED, f"The check couldn't finish: {detail}")
                         for i, c in judged]
             return VerifierOutcome.model_validate(raw)
         except BaseException as exc:
-            self.tasks.set_status(vtask.id, "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed",
-                                  {"summary": f"Inspection unavailable: {type(exc).__name__}"})
+            self._set_status(vtask.id, "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed",
+                             {"summary": f"Inspection unavailable: {type(exc).__name__}"})
             raise
 
     async def _changed_files(self, tree: _Tree, task: Task, above: int) -> "_Changed":
@@ -3851,15 +4235,16 @@ class Supervisor(WorkerRuns):
         refuted = any(r.met is False for r in results)
         # An outcome that isn't simply done is shown as code's status line, then its report (_report): the answer is
         # the full text the owner sees, with no separate short version (owner, 2026-10-24).
+        status: str
         if tree.stop == STOPPED_BY_YOU:
-            status, summary, answer = "cancelled", STOPPED_BY_YOU, "Stopped, as you asked."
+            status, summary, answer = self._stop_status(tree), STOPPED_BY_YOU, "Stopped, as you asked."
             # what the worker had found, from its latest report: unchecked, so it says so (owner live use 2026-10-15)
             found = next((str(r.get("summary") or "").strip() for r in reversed(tree.reports)
                           if r.get("status") != "cancelled" and str(r.get("summary") or "").strip()), "")
             if found:
                 answer += f"\n\n{FOUND_BEFORE_STOP} {found}"
         elif tree.stop:
-            status, summary = "failed", tree.stop
+            status, summary = self._stop_status(tree), tree.stop
             answer = f"I couldn't finish that: {tree.stop}"
         elif verified:
             # The report the check judged, never a later review's wording (P16 V4/V6, D34). A check that confirmed

@@ -62,6 +62,7 @@ from ferb.memory.journal import Journal
 from ferb.memory.learning import SOURCE_REF_INDEX
 from ferb.orchestrator import episodes
 from ferb.orchestrator.ledger import Ledger
+from ferb.orchestrator.plan_store import PlanStore
 from ferb.orchestrator.stop import StopControl
 from ferb.orchestrator.supervisor import Supervisor
 from ferb.orchestrator.tree import ExecutionState, TaskTree
@@ -217,6 +218,7 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
             self._front_window if screen_at_send else None)
         self._tab_granted: set[str] = set()   # browsers whose front tab FERB may read: GRANTED, kept until a read fails
         self._last_runs: set[str] = set()     # one-time schedules marked done whose last run is under way (M9)
+        self._schedule_runs: set[str] = set()  # schedules with a run under way now (its next one never overlaps it)
         self.snapshots: recovery.Snapshots | None = None
         # Deletes FERB's own old snapshots in the async retention pass (None: macOS thinning only; tests)
         self.snapshot_deleter: Callable[[str], Awaitable[bool]] | None = (
@@ -330,12 +332,14 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
                                             self.clock, self.ids, self.redact)
         add_recovery(self.registry, self.snapshots)
         self.ledger = Ledger(self.db, self.clock, self.ids)
-        self.tasks.attach(self.db)
+        self.tasks.attach(self.db, self.clock.now)
         self.task_results = TaskResults(self.db)
-        interrupted = self.tasks.interrupt_running(self.clock.now())          # a restart: what was running didn't finish
+        interrupted = self.tasks.interrupt_running()          # a restart: what was running didn't finish
         if interrupted:
             self.journal.append("tasks.interrupted_after_restart", {"task_ids": interrupted})
-            for tid in {t.split(".", 1)[0] for t in interrupted}:          # chat tells the owner next time
+            # a tree whose plan didn't end resumes by itself (resume_plans): no "pick it up again?" and no episode yet
+            resuming = set(PlanStore(self.db, self.redact).pending())
+            for tid in {t.split(".", 1)[0] for t in interrupted} - resuming:   # chat tells the owner next time
                 goal = next((r["goal"] for r in self.tasks.rows(tid) if r["id"] == tid), "")
                 self.task_results.interrupted(tid, self.clock.now().isoformat(), goal,
                                               f"This was interrupted when FERB restarted: {goal}. Want me to pick it "

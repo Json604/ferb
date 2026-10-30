@@ -43,7 +43,7 @@ def finished_roots_before(db: Any, cutoff: str) -> list[str]:
     """Root tasks that ended before the cutoff and still have spans, oldest first (never a running or planned
     one)."""
     return [r["id"] for r in db.conn.execute(
-        "SELECT id FROM tasks t WHERE parent_id IS NULL AND status NOT IN ('running', 'planned') AND updated_at < ? "
+        "SELECT id FROM tasks t WHERE parent_id IS NULL AND status NOT IN ('running', 'planned', 'paused') AND updated_at < ? "
         "AND EXISTS (SELECT 1 FROM spans WHERE task_id = t.id OR (task_id >= t.id || '.' AND task_id < t.id || '/')) "
         "ORDER BY updated_at, rowid",
         (cutoff,))]

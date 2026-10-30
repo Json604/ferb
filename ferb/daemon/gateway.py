@@ -708,6 +708,13 @@ class Gateway:
             if tid in task_ids:
                 job.cancel()
 
+    def interrupt_tasks(self, task_ids: set[str]) -> None:
+        """A pause (owner decision 8): the calls these tasks have in flight end, as a stop ends them, but the tasks may
+        call again once they resume."""
+        for job, tid in list(self._in_flight.items()):
+            if tid in task_ids:
+                job.cancel()
+
     def forget_tasks(self, task_ids: set[str]) -> None:
         """A task tree ended: what the gateway kept for it goes."""
         self.hooks.forget(task_ids)

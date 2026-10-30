@@ -75,14 +75,16 @@ def test_memory_reads_this_process() -> None:
     assert 10 << 20 < used < 64 << 30
 
 
-def test_a_scripted_retry_that_goes_off_its_path_ends_the_task(daemon: RunningDaemon) -> None:
-    """The attempt loop has no retry cap (the orchestrator decides), so a script whose one choice says "retry" for a
-    worker that keeps failing would run forever (2026-10-25, test_supervisor: a 1.7 GB test database). The scripted
-    choice runs out instead, and the task ends as a failed choice."""
+def test_a_scripted_retry_that_goes_off_its_path_ends_the_task(daemon: RunningDaemon, unattended: None) -> None:
+    """A script whose one choice says "retry" for a worker that keeps failing ran forever (2026-10-25, test_supervisor:
+    a 1.7 GB test database). The check-in now bounds it (owner decision 7): a run nobody attends stops after
+    CHECK_IN_AFTER failed attempts and reports; an attended one asks (tests/test_execution_runs.py). The scripted
+    choice's own cap (SCRIPTED_DISPATCH_REPEATS) still ends a script that answers the check-in forever."""
+    from ferb.orchestrator.attempts import CHECK_IN_AFTER
     failed = json.dumps({"status": "failed", "summary": "It broke.", "artifacts": [], "evidence": []})
     retry = json.dumps({"action": "retry", "worker_type": "default", "instructions": "Again.", "question": ""})
     script = install(daemon, [sup("task", "On it.", task("write x.md", paths=("x.md",)))],
                      {"worker": failed, "worker.dispatch": retry})
     out = outcome(chat(daemon, "write x.md in your workspace", timeout=120))
     assert out["status"] == "failed"
-    assert sum(1 for c in script.contexts if c[1] == "worker") == SCRIPTED_DISPATCH_REPEATS + 1
+    assert sum(1 for c in script.contexts if c[1] == "worker") == CHECK_IN_AFTER < SCRIPTED_DISPATCH_REPEATS

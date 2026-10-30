@@ -11,6 +11,7 @@ from ferb.trace import lines
 # without the verified flag is an older record that never said it was checked: shown as recorded.
 STATUS = {"done": "done", "done_unverified": "done (not confirmed)", "failed": "failed ✗", "needs_user": "waiting for you",
           "cancelled": "stopped", "interrupted": "interrupted by a restart", "running": "running",
+          "paused": "paused, waiting for you",
           "unknown": "outcome unknown"}
 
 

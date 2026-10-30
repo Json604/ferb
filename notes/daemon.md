@@ -44,6 +44,12 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
    features that need FERB's own inbox (one-time codes for FERB's own sign-ups, sending from FERB's address) say they
    aren't set up. Note: the diagnostic-report address is hard-coded to the developer (reports.py:26).
 
+8. **The app gains Restore, Delete saved secret/card and Uninstall** (owner, 2026-10-30), functional only (owner
+   polishes the UI later): Restore lists FERB's Trash moves, backup copies and snapshots and restores one; Delete removes
+   a stored owner secret or card (OwnerSecrets gains a delete); Uninstall removes FERB fully, Keychain items included.
+   Daemon RPCs plus minimal app screens; the added UI pieces are listed for the owner.
+9. **Jev stays off after an upgrade** even when a key exists (owner, 2026-10-30).
+
 ## What exists today (verified)
 
 ### Composition

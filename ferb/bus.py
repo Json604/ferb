@@ -25,6 +25,7 @@ CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "ta
             "browser.debugger_detached",
             "browser.owner_stopped", "browser.owner_took",   # owner decision 3: the owner closed / took a FERB tab
             "task.result", "task.resumed_event", "conversation.paused", "attention.notice",
+            "task.paused", "task.resumed",   # owner decision 8: a task waits for the owner in place / carries on
             "loop.status",       # a loop's state change (L31): the notch's standing work must never miss its last
             "memory.confirmed_derived", "memory.forgot_derived", "memory.rollback",
             "memory.forgot"}   # a forget the owner said Yes to from the notch's buttons (I2)

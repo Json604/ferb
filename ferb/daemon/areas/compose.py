@@ -140,7 +140,7 @@ class Compose:
                 browser_context=self._browser_context, task_tabs=self._task_tabs, on_loop_rest=self._loop_rest),
             notify=ports.NotifyPort(
                 on_loop_notice=self._loop_notice,
-                on_resumed_outcome=lambda event: self._task_result(event, shown=False),
+                on_resumed_outcome=self._resumed_outcome,          # a resumed scheduled run reports to its schedule
                 on_conversation_resume=self._resume_conversation_plans))
         # L39 M1: the records a stopped daemon left go now, before any task, except those of trees that will resume
         # (their checks still see the changes made before the restart)

@@ -12,7 +12,7 @@ from pydantic import BaseModel, model_validator
 
 from ferb.clock.when import DAY_WORDS, WHEN_SCHEMA, When
 from ferb.policy.targets import Targets
-from ferb.orchestrator.plans import Plan, SendScope
+from ferb.orchestrator.plans import STEP_KINDS, Plan, SendScope
 from ferb.orchestrator.probes import PROBE_SCHEMA, Probe
 
 CHECK_KINDS = ["none", "file_exists", "file_contains", "tab_url", "account", "after_change", "after_value"]
@@ -49,14 +49,17 @@ CONVERSATION_SCHEMA = _obj({
     "thread": {"type": "string"}, "recipients": _strings(), "topic": {"type": "string"},
     "handover_when": {"type": "string"}, "window_id": _nullable("string"),
 })
+EVENT_MATCH_SCHEMA = {"type": "array", "items": _obj({"field": {"type": "string"}, "value": {"type": "string"}})}
+# A step: do (optional input list; optional repeat rule = a loop, L31), wait, ask or converse (plans.Step)
 STEP_SCHEMA = _obj({
-    "id": {"type": "string"}, "kind": {"type": "string", "enum": ["do", "map", "reduce", "wait", "ask", "converse", "loop"]},
-    "goal": {"type": "string"}, "depends_on": _strings(), "inputs": _strings(),
-    "batches": {"type": "array", "items": _strings()}, "worker_type": {"type": "string"},
-    "conditions": _strings(), "until": _nullable("string"), "end_when": {"type": "string"}, "event": _nullable("string"),
-    "event_match": {"type": "array", "items": _obj({"field": {"type": "string"}, "value": {"type": "string"}})},
+    "id": {"type": "string"}, "kind": {"type": "string", "enum": list(STEP_KINDS)},
+    "goal": {"type": "string"}, "depends_on": _strings(), "inputs": _strings(), "worker_type": {"type": "string"},
+    "conditions": _strings(), "until": _nullable("string"), "event": _nullable("string"),
+    "event_match": EVENT_MATCH_SCHEMA,
     "question": {"type": "string"}, "options": _strings(),
     "conversation": {"anyOf": [{"type": "null"}, CONVERSATION_SCHEMA]},
+    "repeat": {"anyOf": [{"type": "null"}, _obj({"end_when": {"type": "string"}, "event": _nullable("string"),
+                                                 "event_match": EVENT_MATCH_SCHEMA})]},
 })
 SEND_SCOPE_SCHEMA = _obj({
     "capability": {"type": "string"}, "identity": {"type": "string", "enum": ["owner", "ferb"]},
@@ -108,7 +111,7 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
                          "answer": {"type": "string"}})]},
     "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
     "control": {"anyOf": [{"type": "null"}, _obj({"task_id": {"type": "string"},
-                  "action": {"type": "string", "enum": ["stop", "retry", "continue"]},
+                  "action": {"type": "string", "enum": ["stop", "retry", "continue", "pause"]},
                   # continue only: the follow-up asks for a different result than the ended task's goal (L11)
                   "new_goal": {"type": "boolean"},
                   # L3: a correction always decides the stated standing scope and names the open questions it changes
@@ -258,7 +261,9 @@ class TaskControl(BaseModel):
     (no default, rule 6) the task's stated standing scope, "unchanged" or the revised scopes (D30), and names the open
     question ids the correction changes, which alone are set aside (L3)."""
     task_id: str
-    action: Literal["stop", "retry", "continue"]
+    # pause (owner decision 8): a running task stops where it is, losing nothing; the owner's next correction (continue)
+    # resumes it in place
+    action: Literal["stop", "retry", "continue", "pause"]
     # continue on an ended task: the planner's judgment that the follow-up asks for a different result (a new goal),
     # so FERB plans it afresh inside the same task; false resumes the saved goal and plan (L11, ef9e5d75)
     new_goal: bool = False

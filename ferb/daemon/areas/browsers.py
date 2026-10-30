@@ -185,9 +185,11 @@ class Browsers:
             drv.task_root = self._task_root
             drv.max_tabs = lambda: int(self.config.get("browser", "task_max_tabs", 50))
             drv.redact_text = lambda text: str(self.redact({"u": text})["u"])
-            # owner decision 3: the task's tab group is labelled with its request's first words (group_title). Pause
-            # (task_paused) and "keep the tabs open" (keep_tabs_open) are wired by step 8's orchestration.
+            # owner decision 3: the task's tab group is labelled with its request's first words (group_title); a paused
+            # task keeps its group (owner decision 8: nothing of it is released). "Keep the tabs open" (keep_tabs_open)
+            # waits for the planner's wiring (step 8c).
             drv.task_title = self._task_title
+            drv.task_paused = lambda task_id: self.supervisor is not None and self.supervisor.task_paused(task_id)
         self.downloads.task_tab = self.hub.task_tab      # only a live task's tab holds downloads (D35)
         # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()

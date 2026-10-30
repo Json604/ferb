@@ -71,8 +71,13 @@ A small suite that guards what live use can't show: the safety floor, plus a han
   (owner question, notes/docs-cleanup.md).
 
 ## Fix list
-- [ ] Rewrite the conftest harness once for the new step kinds (no dispatcher) before deleting old harness tests.
+- [x] Rewrite the conftest harness once for the new step kinds (no dispatcher) before deleting old harness tests.
+      (Step 8a: `ROLES`/`DEFAULT_ANSWERS`/`role_of` in conftest; 8b changes those two tables when the checker absorbs
+      the next-attempt choice.)
 - [ ] Write the 8-12 end-to-end runs; then delete the tests they replace.
+      (Step 8a: tests/test_execution_runs.py: plain task, stop, pause/resume, plan step asks once, check-in Yes/No,
+      scheduled declines and stops at 5, loop survives a restart, closed tab asks, taken tab, shutdown clean-up,
+      resumed scheduled run. Remaining runs (file write checked, new recipient, unknown outcome, forget, payment) later.)
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.

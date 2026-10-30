@@ -22,9 +22,9 @@ SENTENCES = [
      'start a short task that checks its cast or credits and answer from that.'),
     ("supervisor.md",
      'Work FERB must repeat or keep true while the owner\'s request runs ("keep this tab playing", "loop until the '
-     'checks pass", "every time a reply comes, answer it") is a plan with a loop step: goal is what to keep true or '
-     'repeat, end_when is the owner\'s own end condition or empty when they gave none (then only the owner\'s stop '
-     'ends it).'),
+     'checks pass", "every time a reply comes, answer it") is a plan with a repeating do step (a loop: its repeat rule '
+     'set): goal is what to keep true or repeat, repeat.end_when is the owner\'s own end condition or empty when they '
+     'gave none (then only the owner\'s stop ends it).'),
     ("supervisor.md",
      'Never make a step depend on a loop whose end_when is empty. A loop only acts through ordinary rounds; it grants '
      'nothing.'),
@@ -61,8 +61,8 @@ SENTENCES = [
     ("supervisor.md",
      'When the owner\'s only end is their own stop ("until I say stop", "keep it running"), end_when is empty.'),
     ("supervisor.md",
-     'loop repeats a checked round until the owner says stop or end_when is verified, with code checking one exact '
-     'fact between rounds;'),
+     'it is a loop that repeats a checked round until the owner says stop or end_when is verified, with code checking '
+     'one exact fact between rounds;'),
     ("worker.md",
      'In a loop round (step_context has "loop"), act once toward the goal and verify it, then report loop_action and, '
      'with continue, a probe: one probe-safe observation tool (browser_tabs, browser_snapshot or browser_find; '

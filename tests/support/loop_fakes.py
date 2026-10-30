@@ -3,6 +3,7 @@ time is a counter the test advances; sleeps advance it instantly."""
 import asyncio
 from typing import Any
 
+from ferb.clock.timers import POLL_S
 from ferb.orchestrator.loops import LoopRunner, LoopStore
 from ferb.orchestrator.plans import Step
 from ferb.orchestrator.probes import MISSING, Probe
@@ -30,13 +31,34 @@ class Harness:
         self.statuses: list[dict[str, Any]] = []
         self.records: list[tuple[str, Any, str | None]] = []
         self.steer_count, self.stop = 0, False
+        self.question: Any = None             # the owner's question as the runner sees it (ask, answer, close)
         self.events: list[tuple[int, dict[str, Any]]] = []
         self.store = LoopStore(db, clock)
         self.runner = LoopRunner(
             store=self.store, task_id='tree', step=step, round=self._round, arm=lambda p: self.refuse,
             probe=self._probe, record=lambda kind, p, v, e, o, n: self.records.append((kind, v, e)),
-            event=(self._event if step.event else None), steers=lambda: self.steer_count, notify=self._notify,
-            status=self.statuses.append, stopped=lambda: self.stop, now=lambda: self.t, sleep=self._sleep)
+            event=(self._event if step.wakes_on else None), steers=lambda: self.steer_count, notify=self._notify,
+            status=self.statuses.append, stopped=lambda: self.stop, now=lambda: self.t, sleep=self._sleep,
+            wait_owner=self._wait_owner)
+
+    async def _wait_owner(self, result: dict[str, Any] | None) -> dict[str, Any] | None:
+        """The supervisor's one wait for the owner, as the runner sees it: the question asked once, then the owner's
+        reply in chat (a correction), their answer, or the stop; the question closed when the wait ends."""
+        q = self.question
+        if q is not None:
+            await q.ask(result)
+        try:
+            while not self.stop:
+                if self.runner._steered():
+                    return {'why': 'your message'}
+                got = q.answer() if q is not None else None
+                if got is not None:
+                    return {**got, 'owner': True}
+                await self.runner.sleep(POLL_S)
+            return None
+        finally:
+            if q is not None:
+                q.close()
 
     async def _round(self, reason: dict[str, Any]) -> dict[str, Any]:
         self.reasons.append(reason)

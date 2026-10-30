@@ -230,12 +230,14 @@ def test_a_scheduled_run_clears_its_request_context_when_it_ends(daemon: Running
 
 
 def test_a_resumed_plan_clears_its_request_context_when_it_ends(daemon: RunningDaemon) -> None:
+    from ferb.orchestrator.plans import single
     from ferb.orchestrator.schemas import TaskSpec
     supervisor = daemon.daemon.supervisor
     assert supervisor is not None
     spec = TaskSpec.model_validate(task("finish the saved plan"))
     saved = {"request": {"spec": spec.model_dump(), "request_id": "req-resumed", "words": "finish it",
-                         "payload": "finish it", "origins": [], "message_origins": []}, "conversation": "s1"}
+                         "payload": "finish it", "origins": [], "message_origins": []}, "conversation": "s1",
+             "plan": single("finish the saved plan")}
 
     async def run_tree(spec: Any, text: str, request_id: str, message: str = "", **_: Any) -> Any:
         assert request_id in supervisor._env                         # the run reads it while it runs
@@ -325,3 +327,61 @@ def test_a_reply_runs_answer_is_in_the_schedules_conversation(daemon: RunningDae
     rows = run(daemon, lambda: supervisor.journal.of_kind("chat.reply", "session_id", "schedule:" + s.id))
     assert [r.data["text"] for r in rows] == ["Rank 146, score 0.957.", "Rank 205, down from 146."]
     assert "Rank 146, score 0.957." in second.contexts[0][2]
+
+
+# ---------- step 8a: schedule bookkeeping (notes/storage.md findings 4, 5; notes/orchestration.md) ----------
+
+def test_an_every_schedule_resumed_before_its_first_run_keeps_that_first_run() -> None:
+    """Resumed less than one interval before its first run, `next_after(first_run - 1s)` skipped to the second."""
+    first = datetime(2026, 10, 30, 9, 0, tzinfo=timezone.utc)
+    rule = Rule.build("every", first, every_minutes=60, tz=ZoneInfo("UTC"))
+    assert rule.next_after(first - timedelta(seconds=1), first) == first
+    assert rule.next_after(first - timedelta(minutes=59), first) == first
+    assert rule.next_after(first, first) == first + timedelta(minutes=60)
+    assert rule.next_after(first + timedelta(minutes=61), first) == first + timedelta(minutes=120)
+
+
+def test_a_schedule_whose_timer_was_handled_but_not_rebooked_is_reconciled_at_start(daemon: RunningDaemon) -> None:
+    """A crash between marking a schedule's timer handled and booking its next run stranded it: nothing fired again."""
+    from ferb.clock.timers import mark_handled
+    first = daemon.daemon.clock.now() + timedelta(minutes=1)
+    s = make_schedule(daemon, "check the build", "every day check the build", Targets.of(), first)
+    run(daemon, lambda: mark_handled(daemon.daemon.db, s.timer_id, daemon.daemon.clock.now()))    # then the crash
+    run(daemon, daemon.daemon._reconcile_schedules)
+    after = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
+    assert after.timer_id != s.timer_id and after.next_run == first
+    assert run(daemon, lambda: daemon.daemon.timers.get(after.timer_id)).state == "pending"
+    run(daemon, daemon.daemon._reconcile_schedules)                                  # booked once, not again
+    assert run(daemon, lambda: daemon.daemon.schedules.get(s.id)).timer_id == after.timer_id
+
+
+def test_a_scheduled_run_never_overlaps_its_previous_run(daemon: RunningDaemon) -> None:
+    first = daemon.daemon.clock.now() + timedelta(minutes=1)
+    s = make_schedule(daemon, "check the build", "every 5 minutes check the build", Targets.of(), first, "every", 5)
+    started: list[str] = []
+
+    async def slow(sched: Any, **_: Any) -> dict[str, Any]:
+        started.append(sched.id)
+        await asyncio.sleep(0.5)
+        return {"task_id": "t", "status": "done", "answer": "ok"}
+    daemon.daemon.supervisor.run_scheduled = slow                     # type: ignore[method-assign]
+
+    async def twice() -> None:
+        await asyncio.gather(daemon.daemon._run_schedule(s.id, 0), daemon.daemon._run_schedule(s.id, 0))
+    daemon.run(twice())
+    assert started == [s.id]
+    skipped = run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.skipped", "schedule_id", s.id))
+    assert [e.data["why"] for e in skipped] == ["the previous run is still under way"]
+
+
+def test_a_scheduled_run_respects_the_global_stop(daemon: RunningDaemon) -> None:
+    first = daemon.daemon.clock.now() + timedelta(minutes=1)
+    s = make_schedule(daemon, "check the build", "every day check the build", Targets.of(), first)
+    install(daemon, [], {})                                           # no planner turn may run
+    daemon.daemon.state.stopped = True
+    try:
+        daemon.run(daemon.daemon._run_schedule(s.id, 0))
+    finally:
+        daemon.daemon.state.stopped = False
+    skipped = run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.skipped", "schedule_id", s.id))
+    assert [e.data["why"] for e in skipped] == ["FERB was stopped"]

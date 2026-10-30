@@ -272,6 +272,7 @@ class WorkerRuns:
 
     _system: Callable[[str], str]
     _approach: Callable[[], str]
+    _set_status: Callable[..., None]
     cancel_tree: Callable[["_Tree"], None]
 
 
@@ -332,7 +333,7 @@ class WorkerRuns:
         if self.tasks.get(task.id) is None:
             self.tasks.add(TaskRecord(task, started, wspan.id, tree.id), status="running")
         else:
-            self.tasks.set_status(task.id, "running", {})
+            self._set_status(task.id, "running", {})
         self.tasks.set_span(task.id, wspan.id)
         ttl = (task.deadline - started).total_seconds() if task.deadline else float("inf")
         # The final checker's token is observe-only: the gateway offers and runs observation tools only (V3, W4).
@@ -415,9 +416,7 @@ class WorkerRuns:
                                                     else json.dumps(result)),
                                          "status": result.status if isinstance(result, Outcome)
                                          else result.get("status")}, error=failure)
-        self.publish("task.finished", {"task_id": task.id, "status": result.status if isinstance(result, Outcome)
-                                       else str(result.get("status", "done"))})
-        return result, worker_id
+        return result, worker_id          # `task.finished` is the tree's, published once when it ends
 
     async def _run(self, rt: AgentRuntime, task: Task, system: str, ctx: list[ContextBlock], token: str, parent_span: str,
                    tree: "_Tree" | None, worker_id: str, *, on_delta: Callable[[str], None] | None = None,

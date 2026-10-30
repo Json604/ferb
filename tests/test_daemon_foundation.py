@@ -85,7 +85,7 @@ def test_a_plan_waiting_for_an_event_is_not_loaded_per_event(daemon: RunningDaem
     real = sup.plans.load
 
     class Plan:
-        steps = [type("S", (), {"event": "timer.fired"})()]
+        steps = [type("S", (), {"event": "timer.fired", "wakes_on": "timer.fired"})()]
 
     def load(key: str) -> dict[str, Any]:
         loads.append(key)

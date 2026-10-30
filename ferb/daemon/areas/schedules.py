@@ -23,9 +23,36 @@ class Schedules:
     """A mixin of the Daemon (ferb/daemon/main.py): its methods use the daemon's state."""
 
     def _build_timers(self) -> None:
-        """Start the timer loop and the held-banner flush (the timers and schedules were built with the stores)."""
+        """Start the timer loop and the held-banner flush (the timers and schedules were built with the stores), after
+        every active schedule has its next run booked (`_reconcile_schedules`)."""
+        self._reconcile_schedules()
         self._timer_task = asyncio.get_running_loop().create_task(self.timers.run())
         self._held_task = asyncio.get_running_loop().create_task(self._supervise("held_banners", self._flush_held))
+
+    def _reconcile_schedules(self) -> None:
+        """At start-up, every active schedule has a pending timer for its next run. A crash between marking a schedule's
+        timer handled and booking its next run (`_run_schedule` books it before the run starts, so that run never
+        started either) left one without: its due run is booked again now (at its recorded time, so it runs as
+        overdue), or the next one after now."""
+        from ferb.orchestrator.schedules import ScheduleError
+        assert self.db is not None
+        for s in self.schedules.all(("active",)):
+            timer = self.timers.get(s.timer_id) if s.timer_id else None
+            handled = timer is not None and self.db.conn.execute(
+                "SELECT 1 FROM timer_deliveries WHERE timer_id = ?", (timer.id,)).fetchone() is not None
+            if timer is not None and timer.state in ("pending", "claimed") and not handled:
+                continue
+            try:
+                due = s.next_run or s.rule.next_after(self.clock.now(), s.first_run)
+            except ScheduleError:
+                due = None
+            if due is None:
+                self.schedules.set_timer(s.id, None, None)
+                self.schedules.set_state(s.id, "done")
+                continue
+            booked = self.timers.add("schedule", due, s.id)
+            self.schedules.set_timer(s.id, booked.id, due)
+            self._journal().append("schedule.reconciled", {"schedule_id": s.id, "at": due.isoformat()})
 
     def _timer_failed(self, timer: Any, error: Exception) -> None:
         """A timer's consumer raised (the timer stays claimed and is handed over again), or a timer check failed. Not
@@ -302,8 +329,9 @@ class Schedules:
     async def _run_schedule(self, sid: str, overdue_s: float, retry: bool = False) -> None:
         """Schedule the next occurrence and let the orchestrator assess this run from current timing/failure facts. A
         failed run retries once, SCHEDULE_RETRY_S later (owner 2026-10-27), unless the next regular run comes first;
-        the retry (`retry`) leaves the regular occurrences alone and is never retried itself."""
-        from ferb.orchestrator.schedules import FINISHED, watch_met
+        the retry (`retry`) leaves the regular occurrences alone and is never retried itself. A run never overlaps the
+        schedule's previous one still under way (a resumed one included), and none starts while FERB is stopped: each
+        is skipped, journaled; a one-time schedule's skipped run is told to the owner."""
         s = self.schedules.get(sid)
         if s is None or s.state != "active":
             return
@@ -317,10 +345,20 @@ class Schedules:
         else:
             self.schedules.set_timer(sid, None, None)
             self.schedules.set_state(sid, "done")
-            self._last_runs.add(sid)                 # changeable (cancel, pause) from now until its run ends (M9)
         if self.supervisor is None:
-            self._last_runs.discard(sid)
             return
+        busy = sid in self._schedule_runs or self.supervisor.schedule_running(sid)
+        if busy or self.state.stopped:
+            why = "the previous run is still under way" if busy else "FERB was stopped"
+            self._journal().append("schedule.skipped", {"schedule_id": sid, "why": why, "retry": retry})
+            if nxt is None and not retry:
+                await self._task_result({"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "cancelled", "goal": s.request,
+                                         "answer": f"“{s.request}” was due, but {why}, so it didn't run."},
+                                        shown=False)
+            return
+        if nxt is None and not retry:
+            self._last_runs.add(sid)                 # changeable (cancel, pause) from now until its run ends (M9)
+        self._schedule_runs.add(sid)
         try:
             final = await self.supervisor.run_scheduled(s, late=overdue_s > 60, overdue_s=overdue_s, retry=retry)
         except Exception as e:                              # a run's failure is reported with its reason, never lost
@@ -330,6 +368,28 @@ class Schedules:
                                f"{reason(e, self.redact)}"}
         finally:
             self._last_runs.discard(sid)
+            self._schedule_runs.discard(sid)
+        if final.get("suspended"):
+            return                          # FERB shut down during the run: it resumes, and reports, after the restart
+        await self._schedule_finished(s, final, overdue_s, retry, now)
+
+    async def _resumed_outcome(self, event: dict[str, Any]) -> None:
+        """A task resumed after a restart ended: a scheduled run's result goes through its schedule's bookkeeping (its
+        failures, its retry, its watch) as a run that never stopped would; any other is told as a result."""
+        held = event.get("schedule")
+        s = self.schedules.get(str(held.get("id"))) if isinstance(held, dict) and self.schedules is not None else None
+        if s is None or not isinstance(held, dict):
+            await self._task_result(event, shown=False)
+            return
+        await self._schedule_finished(s, event, float(held.get("overdue_s") or 0), bool(held.get("retry")),
+                                      self.clock.now())
+
+    async def _schedule_finished(self, s: Any, final: dict[str, Any], overdue_s: float, retry: bool,
+                                 now: datetime) -> None:
+        """A scheduled run's result: counted (only a verified run counts as success), its one retry queued when it
+        failed, its watch's crossing told once, then the result told."""
+        from ferb.orchestrator.schedules import FINISHED, watch_met
+        sid = s.id
         # Only a verified run counts as success. A done-but-unverified run (V4) doesn't clear earlier failures, and
         # isn't counted as one either: the next run's consecutive_failures stays a count of real failures.
         status = final.get("status")

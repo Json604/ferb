@@ -59,7 +59,8 @@ def test_a_plan_question_older_than_600_s_still_waits_for_the_owner(daemon: Runn
     sup = daemon.daemon.supervisor
     assert sup is not None
     worker = SimpleNamespace(id="tree-q.worker", request_id="req-q", identity=Identity.OWNER, scopes=set())
-    tree = SimpleNamespace(id="tree-q", worker=worker, stop=None)
+    from ferb.orchestrator.steering import Steering
+    tree = SimpleNamespace(id="tree-q", worker=worker, stop=None, steering=Steering())
     asked = asyncio.run_coroutine_threadsafe(
         sup._plan_question(tree, "Which folder first?", ["Documents", "Desktop"]), daemon.loop)
     [question] = _until(lambda: _pending(daemon), "the plan's question never appeared")

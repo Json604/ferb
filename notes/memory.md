@@ -16,7 +16,7 @@ to commit c6621c3.
 4. **Jev, decide, perception batches and attention: code stays, switched off.** While paused, nothing in them runs.
 5. **The owner's pass verdict counts as verified** for memory, as the checker's pass does; the owner's fail already
    overrides. (Verdicts come from the FERB window's task history, `verdict.set`, and `ferb verdict`.)
-6. **Remember keeps today's behavior** (owner, 2026-10-30): the planner's wording is saved as the owner's own words
+6. *Superseded by decision 15.* **Remember keeps today's behavior** (owner, 2026-10-30): the planner's wording is saved as the owner's own words
    when it appears word for word in what they typed; otherwise it is saved as FERB's wording and waits for Keep/Edit/
    Drop. (Saving the raw line every time was considered and rejected.)
 7. **Memory is built for years of use, not today's size** (owner, 2026-10-30): three tiers (below). The always-on part
@@ -32,6 +32,27 @@ to commit c6621c3.
     streaming, and hold the chat longer. Pushed context (Tier 1 + retrieval by meaning) covers the planner; a question
     that needs more becomes a task, whose worker has `memory.read`, `chat.history`, `task.evidence`, `trail.query`.
     Revisit if exposure records show planner memory misses.
+
+11. **Facts stated in passing are captured** (owner, 2026-10-30). Example: "what are some easy piano pieces? I'm a
+    beginner" (10-30) stored nothing: the planner's `remember` was empty although supervisor.md:47 asks for durable
+    statements about the owner, and the daily distill of 10-12 and 10-14 (which also mentioned piano) proposed 3 and 4
+    items, none about it. The planner rule and the distill's chat pass both cover durable facts said in passing, not
+    only "remember …"; paraphrased ones arrive as guesses with Keep/Edit/Drop (decision 6).
+
+12. **Health and finance facts are stored like any other** (owner, 2026-10-30): no special exclusion in the planner or
+    the distill (distill.md's exclusion goes); secrets are masked by redaction as always.
+13. **A remembered quote carries a short label** (owner, 2026-10-30): code stores what the quote is about (from the
+    task) next to the owner's exact words, so a line like "ok. score this 1 star - not ordering this again" still makes
+    sense later; the words themselves are never reworded.
+14. **Forgetting a person or site also removes it from known destinations** (owner, 2026-10-30), so sends to it ask
+    again.
+
+15. **Memory without Keep questions** (owner, 2026-10-30; replaces decision 6). FERB saves facts itself — what the
+    owner states and what it works out — each labelled by where it came from (the owner's words / FERB's understanding
+    / observed). No Keep/Edit/Drop questions: a quiet "Memory: noted …" line the owner can ignore or correct by talking
+    ("that's wrong", "forget that"). The weekly profile pass promotes FERB's understanding into Tier 1 only once it
+    holds up (seen again, used without correction). Memory never authorizes an action. A memory page in the app shows
+    and edits everything. (Same model as ChatGPT's and Claude's memory: transparency and correction, not approval.)
 
 ## What exists today (verified)
 
@@ -107,6 +128,20 @@ to commit c6621c3.
 - [ ] Prompt: supervisor.md:68 names a "What FERB remembers" label no code emits; use the real one.
 
 ### Tiers and retrieval
+- [ ] Clean memory before Tier 1 is seeded: merge the 4 duplicate same-key pairs (message_call_default_app,
+      word_meaning_only, owner_built_ferb, communication_critical_not_yes_man); `setup_persona` (1,275-char app dump
+      labelled owner_stated) becomes observed and stays out of Tier 1; the distill skips keys already stored whatever
+      their origin; the remember rule resolves relative dates ("the 16th") when saving; one ask_retire pass for dated
+      facts (e.g. wedding_flight_home) before seeding.
+- [ ] Decision-11 test scenarios from real chats: "I'm a beginner" (piano), "make a short summary list, I can't read
+      this much jargon", "sounds too linkedinish", "my usual playbook of cold mailing", "kaggle on my brave kaggle
+      personal account". Method hints the owner gives mid-task ("hard refresh usually fixes it", "try its a11y tree
+      buttons", "search in the main WhatsApp search box and keep scrolling") go to Tier 3 how-notes with owner origin.
+- [ ] "Gets better at repeated tasks" is measured: attempts and time on repeat runs of the same kind of work, and
+      exposure records showing the how-note was retrieved; a live scenario runs the same task twice.
+- [ ] How-notes built from the recorded tool calls plus the worker's text (not the worker's text alone).
+- [ ] Durable facts said in passing are captured (decision 11): planner `remember` rule and the distill's chat pass,
+      with this case as a test scenario ("I'm a beginner" while asking about piano pieces).
 - [ ] Tier 1 core profile: storage, budget, code updates on fact change, weekly compaction pass, markdown view.
 - [ ] Replacement on save: planner sees similar facts and names replaced ids; reply names what was replaced.
 - [ ] Validity: end/review dates for period facts; distill proposes retirement.

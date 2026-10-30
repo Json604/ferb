@@ -260,9 +260,12 @@ def test_converse_uses_gateway_then_checked_worker_and_handover(daemon):
         root = result['task_id']
         rows = daemon.daemon.supervisor.conversations.list(root)
         calls = daemon.daemon.db.conn.execute("SELECT input_json FROM spans WHERE kind='tool.call'").fetchall()
-        return rows, calls
-    rows, calls = daemon.run(stored())
+        turn_row = daemon.daemon.db.conn.execute("SELECT status FROM tasks WHERE id = ?",
+                                                 (root + '.conversation.contact.1',)).fetchone()
+        return rows, calls, turn_row
+    rows, calls, turn_row = daemon.run(stored())
     assert rows[0]['status'] == 'handed_over'
+    assert turn_row[0] == 'done'           # a turn that succeeded ends done, never swept to `interrupted` (step 8a)
     assert any(json.loads(row['input_json']).get('tool') == 'conversation.read' for row in calls)
     roles = [role for _, role, _, _ in script.contexts]
     assert 'conversation.contact.1.verify' in roles and 'worker.verify' in roles

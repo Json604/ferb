@@ -8,28 +8,29 @@ from ferb.orchestrator.plans import Plan, Step, problems
 from ferb.orchestrator.schemas import STEP_SCHEMA
 
 
-def test_a_loop_step_is_plan_vocabulary():
-    step = Step(id='keep', kind='loop', goal='Keep the tab playing', end_when='')
-    assert step.kind == 'loop' and step.end_when == ''
-    assert 'loop' in STEP_SCHEMA['properties']['kind']['enum']
-    assert STEP_SCHEMA['properties']['end_when'] == {'type': 'string'}
-    assert 'end_when' in STEP_SCHEMA['required']
+def test_a_loop_is_a_do_step_with_a_repeat_rule():
+    step = Step(id='keep', kind='do', goal='Keep the tab playing', repeat={'end_when': ''})
+    assert step.loops and step.end_when == ''
+    assert STEP_SCHEMA['properties']['kind']['enum'] == ['do', 'wait', 'ask', 'converse']
+    rule = STEP_SCHEMA['properties']['repeat']['anyOf'][1]
+    assert rule['properties']['end_when'] == {'type': 'string'} and 'end_when' in rule['required']
+    assert 'repeat' in STEP_SCHEMA['required']
 
 
 def test_a_loop_needs_a_goal_and_keeps_until_for_waits():
     errors = problems(Plan(steps=[Step(id='keep', kind='loop', goal=' ')]), [], context_tokens=1000)
-    assert 'keep: a loop needs a goal' in errors
+    assert 'keep: a repeating step needs a goal' in errors
     errors = problems(Plan(steps=[Step(id='keep', kind='loop', goal='Keep it', until='2026-10-25T09:00:00+05:30')]),
                       [], context_tokens=1000)
-    assert "keep: a loop's end goes in end_when; until is a wait's time" in errors
+    assert "keep: a repeating step's end goes in repeat.end_when; until is a wait's time" in errors
 
 
 def test_a_step_cannot_wait_on_a_loop_that_only_the_owner_ends():
     plan = Plan(steps=[Step(id='keep', kind='loop', goal='Keep it playing'),
                        Step(id='after', kind='do', goal='Report', depends_on=['keep'])])
-    assert ("after: depends on loop keep, which runs until the owner says stop, so it could never start"
+    assert ("after: depends on repeating step keep, which runs until the owner says stop, so it could never start"
             in problems(plan, [], context_tokens=1000))
-    plan.steps[0].end_when = 'the checks pass'
+    plan.steps[0].repeat.end_when = 'the checks pass'
     assert problems(plan, [], context_tokens=1000) == []
 
 
@@ -590,7 +591,7 @@ def test_wake_cuts_a_real_sleep_short_and_is_never_lost(db):
         return None
     runner = LoopRunner(store=LoopStore(db, _clock()), task_id='tree', step=KEEP, round=nothing, arm=lambda p: None,
                         probe=nothing, record=lambda *a: None, event=None, steers=lambda: 0, notify=nothing,
-                        status=lambda v: None, stopped=lambda: False, now=time.time)
+                        status=lambda v: None, stopped=lambda: False, now=time.time, wait_owner=nothing)
     async def go():
         runner.wake()                                               # a steer that came while no sleep was running
         started = time.monotonic()
@@ -978,8 +979,10 @@ def _round(action='continue', probe=True, summary='Played the tab.', tool='test.
 
 
 def _fast(monkeypatch):
+    """Loops run on the daemon's clock (a FakeClock that moves only when a test advances it): a probe read every poll
+    (POLL_S of real time), nothing else waits on the clock."""
     import ferb.orchestrator.loops as loops
-    monkeypatch.setattr(loops, 'PROBE_SECONDS', 0.01)
+    monkeypatch.setattr(loops, 'PROBE_SECONDS', 0)
     monkeypatch.setattr(loops, 'POLL_S', 0.01)
 
 
@@ -1213,11 +1216,12 @@ def test_a_shutdown_mid_loop_records_no_final_answer_and_the_resumed_tree_finish
         c.close()
 
 
-def test_a_shutdown_still_ends_a_task_that_has_no_plan(daemon, monkeypatch):
-    """Only a suspended plan resumes: a task without one still records its end at a shutdown."""
+def test_a_shutdown_suspends_a_single_task_too_and_it_resumes_after_the_restart(daemon, monkeypatch):
+    """One execution path (step 8a): a single task is a one-step plan, so a shutdown suspends it like any plan (no
+    answer, no outcome) and it resumes after the restart, running its step again."""
     from ferb.orchestrator.supervisor import SHUT_DOWN
-    from tests.conftest import STALL, install, sup, task
-    script = install(daemon, [sup('task', 'Checking.', task('check the weather'))], {'worker': STALL})
+    from tests.conftest import STALL, done, install, sup, task
+    script = install(daemon, [sup('task', 'Checking.', task('check the weather'))], {'worker': [STALL, done('Sunny.')]})
     sv = daemon.daemon.supervisor
     c, plan = _start_loop(daemon, 'check the weather')
     try:
@@ -1229,9 +1233,13 @@ def test_a_shutdown_still_ends_a_task_that_has_no_plan(daemon, monkeypatch):
             sv.cancel_all()
         daemon.call_soon(shut_down)
         _wait(daemon, lambda: tree_id not in sv._tree_of)
+        assert not [a for a in _journal(daemon, 'task.answer') if a['task_id'] == tree_id]
+        assert _on_loop(daemon, lambda: sv.plans.pending()) == [tree_id]
+        sv._suspending = False                                # the restart
+        daemon.run(sv.resume_plans(), timeout=30)
         answers = [a for a in _journal(daemon, 'task.answer') if a['task_id'] == tree_id]
-        assert len(answers) == 1 and SHUT_DOWN in answers[0]['text']
-        assert [a for a in _journal(daemon, 'task.outcome') if a['task_id'] == tree_id]
+        assert len(answers) == 1 and answers[0]['status'] == 'done' and SHUT_DOWN not in answers[0]['text']
+        assert _roles(script).count('worker') == 2
     finally:
         c.close()
 
@@ -2090,19 +2098,16 @@ def test_a_tab_ferb_opened_in_a_loop_round_is_handed_over_by_keep_open_as_before
         c.close()
 
 
-def test_when_the_owner_closes_the_held_tab_the_probe_trips_and_the_loop_pauses_with_its_question(bd, monkeypatch):
-    """As before the keep_open change: the owner closing the tab the loop holds makes its probe's field vanish (an
-    error read), the next round finds the tab gone and asks, and the loop pauses on that question."""
+def test_when_the_owner_closes_the_held_tab_the_loop_pauses_at_once_and_asks(bd, monkeypatch):
+    """Hands decision 3: closing a tab FERB holds counts as the owner stopping that part (`browser.owner_stopped`). The
+    loop pauses at once and asks, Stop / Keep watching; no round runs to find the tab gone, and no probe trip is
+    counted."""
     from tests.conftest import done, install, sup
     _fast(monkeypatch)
     d, ext = _owner_tab(bd)
     seen: list = []
-    question = 'Your Instagram tab was closed. Which tab should I keep playing?'
-    install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
-            {'loop.keep': [_tab_round(d, ext, seen, keep=True),
-                           json.dumps({'status': 'needs_user', 'summary': question, 'artifacts': [], 'evidence': [],
-                                       'answer': question, 'loop_action': 'blocked'})],
-             'worker': done()})
+    script = install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
+                     {'loop.keep': [_tab_round(d, ext, seen, keep=True)], 'worker': done()})
     c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
     try:
         tree_id = plan['task_id']
@@ -2111,12 +2116,12 @@ def test_when_the_owner_closes_the_held_tab_the_probe_trips_and_the_loop_pauses_
         ext.tabs.pop(OWNER_TAB)
         ext.attached.discard(OWNER_TAB)
         ext.tab_event('removed', OWNER_TAB)                                # the owner closed it
-        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'paused')
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'paused' and _questions(d))
+        [question] = _questions(d)
+        assert question.options == ('Stop', 'Keep watching') and 'was closed' in question.reason
         reads = _on_loop(d, lambda: [json.loads(r[0]) for r in d.daemon.db.conn.execute(
             "SELECT input_json FROM spans WHERE kind='loop.probe_read' AND error IS NOT NULL")])
-        assert [r['read'] for r in reads] == ['error']
-        notices = [n['text'] for n in _journal(d, 'loop.notice')]
-        assert any(question in n for n in notices), notices
+        assert reads == [] and _roles(script).count('loop.keep') == 1
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()
@@ -2344,7 +2349,7 @@ def test_a_pausing_round_asks_the_owner_once_and_their_answer_resumes_the_loop(d
     h = Harness(db, _clock(), KEEP, [round_result('blocked', None, status='needs_user', summary='The tab was closed.'),
                                      round_result(p=probe())], [(True, None)])
     question = _Question([None, None, {'why': 'you chose Keep watching'}])
-    h.runner.question = question
+    h.question = question
     h.run()
     assert [r['summary'] for r in question.asked] == ['The tab was closed.']
     assert h.reasons[1]['why'] == 'you chose Keep watching' and question.closed == 1
@@ -2353,7 +2358,7 @@ def test_a_pausing_round_asks_the_owner_once_and_their_answer_resumes_the_loop(d
 def test_a_reply_in_chat_still_resumes_a_paused_loop_and_closes_its_question(db):
     h = Harness(db, _clock(), KEEP, [round_result('blocked', None, summary='Which account?'), round_result(p=None)], [])
     question = _Question()
-    h.runner.question = question
+    h.question = question
     original = h._sleep
 
     async def reply(seconds):
@@ -2371,7 +2376,7 @@ def test_a_loop_paused_before_a_restart_asks_its_question_again(db):
     _seed(db, state='paused', rounds=1, pacing_json=Pacer(last_end=999_000.0).to_json())
     h = Harness(db, _clock(), KEEP, [round_result(p=None)], [])
     question = _Question([{'why': 'you chose Keep watching'}])
-    h.runner.question = question
+    h.question = question
     h.run()
     assert question.asked == [None] and h.reasons[0]['why'] == 'you chose Keep watching'
 
@@ -2401,10 +2406,8 @@ def _closed_tab_loop(bd, monkeypatch, third_round=None, more=()):
     _fast(monkeypatch)
     d, ext = _owner_tab(bd)
     seen: list = []
-    gone = 'The exact Instagram tab was closed, so I can no longer keep it playing.'
-    rounds = [_tab_round(d, ext, seen, keep=True),
-              json.dumps({'status': 'needs_user', 'summary': gone, 'artifacts': [], 'evidence': [], 'answer': gone,
-                          'loop_action': 'blocked'})] + ([third_round] if third_round else []) + list(more)
+    # the owner's close pauses the loop at once (hands decision 3): the next round is the one after their answer
+    rounds = [_tab_round(d, ext, seen, keep=True)] + ([third_round] if third_round else []) + list(more)
     script = install(d, [sup('task', 'Keeping it playing.', _owner_loop(
         'Keep the exact Instagram tab in Brave Work playing, re-playing it whenever the site pauses it, until you say '
         'stop.'))], {'loop.keep': rounds, 'worker': done()})
@@ -2425,9 +2428,6 @@ def test_closing_the_held_tab_asks_once_whether_to_stop_and_stop_ends_the_task(b
         [question] = _questions(d)
         assert question.reason == 'The www.instagram.com tab you asked me to keep going was closed. Stop this task?'
         assert question.options == ('Stop', 'Keep watching') and question.task_id == f'{tree_id}.loop.keep'
-        [line] = [n['text'] for n in _journal(d, 'loop.notice')]
-        assert line.startswith("I've paused keeping this going: Keep the exact Instagram tab in Brave Work") and '..' not in line
-        assert len(line.split(':', 1)[1].split('.')[0].strip()) <= 60
         _on_loop(d, d.daemon._resolve_approval, question.id, True, 1)       # the notch's Stop button
         _wait(d, lambda: tree_id not in d.daemon.supervisor._tree_of)
         assert [r for r in _on_loop(d, lambda: _live_loops(d.daemon)) if r['task_id'] == tree_id] == []
@@ -2442,8 +2442,8 @@ def test_keep_watching_resumes_the_loop_with_its_next_round(bd, monkeypatch):
         [question] = _questions(d)
         _on_loop(d, d.daemon._resolve_approval, question.id, True, 2)       # Keep watching: "I'll reopen it"
         sv = d.daemon.supervisor
-        _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 3)
-        third = [ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep'][2]
+        _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 2)
+        third = [ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep'][1]
         assert 'Keep watching' in third and _questions(d) == []
         assert tree_id in sv._tree_of                                       # still running
         d.run(_stop(d, tree_id), timeout=20)
@@ -2504,7 +2504,7 @@ def test_an_answer_to_the_pause_question_skips_the_back_off_gap_as_a_chat_reply_
     _seed(db, state='paused', rounds=3,
           pacing_json=Pacer(gap=600.0, short=[999_980.0], episode=True, last_end=999_990.0).to_json())
     h = Harness(db, _clock(), KEEP, [round_result(p=None)], [])
-    h.runner.question = _Question([{'why': 'you chose "Keep watching"'}])
+    h.question = _Question([{'why': 'you chose "Keep watching"'}])
     start = h.t
     h.run()
     assert h.reasons[0]['why'] == 'you chose "Keep watching"' and h.round_times[0] - start < 60
@@ -2611,9 +2611,9 @@ def test_a_later_unrelated_pause_after_a_closed_tab_question_asks_its_own_questi
         [first] = _questions(d)
         _on_loop(d, d.daemon._resolve_approval, first.id, True, 2)          # Keep watching
         sv = d.daemon.supervisor
-        _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 3 and
+        _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 2 and
               sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
-        ext.audible.discard(201)                                            # the site paused it: round 4 asks
+        ext.audible.discard(201)                                            # the site paused it: round 3 asks
         _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'paused' and _questions(d))
         [second] = _questions(d)
         assert which in second.reason and 'was closed' not in second.reason and second.options == ('Stop',)
@@ -2627,14 +2627,12 @@ def _ext(d):
 
 
 def _asker(daemon, tabs, task_id='tree.loop.keep'):
-    from ferb.orchestrator.supervisor import _LoopQuestion, _Tree
-    from tests.conftest import task as spec_of
-    from ferb.orchestrator.schemas import TaskSpec
+    """The supervisor and a paused loop's view of its held tabs (`_HeldTabs`), with its step."""
+    from ferb.orchestrator.supervisor import _HeldTabs
     sv = daemon.daemon.supervisor
-    sv.task_tabs = lambda tid: tabs if tid == task_id else []
-    child = type('Child', (), {'id': task_id, 'request_id': 'r1', 'identity': 'owner', 'scopes': set()})()
-    tree = type('T', (), {'id': 'tree'})()
-    return sv, _LoopQuestion(sv, tree, Step(id='keep', kind='loop', goal='Keep my reel playing'), child)
+    held = _HeldTabs(lambda tid: tabs if tid == task_id else [], task_id)
+    held.step = Step(id='keep', kind='loop', goal='Keep my reel playing')
+    return sv, held
 
 
 def test_a_closed_tab_only_asks_about_the_owners_own_tab_and_never_over_an_unknown_outcome(daemon):

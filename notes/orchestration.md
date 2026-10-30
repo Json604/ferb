@@ -44,6 +44,29 @@ to commit c6621c3. S = supervisor.py, M = main.py.
     silence guard (worker.py:422-445) stays for other non-worker calls; workers keep no time limit.
 12. **The planner stays tool-less** (see notes/memory.md decision 10).
 
+13. **Pause details** (owner, 2026-10-30): pausing stops the task's running terminal commands and audio listening and
+    keeps only its tabs and progress; FERB mentions a paused task once a day ("Visa check is still paused. Resume?");
+    pausing a scheduled run pauses that schedule's next runs.
+14. **Scheduled runs and reminders use what the original request recorded** (owner, 2026-10-30): folders, recipients
+    and sites, profile/account, worker type and standing scope are fixed when the schedule or reminder is made (and
+    stated then, so the owner can correct them); unattended runs never re-guess them.
+15. **No failure check-in across runs** (owner, 2026-10-30): each failed run already reports in chat, and the visa
+    schedule recovered by itself after 4 failures (13 of the next 15 runs succeeded).
+16. **AI service down → one-tap switch** (owner, 2026-10-30): when the configured runtime reports a usage limit or a
+    sign-in failure, FERB says so once and offers another signed-in runtime with one tap; it never switches by itself
+    (billing). Today it only shows the raw error (worker.py:66).
+
+17. **"When you're back at your Mac" trigger** (owner, 2026-10-30): reminders and schedules can fire when the owner
+    becomes active at the Mac (idle → active / wake), instead of polling; a scheduled run that did nothing posts nothing
+    (as watches already do). (Evidence: "remind me everyday whenever I'm on my mac" became a run every 15 minutes, 14
+    runs and "nothing to report" messages on 10-30.)
+18. **Restart rule kept, narrow** (decision 10 clarified, 2026-10-30): it applies only to messages sent before FERB's
+    first reply to the previous one; FERB restarts once and reads both (related → folded in, unrelated → both answered);
+    later messages wait their turn. Once FERB has replied, a running task is unaffected and new messages are normal
+    turns. **Code-enforced**: at most one restart per turn (a counter, not a prompt), and the 90 s planner limit
+    covers the turn including its restart, so a burst of messages can't stall FERB. Messages that queued while a turn
+    was running are read together in the next turn (4 quick messages → 2 turns, not 4).
+
 ## What exists today (verified)
 
 - Core shape: planner (no tools) → worker through the gateway → observe-only checker → code writes the status from
@@ -104,39 +127,55 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - notes/hands.md: tab groups use pause and wait-for-owner.
 
 ## Fix list
+- [ ] The plan line states resolved `folders` whenever there are any ("I'll work in …"), not only for big jobs or
+      standing sends (supervisor.py ~2499, 2733), so a wrong folder guess can be corrected.
+- [ ] Answer format with the lines code appends: answer first, then at most one "Couldn't confirm" line, then the
+      code lines in a fixed order ("Remembered:", "🗓 Scheduled:", "Sites contacted:", "(ran late)"), kept short.
+- [ ] Record the kind of each question asked and its answer, so "few questions" can be measured.
+- [ ] Clarified: a fix-only-the-answer round does not count toward the 5-attempt check-in.
 
 ### Execution
-- [ ] Single task as a one-step plan; remove the separate single-worker branch (S:3165).
-- [ ] Fold `reduce` into `do` (plans.py:108 is its only special rule).
-- [ ] Fold `map` into `do` with an input list; keep per-input coverage (plans.py problems; plan_executor.py:62-87;
+- [x] Single task as a one-step plan; remove the separate single-worker branch (S:3165).
+      (Step 8a: `plans.single`; every tree runs `_execute_plan`; a single task's step is the tree's own worker, id
+      `<tree>.worker`; every tree is stored in `task_plans`, so every tree resumes after a restart.)
+- [x] Fold `reduce` into `do` (plans.py:108 is its only special rule).
+- [x] Fold `map` into `do` with an input list; keep per-input coverage (plans.py problems; plan_executor.py:62-87;
       the duplicate map-level check plan_executor.py:76-81 goes).
-- [ ] Check-in after 5 attempts per task/step (decision 7).
-- [ ] Pause / resume (decision 8): a control action; paused status; resume = continue in place.
+      (Step 8a: a do step's `inputs` must each get one note (attempt loop); plan validation covers every inventoried
+      input exactly once across do steps; old saved `map`/`reduce`/`loop` steps load as do steps.)
+- [x] Check-in after 5 attempts per task/step (decision 7). (Step 8a: `ferb/orchestrator/attempts.py`, counted where
+      the next-attempt choice retries; 8b keeps the counter at its retry point.)
+- [x] Pause / resume (decision 8): a control action; paused status; resume = continue in place.
+      (Step 8a: `TaskControl.action` pause, migration 0049 `paused`; `pause_tree`, `_hold_pause`. The planner prompt for
+      when to pause is step 8c.)
 - [ ] Restart the planner turn on a new message in the same chat (decision 10).
 - [ ] Planner call time limit 90 s; a timeout replies plainly instead of hanging (decision 11).
       (Step 4: the 90 s limit is enforced by every adapter, ferb/runtimes/catalog.call_limit; the plain reply is left.)
 - [ ] Outcome-based done and the answer-first format (decision 9); rewrite `_report` (S:4097-4139); disturbance and
       tool-record facts to the checker.
-- [ ] Loops on the plan path as a repeat rule; remove LoopRunner's separate pause (loops.py:446-464).
-- [ ] One status/finish/stop function; remove the 17 scattered status writes (list in the execution audit: tree.py:54,
+- [x] Loops on the plan path as a repeat rule; remove LoopRunner's separate pause (loops.py:446-464).
+      (Step 8a: `Step.repeat`; LoopRunner pauses through the supervisor's one wait, `wait_owner`.)
+- [x] One status/finish/stop function; remove the 17 scattered status writes (list in the execution audit: tree.py:54,
       worker.py:333/335, S:2265-2913, 3075, 3177, 3230, 3790/3812/3820, 2360, 2371, 2386, tree.py:122-129, M:3645).
-- [ ] needs_user in a plan step pauses and asks (fixes the endless relaunch).
-- [ ] Step-level done-unverified kept (S:2614, 2627 store `done`).
-- [ ] `task.finished` published once per tree.
-- [ ] Injected clock for plan waits (plan_executor.py:41), loops (S:3070), tree defaults (tree.py:92, 129).
-- [ ] Paused loop in an unattended scheduled run never ends (loops.py:454-460; S:440): unattended declines at once.
-- [ ] `every` schedule resumed less than one interval before its first run skips it (schedules.py:76-77; M:3527).
-- [ ] Conversation-turn rows end `interrupted` though they succeeded (S:2386 sweep).
-- [ ] After a crash, an auto-resuming plan also gets an "interrupted… pick it up again?" result (M:484-494).
-- [ ] A resumed scheduled plan loses `approvals.unattended` (in memory, questions.py:45) and bypasses
+- [x] needs_user in a plan step pauses and asks (fixes the endless relaunch).
+- [x] Step-level done-unverified kept (S:2614, 2627 store `done`).
+- [x] `task.finished` published once per tree.
+- [x] Injected clock for plan waits (plan_executor.py:41), loops (S:3070), tree defaults (tree.py:92, 129).
+- [x] Paused loop in an unattended scheduled run never ends (loops.py:454-460; S:440): unattended declines at once.
+- [x] `every` schedule resumed less than one interval before its first run skips it (schedules.py:76-77; M:3527).
+- [x] Conversation-turn rows end `interrupted` though they succeeded (S:2386 sweep).
+- [x] After a crash, an auto-resuming plan also gets an "interrupted… pick it up again?" result (M:484-494).
+- [x] A resumed scheduled plan loses `approvals.unattended` (in memory, questions.py:45) and bypasses
       `schedules.ran`/retry/watch handling (M:914).
-- [ ] Clean shutdown runs `on_task_finish` for suspended trees and deletes change records startup means to keep
+- [x] Clean shutdown runs `on_task_finish` for suspended trees and deletes change records startup means to keep
       (S:2343-2345; M:1002-1004, 918-921).
-- [ ] Scheduled runs can overlap (no guard in `_run_schedule`).
-- [ ] Scheduled runs respect the global stop; schedules without a pending timer are reconciled at start-up
+- [x] Scheduled runs can overlap (no guard in `_run_schedule`).
+- [x] Scheduled runs respect the global stop; schedules without a pending timer are reconciled at start-up
       (found in notes/storage.md).
-- [ ] Dead: `PlanExecutor.notify`, `LoopStore.running`, `tasks.depends_json`, `run_tree` `limit`, legacy statuses.
-      (Step 3: `PlanExecutor.notify` and `LoopStore.running` removed; the rest left.)
+- [x] Dead: `PlanExecutor.notify`, `LoopStore.running`, `tasks.depends_json`, `run_tree` `limit`, legacy statuses.
+      (Step 3: `PlanExecutor.notify` and `LoopStore.running` removed. Step 8a: `depends_json` dropped (migration 0049),
+      `limit` gone, plan status `steps_done`/`blocked` no longer written; task statuses `skipped`/`unknown` stay in the
+      CHECK only for old rows.)
 
 ### Intake
 - [ ] Typed turn object; one exit path; one reply recorder with origin always set.

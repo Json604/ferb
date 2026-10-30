@@ -192,7 +192,14 @@ def test_a_condition_found_false_is_failed_and_unconfirmed_ones_say_so(daemon: R
     assert "- Bob got it — unverified: the Sent folder did not load" in evs["answer"]   # a check ran for it
 
 
-def test_a_question_before_any_check_never_says_unverified(daemon: RunningDaemon) -> None:
+def _unattended(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A run nobody attends (a scheduled one): needing the owner ends it, reported, instead of pausing to ask."""
+    monkeypatch.setattr(type(daemon.daemon.supervisor), "_unattended", lambda self, task: True)
+
+
+def test_a_question_before_any_check_never_says_unverified(daemon: RunningDaemon,
+                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    _unattended(daemon, monkeypatch)
     ask = json.dumps({"status": "needs_user", "summary": "Which account should I use?", "artifacts": [],
                       "evidence": []})
     evs = _run(daemon, ask, (cond("signed in"),))
@@ -200,7 +207,9 @@ def test_a_question_before_any_check_never_says_unverified(daemon: RunningDaemon
     assert "Question: Which account should I use?" in evs["answer"]
 
 
-def test_a_question_after_an_unconfirmed_check_keeps_the_check_result(daemon: RunningDaemon) -> None:
+def test_a_question_after_an_unconfirmed_check_keeps_the_check_result(daemon: RunningDaemon,
+                                                                      monkeypatch: pytest.MonkeyPatch) -> None:
+    _unattended(daemon, monkeypatch)
     ask = json.dumps({"action": "ask", "worker_type": "default", "instructions": "",
                       "question": "Can you open the Sent folder for me?"})
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
@@ -414,7 +423,10 @@ def test_migration_keeps_tasks_context_and_order_and_accepts_done_unverified(tmp
     for tid, prior in (("aa", "zz"), ("mm", "aa")):
         c.execute("INSERT INTO task_context (task_id, conversation_id, spec_json, owner_words, prior_task, "
                   "request_payload) VALUES (?, 'c1', '{}', ?, ?, ?)", (tid, "words " + tid, prior, "payload " + tid))
-    tasks_before = c.execute("SELECT rowid, * FROM tasks ORDER BY rowid").fetchall()
+    # migration 0049 drops the dead depends_json
+    kept = ("rowid, id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, status, outcome_json, "
+            "created_at, updated_at")
+    tasks_before = c.execute(f"SELECT {kept} FROM tasks ORDER BY rowid").fetchall()
     assert [r[0] for r in tasks_before] == [1, 3, 4, 5]
     context_before = c.execute("SELECT rowid, * FROM task_context ORDER BY rowid").fetchall()
     columns_before = c.execute("PRAGMA table_info(tasks)").fetchall()
@@ -422,11 +434,13 @@ def test_migration_keeps_tasks_context_and_order_and_accepts_done_unverified(tmp
         c.execute("UPDATE tasks SET status = 'done_unverified' WHERE id = 'zz'")
 
     assert 21 in d.migrate()
-    assert [tuple(r) for r in c.execute("SELECT rowid, * FROM tasks ORDER BY rowid")] == \
+    assert [tuple(r) for r in c.execute(f"SELECT {kept} FROM tasks ORDER BY rowid")] == \
         [tuple(r) for r in tasks_before]
     assert [tuple(r) for r in c.execute("SELECT rowid, * FROM task_context ORDER BY rowid")] == \
         [tuple(r) for r in context_before]
-    assert [tuple(r) for r in c.execute("PRAGMA table_info(tasks)")] == [tuple(r) for r in columns_before]
+    assert [r[1] for r in c.execute("PRAGMA table_info(tasks)")] == \
+        [r[1] for r in columns_before if r[1] != "depends_json"]
+    c.execute("UPDATE tasks SET status = 'paused' WHERE id = 'mm'")         # 0049: a task paused in place
     assert {r["name"] for r in c.execute("PRAGMA index_list(tasks)") if r["origin"] == "c"} == {"tasks_tree",
                                                                                                 "tasks_status"}
     assert not {r[0] for r in c.execute("SELECT name FROM sqlite_master")} & {"tasks_new", "task_context_hold"}

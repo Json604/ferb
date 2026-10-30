@@ -29,7 +29,7 @@ def test_unknown_coverage_returns_to_planner_and_can_be_completed(daemon):
 
 
 @pytest.mark.parametrize("action,status", [("ask", "needs_user"), ("finish", "failed")])
-def test_unknown_coverage_is_not_done_when_planner_cannot_complete_it(daemon, action, status):
+def test_unknown_coverage_is_not_done_when_planner_cannot_complete_it(daemon, unattended, action, status):
     install(daemon, [sup("task", "Checking", task(conds=(cond("Review official groups"),)))],
             {"worker": done("A few chats checked."),
              "worker.verify": verdict(None, "Could not identify the remaining official groups."),

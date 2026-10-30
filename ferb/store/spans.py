@@ -352,7 +352,7 @@ class SpanStore:
         tasks = []
         for row in self._db.conn.execute("SELECT * FROM tasks WHERE tree_id = ? ORDER BY created_at, id", (task_id,)):
             task = dict(row)
-            for name in ('scopes', 'depends', 'outcome'):
+            for name in ('scopes', 'outcome'):
                 task[name] = json.loads(task.pop(name + '_json'))
             tasks.append(task)
         request_id = source.get('request_id') or (tasks[0]['request_id'] if tasks else None)

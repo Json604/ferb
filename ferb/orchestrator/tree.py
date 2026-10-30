@@ -5,6 +5,7 @@ persisted in SQLite, for `ferb trace` and restarts: a daemon that restarts marks
 `interrupted` (their consequential actions are already `unknown` in the ledger and get reconciled)."""
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -46,28 +47,37 @@ CONVERSATION_ROOTS = ("SELECT t.* FROM tasks t CROSS JOIN task_context c ON c.ta
 TASK_COLUMNS = frozenset({"request_id", "created_at", "updated_at", "goal", "status", "tree_id", "outcome_json"})
 
 
+# What a task row's status can be (migration 0049). `paused`: the task waits for the owner in place (owner decision 8);
+# `interrupted`: FERB restarted while it ran and it didn't resume.
+STATUSES = ("planned", "running", "paused", "done", "done_unverified", "failed", "cancelled", "needs_user",
+            "interrupted")
+
+
 class TaskTree:
     def __init__(self) -> None:
         self._tasks: dict[str, TaskRecord] = {}
         self.db: Database | None = None
+        self.now: Callable[[], datetime] = lambda: datetime.now().astimezone()
 
-    def attach(self, db: Database) -> None:
+    def attach(self, db: Database, now: Callable[[], datetime] | None = None) -> None:
+        """The database, and the daemon's clock (its `now`): every status time comes from it."""
         self.db = db
+        if now is not None:
+            self.now = now
 
-    def add(self, rec: TaskRecord, depends_on: list[str] | None = None, status: str = "running") -> None:
+    def add(self, rec: TaskRecord, status: str = "running") -> None:
         self._tasks[rec.task.id] = rec
         if self.db is None:
             return
         t, now = rec.task, rec.started_at.isoformat()
         self.db.conn.execute(
             "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, "
-            "depends_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET request_id=excluded.request_id,goal=excluded.goal,"
             "identity=excluded.identity,role=excluded.role,scopes_json=excluded.scopes_json,"
-            "depends_json=excluded.depends_json,status=excluded.status,updated_at=excluded.updated_at,"
-            "outcome_json='{}'",
+            "status=excluded.status,updated_at=excluded.updated_at,outcome_json='{}'",
             (t.id, rec.tree_id or t.id, t.parent_id, t.request_id, t.goal, t.identity.value, t.role,
-             json.dumps(sorted(t.scopes)), json.dumps(depends_on or []), status, now, now))
+             json.dumps(sorted(t.scopes)), status, now, now))
 
     def get(self, task_id: str) -> TaskRecord | None:
         return self._tasks.get(task_id)
@@ -92,7 +102,7 @@ class TaskTree:
             return
         self.db.conn.execute("UPDATE tasks SET status = ?, outcome_json = COALESCE(?, outcome_json), updated_at = ? "
                              "WHERE id = ?", (status, json.dumps(outcome) if outcome is not None else None,
-                                              at or datetime.now().astimezone().isoformat(), task_id))
+                                              at or self.now().isoformat(), task_id))
 
     def remove(self, task_id: str) -> None:
         self._tasks.pop(task_id, None)
@@ -136,12 +146,13 @@ class TaskTree:
         return [dict(r) for r in self.db.conn.execute(
             "SELECT * FROM tasks WHERE parent_id IS NULL AND updated_at >= ? ORDER BY created_at", (since_iso,))]
 
-    def interrupt_running(self, now: datetime | None = None) -> list[str]:
-        """After a restart: whatever was running or planned didn't finish."""
+    def interrupt_running(self) -> list[str]:
+        """After a restart: whatever was running, planned or paused didn't finish (a tree that resumes records its
+        rows again as it runs)."""
         if self.db is None:
             return []
         ids = [r["id"] for r in self.db.conn.execute(
-            "SELECT id FROM tasks WHERE status IN ('running', 'planned')").fetchall()]
+            "SELECT id FROM tasks WHERE status IN ('running', 'planned', 'paused')").fetchall()]
         self.db.conn.execute("UPDATE tasks SET status = 'interrupted', updated_at = ? "
-                             "WHERE status IN ('running', 'planned')", ((now or datetime.now().astimezone()).isoformat(),))
+                             "WHERE status IN ('running', 'planned', 'paused')", (self.now().isoformat(),))
         return ids

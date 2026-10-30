@@ -72,9 +72,10 @@ class Rule:
         if self.repeat == "every":
             if self.every_minutes is None or self.every_minutes <= 0:
                 raise ScheduleError("a repeating interval must be positive")
+            if after < anchor:              # before the first run (a schedule resumed less than one interval
+                return anchor               # before it): the first run itself, never the one after it
             step = timedelta(minutes=self.every_minutes)
-            n = max(0, int((after - anchor) / step) + 1)
-            return anchor + n * step
+            return anchor + (int((after - anchor) / step) + 1) * step
         zone = ZoneInfo(self.tz)
         hh, mm = (int(x) for x in self.at.split(":"))
         day = after.astimezone(zone).date()

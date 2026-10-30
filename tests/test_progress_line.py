@@ -373,12 +373,14 @@ def test_ack_message_keeps_bracketed_paste_markers(daemon):
 # ---------- B: resumed plans name their request ----------
 
 def test_resumed_plan_events_carry_their_request_and_time(daemon):
+    from ferb.orchestrator.plans import single
     supervisor = daemon.daemon.supervisor
     published: list[tuple[str, dict[str, Any]]] = []
     outcomes: list[dict[str, Any]] = []
     spec = TaskSpec.model_validate(task('finish the saved plan'))
     saved = {'request': {'spec': spec.model_dump(), 'request_id': 'req-saved', 'words': 'finish it',
-                         'payload': 'finish it', 'origins': [], 'message_origins': []}, 'conversation': 's1'}
+                         'payload': 'finish it', 'origins': [], 'message_origins': []}, 'conversation': 's1',
+             'plan': single('finish the saved plan')}
 
     async def run_tree(spec: Any, text: str, request_id: str, message: str = "", **_: Any) -> Any:
         assert request_id == 'req-saved'

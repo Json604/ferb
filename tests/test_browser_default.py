@@ -4,7 +4,7 @@ import json
 from ferb.orchestrator.availability import Availability
 from tests.conftest import chat, install, sup, task
 
-def test_browser_capabilities_do_not_depend_on_profile_phrases(daemon):
+def test_browser_capabilities_do_not_depend_on_profile_phrases(daemon, unattended):
     s = daemon.daemon.supervisor
     s.availability = lambda: Availability({'browser:read', 'browser:act', 'mac:read', 'fs:read'}, '')
     seen = []

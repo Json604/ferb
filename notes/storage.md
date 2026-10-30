@@ -113,11 +113,11 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
 - [x] Migration runner: checksums, newer-DB refusal, numbering check, duplicate numbers (step 1; tests/test_migrations.py;
       accepted the live DB's 44 versions with gaps and backfilled their checksums).
 - [ ] Continued-tree episodes; non-ASCII search; exposure origins in episodes.
-- [ ] Schedule reconciliation and the global stop for scheduled runs: built in notes/orchestration.md.
+- [x] Schedule reconciliation and the global stop for scheduled runs: built in notes/orchestration.md.
 - [ ] Drop `owner_questions`, `notification_rules`/`notification_told`, the dead learning tables (jobs, receipts,
       digests), and duplicate tombstone tables → one. Tables and triggers of switched-off code (perception_*, decisions,
       `trail_changes`, `trail.relevance`) keep their schema; only their data is emptied (memory decision 4).
-- [ ] `TimeSetTimer` kind `timer` (the `TaskTree` clock is owned by notes/orchestration.md).
+- [ ] `TimeSetTimer` kind `timer` (the `TaskTree` clock is owned by notes/orchestration.md). (Step 8a: the `TaskTree` clock done.)
 - [ ] Keep `secure_delete=ON` (deleted data zeroed, privacy); offset its cost with chunked purges.
 - [ ] Explicit `busy_timeout`; whole-journal reads replaced by bounded queries.
 - [x] The 3.09 GB `ferb.db.before-restore-20261025-224330` deleted (decision 2).

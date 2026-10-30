@@ -46,6 +46,10 @@ counts. File:line refs are to commit c6621c3 / 68dc95b (same files).
 file tools bound by the protection lists, shell scope per decision 4 below, browser lists
 from installed apps, terminal detection fails closed)*
 
+5. **Sound is part of background-first** (owner, 2026-10-30): FERB's own tabs are muted by default unless the task
+   needs to listen; FERB stopping or changing playback in a tab the owner is using counts as a disturbance fact; a
+   general "keep a tab playing while the owner switches away" ability is later.
+
 ## What exists today (verified)
 
 ### Reliability (live tool calls, 2026-09-29 → 10-30)

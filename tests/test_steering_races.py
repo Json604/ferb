@@ -295,7 +295,7 @@ def test_correction_during_failed_plan_child_cleanup_reaches_root_worker(daemon,
     spec = task('Find nearby egg curry with breads and compare prices')
     spec['plan'] = Plan(steps=[
         Step(id='search', kind='do', goal='Find nearby restaurants serving egg curry and breads'),
-        Step(id='compare', kind='reduce', goal='Choose the cheapest suitable lunch', depends_on=['search']),
+        Step(id='compare', kind='do', goal='Choose the cheapest suitable lunch', depends_on=['search']),
     ]).model_dump()
     failed = json.dumps({'status': 'failed', 'summary': 'Nearby location is unavailable',
                          'artifacts': [], 'evidence': []})

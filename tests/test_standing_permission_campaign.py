@@ -325,7 +325,7 @@ class _WallClock(datetime):
 
 
 def _campaign_daemon(home: Path, prefix: str, monkeypatch: pytest.MonkeyPatch) -> tuple[RunningDaemon, PostingBrowser]:
-    d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds(prefix), watch_owner_input=False)
+    d = RunningDaemon(home, clock=FakeClock(_WallClock.now_at), ids=SequentialIds(prefix), watch_owner_input=False)
     d.daemon._permissions = lambda: {"accessibility": True, "screen": True}   # type: ignore[method-assign]
     egress.install(getattr(d.daemon, "proxy", None))
     if d.daemon.supervisor is not None:
@@ -369,10 +369,9 @@ def test_the_campaign_plan_posts_waits_on_the_wall_clock_and_resumes_after_a_res
     """The owner typed their campaign account into memory earlier ("X" in the request doesn't name x.com), so the
     stated scope is theirs (final review I1) and covers each declared post from it, before and after a restart."""
     import ferb.clock.timers as durable
-    import ferb.orchestrator.plan_executor as executor
     monkeypatch.setattr("ferb.sanitize.images.recognize_text", lambda _image: [])
     monkeypatch.setattr(durable, "POLL_S", 0.01)        # test speed only: production re-checks every POLL_S
-    monkeypatch.setattr(executor, "datetime", _WallClock)
+    # plan waits are on the daemon's own clock (step 8a): each daemon's FakeClock stands at the campaign's start
     tomorrow = _WallClock.now_at + timedelta(days=1)
     spec = task(WORDS, identity="owner", sites=("x.com",))
     spec["plan"] = Plan(steps=[Step(id="post1", kind="do", goal="Post the launch story on X"),
@@ -415,7 +414,7 @@ def test_the_campaign_plan_posts_waits_on_the_wall_clock_and_resumes_after_a_res
         _until(lambda: _plan_status(second, tree).get("wait") == "waiting")
         time.sleep(0.1)
         assert browser2.clicks() == []                                   # resumed, still before 09:00 tomorrow
-        _WallClock.now_at = tomorrow + timedelta(seconds=1)              # the wall clock reaches it (Mac asleep or not)
+        second.call_soon(second.daemon.clock.set_wall, tomorrow + timedelta(seconds=1))   # the wall clock reaches it
         _until(lambda: browser2.clicks() == ["https://x.com/compose/post"])
         _until(lambda: _plan_status(second, tree).get("post2") == "done")
         assert ferb_questions(second) == []                              # the stated scope still covers it

@@ -1029,7 +1029,7 @@ def _saved_scheduled_plan(daemon: RunningDaemon, state: str) -> tuple[str, list[
     spec = TaskSpec.model_validate(task("Post the launch story", "owner"))
     spec.plan = P(steps=[Step(id="post", kind="do", goal="Post")], standing_sends=[_scope("new@x.com")])
     saved = {"request": {"spec": spec.model_dump(), "request_id": "req-saved", "words": "post it", "payload": "post it",
-                         "origins": [], "message_origins": []}, "conversation": None}
+                         "origins": [], "message_origins": []}, "conversation": None, "plan": spec.plan}
     given: list[Any] = []
 
     async def run_tree(spec: Any, text: str, request_id: str, message: str = "", **kw: Any) -> Any:

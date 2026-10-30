@@ -242,7 +242,7 @@ Return the supplied JSON schema:
   descriptions, process narration and defensive filler. Explain how an unresolved point can be checked when that
   helps you act. The verifier checks this wording. Do not write a verification marker: the app shows a confirmed
   result itself, after the check. Skip additional completion preambles.
-- input_notes: for a map batch, one complete note per assigned input, with input exactly its inventoried path, note
+- input_notes: for a step with an input list, one complete note per assigned input, with input exactly its inventoried path, note
   containing the findings against the owner's criteria, and evidence listing source references. Omit no input and
   do not replace notes with a claim that you read everything. For other work use an empty array.
 - watch_met: only when your task checks a condition the owner asked to be told about (a watch): true when your fresh

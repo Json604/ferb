@@ -344,7 +344,7 @@ def test_ferbs_clarify_question_is_never_the_owners_words(ferb_yes: FerbAnswers,
     _assert_only_typed([r.words for r in requests] + recorded)
 
 
-def test_a_retry_never_carries_ferbs_question_as_the_owners_words(ferb_yes: FerbAnswers, daemon: RunningDaemon,
+def test_a_retry_never_carries_ferbs_question_as_the_owners_words(ferb_yes: FerbAnswers, daemon: RunningDaemon, unattended,
                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
     """C1: a retry prepends the earlier request's words; a continuity row written before the fix still holds FERB's
     question after its label, and that part is not the owner's words either."""
@@ -376,9 +376,10 @@ OLD_ENDORSED = "Should I send it to my work address, alex@work.example?"     # t
 
 def _old_row(daemon: RunningDaemon, words: str, clarified: str | None = OLD_QUESTION, payload: str = "") -> str:
     """A task, then its continuity row rewritten as code before 4e0976a (2026-10-03) stored it: no payload, the
-    words as recorded; and FERB's question as that code journaled it (chat.clarify)."""
+    words as recorded; and FERB's question as that code journaled it (chat.clarify). The task ends unfinished (an
+    attended task that needs the owner would pause in place and ask instead)."""
     install(daemon, [sup("task", "Sending.", task("email alex the report"))],
-            {"worker": json.dumps({"status": "needs_user", "summary": "Which alex?", "artifacts": [], "evidence": []})})
+            {"worker": json.dumps({"status": "failed", "summary": "Which alex?", "artifacts": [], "evidence": []})})
     chat(daemon, "email alex the report")
 
     async def rewrite() -> str:

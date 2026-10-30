@@ -86,6 +86,8 @@ cites 68dc95b for the same files).
 4. All adapters kept and fixed (decision 1), behind the one runtime table and the same gateway path.
 
 ## Fix list
+- [ ] Owner-facing errors in app words, plain cause first (no `ferb …` commands, config.toml or raw provider errors
+      like "anthropic HTTP 400: output_config…"): catalog.py, codex_stream.py, claude_sdk.py, api.py, *_api.py.
 - [x] Remove the Codex exec path, `workdir`, `model_instructions_file`, duplicate MODEL constant, duplicate `check_final`.
       (Step 3: exec path and `workdir` removed. Step 4: `codex_exec.MODEL` and the providers' `DEFAULT_MODEL` gone,
       defaults live only in the runtime table; codex_stream no longer runs `check_final`, every caller's one check

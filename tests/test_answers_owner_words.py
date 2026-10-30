@@ -44,7 +44,7 @@ def _unconfirmed(met: bool | None) -> str:
 
 # ---------- (a) the answer of an unfinished task (owner, 2026-10-24: the full answer, no short text) ----------
 
-def test_needs_user_answer_is_the_label_the_question_then_the_findings(daemon: RunningDaemon) -> None:
+def test_needs_user_answer_is_the_label_the_question_then_the_findings(daemon: RunningDaemon, unattended) -> None:
     """1b79b873's shape: the check couldn't confirm a condition and the orchestrator asks the owner. The owner reads
     the full answer: code's status line, FERB's copy of the question, the finding and how to check it, the files."""
     question = 'Which YouTube tab played the video: yours or a new one?'
@@ -315,7 +315,7 @@ def test_a_new_plan_keeps_an_unchanged_finished_step_and_shows_the_others_as_dat
     assert 'Sent the application.' in final
 
 
-def test_continue_without_a_new_goal_on_a_task_without_a_plan_stays_in_that_task(daemon: RunningDaemon) -> None:
+def test_continue_without_a_new_goal_on_a_task_without_a_plan_stays_in_that_task(daemon: RunningDaemon, unattended) -> None:
     install(daemon, [sup('task', 'Starting.', task('send the application on shop.example', 'owner'))],
             {'worker': json.dumps({'status': 'needs_user', 'summary': 'Login required', 'artifacts': [],
                                    'evidence': []})})
@@ -367,7 +367,7 @@ def _lost(daemon: RunningDaemon, task_id: str, capability: str, payload: str) ->
     daemon.run(lost())
 
 
-def test_a_retry_stays_in_the_same_task_so_an_unknown_send_is_still_refused(daemon: RunningDaemon) -> None:
+def test_a_retry_stays_in_the_same_task_so_an_unknown_send_is_still_refused(daemon: RunningDaemon, unattended) -> None:
     install(daemon, [sup('task', 'Sending.', task('send the application', 'owner'))],
             {'worker': json.dumps({'status': 'needs_user', 'summary': 'Unclear', 'artifacts': [], 'evidence': []})})
     tree = outcome(chat(daemon, 'send the application', session='apply'))['task_id']

@@ -135,9 +135,14 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
 - Memory block names and the Remember / Tier 1 path for owner-confirmed patch items (notes/memory.md).
 
 ## Fix list
+- [ ] Direct replies name their source (screen / memory / general knowledge) and say guesses as guesses (2 of 3
+      "who is on my screen" replies were wrong and corrected by the owner).
+- [ ] Live re-test list adds prompt-only behaviours: the pause trigger, asking only what/who/which, asking before
+      installing a named tool (the 10-14 Mole task failed with "not installed" instead of asking), how-note quality.
 - [ ] One foreground contract: code asks Yes/No once per task per app (30-minute option); remove "now / when idle /
       skip" and "never plan it" (problem 8).
 - [ ] Rewrite interaction.md as the shared prefix; move worker method rules to worker.md or tool descriptions.
+- [ ] The planner's remember rule covers durable facts said in passing (notes/memory.md decision 11).
 - [ ] Rewrite supervisor.md to the skeleton; drop steer, procedures, notification rules, map/reduce kinds; add pause/resume.
 - [ ] Rewrite worker.md to the skeleton; role blocks appended by code from step_context (supervisor.py:2606, 2785, 2937).
 - [ ] Merge verifier.md + dispatch.md into one checker prompt.

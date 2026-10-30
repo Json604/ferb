@@ -569,7 +569,7 @@ def _root(daemon: RunningDaemon, offset: int = 0) -> str:
         "SELECT id FROM tasks WHERE parent_id IS NULL ORDER BY rowid DESC").fetchall()[offset]["id"])
 
 
-def test_a_pasted_text_task_keeps_external_paste_in_everything_derived_from_it(daemon: RunningDaemon) -> None:
+def test_a_pasted_text_task_keeps_external_paste_in_everything_derived_from_it(daemon: RunningDaemon, unattended) -> None:
     install(daemon, [sup("task", "Summarizing.", task("summarize the pasted text"))], {"worker": done("It says…")})
     chat(daemon, PASTED)
     root = _root(daemon)
@@ -610,7 +610,7 @@ def _task_origins(daemon: RunningDaemon, root: str) -> set[str]:
 
 def _pasted_task(daemon: RunningDaemon) -> str:
     install(daemon, [sup("task", "Summarizing.", task("summarize the pasted text"))],
-            {"worker": json.dumps({"status": "needs_user", "summary": "Unclear", "artifacts": [], "evidence": []})})
+            {"worker": json.dumps({"status": "failed", "summary": "Unclear", "artifacts": [], "evidence": []})})
     chat(daemon, PASTED)
     return _root(daemon)
 
@@ -637,7 +637,7 @@ def test_a_retried_task_carries_the_original_requests_origins(daemon: RunningDae
     assert not any("external:paste" in s for s in seen)
 
 
-def test_a_retried_tasks_request_carries_what_the_earlier_attempt_read(daemon: RunningDaemon) -> None:
+def test_a_retried_tasks_request_carries_what_the_earlier_attempt_read(daemon: RunningDaemon, unattended) -> None:
     def remember() -> None:
         src = daemon.daemon.journal.append("chat.message", {"text": "the cafe page"}, origin="external:memory").id
         daemon.daemon.memory.propose("fact", "place:cafe", "hours", "The cafe opens at 8", "third_party",

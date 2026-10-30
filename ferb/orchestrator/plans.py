@@ -7,7 +7,7 @@ from collections import Counter, deque
 from collections.abc import Callable
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ferb.orchestrator.conversations import ConversationScope
 
@@ -17,22 +17,73 @@ class EventMatch(BaseModel):
     value: str
 
 
+class Repeat(BaseModel):
+    """A `do` step's repeat rule: the step is a loop (L31). Between rounds code reads the round's probe, this event,
+    the owner's corrections and a backup timer; only a verified `end_when` (the owner's own end condition) or the
+    owner's stop ends it. An empty `end_when`: only the owner's stop."""
+    end_when: str = ''
+    event: str | None = None
+    event_match: list[EventMatch] = Field(default_factory=list)
+
+
+STEP_KINDS = ('do', 'wait', 'ask', 'converse')
+
+
 class Step(BaseModel):
+    """One step of a task's plan. A single task runs as a one-step plan of one `do` step. A `do` step may carry an
+    input list (each input is covered by one note, exactly once across the plan) and a repeat rule (a loop)."""
     id: str
-    kind: Literal['do', 'map', 'reduce', 'wait', 'ask', 'converse', 'loop']
+    kind: Literal['do', 'wait', 'ask', 'converse']
     goal: str = ''
     depends_on: list[str] = Field(default_factory=list)
     inputs: list[str] = Field(default_factory=list)
-    batches: list[list[str]] = Field(default_factory=list)
     worker_type: str = 'default'
     conditions: list[str] = Field(default_factory=list)
     until: str | None = None
-    end_when: str = ''          # a loop's end in the owner's words; '' = until the owner says stop (L31)
     event: str | None = None
     event_match: list[EventMatch] = Field(default_factory=list)
     conversation: ConversationScope | None = None
     question: str = ''
     options: list[str] = Field(default_factory=list)
+    repeat: Repeat | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _earlier_kinds(cls, data: Any) -> Any:
+        """Plans saved before step kinds were folded (stored plans, a step written in the old vocabulary): `reduce` is
+        a `do` step; `map` is a `do` step whose input list is its batches' inputs; `loop` is a `do` step whose repeat
+        rule carries its end condition and event."""
+        if not isinstance(data, dict) or data.get('kind') not in ('map', 'reduce', 'loop'):
+            return data
+        data = dict(data)
+        kind = data.pop('kind')
+        data['kind'] = 'do'
+        batches = data.pop('batches', None) or []
+        if kind == 'map':
+            data['inputs'] = list(dict.fromkeys([*data.get('inputs', []), *(p for batch in batches for p in batch)]))
+        if kind == 'loop':
+            data['repeat'] = {'end_when': data.pop('end_when', '') or '', 'event': data.pop('event', None),
+                              'event_match': data.pop('event_match', [])}
+        return data
+
+    @property
+    def loops(self) -> bool:
+        """A `do` step with a repeat rule: a loop (L31)."""
+        return self.kind == 'do' and self.repeat is not None
+
+    @property
+    def end_when(self) -> str:
+        """A loop's end in the owner's words; '' = until the owner says stop (L31)."""
+        return self.repeat.end_when if self.repeat is not None else ''
+
+    @property
+    def wakes_on(self) -> str | None:
+        """The plan event this step waits for (a wait) or wakes on (a loop)."""
+        return self.repeat.event if self.repeat is not None else self.event
+
+    @property
+    def wakes_match(self) -> list[EventMatch]:
+        return self.repeat.event_match if self.repeat is not None else self.event_match
 
 
 class SendScope(BaseModel):
@@ -94,6 +145,17 @@ def _inventory(paths: list[str], denied: Callable[[Path], object] | None) -> lis
     return list(found.values())
 
 
+def single(goal: str) -> Plan:
+    """A single task as the plan it runs as: one `do` step (the task's own worker, checked against the task's own
+    conditions)."""
+    return Plan(steps=[Step(id=SINGLE, kind='do', goal=goal)])
+
+
+SINGLE = 'worker'          # the one step of a single task's plan (its worker's task id is "<tree>.worker")
+DONE = ('done', 'done_unverified')                        # a step that finished (confirmed, or done but unconfirmed)
+ENDED = DONE + ('failed', 'blocked', 'cancelled', 'needs_user')   # never run again without the owner (reopen)
+
+
 def problems(plan: Plan, facts: list[dict[str, Any]], *, context_tokens: int) -> list[str]:
     """Return concrete repair facts; never invent a split, a worker limit, or a ranking criterion."""
     errors: list[str] = []
@@ -105,8 +167,6 @@ def problems(plan: Plan, facts: list[dict[str, Any]], *, context_tokens: int) ->
         missing = set(step.depends_on) - set(ids)
         if missing:
             errors.append(f'{step.id}: missing dependencies {sorted(missing)}')
-        if step.kind == 'reduce' and not step.depends_on:
-            errors.append(f'{step.id}: reduce needs source steps')
         if step.kind == 'wait' and bool(step.until) == bool(step.event):
             errors.append(f'{step.id}: wait needs one exact time or event')
         if step.until:
@@ -119,15 +179,19 @@ def problems(plan: Plan, facts: list[dict[str, Any]], *, context_tokens: int) ->
             errors.append(f'{step.id}: converse needs an exact account, app/site, thread, recipients, topic and hand-over condition')
         if step.kind == 'ask' and not step.question.strip():
             errors.append(f'{step.id}: ask needs an owner-facing question')
-        if step.kind == 'loop' and not step.goal.strip():
-            errors.append(f'{step.id}: a loop needs a goal')
-        if step.kind == 'loop' and step.until:
-            errors.append(f"{step.id}: a loop's end goes in end_when; until is a wait's time")
+        if step.repeat is not None and step.kind != 'do':
+            errors.append(f'{step.id}: only a do step repeats')
+        if step.inputs and step.kind != 'do':
+            errors.append(f'{step.id}: only a do step takes an input list')
+        if step.loops and not step.goal.strip():
+            errors.append(f'{step.id}: a repeating step needs a goal')
+        if step.loops and step.until:
+            errors.append(f"{step.id}: a repeating step's end goes in repeat.end_when; until is a wait's time")
         for dependency in step.depends_on:
             source = by_id.get(dependency)
-            if source is not None and source.kind == 'loop' and not source.end_when.strip():
-                errors.append(f'{step.id}: depends on loop {dependency}, which runs until the owner says stop, '
-                              'so it could never start')
+            if source is not None and source.loops and not source.end_when.strip():
+                errors.append(f'{step.id}: depends on repeating step {dependency}, which runs until the owner says '
+                              'stop, so it could never start')
     outstanding = {key: set(step.depends_on) & set(ids) for key, step in by_id.items()}
     ready = deque(key for key, dependencies in outstanding.items() if not dependencies)
     visited: set[str] = set()
@@ -143,23 +207,19 @@ def problems(plan: Plan, facts: list[dict[str, Any]], *, context_tokens: int) ->
                     ready.append(other)
     if set(ids) - visited:
         errors.append('dependency cycle: ' + ', '.join(sorted(set(ids) - visited)))
+    # An input list: every inventoried input is covered by exactly one do step, each step's inputs fit its worker
     known = {item['path']: item for item in facts}
-    maps = [step for step in plan.steps if step.kind == 'map']
+    listed = [step for step in plan.steps if step.inputs]
     assigned: list[str] = []
-    for step in maps:
-        if not step.batches:
-            errors.append(f'{step.id}: map needs explicit batches')
-        for batch in step.batches:
-            if not batch:
-                errors.append(f'{step.id}: empty batch')
-            assigned.extend(batch)
-            unknown = set(batch) - set(known)
-            if unknown:
-                errors.append(f'{step.id}: inputs absent from inventory: {sorted(unknown)}')
-            tokens = sum(known[p]['tokens_upper_bound'] for p in batch if p in known)
-            if tokens > context_tokens:
-                errors.append(f'{step.id}: batch needs up to {tokens} tokens; worker context has {context_tokens}')
-    if maps:
+    for step in listed:
+        assigned.extend(step.inputs)
+        unknown = set(step.inputs) - set(known)
+        if unknown:
+            errors.append(f'{step.id}: inputs absent from inventory: {sorted(unknown)}')
+        tokens = sum(known[p]['tokens_upper_bound'] for p in step.inputs if p in known)
+        if tokens > context_tokens:
+            errors.append(f'{step.id}: its inputs need up to {tokens} tokens; worker context has {context_tokens}')
+    if listed:
         missing = set(known) - set(assigned)
         if missing:
             errors.append(f'unassigned inputs: {sorted(missing)}')

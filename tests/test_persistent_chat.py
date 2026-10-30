@@ -20,7 +20,7 @@ def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home)
         d.daemon.supervisor.availability = d.daemon.supervisor._default_availability
         session = attach(d)
         install(d, [sup("task", "Starting", task("order lunch using Work profile", "owner", sites=("shop.example",)))],
-                {"worker": json.dumps({"status": "needs_user", "summary": "Login required", "artifacts": [], "evidence": []})})
+                {"worker": json.dumps({"status": "failed", "summary": "Login required", "artifacts": [], "evidence": []})})
         first = outcome(chat(d, "order lunch on shop.example in Work profile", session=session))
     finally:
         d.stop()
@@ -40,7 +40,7 @@ def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home)
             rec = d.daemon.tasks.get(grant.task_id)
             request = d.daemon.state.requests.get(rec.task.request_id)
             seen.append((rec.task.goal, request, supervisor._env[request.request_id]))
-            return json.dumps({"status": "needs_user", "summary": "Waiting for login", "artifacts": [], "evidence": []})
+            return json.dumps({"status": "failed", "summary": "Waiting for login", "artifacts": [], "evidence": []})
 
         script = install(d, [json.dumps(retry)], {"worker": worker})
         result = outcome(chat(d, "try the lunch task again", session=session))
@@ -53,7 +53,7 @@ def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home)
         d.stop()
 
 
-def test_context_is_redacted_and_legacy_tasks_are_recovered_without_grants(daemon):
+def test_context_is_redacted_and_legacy_tasks_are_recovered_without_grants(daemon, unattended):
     install(daemon, [sup("task", "Starting", task("use Work profile on shop.example", "owner"))],
             {"worker": json.dumps({"status": "needs_user", "summary": "Login required", "artifacts": [], "evidence": []})})
     first = outcome(chat(daemon, "use Work profile on shop.example", session="old-session"))
@@ -74,7 +74,7 @@ def test_context_is_redacted_and_legacy_tasks_are_recovered_without_grants(daemo
     daemon.run(verify())
 
 
-def test_retry_receives_unknown_prior_action_for_inspection(daemon):
+def test_retry_receives_unknown_prior_action_for_inspection(daemon, unattended):
     session = attach(daemon)
     install(daemon, [sup("task", "Starting", task("send on shop.example", "owner"))],
             {"worker": json.dumps({"status": "needs_user", "summary": "Unclear", "artifacts": [], "evidence": []})})
@@ -103,7 +103,7 @@ def test_unknown_task_id_is_repaired_to_a_specific_question_without_running(daem
     assert len(script.contexts) == 2
 
 
-def test_new_conversation_cannot_control_another_conversations_task(daemon):
+def test_new_conversation_cannot_control_another_conversations_task(daemon, unattended):
     first = attach(daemon)
     install(daemon, [sup("task", "Starting", task("find notes"))],
             {"worker": json.dumps({"status": "needs_user", "summary": "Which notes?", "artifacts": [], "evidence": []})})

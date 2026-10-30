@@ -249,11 +249,14 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
                 'request_origins': sorted(supervisor.spans.request_origins(tree.id) | made | shown),
                 'asked_origins': sorted(updated.asked_origins),          # a later retry keeps them (S4 b)
                 'task_spec': tree.spec.model_dump(), 'goal': tree.spec.goal})
+        # every task runs from its saved plan (a single task's is one step): a restart resumes the corrected task
+        saved = supervisor.plans.load(tree.id)
+        request = {**saved['request'], 'spec': tree.spec.model_dump(), 'words': updated.words,
+                   'payload': updated.payload, 'message_origins': sorted(supervisor.spans.request_origins(tree.id))}
         if tree.spec.plan:
-            saved = supervisor.plans.load(tree.id)
-            supervisor.plans.create(tree.id, tree.spec.plan, {**saved['request'], 'spec': tree.spec.model_dump(),
-                'words': updated.words, 'payload': updated.payload,
-                'message_origins': sorted(supervisor.spans.request_origins(tree.id))}, session_id)
+            supervisor.plans.create(tree.id, tree.spec.plan, request, session_id)
+        else:
+            supervisor.plans.create_single(tree.id, tree.spec.goal, request, session_id, restored=True)
         known = getattr(supervisor.gateway, 'destinations', None)
         if known is not None:
             for kind, value in known.from_words(clean['words']):

@@ -102,6 +102,13 @@ def daemon(home: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[RunningDaemo
 
 
 @pytest.fixture
+def unattended(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every task runs as a scheduled run does, with nobody there to ask: needing the owner ends it at once, reported
+    with its question (step 8a: an attended task pauses in place and asks instead). For tests about that report."""
+    monkeypatch.setattr(type(daemon.daemon.supervisor), "_unattended", lambda self, task: True)
+
+
+@pytest.fixture
 def ferb_yes(daemon: RunningDaemon) -> Iterator[FerbAnswers]:
     """FERB's own questions (the code floor, the sink rule) answered Yes as they come, for tests about something the
     call passes through on the way (provenance, P19, recovery). Strict: the test declares each question it expects
@@ -365,58 +372,93 @@ def done(summary: str = "ok") -> str:
     return json.dumps({"status": "done", "summary": summary, "artifacts": [], "evidence": []})
 
 
-# The supervisor's attempt loop runs while the next-attempt choice says retry or recheck (no retry cap: the
-# orchestrator decides). A scripted choice given as one answer, not a list, is served at most this often per key, so a
-# script that goes off its path ends with a failed choice instead of retrying forever (2026-10-25: a constant "retry"
-# looped test_supervisor and grew a 1.7 GB test database).
+# The scripted model (tests decision 1). Every model call FERB makes is keyed by its task id after the tree id: the
+# planner is "supervisor"; a task's worker "worker" (a single task is a one-step plan whose step runs as "<tree>.worker");
+# a plan step's "step.<id>", a loop's rounds "loop.<id>", a delegated conversation's turns "conversation.<id>.<n>"; and
+# the roles around an attempt add a suffix. ROLES maps each suffix to the role it plays, and DEFAULT_ANSWERS gives each
+# role the answer a test that doesn't script it gets. Step 8b merges the next-attempt choice into the checker: change
+# these two tables (and nothing else) when the roles change.
+ROLES = {".verify": "checker", ".dispatch": "next_attempt", ".question": "worker_question"}
+
+
+def role_of(key: str) -> str:
+    """The role a scripted key plays: a ROLES suffix's, else "worker" (any task or step's worker), or "planner"."""
+    if key == "supervisor":
+        return "planner"
+    return next((role for suffix, role in ROLES.items() if key.endswith(suffix)), "worker")
+
+
+def _context_of(script: "Script", key: str) -> str:
+    return next(c for _, k, c, _ in reversed(script.contexts) if k == key)
+
+
+def _escalate(script: "Script", key: str) -> Any:
+    """The next-attempt choice most lifecycle tests leave unscripted: it never retries; a report that needs the owner
+    is asked, any other is finished. Recovery tests script their own choices."""
+    raw = _context_of(script, key).split('Worker report (data): ', 1)[1]
+    report, _ = json.JSONDecoder().raw_decode(raw[raw.index('{'):])
+    return json.dumps({'action': 'ask' if report['status'] == 'needs_user' else 'finish',
+                       'question': report['summary'], 'instructions': report['summary'], 'worker_type': 'default'})
+
+
+def _all_met(script: "Script", key: str) -> Any:
+    """The checker most tests leave unscripted: every condition met. A pass on a step that changed files needs a look at
+    each change record (L39), so it reads them first."""
+    ctx = _context_of(script, key)
+    indices = re.findall(r'^([0-9]+)\. ', ctx, re.M)
+    final = json.dumps({'results': [{'index': int(i), 'met': True,
+                                    'evidence': 'Scripted inspection for lifecycle test'} for i in indices]})
+    records = re.findall(r'change record: task\.evidence span_id=(\S+)', ctx)
+    if records and script.sock is not None:
+        sock = script.sock
+
+        def look(token: str) -> str:
+            for record in records:
+                tool(sock, token, "task.evidence", span_id=record)
+            return final
+        return look
+    return final
+
+
+def _ask_owner(script: "Script", key: str) -> Any:
+    return json.dumps({'ask_owner': True, 'answer': '', 'question': ''})
+
+
+DEFAULT_ANSWERS: dict[str, Callable[["Script", str], Any]] = {
+    "next_attempt": _escalate, "checker": _all_met, "worker_question": _ask_owner}
+# A role given one answer (not a list) serves it at most this often per key, so a script that goes off its path ends
+# with a failed call instead of retrying forever (2026-10-25: a constant "retry" looped test_supervisor and grew a
+# 1.7 GB test database). Applies to the roles that choose another attempt.
 SCRIPTED_DISPATCH_REPEATS = 20
+REPEAT_CAPPED = frozenset({"next_attempt"})
 
 
 class Script:
     def __init__(self, supervisor: list[Any], workers: dict[str, Any]) -> None:
         self.sup, self.workers = supervisor, workers
-        self.served: dict[str, int] = {}      # key -> times a single (non-list) scripted choice was given
+        self.served: dict[str, int] = {}      # key -> times a single (non-list) scripted answer was given
         self.contexts: list[tuple[str, str, str, list[str]]] = []      # (mode, key, context, tool names)
         self.requests: list[tuple[str, str, Any]] = []                  # (mode, key, ModelRequest)
         self.times: dict[str, tuple[float, float]] = {}
         self.fill_report_verdict = True       # complete older scripted verdicts (complete_report_verdict)
         self.sock: Path | None = None         # the daemon's socket: the default scripted checker reads change records
 
-    def step(self, key: str) -> Any:
-        # Most lifecycle tests are not about recovery policy. Their scripted orchestrator escalates the worker's
-        # report; recovery/authorization tests supply their own explicit decisions to exercise other choices.
-        if key not in self.workers and key.endswith('.question'):
-            return json.dumps({'ask_owner': True, 'answer': '', 'question': ''})
-        if key not in self.workers and key.endswith('.dispatch'):
-            ctx = next(c for _, k, c, _ in reversed(self.contexts) if k == key)
-            raw = ctx.split('Worker report (data): ', 1)[1]
-            report, _ = json.JSONDecoder().raw_decode(raw[raw.index('{'):])
-            return json.dumps({'action': 'ask' if report['status'] == 'needs_user' else 'finish',
-                               'question': report['summary'], 'instructions': report['summary'],
-                               'worker_type': 'default'})
-        if key not in self.workers and key.endswith('.verify'):
-            ctx = next(c for _, k, c, _ in reversed(self.contexts) if k == key)
-            indices = re.findall(r'^([0-9]+)\. ', ctx, re.M)
-            final = json.dumps({'results': [{'index': int(i), 'met': True,
-                                            'evidence': 'Scripted inspection for lifecycle test'} for i in indices]})
-            records = re.findall(r'change record: task\.evidence span_id=(\S+)', ctx)
-            if records and self.sock is not None:     # L39: a pass on a file-changing step needs a look at each change
-                sock = self.sock
+    def calls(self, role: str) -> list[str]:
+        """The keys of the model calls made in one role, in order (a test counts attempts or checks with it)."""
+        return [k for _, k, _, _ in self.contexts if role_of(k) == role]
 
-                def look(token: str) -> str:
-                    for record in records:
-                        tool(sock, token, "task.evidence", span_id=record)
-                    return final
-                return look
-            return final
+    def step(self, key: str) -> Any:
+        role = role_of(key)
+        if key not in self.workers and role in DEFAULT_ANSWERS:
+            return DEFAULT_ANSWERS[role](self, key)
         w = self.workers[key]
         if isinstance(w, list):
             return w.pop(0)
-        if key.endswith('.dispatch'):
+        if role in REPEAT_CAPPED:
             self.served[key] = self.served.get(key, 0) + 1
             if self.served[key] > SCRIPTED_DISPATCH_REPEATS:
-                raise AssertionError(f"the scripted choice for {key} was asked more than {SCRIPTED_DISPATCH_REPEATS} "
-                                     "times: the test's script would answer forever (give a list of choices)")
+                raise AssertionError(f"the scripted answer for {key} was asked more than {SCRIPTED_DISPATCH_REPEATS} "
+                                     "times: the test's script would answer forever (give a list of answers)")
         return w
 
 
@@ -472,7 +514,7 @@ class FakeRuntime:
             final = await anyio.to_thread.run_sync(step, run.state["token"])
         else:
             final = step
-        if key.endswith(".verify") and isinstance(final, str):
+        if role_of(key) == "checker" and isinstance(final, str):
             final = complete_report_verdict(self.script, run.state["context"], final)
         yield RuntimeEvent("usage", {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.001})
         self.script.times[key] = (t0, time.monotonic())
@@ -521,6 +563,22 @@ def turn_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     assert all((e.get("task_id") or e.get("connection")) and e.get("text") and e.get("started_at")
                for e in events if e["type"] == "progress")
     return [{k: v for k, v in e.items() if k not in ("request_id", "at")} for e in events[1:] if e["type"] != "progress"]
+
+
+def answer_question(d: RunningDaemon, capability: str = "plan.ask", *, choice: str | None = None, text: str = "",
+                    granted: bool = True, timeout: float = 20) -> Any:
+    """The owner answers FERB's open question of this capability (their pick of an option, or their own words), once it
+    is asked; the question it answered."""
+    async def go() -> Any:
+        approvals = d.daemon.state.approvals
+        while True:
+            for ap in approvals.pending():
+                if ap.capability == capability:
+                    index = ap.options.index(choice) + 1 if choice is not None else None
+                    approvals.resolve(ap.id, granted, index, text or None)
+                    return ap
+            await asyncio.sleep(0.02)
+    return d.run(go(), timeout=timeout)
 
 
 def tool(sock: Any, token: str, name: str, **args: Any) -> dict[str, Any]:

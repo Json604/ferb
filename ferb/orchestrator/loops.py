@@ -244,14 +244,20 @@ Round = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 Read = Callable[[Probe], Awaitable[tuple[Any, str | None, set[str]]]]
 
 
+PAUSED = 'paused'                    # a waker's reason: the task was paused (the owner's pause, a closed tab)
+
+
 class LoopRunner:
-    """One loop step: a round, then quiet probe reads on the wall clock until a waker starts the next round. Wakers:
-    the probe trips (a match, a tool error or a missing field), the step's plan event, the owner's correction, or
-    BACKUP_SECONDS since the last round. A correction the round's own worker took (`steers_seen` in its result: the
-    count of corrections it read or was delivered) wakes no further round. Churn backs off (Pacer) and tells the owner
-    once per episode; a correction skips the gap. A round that is blocked or needs the owner pauses the loop until the
-    owner replies. Only a verified finish of a stated end, or the owner's stop, ends it. Every wait re-checks
-    `stopped()`, and the row is saved at each state change, so a restart resumes where it was."""
+    """One repeating step (a `do` step with a repeat rule): a round, then quiet probe reads on the wall clock until a
+    waker starts the next round. Wakers: the probe trips (a match, a tool error or a missing field), the step's plan
+    event, the owner's correction, or BACKUP_SECONDS since the last round. A correction the round's own worker took
+    (`steers_seen` in its result: the count of corrections it read or was delivered) wakes no further round. Churn
+    backs off (Pacer) and tells the owner once per episode; a correction skips the gap. A round that is blocked or
+    needs the owner, or a pause of the task (`paused()`), waits for the owner through the supervisor's one wait
+    (`wait_owner`: their answer or reply starts the next round; None: stopped; a reason with `declined`: nobody is there
+    to ask, an unattended run, so the loop ends needing the owner). Only a verified finish of a stated end, or the
+    owner's stop, ends it otherwise. Every wait re-checks `stopped()`, and the row is saved at each state change, so a
+    restart resumes where it was."""
 
     def __init__(self, *, store: LoopStore, task_id: str, step: Any, round: Round,
                  arm: Callable[[Probe], str | None], probe: Read,
@@ -259,16 +265,13 @@ class LoopRunner:
                  event: Callable[[int], tuple[int, dict[str, Any]] | None] | None, steers: Callable[[], int],
                  notify: Callable[..., Awaitable[None]], status: Callable[[dict[str, Any]], None],
                  stopped: Callable[[], bool], now: Callable[[], float],
-                 sleep: Callable[[float], Awaitable[None]] | None = None, event_cursor: int = 0,
-                 question: Any = None) -> None:
+                 wait_owner: Callable[[dict[str, Any] | None], Awaitable[dict[str, Any] | None]],
+                 paused: Callable[[], bool] = lambda: False,
+                 sleep: Callable[[float], Awaitable[None]] | None = None, event_cursor: int = 0) -> None:
         self.store, self.task_id, self.step = store, task_id, step
-        # a pause's owner question (item 8, 2026-10-25): `ask(result)` once per pause (None after a restart),
-        # `answer()` the owner's answer as the next round's reason (None while unanswered), `close()` when the pause
-        # ends another way. None: the pause has only its chat line.
-        self.question = question
         self.round, self.arm, self.probe, self.record = round, arm, probe, record
         self.event, self.steers, self.notify, self.status = event, steers, notify, status
-        self.stopped, self.now = stopped, now
+        self.stopped, self.now, self.wait_owner, self.paused = stopped, now, wait_owner, paused
         self.sleep = sleep or self._sleep
         self._wake = asyncio.Event()
         self.row = store.load(task_id, step.id, steers=steers(), cursor=event_cursor)
@@ -303,6 +306,12 @@ class LoopRunner:
             return True
         return False
 
+    def _declined(self, reason: dict[str, Any]) -> dict[str, Any]:
+        """Nobody is there to ask (an unattended run): the loop ends needing the owner, with its question."""
+        self._set('stopped')
+        return {'status': 'needs_user', 'summary': str(reason.get('summary') or 'I needed you to continue.'),
+                'question': str(reason.get('summary') or ''), 'rounds': self.row['rounds']}
+
     async def run(self) -> dict[str, Any]:
         probe = Probe.model_validate_json(self.row['probe_json']) if self.row['probe_json'] else None
         baseline = json.loads(self.row['baseline_json']) if probe is not None and self.row['baseline_json'] else None
@@ -313,6 +322,8 @@ class LoopRunner:
             reason = {'why': 'FERB restarted during a round'}
         elif self.row['state'] == 'paused':
             reason = await self._paused()
+            if reason is not None and reason.get('declined'):
+                return self._declined(reason)
         # Otherwise the stored probe and baseline carry on (spec §5): a value that changed while FERB was down, or a
         # read that now errors (the tab went with a browser restart), trips a round at once.
         while not self.stopped():
@@ -320,8 +331,12 @@ class LoopRunner:
                 reason = await self._watch(probe, baseline)
                 if reason is None:
                     break
-            if reason['why'] != 'your message' and not reason.get('owner'):   # the owner's own word skips the gap
-                reason = await self._back_off(reason)
+            if reason['why'] != 'your message' and not reason.get('owner') and reason['why'] != PAUSED:
+                reason = await self._back_off(reason)        # the owner's own word skips the gap
+            if reason is not None and (reason['why'] == PAUSED or self.paused()):   # paused: wait for the owner
+                reason = await self._paused()
+                if reason is not None and reason.get('declined'):
+                    return self._declined(reason)
             if reason is None or self.stopped():                   # a stop always wins over a round about to start
                 break
             self._save(steer_seen=self.steers())
@@ -355,6 +370,8 @@ class LoopRunner:
                 await self.notify(self._pause_line(self.step, result.get('question') or result['summary']),
                                   model_written=True)
                 reason = await self._paused(result)
+                if reason is not None and reason.get('declined'):
+                    return self._declined(reason)
                 continue
             if result['status'] != 'done' and result.get('probe') is None:
                 continue        # a failed round fixed nothing: the armed probe and its stored baseline carry on
@@ -427,7 +444,7 @@ class LoopRunner:
 
     async def _back_off(self, reason: dict[str, Any]) -> dict[str, Any] | None:
         """Wait out the churn gap before a round; a trip inside the gap is the `reason` kept for when it ends. The
-        owner's correction skips the gap. None when stopped."""
+        owner's correction skips the gap; a pause of the task ends the wait (PAUSED). None when stopped."""
         start = self.pacer.start_at(self.now())
         if start <= self.now():
             return reason
@@ -435,30 +452,20 @@ class LoopRunner:
         while self.now() < start:
             if self.stopped():
                 return None
+            if self.paused():
+                return {'why': PAUSED}
             if self._steered():
                 return {'why': 'your message'}
             await self.sleep(start - self.now())
         return reason
 
     async def _paused(self, result: dict[str, Any] | None = None) -> dict[str, Any] | None:
-        """Blocked or waiting for the owner: no probe, event or backup round; only the owner's answer to the pause's
-        question, their reply in chat (a steer), or stop. The question is asked as the pause starts, again after a
-        restart (`result` None), and closed when the pause ends without it."""
+        """Blocked, waiting for the owner, or the task paused: no probe, event or backup round; the supervisor's one
+        wait for the owner (`wait_owner`) asks the round's question (`result`; None after a restart or for a pause of
+        the task) and returns the next round's reason: their answer, their reply in chat, None when stopped, or a
+        reason with `declined` when nobody is there to ask."""
         self._set('paused')
-        if self.question is not None:
-            await self.question.ask(result)
-        try:
-            while not self.stopped():
-                if self._steered():
-                    return {'why': 'your message'}
-                answered: dict[str, Any] | None = self.question.answer() if self.question is not None else None
-                if answered is not None:                # the owner's answer starts the round as a reply does
-                    return {**answered, 'owner': True}
-                await self.sleep(POLL_S)
-            return None
-        finally:
-            if self.question is not None:
-                self.question.close()
+        return await self.wait_owner(result)
 
     async def _watch(self, probe: Probe | None, baseline: Any) -> dict[str, Any] | None:
         """Between rounds, no model: the probe is read every PROBE_SECONDS and only a trip, an error or a missing field
@@ -468,6 +475,8 @@ class LoopRunner:
         next_read = self.now()
         while not self.stopped():
             now = self.now()
+            if self.paused():
+                return {'why': PAUSED}
             if self._steered():
                 return {'why': 'your message'}
             if self.event is not None:
@@ -482,6 +491,8 @@ class LoopRunner:
                 value, error, origins = await self.probe(probe)
                 if self.stopped():          # the owner's stop came during the read (and may have cut it short):
                     return None             # nothing it saw is a trip, a short round or a notice
+                if self.paused():           # so did a pause (it cuts reads short too): the loop waits for the owner
+                    return {'why': PAUSED}
                 self.row['reads'] += 1      # kept in memory: saved with a trip, an error or a state change
                 next_read = self.now() + PROBE_SECONDS
                 if error is None and value is MISSING:

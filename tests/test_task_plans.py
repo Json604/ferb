@@ -10,24 +10,47 @@ from ferb.orchestrator.plan_executor import PlanExecutor
 from ferb.store.db import Database
 
 
-def test_map_requires_every_session_once_and_a_batch_that_fits(tmp_path):
+def test_input_lists_cover_every_inventoried_input_once_and_each_fits(tmp_path):
+    """Owner decision 5: map stays as an ability (a do step with an input list; independent steps run at once) and the
+    plan check that every input is covered exactly once stays."""
     for name in ('session-a.json', 'session-b.json'):
         (tmp_path / name).write_text('owner controlled session')
     inputs = asyncio.run(inventory([str(tmp_path)]))
     a, b = [i['path'] for i in inputs]
-    plan = Plan(steps=[Step(id='read', kind='map', goal='Read every session', batches=[[a]])],
-                input_paths=[str(tmp_path)])
+    plan = Plan(steps=[Step(id='read-a', kind='do', goal='Read session a', inputs=[a])], input_paths=[str(tmp_path)])
     assert any('unassigned' in e for e in problems(plan, inputs, context_tokens=1000))
-    plan.steps[0].batches = [[a], [b]]
+    plan.steps.append(Step(id='read-b', kind='do', goal='Read session b', inputs=[b]))
     assert not problems(plan, inputs, context_tokens=1000)
     assert any('context' in e for e in problems(plan, inputs, context_tokens=1))
-    plan.steps[0].batches = [[a, b], [a]]
+    plan.steps[1].inputs = [a, b]
     assert any('more than once' in e for e in problems(plan, inputs, context_tokens=1000))
+    plan.steps[1].inputs = [b, str(tmp_path / 'not-inventoried.json')]
+    assert any('absent from inventory' in e for e in problems(plan, inputs, context_tokens=1000))
 
 
-def test_plan_rejects_cycles_missing_dependencies_and_reduce_without_sources():
+def test_plans_saved_in_the_old_step_kinds_still_load_as_do_steps():
+    """Stored plans (task_plans) and old-vocabulary steps: reduce is a do step, map a do step with its batches' inputs,
+    loop a do step with a repeat rule carrying its end condition and event."""
+    plan = Plan.model_validate({'steps': [
+        {'id': 'read', 'kind': 'map', 'goal': 'Read', 'batches': [['a', 'b'], ['c']]},
+        {'id': 'rank', 'kind': 'reduce', 'goal': 'Rank', 'depends_on': ['read']},
+        {'id': 'keep', 'kind': 'loop', 'goal': 'Keep it playing', 'end_when': 'the song ends', 'event': 'ci.done'}]})
+    read, rank, keep = plan.steps
+    assert (read.kind, read.inputs, read.repeat) == ('do', ['a', 'b', 'c'], None)
+    assert (rank.kind, rank.depends_on, rank.loops) == ('do', ['read'], False)
+    assert keep.kind == 'do' and keep.loops and keep.end_when == 'the song ends' and keep.wakes_on == 'ci.done'
+    assert 'batches' not in read.model_dump() and Plan.model_validate(plan.model_dump()) == plan
+
+
+def test_only_a_do_step_repeats_or_takes_inputs():
+    plan = Plan(steps=[Step(id='w', kind='wait', goal='Wait', event='x', inputs=['a'], repeat={'end_when': 'y'})])
+    found = problems(plan, [], context_tokens=100)
+    assert any('only a do step repeats' in e for e in found) and any('input list' in e for e in found)
+
+
+def test_plan_rejects_cycles_and_missing_dependencies():
     plan = Plan(steps=[Step(id='one', kind='do', goal='Read', depends_on=['two']),
-                      Step(id='two', kind='reduce', goal='Rank', depends_on=['one'])])
+                      Step(id='two', kind='do', goal='Rank', depends_on=['one'])])
     assert any('cycle' in e for e in problems(plan, [], context_tokens=100))
     plan.steps[0].depends_on = ['missing']
     assert any('missing' in e for e in problems(plan, [], context_tokens=100))
@@ -58,7 +81,7 @@ def test_restart_retains_completed_steps_and_durable_wait(tmp_path):
         job.cancel()
         with pytest.raises(asyncio.CancelledError):
             await job
-        assert store.load('tree')['status'] == 'suspended'
+        assert store.steps('tree')['wait']['status'] == 'interrupted'     # the tree's finish marks the plan itself
         restarted = PlanExecutor(PlanStore(db, lambda value: value), worker, lambda: False)
         restarted.store.event('ci.finished', {'repository': 'FERB', 'state': 'passed'}); restarted.wake()
         result = await asyncio.wait_for(restarted.run('tree'), 2)
@@ -72,7 +95,7 @@ def test_plan_steps_use_normal_workers_and_final_inspection(daemon):
     from tests.conftest import chat, done, install, outcome, sup, task
     spec = task('Read sessions and rank them')
     spec['plan'] = Plan(steps=[Step(id='read', kind='do', goal='Read the session notes'),
-                              Step(id='rank', kind='reduce', goal='Rank the read notes', depends_on=['read'])]).model_dump()
+                              Step(id='rank', kind='do', goal='Rank the read notes', depends_on=['read'])]).model_dump()
     script = install(daemon, [sup('task', 'Reading your sessions.', spec)],
                      {'step.read': done('Session notes read.'), 'step.rank': done('Sessions ranked.'),
                       'worker': done('Ranking checked.')})
@@ -102,24 +125,53 @@ def test_big_job_plan_is_stated_and_starts_without_waiting(daemon):
     assert any(role.startswith('step.') for _, role, _, _ in script.contexts)
 
 
-def test_independent_steps_run_together_and_missing_map_notes_block_reduce(tmp_path):
+def test_independent_steps_run_together_and_a_step_that_did_not_finish_blocks_its_dependents(tmp_path):
     db = Database(tmp_path / 'state.db'); db.migrate()
     store = PlanStore(db, lambda x: x)
-    plan = Plan(steps=[Step(id='map', kind='map', goal='Read sessions', batches=[['a'], ['b']]),
-                      Step(id='rank', kind='reduce', goal='Rank', depends_on=['map'])])
+    plan = Plan(steps=[Step(id='a', kind='do', goal='Read a', inputs=['a']),
+                      Step(id='b', kind='do', goal='Read b', inputs=['b']),
+                      Step(id='rank', kind='do', goal='Rank', depends_on=['a', 'b'])])
     store.create('tree', plan, {}, 'chat')
     seen = []
     async def run():
         barrier = asyncio.Event()
         async def worker(step, inputs, prior):
-            seen.append(step.id)
+            seen.append((step.id, inputs))
             if len(seen) == 2: barrier.set()
             await barrier.wait()
-            return {'status': 'done', 'summary': 'claimed done', 'input_notes': []}
+            return {'status': 'done' if step.id == 'a' else 'blocked', 'summary': 'notes missing'}
         result = await PlanExecutor(store, worker, lambda: False).run('tree')
         assert result['status'] == 'blocked'
-    asyncio.run(run())
-    assert len(seen) == 2 and 'rank' not in seen
+    asyncio.run(asyncio.wait_for(run(), 5))
+    assert sorted(seen) == [('a', ['a']), ('b', ['b'])]
+    db.close()
+
+
+@pytest.mark.parametrize('status', ['needs_user', 'failed', 'cancelled'])
+def test_a_step_that_ended_without_finishing_is_never_launched_again(tmp_path, status):
+    """The endless relaunch (notes/orchestration.md): a step that needed the owner was relaunched forever. A step that
+    ended (needing the owner in a run nobody attends, failed, cancelled) runs again only after the owner's continue."""
+    db = Database(tmp_path / 'state.db'); db.migrate()
+    store = PlanStore(db, lambda x: x)
+    store.create('tree', Plan(steps=[Step(id='ask', kind='do', goal='Find it')]), {}, 'chat')
+    runs = []
+    async def worker(step, inputs, prior):
+        runs.append(step.id)
+        return {'status': status, 'summary': 'Which one?'}
+    result = asyncio.run(asyncio.wait_for(PlanExecutor(store, worker, lambda: False).run('tree'), 2))
+    assert runs == ['ask'] and result['status'] == ('needs_user' if status == 'needs_user' else 'blocked')
+    db.close()
+
+
+def test_a_step_done_but_unconfirmed_lets_its_dependents_run(tmp_path):
+    db = Database(tmp_path / 'state.db'); db.migrate()
+    store = PlanStore(db, lambda x: x)
+    store.create('tree', Plan(steps=[Step(id='one', kind='do', goal='One'),
+                                     Step(id='two', kind='do', goal='Two', depends_on=['one'])]), {}, 'chat')
+    async def worker(step, inputs, prior):
+        return {'status': 'done_unverified' if step.id == 'one' else 'done', 'summary': step.goal}
+    result = asyncio.run(asyncio.wait_for(PlanExecutor(store, worker, lambda: False).run('tree'), 2))
+    assert result['status'] == 'done' and store.steps('tree')['one']['status'] == 'done_unverified'
     db.close()
 
 

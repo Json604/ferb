@@ -3,7 +3,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from ferb.orchestrator.plans import Plan
+from ferb.orchestrator.plans import SINGLE, Plan, single
 from ferb.store.db import Database
 
 
@@ -28,9 +28,36 @@ class PlanStore:
                                  'ON CONFLICT(task_id) DO UPDATE SET request=excluded.request',
                                  (task_id, self._json(plan.model_dump()), self._json(request), conversation))
             for step in plan.steps:
-                keys = [step.id] + ([f'{step.id}:{i}' for i in range(len(step.batches))] if step.kind == 'map' else [])
-                for key in keys:
-                    self.db.conn.execute('INSERT OR IGNORE INTO plan_steps(task_id,step_id) VALUES(?,?)', (task_id, key))
+                self.db.conn.execute('INSERT OR IGNORE INTO plan_steps(task_id,step_id) VALUES(?,?)', (task_id, step.id))
+        self._revised(task_id)
+
+    def create_single(self, task_id: str, goal: str, request: dict[str, Any], conversation: str | None, *,
+                      restored: bool) -> None:
+        """A single task's one-step plan (plans.single). A new run of it (`restored` False: a new task, or a continue
+        or retry of an ended one) starts its step afresh; a replaced plan's finished results stay as data under
+        EARLIER and its unfinished steps go, as `replace` keeps them. A run restored after a restart keeps its step's
+        state (a paused step asks again; a running one runs again)."""
+        plan = single(goal)
+        with self.db.conn:
+            self.db.conn.execute("INSERT INTO task_plans(task_id,plan,request,conversation) VALUES(?,?,?,?) "
+                                 "ON CONFLICT(task_id) DO UPDATE SET plan=excluded.plan, request=excluded.request, "
+                                 "status='running'",
+                                 (task_id, self._json(plan.model_dump()), self._json(request), conversation))
+            if not restored:
+                for key, state in self.steps(task_id).items():
+                    if key.startswith(EARLIER) or key == SINGLE:
+                        continue
+                    if state['status'] == 'done':
+                        self.db.conn.execute('DELETE FROM plan_steps WHERE task_id=? AND step_id=?',
+                                             (task_id, EARLIER + key))
+                        self.db.conn.execute('UPDATE plan_steps SET step_id=? WHERE task_id=? AND step_id=?',
+                                             (EARLIER + key, task_id, key))
+                    else:
+                        self.db.conn.execute('DELETE FROM plan_steps WHERE task_id=? AND step_id=?', (task_id, key))
+                self.db.conn.execute("INSERT INTO plan_steps(task_id,step_id) VALUES(?,?) ON CONFLICT(task_id, step_id) "
+                                     "DO UPDATE SET status='pending', output='{}'", (task_id, SINGLE))
+            else:
+                self.db.conn.execute('INSERT OR IGNORE INTO plan_steps(task_id,step_id) VALUES(?,?)', (task_id, SINGLE))
         self._revised(task_id)
 
     def update_plan(self, task_id: str, plan: Plan) -> None:
@@ -95,7 +122,16 @@ class PlanStore:
                 if key.startswith(EARLIER)}
 
     def pending(self) -> list[str]:
-        return [r[0] for r in self.db.conn.execute("SELECT task_id FROM task_plans WHERE status IN ('running','suspended','steps_done')")]
+        """Trees whose plan didn't end: they resume after a restart (resume_plans). 'steps_done': a row an earlier
+        build left while its final step ran."""
+        return [r[0] for r in self.db.conn.execute(
+            "SELECT task_id FROM task_plans WHERE status IN ('running','suspended','steps_done')")]
+
+    def paused(self, task_id: str) -> bool:
+        """A tree whose plan didn't end and one of whose steps waits for the owner (a pause survives a restart)."""
+        return self.db.conn.execute(
+            "SELECT 1 FROM plan_steps s JOIN task_plans p ON p.task_id = s.task_id WHERE s.task_id=? AND "
+            "s.status='paused' AND p.status IN ('running','suspended') LIMIT 1", (task_id,)).fetchone() is not None
 
     def event(self, name: str, payload: dict[str, Any]) -> None:
         self.db.conn.execute('INSERT INTO plan_events(event,payload) VALUES(?,?)', (name, self._json(payload)))
