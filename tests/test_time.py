@@ -342,7 +342,7 @@ def test_a_corrected_time_word_is_remembered_and_the_wrong_reminder_replaced(dae
     facts = run(daemon, daemon.daemon._facts)
     # their own words: the whole sentence they said it in (I1; re-review F4)
     assert "When the owner says “next friday”, they mean: no, by next friday I meant this friday" in facts
-    assert f"Reminder {left[0].id}: call Mom" in facts
+    assert f"Reminder {left[0].id}: call Mom" in run(daemon, daemon.daemon._live_facts)   # changes per turn
 
 
 def test_a_test_reminder_survives_typo_fixing_and_a_refusal_is_told(daemon: RunningDaemon) -> None:

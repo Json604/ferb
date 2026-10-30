@@ -87,7 +87,7 @@ def test_the_planner_marks_a_watch_and_it_is_stored_with_the_schedule(daemon: Ru
     finally:
         c.close()
     assert f"- Schedule {s.id} (active): {FILE_WATCH} — every 15 minutes, until it happens, then it stops" in \
-        run(daemon, daemon.daemon._facts)                               # the planner's facts say it too
+        run(daemon, daemon.daemon._live_facts)                               # the planner's facts say it too
 
 
 def test_work_now_and_a_watch_come_from_one_message(daemon: RunningDaemon) -> None:

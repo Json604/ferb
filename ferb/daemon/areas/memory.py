@@ -849,8 +849,8 @@ class MemoryGlue:
         item leaves memory after it, whatever its origin. A day already over, or date words the owner didn't type,
         save it without an end, said in the line and journaled (`memory.until_refused`). A line for the owner."""
         from ferb.clock.when import When, WhenError, end_of_day, local_zone
-        from ferb.memory.items import contains_words
-        if not contains_words(own_words, str(until.quote)):
+        from ferb.memory.items import quoted
+        if not quoted(own_words, str(until.quote)):
             self._journal().append("memory.until_refused", {"item": item_id, "why": "date words not typed"})
             return "(saved without an end date: the date words I quoted aren't in what you typed)"
         try:

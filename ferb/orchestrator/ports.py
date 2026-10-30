@@ -42,6 +42,7 @@ class SchedulePort:
 class EnvironmentPort:
     """What the Mac, FERB's tools and the owner's activity look like now."""
     environment: Callable[[str], Any]                   # installed apps and connections (may return an awaitable)
+    live_facts: Callable[[], str]                       # schedules, reminders, browser connections: change per turn
     availability: Callable[[], Any]                     # what the planner may use right now
     apps: Callable[[], list[tuple[str, str]]]           # (bundle id, name) from the device profile
     running_apps: Callable[[], list[tuple[str, str, int]]]   # (bundle id, name, pid) running now
@@ -69,6 +70,7 @@ class BrowserPort:
     browser_context: Callable[[str], str]
     task_tabs: Callable[[str], list[dict[str, Any]]]    # the tabs a task holds now, redacted
     on_loop_rest: Callable[[str, bool], Awaitable[None]]   # a loop's round ends (True) or starts (False) (L31)
+    keep_tabs_open: Callable[[str], None]               # the owner asked to keep this task's tabs open (hands dec. 3)
 
 
 @dataclass(frozen=True)

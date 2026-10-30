@@ -117,7 +117,7 @@ def test_ctrl_c_stops_the_task_as_stopped_by_you(daemon: RunningDaemon) -> None:
     assert out["status"] == "cancelled" and out["answer"] == "Stopped, as you asked."
     from tests.support.history import conversation_text
     ctx = daemon.run(_async(lambda: conversation_text(daemon.daemon.supervisor, "s")))
-    assert "stopped by the owner" in ctx
+    assert "Stopped, as you asked." in ctx           # the task's state is the planner's task block (step 8c)
 
 
 def test_a_restart_tells_the_owner_what_was_interrupted() -> None:
@@ -165,7 +165,7 @@ def test_an_installed_but_unpaired_extension_is_reported(daemon: RunningDaemon) 
             time.sleep(0.05)
         note = daemon.run(_async(lambda: daemon.daemon._unpaired_note("brave")))
         assert note and "installed in Brave but not paired" in note and "browser_pair" in note
-        assert "not paired" in daemon.run(_async(daemon.daemon._facts))
+        assert "not paired" in daemon.run(_async(daemon.daemon._live_facts))
         assert "Settings → Browsers" in daemon.run(_async(lambda: daemon.daemon._unpaired_note("brave")))
     finally:
         ext.kill()

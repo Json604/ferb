@@ -38,7 +38,7 @@ def _situation_hooks(daemon: RunningDaemon) -> None:
 
 
 def test_long_history_keeps_situation_activity_and_memory_and_summarizes_the_oldest_chat(daemon, monkeypatch):
-    turns = 24
+    turns = 40
     script = install(daemon, [sup("reply", f"answer {i} " + "detail " * 600) for i in range(turns)] +
                      [sup("reply", "latest answer"), sup("reply", "after the summary")],
                      {"summary": json.dumps({"summary": "EARLIER-SUMMARY the owner asked about tea twenty times."})})
@@ -50,11 +50,10 @@ def test_long_history_keeps_situation_activity_and_memory_and_summarizes_the_old
     request = _planner_requests(script)[-1]
     context = request.context
     for layer in ("Layer 2 — situation:", "Layer 3 — today's activity", "TODAY-ACTIVITY", "REMEMBERED-FACT",
-                  "Layer 6 — running tasks and open questions"):
+                  "Layer 6 — open questions"):
         assert layer in context, layer
     assert "message number 0 " not in context                     # the oldest chat did not fit
     assert f"message number {turns - 1} " in context              # the newest always does
-    assert "older entries not shown" in context
     assert _turn_spans(daemon)[-1]["context_budget_tokens"] == limits.context_window - limits.max_output
 
     async def summarized():
@@ -422,25 +421,25 @@ def test_the_conversation_seam_is_the_timeline_only():
     assert not hasattr(Supervisor, "_recent") and not hasattr(Supervisor, "recent")
 
 
-def test_running_summary_refreshes_only_when_uncovered_entries_fall_out(daemon, monkeypatch):
-    """Owner decision 2026-10-14: no fixed step and no new number. A refresh runs only when entries that fell out of
-    the window aren't covered by the latest summary."""
+def test_older_exchanges_fold_only_once_a_chunk_has_gathered(daemon, monkeypatch):
+    """Decision 4 (owners, 2026-10-30/31): the planner reads the last RECENT_EXCHANGES exchanges word for word and the
+    summary; the exchanges beyond them fold only once they hold one chunk (FOLD_CHUNK_TOKENS), not every turn."""
+    from ferb.orchestrator import supervisor as sup_module
     sv = daemon.daemon.supervisor
     started: list[tuple[str, int]] = []
 
     async def counted(conversation: str, count: int) -> None:
         started.append((conversation, count))
     monkeypatch.setattr(sv, "_summarize", counted)
-    install(daemon, [sup("reply", "detail " * 600) for _ in range(8)] + [sup("reply", "ok")] * 3)
-    for i in range(8):
-        chat(daemon, f"message {i} " + "filler " * 600)
-    assert started == []                                               # everything fit: nothing to fold
-    _window(monkeypatch, 22_000, 1_000)
-    chat(daemon, "now the window is small")
-    assert len(started) == 1 and started[0][1] > 0                    # uncovered entries fell out: one refresh
-    monkeypatch.setattr(FakeRuntime, "limits", ModelLimits("fake-model", 1_000_000, 100_000, "test double"))
-    chat(daemon, "a large window again")
-    assert len(started) == 1                                           # nothing fell out: no refresh
+    monkeypatch.setattr(sup_module, "RECENT_EXCHANGES", 2)
+    monkeypatch.setattr(sup_module, "FOLD_CHUNK_TOKENS", 1_500)
+    install(daemon, [sup("reply", "answer " + "detail " * 100) for _ in range(8)])
+    for i in range(4):
+        chat(daemon, f"message {i} " + "filler " * 100)
+    assert started == []                  # two exchanges beyond the window: under one chunk, nothing to fold yet
+    while not started:
+        chat(daemon, "more " + "filler " * 100)
+    assert started[0][1] >= 6              # the gathered exchanges, at least three of them, in one go
 
 
 def test_daily_log_rewrites_wait_for_a_search_in_progress(tmp_path):
@@ -476,22 +475,18 @@ def test_every_activity_search_runs_off_the_event_loop(daemon):
     assert len(seen) >= 2 and daemon.thread.name not in seen          # the planner's and each worker context's
 
 
-def test_since_last_talk_payload_holds_only_the_answer_texts(daemon):
+def test_a_finished_tasks_report_is_shown_once(daemon):
+    """Step 8c (task state shown once): a task that finished since the owner's last message is in the conversation
+    (its report) and the task block (its state); its report isn't repeated in the situation block."""
     def worker(token: str) -> str:                       # the answer lands after the owner's message (frozen clock)
         daemon.call_soon(daemon.daemon.clock.advance, 1)
         return done("FIRST-JOB-ANSWER")
-    install(daemon, [sup("task", "Doing.", task("first job")), sup("task", "Doing.", task("second job"))],
-            {"worker": worker})
+    script = install(daemon, [sup("task", "Doing.", task("first job")), sup("reply", "ok")], {"worker": worker})
     outcome(chat(daemon, "do the first job"))
-    result = outcome(chat(daemon, "do the second job"))
-
-    async def payloads():
-        return [json.loads(r[0]) for r in daemon.daemon.db.conn.execute(
-            "SELECT output_json FROM spans WHERE kind='context.exposure' AND task_id=? "
-            "AND json_extract(output_json, '$.text') LIKE 'Layer 2 — situation:%'", (result["task_id"],))]
-    found = daemon.run(payloads())
-    assert found and "FIRST-JOB-ANSWER" in found[0]["payload"]
-    assert "a task finished" not in found[0]["payload"] and "ago" not in found[0]["payload"]
+    chat(daemon, "how did it go?")
+    context = _planner_requests(script)[-1].context
+    assert context.count("FIRST-JOB-ANSWER") == 1
+    assert "a task finished" not in context
 
 
 def test_a_failed_query_embedding_is_not_retried_on_the_loop(daemon):

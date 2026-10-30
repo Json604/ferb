@@ -130,8 +130,8 @@ class Schedules:
         `request_origins`: what that request itself carried, its runs' request origins for the sink rule (S4, L4)."""
         from ferb.orchestrator.schedules import WATCH_SAID, Rule, ScheduleError
         from ferb.policy.targets import Targets
-        norm = " ".join(own_words.lower().split())
-        if len(spec.quote.strip()) < 3 or " ".join(spec.quote.lower().split()) not in norm:
+        from ferb.memory.items import quoted
+        if not quoted(own_words, spec.quote):
             self._journal().append("schedule.refused", {"why": "quote not in the owner's words"})
             return "I couldn't set that up — could you ask me again in your own words?"
         try:
@@ -222,8 +222,8 @@ class Schedules:
         return typed
 
     def _reminder_cancel_from_chat(self, rc: Any, own_words: str) -> str:
-        norm = " ".join(own_words.lower().split())
-        if len(rc.quote.strip()) < 3 or " ".join(rc.quote.lower().split()) not in norm:
+        from ferb.memory.items import quoted
+        if not quoted(own_words, rc.quote):
             return "I didn't change any reminder — could you say which one in your own words?"
         t = self.timers.get(rc.id) if self.timers is not None else None
         if t is None or t.kind != "reminder" or not self.timers.cancel(rc.id):
@@ -232,8 +232,8 @@ class Schedules:
         return f"⏰ Cancelled the reminder “{t.message}” for {t.fire_at.astimezone():%a %d %b %H:%M}."
 
     def _schedule_change_from_chat(self, ch: Any, own_words: str) -> str:
-        norm = " ".join(own_words.lower().split())
-        if len(ch.quote.strip()) < 3 or " ".join(ch.quote.lower().split()) not in norm:
+        from ferb.memory.items import quoted
+        if not quoted(own_words, ch.quote):
             return "I didn't change any schedule — could you say which one in your own words?"
         if not self._changeable(ch.id, ch.action):          # the owner's line never shows the id (L11)
             return "There's no active schedule like that to change."

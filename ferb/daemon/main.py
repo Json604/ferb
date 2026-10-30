@@ -231,6 +231,8 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         self._stop = asyncio.Event()   # run() waits on it: SIGTERM, SIGINT or update.prepare (L34 Phase G)
         self._turns: set[asyncio.Task[None]] = set()
         self._attached_trees: set[str] = set()
+        self._asked_kinds: dict[str, str] = {}              # an open question's kind, until it is answered
+        self._answered_ids: set[str] = set()                # questions whose answer is recorded (question.answered)
         self._log_subscriptions: set[Any] = set()             # open `logs.subscribe` streams' bus subscriptions (L9)
         # L10: app -> Jev yes batches waiting for that app's next consideration; an app is a key while one runs
         self._attention_waiting: dict[str, list[dict[str, Any]]] = {}
@@ -326,6 +328,10 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         if not self.journal.of_kind("config.upgraded", "upgrade", LIMITS_DECIDED):   # once, and journaled: never silent
             self.journal.append("config.upgraded", {"upgrade": LIMITS_DECIDED,
                                                     "changes": self.config.upgrade_ferb_written()})
+        from ferb.orchestrator.continuity import LEGACY_UPGRADE, upgrade_legacy
+        if not self.journal.of_kind("store.upgraded", "upgrade", LEGACY_UPGRADE):   # once, and journaled (step 8c)
+            self.journal.append("store.upgraded", {"upgrade": LEGACY_UPGRADE,
+                                                   "changes": upgrade_legacy(self.db, self.redact)})
         self.spans = SpanStore(self.db, self.clock, self.ids, self.redact)
         self.evidence = EvidenceStore(self.home / "evidence", self.clock, self.ids, self.redact, self.db)
         self.snapshots = recovery.Snapshots(recovery.local_snapshot if self.take_snapshots else None, self.db,

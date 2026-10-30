@@ -58,7 +58,7 @@ def test_a_paired_profile_with_a_wake_service_can_be_opened(daemon: RunningDaemo
 
 
 async def _facts(dm: Any) -> str:
-    return str(dm._facts())
+    return str(dm._live_facts())          # the owner's browsers as FERB can use them now: live (step 8c)
 
 
 def test_the_planner_facts_say_a_paired_profile_not_running_starts_in_the_background(daemon: RunningDaemon) -> None:

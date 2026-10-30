@@ -371,7 +371,9 @@ def test_owner_stop_cancels_orchestrator_recovery(daemon, stage):
         client.close()
 
 
-def test_stop_during_final_teardown_never_reports_verified_success(daemon):
+def test_stop_during_final_teardown_leaves_the_finished_work_done(daemon):
+    """Fix list (Intake, step 8c): a stop that arrives once the checker accepted the work, while the task tidies up, is
+    refused: finished work is never recorded as cancelled."""
     releases = 0
     async def cleanup(task_id):
         nonlocal releases
@@ -383,7 +385,7 @@ def test_stop_during_final_teardown_never_reports_verified_success(daemon):
     daemon.daemon.supervisor.on_task_end = cleanup
     install(daemon, [sup('task', 'Working', task())], {'worker': done('Done before stop.')})
     result = outcome(chat(daemon, 'Read the source'))
-    assert result['status'] == 'cancelled' and result['verified'] is False
+    assert result['status'] == 'done' and result['verified'] is True and releases == 2
 
 
 def test_context_failure_after_planning_still_finishes_and_releases_task(daemon):

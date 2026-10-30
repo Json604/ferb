@@ -24,6 +24,15 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
 8d. **Answers in steps + notch UI** (orchestration decisions 19-20): parts in the planner schema and validation,
     once-only part posting after the checker, no final summarizing worker, the `part` event and its durable record;
     the notch turn card, row states, footer, in-row questions, typing-dots bubble.
+    Live preview fixes (notes/preview.md): no queuing on worker locks, status over the frozen last frame, hidden
+    from screen sharing, app-only access, frame counters for the step-13 heat measurement.
+8e. **Typed cards in the notch** (owner, 2026-10-31; designs from ~/Desktop/shapeshift, MIT, rebuilt in SwiftUI and
+    credited in THIRD_PARTY_NOTICES.md): the daemon attaches a typed card payload from its own structured data (never
+    from classifying text) and the notch renders it: reminders firing (reminder card + countdown to the deadline) and
+    new schedules/reminders (event card, time, "Repeats" badge, replacing the "🗓 Scheduled" line); remembered facts
+    (note card, tap to correct/forget); payments and sends (expense row: amount, merchant, card ••last4; contact card:
+    recipient, channel); results with links/files (link cards and file chips replacing "Sites contacted"/artifact
+    lines). Text stays in the payload for the history, voice and older apps.
 9. **Memory**: Tier 1-3, local embeddings, how-notes, simple forget, perception fixes.
 10. **Prompts**: rewrite to contracts; patch mapping table reviewed by the owner; owner-confirmed memory items.
 11. **Voice**: speaker factory (macOS voice first), replies from structured events.

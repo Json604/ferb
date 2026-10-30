@@ -659,7 +659,7 @@ def test_a_task_without_a_plan_can_be_given_and_then_lose_a_stated_scope(daemon:
     assert "new@x.com" in _texts(chat(daemon, "you can post to the list without asking", session="s1"))
     script.sup.append(_decision(tree, [], spec=task("Post the update", "owner")))
     assert "ask before each" in _texts(chat(daemon, "actually ask me first", session="s1"))
-    running = script.contexts[-1][2].split("running tasks and open questions", 1)[1]
+    running = script.contexts[-1][2].split("Layer 6 — tasks", 1)[1]
     assert "new@x.com" in running.split("Layer 5", 1)[0]     # the planner saw the scope in force before revising it
     owner = Answers(daemon, granted=True, choice=1)
     proceed.set()
@@ -1264,27 +1264,6 @@ def test_an_answer_and_a_stop_in_one_message_both_happen(daemon: RunningDaemon) 
     assert daemon.run(status()) == "cancelled" and tree.stop
 
 
-def test_the_answer_acknowledgement_keeps_the_chat_in_order_until_the_rest_registers(daemon: RunningDaemon) -> None:
-    """Re-review of M1: `send` let the next message in at the first reply, which is now the answer's acknowledgement,
-    so a following message could be routed before this turn's stop, steer, task or schedule registered."""
-    from ferb.orchestrator.supervisor import ANSWERED, TURN_CONTINUES
-    supervisor = daemon.daemon.supervisor
-    held: list[bool] = []
-
-    async def turn(session_id: str, text: str, paths: list[str], request_id: str, screen: Any) -> Any:
-        yield {"type": "reply", "text": ANSWERED, TURN_CONTINUES: True}
-        held.append(supervisor._chat_locks[session_id].locked())         # the rest of the turn still registering
-        yield {"type": "reply", "text": "Stopped, as you asked."}
-        held.append(supervisor._chat_locks[session_id].locked())
-
-    async def drive() -> list[dict[str, Any]]:
-        supervisor._send = turn                                          # type: ignore[method-assign]
-        return [e async for e in supervisor.send("ordered", "the work one, and stop the other task")]
-    events = daemon.run(drive())
-    assert held == [True, False]
-    assert all(TURN_CONTINUES not in e for e in events)                  # FERB's own marker never reaches a client
-
-
 def test_an_answer_and_a_memory_in_one_message_both_happen(daemon: RunningDaemon) -> None:
     question = _task_question(daemon, "Which email should I use?", options=())
     decision = json.loads(_routed(question.id, "the work email"))
@@ -1344,7 +1323,7 @@ def test_cancelling_a_one_time_schedule_during_its_run_withdraws_the_runs_scope(
     facts: list[str] = []
 
     def change() -> None:
-        facts.append(daemon.run(_on_loop(daemon.daemon._facts)))          # what the planner is told meanwhile
+        facts.append(daemon.run(_on_loop(daemon.daemon._live_facts)))     # what the planner is told meanwhile
         _change_schedule(daemon, action, said)
     run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None, repeat="none", before_posting=change)
     assert "(done; its last run is under way)" in facts[0]                 # so "cancel today's post" can name it

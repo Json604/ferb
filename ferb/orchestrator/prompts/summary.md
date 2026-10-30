@@ -8,5 +8,7 @@ Write one summary that replaces the earlier one. Keep, in order: what the owner 
 they prefer; what FERB answered, did and found, with task ids, results and anything still open; and the names, dates,
 places, numbers and exact wordings the conversation depends on. Say who said each thing (the owner or FERB). Say when
 something came from pasted text, a web page, a message or another outside source. Do not invent, judge or advise.
+Keep only the recent thread (the days you are told) and anything still open (a task still waiting, an open question,
+a promise); drop older settled material, including from the earlier summary.
 
 Return JSON: {"summary": "<the summary>"}.

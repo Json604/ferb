@@ -377,7 +377,8 @@ OLD_ENDORSED = "Should I send it to my work address, alex@work.example?"     # t
 def _old_row(daemon: RunningDaemon, words: str, clarified: str | None = OLD_QUESTION, payload: str = "") -> str:
     """A task, then its continuity row rewritten as code before 4e0976a (2026-10-03) stored it: no payload, the
     words as recorded; and FERB's question as that code journaled it (chat.clarify). The task ends unfinished (an
-    attended task that needs the owner would pause in place and ask instead)."""
+    attended task that needs the owner would pause in place and ask instead). Then the one-time upgrade runs on it, as
+    it does when a newer FERB first starts on that database (step 8c)."""
     install(daemon, [sup("task", "Sending.", task("email alex the report"))],
             {"worker": json.dumps({"status": "failed", "summary": "Which alex?", "artifacts": [], "evidence": []})})
     chat(daemon, "email alex the report")
@@ -388,6 +389,8 @@ def _old_row(daemon: RunningDaemon, words: str, clarified: str | None = OLD_QUES
         if clarified:
             daemon.daemon.journal.append("chat.clarify", {"session_id": "s1", "request_id": "old", "text": clarified},
                                          origin="inferred")
+        from ferb.orchestrator.continuity import upgrade_legacy
+        upgrade_legacy(daemon.daemon.db, daemon.daemon.redact)
         return conn.execute("SELECT task_id FROM task_context").fetchone()[0]
     return daemon.run(rewrite())
 

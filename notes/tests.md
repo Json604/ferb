@@ -81,7 +81,11 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       resumed scheduled run. Remaining runs (file write checked, new recipient, unknown outcome, forget, payment) later.
       Step 8b: tests/test_merged_checker.py: fix_answer without a redo, a side detail marked inline, done-unconfirmed
       answer first, plain failure, carried conditions, failed attempts' artifacts, stale fields, a steer during the
-      check, code facts, the how note, usage limit offers a runtime (question, RPC, none signed in, planner).)
+      check, code facts, the how note, usage limit offers a runtime (question, RPC, none signed in, planner).
+      Step 8c: tests/test_chat_turns.py: 4 quick messages are 2 turns, the time-limit reply with a restart, another
+      chat's task stopped, a stop after finished work, folders in the plan line and shell scope, keep the tabs open,
+      context order, long-chat bounds (planner and summary calls), question kinds, a fact's source after a clarifying
+      question, a misrouted answer, a mid-task identity change said.)
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.

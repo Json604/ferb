@@ -19,7 +19,7 @@ def test_budget_report_comes_last() -> None:
 
 def test_supervisor_orders_stable_layers_first_and_the_new_message_last(daemon) -> None:
     """L28: system, Layer 1 and the append-only conversation first (cacheable), then the blocks that change every turn:
-    the situation, activity, memory, running tasks and questions, and the owner's new message last."""
+    the situation, activity, memory, task state and questions, and the owner's new message last."""
     script = install(daemon, [sup("reply", "first"), sup("reply", "second")])
     chat(daemon, "an earlier message")
     chat(daemon, "the new message")
@@ -28,7 +28,7 @@ def test_supervisor_orders_stable_layers_first_and_the_new_message_last(daemon) 
     assert body.startswith("Layer 1 — stable device and capabilities:\nThis Mac: ")
     assert body.index("Layer 1 —") < body.index("Layer 5 — conversation:") < body.index("an earlier message")
     assert body.index("an earlier message") < body.index("Layer 2 —") < body.index("Layer 3 —")
-    assert body.index("Layer 3 —") < body.index("Layer 6 — running tasks") < body.index("Layer 5 — owner's complete")
+    assert body.index("Layer 3 —") < body.index("Layer 6 — open questions") < body.index("Layer 5 — owner's complete")
     assert body.endswith("Layer 5 — owner's complete new message:\nthe new message")
 
 

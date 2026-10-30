@@ -199,7 +199,8 @@ JUST_ENDED = ("That task has just ended, so I haven't acted on the rest of this 
 async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, words: str,
                 payload: str, spec: Any, source_ref: str, *, standing: Any,
                 supersedes: list[str], said: str = '') -> tuple[dict[str, Any], Restated | None] | None:
-    """Persist first, then steer every live member of the named tree. New members read the same request. `standing`
+    """Persist first, then steer every live member of the named tree. New members read the same request. `session_id`:
+    the chat the task belongs to (a correction from another chat leaves it there: cross-chat control). `standing`
     and `supersedes` are the planner's explicit decisions for this correction (L3, D30); `said` is the planner's
     sentence for the owner, redacted as every reply is. The reply, and its standing
     scope restatement if any: the caller records the reply and, for a widened scope, grants it (`grant_stated`) only
@@ -221,10 +222,10 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
             tree.spec.targets = spec.targets
         tree.worker.goal = tree.spec.goal
         tree.worker.success_conditions = [c.text for c in tree.spec.success_conditions]
-        envelope = supervisor._env.get(request_id, {})
-        made = set(envelope.get('message_origin', ()))
+        turn = supervisor._turns.get(request_id)
+        made = set(turn.message_origin) if turn is not None else set()
         # The window this correction was sent from is outside content the running tree now holds (L12, S4)
-        front = envelope.get('front_window')
+        front = turn.front_window if turn is not None else None
         shown = {o for o in origin.split(front.origin) if origin.is_external(o)} if front is not None else set()
         updated = Request(prior.request_id, prior.words + '\n' + clean['words'], supervisor._targets(tree.spec),
                           (prior.payload or prior.words) + '\n\nOwner correction:\n' + clean['payload'],
@@ -264,7 +265,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
         exposure = supervisor.spans.start('context.exposure', task_id=tree.id,
             input={'source_refs': [source_ref], 'reference': 'owner correction', 'revision': revision})
         supervisor.spans.finish(exposure, output={'text': message},
-            origin=origin.join(made | shown | set(envelope.get('turn_origins', ())) | {origin.INFERRED}))
+            origin=origin.join(made | shown | (turn.turn_origins if turn is not None else set()) | {origin.INFERRED}))
         supervisor.journal.append('task.steered', {'task_id': tree.id, 'session_id': session_id,
             'request_id': request_id, 'revision': revision, 'source_ref': source_ref})
         settle_questions(supervisor, prior.request_id, clean['words'], supersedes)

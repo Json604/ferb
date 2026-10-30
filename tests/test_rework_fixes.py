@@ -127,6 +127,7 @@ def test_every_task_system_prompt_carries_the_same_interaction_contract(role):
     from types import SimpleNamespace
     from ferb.orchestrator.supervisor import Supervisor
     host = SimpleNamespace(_approach=lambda: 'orchestrator/prompts', facts=lambda: 'FERB profile is available.',
+                           live_facts=lambda: '',
                            availability=lambda: SimpleNamespace(text='Installed actions'),
                            identity_context=lambda: 'Owner identity and rules.', skills_catalog=lambda: [],
                            abilities_catalog=lambda: [])

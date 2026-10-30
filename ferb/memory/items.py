@@ -151,6 +151,17 @@ def whole_clauses(text: str, part: str) -> bool:
     return not any(word_char(c) for c in text[left:found[0]] + text[found[1]:right])
 
 
+def quoted(owner_words: str, quote: str, *, clause: bool = False) -> bool:
+    """The one quote check (step 8c) for everything a chat turn does on the owner's say-so: remember and its end date,
+    reminders, schedules and their changes, reminder cancels, forgets and conversation changes. `quote` must be whole
+    words of what the owner typed (`owner_words`: pasted or quoted parts never count), case and spacing aside; a quote
+    of several of the owner's messages joined by blank lines counts when each part is. `clause`: a forget's quote must
+    also be whole clauses (a meaningful span, never any word they happened to type)."""
+    parts = [part for part in re.split(r"\n[ \t]*\n", quote) if part.strip()]
+    check = whole_clauses if clause else contains_words
+    return bool(parts) and all(check(owner_words, part) for part in parts)
+
+
 @dataclass(frozen=True)
 class Capture:
     """What chat capture saves from the owner's typed words (`capture`)."""
@@ -170,7 +181,7 @@ def capture(own_words: str, content: str, quote: str) -> Capture:
     words of it. Then the whole sentence(s) holding `content` are saved as the owner's own words (`owner_sentences`);
     when the content isn't there, `content` is FERB's wording (inferred), provided the quote shares a word with it."""
     content = content.strip()
-    if not contains_words(own_words, quote):
+    if not quoted(own_words, quote):
         return Capture("", content, "quote not in the owner's words")
     clause = owner_sentences(own_words, content)
     if clause is None and not set(query_terms(quote)) & set(query_terms(content)):

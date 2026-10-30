@@ -136,7 +136,8 @@ def test_a_copy_waiting_for_the_owners_approval_is_never_sent_a_pairing_page(bd:
         r = call(d, g, "browser.pair", profile="chrome/Profile 1")
         assert r["is_error"] and r["content"]["needs_enable"] is True and "turned off" in r["content"]["why"]
         assert "Profile 1" not in _pages(launched, before)
-        facts = d.run(d.daemon._environment(""))["stable"]                  # the planner sees it as off
-        assert '"profile": "Profile 1", "name": "Work", "account_hint": "me@work.com", "connection": "off"' in facts
+        facts = d.run(d.daemon._environment(""))                            # the planner sees it as off
+        assert '"profile": "Profile 1", "name": "Work", "account_hint": "me@work.com"' in facts["stable"]
+        assert '"profile": "Profile 1", "connection": "off"' in facts["live"]      # live: after the conversation
     finally:
         exts["Default"].kill()

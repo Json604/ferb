@@ -19,6 +19,17 @@ from ferb.registry import add_context_readers
 from ferb.sanitize.redact import Redactor
 
 
+def question_kind(capability: str, kind: str) -> str:
+    """A question's kind from who asks it and how (structural; never its words)."""
+    from ferb.daemon.gateway import CONFIRM_ASK, RETRY_ASK
+    from ferb.orchestrator.steering import CONVERSATION_ASK, MEMORY_ASKS
+    if kind in ("owner_login_code", "owner_admin_password", "owner_secret"):
+        return "secret"
+    return {CONFIRM_ASK: "confirm", RETRY_ASK: "retry", CONVERSATION_ASK: "conversation_scope", "plan.ask": "task",
+            "owner.ask": "task", "loop.ask": "loop", "runtime.switch": "runtime_switch"}.get(
+        capability, "memory" if capability in MEMORY_ASKS else capability)
+
+
 class Compose:
     """A mixin of the Daemon (ferb/daemon/main.py): its methods use the daemon's state."""
 
@@ -126,7 +137,8 @@ class Compose:
                 on_schedule_change=self._schedule_change_from_chat,
                 on_reminder_cancel=self._reminder_cancel_from_chat, schedule_live=self._schedule_live),
             environment=ports.EnvironmentPort(
-                environment=self._environment, availability=self._availability, apps=self._installed_apps,
+                environment=self._environment, live_facts=self._live_facts, availability=self._availability,
+                apps=self._installed_apps,
                 running_apps=self._running_apps,
                 pasted_is_data=lambda: bool(self.config.get("policy", "pasted_text_is_data", True)),
                 relevant_context=self._relevant_context,           # its fourth element: the search's source refs
@@ -137,7 +149,8 @@ class Compose:
                 on_task_start=self.disturbance.start, on_task_finish=self._tree_finished,
                 disturbance=self.disturbance, disturbance_context=self.disturbance.context, changes=self.changes),
             browser=ports.BrowserPort(
-                browser_context=self._browser_context, task_tabs=self._task_tabs, on_loop_rest=self._loop_rest),
+                browser_context=self._browser_context, task_tabs=self._task_tabs, on_loop_rest=self._loop_rest,
+                keep_tabs_open=self._keep_tabs_open),
             notify=ports.NotifyPort(
                 on_loop_notice=self._loop_notice,
                 on_resumed_outcome=self._resumed_outcome,          # a resumed scheduled run reports to its schedule
@@ -203,6 +216,31 @@ class Compose:
         self.events.on({'perception.attention'}, attention)
         self.events.on(None, lambda topic, data: self.bus.publish(topic, data))   # the bus as it is then
         self.events.on({'approval.requested'}, lambda topic, data: self._approval_notice(data))
+        self.events.on({'approval.requested', 'approval.resolved'}, self._question_record)
+
+    def _question_record(self, topic: str, data: dict[str, Any]) -> None:
+        """Every question FERB asks the owner, with its kind, and how it was answered (fix list: so "few questions" can
+        be measured): `question.asked` and `question.answered` in the journal. The kind is structural (who asks and
+        why: a task's question, FERB's confirmation, a check-in, a closed tab, a runtime switch, a secret...), never a
+        reading of its words. An answer records its state and the option chosen, never free-typed words."""
+        ap = self.state.approvals.get(str(data.get("approval_id", "")))
+        if ap is None:
+            return
+        kind = str(data.get("question_kind") or "") or question_kind(ap.capability, ap.kind)
+        if topic == "approval.requested":
+            self._asked_kinds[ap.id] = kind
+            self._journal().append("question.asked", {"approval_id": ap.id, "kind": kind,
+                                                      "capability": ap.capability,
+                                                      "task_id": data.get("task_id") or ap.task_id or None,
+                                                      "request_id": ap.request_id})
+            return
+        if ap.state == "pending" or ap.id in self._answered_ids:
+            return
+        self._answered_ids.add(ap.id)
+        self._journal().append("question.answered", {
+            "approval_id": ap.id, "kind": self._asked_kinds.pop(ap.id, kind), "state": ap.state,
+            "answer": "option" if ap.choice else "words" if ap.answer else "none",
+            **({"choice": ap.choice} if ap.choice else {})})
 
     def _activity_device(self) -> Any:
         """This Mac's device id as today's activity rows record it (redacted, as the row's other values are)."""

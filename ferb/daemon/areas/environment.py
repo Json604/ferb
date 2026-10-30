@@ -34,10 +34,14 @@ class Environment:
                   if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
         stable, live = svc.summary(svc.Environment(apps, paired), macos, running)
         profiles = [{'browser': p.browser, 'profile': p.folder, 'name': p.display_name, 'account_hint': p.email,
-                     'connection': self._profile_state(p, extension.get((p.browser, p.folder))),
                      'identity': 'ferb' if (p.browser, p.folder) == ferb else 'owner'} for p in found]
+        # each profile's connection changes between turns: with the live facts, after the conversation (decision 4)
+        connections = [{'browser': p.browser, 'profile': p.folder,
+                        'connection': self._profile_state(p, extension.get((p.browser, p.folder)))} for p in found]
         if alignment:
             live += "\nNon-enforcing alignment advice for active tasks: " + json.dumps([json.loads(r[0]) for r in alignment])
+        if connections:
+            live += '\nBrowser profile connections now: ' + json.dumps(connections)
         stable += '\nBrowser/profile inventory (facts, not a selected route): ' + json.dumps(profiles)
         # in the planner's fixed Layer 1 (never dropped for room, unlike today's activity): what worker_type may name
         stable += '\nWorker types: ' + json.dumps(self._worker_types())
@@ -205,18 +209,26 @@ class Environment:
             self._journal().append("secret.registry_preloaded", {"values": preload(values), "unreadable": unreadable})
 
     def _facts(self) -> str:
+        """Facts about this FERB that hold across turns (in every role's instructions, a cacheable prefix)."""
         address = self.config.get("mailbox", "address", "")
         lines = [f"- FERB's own email (its identity, never the owner's): {address}" if address else
                  "- FERB has no email account set up."]
         lines += [f"- FERB secret {s.ref.key}: {s.account_hint}, usable on {', '.join(s.allowed_origins)}"
                   for s in self.secrets.specs()]
+        for phrase, meaning in self._time_meanings():
+            lines.append(f"- When the owner says “{phrase}”, they mean: {meaning}")
+        return "\n".join(lines)
+
+    def _live_facts(self) -> str:
+        """Facts that change between turns (decision 4: after the conversation in the planner's context, so the prefix
+        before it stays cacheable): the schedules and reminders, and the owner's paired browser profiles as FERB can
+        use them now."""
+        lines: list[str] = []
         for sc in (self._listed_schedules() if self.schedules is not None else []):
             state = "done; its last run is under way" if sc.state == "done" else sc.state
             lines.append(f"- Schedule {sc.id} ({state}): {sc.request} — {sc.describe()}")
         for t in (self.timers.pending(("reminder",)) if self.timers is not None else []):
             lines.append(f"- Reminder {t.id}: {t.message} — {t.fire_at.astimezone():%a %d %b %Y %H:%M}")
-        for phrase, meaning in self._time_meanings():
-            lines.append(f"- When the owner says “{phrase}”, they mean: {meaning}")
         if self.pairings is not None and self.hub is not None:           # the owner's browsers, as FERB can use them
             ferb = self._identity_profile()
             names: dict[tuple[str, str], str] | None = None
@@ -233,6 +245,12 @@ class Environment:
                 if note:
                     lines.append(f"- {note}")
         return "\n".join(lines)
+
+    def _keep_tabs_open(self, task_id: str) -> None:
+        """Hands decision 3: the owner asked to keep this task's tabs; at its end they leave the group and stay open."""
+        for drv in (self.router, self.ferb_identity):
+            if drv is not None:
+                drv.keep_tabs_open(task_id)
 
     def _paired_state(self, binding: Any, bridge: Any) -> str:
         """How the planner may use one paired owner profile now, in plain words: a profile that isn't connected is

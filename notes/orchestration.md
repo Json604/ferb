@@ -12,6 +12,11 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 2. **Delegated conversations and answering questions in chat stay** (not selected for removal).
 3. **The checker and the dispatcher merge into one role**: it judges the conditions and chooses what's next.
 4. **The planner gets recent conversation plus the running summary**, not history filling the model's window.
+   (Owner, 2026-10-30, "Recent + summary": the last **20 exchanges** word for word (20 owner messages plus FERB's
+   replies to them), plus the running summary for everything older; long task reports in them in their short form.
+   Owner, 2026-10-31: summary = recent (~2 weeks) + still-open only (waiting tasks, open questions, promises); older
+   settled material falls out of it (memory facts and episodes hold what lasts); folds about every 20-40 exchanges,
+   in the background after the reply; the planner reads only the latest summary.)
 5. **Map stays as an ability; its separate code goes.** A `do` step may carry an input list; independent steps
    already run in parallel; the "every input covered exactly once" check stays in plan validation.
 6. **Standing sends stay.** They are the only way to send to recipients FERB found itself (not in the owner's words,
@@ -144,14 +149,44 @@ to commit c6621c3. S = supervisor.py, M = main.py.
   this area, before old tests go.
 - notes/hands.md: tab groups use pause and wait-for-owner.
 
+## Rulings (step 8c, technical)
+- Conversation bounds (constants in supervisor.py): the planner reads the summary and every entry after what it covers,
+  append-only (target design 5: consecutive turns share the cached prefix; no entry is ever in neither). A fold runs
+  once that tail holds FOLD_CHUNK_TOKENS=20k beyond the last 20 exchanges (counted within a RECENT_CONVERSATION_TOKENS=15k
+  safety cap), or the whole tail passes 15k + 20k; it folds the entries beyond those exchanges, a call of at most 20k
+  each (live 2026-10-28: one fold read 533k tokens), so the tail drops back to about the last 20 exchanges: the planner
+  sees at least 20 exchanges and at most about one chunk more. The summary is asked to stay within SUMMARY_TOKENS=2k
+  and is cut to it when shown; SUMMARY_DAYS=14 is the "~2 weeks" it keeps (the fold call is told today's date and to
+  keep only those days and what's still open; summary.md got that one line); a report's short form is its first
+  paragraph, 300 chars.
+- An exchange starts at an owner message; messages read together are one exchange.
+- Restart: the turn's lead message keeps the stream; later ones end with `{"type": "merged", "into": lead id}`. The
+  front window used is the lead's. The 90 s deadline starts with the turn's intake, and the restart keeps it.
+- A retry whose stop doesn't settle within 10 s replies "I'll start again as soon as it has finished", lets the chat go,
+  and keeps waiting (no cap) before carrying the task on.
+- Folders must each name one specific folder: "/", the home folder, /Volumes and iCloud Drive's root are sent back for
+  repair (argument validity).
+- A correction from another chat leaves the task in its own chat (its answer reports there).
+- Ended tasks in the task block carry no report line (it is in the conversation or the summary); running ones do.
+- Question kinds are structural (capability/approval kind, or the asker's tag); answers record state and the chosen
+  option, never typed words.
+- The legacy continuity upgrade (pre-0012 owner words, pre-task-context tasks) runs once at start, journaled; conflicting
+  records are skipped and counted, never guessed between.
+- Scheduled runs now get the environment (Layer 1, worker types) like chat turns.
+
 ## Fix list
-- [ ] The plan line states resolved `folders` whenever there are any ("I'll work in …"), not only for big jobs or
+- [x] The plan line states resolved `folders` whenever there are any ("I'll work in …"), not only for big jobs or
       standing sends (supervisor.py ~2499, 2733), so a wrong folder guess can be corrected.
+      (Step 8c: TASK_SCHEMA `folders`; `run_tree` adds "I'll work in ~/…" to the plan line and sets
+      `gateway.task_folders` (the shell scope from step 5a); a correction updates them; the worker is told them.)
 - [x] Answer format with the lines code appends: answer first, then at most one "Couldn't confirm" line, then the
       code lines in a fixed order ("Remembered:", "🗓 Scheduled:", "Sites contacted:", "(ran late)"), kept short.
       (Step 8b: `Supervisor._final` / `_with_code_lines`; after "Sites contacted:" come the saved-word, app-left-running
       and clean-up lines; "(ran late)" is now the last line, schedules.py.)
-- [ ] Record the kind of each question asked and its answer, so "few questions" can be measured.
+- [x] Record the kind of each question asked and its answer, so "few questions" can be measured.
+      (Step 8c: `question.asked` / `question.answered` journal rows from every `approval.requested` /
+      `approval.resolved` (daemon `_question_record`; kind from who asks: task, confirm, retry, check_in, closed_tab,
+      loop, runtime_switch, memory, secret, conversation_scope), and for the planner's own clarify / FERB's "which?".)
 - [x] Clarified: a fix-only-the-answer round does not count toward the 5-attempt check-in.
       (Step 8b: fix_answer applies the checker's edits and ends the attempt loop; only a retry is counted.)
 
@@ -167,11 +202,15 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - [x] Check-in after 5 attempts per task/step (decision 7). (Step 8a: `ferb/orchestrator/attempts.py`, counted where
       the next-attempt choice retries; 8b keeps the counter at its retry point.)
 - [x] Pause / resume (decision 8): a control action; paused status; resume = continue in place.
-      (Step 8a: `TaskControl.action` pause, migration 0049 `paused`; `pause_tree`, `_hold_pause`. The planner prompt for
-      when to pause is step 8c.)
-- [ ] Restart the planner turn on a new message in the same chat (decision 10).
-- [ ] Planner call time limit 90 s; a timeout replies plainly instead of hanging (decision 11).
-      (Step 4: the 90 s limit is enforced by every adapter, ferb/runtimes/catalog.call_limit; the plain reply is left.)
+      (Step 8a: `TaskControl.action` pause, migration 0049 `paused`; `pause_tree`, `_hold_pause`. Step 8c: the prompt
+      line for when to pause.)
+- [x] Restart the planner turn on a new message in the same chat (decision 10).
+      (Step 8c, decision 18: `_ChatLine`; at most MAX_RESTARTS=1 per turn, only before its first reply; later
+      messages queue and are read together in the next turn; a message read with another ends its stream with
+      `merged` and its chat.message names `read_with`.)
+- [x] Planner call time limit 90 s; a timeout replies plainly instead of hanging (decision 11).
+      (Step 4: the 90 s limit is enforced by every adapter, ferb/runtimes/catalog.call_limit. Step 8c: one turn
+      deadline (`Supervisor.planner_limit_s`) covers intake, planner calls, repair and the restart; TIMED_OUT reply.)
 - [x] Outcome-based done and the answer-first format (decision 9); rewrite `_report` (S:4097-4139); disturbance and
       tool-record facts to the checker.
       (Step 8b: `_report` removed; `_final` writes the answer first; `_next` maps the checker's choice to done when every
@@ -203,31 +242,48 @@ to commit c6621c3. S = supervisor.py, M = main.py.
       CHECK only for old rows.)
 
 ### Intake
-- [ ] Typed turn object; one exit path; one reply recorder with origin always set.
-- [ ] One quote check shared by remember, until, timers, schedules, schedule changes, reminder cancels, forget,
-      conversation changes.
+- [x] Typed turn object; one exit path; one reply recorder with origin always set.
+      (Step 8c: `_Turn` replaces `_env` (also for scheduled and resumed runs); `_exit` / `_start`; `_record_reply`.)
+- [x] One quote check shared by remember, until, timers, schedules, schedule changes, reminder cancels, forget,
+      conversation changes. (Step 8c: `memory.items.quoted`: whole words of the owner's typed words, blank-line parts
+      each; `clause=True` for a forget.)
 - [x] Remove `steer` from code paths; one continue/correct verb (S:1407, 1433, 1473; ST).
       (Step 3: `TaskControl.action` is stop/retry/continue; the branches use continue; prompt lines say continue.)
-- [ ] Cross-chat control: the planner sees every chat's and schedule's running tasks (S:1773) but `problems_for`
+- [x] Cross-chat control: the planner sees every chat's and schedule's running tasks (S:1773) but `problems_for`
       rejects a task outside this chat (S:796). Live failure 2026-10-24.
-- [ ] Retry on a busy task can end as only a stop (S:1438-1456).
-- [ ] Stop/retry after the worker finished records finished work as cancelled (S:1438, 3176, 3948).
-- [ ] Mid-task identity/worker_type/plan changes silently dropped (ST:215-221; S:1488-1494): apply or say so.
-- [ ] Side-entry replies release the chat lock before the task is registered (S:1643-1654, 1150).
-- [ ] Misrouted answer discards the planner's reply (S:1375-1389, 1194, 1198).
-- [ ] Planner shown open questions it can't answer (S:1768-1771 vs ROUTABLE_QUESTIONS S:147).
-- [ ] Worker-type list rides in the droppable activity block (M:3943-3946; S:1750).
+      (Step 8c: `_control_conversation`: any running task or this chat's; the task stays in its own chat.)
+- [x] Retry on a busy task can end as only a stop (S:1438-1456). (Step 8c: after 10 s FERB says it will start
+      again once the stop settles, lets the chat go, waits, then carries the task on.)
+- [x] Stop/retry after the worker finished records finished work as cancelled (S:1438, 3176, 3948).
+      (Step 8c: the checker's accept marks the task's own work done (`_Tree.work_done`); `stop_tree` refuses then:
+      "had already finished". A correction during the clean-up still supersedes the attempt (8b), clearing the mark.)
+- [x] Mid-task identity/worker_type/plan changes silently dropped (ST:215-221; S:1488-1494): apply or say so.
+      (Step 8c: worker type, folders and keep-tabs applied; identity and plan steps said in the reply (KEPT_*); the
+      prompt says a retry with the new task changes them.)
+- [x] Side-entry replies release the chat lock before the task is registered (S:1643-1654, 1150).
+      (Step 8c: the chat is let go only by `_exit` or the task's plan line.)
+- [x] Misrouted answer discards the planner's reply (S:1375-1389, 1194, 1198). (Step 8c: FERB's line opens it.)
+- [x] Planner shown open questions it can't answer (S:1768-1771 vs ROUTABLE_QUESTIONS S:147).
+      (Step 8c: `_questions_block` lists only owner questions of ROUTABLE_QUESTIONS.)
+- [x] Worker-type list rides in the droppable activity block (M:3943-3946; S:1750).
+      (Already in the protected Layer 1 since step 2 (environment.py `_environment`); confirmed in step 8c.)
 - [x] Remove notification rules (schema field, `_side_entries` S:1643-1654, M:3125-3129, perception policy hook).
       (Step 3: schema field and model, `_side_entries` branch, NotifyPort field, `_notification_rule_from_chat`, `notifications.rules`/`notifications.label` RPCs, the CLI and the policy's `add`/`rules`/`muted`/`label`; prompt text removed. Tables left for step 12.)
-- [ ] Dead: `recall` hook path, `relevant_source_refs`, `since_last_talk` public, `_attempts_text`, `prior is None`
+- [x] Dead: `recall` hook path, `relevant_source_refs`, `since_last_talk` public, `_attempts_text`, `prior is None`
       branch (S:1393-1405), legacy continuity shims after a one-time migration.
+      (Step 8c: removed, with `tasks.conversation_roots`/`max_rowid`/`recent_roots` and `ChatSession.task_floor`;
+      `continuity.upgrade_legacy` runs once at start (journaled `store.upgraded`).)
 
 ### Planner context
-- [ ] Recent conversation + summary instead of filling the window (S:1709-1710; core/context.py:185, 284).
-- [ ] FERB task reports shown short in history; full text via `chat.history`.
-- [ ] Order blocks most-stable first; move live values (profile connection state M:3853, schedules/reminders in
-      `facts()` M:4470) after the conversation.
-- [ ] Task state shown once (today up to 4 times: S:1765, 1772, 1783, 1926).
+- [x] Recent conversation + summary instead of filling the window (S:1709-1710; core/context.py:185, 284).
+      (Step 8c: the summary plus every entry after it, append-only; a chunk beyond the last 20 exchanges folds,
+      `_keep_recent`.)
+- [x] FERB task reports shown short in history; full text via `chat.history`. (Step 8c: `_short_report`.)
+- [x] Order blocks most-stable first; move live values (profile connection state M:3853, schedules/reminders in
+      `facts()` M:4470) after the conversation. (Step 8c: `_live_facts` and connections in "Layer 2 — right now";
+      the planner's instructions get `facts()` only.)
+- [x] Task state shown once (today up to 4 times: S:1765, 1772, 1783, 1926). (Step 8c: `_task_state`; the
+      timeline's task rows and since-last-talk's task answers removed.)
 - [ ] Memory and activity blocks shrink per notes/memory.md (hybrid; accessibility out of the activity search).
 
 ### Attempt loop

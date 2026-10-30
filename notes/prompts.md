@@ -137,6 +137,8 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
 ## Fix list
 - [ ] Direct replies name their source (screen / memory / general knowledge) and say guesses as guesses (2 of 3
       "who is on my screen" replies were wrong and corrected by the owner).
+- [ ] (Step 8c added minimal supervisor.md lines for code it needs: the pause trigger, every chat's running tasks, messages
+      read together, folders, keep_tabs_open, identity/plan changes through retry; the rewrite is step 10.)
 - [ ] Live re-test list adds prompt-only behaviours: the pause trigger, asking only what/who/which, asking before
       installing a named tool (the 10-14 Mole task failed with "not installed" instead of asking), how-note quality.
 - [ ] One foreground contract: code asks Yes/No once per task per app (30-minute option); remove "now / when idle /

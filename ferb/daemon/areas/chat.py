@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, AsyncIterator
 
 from ferb.act.fs.files import normalize_path
+from ferb.core import origin as origin_
 from ferb.core.errors import FerbError, Refused
 from ferb.daemon.areas.shared import EDIT_HIDDEN, _all_hidden
 from ferb.daemon.server import Session
@@ -335,7 +336,7 @@ class Chat:
                 # in the conversation record too, as `_failure_reply` keeps its own (L21); the turn ended failed: the
                 # notch offers Send to developer on it (L35)
                 self._journal().append("chat.reply", {"session_id": session_id, "request_id": request_id,
-                                                      "text": said})
+                                                      "text": said}, origin=origin_.FERB)
                 await queue.put(stamped({"type": "reply", "text": said, "status": "failed"}))
             finally:
                 if screen is not None and not screen.done():   # the turn ended before routing used it

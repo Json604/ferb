@@ -82,9 +82,10 @@ def test_ack_arrives_before_the_planner_is_called(daemon):
 
 
 def test_two_sends_on_one_session_each_get_their_own_ack_and_request_id(daemon):
-    release = threading.Event()
+    release, called = threading.Event(), threading.Event()
 
     def planner_a(_token: str) -> str:
+        called.set()
         assert release.wait(20), 'the test never released the first planner'
         return sup('task', 'Writing the note.', task('write the note'))
     install(daemon, [planner_a, sup('reply', 'The note task is running.')], {'worker': done('Wrote the note.')})
@@ -94,6 +95,7 @@ def test_two_sends_on_one_session_each_get_their_own_ack_and_request_id(daemon):
     a = _stream(daemon.sock, 'shared', 'Write the note')
     try:
         ack_a = a.get(timeout=5)
+        assert called.wait(5)                      # the first message's planner is thinking
         b = _stream(daemon.sock, 'shared', 'What are you doing?')
         ack_b = b.get(timeout=5)                   # acknowledged while the first message is still planning
         assert not release.is_set()
@@ -105,16 +107,16 @@ def test_two_sends_on_one_session_each_get_their_own_ack_and_request_id(daemon):
     for events, ack in ((events_a, ack_a), (events_b, ack_b)):
         assert [e['type'] for e in events].count('ack') == 1
         assert all(_stamped(e, ack['request_id']) for e in events), events
-    plan = next(e for e in events_a if e['type'] == 'plan')
-    outcome = next(e for e in events_a if e['type'] == 'outcome')
-    assert plan['task_id'] and outcome['task_id'] == plan['task_id']
-    assert any(e['type'] == 'reply' for e in events_b) and not any(e['type'] == 'plan' for e in events_b)
-    # The bus result for the task names the same request (the event contract's task.result).
-    [result] = [data for topic, data in published if topic == 'task.result']
-    assert result['request_id'] == ack_a['request_id'] and result['task_id'] == plan['task_id'] and result['at']
-    # P29: still routed in arrival order; each chat.message carries the id its ack announced.
-    assert [row['request_id'] for _, row in _journal(daemon, 'chat.message')] == [ack_a['request_id'],
-                                                                                ack_b['request_id']]
+    # Decision 18: the second message came before FERB's first reply, so the turn restarted and read both: the second
+    # stream ends merged into the first, whose turn replies once (its first planner answer was never acted on)
+    assert [e['type'] for e in events_b[1:]] == ['merged'] and events_b[1]['into'] == ack_a['request_id']
+    assert [e['type'] for e in events_a if e['type'] in ('plan', 'reply')] == ['reply']
+    assert not [data for topic, data in published if topic == 'task.created']
+    # P29: still journaled in arrival order; each chat.message carries the id its ack announced, the second read with
+    # the first
+    rows = [row for _, row in _journal(daemon, 'chat.message')]
+    assert [row['request_id'] for row in rows] == [ack_a['request_id'], ack_b['request_id']]
+    assert rows[1]['read_with'] == ack_a['request_id'] and 'read_with' not in rows[0]
     assert [row['request_id'] for _, row in _journal(daemon, 'chat.ack')] == [ack_a['request_id'], ack_b['request_id']]
 
 

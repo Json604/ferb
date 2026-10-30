@@ -76,6 +76,11 @@ TASK_SCHEMA: dict[str, Any] = _obj({
     "targets": TARGETS_SCHEMA,
     "success_conditions": {"type": "array", "items": CONDITION_SCHEMA, "minItems": 1},
     "plan": {"anyOf": [{"type": "null"}, PLAN_SCHEMA]},
+    # hands decision 4: the folders the owner meant, resolved to paths (a typo resolved, "~/Downloads"); the plan line
+    # states them, and they are the only visible folders the task's terminal commands may change
+    "folders": _strings(),
+    # hands decision 3: the owner asked to keep the task's tabs open (at its end they leave the group and stay open)
+    "keep_tabs_open": {"type": "boolean"},
 })
 
 # L36 §6: a remembered item's last day in the owner's own date words; code works out the date
@@ -249,6 +254,8 @@ class TaskSpec(BaseModel):
     targets: TargetsSpec = TargetsSpec()
     success_conditions: list[Condition] = []
     plan: Plan | None = None
+    folders: list[str] = []          # resolved folders (hands decision 4); a spec saved before step 8c has none
+    keep_tabs_open: bool = False     # the owner asked to keep its tabs open (hands decision 3)
 
 
 class Until(BaseModel):

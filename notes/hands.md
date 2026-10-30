@@ -188,7 +188,8 @@ from installed apps, terminal detection fails closed)*
   ungrouped (left open) and the group is forgotten. An owner who renames the group makes its tabs theirs at the next
   hello (the title check that guards against reused ids).
 - Result tab: `browser.keep_open` (existing) is how a worker marks the result: the tab leaves the group, open. "Keep
-  the tabs open": `_TabDriver.keep_tabs_open(task)` (step 8 wires the owner's words); pause: the daemon-supplied
+  the tabs open": `_TabDriver.keep_tabs_open(task)` (step 8c wired the owner's words: the planner's `keep_tabs_open`
+  on the task, or in a correction's task, reaches both drivers through BrowserPort.keep_tabs_open); pause: the daemon-supplied
   `task_paused` (default False; step 8) makes `release` close nothing.
 - Owner's stop: `browser.owner_stopped` {task_id, tab, profile, borrowed, part: "tab" | "group"} when a tab FERB holds is
   removed without FERB closing it (part "group" when no other FERB-opened tab of that tree is left in the profile);

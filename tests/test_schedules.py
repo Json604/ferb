@@ -223,10 +223,10 @@ def test_a_scheduled_run_clears_its_request_context_when_it_ends(daemon: Running
     install(daemon, [planned], {"worker": writes(daemon.sock, "report.md", "daily")})
     supervisor = daemon.daemon.supervisor
     assert supervisor is not None
-    before = set(run(daemon, lambda: set(supervisor._env)))
+    before = set(run(daemon, lambda: set(supervisor._turns)))
     fire(daemon, 61)
     assert results(daemon)                                            # the run happened
-    assert run(daemon, lambda: set(supervisor._env)) == before
+    assert run(daemon, lambda: set(supervisor._turns)) == before
 
 
 def test_a_resumed_plan_clears_its_request_context_when_it_ends(daemon: RunningDaemon) -> None:
@@ -240,7 +240,7 @@ def test_a_resumed_plan_clears_its_request_context_when_it_ends(daemon: RunningD
              "plan": single("finish the saved plan")}
 
     async def run_tree(spec: Any, text: str, request_id: str, message: str = "", **_: Any) -> Any:
-        assert request_id in supervisor._env                         # the run reads it while it runs
+        assert request_id in supervisor._turns                         # the run reads it while it runs
         yield {"type": "outcome", "task_id": "tree-resumed", "status": "done", "answer": "Done."}
 
     async def resume() -> set[str]:
@@ -249,7 +249,7 @@ def test_a_resumed_plan_clears_its_request_context_when_it_ends(daemon: RunningD
         supervisor.run_tree = run_tree                               # type: ignore[method-assign]
         supervisor._withdraw_lapsed = lambda tree_id: None           # type: ignore[method-assign]
         await supervisor.resume_plans()
-        return set(supervisor._env)
+        return set(supervisor._turns)
     assert "req-resumed" not in daemon.run(resume())
 
 

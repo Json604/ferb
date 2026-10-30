@@ -124,7 +124,8 @@ def test_a_failure_before_any_task_started_says_start(daemon: RunningDaemon) -> 
     replies = [e["text"] for e in chat(daemon, "what's in my temp folder?") if e["type"] == "reply"]
     assert replies == [f"I couldn't start that: macOS didn't let FERB open {LOCKED} (Operation not permitted)."]
     assert not any("went wrong" in text for text in replies)
-    assert _journal(daemon, "chat.failed")[-1]["why"] == f"PermissionError: [Errno 1] Operation not permitted: '{LOCKED}'"
+    failed = _journal(daemon, "chat.failed")[-1]
+    assert failed["why"] == "PermissionError" and LOCKED in failed["detail"]
 
 
 def test_a_failure_after_a_task_started_says_finish(daemon: RunningDaemon) -> None:
@@ -143,8 +144,8 @@ def test_a_plan_still_invalid_after_one_repair_tells_the_remaining_problem(daemo
     stop["control"] = {"task_id": "no-such-task", "action": "stop", "standing_sends": "unchanged", "supersedes": []}
     install(daemon, [json.dumps(stop), json.dumps(stop)])
     replies = [e["text"] for e in chat(daemon, "stop that") if e["type"] == "reply"]
-    assert replies == ["I couldn't start that: the plan still had problems after one repair: Unknown task_id; no "
-                       "matching attempt exists in this conversation."]
+    assert replies == ["I couldn't start that: the plan still had problems after one repair: Unknown task_id: it isn't "
+                       "a running task or one of this chat's tasks."]
     failed = _journal(daemon, "chat.failed")
     assert [f["why"] for f in failed] == ["task still invalid after repair", "PlanRejected"]
 

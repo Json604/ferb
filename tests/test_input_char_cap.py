@@ -113,9 +113,9 @@ async def test_the_codex_runtime_refuses_an_input_over_its_cap_before_starting_c
 def test_the_planner_fits_chat_to_the_character_cap(daemon, monkeypatch) -> None:
     turns = 12
     script = install(daemon, [sup("reply", f"answer {i}") for i in range(turns)] + [sup("reply", "latest")])
-    for i in range(turns):
-        chat(daemon, f"message number {i} " + "filler " * 300)
     monkeypatch.setattr(FakeRuntime, "limits", capped(30_000))
+    for i in range(turns):
+        chat(daemon, f"message number {i} " + "filler " * 1500)   # beyond the last 20 exchanges: over one chunk
     chat(daemon, "what next?")
     request = [r for _, key, r in script.requests if key == "supervisor"][-1]
     assert len(request.context) <= 30_000
@@ -199,9 +199,9 @@ def test_the_running_summary_folds_what_fell_out_in_calls_that_fit_the_cap(daemo
     turns = 30
     script = install(daemon, [sup("reply", f"answer {i}") for i in range(turns)] + [sup("reply", "latest")],
                      {"summary": json.dumps({"summary": "EARLIER-SUMMARY of the tea questions."})})
-    for i in range(turns):
-        chat(daemon, f"message number {i} " + "filler " * 300)
     monkeypatch.setattr(FakeRuntime, "limits", capped(30_000))
+    for i in range(turns):
+        chat(daemon, f"message number {i} " + "filler " * 1500)   # beyond the last 20 exchanges: over one chunk
     chat(daemon, "what next?")
     d = daemon.daemon
 

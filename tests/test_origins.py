@@ -109,7 +109,8 @@ def test_per_turn_origin_lookups_read_one_kind_through_the_index(daemon: Running
         statements: list[str] = []
         conn.set_trace_callback(statements.append)
         try:
-            got = (sup_._request_origins("r1"), sup_._carried_origins("s1", "r9"), sup_._schedule_origins("k1"))
+            got = (sup_._request_origins("r1"), {o for e in sup_._carried("s1") for o in e.origin.split(",")},
+                   sup_._schedule_origins("k1"))
         finally:
             conn.set_trace_callback(None)
         reads = [sql for sql in statements if "FROM journal" in sql]

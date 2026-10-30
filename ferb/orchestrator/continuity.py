@@ -49,8 +49,6 @@ class Continuity:
             conversation = self.current()
         self.ensure(conversation)
         self.db.conn.execute("INSERT OR REPLACE INTO current_conversation VALUES (1, ?)", (conversation,))
-        if conversation == "owner":
-            self._import_legacy(conversation)
         return conversation
 
     def current(self) -> str:
@@ -90,21 +88,8 @@ class Continuity:
         result = json.loads(row["outcome_json"])
         state = f"{row['status']}: {result.get('summary', '')}"
         words = without_ferb_question(row["owner_words"])
-        if not row["request_payload"]:          # written before the full request was recorded (0012): maybe older
-            words = self._without_endorsed_question(words)
         return spec, Request(row["request_id"], words, spec.targets.targets(),
                              payload=row["request_payload"] or row["owner_words"]), state
-
-    def _without_endorsed_question(self, words: str) -> str:
-        """Before 4e0976a (2026-10-03), a plain yes to FERB's question appended that question, unlabeled and with
-        "your" read as "my", to the words recorded as the owner's. Removed only in exactly that form: FERB's own
-        recorded question (a chat.clarify row), transformed as that code did, on the lines right after a line that
-        code read as a yes, ending the text or a line. Anything else stays: nothing is stripped by a guess."""
-        rows = self.db.conn.execute("SELECT data_json FROM journal WHERE kind = 'chat.clarify'")
-        questions = {str(json.loads(r[0]).get("text") or "") for r in rows}
-        for question in sorted(filter(None, questions), key=len, reverse=True):
-            words = _strip_endorsed(words, "\n" + re.sub(r"\byour\b", "my", question, flags=re.I))
-        return words
 
     def prior_of(self, task_id: str) -> str | None:
         """The earlier task this task continued, as recorded (None when it continued none)."""
@@ -148,32 +133,53 @@ class Continuity:
                 records.append({"id": row["task_id"], "kind": "task", "data": row, "origin": made})
         return records
 
-    def _import_legacy(self, conversation: str) -> None:
-        """Recover older chat tasks from recorded owner messages and task spans; never invent missing approvals."""
-        rows = self.db.conn.execute(
-            "SELECT t.* FROM tasks t LEFT JOIN task_context c ON c.task_id=t.id "
-            "WHERE t.parent_id IS NULL AND c.task_id IS NULL ORDER BY t.rowid DESC").fetchall()
-        for row in rows:
-            messages = self.db.conn.execute(
-                "SELECT data_json FROM journal WHERE kind='chat.message' AND json_extract(data_json, '$.request_id')=?",
-                (row["request_id"],)).fetchall()
-            spans = self.db.conn.execute("SELECT input_json FROM spans WHERE kind='task' AND task_id=?",
-                                         (row["id"],)).fetchall()
-            if not messages or not spans:
-                continue
-            if len({message[0] for message in messages}) != 1 or len({span[0] for span in spans}) != 1:
-                raise ValueError(f"Conflicting legacy request sources for task {row['id']}; inspect the trace before resuming")
-            # Identical duplicate records are mechanical duplicates, not alternative request candidates.
-            message, span = messages[0], spans[0]
-            data = json.loads(span[0])
-            if data.get("identity") not in {"owner", "ferb"}:
-                continue
-            spec = TaskSpec(goal=data.get("goal", row["goal"]), identity=data["identity"],
-                            targets=data.get("targets", {}), success_conditions=[])
-            text = str(json.loads(message[0]).get("text", ""))
-            text = re.sub(r'<untrusted-data id="([^"]+)">.*?</untrusted-data id="\1">', " ", text, flags=re.S)
-            words = mark(text).own_words
-            self.save(row["id"], conversation, spec, words, payload=str(json.loads(message[0]).get("text", "")))
+
+LEGACY_UPGRADE = "continuity_legacy"     # the one-time upgrade below, journaled as store.upgraded once it has run
+
+
+def upgrade_legacy(db: Database, redact: Callable[..., Any]) -> dict[str, int]:
+    """One-time upgrade of chat continuity written by builds before 2026-10-03 (step 8c removed the shims that read it
+    on every load and attach): (1) a task's recorded owner words from before the full request was recorded
+    (migration 0012, empty `request_payload`) lose FERB's question that old code appended after a plain yes, in exactly
+    that form, and keep the words as recorded as the request payload; (2) root tasks recorded before task context
+    existed are registered in the owner's daily conversation from their recorded message and task span (never
+    inventing an approval; conflicting records are left out). Counts of what changed."""
+    continuity = Continuity(db, redact, lambda _task: set())
+    questions = {str(json.loads(r[0]).get("text") or "")
+                 for r in db.conn.execute("SELECT data_json FROM journal WHERE kind = 'chat.clarify'")}
+    rewritten = 0
+    for row in db.conn.execute("SELECT task_id, owner_words FROM task_context WHERE COALESCE(request_payload, '') = ''"
+                               ).fetchall():
+        words = str(row["owner_words"] or "")
+        for question in sorted(filter(None, questions), key=len, reverse=True):
+            words = _strip_endorsed(words, "\n" + re.sub(r"\byour\b", "my", question, flags=re.I))
+        db.conn.execute("UPDATE task_context SET owner_words = ?, request_payload = ? WHERE task_id = ?",
+                        (words, str(row["owner_words"] or ""), row["task_id"]))
+        rewritten += 1
+    continuity.ensure("owner")
+    imported = skipped = 0
+    rows = db.conn.execute("SELECT t.* FROM tasks t LEFT JOIN task_context c ON c.task_id=t.id "
+                           "WHERE t.parent_id IS NULL AND c.task_id IS NULL ORDER BY t.rowid DESC").fetchall()
+    for row in rows:
+        messages = db.conn.execute(
+            "SELECT data_json FROM journal WHERE kind='chat.message' AND json_extract(data_json, '$.request_id')=?",
+            (row["request_id"],)).fetchall()
+        spans = db.conn.execute("SELECT input_json FROM spans WHERE kind='task' AND task_id=?", (row["id"],)).fetchall()
+        if not messages or not spans:
+            continue
+        if len({message[0] for message in messages}) != 1 or len({span[0] for span in spans}) != 1:
+            skipped += 1                    # conflicting records: never guessed between
+            continue
+        data = json.loads(spans[0][0])
+        if data.get("identity") not in {"owner", "ferb"}:
+            continue
+        spec = TaskSpec(goal=data.get("goal", row["goal"]), identity=data["identity"],
+                        targets=data.get("targets", {}), success_conditions=[])
+        text = str(json.loads(messages[0][0]).get("text", ""))
+        own = re.sub(r'<untrusted-data id="([^"]+)">.*?</untrusted-data id="\1">', " ", text, flags=re.S)
+        continuity.save(row["id"], "owner", spec, mark(own).own_words, payload=text)
+        imported += 1
+    return {"rewritten": rewritten, "imported": imported, "conflicting": skipped}
 
 
 # The old code's plain-yes check, verbatim (supervisor._affirmative before 4e0976a), to recognise what it wrote.

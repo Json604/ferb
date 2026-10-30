@@ -39,7 +39,7 @@ def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home)
             grant = d.daemon.tokens.validate(token)
             rec = d.daemon.tasks.get(grant.task_id)
             request = d.daemon.state.requests.get(rec.task.request_id)
-            seen.append((rec.task.goal, request, supervisor._env[request.request_id]))
+            seen.append((rec.task.goal, request))
             return json.dumps({"status": "failed", "summary": "Waiting for login", "artifacts": [], "evidence": []})
 
         script = install(d, [json.dumps(retry)], {"worker": worker})
@@ -47,7 +47,6 @@ def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home)
         assert result["task_id"] == first["task_id"]        # a continue carries on in the same task (L11, P19)
         assert "Work profile" in seen[0][0] and "Login required" in seen[0][0]
         assert "shop.example" in seen[0][1].words
-        assert seen[0][2]["profile_test"] == "Work"
         assert first["task_id"] in script.contexts[0][2]
     finally:
         d.stop()
@@ -61,6 +60,8 @@ def test_context_is_redacted_and_legacy_tasks_are_recovered_without_grants(daemo
     async def verify():
         store = daemon.daemon.supervisor.continuity
         store.db.conn.execute("DELETE FROM task_context WHERE task_id=?", (first["task_id"],))
+        from ferb.orchestrator.continuity import upgrade_legacy     # the one-time upgrade of an older database
+        assert upgrade_legacy(store.db, daemon.daemon.redact)["imported"] == 1
         conversation = store.attach()
         spec, request, state = store.load(first["task_id"], conversation)
         assert "Work profile" in request.words and "Login required" in state
@@ -146,12 +147,12 @@ def test_legacy_recovery_rejects_conflicting_request_sources(daemon):
     install(daemon, [sup('task', 'Starting', task('inspect source'))], {'worker': done('read')})
     first = outcome(chat(daemon, 'inspect source', session='legacy'))
     async def check():
-        from pytest import raises
         store = daemon.daemon.supervisor.continuity
         task_id = first['task_id']
         row = store.db.conn.execute('SELECT request_id FROM tasks WHERE id=?', (task_id,)).fetchone()
         store.db.conn.execute('DELETE FROM task_context WHERE task_id=?', (task_id,))
         daemon.daemon._journal().append('chat.message', {'request_id': row[0], 'text': 'different source'})
-        with raises(ValueError, match='Conflicting legacy request'):
-            store.attach()
+        from ferb.orchestrator.continuity import upgrade_legacy
+        assert upgrade_legacy(store.db, daemon.daemon.redact)['conflicting'] == 1      # never guessed between
+        assert store.conversation_of(task_id) is None
     daemon.run(check())

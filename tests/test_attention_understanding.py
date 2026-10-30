@@ -212,9 +212,9 @@ def test_the_consideration_sees_memory_chat_running_tasks_and_the_apps_told_noti
                                                                    made(role, mode=mode, tool_names=tool_names,
                                                                         schema=schema))[1]
     now = _record(daemon, _tab(SUCCESS, "Settings - Claude"))
-    kept = set(sup_._env)
+    kept = set(sup_._turns)
     daemon.run(d._consider_attention({"batch_id": "b-now", "source_refs": ["trail:" + now.id]}))
-    assert set(sup_._env) == kept                          # the run's context exposures don't stay behind
+    assert set(sup_._turns) == kept                          # the run's context exposures don't stay behind
     context, system = script.contexts[-1][2], script.requests[-1][2].system
     assert "uniquememoryfact" in context and "claude" in words[-1].lower()         # memory, recalled for these rows
     assert "uniqueownerline" in context                                            # the recent chat

@@ -14,6 +14,7 @@ import re
 import hashlib
 from pathlib import Path
 from contextlib import suppress
+from functools import partial
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal, cast
@@ -35,7 +36,7 @@ from ferb.trace.lines import clip
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer, observes
-from ferb.memory.items import query_terms, whole_clauses
+from ferb.memory.items import query_terms, quoted
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.context_layers import target_words
@@ -66,7 +67,7 @@ from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
 from ferb.orchestrator.worker import (BUG, ConnectionNotice, InvalidAnswer, Overflowed, ServiceDown, ServiceError,
                                       WorkerRuns, account_problem, couldnt, model_limits, reason, reserve_tokens)
-from ferb.runtimes.catalog import label
+from ferb.runtimes.catalog import PLANNER_LIMIT_S, label
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm, provenance
 from ferb.policy.rules import ActionRequest
@@ -144,7 +145,19 @@ def _env_text(env: dict[str, Any]) -> str:
 
 # A scheduled run whose task stream ended with no outcome: code knows only that
 NO_OUTCOME = "I couldn't finish this scheduled run: it ended without reporting an outcome. " + BUG
-ATTEMPTS_TOKENS = 2000      # resumable attempts: newest that fit
+ATTEMPTS_TOKENS = 2000      # this chat's ended tasks in the planner's task block: newest that fit
+# Decision 4 (owner, 2026-10-30, "Recent + summary"): the planner reads the last RECENT_EXCHANGES exchanges word for word
+# (an owner message and FERB's replies to it) plus FERB's running summary of everything older. The token caps are
+# technical rulings (step 8c), all here:
+RECENT_EXCHANGES = 20               # owner decision: at least the last 20 exchanges, always
+RECENT_CONVERSATION_TOKENS = 15_000  # safety cap on what counts as "the last 20": beyond it, older exchanges may fold
+FOLD_CHUNK_TOKENS = 20_000          # the unfolded tail folds once it holds this much beyond them; one summary call
+                                    # folds at most this much
+SUMMARY_TOKENS = 2_000              # FERB's running summary is kept within this (asked of its writer, enforced on show)
+# Owner, 2026-10-31: the summary holds only the recent thread (about this many days) and what is still open; older
+# settled material falls out of it (memory facts and episodes hold what lasts)
+SUMMARY_DAYS = 14
+REPORT_SHORT_CHARS = 300            # a task's report in the planner's history: its first paragraph, clipped here
 CONVERSATION_KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer", "chat.notice")   # notices: L10
 SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older conversation (L28)
 # L3: what the owner's chat message can answer, by the question's id from the planner's context, and FERB's own words
@@ -153,9 +166,21 @@ ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask", EDIT_MEMORY_ASK}) | FER
 ANSWERED = "Got your answer."
 FORGET_NEEDS_WORDS = ("A forget needs your own words asking for it (a whole sentence or clause), so I didn't ask about "
                       "deleting anything.")
-# On an event of `_send`: more of this turn follows that must register before the next message is routed (re-review of
-# M1). `send` removes it; no client sees it.
-TURN_CONTINUES = "_turn_continues"
+# Decision 18 (owner, 2026-10-30): a turn restarts at most once, for a message sent before its first reply; its planner
+# calls, the restart's included, share one time limit (decision 11, PLANNER_LIMIT_S)
+MAX_RESTARTS = 1
+TIMED_OUT = ("I couldn't work out a reply within {limit:g} seconds, so I stopped. Send it again and I'll try once "
+             "more.")
+STOP_SETTLING = "I've asked it to stop; it's still finishing what it was doing, so I haven't started anything else."
+RETRY_SETTLING = "I've stopped the earlier attempt; I'll start again as soon as it has finished."
+STOPPED = "Stopped, as you asked."
+ALREADY_ENDED = "That attempt has already ended."
+ALREADY_FINISHED = "That task had already finished its work, so there was nothing to stop."
+UNKNOWN_TASK = "I couldn't find that task. Tell me which task to stop or retry."
+# Mid-task changes code can't make to a running task (fix list, Intake): said in the reply, never dropped silently
+KEPT_IDENTITY = "It keeps working as {who}: a running task can't switch whose account it uses."
+KEPT_PLAN = "It keeps its current plan: a running task's steps can't be rearranged while it runs."
+NEXT_WORKER = "Its next attempt uses {worker}."
 NOT_WAITING = "That question isn't waiting for an answer any more, so I didn't count your message as one."
 WHICH_QUESTION = "I couldn't tell which question that answers. Which one is it for?"
 NO_QUESTION = "No question is waiting for your answer right now."
@@ -249,9 +274,6 @@ class ChatSession:
     pending: str = ""          # the owner's words of a request FERB asked a question about (an answer continues it)
     asked: str = ""            # that question, as the owner saw it
     payload: str = ""          # complete prior request, including marked source data
-    # the last task row when this session started: tasks recorded after it are the status facts' finished ones (R4);
-    # None: no finished tasks, only running ones
-    task_floor: int | None = None
 
 
 def _bare(text: str) -> str:
@@ -281,6 +303,182 @@ class _Side:
     events: list[dict[str, Any]]
     lines: list[str]
     refused: list[tuple[str, str]]
+
+
+def _nothing() -> None:
+    return None
+
+
+def _close_queue(queue: "asyncio.Queue[Any]", _: Any) -> None:
+    queue.put_nowait(None)
+
+
+@dataclass
+class _Arrival:
+    """One owner message on its way into a turn: it leads a turn, or is read with another one (decision 18)."""
+    request_id: str
+    text: str
+    input_paths: list[str]
+    screen: Awaitable[Any] | None
+    role: "asyncio.Future[tuple[str, Any]]"
+    entry: JournalEntry | None = None    # its chat.message, journaled once however often its turn restarts
+    marked: Any = None                   # its own words and pasted parts (sanitize.untrusted.mark)
+    paths: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _Start:
+    """What a chat turn continues, read once however often it restarts: FERB's pending question in this chat and the
+    request it was about, and FERB's own "which question?" focus."""
+    session: "ChatSession"
+    focus: "_Focus | None"
+    pending: str
+    asked: str
+    payload: str
+    asked_outside: set[str]
+    carried: list[JournalEntry]
+    paths: list[str]
+
+
+@dataclass
+class _Turn:
+    """One planning turn, typed (step 8c; it replaces the untyped per-request dict): a chat turn, a scheduled run's or
+    a resumed task's. What the planner was given and saw (its origins, reads and assembly), and what the turn's reply
+    and task carry. Answers in steps (step 8d) add the turn's parts here."""
+    request_id: str
+    session: "ChatSession"
+    words: str = ''                  # what the environment and memory searches read
+    payload: str = ''                # the request as the model reads it (pasted parts marked as data)
+    own_words: str = ''              # what the owner typed in this turn's messages (pasted parts left out)
+    typed: str = ''                  # and before it the request a question of FERB's continued: what quotes must hold
+    typed_lines: str = ''            # the same with the owner's line breaks (memory capture)
+    for_model: str = ''              # this turn's messages as the model reads them
+    untrusted: bool = False          # some of its messages is pasted or quoted outside text
+    entries: list[JournalEntry] = field(default_factory=list)    # its chat.message rows, the lead's first
+    carried: list[JournalEntry] = field(default_factory=list)    # the earlier messages a question of FERB's continued
+    focus: "_Focus | None" = None
+    clarified: str = ''              # the question of FERB's this turn may answer
+    asked_outside: set[str] = field(default_factory=set)
+    input_paths: list[str] = field(default_factory=list)
+    attached: bool = False           # the owner attached files to one of its messages
+    message_origin: set[str] = field(default_factory=set)
+    request_origins: set[str] | None = None    # a scheduled run's: what the message that made it carried (L4)
+    environment: dict[str, Any] = field(default_factory=dict)    # "stable" and "live" (EnvironmentPort.environment)
+    screen: dict[str, Any] | None = None       # the front window at send (L12); None when none was taken
+    schedule_previous: dict[str, Any] | None = None
+    turn_origins: set[str] = field(default_factory=set)          # what its planner saw (S3)
+    exposures: list[dict[str, Any]] = field(default_factory=list)
+    assembly: Assembly | None = None
+    planner_sources: str = ''
+    inventory: Any = None
+    intake_receipts: list[str] = field(default_factory=list)
+    side_lines: list[str] = field(default_factory=list)
+    acknowledged: str = ''           # FERB's word on an answer, said with the planner's reply
+    reopened: set[str] = field(default_factory=set)              # trees whose Noes this turn reopened
+    answered_tree: str | None = None  # the task whose question this turn answered
+    release: Callable[[], None] = _nothing     # lets the chat's next message in (the turn has replied)
+
+    @property
+    def request_ids(self) -> frozenset[str]:
+        return frozenset({self.request_id, *(str(e.data.get("request_id")) for e in self.entries)})
+
+    @property
+    def source_ref(self) -> str:
+        return "journal:" + self.entries[0].id if self.entries else ''
+
+    @property
+    def front_window(self) -> Any:
+        return (self.screen or {}).get("front_window")
+
+    @property
+    def front_image(self) -> ModelImage | None:
+        return (self.screen or {}).get("front_image")
+
+
+@dataclass
+class _Run:
+    """A chat's turn while it holds the chat: its messages (the first leads, the others were read with it), whether it
+    is still thinking (no reply yet), its restarts and the deadline its planner calls share (decision 18)."""
+    lead: _Arrival
+    arrivals: list[_Arrival]
+    thinking: bool = True
+    restarts: int = 0
+    restart: bool = False
+    deadline: float | None = None
+    think: "asyncio.Task[None] | None" = None
+    start: _Start | None = None
+    seen: dict[str, Any] | None = None           # the lead's front window, awaited once
+    turn: _Turn | None = None
+    out: SupervisorOutcome | None = None
+
+
+class _ChatLine:
+    """One chat's messages in arrival order (decision 18): a message sent while the chat's turn is still thinking
+    restarts it once, read together with it; any later message waits, and the messages that waited are read together
+    in the next turn. Code-enforced, never by a prompt."""
+
+    def __init__(self) -> None:
+        self.holder: _Run | None = None
+        self.queued: list[_Arrival] = []
+
+    def arrive(self, arrival: _Arrival) -> None:
+        run = self.holder
+        if run is not None and run.thinking and run.restarts < MAX_RESTARTS:
+            run.restarts += 1
+            run.arrivals.append(arrival)
+            run.restart = True
+            if run.think is not None:
+                run.think.cancel()
+            arrival.role.set_result(("merged", run.lead.request_id))
+            return
+        self.queued.append(arrival)
+        self._next()
+
+    def withdraw(self, arrival: _Arrival) -> None:
+        if arrival in self.queued:
+            self.queued.remove(arrival)
+
+    def release(self, run: _Run) -> None:
+        if self.holder is run:
+            self.holder = None
+            self._next()
+
+    def _next(self) -> None:
+        if self.holder is not None or not self.queued:
+            return
+        batch, self.queued = self.queued, []
+        self.holder = _Run(batch[0], list(batch))
+        batch[0].role.set_result(("lead", self.holder))
+        for other in batch[1:]:
+            other.role.set_result(("merged", batch[0].request_id))
+
+
+def work_in(folders: list[str]) -> str:
+    """The plan line's folder statement (hands decision 4), the home folder shown as ~."""
+    home = str(Path.home())
+    shown = ["~" + f[len(home):] if f == home or f.startswith(home + "/") else f for f in folders]
+    return "I'll work in " + ", ".join(shown) + "."
+
+
+def _short_report(text: str) -> str:
+    """A task's report as the planner's history shows it (decision 4): its first paragraph, clipped to
+    REPORT_SHORT_CHARS; chat.history keeps the full text."""
+    first = text.strip().split("\n\n", 1)[0].strip()
+    return first if len(first) <= REPORT_SHORT_CHARS else first[:REPORT_SHORT_CHARS - 1].rstrip() + "…"
+
+
+def _within_tokens(text: str, limit: int) -> str:
+    """`text` cut to at most `limit` tokens (estimated), marked as cut."""
+    if count_tokens(text) <= limit:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if count_tokens(text[:mid]) <= limit - 20:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo].rstrip() + " … [cut to fit; chat.history has every entry]"
 
 
 def _labeled(value: Any) -> tuple[str, str]:
@@ -340,6 +538,7 @@ class _Entry:
     handle: str                # lineage handle: entry:<journal id> or task:<task id>
     kind: str = "task"         # the journal kind, or "task" for a task row
     refs: tuple[str, ...] = ()  # what else the entry cites: a notice's source rows (L10), so derived work traces to them
+    opens: bool = False        # an owner message that opens an exchange (one read with an earlier message doesn't)
 
 
 def _entry_payload(kind: str, data: dict[str, Any]) -> str:
@@ -394,6 +593,7 @@ class _Tree:
     steering: Steering = field(default_factory=Steering)
     result_revision: int = 0
     accepting_updates: bool = True
+    work_done: bool = False              # the checker accepted the task's own work; it is tidying up (stop refused)
     side_lines: list[str] = field(default_factory=list)   # what code did with the turn's reminders/memory (L11)
     finished: asyncio.Event = field(default_factory=asyncio.Event)
     start_block: ContextBlock | None = None          # L12: the owner's front window at send, for this tree's worker
@@ -486,9 +686,16 @@ class _Watch(Observer):
         self.sup.activity.waiting(worker, on)
 
 
-def _summary_blocks(previous: JournalEntry | None, copied: list[Any]) -> list[ContextBlock]:
-    """A running-summary call's context: the latest summary, then the entries it folds in, oldest first (data)."""
-    return [ContextBlock("FERB's earlier running summary (data):\n" + str(previous.data.get("text", "")),
+def _summary_blocks(previous: JournalEntry | None, copied: list[Any], today: datetime | None = None
+                    ) -> list[ContextBlock]:
+    """A running-summary call's context: its bounds (size, and the days it covers as of today), the latest summary, then
+    the entries it folds in, oldest first (data)."""
+    when = f" Today is {today.astimezone():%a %d %b %Y}." if today is not None else ""
+    return [ContextBlock(f"Keep the new summary within about {SUMMARY_TOKENS} tokens. Keep only the last "
+                         f"{SUMMARY_DAYS} days of the conversation and anything still open.{when}", "summary bound",
+                         protected=True),
+            ContextBlock("FERB's earlier running summary (data):\n" +
+                         _within_tokens(str(previous.data.get("text", "")), SUMMARY_TOKENS),
                          "chat.history", protected=True) if previous else ContextBlock("", ""),
             ContextBlock("Entries to fold in, oldest first (data):\n" +
                          wrap_untrusted("\n\n".join(e.text for e in copied)), "chat.history", protected=True)]
@@ -520,6 +727,8 @@ class Supervisor(WorkerRuns):
         self.browser_context: Callable[[str], str] = browser.browser_context
         self.task_tabs: Callable[[str], list[dict[str, Any]]] = browser.task_tabs
         self.on_loop_rest: Callable[[str, bool], Awaitable[None]] | None = browser.on_loop_rest
+        # hands decision 3: the owner asked to keep a task's tabs (at its end they leave the group and stay open)
+        self.keep_tabs_open: Callable[[str], None] = browser.keep_tabs_open
         self._resting: set[str] = set()          # loop task ids between rounds (L31): `loop_resting`
         # L34 Phase G: open until an update's hold; a new tree and a loop's next round wait on it, and the shutdown
         # that follows the hold cancels them (a loop's round then runs after the restart, L31)
@@ -550,7 +759,9 @@ class Supervisor(WorkerRuns):
         self._summarizing: dict[str, asyncio.Task[None]] = {}       # chat id -> its running-summary update (L28)
         self._episode_jobs: set[asyncio.Task[None]] = set()           # learning captures after an outcome (L28)
         self._capture_lock = asyncio.Lock()
-        self._chat_locks: dict[str, asyncio.Lock] = {}
+        self._lines: dict[str, _ChatLine] = {}        # chat id -> its messages in arrival order (decision 18)
+        # Owner decisions 11 and 18: a chat turn's planner calls, a restart's included, share this many seconds
+        self.planner_limit_s: float = PLANNER_LIMIT_S
         # L3: what FERB itself just asked a chat about an answer, used by that chat's next message only: the owner's
         # earlier words (a "which one is it for?") or None (a "Yes or No?"), and the questions it named.
         self._answer_focus: dict[str, _Focus] = {}
@@ -588,7 +799,9 @@ class Supervisor(WorkerRuns):
         self.availability: Callable[[], Availability] = environment.availability
         # may return its observations later (an awaitable)
         self.environment: Callable[[str], dict[str, Any] | Awaitable[dict[str, Any]]] = environment.environment
-        self._env: dict[str, dict[str, Any]] = {}
+        # what changes between turns (schedules, reminders, browser connections): after the conversation (decision 4)
+        self.live_facts: Callable[[], str] = environment.live_facts
+        self._turns: dict[str, _Turn] = {}         # request id -> its planning turn while it runs (step 8c)
         self.apps: Callable[[], list[tuple[str, str]]] = environment.apps
         self.running_apps: Callable[[], list[tuple[str, str, int]]] = environment.running_apps
         self.pasted_is_data: Callable[[], bool] = environment.pasted_is_data
@@ -607,8 +820,11 @@ class Supervisor(WorkerRuns):
         """Single insertion point for a future verified approach; harness mechanics never depend on it."""
         return "orchestrator/prompts"
 
-    def _system(self, name: str | None = None) -> str:
-        facts = self.facts()
+    def _system(self, name: str | None = None, *, live: bool = True) -> str:
+        """A role's instructions: the shared and role prompts, what's usable now, the facts about this FERB, the owner's
+        identity and rules, and the skill and ability catalogs. `live`: also the facts that change between turns; the
+        planner gets those after the conversation instead (decision 4), so its instructions stay a cacheable prefix."""
+        facts = "\n".join(part for part in (self.facts(), self.live_facts() if live else "") if part)
         directory = self._approach()
         text = load_prompt(directory + "/interaction.md")
         if name is not None:
@@ -627,7 +843,7 @@ class Supervisor(WorkerRuns):
 
     def _set_timers(self, items: list[Any], said: list[tuple[str, str]],
                     request_id: str, chain: str = "") -> tuple[list[Any], list[tuple[str, str]], list[Any]]:
-        """Reminders the owner asked for in chat: kept only when the quote is within one of the owner's own messages
+        """Reminders the owner asked for in chat: kept only when the quote is whole words of one of the owner's messages
         and the time is in the future. `said`: (request id, the owner's words, never pasted text) of the current
         message first, then this chat's earlier messages, newest first. A message authorizes its reminder once (L11):
         a reminder already set from it, in any state and in this turn too, refuses another. Two reminders are the same
@@ -638,8 +854,8 @@ class Supervisor(WorkerRuns):
         reminder records the request that asked for it. Returns the reminders set, the message and code's reason for
         each one refused, and the reminders that already existed for the others (each once). A quote of several messages
         joined by blank lines (a request asked over a clarification: "remind me … on oct30", "anytime", "7pm") counts
-        when every part is exactly one of the owner's own messages and lies in this request's chain of owner words
-        (`chain`), never pasted text or words they didn't type (MP2); the first part's message is the one that asked."""
+        when every part is in this request's chain of owner words (`chain`), never pasted text or words they didn't
+        type (MP2; the one quote check, `items.quoted`); the message holding its first part is the one that asked."""
         if self.timers is None:
             return [], [(str(it.message), "FERB has no reminder store running") for it in items], []
         now = self.clock.now()            # one moment for the whole turn: the same `when` resolves to the same time
@@ -651,17 +867,15 @@ class Supervisor(WorkerRuns):
         def exists(timer: Any) -> None:                   # one line per reminder, however many copies named it
             if all(e.id != timer.id for e in existing):
                 existing.append(timer)
-        def plain(text: str) -> str:
-            return " ".join(text.lower().split())
         for it in items:
-            quote = plain(str(it.quote))
+            quote = " ".join(str(it.quote).lower().split())
             try:
-                asked = [source for source, words in said if quote and quote in plain(words)]
-                parts = [plain(part) for part in re.split(r"\n[ \t]*\n", str(it.quote)) if part.strip()]
-                if not asked and len(parts) > 1:
-                    owners = {plain(words): source for source, words in reversed(said)}   # newest wins
-                    if all(part in owners and part in plain(chain) for part in parts):
-                        asked = [owners[parts[0]]]
+                # the one quote check (items.quoted): whole words of a message the owner typed
+                asked = [source for source, words in said if quoted(words, str(it.quote))]
+                parts = [part for part in re.split(r"\n[ \t]*\n", str(it.quote)) if part.strip()]
+                if not asked and len(parts) > 1 and quoted(chain, str(it.quote)):
+                    # asked over a clarification: its first part's message (newest first) is the one that asked
+                    asked = [next((source for source, words in said if quoted(words, parts[0])), said[0][0])]
                 if not asked:
                     raise ValueError("the words I quoted from you aren't in any message you typed in this chat")
                 at: datetime | None = None
@@ -719,26 +933,27 @@ class Supervisor(WorkerRuns):
                 continue
         return None
 
-    def _reopen_noes(self, tree_id: str, request_id: str, entry: Any, own_words: str) -> str | None:
+    def _reopen_noes(self, tree_id: str, turn: "_Turn") -> None:
         """Controller ruling (L11 round 4): the owner's own new message carrying a task on (continue, retry or steer)
         reopens each No recorded in its tree before it, so FERB asks that question again, once, if the action comes
         up again; a Yes still comes only from the owner's answer to it. Decided from provenance, never wording: the
-        control came in this chat message, holding words the owner typed (a message that is all pasted text reopens
-        nothing, MP2). The orchestrator's own retries never come here, so a No stays final for them (rule 9). Returns
-        the tree reopened, if any."""
-        if not own_words.strip() or origins_.OWNER not in origins_.split(entry.origin):
-            return None
-        self.gateway.reopen_noes(tree_id, request_id, "journal:" + entry.id)
-        return tree_id
+        control came in this turn's chat message, holding words the owner typed (a message that is all pasted text
+        reopens nothing, MP2). The orchestrator's own retries never come here, so a No stays final for them (rule 9).
+        Once per turn and tree."""
+        entry = next((e for e in turn.entries if origins_.OWNER in origins_.split(e.origin)), None)
+        if not turn.own_words.strip() or entry is None or tree_id in turn.reopened:
+            return
+        turn.reopened.add(tree_id)
+        self.gateway.reopen_noes(tree_id, turn.request_id, "journal:" + entry.id)
 
-    def _owner_words_in_chat(self, session_id: str, current: str) -> list[tuple[str, str]]:
+    def _owner_words_in_chat(self, session_id: str, current: frozenset[str]) -> list[tuple[str, str]]:
         """(request id, the owner's own words) of each earlier message in this chat, newest first (MP2): only messages
         recorded as theirs, without the pasted or quoted parts FERB marked as outside data. A message recorded before
-        FERB counted those parts is left out (its origin is unlabeled)."""
+        FERB counted those parts is left out (its origin is unlabeled). `current`: this turn's own requests."""
         words = []
         for entry in self.journal.of_kind("chat.message", "session_id", session_id, missing="owner"):
             held = origins_.split(entry.origin)
-            if (entry.data.get("request_id") != current and origins_.OWNER in held
+            if (entry.data.get("request_id") not in current and origins_.OWNER in held
                     and origins_.external("unlabeled") not in held):
                 words.append((str(entry.data.get("request_id", "")), WRAPPED.sub(" ", str(entry.data.get("text", "")))))
         return words[::-1]
@@ -748,62 +963,83 @@ class Supervisor(WorkerRuns):
         """The task's targets with paths in the form the gateway uses."""
         return spec.targets.targets([normalize_path(p, self.workspace) for p in spec.targets.paths])
 
-    async def _decide(self, session: ChatSession, message: str, request_id: str,
-                      recalled: Any = "", *, emit: Callable[[dict[str, Any]], None] | None = None) -> SupervisorOutcome:
-        """Repair an invalid task reference without inferring task intent or account permission."""
+    async def _decide(self, turn: "_Turn", *, emit: Callable[[dict[str, Any]], None] | None = None
+                      ) -> SupervisorOutcome:
+        """The planner's choice for this turn, repaired once when code finds it invalid (the schema; a task reference
+        that isn't one shown; worker types; folders; plan inventories). Code never infers task intent or account
+        permission here."""
         try:
-            out = await self._supervise(session, message, request_id, recalled, emit=emit, notify=emit)
+            out = await self._supervise(turn, emit=emit, notify=emit)
         except (ValidationError, InvalidAnswer) as exc:      # pydantic, FERB's schema check, or the adapter's
             problems = [str(exc)]
-            self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
-            out = await self._supervise(session, message, request_id, recalled, repair=problems, notify=emit)
-        async def problems_for(candidate: SupervisorOutcome) -> list[str]:
-            problems: list[str] = []
-            if candidate.control and self.continuity.load(candidate.control.task_id, session.id) is None:
-                problems.append("Unknown task_id; no matching attempt exists in this conversation.")
-            if candidate.task:                  # a worker type is one of the listed ones (D32), told back for repair
-                named = [candidate.task.worker_type, *(step.worker_type for step in
-                                                       (candidate.task.plan.steps if candidate.task.plan else []))]
-                types = self.worker_types()
-                if unknown := sorted({name for name in named if name not in types}):
-                    problems.append(f"worker_type {', '.join(map(repr, unknown))} isn't one of the worker types "
-                                    f"available now: {', '.join(types)}.")
-            if candidate.task and candidate.task.plan:
-                plan = candidate.task.plan
-                paths = list(dict.fromkeys(normalize_path(p, self.workspace) for p in
-                    [*plan.input_paths, *self._env.get(request_id, {}).get('input_paths', [])]))
-                plan.input_paths = paths
-                protection = self.roots.protection
-                closed = [p for p in paths if protection and protection.fs_denied(Path(p), 'read')]
-                if closed:
-                    problems.append('Inventory paths are protected: ' + json.dumps(closed))
-                else:
-                    denied = (lambda file: protection.fs_denied(file, 'read')) if protection else None
-                    facts = await inventory(paths, denied)           # walked off the loop (L23)
-                    self._env.setdefault(request_id, {})['inventory'] = facts
-                    scopes = frozenset(s for cap in self.gateway.caps.values() for s in cap.scopes)
-                    grant = RunGrant(request_id, request_id, scopes, Identity(candidate.task.identity), float('inf'))
-                    reserve = count_tokens(self._system('worker.md') + message + json.dumps(WORKER_SCHEMA) +
-                                           json.dumps(self.gateway.tools_for(grant)))
-                    worker = self.make_runtime("worker:" + candidate.task.worker_type, mode="worker", tool_names=[],
-                                               schema=WORKER_SCHEMA)
-                    available = max(0, model_limits(worker).context_budget - reserve)   # the worker model's window (L28)
-                    problems.extend(plan_problems(plan, facts, context_tokens=available))
-                    if problems:
-                        problems.append('Measured inventory: ' + json.dumps(facts))
-            return problems
-        problems = await problems_for(out)
+            self.journal.append("task.repair", {"request_id": turn.request_id, "problems": problems})
+            out = await self._supervise(turn, repair=problems, notify=emit)
+        problems = await self._problems(turn, out)
         if not problems:
             return out
-        self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
+        self.journal.append("task.repair", {"request_id": turn.request_id, "problems": problems})
         if emit is not None and out.kind == 'task':
             emit({'type': 'plan_abort', 'reason': 'The provisional plan needs correction.'})
-        out = await self._supervise(session, message, request_id, recalled, repair=problems, notify=emit)
-        if remaining := await problems_for(out):
-            self.journal.append("chat.failed", {"request_id": request_id, "why": "task still invalid after repair",
+        out = await self._supervise(turn, repair=problems, notify=emit)
+        if remaining := await self._problems(turn, out):
+            self.journal.append("chat.failed", {"request_id": turn.request_id, "why": "task still invalid after repair",
                                                 "problems": remaining})
             raise PlanRejected(remaining)               # the owner reads which check failed (owner 2026-10-24)
         return out
+
+    async def _problems(self, turn: "_Turn", candidate: SupervisorOutcome) -> list[str]:
+        """What code finds wrong with the planner's choice, told back for repair: a control on a task the planner wasn't
+        shown (any running task, any chat's or schedule's, or one of this chat's own: cross-chat control), a worker type
+        that isn't available, a folder that isn't one specific folder (hands decision 4), a plan whose inventory doesn't
+        fit. Folders are normalized in place."""
+        problems: list[str] = []
+        if candidate.control and self._control_conversation(candidate.control.task_id, turn.session.id) is None:
+            problems.append("Unknown task_id: it isn't a running task or one of this chat's tasks.")
+        if candidate.task:                  # a worker type is one of the listed ones (D32), told back for repair
+            named = [candidate.task.worker_type, *(step.worker_type for step in
+                                                   (candidate.task.plan.steps if candidate.task.plan else []))]
+            types = self.worker_types()
+            if unknown := sorted({name for name in named if name not in types}):
+                problems.append(f"worker_type {', '.join(map(repr, unknown))} isn't one of the worker types "
+                                f"available now: {', '.join(types)}.")
+            folders, broad = self._folders(candidate.task.folders)
+            candidate.task.folders = folders
+            if broad:
+                problems.append("folders must each name one specific folder, never the whole disk, the home folder, "
+                                "/Volumes or iCloud Drive itself: " + json.dumps(broad))
+        if candidate.task and candidate.task.plan:
+            plan = candidate.task.plan
+            paths = list(dict.fromkeys(normalize_path(p, self.workspace) for p in [*plan.input_paths, *turn.input_paths]))
+            plan.input_paths = paths
+            protection = self.roots.protection
+            closed = [p for p in paths if protection and protection.fs_denied(Path(p), 'read')]
+            if closed:
+                problems.append('Inventory paths are protected: ' + json.dumps(closed))
+            else:
+                denied = (lambda file: protection.fs_denied(file, 'read')) if protection else None
+                facts = await inventory(paths, denied)           # walked off the loop (L23)
+                turn.inventory = facts
+                scopes = frozenset(s for cap in self.gateway.caps.values() for s in cap.scopes)
+                grant = RunGrant(turn.request_id, turn.request_id, scopes, Identity(candidate.task.identity),
+                                 float('inf'))
+                reserve = count_tokens(self._system('worker.md') + turn.payload + json.dumps(WORKER_SCHEMA) +
+                                       json.dumps(self.gateway.tools_for(grant)))
+                worker = self.make_runtime("worker:" + candidate.task.worker_type, mode="worker", tool_names=[],
+                                           schema=WORKER_SCHEMA)
+                available = max(0, model_limits(worker).context_budget - reserve)   # the worker model's window (L28)
+                problems.extend(plan_problems(plan, facts, context_tokens=available))
+                if problems:
+                    problems.append('Measured inventory: ' + json.dumps(facts))
+        return problems
+
+    def _folders(self, folders: list[str]) -> tuple[list[str], list[str]]:
+        """The task's folders (hands decision 4: resolved by the planner from the owner's words; code allows exactly
+        those, never fuzzy-matched), normalized to absolute paths, and those that name no one specific folder: the whole
+        disk, the home folder itself, /Volumes or iCloud Drive itself (argument validity: a folder names a place)."""
+        home = Path.home()
+        whole = {Path("/"), home, Path("/Volumes"), home / "Library" / "Mobile Documents"}
+        normal = list(dict.fromkeys(normalize_path(f, self.workspace) for f in folders if f.strip()))
+        return normal, [f for f in normal if Path(f) in whole]
 
     async def run_scheduled(self, sched: Any, late: bool, overdue_s: float = 0, retry: bool = False) -> dict[str, Any]:
         """Decide an unattended run from its recorded request; report missing input when the owner is absent.
@@ -825,13 +1061,16 @@ class Supervisor(WorkerRuns):
             # when the last run that answered ran, and how it ended; its answer is its own block, with its origins
             "previous_run": {"ran_at": previous["ran_at"], "status": previous["status"],
                              "later_runs_without_answer": previous["skipped"]} if previous else None} | watched)
-        session = ChatSession(SCHEDULE_SESSION + sched.id, task_floor=self.tasks.max_rowid())
-        self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
-        self._env[request_id]["request_origins"] = self._schedule_sink_origins(sched.id)   # S4 (L4)
-        self._env[request_id]["schedule_previous"] = previous
-        try:                    # the run's per-request context goes when it ends, however it ends (final review M4)
+        session = ChatSession(SCHEDULE_SESSION + sched.id)
+        turn = _Turn(request_id, session, words=sched.request, payload=sched.request + note,
+                     message_origin=self._schedule_origins(sched.id),
+                     request_origins=self._schedule_sink_origins(sched.id),     # S4 (L4)
+                     schedule_previous=previous)
+        self._turns[request_id] = turn
+        try:                    # the run's turn goes when it ends, however it ends (final review M4)
             try:
-                out = await self._decide(session, sched.request + note, request_id)
+                turn.environment = dict(await _value(self.environment(sched.request)) or {})
+                out = await self._decide(turn)
             except Exception as e:      # before its task started: the cause is kept, and told by its reason (L21)
                 self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,
                                                     "detail": str(e)})
@@ -841,10 +1080,8 @@ class Supervisor(WorkerRuns):
             if out.kind != "task" or out.task is None:
                 status = "done" if out.kind == "reply" else "needs_user"
                 # in the schedule's conversation, so the next run (and its chat.history) has this answer
-                kind = "clarify" if out.kind == "clarify" else "reply"
-                made = origins_.join({origins_.INFERRED} | self._env.get(request_id, {}).get("turn_origins", set()))
-                self.journal.append(f"chat.{kind}", {"session_id": session.id, "request_id": request_id,
-                                                     "text": self.gateway.redact(out.text)}, origin=made)
+                self._record_reply(turn, "clarify" if out.kind == "clarify" else "reply", self.gateway.redact(out.text),
+                                   {origins_.INFERRED} | turn.turn_origins)
                 return {"task_id": request_id, "request_id": request_id, "status": status, "answer": out.text,
                         "goal": sched.request}
             recorded = Targets.from_json(sched.targets)
@@ -856,7 +1093,7 @@ class Supervisor(WorkerRuns):
                 return final | {"suspended": True}
             async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
                                           conversation_id=session.id,      # the next run sees this one's answer
-                                          origins=self._env.get(request_id, {}).get("turn_origins"),
+                                          origins=turn.turn_origins or None,
                                           unattended_scopes=recorded_scopes,
                                           start_grant=(recorded_scopes, SCHEDULE_GRANT + sched.id),
                                           watch=sched.watch != "none",
@@ -868,7 +1105,7 @@ class Supervisor(WorkerRuns):
                 return final | {"suspended": True}      # suspended by FERB's shutdown: it resumes, and reports, later
             return final
         finally:
-            self._env.pop(request_id, None)
+            self._turns.pop(request_id, None)
 
     def _previous_run(self, schedule_id: str) -> dict[str, Any] | None:
         """This schedule's most recent earlier run that left an answer (a task's answer, or the planner's reply), from
@@ -903,9 +1140,11 @@ class Supervisor(WorkerRuns):
                              payload=text), origins_.split(entry.origin))
 
     def stop_tree(self, tree_id: str) -> bool:
-        """The owner's stop of this task (`task.stop`); it's recorded as stopped by the owner."""
+        """The owner's stop of this task (`task.stop`); it's recorded as stopped by the owner. A task whose work has
+        already finished (its outcome is decided; it is only tidying up and reporting) isn't stopped: its finished work
+        is never recorded as cancelled (fix list, Intake). Whether it was stopped."""
         tree = self._tree_of.get(tree_id)
-        if tree is None:
+        if tree is None or ((tree.work_done or not tree.accepting_updates) and not tree.stop):
             return False
         tree.stop = tree.stop or STOPPED_BY_YOU
         self.cancel_tree(tree)
@@ -948,7 +1187,8 @@ class Supervisor(WorkerRuns):
         if tree is None or tree.stop or tree.id != tree_id:
             return False
         if tree_id not in self._pauses:
-            self._pauses[tree_id] = _Wait(tree_id, question, tuple(options), origin, capability)
+            self._pauses[tree_id] = _Wait(tree_id, question, tuple(options), origin, capability,
+                                          extra={'question_kind': 'closed_tab'} if question else {})
             self.journal.append('task.paused', {'task_id': tree_id, 'question': question}, origin=origin)
             self._set_status(tree_id, 'paused')
             self.publish('task.paused', {'task_id': tree_id})
@@ -1131,15 +1371,18 @@ class Supervisor(WorkerRuns):
                                                    'borrowed': bool(data.get('borrowed'))})
         return self.pause_tree(tree.id, question, options, capability=capability)
 
-    def _status_facts(self, session: ChatSession) -> tuple[list[dict[str, Any]], set[str], list[str]]:
-        """FERB's own record of the tasks a progress question can be about: each running tree (running, paused while
-        one of its loops waits for the owner, blocked when its latest worker report or a plan step is blocked, failed
-        or needs an answer, stopping; with its loops' states, `_loop_facts`), and this
-        conversation's latest tasks recorded since its session started (above the session's rowid floor, by key:
-        never the task table or the conversation's whole history, re-review 2/3 R4); with the first line of the latest worker report and the plan's step
-        counts. The report lines are model-written, so the block carries those tasks' origins (MP2)."""
-        rows: list[dict[str, Any]] = []
-        origins: set[str] = set()
+    def _task_state(self, session: ChatSession) -> tuple[tuple[ContextBlock, set[str]] | None, list[str]]:
+        """The planner's task state, shown once (decision 4; it was in up to four blocks): every running task of any
+        chat or schedule (the planner may stop, retry, continue or pause any of them: cross-chat control) with its
+        state (running; paused while it or one of its loops waits for the owner, with that question; blocked when its
+        latest report or a plan step is stuck; stopping), latest report, plan steps, loops and standing scope; then
+        this chat's ended tasks, newest first, as many as fit ATTEMPTS_TOKENS (a scheduled run's planner starts fresh:
+        its earlier runs are its conversation). Progress questions are answered from these, never from the chat (owner
+        2026-10-18). Model-written goals and reports: the block carries those tasks' origins (MP2). Also the ended task
+        ids it shows."""
+        mine = self.continuity.task_ids(session.id)
+        running: list[dict[str, Any]] = []
+        origins: set[str] = {origins_.INFERRED}
         refs: list[str] = []
 
         def first_line(text: Any) -> str:
@@ -1148,40 +1391,63 @@ class Supervisor(WorkerRuns):
             if key != tree.id:
                 continue
             last = tree.reports[-1] if tree.reports else None
-            counts: dict[str, int] = {}
-            if tree.spec.plan:              # this plan's steps (a replaced plan's kept results aren't steps: L11)
-                for step_id, step in self.plans.steps(key).items():
-                    if not step_id.startswith(EARLIER):
-                        counts[str(step["status"])] = counts.get(str(step["status"]), 0) + 1
+            steps = ({step_id: step for step_id, step in self.plans.steps(key).items()
+                      if not step_id.startswith(EARLIER)} if tree.spec.plan else {})
             stuck = ("blocked", "needs_user", "failed")
             loops = self._loop_facts(key)
             paused = key in self._pauses or self._waiting.get(key, 0) > 0
             state = ("stopping" if tree.stop else
                      "paused" if paused or any(loop["state"] == "paused" for loop in loops) else
-                     "blocked" if (last is not None and last.get("status") in stuck) or any(s in counts for s in stuck)
-                     else "running")
-            row: dict[str, Any] = {"task_id": key, "goal": first_line(tree.spec.goal), "state": state,
+                     "blocked" if (last is not None and last.get("status") in stuck) or
+                     any(str(step["status"]) in stuck for step in steps.values()) else "running")
+            row: dict[str, Any] = {"task_id": key, "chat": "this chat" if key in mine else
+                                   "a scheduled run" if tree.schedule_id else "another chat",
+                                   "goal": first_line(tree.spec.goal), "state": state,
                                    "worker_reports": len(tree.reports)}
             if paused and (question := self._questions.get(key) or getattr(self._pauses.get(key), 'question', '')):
                 row["question"] = first_line(question)
             if last is not None:
                 row["last_report"] = first_line(last.get("summary"))
-            if tree.spec.plan:
-                row["plan_steps"] = counts
+            if tree.spec.plan:              # this plan's steps (a replaced plan's kept results aren't steps: L11)
+                goals = {step.id: step.goal or step.question or step.kind for step in tree.spec.plan.steps}
+                row["plan_steps"] = [{"id": step_id, "goal": first_line(goals.get(step_id, "")),
+                                      "status": str(step["status"])} for step_id, step in steps.items()]
             if loops:
                 row["loops"] = loops
-            rows.append(row)
+            if scopes := self.standing.scopes(key):   # its standing scope in force (D30): a correction revises it whole
+                row["standing_scopes"] = [scope.model_dump() for scope in scopes]
+            if tree.spec.folders:
+                row["folders"] = list(tree.spec.folders)
+            running.append(row)
             origins |= self._task_line_origins(key)
             refs.append(TASK + key)
-        done = ([r for r in self.tasks.conversation_roots(session.id, session.task_floor) if r["id"] not in self._tree_of]
-                if session.task_floor is not None else [])
-        for r in done[-5:]:
-            outcome = json.loads(r.get("outcome_json") or "{}") if isinstance(r.get("outcome_json"), str) else {}
-            rows.append({"task_id": r["id"], "goal": first_line(r["goal"]), "state": r["status"],
-                         "last_report": first_line(outcome.get("summary"))})
-            origins |= self._task_line_origins(r["id"])
-            refs.append(TASK + r["id"])
-        return rows, origins, refs
+        ended: list[dict[str, Any]] = []
+        shown: list[str] = []
+        omitted = 0
+        if not session.id.startswith(SCHEDULE_SESSION):
+            used = 0
+            candidates = [r for r in self.continuity.candidates(session.id) if r["task_id"] not in self._tree_of]
+            for n, r in enumerate(candidates):
+                # its report is in the conversation (short form) or the summary, never repeated here
+                row = {"task_id": r["task_id"], "goal": first_line(r["goal"]), "state": r["status"]} | (
+                    {"continued_from": r["prior_task"]} if r.get("prior_task") else {})
+                cost = count_tokens(json.dumps(row))
+                if ended and used + cost > ATTEMPTS_TOKENS:
+                    omitted = len(candidates) - n
+                    break
+                ended.append(row)
+                shown.append(r["task_id"])
+                used += cost
+                origins |= self._task_line_origins(r["task_id"])
+                refs.append(TASK + r["task_id"])
+        if not running and not ended:
+            return None, shown
+        facts: dict[str, Any] = {"running": running, "ended_in_this_chat": ended}
+        if omitted:
+            facts["older_ended_not_shown"] = f"{omitted} (chat.history include_tasks=true)"
+        return (ContextBlock("Layer 6 — tasks: the task status facts (FERB's own records; each task once; data):\n" +
+                             wrap_untrusted(json.dumps(facts, ensure_ascii=False)), "chat.history include_tasks=true",
+                             protected=True, source_refs=tuple(refs)), origins), shown
 
     def _paused_words(self, tree_id: str, step_id: str) -> str:
         """The question of a loop's latest round as journaled (no round runs while it waits): its first line."""
@@ -1319,7 +1585,8 @@ class Supervisor(WorkerRuns):
             request_id = data['request_id']
             self.state.requests.record(Request(request_id, data['words'], spec.targets.targets(), payload=data['payload'],
                                                asked_origins=frozenset(self.spans.asked_origins(tree_id))))
-            self._env[request_id] = {'message_origin': set(data.get('message_origins', []))}
+            self._turns[request_id] = _Turn(request_id, ChatSession(saved['conversation'] or ''),
+                                            message_origin=set(data.get('message_origins', [])))
             schedule = data.get('schedule') if isinstance(data.get('schedule'), dict) else None
             if data.get('unattended'):
                 self.state.approvals.unattended.add(request_id)
@@ -1343,7 +1610,7 @@ class Supervisor(WorkerRuns):
                     if event.get('type') == 'outcome' and self.on_resumed_outcome:
                         await self.on_resumed_outcome(event)
             finally:
-                self._env.pop(request_id, None)
+                self._turns.pop(request_id, None)
         results = await asyncio.gather(*(restore(key) for key in self.plans.pending() if key not in self._tree_of), return_exceptions=True)
         for result in results:
             if isinstance(result, Exception):
@@ -1370,23 +1637,176 @@ class Supervisor(WorkerRuns):
 
     async def send(self, session_id: str, text: str, *, input_paths: list[str] | None = None,
                    request_id: str | None = None, screen: Awaitable[Any] | None = None) -> AsyncIterator[dict[str, Any]]:
-        """Route messages in arrival order until each has registered its work; workers keep running independently.
-        `request_id`: the id the daemon already acknowledged this message under (L7); its chat.message carries it.
-        `screen`: the owner's front window, as the daemon captures it from when the message arrived (L12)."""
-        request_id = request_id or self.ids.new_id()
-        lock = self._chat_locks.setdefault(session_id, asyncio.Lock())
-        await lock.acquire()
-        held = True
+        """One owner message in this chat (decision 18). A message sent while the chat's turn is still thinking (no reply
+        yet) restarts that turn once and is read with it; a later one waits, and the messages that waited are read
+        together in the next turn. A message another one's turn reads ends its own stream with `merged` (into that
+        message's request id); otherwise the stream carries its turn's events, and its task's until it ends.
+        `request_id`: the id the daemon acknowledged it under (L7). `screen`: the owner's front window, as the daemon
+        captures it from when the message arrived (L12)."""
+        arrival = _Arrival(request_id or self.ids.new_id(), text, list(input_paths or []), screen,
+                           asyncio.get_running_loop().create_future())
+        line = self._lines.setdefault(session_id, _ChatLine())
+        line.arrive(arrival)
         try:
-            async for event in self._send(session_id, text, input_paths or [], request_id, screen):
-                continues = bool(event.pop(TURN_CONTINUES, False))
-                if held and not continues and event.get('type') in ('plan', 'reply', 'clarify'):
-                    lock.release()
-                    held = False
+            role, value = await arrival.role
+        except asyncio.CancelledError:
+            line.withdraw(arrival)
+            raise
+        if role == "merged":
+            yield {"type": "merged", "into": value}
+            return
+        run: _Run = value
+        try:
+            async for event in self._turn(session_id, run, lambda: line.release(run)):
                 yield event
         finally:
-            if held:
-                lock.release()
+            line.release(run)
+
+    async def _turn(self, session_id: str, run: _Run, release: Callable[[], None]) -> AsyncIterator[dict[str, Any]]:
+        """The turn: the planner thinks (restarted, at most MAX_RESTARTS times, by a message sent before its first reply,
+        within one shared time limit), then the turn routes its choice and replies once (`_exit`), or starts its task."""
+        while True:
+            run.restart = False
+            events: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+            think = asyncio.create_task(self._think(session_id, run, events.put_nowait))
+            run.think = think
+            think.add_done_callback(partial(_close_queue, events))
+            try:
+                while (event := await events.get()) is not None:
+                    yield event
+            finally:
+                if not think.done():
+                    think.cancel()
+                # an already-failed decision is retrieved too, so its exception never reaches asyncio's logger
+                await asyncio.gather(think, return_exceptions=True)
+            if not run.restart:
+                break
+            # the planner changes nothing until it returns, so its turn starts again with every message (decision 10)
+            self.journal.append("chat.restarted", {"session_id": session_id, "request_id": run.lead.request_id,
+                                                   "messages": [a.request_id for a in run.arrivals]})
+        run.thinking = False
+        turn = run.turn or _Turn(run.lead.request_id, self.sessions.setdefault(session_id, ChatSession(session_id)))
+        turn.release = release
+        self._turns[turn.request_id] = turn
+        try:
+            failure = think.exception() if not think.cancelled() else asyncio.CancelledError()
+            if failure is not None:
+                async for event in self._failed(turn, failure):
+                    yield event
+                return
+            assert run.out is not None
+            self._keep_recent(session_id)
+            async for event in self._route(turn, run.out):
+                yield event
+        finally:
+            self._turns.pop(turn.request_id, None)
+
+    async def _think(self, session_id: str, run: _Run, emit: Callable[[dict[str, Any]], None]) -> None:
+        """Take the turn's messages in and decide, all within the turn's one time limit (decisions 11, 18): it starts with
+        the turn and a restart keeps it, so a burst of messages can't hold FERB past it."""
+        if run.deadline is None:
+            run.deadline = asyncio.get_running_loop().time() + self.planner_limit_s
+        async with asyncio.timeout_at(run.deadline):
+            run.turn = await self._intake(session_id, run)
+            run.out = await self._decide(run.turn, emit=emit)
+
+    async def _failed(self, turn: _Turn, failure: BaseException) -> AsyncIterator[dict[str, Any]]:
+        """A turn whose planner failed before routing still answers, in the conversation record too, so the next turn's
+        history shows what FERB told the owner (L21); the reply says the turn failed, so the notch offers Send to
+        developer on it (L35). The time limit says so plainly (decision 11); a usage limit or a sign-in problem offers
+        another signed-in runtime with one tap (owner decision 16), never switching by itself."""
+        self.journal.append("chat.failed", {"request_id": turn.request_id, "why": type(failure).__name__,
+                                            "detail": str(failure)})
+        extra: dict[str, Any] = {}
+        if isinstance(failure, TimeoutError):
+            text = TIMED_OUT.format(limit=self.planner_limit_s)
+        elif (account := getattr(failure, "account", "")) in ("usage_limit", "signed_out"):
+            runtime = str(getattr(failure, "runtime", ""))
+            text = account_problem(runtime, account)
+            extra = {"runtime_switch": {"runtime": runtime, "problem": account, "role": "orchestrator",
+                                        "choices": [n for n in self.worker_types() if n not in ("default", runtime)]}}
+        else:
+            text = couldnt("start that", failure, self.gateway.redact)
+        text = self.gateway.redact(text)
+        self._record_reply(turn, "reply", text, {origins_.FERB})
+        turn.release()
+        yield {"type": "reply", "text": text, "status": "failed", **extra}
+
+    async def _intake(self, session_id: str, run: _Run) -> _Turn:
+        """The turn's messages, taken in: each journaled once (a message read with the lead names it, `read_with`),
+        their own words and pasted parts, what a question of FERB's in this chat continues (read once), the attached
+        files, the environment and the lead's front window at send (L12)."""
+        start = run.start
+        if start is None:
+            await self.settle()                              # a forget still being finished completes first (I2)
+            session = self.sessions.setdefault(session_id, ChatSession(session_id))
+            pending, asked = self.continuity.pending(session_id)
+            payload = self.continuity.pending_payload(session_id)
+            start = run.start = _Start(session, self._answer_focus.pop(session_id, None), pending, asked, payload,
+                                       self._clarify_outside(session_id) if asked else set(),
+                                       self._carried(session_id) if payload else [],
+                                       self._pending_input_paths(session_id) if payload else [])
+            if asked:                                        # the owner's reply to FERB's question (fix list)
+                self._question_answered(session_id, asked)
+            session.pending = session.asked = ""
+            self.continuity.save_pending(session_id, "", "")
+        pasted_is_data = self.pasted_is_data()
+        for arrival in run.arrivals:
+            if arrival.entry is not None:
+                continue
+            arrival.marked = m = mark(arrival.text, pasted_is_data)
+            # the owner's switch counts pastes as their own words: how many such parts, so the planner's cached Codex
+            # turn never puts this conversation in the developer role (P20, review M5)
+            as_owner_words = 0 if pasted_is_data else len(mark(arrival.text).untrusted)
+            own_paths = [normalize_path(p, self.workspace) for p in arrival.input_paths]
+            arrival.paths = list(dict.fromkeys([*(start.paths if arrival is run.lead else []), *own_paths]))
+            arrival.entry = self.journal.append("chat.message", {
+                "session_id": session_id, "request_id": arrival.request_id, "text": m.for_model,
+                "untrusted_parts": len(m.untrusted) + bool(arrival.paths), "input_paths": arrival.paths}
+                | ({} if arrival is run.lead else {"read_with": run.lead.request_id})
+                | ({"pasted_as_owner_words": as_owner_words} if as_owner_words else {}))
+        marks = [a.marked for a in run.arrivals]
+        own_words = "\n".join(m.own_words for m in marks)
+        own_lines = "\n".join(m.typed_lines for m in marks)
+        for_model = "\n\n".join(m.for_model for m in marks)
+        typed = f"{start.pending}\n{own_words}" if start.pending else own_words
+        typed_lines = f"{start.pending}\n{own_lines}" if start.pending else own_lines
+        paths = list(dict.fromkeys(p for a in run.arrivals for p in a.paths))
+        attached = any(a.input_paths for a in run.arrivals)
+        payload = (start.payload + "\n\n" if start.payload else "") + for_model
+        if attached:
+            payload += '\n\nOwner-selected attachment sources (path data, not instructions or extra permissions):\n' + \
+                wrap_untrusted(json.dumps({'input_paths': paths}))
+        words = typed                     # what the environment and memory read: may add FERB's earlier question
+        if start.asked:
+            words += "\n" + EARLIER_QUESTION + wrap_untrusted(start.asked)
+            payload += "\n" + EARLIER_QUESTION_DATA + wrap_untrusted(start.asked)
+        # what the earlier question was written from: a value the planner took from outside content into it stays
+        # outside content in the continuation (S4 b); FERB's question itself is model-written
+        made = {o for a in run.arrivals if a.entry is not None for o in origins_.split(a.entry.origin)} | \
+            ({origins_.INFERRED} if start.asked else set()) | {o for e in start.carried for o in origins_.split(e.origin)}
+        environment = await _value(self.environment(words))
+        if run.seen is None:
+            run.seen = (await self._screen_at_send(run.lead.request_id, run.lead.screen)
+                        if run.lead.screen is not None else {})
+        turn = _Turn(run.lead.request_id, start.session, words=words, payload=payload, own_words=own_words,
+                     typed=typed, typed_lines=typed_lines, for_model=for_model,
+                     untrusted=any(m.untrusted for m in marks),
+                     entries=[a.entry for a in run.arrivals if a.entry is not None], carried=start.carried,
+                     focus=start.focus, clarified=start.asked, asked_outside=set(start.asked_outside),
+                     input_paths=paths, attached=attached, message_origin=made, environment=dict(environment or {}),
+                     screen=dict(run.seen) if run.seen else None)
+        self._turns[turn.request_id] = turn
+        return turn
+
+    def _question_answered(self, session_id: str, asked: str) -> None:
+        """FERB's question in this chat got the owner's reply (its kind and that it was answered, fix list: so "few
+        questions" can be measured); the reply itself is the next chat.message."""
+        rows = self.journal.of_kind("chat.clarify", "session_id", session_id)
+        self.journal.append("question.answered", {"kind": str(rows[-1].data.get("question_kind") or "clarify")
+                                                  if rows else "clarify",
+                                                  "request_id": str(rows[-1].data.get("request_id", "")) if rows else "",
+                                                  "answer": "words"})
 
     async def _screen_at_send(self, request_id: str, screen: Awaitable[Any]) -> dict[str, Any]:
         """L12: the front window the daemon captured as the owner sent this message, and its redacted screenshot as
@@ -1405,8 +1825,297 @@ class Supervisor(WorkerRuns):
             else None
         return {"front_window": front, "front_image": image}
 
-    def _answer(self, session: ChatSession, request_id: str, m: Any, routed: AnswerQuestion, focus: _Focus | None,
-                clarified: str, owner_words: str, payload: str) -> dict[str, Any]:
+    async def _route(self, turn: _Turn, out: SupervisorOutcome) -> AsyncIterator[dict[str, Any]]:
+        """The planner's choice, carried out: an answer to an open question first (L3), then a task control (any chat's
+        or schedule's running task, or this chat's), a new task, or a reply. Every path that answers in chat ends in
+        `_exit`; a task's turn ends when its plan line is out."""
+        if out.answer_question is not None:
+            # The answer is recorded first; the rest of the turn then runs as in any turn (final review M1). When FERB has
+            # to ask which question the answer is for, the whole message comes back with the owner's reply, so nothing
+            # else in it runs now (or twice).
+            kind, said = self._answer(turn, out.answer_question)
+            out = out.model_copy(update={"answer_question": None})
+            if kind == "clarify":
+                async for event in self._exit(turn, out, "clarify", said, by=origins_.FERB, side=False,
+                                              made={origins_.FERB, origins_.INFERRED}):
+                    yield event
+                return
+            ends_in_reply = out.control is None and not (out.kind == "task" and out.task is not None)
+            if ends_in_reply and not out.text.strip() and not _carries_more(out):
+                async for event in self._exit(turn, out, "reply", said, by=origins_.FERB, side=False):
+                    yield event
+                return
+            if ends_in_reply and out.text.strip():   # one message: FERB's word on the answer opens the planner's reply
+                turn.acknowledged = said
+            else:                          # a stop, correction or task follows: its own line first
+                self._record_reply(turn, "reply", said, {origins_.FERB})
+                yield {"type": "reply", "text": said}
+        if out.control is not None:
+            async for event in self._control(turn, out):
+                yield event
+            return
+        if out.kind in ("reply", "clarify") or out.task is None:
+            async for event in self._exit(turn, out, "clarify" if out.kind == "clarify" else "reply", out.text):
+                yield event
+            return
+        async for event in self._start(turn, out, out.task):
+            yield event
+
+    async def _exit(self, turn: _Turn, out: SupervisorOutcome, kind: str, text: str, *, by: str = origins_.INFERRED,
+                    side: bool = True, ready: bool = False, made: set[str] | None = None,
+                    named: frozenset[str] = frozenset(),
+                    extra: dict[str, Any] | None = None) -> AsyncIterator[dict[str, Any]]:
+        """The one end of a turn that answers in chat: the turn's side entries applied once (on every path a turn takes;
+        live 2026-10-24, two steers' remember entries were dropped), the reply with code's lines about them (L11)
+        recorded once with its origin, a question kept so the owner's next message continues it, and the chat let go
+        (the next message is a turn of its own). `by`: who wrote `text` (the planner's words are marked as the task's
+        where one reads like FERB's own check, D33); `ready`: already in its final form (a steer's acknowledgement)."""
+        effects = await self._side_entries(turn, out, named) if side else _Side([], [], [])
+        for event in effects.events:
+            yield event
+        said = text if ready or by == origins_.FERB else confirm.from_task_lines(self.gateway.redact(text))
+        if turn.acknowledged:
+            said = turn.acknowledged + ("\n" if "\n" in turn.acknowledged else " ") + said
+            turn.acknowledged = ""
+        if effects.lines:
+            said = said.rstrip() + "\n" + confirm.from_task_lines(self.gateway.redact("\n".join(effects.lines)))
+        written = made or ({origins_.FERB} if by == origins_.FERB and not effects.lines else
+                           {origins_.INFERRED} | turn.turn_origins)
+        self._record_reply(turn, kind, said, written)
+        if kind == "clarify":                          # the owner's answer will continue this request
+            turn.session.pending, turn.session.asked, turn.session.payload = turn.typed, text, turn.payload
+            self.continuity.save_pending(turn.session.id, turn.typed, text, turn.payload)
+        else:
+            turn.session.payload = ""
+        turn.release()
+        yield {"type": kind, "text": said, **(extra or {})}
+
+    def _record_reply(self, turn: _Turn, kind: str, text: str, made: set[str]) -> None:
+        """The one reply recorder: FERB's reply or question in the conversation record (the next turns' history),
+        always with its origin (`made`: what wrote it), and the context it was written from; a question also records its
+        kind (fix list: so "few questions" can be measured)."""
+        refs = sorted({ref for exposure in turn.exposures for ref in exposure["source_refs"]})
+        data: dict[str, Any] = {"session_id": turn.session.id, "request_id": turn.request_id, "text": text}
+        if refs:
+            data["source_refs"] = refs
+        if kind == "clarify":
+            data["question_kind"] = "which" if made == {origins_.FERB, origins_.INFERRED} else "clarify"
+        self.journal.append(f"chat.{kind}", data, origin=origins_.join(made))
+        if kind == "clarify":
+            self.journal.append("question.asked", {"kind": data["question_kind"], "request_id": turn.request_id,
+                                                   "session_id": turn.session.id})
+
+    async def _start(self, turn: _Turn, out: SupervisorOutcome, spec: TaskSpec, *, resume: str | None = None,
+                     prior_task: str | None = None, message: str | None = None,
+                     conversation: str | None = None) -> AsyncIterator[dict[str, Any]]:
+        """A turn that runs a task (a new one, or `resume`: an ended task carried on in place): its side entries first,
+        their refusals as events and every line in the task's answer (L11); the turn lets the chat go once the plan
+        line is out (the task is registered by then)."""
+        effects = await self._side_entries(turn, out)
+        for event in effects.events:
+            yield event
+        turn.side_lines = effects.lines
+        for kind, text in effects.refused:
+            yield {"type": kind, "text": text}
+        turn.session.payload = ""
+        if resume is None:
+            self.state.requests.record(Request(turn.request_id, turn.typed, self._targets(spec), payload=turn.payload,
+                                               asked_origins=frozenset(turn.asked_outside)))
+        async for event in self.run_tree(spec, out.text, turn.request_id, turn.payload if message is None else message,
+                                         conversation_id=conversation or turn.session.id, prior_task=prior_task,
+                                         origins=turn.turn_origins, resume_id=resume):
+            if event.get("type") == "plan":
+                turn.release()
+            yield event
+
+    def _control_conversation(self, task_id: str, session_id: str) -> str | None:
+        """The chat a task control may act in (cross-chat control, live failure 2026-10-24): any running task the planner
+        is shown, whichever chat or schedule it belongs to, or one of this chat's own tasks. None otherwise."""
+        if self.continuity.load(task_id, session_id) is not None:
+            return session_id
+        tree = self._tree_of.get(task_id)
+        if tree is not None and tree.id == task_id:
+            other = self.continuity.conversation_of(task_id)
+            if other is not None and self.continuity.load(task_id, other) is not None:
+                return other
+        return None
+
+    async def _settled(self, task_id: str, ids: set[str], wait_s: float | None) -> bool:
+        """Whether the task's run has ended and none of its calls is still in flight, waiting up to `wait_s` (None:
+        until it has)."""
+        loop = asyncio.get_running_loop()
+        deadline = None if wait_s is None else loop.time() + wait_s
+        while task_id in self._tree_of or self.gateway.in_flight(ids):
+            if deadline is not None and loop.time() >= deadline:
+                return False
+            await asyncio.sleep(0.05)
+        return True
+
+    async def _control(self, turn: _Turn, out: SupervisorOutcome) -> AsyncIterator[dict[str, Any]]:
+        """A stop, retry, continue or pause of a task the planner was shown (`_control_conversation`: code checked it
+        when the planner chose it). A continue corrects a running task live; a stop of work that has finished never
+        records it as cancelled; a retry waits for the stop it needs to settle, then carries the task on in place."""
+        control = out.control
+        assert control is not None
+        conversation = self._control_conversation(control.task_id, turn.session.id)
+        prior = self.continuity.load(control.task_id, conversation) if conversation is not None else None
+        if prior is None or conversation is None:       # a task that ended and went between the check and now
+            async for event in self._exit(turn, out, "reply", UNKNOWN_TASK, by=origins_.FERB):
+                yield event
+            return
+        active = self._tree_of.get(control.task_id)
+        if control.action == "pause":
+            # owner decision 8: the running task pauses in place, losing nothing; the owner's next words resume it
+            # (a correction of the task, action continue) or stop it
+            paused = active is not None and not active.stop and active.accepting_updates and \
+                self.pause_tree(active.id)
+            if paused and out.text.strip():
+                text, by = out.text, origins_.INFERRED
+            else:
+                text, by = (PAUSED_SAID if paused else NOT_RUNNING), origins_.FERB
+            async for event in self._exit(turn, out, "reply", text, by=by):
+                yield event
+            return
+        if control.action == "continue" and active is not None and not active.stop and active.accepting_updates:
+            named = frozenset(active.spec.targets.sites)    # the sites the task named before this steer (L36 §5)
+            self._reopen_noes(control.task_id, turn)
+            kept = self._kept_unchanged(active, out.task)
+            self._steered_extras(active, out.task)     # before the correction is saved, so a restart keeps them
+            steered = await apply_steering(self, active, conversation, turn.request_id, turn.own_words, turn.payload,
+                                           out.task, turn.source_ref, standing=control.standing_sends,
+                                           supersedes=control.supersedes, said=self.gateway.redact(out.text))
+            if steered is not None:
+                reply, restated = steered
+                if reply["text"] == JUST_ENDED:
+                    # a correction that found its task ending applies none of the turn's entries: sent again, once
+                    async for event in self._exit(turn, out, "reply", JUST_ENDED, by=origins_.FERB, side=False):
+                        yield event
+                    return
+                text = reply["text"] + ("\n" + "\n".join(kept) if kept else "")
+                async for event in self._exit(turn, out, "reply", text, ready=True, named=named,
+                                              extra={"task_id": active.id}):
+                    yield event
+                if restated is not None and restated.widened:   # a new or wider scope covers sends only once stated
+                    grant_stated(self, active, restated)
+                return
+        if control.action == "continue" and active is not None and not active.accepting_updates:
+            await active.finished.wait()       # its work is complete: carried on in place once it has finished
+        if control.action in ("stop", "retry"):
+            tree = self._tree_of.get(control.task_id)
+            ids = self._tree_task_ids(tree) if tree is not None else set()
+            finished = tree is not None and (tree.work_done or not tree.accepting_updates) and not tree.stop
+            was_running = self.stop_tree(control.task_id)
+            settled = await self._settled(control.task_id, ids, 10)
+            if control.action == "stop":
+                text = (STOP_SETTLING if not settled else STOPPED if was_running else
+                        ALREADY_FINISHED if finished else ALREADY_ENDED)
+                async for event in self._exit(turn, out, "reply", text, by=origins_.FERB):
+                    yield event
+                return
+            if not settled:                    # a retry still waits for the stop it needs (fix list, Intake)
+                self._record_reply(turn, "reply", RETRY_SETTLING, {origins_.FERB})
+                turn.release()
+                yield {"type": "reply", "text": RETRY_SETTLING}
+                await self._settled(control.task_id, ids, None)
+        async for event in self._resume(turn, out, conversation):
+            yield event
+
+    def _kept_unchanged(self, tree: _Tree, spec: TaskSpec | None) -> list[str]:
+        """What a correction asked of a running task that code can't apply mid-task (fix list: never silently dropped):
+        whose account it uses, and its plan's steps. Said in the reply; a retry with the new task applies them."""
+        if spec is None:
+            return []
+        lines = []
+        if spec.identity != tree.spec.identity:
+            lines.append(KEPT_IDENTITY.format(who="you" if tree.spec.identity == "owner" else "FERB"))
+        if spec.plan is not None and tree.spec.plan is not None and spec.plan.steps != tree.spec.plan.steps:
+            lines.append(KEPT_PLAN)
+        if spec.worker_type != tree.spec.worker_type and spec.worker_type in self.worker_types():
+            lines.append(NEXT_WORKER.format(worker=label(spec.worker_type)))
+        return lines
+
+    def _steered_extras(self, tree: _Tree, spec: TaskSpec | None) -> None:
+        """A correction's changes code applies to a running task besides its goal, conditions and targets
+        (steering.apply): the worker type of its next attempt, its folders (hands decision 4: the shell's scope) and
+        the owner's ask to keep its tabs open (hands decision 3)."""
+        if spec is None:
+            return
+        if spec.worker_type in self.worker_types():
+            tree.spec.worker_type = spec.worker_type
+        tree.spec.folders = list(spec.folders)
+        self.gateway.task_folders[tree.id] = tuple(spec.folders)
+        if spec.keep_tabs_open and not tree.spec.keep_tabs_open:
+            tree.spec.keep_tabs_open = True
+            self.keep_tabs_open(tree.id)
+
+    async def _resume(self, turn: _Turn, out: SupervisorOutcome, conversation: str) -> AsyncIterator[dict[str, Any]]:
+        """A continue or retry of an ended task carries on in place (resume_id), so completed work, uncertain effects
+        (P19's repeat check is per tree: a send or payment whose outcome is unknown is never repeated without the
+        owner's answer), confirmations, the task's history and its sites stay the same records (L11):
+        - a continue with a new goal (the planner's control.new_goal; ef9e5d75), or a changed identity (whose account
+          acts is the planner's call each turn; live 2026-10-26, task 0a5fbe31): the planner's spec replaces the saved
+          one. The saved plan reopens only when the new spec carries it unchanged; a new plan replaces it (finished steps
+          it keeps unchanged stay done, the others' results become its data); with no plan, one worker runs the new goal
+          with the old steps' results as data, and none of those steps runs again;
+        - any other continue, or a retry without a task: the saved goal and plan resume, unfinished steps again;
+        - a retry with the planner's task: the saved plan reopens when that task leaves it as it was (a generic retry
+          task); otherwise the planner's task is the fresh attempt, with the earlier goal and result."""
+        control = out.control
+        assert control is not None
+        # A forget's scrub queued as that task finished runs first, so its saved state (its last result goes into the
+        # resumed goal) is read after the clean-up, and the resume in place starts from it (fix wave 6a).
+        await self.settle()
+        prior = self.continuity.load(control.task_id, conversation)
+        if prior is None:
+            async for event in self._exit(turn, out, "reply", UNKNOWN_TASK, by=origins_.FERB):
+                yield event
+            return
+        prior_spec, prior_request, prior_state = prior
+        action = control.action
+        identity_changed = out.task is not None and out.task.identity != prior_spec.identity
+        if (action == "continue" and control.new_goal or identity_changed) and out.task is not None:
+            resumed = out.task
+            resumed.goal += (f"\nEarlier goal of this task: {prior_spec.goal}\n"
+                             f"Last recorded result (verify afresh): {prior_state}")
+            if prior_spec.plan is not None and resumed.plan == prior_spec.plan:
+                self.plans.reopen(control.task_id)
+            elif prior_spec.plan is not None and resumed.plan is not None:
+                self.plans.replace(control.task_id, resumed.plan)
+            elif prior_spec.plan is not None:
+                self.plans.set_status(control.task_id, "replaced")    # never resumed, now or after a restart
+        elif action == "continue" or out.task is None or (
+                prior_spec.plan is not None and out.task.plan in (None, prior_spec.plan)):
+            resumed = prior_spec.model_copy(deep=True)
+            if out.task is not None:          # the owner's folders and kept tabs for this go (hands decisions 3, 4)
+                resumed.folders, resumed.keep_tabs_open = list(out.task.folders), out.task.keep_tabs_open
+            if prior_spec.plan is not None:
+                self.plans.reopen(control.task_id)
+            else:
+                resumed.goal += f"\nLast recorded result (verify afresh): {prior_state}"
+        else:
+            resumed = out.task
+            resumed.goal += (f"\nOriginal request context: {prior_spec.goal}\n"
+                             f"Last recorded result (verify afresh): {prior_state}\n"
+                             f"Owner's follow-up: {turn.for_model}")
+            if prior_spec.plan is not None and resumed.plan is not None:   # a new plan (an unchanged one reopened
+                self.plans.replace(control.task_id, resumed.plan)           # above)
+        # The earlier requests' answers to FERB's questions keep what those questions were written from (S4 b), as this
+        # one's own answer does
+        continued = Request(turn.request_id, prior_request.words + "\n" + turn.typed, self._targets(resumed),
+                            payload=prior_request.payload + "\n\nOwner follow-up:\n" + turn.payload,
+                            asked_origins=frozenset(self.spans.asked_origins(control.task_id) | turn.asked_outside))
+        self.state.requests.record(continued)
+        # the continuation carries the earlier request and what its attempts read (S3, MP2)
+        turn.turn_origins = turn.turn_origins | self.spans.task_origins(control.task_id) | \
+            self._request_origins(prior_request.request_id)
+        turn.message_origin |= self.spans.request_origins(control.task_id)
+        self._reopen_noes(control.task_id, turn)
+        async for event in self._start(turn, out, resumed, resume=control.task_id, message=continued.payload,
+                                       prior_task=self.continuity.prior_of(control.task_id),
+                                       conversation=conversation):
+            yield event
+
+    def _answer(self, turn: _Turn, routed: AnswerQuestion) -> tuple[str, str]:
         """L3: the owner's message, routed by the planner to one open question by its id (any chat's owner.ask,
         plan.ask, FERB check or FERB's free-text Edit question about a guess, L36). The answer recorded is the owner's
         own words, never the planner's reading (MP2). FERB's own checks (floor D33, P19 retry, F9 conversation scope,
@@ -1414,7 +2123,9 @@ class Supervisor(WorkerRuns):
         reading agrees with. Those words compete with every other open question they could answer (one
         with that option, or a free-text one) and with the planner's own question the message continues
         (`clarified`): then FERB asks which one, in plain words (I3). When the routing can't be used, FERB says so
-        plainly: never an id, a command or a method (I12)."""
+        plainly: never an id, a command or a method (I12). Returns ("reply" or "clarify", FERB's words); the turn
+        records them (`_exit`)."""
+        focus, clarified = turn.focus, turn.clarified
         open_now = [q for q in self.state.approvals.pending() if q.kind == 'owner_question']
         seen = frozenset(q.id for q in open_now)
         # the planner's own question this message continues, which FERB's asking below displaces (kept across FERB's
@@ -1424,15 +2135,15 @@ class Supervisor(WorkerRuns):
         if ap is None or ap.kind != 'owner_question' or ap.capability not in ROUTABLE_QUESTIONS:
             listed = self._listed(q for q in open_now if q.capability in ROUTABLE_QUESTIONS)
             if not listed:
-                return self._code_turn(session, request_id, 'reply', NO_QUESTION)
-            self._answer_focus[session.id] = _Focus(None, frozenset(), seen, displaced)
-            return self._code_turn(session, request_id, 'clarify', WHICH_QUESTION + '\n' + listed, owner_words, payload)
+                return 'reply', NO_QUESTION
+            self._answer_focus[turn.session.id] = _Focus(None, frozenset(), seen, displaced)
+            return 'clarify', WHICH_QUESTION + '\n' + listed
         if ap.state != 'pending':
-            return self._code_turn(session, request_id, 'reply', NOT_WAITING)
-        words = m.own_words.strip()
-        if m.untrusted or not words:                  # pasted text is data (MP2): never the owner's answer
-            self._answer_focus[session.id] = _Focus(None, frozenset(), seen, displaced)
-            return self._code_turn(session, request_id, 'clarify', PASTED_ANSWER, owner_words, payload)
+            return 'reply', NOT_WAITING
+        words = turn.own_words.strip()
+        if turn.untrusted or not words:               # pasted text is data (MP2): never the owner's answer
+            self._answer_focus[turn.session.id] = _Focus(None, frozenset(), seen, displaced)
+            return 'clarify', PASTED_ANSWER
         # the owner's reply to FERB's "which one is it for?": the earlier words answer the question they now name
         carried = (focus is not None and focus.words is not None and ap.id in focus.named
                    and ap.option_for(_bare(words)) is None)
@@ -1441,8 +2152,8 @@ class Supervisor(WorkerRuns):
         if ap.capability in FERB_CHECKS:
             choice = ap.option_for(_bare(text))
             if choice is None or ap.option_for(_bare(routed.answer)) != choice:
-                self._answer_focus[session.id] = _Focus(None, frozenset({ap.id}), seen, displaced)
-                return self._code_turn(session, request_id, 'clarify', _plain_choice(ap), owner_words, payload)
+                self._answer_focus[turn.session.id] = _Focus(None, frozenset({ap.id}), seen, displaced)
+                return 'clarify', _plain_choice(ap)
             if not carried:
                 # FERB just asked "Yes or No?" about exactly this check: questions open then don't compete
                 asked_this = focus is not None and focus.named == {ap.id}
@@ -1451,19 +2162,20 @@ class Supervisor(WorkerRuns):
                           and not (asked_this and focus is not None and q.id in focus.seen)]
                 planner_asked = clarified if focus is None else ''   # the planner's question this message continues
                 if others or planner_asked.strip():
-                    self._answer_focus[session.id] = _Focus(text, frozenset({ap.id, *(q.id for q in others)}), seen,
-                                                            displaced)
+                    self._answer_focus[turn.session.id] = _Focus(text, frozenset({ap.id, *(q.id for q in others)}),
+                                                                 seen, displaced)
                     lines = [self._listed([ap, *others])]
                     if planner_asked.strip():
                         lines.append('- ' + confirm.from_task(" ".join(printable(planner_asked).split())))
-                    return self._code_turn(session, request_id, 'clarify', WHICH_ONE.format(words=printable(text)) +
-                                           '\n' + '\n'.join(lines), owner_words, payload)
+                    return 'clarify', WHICH_ONE.format(words=printable(text)) + '\n' + '\n'.join(lines)
             text = ap.options[choice - 1]
         self.state.approvals.resolve(ap.id, True, choice=choice, text=text)
         self.journal.append('approval.resolved', {'approval_id': ap.id, 'state': ap.state, 'capability': ap.capability})
         self.publish('approval.resolved', {'approval_id': ap.id, 'state': ap.state})
+        # its sites the owner typed count for a login name given in the answer (L36 §5, final review I1)
+        turn.answered_tree = self.tasks.tree_of(ap.task_id) if ap.task_id else None
         followed = self.question_answered(ap)                # e.g. the forget the owner just said Yes to (I2)
-        return self._code_turn(session, request_id, 'reply', ANSWERED + ('\n' + followed if followed else ''))
+        return 'reply', ANSWERED + ('\n' + followed if followed else '')
 
     def asked_only_about(self, session_id: str, capabilities: Any) -> bool:
         """Whether this chat's pending question is FERB's own "which is it?" about an answer (`_answer`, L3) naming only
@@ -1487,380 +2199,35 @@ class Supervisor(WorkerRuns):
         """Open questions as the owner saw them, one per line (each already one labelled paragraph, D33)."""
         return '\n'.join('- ' + " ".join(printable(q.reason).split()) for q in questions)
 
-    def _code_turn(self, session: ChatSession, request_id: str, kind: str, text: str, owner_words: str = '',
-                   payload: str = '') -> dict[str, Any]:
-        """FERB's own reply or question about an answer, in the conversation record like the planner's. A question
-        continues the owner's message, so their next reply is read with it."""
-        if kind == 'clarify':
-            session.pending, session.asked, session.payload = owner_words, text, payload
-            self.continuity.save_pending(session.id, session.pending, session.asked, session.payload)
-        self.journal.append(f'chat.{kind}', {'session_id': session.id, 'request_id': request_id, 'text': text})
-        return {'type': kind, 'text': text}
-
-    def _failure_reply(self, session_id: str, request_id: str, text: str) -> dict[str, Any]:
-        """A turn that failed before routing still answers its request, in the conversation record too, so the next
-        turn's history shows what FERB told the owner and "retry" has something to refer to (L21). The reply says the
-        turn failed, so the notch offers Send to developer on it (L35)."""
-        text = self.gateway.redact(text)
-        self.journal.append("chat.reply", {"session_id": session_id, "request_id": request_id, "text": text})
-        return {"type": "reply", "text": text, "status": "failed"}
-
     def _pending_input_paths(self, session_id: str) -> list[str]:
-        """Carry selected source metadata across a clarification, including after a daemon restart."""
-        row = self.journal.db.conn.execute(
-            "SELECT m.data_json FROM journal q JOIN journal m ON "
-            "json_extract(m.data_json, '$.request_id') = json_extract(q.data_json, '$.request_id') "
-            "WHERE q.kind='chat.clarify' AND m.kind='chat.message' "
-            "AND json_extract(q.data_json, '$.session_id')=? ORDER BY q.seq DESC", (session_id,)).fetchone()
-        return list(json.loads(row[0]).get('input_paths', [])) if row else []
+        """Carry selected source metadata across a clarification, including after a daemon restart: the attachments
+        of the messages FERB's latest question in this chat was about (its lead's and those read with it)."""
+        asked = self.journal.of_kind("chat.clarify", "session_id", session_id)
+        if not asked:
+            return []
+        rid = str(asked[-1].data.get("request_id", ""))
+        return list(dict.fromkeys(str(p) for kind in ("request_id", "read_with")
+                                  for e in self.journal.of_kind("chat.message", kind, rid)
+                                  for p in e.data.get("input_paths", [])))
 
-    async def _send(self, session_id: str, text: str, input_paths: list[str],
-                    request_id: str, screen: Awaitable[Any] | None = None) -> AsyncIterator[dict[str, Any]]:
-        await self.settle()                                  # a forget still being finished completes first (I2)
-        if session_id not in self.sessions:
-            self.sessions[session_id] = ChatSession(session_id, task_floor=self.tasks.max_rowid())
-        session = self.sessions[session_id]
-        focus = self._answer_focus.pop(session_id, None)     # FERB's own answer question applies to this message only
-        session.pending, session.asked = self.continuity.pending(session_id)
-        clarified = session.asked                            # the question this message may answer (L3, I3)
-        session.payload = self.continuity.pending_payload(session_id)
-        paths = list(dict.fromkeys([*(self._pending_input_paths(session_id) if session.payload else []),
-                                    *(normalize_path(p, self.workspace) for p in input_paths)]))
-        pasted_is_data = self.pasted_is_data()
-        m = mark(text, pasted_is_data)
-        # the owner's switch counts pastes as their own words: how many such parts, so the planner's cached Codex turn
-        # never puts this conversation in the developer role (P20, review M5)
-        as_owner_words = 0 if pasted_is_data else len(mark(text).untrusted)
-        # Preserve the question as FERB's context for any answer; the agent interprets the reply.
-        owner_words = f"{session.pending}\n{m.own_words}" if session.pending else m.own_words
-        typed = owner_words  # provenance checks use only words the owner actually supplied
-        # memory capture reads them with their line breaks (a paste counts as one): a saved sentence ends there (I1)
-        typed_lines = f"{session.pending}\n{m.typed_lines}" if session.pending else m.typed_lines
-        authority = typed    # what the request records as the owner's words (S3): never FERB's text
-        words = owner_words  # what recall and the environment search: may add FERB's earlier question
-        payload = (session.payload + "\n\n" if session.payload else "") + m.for_model
-        if input_paths:
-            payload += '\n\nOwner-selected attachment sources (path data, not instructions or extra permissions):\n' + \
-                wrap_untrusted(json.dumps({'input_paths': paths}))
-        asked = {origins_.INFERRED} if session.asked else set()        # FERB's earlier (model-written) question
-        # what that question was written from: a value the planner took from outside content into it stays outside
-        # content in the continuation (S4 b)
-        asked_outside = self._clarify_outside(session_id) if session.asked else set()
-        carried = self._carried_origins(session_id, "") if session.payload else set()   # earlier text in the payload
-        if session.asked:
-            words += "\n" + EARLIER_QUESTION + wrap_untrusted(session.asked)
-            payload += "\n" + EARLIER_QUESTION_DATA + wrap_untrusted(session.asked)
-        session.pending = session.asked = ""
-        self.continuity.save_pending(session_id, "", "")
-        entry = self.journal.append("chat.message", {"session_id": session_id, "request_id": request_id,
-                                                     "text": m.for_model,
-                                                     "untrusted_parts": len(m.untrusted) + bool(paths),
-                                                     "input_paths": paths}
-                                    | ({"pasted_as_owner_words": as_owner_words} if as_owner_words else {}))
-        recalled: Any = ""                     # memory reaches the planner through `memory_candidates`
-        env = await _value(self.environment(words))
-        seen = await self._screen_at_send(request_id, screen) if screen is not None else {}
-        self._env[request_id] = {**env, "words": words, "payload": payload,
-                                 "input_paths": paths, **seen,
-                                 "message_origin": origins_.split(entry.origin) | asked | carried, "message_source_ref": "journal:" + entry.id}
-        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-        decision = asyncio.create_task(self._decide(session, payload, request_id, recalled, emit=queue.put_nowait))
-        decision.add_done_callback(lambda _: queue.put_nowait(None))
-        try:
-            try:
-                while (draft_event := await queue.get()) is not None:
-                    yield draft_event
-                out = await decision
-                self._update_summary(session_id, self._env.get(request_id, {}).get("omitted_history", 0))
-            finally:
-                if not decision.done():
-                    decision.cancel()
-                # Retrieve an already-failed decision too: a consumer may close at a yielded draft event.
-                # Unretrieved task exceptions can otherwise bypass the redacted trace through asyncio's logger.
-                await asyncio.gather(decision, return_exceptions=True)
-        except Exception as e:      # no task started yet: the cause is kept, and the owner reads its reason (owner
-            self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # 2026-10-24:
-                                                "detail": str(e)})          # never "something went wrong on my side")
-            self._env.pop(request_id, None)
-            if (account := getattr(e, "account", "")) in ("usage_limit", "signed_out"):
-                # owner decision 16: code writes it and offers another signed-in runtime for the planner's role (the
-                # app's button calls `runtimes.use`); FERB never switches by itself
-                runtime = str(getattr(e, "runtime", ""))
-                reply = self._failure_reply(session_id, request_id, account_problem(runtime, account))
-                yield reply | {"runtime_switch": {
-                    "runtime": runtime, "problem": account, "role": "orchestrator",
-                    "choices": [n for n in self.worker_types() if n not in ("default", runtime)]}}
-                return
-            yield self._failure_reply(session_id, request_id, couldnt("start that", e, self.gateway.redact))
-            return
-        authority_id = request_id
-        turn_origins = self._env.get(request_id, {}).get("turn_origins", set())   # what this turn's planner saw
-        resumed: TaskSpec | None = None      # an ended task carried on in place (its own tree), with this spec
-        reopened: str | None = None          # the task whose refused questions this message reopened
-        resumed_payload = ""
-        resumed_prior: str | None = None
-        acknowledged = ""                    # the answer's acknowledgement, said with the planner's reply
-        answered_tree: str | None = None     # the task whose question this message answered (its tree)
-        if out.answer_question:
-            # The answer is recorded first; the rest of the turn (a stop or correction, a new task, memory, reminders,
-            # schedules) then runs as in any turn (final review M1). When FERB has to ask which question the answer is
-            # for, the whole message comes back with the owner's reply, so nothing else in it runs now (or twice).
-            answered = self._answer(session, request_id, m, out.answer_question, focus, clarified, owner_words,
-                                    payload)
-            if answered["type"] == "reply" and answered["text"].startswith(ANSWERED):
-                # its sites the owner typed count for a login name given in the answer (L36 §5, final review I1)
-                question_ap = self.state.approvals.get(out.answer_question.approval_id)
-                answered_tree = (self.tasks.tree_of(question_ap.task_id)
-                                 if question_ap is not None and question_ap.task_id else None)
-            out = out.model_copy(update={"answer_question": None})
-            # With the planner's own reply (no stop, steer or task), the acknowledgement opens that reply: one message
-            fold = (answered["type"] == "reply" and answered["text"] == ANSWERED and out.control is None
-                    and not (out.kind == "task" and out.task is not None) and bool(out.text.strip()))
-            more = answered["type"] != "clarify" and (_carries_more(out) or fold)
-            if fold:
-                acknowledged = ANSWERED
-            else:
-                sent = False
-                try:
-                    yield {**answered, TURN_CONTINUES: True} if more else answered
-                    sent = True
-                finally:
-                    if not (sent and more):
-                        self._env.pop(request_id, None)
-                if not more:
-                    return
-        if out.control is not None:
-            control = out.control
-            prior = self.continuity.load(control.task_id, session.id)
-            if prior is None:
-                side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins,
-                                                answered=answered_tree)
-                said = self._with_lines({"type": "reply", "text": "I couldn't find that attempt in this chat. Tell me "
-                                                                  "which task to stop or retry."}, side.lines)
-                self._record_reply(session.id, request_id, said["text"], turn_origins)
-                try:
-                    for event in side.events:
-                        yield event
-                    yield said
-                finally:
-                    self._env.pop(request_id, None)
-                return
-            active = self._tree_of.get(control.task_id)
-            if control.action == 'pause':
-                # owner decision 8: the running task pauses in place, losing nothing; the owner's next words resume it
-                # (a correction of the task, action continue) or stop it
-                paused = active is not None and not active.stop and active.accepting_updates and \
-                    self.pause_tree(active.id)
-                said = ((confirm.from_task_lines(self.gateway.redact(out.text)) if out.text.strip() else PAUSED_SAID)
-                        if paused else NOT_RUNNING)
-                side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins,
-                                                answered=answered_tree)
-                reply = self._with_lines({"type": "reply", "text": said}, side.lines)
-                self._record_reply(session.id, request_id, reply["text"], turn_origins)
-                try:
-                    for event in side.events:
-                        yield event
-                    yield reply
-                finally:
-                    self._env.pop(request_id, None)
-                return
-            if control.action == 'continue' and active is not None and not active.stop and active.accepting_updates:
-                named = frozenset(active.spec.targets.sites)    # the sites the task named before this steer (L36 §5)
-                reopened = self._reopen_noes(control.task_id, request_id, entry, m.own_words)
-                steered = await apply_steering(self, active, session.id, request_id, m.own_words, payload,
-                                              out.task, 'journal:' + entry.id, standing=control.standing_sends,
-                                              supersedes=control.supersedes, said=self.gateway.redact(out.text))
-                if steered is not None:
-                    reply, restated = steered
-                    # the turn's other entries too, once, and code's lines about them end the steer's reply; a
-                    # correction that found its task ending applies none of them: the owner sends it all again
-                    side = (_Side([], [], []) if reply["text"] == JUST_ENDED else
-                            await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id,
-                                                     turn_origins, named, answered_tree))
-                    reply = self._with_lines(reply, side.lines)
-                    # in the conversation record (next turns), with a stated scope's lines (D30; the planner's
-                    # scopes: MP2) and code's lines about the side entries
-                    self._record_reply(session.id, request_id, reply['text'], turn_origins)
-                    try:
-                        for event in side.events:
-                            yield event
-                        yield reply
-                    finally:
-                        self._env.pop(request_id, None)
-                    if restated is not None and restated.widened:   # a new or wider scope covers sends only once stated
-                        grant_stated(self, active, restated)
-                    return
-            if control.action == 'continue' and active is not None and not active.accepting_updates:
-                # Work already completed; let its normal finalization finish, without requesting cancellation.
-                await active.finished.wait()
-            # A correction racing natural completion becomes an ordinary continuation of that saved task.
-            controlled_ids = self._tree_task_ids(self._tree_of[control.task_id]) if control.task_id in self._tree_of else set()
-            was_running = self.stop_tree(control.task_id) if control.action in ('stop', 'retry') else False
-            deadline = asyncio.get_running_loop().time() + 10
-            while (control.task_id in self._tree_of or self.gateway.in_flight(controlled_ids)) and asyncio.get_running_loop().time() < deadline:
-                await asyncio.sleep(0.05)
-            settling = control.task_id in self._tree_of or self.gateway.in_flight(controlled_ids)
-            if settling or control.action == "stop":
-                said = ("I've requested a stop; the earlier attempt is still settling. I haven't started another."
-                        if settling else "Stopped, as you asked." if was_running else "That attempt has already ended.")
-                side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins,
-                                                answered=answered_tree)
-                reply = self._with_lines({"type": "reply", "text": said}, side.lines)
-                self._record_reply(session.id, request_id, reply["text"], turn_origins)
-                try:
-                    for event in side.events:
-                        yield event
-                    yield reply
-                finally:
-                    self._env.pop(request_id, None)
-                return
-            # A forget's scrub queued as that task finished runs first, so its saved state (its last result goes into
-            # the resumed goal) is read after the clean-up, and the resume in place starts from it (fix wave 6a).
-            await self.settle()
-            prior = self.continuity.load(control.task_id, session.id) or prior
-            prior_spec, prior_request, prior_state = prior
-            # Every continue and retry of an ended task carries on in place (resume_id), so completed work, uncertain
-            # effects (P19's repeat check is per tree: a send or payment whose outcome is unknown is never repeated
-            # without the owner's answer), confirmations, the task's history and its sites stay the same records
-            # (L11):
-            # - a continue with a new goal (the planner's control.new_goal; ef9e5d75): the planner's spec replaces the
-            #   saved one. The saved plan reopens only when the new spec carries it unchanged; a new plan replaces it
-            #   (finished steps it keeps unchanged stay done, the others' results become its data); with no plan, one
-            #   worker runs the new goal with the old steps' results as data, and none of those steps runs again;
-            # - any other continue, or a retry without a task: the saved goal and plan resume, unfinished steps again;
-            # - a retry with the planner's task: the saved plan reopens when that task leaves it as it was (a generic
-            #   retry task); otherwise the planner's task is the fresh attempt, with the earlier goal and result.
-            action = control.action
-            # Whose account acts is the planner's call each turn (live 2026-10-26, task 0a5fbe31: a FERB-identity
-            # research task resumed as FERB though the planner's task named the owner's profile, so its worker had no
-            # owner browser tools and drove Chrome's window): a changed identity runs the planner's task.
-            identity_changed = out.task is not None and out.task.identity != prior_spec.identity
-            if (action == 'continue' and control.new_goal or identity_changed) and out.task is not None:
-                resumed = out.task
-                resumed.goal += (f"\nEarlier goal of this task: {prior_spec.goal}\n"
-                                 f"Last recorded result (verify afresh): {prior_state}")
-                if prior_spec.plan is not None and resumed.plan == prior_spec.plan:
-                    self.plans.reopen(control.task_id)
-                elif prior_spec.plan is not None and resumed.plan is not None:
-                    self.plans.replace(control.task_id, resumed.plan)
-                elif prior_spec.plan is not None:
-                    self.plans.set_status(control.task_id, 'replaced')    # never resumed, now or after a restart
-            elif action == 'continue' or out.task is None or (
-                    prior_spec.plan is not None and out.task.plan in (None, prior_spec.plan)):
-                resumed = prior_spec.model_copy(deep=True)
-                if prior_spec.plan is not None:
-                    self.plans.reopen(control.task_id)
-                else:
-                    resumed.goal += f"\nLast recorded result (verify afresh): {prior_state}"
-            else:
-                assert out.task is not None
-                resumed = out.task
-                resumed.goal += (f"\nOriginal request context: {prior_spec.goal}\n"
-                                 f"Last recorded result (verify afresh): {prior_state}\n"
-                                 f"Owner's follow-up: {m.for_model}")
-                if prior_spec.plan is not None and resumed.plan is not None:   # a new plan (an unchanged one
-                    self.plans.replace(control.task_id, resumed.plan)           # reopened above)
-            words = prior_request.words + "\n" + words
-            # The earlier requests' answers to FERB's questions keep what those questions were written from (S4 b),
-            # as this one's own answer does
-            continued = Request(request_id, prior_request.words + "\n" + authority, self._targets(resumed),
-                                payload=prior_request.payload + "\n\nOwner follow-up:\n" + payload,
-                                asked_origins=frozenset(self.spans.asked_origins(control.task_id) | asked_outside))
-            self.state.requests.record(continued)
-            resumed_payload = continued.payload
-            resumed_prior = self.continuity.prior_of(control.task_id)   # the task it continued, if any (P19 context)
-            # the continuation carries the earlier request and what its attempts read (S3, MP2)
-            turn_origins = turn_origins | self.spans.task_origins(control.task_id) | \
-                self._request_origins(prior_request.request_id)
-            self._env[request_id]['message_origin'] |= self.spans.request_origins(control.task_id)
-            self._env[request_id].update({**(await _value(self.environment(words))), "words": words,
-                                          "payload": resumed_payload})
-        side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins,
-                                        answered=answered_tree)
-        for event in side.events:
-            yield event
-        side_lines, refused = side.lines, side.refused
-        question = out.text                                    # the planner's own question, before code's lines
-        runs_task = resumed is not None or not (out.kind in ("reply", "clarify") or out.task is None)
-        if side_lines and not runs_task:
-            out = out.model_copy(update={"text": "\n".join([out.text.rstrip(), *side_lines])})
-        elif side_lines:
-            self._env[request_id]["side_lines"] = side_lines
-            for kind, line in refused:
-                yield {"type": kind, "text": line}
-        if out.kind == "clarify":                               # the answer will continue this request
-            session.pending, session.asked = owner_words, question
-            session.payload = payload
-        else:
-            session.payload = ""
-        if resumed is not None:
-            assert out.control is not None
-            if reopened != out.control.task_id:       # not already reopened by a steer that found the task ending
-                self._reopen_noes(out.control.task_id, request_id, entry, m.own_words)
-            try:
-                async for event in self.run_tree(resumed, out.text, request_id, resumed_payload,
-                                                 conversation_id=session.id, prior_task=resumed_prior,
-                                                 origins=turn_origins, resume_id=out.control.task_id):
-                    yield event
-            finally:
-                self._env.pop(request_id, None)
-            return
-        if out.kind in ("reply", "clarify") or out.task is None:
-            self.continuity.save_pending(session_id, session.pending, session.asked, session.payload)
-            self.journal.append(f"chat.{out.kind}", {"session_id": session_id, "request_id": request_id,
-                                                     "text": out.text, "source_refs": sorted({ref for exposure in self._env.get(request_id, {}).get("context_exposures", []) for ref in exposure["source_refs"]})},
-                                origin=origins_.join({origins_.INFERRED} | turn_origins))
-            self._env.pop(request_id, None)
-            # D33: only FERB's own checks start with "FERB:"; a planner's line that does is marked as the task's
-            said = confirm.from_task_lines(self.gateway.redact(out.text))
-            if acknowledged:
-                said = acknowledged + " " + said
-            yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": said}
-            return
-        if authority_id == request_id:
-            self.state.requests.record(Request(request_id, authority, self._targets(out.task), payload=payload,
-                                               asked_origins=frozenset(asked_outside)))
-        try:
-            async for ev in self.run_tree(out.task, out.text, authority_id, payload, conversation_id=session.id,
-                                          origins=turn_origins):
-                yield ev
-        finally:
-            self._env.pop(request_id, None)
-            self._env.pop(authority_id, None)
-
-    def _record_reply(self, session_id: str, request_id: str, text: str, turn_origins: set[str]) -> None:
-        """A control turn's reply in the conversation record, as a reply turn's is (review M3): the next turns' history
-        shows what FERB said, code's lines about the side entries included."""
-        self.journal.append('chat.reply', {'session_id': session_id, 'request_id': request_id, 'text': text},
-                            origin=origins_.join({origins_.INFERRED} | turn_origins))
-
-    def _with_lines(self, reply: dict[str, Any], lines: list[str]) -> dict[str, Any]:
-        """A control turn's reply with code's lines about its side entries at its end, in the text and in the short
-        line the app shows first, redacted (as a reply turn's are)."""
-        if not lines:
-            return reply
-        said = confirm.from_task_lines(self.gateway.redact("\n".join(lines)))
-        return reply | {key: reply[key].rstrip() + "\n" + said for key in ("text", "display_text") if key in reply}
-
-    def _turn_sites(self, out: SupervisorOutcome, session: ChatSession, typed: str,
-                    named: frozenset[str] = frozenset(), answered: str | None = None) -> frozenset[str]:
+    def _turn_sites(self, out: SupervisorOutcome, turn: _Turn, named: frozenset[str] = frozenset()) -> frozenset[str]:
         """Where a login name the owner gives may be saved for (L36 §5: a site in "this message, or the task's recorded
         owner words"): the hosts of the candidate sites that the owner typed (review I-1: a site only the planner or
         outside content named, such as a pasted email's, never gets their username). The candidates are the new task's
         sites, those of the task a stop, steer, continue or retry acts on and those of the task whose question this
-        turn answered (`answered`, its tree; final review I1), each only when it is this chat's (`continuity.load` by
+        turn answered (`turn.answered_tree`; final review I1), each only when it is this chat's (`continuity.load` by
         session, review m-5): the live tree's, else the saved spec's, plus `named`, the sites the controlled task had
         before a steer restated it; and the sites of the turn's own login entries. The owner's words are this turn's
         `typed` and those tasks' own (each request's, steers' appended)."""
         from ferb.identity.owner_secrets import site_host, typed_site
         candidates = [*(out.task.targets.sites if out.task is not None else ()),
                       *(str(item.login_origin) for item in out.remember if item.login_origin)]
-        words = [typed]
+        words = [turn.typed]
         trees = [(out.control.task_id, named)] if out.control is not None else []
-        if answered is not None:
-            trees.append((answered, frozenset()))
+        if turn.answered_tree is not None:
+            trees.append((turn.answered_tree, frozenset()))
         for tree_id, before in trees:
-            saved = self.continuity.load(tree_id, session.id)
+            saved = self.continuity.load(tree_id, turn.session.id)
             if saved is not None:
                 live = self._tree_of.get(tree_id)
                 candidates += [*(live.spec if live is not None else saved[0]).targets.sites, *before]
@@ -1868,16 +2235,15 @@ class Supervisor(WorkerRuns):
         owner = provenance.prepare("\n".join(words))
         return frozenset(h for site in candidates if (h := site_host(site)) and typed_site(h, owner))
 
-    def _sites_named_elsewhere(self, out: SupervisorOutcome, session: ChatSession,
-                               answered: str | None) -> frozenset[str]:
+    def _sites_named_elsewhere(self, out: SupervisorOutcome, turn: _Turn) -> frozenset[str]:
         """The candidate sites the owner typed only for a task of another chat (`_turn_sites` counts a controlled or
         answered task only in its own chat, review m-5): an answer from chat B to a question of a task they started in
         chat A. A login name refused for one of these is told so ("… in this chat", scoped re-review nit)."""
         from ferb.identity.owner_secrets import site_host, typed_site
         found: set[str] = set()
-        for tree_id in [t for t in (out.control.task_id if out.control is not None else None, answered) if t]:
+        for tree_id in [t for t in (out.control.task_id if out.control is not None else None, turn.answered_tree) if t]:
             other = self.continuity.conversation_of(tree_id)
-            saved = self.continuity.load(tree_id, other) if other is not None and other != session.id else None
+            saved = self.continuity.load(tree_id, other) if other is not None and other != turn.session.id else None
             if saved is None:
                 continue
             live = self._tree_of.get(tree_id)
@@ -1887,22 +2253,27 @@ class Supervisor(WorkerRuns):
             found |= {h for site in candidates if (h := site_host(site)) and typed_site(h, owner)}
         return frozenset(found)
 
-    async def _side_entries(self, out: SupervisorOutcome, session: ChatSession, request_id: str, m: Any, typed: str,
-                            typed_lines: str, entry_id: str, turn_origins: set[str],
-                            named: frozenset[str] = frozenset(), answered: str | None = None) -> _Side:
-        """A turn's side entries, applied once on every path a turn takes (a reply, a new task, and a stop, steer,
-        continue or retry: live 2026-10-24, two steers' remember entries were dropped), in this order, with the
-        owner's typed words as their quotes' check. `named`: the sites a steered task named before the steer
-        restated it (a restated task may leave its sites out); `answered`: the tree whose question this message
-        answered; `_turn_sites` keeps the sites of those the owner typed, with the turn's, as where a login name may be
-        saved."""
-        session_id = session.id
+    def _quote_source(self, turn: _Turn, quote: str) -> str:
+        """The message whose words hold a quote (memory fix list: after FERB's clarifying question, a fact the owner
+        stated in the message FERB asked about is that message's, not the reply's): this turn's messages first, then the
+        earlier ones its question continued, newest first. The turn's lead message when none holds it alone."""
+        for entry in [*turn.entries, *reversed(turn.carried)]:
+            if quoted(WRAPPED.sub(" ", str(entry.data.get("text", ""))), quote):
+                return entry.id
+        return turn.entries[0].id if turn.entries else ''
+
+    async def _side_entries(self, turn: _Turn, out: SupervisorOutcome, named: frozenset[str] = frozenset()) -> _Side:
+        """A turn's side entries, applied once by the path the turn ends on (`_exit` or `_start`), in this order, each
+        with the one quote check (`items.quoted`) against what the owner typed (never pasted text). `named`: the sites a
+        steered task named before the steer restated it (a restated task may leave its sites out); `_turn_sites` keeps
+        the sites of those the owner typed, with the turn's, as where a login name may be saved."""
+        session_id, request_id, typed = turn.session.id, turn.request_id, turn.typed
         events: list[dict[str, Any]] = []
         for change in out.conversation_changes:
-            if not change.quote.strip() or change.quote not in typed:
+            if not quoted(typed, change.quote):
                 events.append({'type': 'reply', 'text': 'A conversation change needs your own instruction.'})
                 continue
-            permitted_trees = self.continuity.task_ids(session.id)
+            permitted_trees = self.continuity.task_ids(session_id)
             try:
                 if self.conversations.get(change.id)['tree_id'] not in permitted_trees:
                     raise ValueError('That conversation belongs to another chat; use its chat or ferb conversations.')
@@ -1910,25 +2281,25 @@ class Supervisor(WorkerRuns):
                 events.append({'type': 'reply', 'text': 'Conversation ' + change.action + ': ' + change.id})
             except ValueError as exc:
                 events.append({'type': 'reply', 'text': str(exc)})
-        # Quotes are checked against what the owner typed (never against pasted text)
         receipts: list[str] = []
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
         unsaved: list[tuple[str, str]] = []
-        sites = self._turn_sites(out, session, typed, named, answered) if out.remember else frozenset()
-        elsewhere = (self._sites_named_elsewhere(out, session, answered) - sites) if out.remember else frozenset()
+        sites = self._turn_sites(out, turn, named) if out.remember else frozenset()
+        elsewhere = (self._sites_named_elsewhere(out, turn) - sites) if out.remember else frozenset()
         for item in out.remember:           # one at a time, so a refused one is known by name, with code's reason
-            answers = await _value(self.remember([item], typed_lines, entry_id, sites, elsewhere))
+            answers = await _value(self.remember([item], turn.typed_lines, self._quote_source(turn, item.quote),
+                                                 sites, elsewhere))
             saved_now = [r for r in answers if "receipt" in r]
             receipts += [r["receipt"] for r in saved_now]
             saved += [r["line"] for r in saved_now]
             if not saved_now:
                 unsaved.append((item.content, next((r["refused"] for r in answers if r.get("refused")),
                                                    "FERB's memory store gave no reason")))
-        self._env[request_id]["intake_receipts"] = receipts
+        turn.intake_receipts = receipts
         for receipt in receipts:             # the owner's words, quote-checked
             events.append({"type": "memory", "text": receipt})
         for wanted in out.forget:            # nothing goes before the owner's Yes to a question naming it (I2)
-            saved.append(self.forget_request(wanted.item_id, request_id) if whole_clauses(typed, wanted.quote)
+            saved.append(self.forget_request(wanted.item_id, request_id) if quoted(typed, wanted.quote, clause=True)
                          else FORGET_NEEDS_WORDS)
             events.append({"type": "memory", "text": saved[-1]})
         changed: list[str] = []          # code's own lines about cancelled reminders and schedules
@@ -1937,7 +2308,8 @@ class Supervisor(WorkerRuns):
             events.append({"type": "timer", "text": changed[-1]})
         # A reminder's quote may come from the current message or, once, from an earlier owner message of this chat
         # (L11: the 19:52 boarding timer recovered at 20:10).
-        said = [(request_id, m.own_words), *self._owner_words_in_chat(session_id, request_id)] if out.timers else []
+        said = [(request_id, turn.own_words), *self._owner_words_in_chat(session_id, turn.request_ids)] \
+            if out.timers else []
         set_timers, unset, existing = self._set_timers(out.timers, said, request_id, chain=typed)
         for t in set_timers:              # plain words (the notch shows them); the id is a field of its own
             events.append({"type": "timer", "text": _reminder_line(t), "timer_id": t.id})
@@ -1946,8 +2318,8 @@ class Supervisor(WorkerRuns):
         # they reach the conversation's history too); a task's turn sends refusals as events, and its outcome carries
         # every line (clients may show those events only in passing).
         if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
-            changed.append(self.on_schedule(out.schedule, typed, request_id, {origins_.INFERRED} | turn_origins,
-                                            self._sink_origins_for_new_schedule(request_id)))
+            changed.append(self.on_schedule(out.schedule, typed, request_id, {origins_.INFERRED} | turn.turn_origins,
+                                            self._sink_origins_for_new_schedule(turn)))
             events.append({"type": "timer", "text": changed[-1]})
         for ch in out.schedule_changes:
             changed.append(self.on_schedule_change(ch, typed))
@@ -1959,123 +2331,109 @@ class Supervisor(WorkerRuns):
                       + [line for _, line in refused])
         return _Side(events, side_lines, refused)
 
-    async def _supervise(self, session: ChatSession, message: str, request_id: str,
-                         remembered: Any = "", repair: list[str] | None = None, *,
+    async def _supervise(self, turn: _Turn, repair: list[str] | None = None, *,
                          emit: Callable[[dict[str, Any]], None] | None = None,
                          notify: Callable[[dict[str, Any]], None] | None = None) -> SupervisorOutcome:
-        """One planner turn (L28, owner 2026-10-14). Always in the prompt: the system prompt, the owner's message, the
-        situation (Layer 2), running tasks and open questions, relevant memory and today's activity. The conversation
-        fills what is left of the model's real window newest-first; older chat is FERB's running summary. Order for
-        prompt caching: system, Layer 1, the conversation (append-only), then the blocks that change every turn.
-        `emit` streams the reply's draft; `notify` is the turn's live line for a lost connection (fix wave 7): the
-        owner's chat stream, never a scheduled run's."""
+        """One planner call (L28). Its blocks are ordered most-stable first, so the provider caches the prefix (decision
+        4, target design 5): its instructions (with the facts that hold across turns), the stable device facts, FERB's
+        running summary of the older chat, every entry after it (append-only: at least the last RECENT_EXCHANGES
+        exchanges; older ones fold into the summary a chunk at a time, `_keep_recent`); then what changes every turn:
+        the live facts (schedules, reminders, browser connections), relevant memory, today's activity, the time, the
+        owner's front window at send, the task state (shown once) and the questions the owner can answer in chat; last
+        the owner's new message. `emit` streams the reply's draft; `notify` is the turn's live line for a lost
+        connection (fix wave 7): the owner's chat stream, never a scheduled run's."""
         rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
-        conversation, ages = self._conversation_blocks(request_id, session.id)
-        mem_text, mem_ages = self.recall_items(remembered)
+        session = turn.session
+        conversation, ages = self._conversation_blocks(turn.request_ids, session.id)
         # today's activity: one search, off the event loop, shared by its text and its source refs
-        activity_source = await asyncio.to_thread(self.relevant_context, message)
+        activity_source = await asyncio.to_thread(self.relevant_context, turn.payload)
         activity, activity_origin = _labeled(activity_source)
         activity_payload = _context_payload(activity_source)
-        activity_refs = _context_refs(activity_source)
-        if activity_refs is None:
-            activity_refs = []
-        env = self._env.get(request_id, {})
+        activity_refs = _context_refs(activity_source) or []
+        env = turn.environment
+        stable_text = (str(env["stable"]) + "\n\n") if env.get("stable") else ""
         # Each block with where its text came from (S3): the Mac inventory and running apps are FERB-measured owner
-        # state; memory, activity and history carry their stored labels; resumable goals are planner-written.
+        # state; memory, activity and history carry their stored labels; task goals and reports are model-written.
         stable: list[tuple[ContextBlock, set[str]]] = [
-            (ContextBlock('Layer 1 — stable device and capabilities:\n' + _env_text(env), "actions.search and current device facts", protected=True, cache=True),
+            (ContextBlock('Layer 1 — stable device and capabilities:\n' + stable_text,
+                          "actions.search and current device facts", protected=True, cache=True),
              {origins_.PRIVATE}), *conversation]
-        # The situation, every turn (L28: always included), with the owner's front window at send (L12).
-        owner_active, last_event = self.signals()
-        since, since_origins, since_refs, since_texts = self._since_last_talk(request_id)
-        situation: list[tuple[ContextBlock, set[str]]] = [
-            (ContextBlock('Layer 2 — situation:\n' + context.time_block(self.clock.now(), None, None, owner_active, last_event,
-                                                                       ages=ages | mem_ages, since_last_talk=since),
-                          "chat.history", protected=True, source_refs=tuple(since_refs), payload="\n".join(since_texts)),
-             {origins_.FERB} | since_origins)]           # FERB's clock, plus any task answers it quotes
-        if env.get("live"):
-            situation.append((ContextBlock('Layer 2 — current device:\n' + env["live"], "current device facts", protected=True),
-                              {origins_.PRIVATE}))
-        if "front_window" in env:                         # L12: what the owner saw as they sent this message
-            situation.append(front_window_block(env["front_window"], env.get("front_image"), FRONT_WINDOW,
-                                                env.get("image_withheld"), env.get("front_window_missing")))
-        if "schedule_previous" in env:                    # a recurring run compares with the one before
-            situation.append(self._previous_run_block(env["schedule_previous"]))
-        images = (env["front_image"],) if env.get("front_image") is not None else ()
-        # optional, not protected (live 2026-10-28): activity too large for one input becomes a fetch reference, never
-        # a failed message
-        situation.append((ContextBlock("Layer 3 — today's activity (data):\n" + activity, "task.evidence query=context.source; memory.read; trail.query",
-                                       protected=False, source_refs=tuple(activity_refs), payload=activity_payload),
-                          origins_.split(activity_origin)))
-        # The raw trail of the last minutes is fetch-only (owner, 2026-10-14): a task reads it with trail.query.
+        situation: list[tuple[ContextBlock, set[str]]] = []
+        live = "\n".join(part for part in (str(env.get("live") or ""), self.live_facts()) if part.strip())
+        if live:
+            situation.append((ContextBlock('Layer 2 — right now (changes between turns):\n' + live,
+                                           "current device facts", protected=True), {origins_.PRIVATE}))
+        tasks_block, ended = self._task_state(session)
+        task_words, task_targets = self._chat_task_words(session, ended)
+        recall_for = "\n".join(part for part in (turn.payload, task_words) if part.strip())
         # Memory is recalled for the message and the work it may continue (L36 §3, Ruling 12a), that work's targets
         # also ranked alone (L36 §4 fix round)
-        task_words, task_targets = self._chat_task_words(session)
-        recall_for = "\n".join(part for part in (message, task_words) if part.strip())
-        situation.extend(await self._memory_blocks(recall_for, remembered, mem_text, focus=task_targets))
+        situation.extend(await self._memory_blocks(recall_for, focus=task_targets))
+        # optional, not protected (live 2026-10-28): activity too large for one input becomes a fetch reference, never
+        # a failed message
+        situation.append((ContextBlock("Layer 3 — today's activity (data):\n" + activity,
+                                       "task.evidence query=context.source; memory.read; trail.query",
+                                       protected=False, source_refs=tuple(activity_refs), payload=activity_payload),
+                          origins_.split(activity_origin)))
+        owner_active, last_event = self.signals()
+        since, since_origins, since_refs, since_texts = self._since_last_talk(turn.request_ids)
+        situation.append((ContextBlock('Layer 2 — situation:\n' + context.time_block(
+            self.clock.now(), None, None, owner_active, last_event, ages=ages, since_last_talk=since),
+            "chat.history", protected=True, source_refs=tuple(since_refs), payload="\n".join(since_texts)),
+            {origins_.FERB} | since_origins))           # FERB's clock, plus the reminders it quotes
+        if turn.screen is not None:                       # L12: what the owner saw as they sent this message
+            situation.append(front_window_block(turn.front_window, turn.front_image, FRONT_WINDOW,
+                                                turn.screen.get("image_withheld"),
+                                                turn.screen.get("front_window_missing")))
+        if turn.schedule_previous is not None or session.id.startswith(SCHEDULE_SESSION):
+            situation.append(self._previous_run_block(turn.schedule_previous))   # a recurring run compares with it
+        images = (turn.front_image,) if turn.front_image is not None else ()
         state: list[tuple[ContextBlock, set[str]]] = []
-        # A scheduled run starts fresh: its earlier runs are its conversation and its previous-run block, never
-        # attempts to continue.
-        candidates = [] if session.id.startswith(SCHEDULE_SESSION) else self.continuity.candidates(session.id)
-        if candidates:
-            attempts, shown = self._attempts(candidates)
-            state.append((ContextBlock('Layer 6 — resumable task state:\n' + attempts, "chat.history include_tasks=true", protected=True,
-                                       source_refs=tuple(TASK + t for t in shown), payload=attempts),
-                          {o for t in shown for o in self._task_line_origins(t)} | {origins_.INFERRED}))
-        open_questions = [{'approval_id': a.id, 'question': a.reason, 'options': list(a.options), 'kind': a.kind,
-                           'ferb_check': a.capability in FERB_CHECKS}
-                          for a in self.state.approvals.pending() if a.kind not in ('owner_login_code', 'owner_admin_password', 'owner_secret')
-                          and a.capability != LOOP_ASK]   # a paused loop's: the reply steers its task (L31 item 8)
-        state.append((ContextBlock('Layer 6 — running tasks and open questions (data):\n' + wrap_untrusted(json.dumps({
-            'tasks': self.running_trees(), 'questions': open_questions,
-            'delegated_conversations': [row for row in self.conversations.list() if row['tree_id'] in self.continuity.task_ids(session.id)],
-            'plans': {key: {'plan': tree.spec.plan.model_dump(), 'steps': self.plans.steps(key)}
-                      for key, tree in self._tree_of.items() if key == tree.id and tree.spec.plan},
-            # each running task's standing scope in force (D30): a correction revises the complete list
-            'standing_scopes': {key: [scope.model_dump() for scope in scopes] for key, tree in self._tree_of.items()
-                                if key == tree.id and (scopes := self.standing.scopes(key))},
-        })), 'chat.status', protected=True), {origins_.INFERRED}))
-        status, status_origins, status_refs = self._status_facts(session)
-        if status:                   # progress questions are answered from these, never from the chat (owner 2026-10-18)
-            state.append((ContextBlock('Layer 6 — task status (FERB\'s own records of this conversation\'s tasks; data):\n'
-                                       + wrap_untrusted(json.dumps(status, ensure_ascii=False)), 'chat.status',
-                                       protected=True, source_refs=tuple(status_refs)), status_origins))
+        if tasks_block is not None:
+            state.append(tasks_block)
+        state.append(self._questions_block(session))
         if repair:
             state.append((ContextBlock('Layer 6 — plan repair:\n' + load_prompt(self._approach() + "/repair.md") + "\n" +
                                        json.dumps(repair), "plan validation", protected=True), {origins_.FERB}))
-        state.append((ContextBlock("Layer 5 — owner's complete new message:\n" + message, REQUEST_REFERENCE, protected=True, source_refs=tuple([env["message_source_ref"]] if env.get("message_source_ref") else [])),
-                      env.get("message_origin") or {origins_.external("unlabeled")}))
+        several = len(turn.entries) > 1
+        state.append((ContextBlock(("Layer 5 — owner's new messages, sent one after another before FERB replied (read "
+                                    "them together; the last one is the most recent):\n" if several else
+                                    "Layer 5 — owner's complete new message:\n") + turn.payload,
+                                   REQUEST_REFERENCE, protected=True,
+                                   source_refs=tuple("journal:" + e.id for e in turn.entries)),
+                      turn.message_origin or {origins_.external("unlabeled")}))
         sourced = stable + situation + state
         blocks = [dataclasses.replace(block, origin=origins_.join(made))
-                  if block.source_refs or block.text.startswith(('Layer 3 —', 'Layer 4 —')) else block for block, made in sourced]
+                  if block.source_refs or block.text.startswith(('Layer 3 —', 'Layer 4 —')) else block
+                  for block, made in sourced]
         # The situation's full texts are also attached to a task as its planner snapshot (task.evidence planner-context).
-        self._env.setdefault(request_id, {})["planner_sources"] = json.dumps([
-            {"reference": block.reference, "text": block.text, "origin": origins_.join(made), "source_refs": list(block.source_refs)}
-            for block, made in situation], ensure_ascii=False)
+        turn.planner_sources = json.dumps([
+            {"reference": block.reference, "text": block.text, "origin": origins_.join(made),
+             "source_refs": list(block.source_refs)} for block, made in situation], ensure_ascii=False)
         snapshot = "; original planner snapshot: task.evidence kind=context.source query=planner-context"
-        ctx = [dataclasses.replace(block, reference=block.reference + snapshot) if i in range(len(stable), len(stable) + len(situation))
-               else block for i, block in enumerate(blocks)]
-        chat_task = Task(request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed", request_id,
-                         [], None)
-        span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": request_id,
+        first, last = len(stable), len(stable) + len(situation)
+        ctx = [dataclasses.replace(block, reference=block.reference + snapshot) if first <= i < last else block
+               for i, block in enumerate(blocks)]
+        chat_task = Task(turn.request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed",
+                         turn.request_id, [], None)
+        span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": turn.request_id,
                                                                    "repair": bool(repair)})
         shape = getattr(rt, "shape", None)          # a runtime whose provider gets the schema reshaped (D32)
         draft = (ReplyDraft(self.gateway.redact, emit, shape.field if getattr(shape, "mapped", False) else None)
                  if emit is not None and isinstance(self.gateway.redact, Redactor) else None)
         usage: dict[str, Any] = {}
         try:
-            final = await self._run(rt, chat_task, self._system("supervisor.md"), ctx, "", span.id, None, "",
-                                    on_usage=usage.update, images=images, notify=notify,
+            final = await self._run(rt, chat_task, self._system("supervisor.md", live=False), ctx, "", span.id, None,
+                                    "", on_usage=usage.update, images=images, notify=notify,
                                     **({'on_delta': draft.feed} if draft else {}))
             result = SupervisorOutcome.model_validate_json(final)
             if draft:
                 draft.finish(final)
-            assembly = self._env.get(request_id, {}).pop("assembly", None)
+            assembly, turn.assembly = turn.assembly, None
             if assembly is not None:   # what this turn's planner saw (S3): every block but the chat it had no room for
                 given = [(block, made) for block, (_, made) in zip(ctx, sourced) if block.text]
-                self._env[request_id]["turn_origins"] = {o for (block, made), seen in zip(given, assembly.shown)
-                                                         if seen or not block.history for o in made}
-                self._env[request_id]["omitted_history"] = assembly.omitted_history
+                turn.turn_origins = {o for (block, made), seen in zip(given, assembly.shown)
+                                     if seen or not block.history for o in made}
             # cached input tokens per turn (L28): the provider's count, next to the turn it belongs to
             self.spans.finish(span, output={"text": final, "usage": {k: usage[k] for k in (
                 "input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens", "reasoning_tokens")
@@ -2092,19 +2450,37 @@ class Supervisor(WorkerRuns):
                 raise
             refused = type(exc).__name__
         # L12: a model that won't take the screenshot must not fail the message: once more without it, saying so
-        self.journal.append("screen.image_refused", {"request_id": request_id, "error": refused})
-        self._env.setdefault(request_id, {}).update(front_image=None, image_withheld=IMAGE_REFUSED)
-        return await self._supervise(session, message, request_id, remembered, repair, emit=emit, notify=notify)
+        self.journal.append("screen.image_refused", {"request_id": turn.request_id, "error": refused})
+        assert turn.screen is not None
+        turn.screen = {**turn.screen, "front_image": None, "image_withheld": IMAGE_REFUSED}
+        return await self._supervise(turn, repair, emit=emit, notify=notify)
 
-    def _conversation_blocks(self, request_id: str, conversation: str, *, since_last_notice: bool = False
+    def _questions_block(self, session: ChatSession) -> tuple[ContextBlock, set[str]]:
+        """The open questions the owner's chat message can answer (the planner routes an answer by id, L3): only those
+        `_answer` takes (fix list: never one it can't, such as a one-tap runtime switch or a paused loop's, whose reply
+        is a correction of its task), with this chat's delegated conversations."""
+        questions = [{'approval_id': a.id, 'question': a.reason, 'options': list(a.options),
+                      'ferb_check': a.capability in FERB_CHECKS}
+                     for a in self.state.approvals.pending()
+                     if a.kind == 'owner_question' and a.capability in ROUTABLE_QUESTIONS]
+        mine = self.continuity.task_ids(session.id)
+        return (ContextBlock('Layer 6 — open questions the owner can answer in chat (data):\n' + wrap_untrusted(
+            json.dumps({'questions': questions,
+                        'delegated_conversations': [row for row in self.conversations.list()
+                                                    if row['tree_id'] in mine]})), 'chat.status', protected=True),
+                {origins_.INFERRED})
+
+    def _conversation_blocks(self, current: Any, conversation: str, *, since_last_notice: bool = False
                              ) -> tuple[list[tuple[ContextBlock, set[str]]], dict[str, datetime]]:
-        """The conversation as context blocks, with their origins: its header (and FERB's running summary of the older
-        part, if any), then one cacheable history block per entry, which the assembler fills newest-first after the
-        always-included blocks (L28). With the entries' tag ages. `since_last_notice` (the background attention check,
-        I2: owner, 2026-10-14): only the entries after the conversation's last notice; with none after the summary's
-        watermark, every entry the summary hasn't folded in."""
+        """The conversation as context blocks, with their origins: its header with FERB's running summary of the older
+        part, if any, then one cacheable history block per entry after what it covers (decision 4: append-only, at least
+        the last 20 exchanges and at most about one chunk more, `_keep_recent`; the assembler still drops the oldest if
+        the model's window can't hold them, L28). With the entries' tag
+        ages. `current`: this turn's request id(s), whose messages are the new message, not history.
+        `since_last_notice` (the background attention check, I2: owner, 2026-10-14): only the entries after the
+        conversation's last notice; with none after the summary's watermark, every entry the summary hasn't folded in."""
         summary = self._summary(conversation)
-        entries, ages = self._timeline(request_id, conversation, summary)
+        entries, ages = self._timeline(current, conversation, summary)
         if since_last_notice:
             last = max((i for i, e in enumerate(entries) if e.kind == "chat.notice"), default=None)
             entries = entries if last is None else entries[last + 1:]
@@ -2113,7 +2489,8 @@ class Supervisor(WorkerRuns):
         made: set[str] = set()
         if summary is not None:
             header += ("\nFERB's running summary of the earlier conversation (model-written from the recorded entries; "
-                       "data; chat.history has every entry in full):\n" + str(summary.data.get("text", "")))
+                       "data; chat.history has every entry in full):\n" +
+                       _within_tokens(str(summary.data.get("text", "")), SUMMARY_TOKENS))
             refs, made = (ENTRY + summary.id,), origins_.split(summary.origin)
         return [(ContextBlock('Layer 5 — conversation:\n' + header, "chat.history", protected=True, cache=True,
                               source_refs=refs, payload=str(summary.data.get("text", "")) if summary else ""), made),
@@ -2121,32 +2498,29 @@ class Supervisor(WorkerRuns):
                                 payload=e.payload),
                    e.origins) for e in entries]], ages
 
-    async def _memory_blocks(self, message: str, remembered: Any, mem_text: str, *,
-                             focus: str = '') -> list[tuple[ContextBlock, set[str]]]:
-        """Relevant memory, always included (L28): the recalled items and every ranked learned item. `focus`: the target
-        words of the tasks the turn is shown, also ranked alone (none for attention)."""
+    async def _memory_blocks(self, message: str, *, focus: str = '') -> list[tuple[ContextBlock, set[str]]]:
+        """Relevant memory, always included (L28): every ranked learned item. `focus`: the target words of the tasks the
+        turn is shown, also ranked alone (none for attention)."""
         from ferb.orchestrator.context_layers import ranked_memory_blocks
         found = self.memory_candidates(message, focus) if self.memory_candidates is not None else []
         if inspect.isawaitable(found):
             found = await found
-        return ([self._memory_block(mem_text, remembered)] if mem_text else []) + \
-            [(dataclasses.replace(block, protected=True), made) for block, made in ranked_memory_blocks(found)]
+        return [(dataclasses.replace(block, protected=True), made) for block, made in ranked_memory_blocks(found)]
 
-    def _memory_block(self, mem_text: str, remembered: Any) -> tuple[ContextBlock, set[str]]:
-        return (ContextBlock('Layer 4 — relevant memory (data):\n' + mem_text, "memory.read", protected=True,
-                             payload=mem_text), {self.recall_origin(remembered)})
-
-    def _timeline(self, current_request: str, conversation: str | None,
+    def _timeline(self, current: Any, conversation: str | None,
                   summary: Any = None) -> tuple[list["_Entry"], dict[str, datetime]]:
         """The conversation's entries after the running summary, oldest first, each complete: its display line (tag,
         time, speaker, text, full-source reference), its own text alone (the S4 payload: no time, tag, label or id),
-        its origins and its lineage handle."""
+        its origins and its lineage handle. A task's report shows in its short form (decision 4: its first paragraph,
+        clipped); chat.history keeps its full text. Task state is not repeated here: it is the planner's task block
+        (`_task_state`, shown once). `current`: the request id(s) left out (this turn's own messages)."""
         from ferb.orchestrator.attention import notice_sources
+        leave_out = {current} if isinstance(current, str) else set(current)
         task_ids = self.continuity.task_ids(conversation) if conversation is not None else None
         timeline: list[_Entry] = []
         for entry in self.journal.entries_of(*CONVERSATION_KINDS):
             data = entry.data
-            if data.get("request_id") == current_request:
+            if data.get("request_id") in leave_out or data.get("read_with") in leave_out:
                 continue
             if conversation is not None:
                 if entry.kind == "task.answer":
@@ -2160,8 +2534,10 @@ class Supervisor(WorkerRuns):
             if entry.kind == "task.answer":
                 # a model-written report that can quote what the task read: shown with its origin and as one quoted
                 # string, so its text can't start a line in this history's own format (review I4, MP2)
-                who += f" (task result, {data.get('status')}; origin {entry.origin})"
-                said = as_data(said)
+                short = _short_report(said)
+                who += (f" (task {data.get('task_id')} result, {data.get('status')}"
+                        f"{'; short form' if short != said else ''}; origin {entry.origin})")
+                said = as_data(short)
             elif entry.kind in ("chat.reply", "chat.clarify") and any(origins_.is_external(o) for o in held):
                 who += f" (origin {entry.origin})"                  # FERB's words written from outside content
                 said = as_data(said)
@@ -2172,71 +2548,35 @@ class Supervisor(WorkerRuns):
                 refs = tuple(notice_sources(self.journal.db, str(data.get("id", ""))))   # the rows it came from
             timeline.append(_Entry(entry.at, f"({entry.at.astimezone():%a %d %b %H:%M}) {who}: " + said,
                                    _entry_payload(entry.kind, data), f"chat.history entry_id={entry.id}", True,
-                                   origins_.split(entry.origin), ENTRY + entry.id, entry.kind, refs))
-        for row in self.tasks.recent_roots(""):
-            if task_ids is not None and row["id"] not in task_ids:
-                continue
-            state = TASK_STATE.get(row["status"], row["status"])
-            if row["status"] == "cancelled" and "stopped by you" in str(row.get("outcome_json", "")):
-                state = "stopped by the owner (Ctrl-C)"
-            timeline.append(_Entry(datetime.fromisoformat(row["created_at"]), f"Task {row['id']}: {row['goal']} — {state}",
-                                   str(row["goal"]), f"chat.history task_id={row['id']}", False,
-                                   self._task_line_origins(row["id"]), TASK + row["id"]))
-        timeline.sort(key=lambda item: item.at)
+                                   origins_.split(entry.origin), ENTRY + entry.id, entry.kind, refs,
+                                   entry.kind == "chat.message" and not data.get("read_with")))
         covered = self._covered(summary)
         ages: dict[str, datetime] = {}
         shown: list[_Entry] = []
         chats = 0                                  # c1 is the oldest chat entry, so a tag never changes as the
         for item in timeline:                      # conversation grows and earlier lines stay a cacheable prefix (P20)
-            tag = ""
-            if item.chat:
-                chats += 1
-                tag = f"[c{chats}] "
+            chats += 1
+            tag = f"[c{chats}] "
             if item.handle in covered:
                 continue                           # FERB's running summary covers it
-            if tag:
-                ages[tag[1:-2]] = item.at
+            ages[tag[1:-2]] = item.at
             shown.append(dataclasses.replace(item, text=f"{tag}{item.text}\n[Full source: {item.reference}]"))
         return shown, ages
 
-    def _attempts_text(self, candidates: list[dict[str, Any]], max_tokens: int = ATTEMPTS_TOKENS) -> str:
-        """Resumable attempts, newest first (as candidates() returns them), keeping those that fit max_tokens."""
-        return self._attempts(candidates, max_tokens)[0]
-
-    def _chat_task_words(self, session: ChatSession) -> tuple[str, str]:
-        """The goals and targets of the tasks this chat's planner sees in its task layers (L36 §3): its running tasks
-        and the resumable attempts `_attempts` shows it (recently ended ones among them); and their targets alone, which
-        the search also ranks alone (L36 §4 fix round). An owner message that shares no word with a remembered fact
-        still recalls it when the work it continues names the site."""
+    def _chat_task_words(self, session: ChatSession, ended: list[str]) -> tuple[str, str]:
+        """The goals and targets of the tasks this chat's planner sees in its task block (L36 §3): this chat's running
+        tasks and the ended ones it is shown (`ended`); and their targets alone, which the search also ranks alone (L36
+        §4 fix round). An owner message that shares no word with a remembered fact still recalls it when the work it
+        continues names the site."""
         mine = self.continuity.task_ids(session.id)
         specs = [tree.spec for key, tree in self._tree_of.items() if key == tree.id and key in mine]
-        if not session.id.startswith(SCHEDULE_SESSION):         # a scheduled run's planner is shown no attempts
-            for task_id in self._attempts(self.continuity.candidates(session.id))[1]:
-                saved = None if task_id in self._tree_of else self.continuity.load(task_id, session.id)
-                if saved is not None:
-                    specs.append(saved[0])
+        for task_id in ended:
+            saved = None if task_id in self._tree_of else self.continuity.load(task_id, session.id)
+            if saved is not None:
+                specs.append(saved[0])
         targets = [target_words(spec.targets) for spec in specs]
         return ("\n".join(part for spec, aimed in zip(specs, targets) for part in (spec.goal, aimed) if part.strip()),
                 " ".join(aimed for aimed in targets if aimed.strip()))
-
-    def _attempts(self, candidates: list[dict[str, Any]], max_tokens: int = ATTEMPTS_TOKENS) -> tuple[str, list[str]]:
-        """_attempts_text, plus the task ids it shows."""
-        header = "Resumable attempts in this conversation (exact task_id; data):"
-        lines: list[str] = []
-        shown: list[str] = []
-        used = count_tokens(header)
-        for r in candidates:
-            line = (f"task_id={r['task_id']} prior={r['prior_task']} status={r['status']} "
-                    f"goal={wrap_untrusted(r['goal'])}")
-            cost = count_tokens(line)
-            if lines and used + cost > max_tokens:
-                break
-            lines.append(line)
-            shown.append(r["task_id"])
-            used += cost
-        omitted = len(candidates) - len(lines)
-        note = f"\n[{omitted} older resumable attempts not shown; ask chat.history include_tasks=true]" if omitted else ""
-        return header + "\n" + "\n".join(lines) + note, shown
 
     def _task_line_origins(self, task_id: str) -> set[str]:
         """A task's planner-written goal and recorded state, with what that task was given (S3, MP2)."""
@@ -2244,8 +2584,8 @@ class Supervisor(WorkerRuns):
         return {origins_.INFERRED} | inherited
 
     def _request_origins(self, request_id: str) -> set[str]:
-        """The stored origins of the owner's chat message for a request."""
-        return {o for e in self.journal.of_kind("chat.message", "request_id", request_id)
+        """The stored origins of the owner's chat message(s) for a request (its lead's and those read with it)."""
+        return {o for kind in ("request_id", "read_with") for e in self.journal.of_kind("chat.message", kind, request_id)
                 for o in origins_.split(e.origin)}
 
     def _clarify_outside(self, session_id: str) -> set[str]:
@@ -2254,18 +2594,17 @@ class Supervisor(WorkerRuns):
         asked = self.journal.of_kind("chat.clarify", "session_id", session_id)
         return {o for o in origins_.split(asked[-1].origin) if origins_.is_external(o)} if asked else set()
 
-    def _carried_origins(self, session_id: str, current_request: str) -> set[str]:
-        """The origins of the earlier messages a clarify continuation carries in its payload: the session's latest
-        messages, back to the first one FERB didn't answer with a question."""
+    def _carried(self, session_id: str) -> list[JournalEntry]:
+        """The earlier messages a clarify continuation carries in its payload, oldest first: the session's latest
+        messages, back to the first one FERB didn't answer with a question (a message read with another counts as its
+        lead's)."""
         clarified = {e.data.get("request_id") for e in self.journal.of_kind("chat.clarify")}
-        carried: set[str] = set()
+        carried: list[JournalEntry] = []
         for e in reversed(self.journal.of_kind("chat.message", "session_id", session_id, missing="owner")):
-            if e.data.get("request_id") == current_request:
-                continue
-            if e.data.get("request_id") not in clarified:
+            if (e.data.get("read_with") or e.data.get("request_id")) not in clarified:
                 break
-            carried |= origins_.split(e.origin)
-        return carried
+            carried.append(e)
+        return carried[::-1]
 
     def _schedule_origins(self, schedule_id: str) -> set[str]:
         """A scheduled run's request: what the turn that made the schedule was written from, as recorded on its
@@ -2287,13 +2626,40 @@ class Supervisor(WorkerRuns):
         return {str(h) for row in self.journal.of_kind(SUMMARY_KIND, "session_id", str(summary.data.get("session_id")))
                 for h in row.data.get("covered", [])}
 
-    def _update_summary(self, conversation: str, count: int) -> None:
-        """Refresh the running summary only when it's needed (owner decision 2026-10-14; no step size, no number): when
-        `count` entries fell out of this turn's window, they are entries the latest summary doesn't cover (the timeline
-        already leaves covered ones out). They are folded in the background; the next turn reads the summary. One
-        refresh per chat at a time."""
-        if count <= 0 or conversation in self._summarizing:
+    @staticmethod
+    def _recent_entries(entries: list[Any]) -> list[Any]:
+        """The last RECENT_EXCHANGES exchanges (decision 4: an owner message and what FERB said after it, until the
+        owner's next; messages read together are one), oldest first; over RECENT_CONVERSATION_TOKENS the oldest
+        exchanges go first. The newest exchange always. What a fold leaves unfolded (`_keep_recent`)."""
+        groups: list[list[Any]] = []
+        for entry in entries:
+            if entry.opens or not groups:
+                groups.append([entry])
+            else:
+                groups[-1].append(entry)
+        groups = groups[-RECENT_EXCHANGES:]
+        sizes = [sum(count_tokens(e.text) for e in group) for group in groups]
+        while len(groups) > 1 and sum(sizes) > RECENT_CONVERSATION_TOKENS:
+            groups.pop(0)
+            sizes.pop(0)
+        return [entry for group in groups for entry in group]
+
+    def _keep_recent(self, conversation: str) -> None:
+        """Decision 4, target design 5: the planner reads the running summary and every entry after what it covers
+        (append-only, so consecutive turns share the cached prefix; never a hole between the two). Once that tail holds
+        one chunk (FOLD_CHUNK_TOKENS; owner, 2026-10-31: about every 20-40 exchanges) beyond the last RECENT_EXCHANGES
+        exchanges, or the whole tail passes RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS, the entries beyond those
+        exchanges fold into the summary in the background after the reply, a bounded chunk per call, and the tail drops
+        back to about the last 20 exchanges; the same call drops what is older than SUMMARY_DAYS unless it is still
+        open. One fold per chat at a time; the planner only reads the latest summary (no model call per turn)."""
+        if conversation in self._summarizing:
             return
+        entries = self._timeline("", conversation, self._summary(conversation))[0]
+        count = len(entries) - len(self._recent_entries(entries))
+        excess = sum(count_tokens(e.text) for e in entries[:count])
+        total = excess + sum(count_tokens(e.text) for e in entries[count:])
+        if count <= 0 or (excess < FOLD_CHUNK_TOKENS and total <= RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS):
+            return                       # owner, 2026-10-31: a fold only once one chunk has gathered beyond them
         job = asyncio.get_running_loop().create_task(self._summarize(conversation, count))
         self._summarizing[conversation] = job
         job.add_done_callback(lambda _: self._summarizing.pop(conversation, None))
@@ -2301,9 +2667,9 @@ class Supervisor(WorkerRuns):
     async def _summarize(self, conversation: str, count: int) -> None:
         """Fold the `count` oldest entries after the current summary into new summaries: model-written from the recorded
         entries (data, never authority; MP2: each holds everything its entries and the summary before it hold), citing
-        what it folded by handle. Each call holds the latest summary and the next entries that fit the model's window
-        and its runtime's per-input character cap (L28), and is written before the next call is made; a failed call
-        ends the refresh (the next overflowing turn tries again; the omission note stands)."""
+        what it folded by handle. Each call holds the latest summary and a bounded chunk of the next entries (at most
+        FOLD_CHUNK_TOKENS, never "whatever fits the window": live 2026-10-28, one fold read 533k tokens), and is written
+        before the next call is made; a failed call ends the refresh (the next turn tries again)."""
         while count > 0:
             previous = self._summary(conversation)
             entries = self._timeline("", conversation, previous)[0][:count]
@@ -2327,10 +2693,12 @@ class Supervisor(WorkerRuns):
             folded = self._foldable(rt, system, previous, entries) or entries[:1]
             # A notice's text (observed, typed or clipboard-derived) has its own purge (D14) and forget paths: it is
             # never copied into the summary, so neither has another copy to reach. chat.history keeps the notice.
-            copied = [e for e in folded if e.kind != "chat.notice"]
+            copied = [dataclasses.replace(e, text=_within_tokens(e.text, FOLD_CHUNK_TOKENS))   # one huge entry too
+                      for e in folded if e.kind != "chat.notice"]
             task = Task(request_id + ".summary", None, "conversation summary", self.device_id, Identity.OWNER, set(),
                         "mixed", request_id, [], None)
-            final = await self._run(rt, task, system, _summary_blocks(previous, copied), "", span.id, None, "")
+            final = await self._run(rt, task, system, _summary_blocks(previous, copied, self.clock.now()), "",
+                                    span.id, None, "")
             text = SummaryOutcome.model_validate_json(final).summary
             made = {origins_.INFERRED} | {o for e in copied for o in e.origins} | \
                 (origins_.split(previous.origin) if previous else set())
@@ -2348,21 +2716,25 @@ class Supervisor(WorkerRuns):
 
     @staticmethod
     def _foldable(rt: Any, system: str, previous: JournalEntry | None, entries: list[Any]) -> list[Any]:
-        """The oldest `entries` that fit one summary call beside `previous`: the model's window and its runtime's
-        per-input character cap (L28), counted as `_run` assembles the call (each entry with its separator)."""
+        """The oldest `entries` for one summary call beside `previous`: at most FOLD_CHUNK_TOKENS of them (decision 4),
+        and within the model's window and its runtime's per-input character cap (L28), counted as `_run` assembles the
+        call (each entry with its separator)."""
         limits = model_limits(rt)
         reserved = reserve_tokens(system, [], getattr(rt, "output_schema", None))
         base = "\n\n".join(block.text for block in _summary_blocks(previous, []) if block.text)
         tokens = reserved + overhead_tokens(limits.context_budget, reserved) + count_tokens(base)
         chars = overhead_chars(limits.context_budget, reserved) + len(base)
         cap = limits.max_input_chars
+        chunk = 0
         fitting: list[Any] = []
         for entry in entries:
             if entry.kind != "chat.notice":      # a notice is covered, never copied (`_fold`)
                 text = entry.text.replace("</untrusted-data", "<\\/untrusted-data")    # as wrap_untrusted writes it
-                tokens += count_tokens(text) + count_tokens("\n\n")
+                cost = count_tokens(text) + count_tokens("\n\n")
+                tokens += cost
+                chunk += cost
                 chars += len(text) + len("\n\n")
-                if tokens > limits.context_budget or (cap is not None and chars > cap):
+                if chunk > FOLD_CHUNK_TOKENS or tokens > limits.context_budget or (cap is not None and chars > cap):
                     break
             fitting.append(entry)
         return fitting
@@ -2394,16 +2766,15 @@ class Supervisor(WorkerRuns):
                     cleared.append(sid)
         return cleared
 
-    def _sink_origins_for_new_schedule(self, request_id: str) -> set[str]:
+    def _sink_origins_for_new_schedule(self, turn: _Turn) -> set[str]:
         """The sink rule's request origins a schedule made in this turn records for its runs (S4, L4): what the
         request carries itself (the owner's message and what it carried: pasted text, a clarify's earlier text), the
         context given to its planner whose stored origin is outside content, and `inferred` (the planner wrote the
         scheduled request). FERB's own memory, history and device facts are not outside content, whatever they
         inherited, so a scheduled run doesn't start as having read outside content because the turn that made it saw
         FERB's own context. Its labels (MP2) stay the turn's."""
-        env = self._env.get(request_id, {})
-        read = [origins_.split(e["origin"]) for e in env.get("context_exposures", [])]
-        return ({origins_.INFERRED} | set(env.get("message_origin") or {origins_.external("unlabeled")}) |
+        read = [origins_.split(e["origin"]) for e in turn.exposures]
+        return ({origins_.INFERRED} | set(turn.message_origin or {origins_.external("unlabeled")}) |
                 {o for labels in read if origins_.stored_outside(labels) for o in labels})
 
     def _schedule_sink_origins(self, schedule_id: str) -> set[str]:
@@ -2416,50 +2787,30 @@ class Supervisor(WorkerRuns):
             return {str(o) for r in recorded if isinstance(r, list) for o in r}
         return self._schedule_origins(schedule_id)
 
-    def recall_items(self, remembered: Any) -> tuple[str, dict[str, datetime]]:
-        if isinstance(remembered, tuple):
-            return remembered[0], remembered[1]
-        return (str(remembered or ""), {})
-
-    @staticmethod
-    def recall_origin(remembered: Any) -> str:
-        """The least-trusted origin of the recalled items (S3); a recall that didn't say what it holds is unlabeled."""
-        if isinstance(remembered, tuple) and len(remembered) > 2:
-            return origins_.least_trusted(memory_origin(o) for o in remembered[2])
-        return origins_.external("unlabeled")
-
-    async def since_last_talk(self, current_request: str) -> tuple[list[str], set[str]]:
-        """Report recorded task and reminder events after the owner's previous message, with the origins of the
-        entries quoted (S3)."""
-        notes, quoted, refs, _ = self._since_last_talk(current_request)
-        self._env.setdefault(current_request, {})["since_source_refs"] = refs
-        return notes, quoted
-
-    def _since_last_talk(self, current_request: str) -> tuple[list[str], set[str], list[str], list[str]]:
-        """since_last_talk, plus the entries it quotes by lineage handle (L28) and their own texts (the S4 payload: the
-        answers and reminder messages, never FERB's wording around them). Reads only the kinds it reports, through the
-        journal's kind index."""
+    def _since_last_talk(self, current: Any) -> tuple[list[str], set[str], list[str], list[str]]:
+        """The reminders that went off after the owner's previous message, with the origins of the entries quoted (S3),
+        those entries by lineage handle (L28) and their own texts (the S4 payload: the reminder messages, never FERB's
+        wording around them). A task that finished meanwhile isn't repeated here: its report is in the conversation and
+        its state in the task block (shown once, decision 4). `current`: this turn's request id(s)."""
+        leave_out = {current} if isinstance(current, str) else set(current)
         now = self.clock.now()
-        prev = [e for e in self.journal.of_kind("chat.message") if e.data.get("request_id") != current_request]
+        prev = [e for e in self.journal.of_kind("chat.message") if e.data.get("request_id") not in leave_out
+                and e.data.get("read_with") not in leave_out]
         if not prev:
             return [], set(), [], []
         last = prev[-1].at
         notes: list[str] = []
         texts: list[str] = []
-        quoted: set[str] = set()
+        held: set[str] = set()
         source_refs: set[str] = set()
-        for e in self.journal.entries_of("task.answer", "timer.delivered"):
+        for e in self.journal.of_kind("timer.delivered"):
             if e.at <= last:
                 continue
-            if e.kind == "task.answer":
-                texts.append(str(e.data.get('text', '')))
-                notes.append(f"a task finished ({e.data.get('status')}) {context.ago(e.at, now)}: {texts[-1]}")
-            else:
-                texts.append(str(e.data.get('message', '')))
-                notes.append(f"reminder \"{texts[-1]}\" went off {context.ago(e.at, now)}")
-            quoted |= origins_.split(e.origin)
+            texts.append(str(e.data.get('message', '')))
+            notes.append(f"reminder \"{texts[-1]}\" went off {context.ago(e.at, now)}")
+            held |= origins_.split(e.origin)
             source_refs.add(ENTRY + e.id)
-        return notes, quoted, sorted(source_refs), texts
+        return notes, held, sorted(source_refs), texts
 
     # ---------- the task: one worker ----------
 
@@ -2487,13 +2838,14 @@ class Supervisor(WorkerRuns):
                       request_id, [c.text for c in spec.success_conditions], None)
         tree = _Tree(tree_id, spec, worker, prior_task=prior_task, unattended_scopes=unattended_scopes, watch=watch,
                      schedule_id=str(schedule['id']) if schedule else None)
-        tree.intake_receipts = self._env.get(request_id, {}).get("intake_receipts", [])
-        front = self._env.get(request_id, {}).get("front_window")
-        if front is not None:                       # L12: the worker starts from the planner's picture (D26 clarified)
-            tree.start_image = self._env[request_id].get("front_image")
+        turn = self._turns.get(request_id)
+        tree.intake_receipts = list(turn.intake_receipts) if turn is not None else []
+        front = turn.front_window if turn is not None else None
+        if turn is not None and front is not None:  # L12: the worker starts from the planner's picture (D26 clarified)
+            tree.start_image = turn.front_image
             tree.start_block = front_window_block(front, tree.start_image, START_SCREENSHOT,
-                                                  self._env[request_id].get("image_withheld"))[0]
-        tree.side_lines = list(self._env.get(request_id, {}).get("side_lines", []))
+                                                  (turn.screen or {}).get("image_withheld"))[0]
+        tree.side_lines = list(turn.side_lines) if turn is not None else []
         request = self.state.requests.get(request_id)
         if not request.payload:
             request = dataclasses.replace(request, payload=message or request.words)
@@ -2501,8 +2853,8 @@ class Supervisor(WorkerRuns):
         # The request's own origins (the message, its pasted parts, what a clarify or retry carries), apart from the
         # planner's blocks and memory: the sink rule's "outside content was read" counts these (S4, F5a). A scheduled
         # run's request carries what the message that made it carried, not everything that turn saw (L4).
-        turn = self._env.get(request_id, {})
-        asked = turn.get("request_origins") or turn.get("message_origin") or {origins_.external("unlabeled")}
+        asked = ((turn.request_origins or turn.message_origin) if turn is not None else None) or \
+            {origins_.external("unlabeled")}
         # The front window this request's planner and worker are given is outside content read, as a tool result's
         # would be: a screenshot of other people's messages counts, though it is the owner's data too (L12, S4).
         shown = {o for o in origins_.split(front.origin) if origins_.is_external(o)} if front is not None else set()
@@ -2541,6 +2893,10 @@ class Supervisor(WorkerRuns):
             self.spans.finish(receipt_span, output={"memory_receipts": tree.intake_receipts})
         self._tree_of[tree_id] = tree
         self._tree_of[worker.id] = tree
+        # hands decision 4: the folders the planner resolved are the only visible folders its commands may change
+        self.gateway.task_folders[tree_id] = tuple(spec.folders)
+        if spec.keep_tabs_open:                      # hands decision 3: the owner asked to keep its tabs open
+            self.keep_tabs_open(tree_id)
         if not watch:
             self.publish("task.created", {"task_id": tree_id, "goal": spec.goal})
         runner: asyncio.Task[None] | None = None
@@ -2564,6 +2920,8 @@ class Supervisor(WorkerRuns):
                     attended=tree.unattended_scopes is None))
             if spec.plan and any(s.loops for s in spec.plan.steps):     # how each loop ends (L31)
                 stated += "\n" + self.gateway.redact("\n".join(loop_line(s) for s in spec.plan.steps if s.loops))
+            if spec.folders:     # hands decision 4: stated whenever there are any, so a wrong guess can be corrected
+                stated += "\n" + self.gateway.redact(work_in(spec.folders))
             # the planner's words: a line of them that reads like FERB's own check is marked as the task's (D33)
             yield {"type": "plan", "text": confirm.from_task_lines(text + stated), "task_id": tree_id, "goal": spec.goal,
                    "identity": spec.identity,
@@ -2647,6 +3005,7 @@ class Supervisor(WorkerRuns):
                                 origin=made)
             self.publish("task.finished", {"task_id": tree_id, "status": final["status"]})   # once per tree
         self.gateway.forget_tasks(self._tree_task_ids(tree))
+        self.gateway.task_folders.pop(tree_id, None)
         self.state.forget_request(request_id)
         for tid in [k for k, v in self._tree_of.items() if v.id == tree.id]:
             self._tree_of.pop(tid, None)
@@ -2711,14 +3070,16 @@ class Supervisor(WorkerRuns):
         if tree.planner_reads:
             return
         tree.planner_reads = True
-        env = self._env.get(request_id, {})
-        planner_sources = env.get("planner_sources")
+        turn = self._turns.get(request_id)
+        if turn is None:
+            return
+        planner_sources = turn.planner_sources
         if planner_sources:          # each planner block was labeled by what it holds: the snapshot is their join
             items = json.loads(planner_sources)
             held = {o for item in items if item["text"] for o in origins_.split(item["origin"])}
             self._source_block(tree, "planner-context", planner_sources, origins_.join(held),
                                tuple(sorted({ref for item in items for ref in item.get("source_refs", [])})))
-        for exposure in env.get('context_exposures', []):
+        for exposure in turn.exposures:
             captured = self.spans.start('context.exposure', task_id=tree.id, parent_id=root_span,
                                        input={'source_refs': exposure['source_refs'], 'reference': exposure['reference']})
             self.spans.finish(captured, output=_exposure_output(exposure), origin=exposure['origin'])
@@ -2729,7 +3090,8 @@ class Supervisor(WorkerRuns):
         FERB's own checks), labelled as the task's (D33), through the one wait for the owner: the step pauses and waits
         for the answer (a reply in chat answers it only through the planner's answer); a run nobody attends can't be
         asked and reports it at once. A stop of the task closes it as superseded, never a No (L3)."""
-        wait = _Wait(tree.id, question, tuple(options), origins_.INFERRED, capability)
+        wait = _Wait(tree.id, question, tuple(options), origins_.INFERRED, capability,
+                     extra={'question_kind': 'conversation_scope' if capability == CONVERSATION_ASK else 'task'})
         reply = await self._wait_for_owner(tree, tree.worker, wait, step_id=step_id, steer_resumes=False)
         if reply.kind == 'declined':
             return {'status': 'needs_user', 'summary': "You need to answer this before I continue: " + question,
@@ -2985,10 +3347,7 @@ class Supervisor(WorkerRuns):
                     'mixed', task_id, [], None)
         # Memory is recalled for the words the rows hold (the ranked candidates).
         words = ' '.join(str(v) for row in observations for v in (row.get('data') or {}).values() if isinstance(v, str))
-        remembered: Any = ''
-        mem_text = self.recall_items(remembered)[0]
-        memory = (await self._memory_blocks(words, remembered, mem_text)
-                  if self.memory_candidates is not None or mem_text else [])
+        memory = await self._memory_blocks(words) if self.memory_candidates is not None else []
         conversation, _ = self._conversation_blocks('', self.continuity.current(), since_last_notice=True)
         notices = json.dumps({'already_told': already_told})     # each told notice keeps its JSON "text" (the purge)
         body = json.dumps({'observations': observations, 'source_refs': source_refs,
@@ -3016,8 +3375,6 @@ class Supervisor(WorkerRuns):
         except BaseException as exc:
             self.spans.finish(span, error=type(exc).__name__)
             raise
-        finally:
-            self._env.pop(task_id, None)                          # context exposures of a run with no request
 
     async def _conversation_steps(self, tree: _Tree, step: Step, span: str,
                                   queue: asyncio.Queue[dict[str, Any]], prior: dict[str, Any]) -> dict[str, Any]:
@@ -3359,7 +3716,8 @@ class Supervisor(WorkerRuns):
                 reply = await self._hold_pause(tree, child, step.id)
             else:
                 question, options, origin = self._pause_question(tree.id, step, result, closed_tabs.gone())
-                wait = _Wait(tree.id, question, tuple(options), origin, LOOP_ASK)
+                wait = _Wait(tree.id, question, tuple(options), origin, LOOP_ASK,
+                             extra={'question_kind': 'closed_tab' if LOOP_KEEP in options else 'loop'})
                 reply = await self._wait_for_owner(tree, child, wait, step_id=step.id)
                 if reply.kind == 'denied' or (reply.kind == 'answer' and reply.choice == LOOP_STOP):
                     self.stop_tree(tree.id)            # the owner's stop: the loop and its task end
@@ -3555,6 +3913,10 @@ class Supervisor(WorkerRuns):
                                    "instructions": choice.instructions, "reason": choice.reason}
             tree.reports.append(report)
             accepted = choice is not None and choice.action in ("accept", "accept_unconfirmed") and not tree.stop
+            if accepted and not tree.hold_resources and self._tree_of.get(tree.id) is tree:
+                # the task's own work is finished (a single task, or a plan's answering worker): a stop from now on
+                # never records it as cancelled (fix list, Intake); a correction during the clean-up still supersedes
+                tree.work_done = True
             if accepted and not tree.hold_resources:
                 # what the task holds goes now (the checker judged it with that fact); a loop round's resources stay
                 # the loop's until the loop ends (L31): released once, by _loop_step
@@ -3563,6 +3925,7 @@ class Supervisor(WorkerRuns):
             # its run, its check or its clean-up, supersedes this attempt; a done report is kept (in the reports the
             # next attempt reads), never lost, and the next attempt starts from the correction.
             if (self._steered(tree) or self._is_paused(tree)) and not tree.stop:
+                tree.work_done = False
                 if out.status == "done":
                     report["note"] = "Finished before the latest owner correction was delivered."
                 instructions = ""
@@ -3779,7 +4142,8 @@ class Supervisor(WorkerRuns):
             return False
         options = tuple(f"Use {label(name)}" for name in choices) + (STOP,)
         wait = _Wait(tree.id, down.summary + f" Carry on with {' or '.join(label(n) for n in choices)} instead?",
-                     options, origins_.FERB, RUNTIME_ASK, extra={"runtime_switch": offer})
+                     options, origins_.FERB, RUNTIME_ASK,
+                     extra={"runtime_switch": offer, "question_kind": "runtime_switch"})
         reply = await self._wait_for_owner(tree, task, wait, step_id=tree.step_id)
         if reply.kind == 'stopped' or tree.stop:
             return None
@@ -3828,7 +4192,7 @@ class Supervisor(WorkerRuns):
         unattended = self._unattended(task)
         if not unattended:
             wait = _Wait(tree.id, check_in_question(attempts.failed, short_label(tree.spec.goal)),
-                         (KEEP_GOING, STOP_HERE))
+                         (KEEP_GOING, STOP_HERE), extra={'question_kind': 'check_in'})
             reply = await self._wait_for_owner(tree, task, wait, step_id=tree.step_id)
             if reply.kind == 'stopped' or tree.stop:
                 return None
@@ -3933,6 +4297,11 @@ class Supervisor(WorkerRuns):
         if named:
             parts.append(ContextBlock("What the owner named — " + "; ".join(named) + ". The owner named these; evidence must be about them, "
                                       "not a substitute.", "task targets", protected=True))
+        if spec.folders:             # hands decision 4: stated in the plan line; the shell's scope
+            parts.append(ContextBlock("Folders this task works in (the owner's, as FERB stated them): " +
+                                      ", ".join(spec.folders) + ". Terminal commands may change files only there among "
+                                      "the owner's visible folders; anywhere else, use the file tools.",
+                                      "task targets", protected=True))
         parts.append(ContextBlock(f"FERB's workspace (relative paths resolve here): {self.workspace}", "workspace", True))
         if tree.step_context:
             parts.append(ContextBlock('Layer 6 — current plan step and handed results (data):\n' +
@@ -3995,11 +4364,11 @@ class Supervisor(WorkerRuns):
                 'source_refs': sorted({ref for b in history for ref in b.source_refs}), 'reference': 'chat.history',
                 'payload': '\n\n'.join(b.text if b.payload is None else b.payload for b in history)}
         if tree is None:
-            env = self._env.get(task.request_id)
-            if env is None:                   # not a chat turn (attention, the running summary): nothing to carry
+            turn = self._turns.get(task.request_id)
+            if turn is None:                  # not a planning turn (attention, the running summary): nothing to carry
                 return
-            env.setdefault('context_exposures', []).extend(records)
-            env['assembly'] = assembly
+            turn.exposures.extend(records)
+            turn.assembly = assembly
             return
         for record in records:
             span = self.spans.start('context.exposure', task_id=tree.id,

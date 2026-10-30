@@ -119,8 +119,13 @@ to commit c6621c3.
 ### Facts
 - [ ] Search `memory_items` directly; remove `sync_facts` and the `fact`/`identity` node mirroring
       (learning.py:1851-1893; main.py:1745, 1800, 1817). Identity from owner-stated owner preferences in `memory_items`.
-- [ ] Wrong source after a clarifying question: `typed_lines` includes `session.pending` (supervisor.py:1302-1305)
+- [ ] Old chat searchable by meaning (owner, 2026-10-31): owner messages and FERB's short replies indexed in the same
+      fused search as facts and episodes; the planner gets the few old exchanges matching the current message;
+      `chat.history` gains search by meaning and by date and reads pages from the DB instead of loading the whole
+      history (evidence.py:333 loads everything and matches literal text only). (Step 9.)
+- [x] Wrong source after a clarifying question: `typed_lines` includes `session.pending` (supervisor.py:1302-1305)
       but the item's source is the current `entry.id`. Source the item to the message that holds the quote.
+      (Step 8c: `Supervisor._quote_source`: this turn's messages first, then the earlier ones FERB's question continued.)
 - [ ] Same-key silent replace: a new fact with the same kind/subject/key ends the old one and clears login names
       (items.py:477-486; main.py:1900-1902). At minimum the "Remembered:" line names what it replaced. Subject is
       never slugged (items.py:383): normalize it like the key.

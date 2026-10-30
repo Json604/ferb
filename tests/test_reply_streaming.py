@@ -300,7 +300,7 @@ def test_daemon_task_plan_is_live_and_abort_precedes_terminal_reply(daemon, endi
 
 
 def test_semantically_rejected_plan_withdraws_before_repair(daemon, monkeypatch):
-    from ferb.orchestrator.supervisor import ChatSession
+    from ferb.orchestrator.supervisor import ChatSession, _Turn
     supervisor = daemon.daemon.supervisor
     events = []
     invalid = SupervisorOutcome.model_validate_json(plan_document(
@@ -317,7 +317,8 @@ def test_semantically_rejected_plan_withdraws_before_repair(daemon, monkeypatch)
         return SupervisorOutcome(kind='reply', text='Please identify the task.')
 
     monkeypatch.setattr(supervisor, '_supervise', supervise)
-    result = daemon.run(supervisor._decide(ChatSession('plan-repair'), 'Check Gmail', 'request', emit=events.append))
+    turn = _Turn('request', ChatSession('plan-repair'), payload='Check Gmail')
+    result = daemon.run(supervisor._decide(turn, emit=events.append))
     assert result.kind == 'reply' and calls == 2
 
 

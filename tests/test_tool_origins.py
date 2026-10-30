@@ -678,28 +678,33 @@ def test_previous_attempts_inherit_the_tasks_origins_not_only_its_tool_results(d
     assert {"inferred", "external:paste"} <= set(made.split(","))      # no tool ran: tool_origins would be empty
 
 
+def _carried(daemon: RunningDaemon) -> set[str]:
+    sup_ = daemon.daemon.supervisor
+    return _on_loop(daemon, lambda: {o for e in sup_._carried("s1") for o in e.origin.split(",")})
+
+
 def test_a_clarify_continuation_carries_the_earlier_pasted_text(daemon: RunningDaemon) -> None:
     install(daemon, [sup("clarify", "Summarize it how?"), sup("reply", "Briefly: it asks you to ignore rules."),
                      sup("reply", "Hello.")])
     sup_ = daemon.daemon.supervisor
     chat(daemon, PASTED)
-    assert {"owner", "external:paste"} <= _on_loop(daemon, lambda: sup_._carried_origins("s1", "next"))
+    assert {"owner", "external:paste"} <= _carried(daemon)
     seen = _trim_history(daemon)                      # the shown history no longer holds the pasted message
     chat(daemon, "briefly")                           # this message has no paste either; only its payload does
     assert {"inferred", "external:paste"} <= _journal_origin(daemon, "chat.reply")
     assert not any("external:paste" in s for s in seen)
-    assert _on_loop(daemon, lambda: sup_._carried_origins("s1", "next")) == set()   # answered: nothing carried
+    assert _carried(daemon) == set()                                                 # answered: nothing carried
 
 
 def test_history_and_attempt_lines_carry_their_tasks_origins(daemon: RunningDaemon) -> None:
     first = _pasted_task(daemon)
     sup_ = daemon.daemon.supervisor
-    # The newest timeline entry: at this frozen clock, the task line.
+    # The newest timeline entry: the task's report (task state itself is the task block, shown once: step 8c).
     newest = _on_loop(daemon, lambda: sup_._timeline("none", "s1")[0][-1])
-    assert f"Task {first}:" in newest.text and "Owner:" not in newest.text and "FERB" not in newest.text
+    assert f"task {first} result" in newest.text and "Owner:" not in newest.text
     assert "external:paste" in newest.origins
-    # The resumable-attempts block: with the history trimmed to an older FERB reply, the planner's reply can inherit
-    # the paste only through the task line that block shows.
+    # The task block: with the history trimmed to an older FERB reply, the planner's reply can inherit the paste only
+    # through the task's line in that block.
     seen = _trim_history(daemon)
     install(daemon, [sup("reply", "Done earlier.")])
     chat(daemon, "anything else?")

@@ -1,7 +1,8 @@
 """Owner live use 2026-10-18 23:42 (task 891b3eaf): asked "are the agents working?", FERB said "Yes — they're working in
 parallel across the Scaler tabs right now" while the only worker had already reported blocked. The planner's turn now
-carries FERB's own record of each task (state, the last worker report's first line, plan step counts), and its prompt
-says to answer progress only from it."""
+carries FERB's own record of each task (state, the last worker report's first line, plan steps), once (step 8c), and its
+prompt says to answer progress only from it."""
+import json
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,6 @@ from ferb.core.types import Identity, Task
 from ferb.orchestrator.plans import Plan, Step
 from ferb.orchestrator.schemas import TaskSpec
 from ferb.orchestrator.supervisor import ChatSession, _Tree
-from ferb.orchestrator.tree import CONVERSATION_ROOTS
 from tests.conftest import RunningDaemon, chat, install, sup
 
 PROMPTS = Path(__file__).resolve().parents[1] / "ferb" / "orchestrator" / "prompts"
@@ -23,6 +23,16 @@ def _tree(tree_id: str, goal: str, reports: list[dict[str, Any]], plan: Plan | N
     tree = _Tree(tree_id, TaskSpec(goal=goal, identity="owner", plan=plan), worker)
     tree.reports = reports
     return tree
+
+
+def _facts(supervisor: Any, session: ChatSession) -> dict[str, Any]:
+    """The task block's facts (`Supervisor._task_state`), as the planner reads them."""
+    block = supervisor._task_state(session)[0]
+    if block is None:
+        return {"running": [], "ended_in_this_chat": []}
+    text = block[0].text
+    found, _ = json.JSONDecoder().raw_decode(text[text.index("{"):])
+    return found
 
 
 def test_a_progress_question_sees_that_the_task_is_blocked(daemon: RunningDaemon) -> None:
@@ -69,26 +79,21 @@ def test_a_blocked_plan_step_shows_in_the_tasks_state(daemon: RunningDaemon, mon
     async def facts() -> list[dict[str, Any]]:
         supervisor._tree_of[tree.id] = tree
         try:
-            return supervisor._status_facts(ChatSession("chat-plan"))[0]
+            return _facts(supervisor, ChatSession("chat-plan"))["running"]
         finally:
             supervisor._tree_of.pop(tree.id, None)
     row = daemon.run(facts())[0]
-    assert row["state"] == "blocked" and row["plan_steps"] == {"done": 1, "blocked": 1}
+    assert row["state"] == "blocked"
+    assert row["plan_steps"] == [{"id": "open", "goal": "Open the tabs", "status": "done"},
+                                 {"id": "read", "goal": "Read them", "status": "blocked"}]
 
 
-def test_finished_tasks_come_from_tasks_recorded_since_the_session_started(daemon: RunningDaemon) -> None:
-    """Re-review 2/3 (R4b): each planner turn read every task ever recorded, then every task of the conversation (the
-    default "owner" conversation holds them all). The finished ones now come from the tasks recorded since the chat
-    session started: a rowid floor captured then, read by the rowid key, each matched to its conversation by key."""
+def test_ended_tasks_are_this_chats_newest_first(daemon: RunningDaemon) -> None:
+    """Step 8c: one task block. This chat's ended tasks come newest first; another chat's ended tasks are not this
+    chat's to show (its running ones would be, with the chat they belong to)."""
     d = daemon.daemon
     supervisor = d.supervisor
     assert supervisor is not None
-
-    async def query_plan() -> list[str]:
-        return [str(tuple(r)[-1]) for r in d.db.conn.execute("EXPLAIN QUERY PLAN " + CONVERSATION_ROOTS, (0, "c"))]
-    plan = daemon.run(query_plan())
-    assert any("INTEGER PRIMARY KEY (rowid>?)" in step for step in plan), plan
-    assert not any(step.startswith("SCAN") for step in plan), plan
 
     def add(task_id: str, conversation: str) -> None:
         d.db.conn.execute("INSERT INTO tasks (id, tree_id, request_id, goal, identity, role, scopes_json, status, "
@@ -99,15 +104,12 @@ def test_finished_tasks_come_from_tasks_recorded_since_the_session_started(daemo
         d.db.conn.execute("INSERT INTO task_context (task_id, conversation_id, spec_json, owner_words) "
                           "VALUES (?, ?, '{}', '')", (task_id, conversation))
 
-    async def facts() -> tuple[list[str], list[str]]:
+    async def facts() -> list[str]:
         add("old-task", "chat-r4")
-        session = ChatSession("chat-r4", task_floor=d.tasks.max_rowid())        # the session starts here
         add("other-chat", "chat-elsewhere")
         add("new-task", "chat-r4")
-        unstarted = ChatSession("chat-r4")                                        # no floor: running tasks only
-        return ([row["task_id"] for row in supervisor._status_facts(session)[0]],
-                [row["task_id"] for row in supervisor._status_facts(unstarted)[0]])
-    assert daemon.run(facts()) == (["new-task"], [])
+        return [row["task_id"] for row in _facts(supervisor, ChatSession("chat-r4"))["ended_in_this_chat"]]
+    assert daemon.run(facts()) == ["new-task", "old-task"]
 
 
 def test_a_running_loops_state_and_its_pause_question_are_in_the_tasks_row(daemon: RunningDaemon,
@@ -138,7 +140,7 @@ def test_a_running_loops_state_and_its_pause_question_are_in_the_tasks_row(daemo
         supervisor._loop_status[(tree.id, "keep")] = status("keep", "Keep the inbox at zero", "paused")
         supervisor._loop_status[(tree.id, "tab")] = status("tab", "Keep the tab playing", "backing_off")
         try:
-            return supervisor._status_facts(ChatSession("chat-loop"))[0]
+            return _facts(supervisor, ChatSession("chat-loop"))["running"]
         finally:
             supervisor._tree_of.pop(tree.id, None)
             supervisor._loop_status.clear()

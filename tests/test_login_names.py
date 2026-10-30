@@ -530,7 +530,7 @@ def test_a_control_from_another_chat_names_no_site(daemon: Any, monkeypatch: pyt
     id is repaired, then refused; this pins `_turn_sites` itself.) Review I-1: of the task's sites, only those the
     owner typed count."""
     from ferb.orchestrator.schemas import SupervisorOutcome
-    from ferb.orchestrator.supervisor import ChatSession
+    from ferb.orchestrator.supervisor import ChatSession, _Turn
     worker = StalledWorker(monkeypatch)
     install(daemon, [sup("task", "Logging in.", task("Log in to usvisascheduling.com",
                                                      sites=("usvisascheduling.com", "evil.example")))])
@@ -541,7 +541,7 @@ def test_a_control_from_another_chat_names_no_site(daemon: Any, monkeypatch: pyt
         tree_id = worker.handles[0].task_id.rsplit(".", 1)[0]
         out = SupervisorOutcome.model_validate(json.loads(control_turn("Log in", tree_id, "continue")))
         sites = {chat_id: run(daemon, lambda: daemon.daemon.supervisor._turn_sites(
-            out, ChatSession(chat_id), "the username for usvisascheduling.com is Asha Rao"))
+            out, _Turn("r", ChatSession(chat_id), typed="the username for usvisascheduling.com is Asha Rao")))
             for chat_id in ("visa", "other")}
     finally:
         worker.release.set()

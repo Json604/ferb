@@ -85,13 +85,15 @@ def test_steering_does_not_widen_existing_token_identity_or_scopes(active):
     assert len(active.received) == 1
 
 
-def test_other_chat_cannot_inject_into_active_task(active):
-    reply = correction(active, 'Replace the first task', session='different-chat')
-    assert active.received == []
-    assert any(event['type'] in ('reply', 'clarify') for event in reply)
+def test_another_chat_can_correct_a_running_task_which_stays_in_its_chat(active):
+    """Cross-chat control (live failure 2026-10-24): the planner is shown every chat's running tasks, so a correction
+    sent from another chat reaches the task; the task stays the chat's it started in."""
+    correction(active, 'Replace the first task', session='different-chat')
+    assert active.received and 'Replace the first task' in active.received[0][1]
     async def inspect():
         request = active.supervisor.continuity.load(active.root, 'owner-chat')[1]
-        assert 'Replace the first task' not in request.words
+        assert 'Replace the first task' in request.words
+        assert active.supervisor.continuity.conversation_of(active.root) == 'owner-chat'
     active.daemon.run(inspect())
 
 

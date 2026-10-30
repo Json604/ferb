@@ -1,7 +1,6 @@
 """The planner's conversation fills the model's window newest-first (L28); an entry is never clipped: it is shown
-complete or counted in the omission note (chat.history keeps it). Resumable attempts keep their newest within a cap."""
+complete or counted in the omission note (chat.history keeps it)."""
 from ferb.core.context import ContextBlock, assemble, count_tokens
-from tests.conftest import RunningDaemon
 
 
 def _entries(n: int, words: int = 120) -> list[ContextBlock]:
@@ -31,11 +30,3 @@ def test_an_entry_larger_than_the_room_left_is_never_clipped() -> None:
     text = "\n\n".join(assemble(blocks, budget_tokens=500).parts)
     assert big.strip() not in text and "a small first message" not in text     # no gap: older ones stay out too
     assert "2 older entries not shown" in text
-
-
-def test_attempts_text_keeps_newest_within_cap(daemon: RunningDaemon) -> None:
-    rows = [{"task_id": f"t{i}", "prior_task": None, "status": "failed", "goal": f"goal {i} " + "x " * 80}
-            for i in range(50)]                        # candidates() returns newest first
-    text = daemon.daemon.supervisor._attempts_text(rows, max_tokens=800)
-    assert "task_id=t0 " in text and "task_id=t49 " not in text
-    assert count_tokens(text) <= 800 + 100 and "older resumable attempts not shown" in text
