@@ -24,6 +24,13 @@ public struct DaemonApproval: Identifiable, Equatable {
     public let options: [String]
     public let title: String?
     public let evidence: [String]
+    /// The task id the question was asked for, before the notch filed it under its root task (`task_id` is the root):
+    /// a step's task id, or a task under it, ties a confirmation to that step's row in a card (decision 19).
+    public let sourceTaskID: String?
+    /// The part of a multi-part request FERB's own question is about (decision 19).
+    public let part: String?
+    /// The offer of another AI service (`runtime.switch`, owner decision 16): answered only with its buttons.
+    public let runtimeSwitch: RuntimeSwitch?
     public var isSecret: Bool { ["owner_login_code", "owner_admin_password", "owner_secret"].contains(kind) }
     public init?(_ value: [String: Any]) {
         guard let id = value["approval_id"] as? String, !id.isEmpty else { return nil }
@@ -39,5 +46,8 @@ public struct DaemonApproval: Identifiable, Equatable {
         options = value["options"] as? [String] ?? []
         title = value["title"] as? String
         evidence = value["evidence"] as? [String] ?? []
+        sourceTaskID = value["source_task_id"] as? String ?? taskID
+        part = (value["part"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        runtimeSwitch = RuntimeSwitch(value["runtime_switch"])
     }
 }

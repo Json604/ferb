@@ -51,6 +51,7 @@ extension NotchModel {
         conversationID = id
         preferences.set(id, forKey: "FERBConversationID")
         supportsAttachments = (attached["capabilities"] as? [String] ?? []).contains("input_paths")
+        previewAccess.reconnected()         // the daemon may have been updated: a refused preview is asked for again
         connectionStatus = "Connected to FERB"
     }
 
@@ -91,6 +92,14 @@ extension NotchModel {
                 if let id = row["task_id"] as? String, runningTasks[id] != nil,
                    let started = LiveProgress.time(row["started_at"]) { runningSince[id] = started }
             }
+            // A multi-part task's rows as they stand (decision 19): live rows after a reconnect, or for a task this
+            // chat has no turn for.
+            var cardsChanged = false
+            for row in running {
+                guard let id = row["task_id"] as? String, let card = TurnCard(row["card"], taskID: id) else { continue }
+                if conversation.showCard(card, goal: row["goal"] as? String ?? "") { cardsChanged = true }
+            }
+            if cardsChanged { saveConversation() }
             // Standing work only for a task still running (L31).
             let loops = status["loops"] as? [[String: Any]] ?? []
             standingWork = Dictionary(loops.compactMap { row in
@@ -98,7 +107,9 @@ extension NotchModel {
                       let work = StandingWork(loopStatus: row) else { return nil }
                 return (id, work)
             }, uniquingKeysWith: { _, last in last })
-            let approvals = (status["approvals"] as? [[String: Any]] ?? []).compactMap(normalizeApproval)
+            // chat.status names a question's root task only: what the live event said (the step's task id, the part,
+            // a runtime offer) is kept, so a question stays in its card row.
+            let approvals = (status["approvals"] as? [[String: Any]] ?? []).map(keepKnownFields).compactMap(normalizeApproval)
             let changed = pendingApprovals != approvals
             pendingApprovals = approvals
             if changed { promptError = nil; onBackgroundChange?(true) }
@@ -290,8 +301,14 @@ extension NotchModel {
            !conversation.bindRequest(id: localID, requestID: requestID) { return false }
         switch event["type"] as? String {
         case "plan_delta", "plan_abort", "plan_end":
-            // Provisional presentation only; the canonical plan owns archive and task binding.
+            // Provisional presentation only; the canonical plan owns archive and task binding. The streamed plan line
+            // shows where the plan event's plan line will be (one path, notes/preview.md).
             guard session.backendTaskID == nil else { return false }
+            switch event["type"] as? String {
+            case "plan_delta": conversation.streamPlan(id: localID, delta: event["text"] as? String ?? "")
+            case "plan_abort": conversation.abortPlanStream(id: localID)
+            default: break
+            }
         case "ack":
             let acknowledgement = event["text"] as? String ?? ""
             conversation.acknowledge(id: localID, text: acknowledgement, message: event["message"] as? String)
@@ -302,16 +319,15 @@ extension NotchModel {
             session.bindBackendTask(id, localID: localID)
             conversation.clearProvisionalReply(id: localID)
             conversation.bind(id: localID, taskID: id)
-            conversation.showPlan(id: localID, text: event["text"] as? String ?? "")
+            // Several asks (decision 19): the asks answered at once, receipts, the plan line, and the card.
+            conversation.showPlan(id: localID, text: event["text"] as? String ?? "", details: event)
             saveConversation()
             preferences.set(id, forKey: "FERBActiveTaskID")
             runningTasks[id] = event["goal"] as? String ?? session.draft
             if pendingStops.remove(localID) != nil { requestDaemonStop() }
         case "part":
-            // A finished part of the request, told as soon as it was checked (a friend's feedback 2026-10-27)
-            conversation.addPart(id: localID, text: event["text"] as? String ?? "")
-            saveConversation()
-            onBackgroundChange?(true)
+            // A row of the card changed (decision 19). It fills quietly: no opening, no banner (decision 21).
+            receivePart(event)
         case "progress":
             // Live state only, so it is not saved. The chat shows only the AI service connection's lines (marked
             // `connection`: offline, reconnected); ordinary steps ("opening …") stay out of it (owner, 2026-10-24:
@@ -339,6 +355,15 @@ extension NotchModel {
             if status == "done" { feedback.play(.completed); showCompletionTrace() } else { feedback.play(.attention) }
             presentTerminalAnswer()
             recordAnswer(announce: true, displayText: event["display_text"] as? String)
+            // A planner turn that ended on a usage limit or a sign-in problem offers another AI service (decision 16).
+            conversation.offerRuntimeSwitch(id: localID, RuntimeSwitch(event["runtime_switch"]))
+            saveConversation()
+        case "merged":
+            // Read together with another message (decision 18): that message's reply answers this one too.
+            conversation.merge(id: localID, into: event["into"] as? String ?? "")
+            session.finishMerged()
+            saveConversation()
+            onBackgroundChange?(true)
         case "outcome": receiveOutcome(event)
         case "error":
             let message = event["text"] as? String ?? "FERB could not start this request."
@@ -366,9 +391,22 @@ extension NotchModel {
         return true
     }
 
+    private func keepKnownFields(_ value: [String: Any]) -> [String: Any] {
+        guard let known = pendingApprovals.first(where: { $0.id == value["approval_id"] as? String }) else { return value }
+        var kept = value
+        if let source = known.sourceTaskID { kept["source_task_id"] = source }
+        if kept["part"] == nil, let part = known.part { kept["part"] = part }
+        if kept["runtime_switch"] == nil, let offer = known.runtimeSwitch {
+            kept["runtime_switch"] = ["runtime": offer.runtime, "problem": offer.problem, "role": offer.role,
+                                      "choices": offer.choices]
+        }
+        return kept
+    }
+
     func normalizeApproval(_ value: [String: Any]) -> DaemonApproval? {
         var normalized = value
         if let taskID = value["task_id"] as? String {
+            normalized["source_task_id"] = value["source_task_id"] ?? taskID     // ties a step's question to its row
             var roots = Set(runningTasks.keys)
             roots.formUnion(workSessions.values.compactMap(\.backendTaskID))
             roots.formUnion(conversation.turns.compactMap(\.backendTaskID))
@@ -441,9 +479,17 @@ extension NotchModel {
             else if let local = workSessions.first(where: { matches($0.value.backendTaskID) })?.key {
                 withWorkSession(local) { session.noteBackendActivity(title) }
             }
+        case "task.part":
+            receivePart(data)
         case "task.resumed_event":
             if taskID == session.backendTaskID, data["type"] as? String == "reply" {
                 session.noteBackendActivity(data["text"] as? String ?? "Task resumed")
+            }
+            // A multi-part task resumed after a restart: its card from the record (its rows' changes come as task.part).
+            if data["type"] as? String == "plan", let taskID, let card = TurnCard(data["card"], taskID: taskID),
+               conversation.showCard(card, goal: data["goal"] as? String ?? runningTasks[taskID] ?? "") {
+                saveConversation()
+                onBackgroundChange?(true)
             }
         case "loop.status":
             // A loop's state change (L31). A finished or stopped loop leaves; a status arriving after its task's
@@ -460,9 +506,38 @@ extension NotchModel {
         }
     }
 
+    /// A row's change (decision 19), from the turn's stream or the bus: applied once, by its seq, to the card that
+    /// shows it. Rows fill quietly: the notch opens only for a question or the task's end (decision 21).
+    func receivePart(_ event: [String: Any]) {
+        guard conversation.applyPart(event) != nil else { return }
+        saveConversation()
+        onBackgroundChange?(true)
+    }
+
+    /// The runtime switch offered with a failed answer (owner decision 16): the role that failed uses `runtime` from
+    /// its next call (`runtimes.use`); the task already ended, so the owner sends the request again.
+    func useRuntime(_ runtime: String, for offer: RuntimeSwitch, turn: UUID) {
+        guard runtimeChoices[turn] == nil else { return }
+        runtimeChoices[turn] = "Switching to \(RuntimeSwitch.label(runtime))…"
+        Task {
+            do {
+                _ = try await rpc.call("runtimes.use", params: ["runtime": runtime, "roles": [offer.role]])
+                runtimeChoices[turn] = "FERB uses \(RuntimeSwitch.label(runtime)) now. Send your request again to retry it."
+            } catch {
+                runtimeChoices[turn] = nil
+                promptError = error.localizedDescription
+            }
+        }
+    }
+
     func receiveOutcome(_ event: [String: Any], announce: Bool = true, recordEvent: Bool = true) {
         guard let taskID = event["task_id"] as? String else { return }
         if recordEvent { taskStateRevision += 1 }
+        // The answer's own fields (decision 19) on its turn, before and after it is filed: a card fills in place.
+        let placed = conversation.applyOutcome(event)
+        defer {
+            if conversation.applyOutcome(event) || placed { saveConversation() }
+        }
         // The task ended, so its loops did too (L31).
         standingWork.removeValue(forKey: taskID)
         if session.backendTaskID == taskID, session.activeTaskID != nil {
@@ -492,7 +567,7 @@ extension NotchModel {
                     verified: event["verified"] as? Bool ?? false, at: LiveProgress.time(event["at"]) ?? Date())
             }
             knownCompletedTasks.insert(taskID)
-            if announce && fresh && ["done", "failed", "needs_user"].contains(status) { presentTerminalAnswer() }
+            if announce && fresh && Self.opensNotch(status) { presentTerminalAnswer() }
             runningTasks.removeValue(forKey: taskID)
             taskActivities.removeValue(forKey: taskID)
             saveConversation()
@@ -658,7 +733,7 @@ extension NotchModel {
         stoppingTaskIDs.remove(id)
         if announce && !alreadyAnnounced && status == "done" { feedback.play(.completed); showCompletionTrace() }
         else if announce && !alreadyAnnounced && status != "cancelled" { feedback.play(.attention) }
-        if announce && !alreadyAnnounced && ["done", "failed", "needs_user"].contains(status) { presentTerminalAnswer() }
+        if announce && !alreadyAnnounced && Self.opensNotch(status) { presentTerminalAnswer() }
         let verified = event["verified"] as? Bool ?? false
         recordAnswer(announce: announce, displayText: event["display_text"] as? String, verified: verified)
         for turn in conversation.turns where turn.backendTaskID == id && ["working", "interrupted", "needs_user"].contains(turn.status) {
@@ -741,6 +816,10 @@ extension NotchModel {
             onBackgroundChange?(true)
         }
     }
+
+    /// A finished task opens the notch by itself, without taking focus (decision 21): an answer, an unconfirmed answer,
+    /// a failure, or a question. The owner's own stop doesn't.
+    static func opensNotch(_ status: String) -> Bool { ["done", "done_unverified", "failed", "needs_user"].contains(status) }
 
     /// The socket refused or isn't there: FERB's daemon isn't running (or is restarting).
     static func unreachable(_ error: Error) -> Bool {

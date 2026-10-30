@@ -37,11 +37,17 @@ current call targets, never the whole screen. Built 2026-10-29 (758ce419); asses
       waits. (Step 8d: `state` working / working_elsewhere / asking / waiting / paused / done / none and `line`;
       `Supervisor.preview_status` from FERB's records; a call on no surface, a question, a pause, a wait or a step that
       isn't running freezes the surface on its last frame and captures nothing. The app draws the state: part 2.)
-- [ ] Capture only while someone can see it: no capture when the panel is covered, the screen is locked or the
+- [x] Capture only while someone can see it: no capture when the panel is covered, the screen is locked or the
       display sleeps (decision 1 keeps it always live when visible).
+      (Step 8d UI: `PreviewAccess` (displays asleep, screen locked, another user's session in front) pauses every
+      preview loop; each video view asks only while its window's occlusion state is visible; the work-row circles
+      only while the notch is open and not stepped aside. Frame rate unchanged: a fresh frame asks again at once; the
+      worker holding the surface retries after 0.2 s; a frozen or empty answer after 1 s as before.)
 - [x] Decision 3: count preview frames and capture milliseconds in `resource_samples.work_json`; step 13 A/B.
       (Step 8d: `work_json.preview` = requests, frames, capture_ms, cached, busy per window. The A/B is step 13.)
-- [ ] Decision 4: `sharingType = .none` on the preview popover and floating panel (TaskActivityBubble.swift:131-150).
+- [x] Decision 4: `sharingType = .none` on the preview popover and floating panel (TaskActivityBubble.swift:131-150).
+      (Step 8d UI: `TaskPreviewWindow(hidesFromCapture:)` for the work-row popovers and the row watch popover;
+      `TaskActivityPanel.sharingType = .none`.)
 - [x] Restrict `tasks.preview` to FERB.app's session (today any program running as the owner can pull masked
       window pictures through the `cli` role, auth.py:40, rpc.py:198-201).
       (Step 8d: auth.APP_ONLY; the server checks the peer's audit token with the Security framework against FERB.app's
@@ -56,16 +62,22 @@ current call targets, never the whole screen. Built 2026-10-29 (758ce419); asses
       (Step 8d: the declaration does no lookup; `resolve` runs at the first frame request; the hook never raises.)
 - [x] Keep the masking note: when AX can't read a window and only OCR masked it, say so (call_hooks.py:184 drops it).
       (Step 8d: `masking` in each answer.)
-- [ ] Clear app states: no visual surface yet / Screen Recording not allowed / window minimised / withheld / daemon
+- [x] Clear app states: no visual surface yet / Screen Recording not allowed / window minimised / withheld / daemon
       too old; keep the last frame on brief failures.
       (Step 8d daemon side: state `none`; `problem` kind withheld / gone / not_allowed / slow / failed with the last
       frame kept. A minimised window shows as gone or failed. The app's states and "daemon too old": part 2.)
+      (Step 8d UI: the line over the frozen frame whenever `state` isn't working or `fresh` is false, a problem's
+      words in place of the line; the last frame kept unless the state is `none` ("No window to show yet"); an
+      "unauthorized" (not FERB.app) or unknown-method (daemon too old) refusal stops every preview loop with its line
+      until the daemon connects again, read from the error words since the app doesn't get error codes.)
 - [x] Parallel steps in one task: key the preview by root task + worker, or label which step it shows.
       (Step 8d: by the step's task id; the answer names `step` and `worker`; `worker` picks one.)
-- [ ] 8d: a watch button on the working part's row in the turn card; the streamed plan text (`plan_delta`) merges into
+- [x] 8d: a watch button on the working part's row in the turn card; the streamed plan text (`plan_delta`) merges into
       decision 19's plan line (one path).
       (Step 8d daemon side: each row carries `step_task_id`, which `tasks.preview {worker}` takes; `plan_delta` streams
       the plan event's `plan_line`. The button and the merge in the notch: part 2.)
+      (Step 8d UI: an eye button on each unsettled row of a running task opens a popover with `tasks.preview {worker:
+      step_task_id}`; `plan_delta` streams into the plan-line bubble the plan event then fills.)
 - [x] Tests: an abandoned request doesn't hold up the worker; no frame after task end or for a tab the task doesn't
       own; nothing persisted. Drop wiring-only tests in tests/test_task_preview.py.
       (Step 8d: tests/test_task_preview.py rewritten: those, plus freeze states, parallel steps, a failing declaration,

@@ -60,8 +60,16 @@ final class NotificationPoster {
     private var pending: NotificationTarget?
     /// The wait before subscribing again after the daemon went away or macOS didn't allow notifications.
     static let retry: Duration = .seconds(5)
+    /// How long a banner the notch may show itself waits before it is judged (decision 21: the notch opens itself for a
+    /// question or a finished task; a banner only when it can't show). The banner can arrive first: the daemon sends a
+    /// task's banner before its result, and a question's on another connection than the question itself.
+    private let settle: Duration
+    private var settling: [String: Task<Void, Never>] = [:]
 
-    init(center: NotificationCenterPosting?) { self.center = center }
+    init(center: NotificationCenterPosting?, settle: Duration = .seconds(1)) {
+        self.center = center
+        self.settle = settle
+    }
 
     func configure(notchShowing: @escaping () -> Bool, open: @escaping (NotificationTarget) -> Void) {
         self.notchShowing = notchShowing
@@ -112,14 +120,28 @@ final class NotificationPoster {
     }
 
     func receive(_ event: [String: Any]) {
-        guard let center, let item = BannerItem(event),
-              NotificationGate.shouldPost(item, notchShowing: notchShowing()) else { return }
+        guard center != nil, let item = BannerItem(event) else { return }
+        guard item.whenHidden, settle > .zero else { return post(item) }
+        settling[item.id]?.cancel()
+        settling[item.id] = Task { [weak self, settle] in
+            do { try await Task.sleep(for: settle) } catch { return }
+            self?.settling[item.id] = nil
+            self?.post(item)
+        }
+    }
+
+    private func post(_ item: BannerItem) {
+        guard let center, NotificationGate.shouldPost(item, notchShowing: notchShowing()) else { return }
         center.post(id: item.id, title: item.title, body: item.body, userInfo: item.target.userInfo,
                     thread: item.category?.rawValue ?? "ferb")
     }
 
-    /// A question answered anywhere: its banner goes from Notification Center.
-    func withdrawQuestion(_ approvalID: String) { center?.withdraw(ids: [NotificationGate.questionID(approvalID)]) }
+    /// A question answered anywhere: its banner goes from Notification Center (or never posts, while it waits).
+    func withdrawQuestion(_ approvalID: String) {
+        let id = NotificationGate.questionID(approvalID)
+        settling.removeValue(forKey: id)?.cancel()
+        center?.withdraw(ids: [id])
+    }
 
     func clicked(_ userInfo: [AnyHashable: Any]) {
         let target = NotificationTarget(userInfo: userInfo)

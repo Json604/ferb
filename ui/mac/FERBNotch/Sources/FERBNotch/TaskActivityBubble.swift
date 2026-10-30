@@ -30,7 +30,7 @@ struct TaskActivityBubble: View {
                 .help("Show other running tasks")
                 .popover(isPresented: $ringOpen, arrowEdge: .bottom) {
                     taskRing.padding(12)
-                        .background(TaskPreviewWindow(model: model))
+                        .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
                 }
                 .zIndex(ringOpen ? 2 : 0)
             }
@@ -53,7 +53,8 @@ struct TaskActivityBubble: View {
 
     private func taskButton(_ item: TaskItem) -> some View {
         Button { hoveredTaskID = item.id } label: {
-            TaskVideoView(preview: model.preview(for: item), compact: true, active: model.expanded)
+            // Live while visible (decision 1): not while the notch is closed or stepped aside for another window.
+            TaskVideoView(preview: model.preview(for: item), compact: true, active: model.expanded && !model.isYielded)
                 .frame(width: 27, height: 27)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(Palette.amber.opacity(0.65), lineWidth: 1))
@@ -65,7 +66,7 @@ struct TaskActivityBubble: View {
         .popover(isPresented: Binding(get: { hoveredTaskID == item.id },
                                      set: { if !$0, hoveredTaskID == item.id { hoveredTaskID = nil } }), arrowEdge: .bottom) {
             expandedBubble(for: item)
-                .background(TaskPreviewWindow(model: model))
+                .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
         }
         .help(item.title)
         .accessibilityLabel("Activity for \(item.title)")
@@ -144,6 +145,7 @@ final class TaskActivityPanel: NSPanel {
         isReleasedWhenClosed = false
         level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        sharingType = .none             // hidden from screen sharing and recordings (notes/preview.md decision 4)
         let view = DetachedTaskActivityView(model: model, taskID: taskID, onClose: onClose)
         let hosting = NSHostingView(rootView: view)
         hosting.sizingOptions = []

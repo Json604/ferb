@@ -137,18 +137,21 @@ final class NotchModel: ObservableObject {
             if since != runningSince { runningSince = since }
         }
     }
+    /// Keyed by task, and by step for a card row's watch button (its step task id).
     private var taskPreviews: [String: TaskPreview] = [:]
-    func preview(for item: TaskItem) -> TaskPreview {
-        let id = item.backendID ?? item.id
-        if let existing = taskPreviews[id] { return existing }
-        let created = TaskPreview(rpc: rpc, taskID: id)
-        taskPreviews[id] = created
+    let previewAccess = PreviewAccess()
+    func preview(for item: TaskItem) -> TaskPreview { preview(task: item.backendID ?? item.id) }
+    func preview(task id: String, worker: String? = nil) -> TaskPreview {
+        let key = worker.map { id + " " + $0 } ?? id
+        if let existing = taskPreviews[key] { return existing }
+        let created = TaskPreview(rpc: rpc, taskID: id, worker: worker, access: previewAccess)
+        taskPreviews[key] = created
         return created
     }
     func discardFinishedPreviews() {
         let active = Set(taskItems.filter(\.isRunning).map { $0.backendID ?? $0.id })
-        for id in Array(taskPreviews.keys) where !active.contains(id) {
-            taskPreviews.removeValue(forKey: id)?.stop()
+        for (key, preview) in taskPreviews where !active.contains(preview.taskID) {
+            taskPreviews.removeValue(forKey: key)?.stop()
         }
     }
 
@@ -172,6 +175,8 @@ final class NotchModel: ObservableObject {
     var archiveBlocked = false
     /// Send to developer (L35): each answer's report, by turn id (live state, never saved), and the owner's Mail.
     @Published var reports: [UUID: ReportState] = [:]
+    /// A runtime switch the owner chose on a failed answer (decision 16), by turn: what it says now. Live state only.
+    @Published var runtimeChoices: [UUID: String] = [:]
     var reportMailer: ReportMailing = SystemReportMailer()
 
     init(rpc: DaemonRPCTransport = DaemonRPC(), preferences: UserDefaults = .standard, microphone: VoiceCapturing? = nil) {

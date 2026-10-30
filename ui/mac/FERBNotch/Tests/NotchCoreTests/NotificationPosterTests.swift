@@ -16,7 +16,7 @@ final class NotificationPosterTests: XCTestCase {
         let center = FakeNotificationCenter()
         let rpc = ScriptedRPC()
         rpc.events["notifications.subscribe"] = [question, reminder]
-        let poster = NotificationPoster(center: center)
+        let poster = NotificationPoster(center: center, settle: .zero)
         poster.configure(notchShowing: { false }, open: { _ in })
         let subscribed = await poster.subscribeOnce(rpc: rpc)
         XCTAssertTrue(subscribed)
@@ -32,7 +32,7 @@ final class NotificationPosterTests: XCTestCase {
         let center = FakeNotificationCenter()
         let rpc = ScriptedRPC()
         rpc.events["notifications.subscribe"] = [question, reminder]
-        let poster = NotificationPoster(center: center)
+        let poster = NotificationPoster(center: center, settle: .zero)
         poster.configure(notchShowing: { true }, open: { _ in })
         _ = await poster.subscribeOnce(rpc: rpc)
         XCTAssertEqual(center.posted.map(\.id), ["reminder:r1"])
@@ -42,7 +42,7 @@ final class NotificationPosterTests: XCTestCase {
         let center = FakeNotificationCenter()
         center.allowed = false
         let rpc = ScriptedRPC()
-        let poster = NotificationPoster(center: center)
+        let poster = NotificationPoster(center: center, settle: .zero)
         let subscribed = await poster.subscribeOnce(rpc: rpc)
         XCTAssertFalse(subscribed)
         XCTAssertTrue(rpc.calls.isEmpty)
@@ -55,7 +55,7 @@ final class NotificationPosterTests: XCTestCase {
         center.undecidedState = true
         let rpc = ScriptedRPC()
         rpc.events["notifications.subscribe"] = [question, reminder]
-        let poster = NotificationPoster(center: center)
+        let poster = NotificationPoster(center: center, settle: .zero)
         poster.configure(notchShowing: { false }, open: { _ in })
         let subscribed = await poster.subscribeOnce(rpc: rpc)
         XCTAssertTrue(subscribed)
@@ -70,7 +70,7 @@ final class NotificationPosterTests: XCTestCase {
         center.answer = false
         let rpc = ScriptedRPC()
         rpc.events["notifications.subscribe"] = [question, reminder]
-        let poster = NotificationPoster(center: center)
+        let poster = NotificationPoster(center: center, settle: .zero)
         poster.configure(notchShowing: { false }, open: { _ in })
         _ = await poster.subscribeOnce(rpc: rpc)
         XCTAssertEqual(center.requests, 1)
@@ -118,9 +118,34 @@ final class NotificationPosterTests: XCTestCase {
         XCTAssertEqual(opened.last, .question(approvalID: "a1", taskID: nil))
     }
 
+    /// Decision 21: the notch opens itself for a question or a finished task; the banner, which may arrive first, posts
+    /// only if the notch still isn't showing once that has landed, and never for a question answered meanwhile.
+    func testABannerTheNotchShowsItselfWaitsForTheNotchToOpen() async throws {
+        let center = FakeNotificationCenter()
+        var showing = false
+        let poster = NotificationPoster(center: center, settle: .milliseconds(50))
+        poster.configure(notchShowing: { showing }, open: { _ in })
+        poster.receive(question)
+        poster.receive(reminder)
+        XCTAssertEqual(center.posted.map(\.id), ["reminder:r1"])     // a reminder always posts at once
+        showing = true                                                  // the question opened the notch
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(center.posted.map(\.id), ["reminder:r1"])
+
+        showing = false                                                 // a full-screen app covers the notch
+        var finished = question
+        finished["id"] = "task:t1"
+        finished["target"] = ["kind": "task", "task_id": "t1"]
+        poster.receive(finished)
+        poster.receive(question)
+        poster.withdrawQuestion("a1")                                   // answered before the banner was judged
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(center.posted.map(\.id), ["reminder:r1", "task:t1"])
+    }
+
     func testAnAnsweredQuestionWithdrawsItsBanner() {
         let center = FakeNotificationCenter()
-        let poster = NotificationPoster(center: center)
+        let poster = NotificationPoster(center: center, settle: .zero)
         poster.withdrawQuestion("a1")
         XCTAssertEqual(center.withdrawn, ["question:a1"])
     }

@@ -30,8 +30,23 @@ extension NotchModel {
         return loop.state != "acting"
     }
     var visibleEntries: [TranscriptEntry] { conversation.transcript(on: followsToday ? Date() : selectedDay) }
-    /// Open questions, shown at the end of today's chat.
-    var inlineQuestions: [DaemonApproval] { viewingToday ? pendingApprovals : [] }
+    /// Open questions, shown at the end of today's chat; one that belongs to a card row shown here is in that row instead
+    /// (decision 20).
+    var inlineQuestions: [DaemonApproval] {
+        guard viewingToday else { return [] }
+        let placed = conversation.rowPlacements(pendingApprovals)
+        guard !placed.isEmpty else { return pendingApprovals }
+        let shown = Set(visibleEntries.compactMap { entry -> UUID? in
+            if case let .turn(turn, _) = entry { return turn.id } else { return nil }
+        })
+        return pendingApprovals.filter { approval in placed[approval.id].map { !shown.contains($0.turnID) } ?? true }
+    }
+    /// The open questions shown inside this turn's card, by part (decision 20). Live state: only in today's chat.
+    func rowQuestions(_ turn: ConversationTurn) -> [String: [DaemonApproval]] {
+        guard viewingToday, turn.card != nil, !pendingApprovals.isEmpty else { return [:] }
+        let placed = conversation.rowPlacements(pendingApprovals)
+        return Dictionary(grouping: pendingApprovals.filter { placed[$0.id]?.turnID == turn.id }) { placed[$0.id]!.part }
+    }
     /// The task a question belongs to: its goal, or its short id when the goal isn't known (a secret prompt must
     /// always say which task asks).
     func questionContext(_ approval: DaemonApproval) -> String? {

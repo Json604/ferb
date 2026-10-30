@@ -24,7 +24,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var ack: String?
     /// The plan line: the planner's words when it returned a task (`plan`, L7).
     public var plan: String?
-    /// Each finished part of the request, told as soon as it was checked (`part`, 2026-10-27), in arrival order.
+    /// Each finished part of the request as text, from chats saved before cards (2026-10-27); shown, never added to.
     public var parts: [String]?
     /// The outcome's `verified` flag, shown as a small check mark.
     public var verified: Bool?
@@ -38,7 +38,35 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     /// The daemon's goal for a task this chat didn't send (reconnected, recovered or started elsewhere); empty when
     /// unknown. Such a turn has no owner message: the goal is FERB's description, never words the owner typed.
     public var taskGoal: String?
+    /// The plan line on its own and code's lines under it ("I'll work in …"), from the plan event's fields; nil for a
+    /// turn saved before they existed (its `plan` text is shown).
+    public var planLine: String?
+    public var planLines: [String]?
+    /// A multi-part request's first reply (decision 19): the asks answered at once, then code's receipts (Remembered,
+    /// 🗓 Scheduled), above the plan line.
+    public var direct: [String]?
+    public var receipts: [String]?
+    /// A multi-part request's card (decision 19): a row per ask, filled in place, and the footer once the task ended.
+    public var card: TurnCard?
+    /// A one-ask answer's structured lines (decision 19): "Couldn't confirm: …", "Correction: …", code's lines.
+    public var note: String?
+    public var correction: String?
+    public var codeLines: [String]?
+    /// The offer of another AI service when an account problem ended the work (owner decision 16).
+    public var runtimeSwitch: RuntimeSwitch?
+    /// The request this message was read together with (`merged`, decision 18): it has no reply of its own.
+    public var mergedInto: String?
+    /// The plan line as it streams (`plan_delta`), until the plan event replaces it. Live state only: never saved.
+    public var streamingPlan: String? = nil
+    /// FERB acknowledged the message and hasn't said anything else yet: the typing dots show. Live state only.
+    public var awaitingReply = false
 
+    /// The typing-dots bubble (decision 20): from the acknowledgement until FERB's first words (a streamed plan line or
+    /// reply, the plan, the reply).
+    public var showsTyping: Bool {
+        awaitingReply && status == "working" && answer.isEmpty && plan == nil && (streamingPlan ?? "").isEmpty
+            && mergedInto == nil && card == nil
+    }
     public var isRecovered: Bool { taskGoal != nil }
     public var isVerified: Bool { verified == true }
     /// What a report about this answer names (L35): its task, or its request when a planning failure ended the turn
@@ -60,7 +88,14 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
         case requestID, ack, plan, parts, verified, question, taskGoal, statusInferred
+        case planLine, planLines, direct, receipts, card, note, correction, codeLines, runtimeSwitch, mergedInto
     }
+}
+
+/// The card row an open question is shown in.
+public struct RowPlace: Equatable {
+    public let turnID: UUID
+    public let part: String
 }
 
 /// The current step of a running task, as the daemon describes it from the tool and its target.
@@ -328,19 +363,143 @@ public struct ConversationArchive: Codable, Equatable {
             turns[index].request = message
             turns[index].awaitingRedaction = false
         }
+        if turns[index].status == "working" { turns[index].awaitingReply = true }
         guard !text.isEmpty else { return }
         turns[index].ack = text
     }
 
-    public mutating func showPlan(id: UUID, text: String) {
-        guard !text.isEmpty, let index = turns.firstIndex(where: { $0.id == id }) else { return }
-        turns[index].plan = text
+    /// The plan event (L7): its text, and its fields when the daemon sends them (`details`, decision 19): the plan line
+    /// and code's lines, the asks answered at once, the receipts and the card.
+    public mutating func showPlan(id: UUID, text: String, details: [String: Any] = [:]) {
+        guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        turns[index].streamingPlan = nil
+        turns[index].awaitingReply = false
+        if !text.isEmpty { turns[index].plan = text }
+        if let line = details["plan_line"] as? String {
+            turns[index].planLine = line
+            turns[index].planLines = (details["lines"] as? [String] ?? []).filter { !$0.isEmpty }
+        }
+        if let direct = details["direct"] as? [[String: Any]] {
+            turns[index].direct = direct.compactMap { $0["text"] as? String }
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        }
+        if let receipts = details["receipts"] as? [String] { turns[index].receipts = receipts.filter { !$0.isEmpty } }
+        if let taskID = details["task_id"] as? String, let card = TurnCard(details["card"], taskID: taskID) {
+            place(card, at: index)
+        }
     }
 
-    /// A finished part of the turn's request, told before its final answer (2026-10-27).
-    public mutating func addPart(id: UUID, text: String) {
-        guard !text.isEmpty, let index = turns.firstIndex(where: { $0.id == id }) else { return }
-        turns[index].parts = (turns[index].parts ?? []) + [text]
+    /// The plan line as it streams (`plan_delta`); the plan event replaces it.
+    public mutating func streamPlan(id: UUID, delta: String) {
+        guard !delta.isEmpty, let index = turns.firstIndex(where: { $0.id == id && $0.status == "working" }) else { return }
+        turns[index].streamingPlan = (turns[index].streamingPlan ?? "") + delta
+        turns[index].awaitingReply = false
+    }
+
+    public mutating func abortPlanStream(id: UUID) {
+        guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        turns[index].streamingPlan = nil
+    }
+
+    /// A newer picture of a turn's card merges into the one shown; another turn's card replaces it.
+    private mutating func place(_ card: TurnCard, at index: Int) {
+        if var shown = turns[index].card, shown.requestID == card.requestID, shown.taskID == card.taskID {
+            shown.merge(card)
+            turns[index].card = shown
+        } else {
+            turns[index].card = card
+        }
+    }
+
+    /// A row's change (`part`, on the turn's stream and on the bus as `task.part`), applied to the row keyed by its
+    /// task and part in whichever card shows it: this run's card, else the card that first showed the part, else the
+    /// newest card with that part; a part no card shows yet joins this run's card. Returns the turn that changed.
+    @discardableResult
+    public mutating func applyPart(_ event: [String: Any]) -> UUID? {
+        guard let taskID = event["task_id"] as? String, let part = event["part"] as? String else { return nil }
+        let request = event["request_id"] as? String
+        let first = event["card_request_id"] as? String
+        func showing(_ requestID: String?) -> Int? {
+            guard let requestID else { return nil }
+            return turns.lastIndex { $0.card?.taskID == taskID && $0.card?.requestID == requestID && $0.card?.row(part) != nil }
+        }
+        let index = showing(request) ?? showing(first)
+            ?? turns.lastIndex { $0.card?.taskID == taskID && $0.card?.row(part) != nil }
+            ?? turns.lastIndex { $0.card?.taskID == taskID && $0.card?.requestID == request }
+        guard let index, turns[index].card?.apply(part: event) == true else { return nil }
+        return turns[index].id
+    }
+
+    /// A card the daemon reports for a running or resumed task (`chat.status`, a resumed task's plan): merged into the
+    /// turn showing it, else given to the turn of its request or to the task's newest turn without one; a task this
+    /// chat has no turn for gets one, described by its goal. Returns whether anything changed.
+    @discardableResult
+    public mutating func showCard(_ card: TurnCard, goal: String, at date: Date = Date()) -> Bool {
+        let before = turns
+        if let index = turns.lastIndex(where: { $0.card?.requestID == card.requestID && $0.card?.taskID == card.taskID })
+            ?? turns.lastIndex(where: { !card.requestID.isEmpty && $0.requestID == card.requestID })
+            ?? turns.lastIndex(where: { $0.backendTaskID == card.taskID && $0.card == nil }) {
+            if turns[index].backendTaskID == nil { turns[index].backendTaskID = card.taskID }
+            place(card, at: index)
+        } else {
+            var turn = ConversationTurn(id: UUID(), createdAt: date, request: "", sources: [], backendTaskID: card.taskID,
+                                        taskGoal: goal)
+            turn.requestID = card.requestID.isEmpty ? nil : card.requestID
+            turn.card = card
+            turns.append(turn)
+        }
+        return turns != before
+    }
+
+    /// The outcome's own fields (decision 19) on the turn that asked (its request, else the task's newest turn): a
+    /// one-ask answer's "Couldn't confirm", correction and code lines; a multi-part task's footer; the offer of another
+    /// AI service. Returns whether the turn changed.
+    @discardableResult
+    public mutating func applyOutcome(_ event: [String: Any]) -> Bool {
+        guard let taskID = event["task_id"] as? String else { return false }
+        let request = event["request_id"] as? String
+        guard let index = turns.lastIndex(where: { request != nil && $0.requestID == request })
+            ?? turns.lastIndex(where: { $0.backendTaskID == taskID }) else { return false }
+        let before = turns[index]
+        func words(_ key: String) -> String? { (event[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        turns[index].note = words("note")
+        turns[index].correction = words("correction")
+        turns[index].codeLines = (event["lines"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
+        turns[index].runtimeSwitch = RuntimeSwitch(event["runtime_switch"])
+        if let card = TurnCard(event["card"], taskID: taskID) { place(card, at: index) }
+        return turns[index] != before
+    }
+
+    /// A failed reply's offer of another AI service (owner decision 16).
+    public mutating func offerRuntimeSwitch(id: UUID, _ offer: RuntimeSwitch?) {
+        guard let offer, let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        turns[index].runtimeSwitch = offer
+    }
+
+    /// The message was read together with another one (`merged`, decision 18): that message's reply answers it.
+    public mutating func merge(id: UUID, into requestID: String) {
+        guard let index = turns.firstIndex(where: { $0.id == id && $0.status == "working" && $0.backendTaskID == nil }) else { return }
+        turns[index].mergedInto = requestID
+        turns[index].status = "merged"
+        turns[index].awaitingReply = false
+        turns[index].streamingPlan = nil
+        turns[index].liveLine = nil
+    }
+
+    /// Where each open question is shown in a card (decision 20: a question with its buttons inside its row): the
+    /// newest turn whose card has a row it belongs to. A question no row claims stays at the end of the chat.
+    public func rowPlacements(_ approvals: [DaemonApproval]) -> [String: RowPlace] {
+        var placed: [String: RowPlace] = [:]
+        let carded = turns.filter { $0.card != nil }.reversed()
+        for approval in approvals {
+            for turn in carded {
+                if let row = turn.card?.rows.first(where: { $0.asks(approval) }) {
+                    placed[approval.id] = RowPlace(turnID: turn.id, part: row.part)
+                    break
+                }
+            }
+        }
+        return placed
     }
 
     /// Replaces the turn's one live line while it waits for its answer.
@@ -402,7 +561,8 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].verified = verified
         turns[index].statusInferred = inferred ? true : nil
         turns[index].liveLine = nil
-        guard firstAnswer || afterQuestion, let newest = turns.last else { return }
+        // A card fills in place (decision 19): its rows and footer are the answer, never a reply further down.
+        guard firstAnswer || afterQuestion, turns[index].card == nil, let newest = turns.last else { return }
         if firstAnswer && replies.contains(where: { $0.turnID == id }) { return }
         // Its words so far are shown on the turn, or in the reply below it that showed the question.
         let shownAt = replies.last(where: { $0.turnID == id })?.id ?? id

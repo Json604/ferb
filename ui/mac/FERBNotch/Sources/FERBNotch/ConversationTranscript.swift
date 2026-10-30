@@ -129,6 +129,7 @@ struct ConversationTranscript: View {
 /// The owner's request, then FERB's substantive plan, connection line, question and answer.
 /// Canned transport acknowledgements stay archived but are not presented (owner, 2026-10-29). Ordinary steps
 /// never reach the live line (owner, 2026-10-24: only the "N active tasks" row stays; DaemonConnection's `progress`).
+/// Several asks (decision 19): the first reply's bubble, then the card, whose rows and footer are the answer.
 private struct TurnView: View {
     let turn: ConversationTurn
     let answeredBelow: Bool
@@ -137,8 +138,16 @@ private struct TurnView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             RequestView(turn: turn)
-            if let plan = turn.plan { FerbBubble { NativeMessageText(plan) } }
-            ForEach(Array((turn.parts ?? []).enumerated()), id: \.offset) { _, part in    // each checked part
+            if let lead = turn.mergedInto {
+                let turns = model.conversation.turns
+                let leadIndex = turns.firstIndex { $0.requestID == lead }
+                MergedLabel(lead: leadIndex.map { turns[$0] },
+                            leadIsAbove: (leadIndex ?? 0) < (turns.firstIndex { $0.id == turn.id } ?? 0))
+            }
+            if turn.showsTyping { TypingDots() }
+            FirstReplyView(turn: turn)
+            if let card = turn.card { TurnCardView(card: card, turn: turn, model: model) }
+            ForEach(Array((turn.parts ?? []).enumerated()), id: \.offset) { _, part in    // parts saved before cards
                 FerbBubble { MarkdownContent(part).equatable() }
             }
             if let live = turn.liveLine { LiveLineView(progress: live) }
@@ -332,16 +341,28 @@ private struct AnswerView: View {
     let turn: ConversationTurn
     @ObservedObject var model: NotchModel
 
-    private var visibleParts: SitesContactedParts { SitesContactedParts(turn.visibleAnswer) }
+    /// The answer's own lines drawn on their own (decision 19), cut from its text.
+    private var split: AnswerParts {
+        AnswerParts(answer: turn.visibleAnswer, note: turn.note, correction: turn.correction, lines: turn.codeLines ?? [])
+    }
+    private var codeSites: String? {
+        split.lines.first { $0.hasPrefix("Sites contacted:") }.map {
+            $0.dropFirst("Sites contacted:".count).trimmingCharacters(in: .whitespaces)
+        }
+    }
+    private var visibleParts: SitesContactedParts { SitesContactedParts(split.body) }
     private var fullParts: SitesContactedParts { SitesContactedParts(turn.answer) }
-    private var displayedSites: String { visibleParts.sites.isEmpty ? fullParts.sites : visibleParts.sites }
+    private var displayedSites: String { codeSites ?? (visibleParts.sites.isEmpty ? fullParts.sites : visibleParts.sites) }
 
     var body: some View {
-        if !turn.answer.isEmpty {
+        // A card's rows and footer are the answer; its text is kept for history, voice and older clients.
+        if !turn.answer.isEmpty && turn.card == nil {
             VStack(alignment: .leading, spacing: 4) {
                 FerbBubble {
                     VStack(alignment: .leading, spacing: 6) {
                         MarkdownContent(visibleParts.answer).equatable()
+                        AnswerLinesView(note: split.note, correction: split.correction,
+                                        lines: split.lines.filter { !$0.hasPrefix("Sites contacted:") })
                         if turn.displayText != nil && turn.visibleAnswer != turn.answer {
                             DisclosureGroup("Details") {
                                 MarkdownContent(fullParts.answer).equatable()
@@ -363,11 +384,12 @@ private struct AnswerView: View {
         if let notice = turn.responseNotice {
             Text(notice).font(.system(size: 10)).foregroundStyle(Palette.secondary)
         }
-        if turn.responseNotice == nil && turn.status != "done" && turn.status != "working" {
+        if turn.responseNotice == nil && !["done", "working", "merged"].contains(turn.status) && turn.card == nil {
             Text(turn.status.replacingOccurrences(of: "_", with: " ").capitalized)
                 .font(.system(size: 10)).foregroundStyle(Palette.secondary)
         }
         if turn.offersReport { ReportRow(turn: turn, model: model) }
+        if turn.status == "failed", let offer = turn.runtimeSwitch { RuntimeSwitchRow(turn: turn, offer: offer, model: model) }
         ForEach(turn.artifacts, id: \.self) { url in
             ArtifactRow(url: url, model: model)
         }

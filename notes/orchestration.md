@@ -347,7 +347,22 @@ to commit c6621c3. S = supervisor.py, M = main.py.
       do: reason"), paused (5-attempt check-in), updated (`part_updates`, one record, no new message).
 - [x] Structured fields for the app: outcome `note` / `correction` / `lines`; plan `work_in`; `runtime_switch`, `merged`
       as before.
-- [ ] The notch UI (decision 20): turn card, row states, footer, in-row questions, typing dots (step 8d part 2, `ui/`).
+- [x] The notch UI (decision 20): turn card, row states, footer, in-row questions, typing dots (step 8d part 2, `ui/`).
+      (Step 8d UI: NotchCore `TurnCard`/`CardRow` (rows keyed by task + part, a change applied once by its `seq`, a
+      snapshot never replaces a newer live row), saved on the turn so History draws it; TurnCardView.swift draws the
+      mock: first-reply bubble (direct answers, receipts, plan line under a rule with "I'll work in …"), a row per
+      non-direct ask with its state, "Couldn't confirm"/"Correction"/"Updated: why"/"You chose …" lines, questions
+      with buttons inside their row (FERB's own by `part`/approval id, gateway confirmations by `step_task_id` prefix),
+      the "N of M done" footer with code's lines, typing dots from `ack` to the first words, the streamed `plan_delta`
+      where the plan line goes. Rebuilt from `chat.status` `running[].card` and `results[].card`; a resumed task's card
+      from `task.resumed_event`; a task with no turn gets one. One-ask outcomes draw `note`, `correction`, `lines` on
+      their own (cut from the answer text only when it ends with them). `merged` ends the message quietly with "Read
+      together with your message above/below". Runtime switch: the in-place question's buttons (no typed answer); a
+      failed answer's "Use <runtime>" calls `runtimes.use` for the failed role. Decision 21: rows fill quietly; a row's
+      question opens the notch (approval.requested, as before) and so does a finished task, now also
+      `done_unverified`; a banner the notch would show itself waits 1 s and posts only if the notch still isn't
+      showing (the daemon sends a task's banner before its result). Tests: AnswersInStepsTests,
+      NotificationPosterTests.)
 
 ### Planner context
 - [x] Recent conversation + summary instead of filling the window (S:1709-1710; core/context.py:185, 284).

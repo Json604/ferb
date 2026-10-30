@@ -176,6 +176,15 @@ public struct NotchSession {
         phase = .attention
     }
 
+    /// The message was read together with another one (`merged`): its stream ended without a reply of its own, and
+    /// nothing is wrong.
+    public mutating func finishMerged() {
+        guard backendTaskID == nil, activeTaskID != nil else { return }
+        activeTaskID = nil
+        attentionMessage = nil
+        phase = .ready
+    }
+
     public mutating func detachUnavailableTask(_ message: String) {
         activeTaskID = nil
         attentionMessage = message
