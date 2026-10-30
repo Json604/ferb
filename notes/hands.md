@@ -139,6 +139,22 @@ from installed apps, terminal detection fails closed)*
 - notes/gateway.md consumes the facts produced here.
 - notes/storage.md decision 5: extension minimum version in the upgrade path.
 
+## Measurements (step 0, 2026-10-30)
+- **Sandbox semantics, measured with `sandbox-exec` on scratch folders:**
+  - `deny file-write-unlink` blocks unlink, rmdir, renaming a file out of or within the folder, and renaming onto an
+    existing file; it still allows creating files, moving a new file in, truncating and appending.
+  - So decision 4 ("no changes in visible folders") needs `deny file-write*`, which blocked all ten operations.
+  - Exception for hidden folders works with a later `allow file-write*` regex on any path component starting with "."
+    (last match wins): `.git/index.lock` creation and its rename onto `.git/index` were allowed.
+- **Shell commands and FERB's permissions:** commands are spawned with `subprocess.Popen` and no responsibility
+  disclaim (pty_proc.py:64-66), so they run with the grants of the app that started them. Measured from a granted
+  parent: a child under a FERB-like sandbox **could post input events** (a 1 px cursor move, restored) and read the
+  screen. Adding `(deny mach-lookup (global-name "com.apple.windowserver.active") (global-name
+  "com.apple.windowserver"))` blocked both (no cursor move; screen capture returned nothing) while git, python and
+  ordinary commands kept working. **Decision (technical, keeps Full Disk Access for the shell):** add that rule to the
+  shell profile, so no script can type into a terminal or capture the screen around the always-ask rules. (The
+  owner's own run of the probe was in Terminal, so it showed Terminal's grants, not FERB's.)
+
 ## Fix list
 - [ ] One extension protocol bump covering tab groups, card fields secret, and daemon→extension signing/pairing
       (manifest, JS/Python protocol and minimum versions together).
@@ -167,7 +183,8 @@ from installed apps, terminal detection fails closed)*
 - [ ] Shell: kill the whole process group at task end regardless of exit; prune `_procs`; `shell.send` respects
       escape grants; never-read write denies after any lift; FERB's launchd plist never liftable; correct `shell.kill`
       kind; durable host records; purge shell logs; report partial/dropped sends.
-- [ ] Measure: sandbox rename semantics; whether contained processes inherit FERB's Accessibility/Screen Recording.
+- [x] Measured sandbox rename semantics (see Measurements).
+- [ ] Shell profile denies the window server (blocks event posting and screen capture from commands); measured.
 - [ ] Shell scope + snapshot (decision 4): sandbox denies writes/unlink/rename in visible folders except named
       ones; snapshot before each command.
 - [ ] Files: preserve mode/xattrs/newlines on write and edit; catch decode/OS errors as plain errors; trash acts on the

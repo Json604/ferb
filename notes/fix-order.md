@@ -3,8 +3,8 @@
 Proposed 2026-10-30 from the cross-check of all notes; each step lands as its own change with its tests, then the
 owner installs it (`ferb setup --update`) and checks it live before the next step.
 
-0. **Open questions settled** (hidden folders writable; CLAUDE.md rewritten 2026-10-30; Apple voice for now). Run the two sandbox measurements (rename semantics; whether shell
-   commands inherit FERB's Accessibility/Screen Recording grants).
+0. **Open questions settled** (hidden folders writable; CLAUDE.md rewritten 2026-10-30; Apple voice for now). Both sandbox measurements
+   done 2026-10-30 (notes/hands.md, Measurements). **Step 0 complete.**
 1. **Storage migration runner** (checksums, numbering check, refuse a newer DB): today a new migration numbered ≤ 48
    is silently skipped, and every later step adds migrations.
 2. **Daemon foundation**: composition function and typed ports, config cache, exception handler, one events object
