@@ -22,6 +22,19 @@ files and live spans. Sizes in chars; tokens ≈ chars/4.
 3. **No minimum repeat interval** (owner: "make it what I choose"): the "every_minutes at least 15" line goes; code
    keeps only "must be positive" (schedules.py:61).
 
+4. **Patch table approved** (owner, 2026-10-31; `notes/prompt-patches.md`): the 10 general rules R1-R10 replace the
+   patches; the 9 memory items M1-M9 are stored as the owner's confirmed words with the always-on placement shown in
+   the table (M7, M8 by search; the rest core profile). M1 also carries the owner's 10-05 words "don't mention AI
+   anywhere … submit as me". "anytime" = FERB picks a time from context and says which (R10). "email me" =
+   kartikey060105@gmail.com (owner's words, stored as a memory item). Inferred duplicates of these items are dropped.
+   Seeded once on the new build's first start (journaled, idempotent), since the live store is never written by hand.
+5. **Default browser profile: FERB's own** (owner, 2026-10-31): ordinary web work with no profile named uses FERB's own
+   profile; the owner's profiles only when the task or memory needs their accounts. The stored fact "Most of your things
+   are in the Brave profile with your kartikey060105@gmail account" stays as a fact about where accounts are, not a
+   default.
+6. **Bot-check fact wording** (ruling, 2026-10-31): the fact states plainly that a check widget is present and may be only
+   a passive badge; no prompt wording about bypasses (hands decision 6).
+
 ## What exists today (verified)
 
 | Role | What it gets | Size |
@@ -155,6 +168,9 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       names "Layer 4 — earlier conversation matching this message". New runtime prompt: ferb/memory/playbook.md (merging
       verified how-notes of one kind of work). Tool descriptions changed: chat.history (query by meaning, since/until),
       memory.learned (past tasks, playbooks, summaries; facts are memory.read's).)
+      (Step 9c, memory import: new runtime prompts ferb/memory/import_recall.md (candidates from another assistant's
+      history, each with its message and exact quote) and ferb/memory/import_verify.md (keep what an owner line says,
+      tighten, same_as, ended / until / review_in_days); notes/memory-import.md.)
 - [ ] Live re-test list adds prompt-only behaviours: the pause trigger, asking only what/who/which, asking before
       installing a named tool (the 10-14 Mole task failed with "not installed" instead of asking), how-note quality.
 - [ ] One foreground contract: code asks Yes/No once per task per app (30-minute option); remove "now / when idle /

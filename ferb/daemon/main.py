@@ -43,6 +43,7 @@ from ferb.daemon.areas.egress import Egress
 from ferb.daemon.areas.environment import Environment
 from ferb.daemon.areas.jev import JevGlue
 from ferb.daemon.areas.memory import MemoryGlue
+from ferb.daemon.areas.memory_import import MemoryImportGlue
 from ferb.daemon.areas.notify import Notify
 from ferb.daemon.areas.retention import Retention
 from ferb.daemon.areas.rpc import LOG_FILTERS, Rpc
@@ -85,7 +86,7 @@ __all__ = ["Daemon", "main", "LOG_FILTERS", "mcp_shim_command", "redacting_hooks
 LOOP_RESTART_S, LOOP_RESTART_MAX_S = 1.0, 60.0    # a background loop that raised starts again after this (`_supervise`)
 
 
-class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Egress, Sensing, Environment, Runtimes,
+class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Browsers, Desktop, Egress, Sensing, Environment, Runtimes,
              Retention, JevGlue, HearingGlue, Rpc):
     """FERB's daemon: one process that owns the stores, the agents, the drivers and the socket."""
 

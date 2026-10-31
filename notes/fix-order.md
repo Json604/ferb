@@ -43,6 +43,10 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
    (potion-base-8M, fetched once) and one fused search over facts, past tasks, playbooks and old chat within per-role
    limits; chat.history by meaning and date; how-notes, playbooks and the repeat measure; bounded card sources;
    perception fixes; decisions 17-18; the bot-check fact. Rulings and measurements in notes/memory.md.)
+9c. **Memory import from other AI assistants** (notes/memory-import.md decisions 1-6): ChatGPT, claude.ai, Gemini
+    exports and Claude Code / Codex CLI transcripts, last 3 months, read in memory only; recall → verification → merge,
+    saved as FERB's understanding; a background job (estimate, progress, resume, cancel) with RPCs `memory.import.*` and
+    a Memory page section; migration 0055. (Built 2026-10-31; live checks with step 13.)
 10. **Prompts**: rewrite to contracts; patch mapping table reviewed by the owner; owner-confirmed memory items.
 11. **Voice**: speaker factory (macOS voice first), replies from structured events.
 12. **Storage**: retention, `source_refs` removal, incremental vacuum, one-time cleanup (owner OK), upgrade path

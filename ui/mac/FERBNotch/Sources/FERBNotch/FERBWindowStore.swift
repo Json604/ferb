@@ -50,6 +50,8 @@ final class FERBWindowStore: ObservableObject {
     @Published var notices: [NoticeRow] = []
     @Published var activeMemory: [MemoryRow] = []
     @Published var coreProfile = CoreProfileView()
+    @Published var importStatus: MemoryImportStatus?
+    @Published var importEstimate: MemoryImportEstimate?
     @Published var settings = SettingsSnapshot()
     @Published var banners: [String: Bool] = [:]
     @Published var health: [HealthLine] = []
@@ -176,6 +178,37 @@ final class FERBWindowStore: ObservableObject {
             activeMemory = (reply["items"] as? [[String: Any]] ?? []).compactMap(MemoryRow.init)
         }
         if let reply = await ask("memory.profile", [:]) { coreProfile = CoreProfileView(reply) }
+        await loadImportStatus()
+    }
+
+    // MARK: Memory import (notes/memory-import.md)
+
+    /// What the import would read and how many model calls it takes; nothing is sent yet.
+    func estimateImport(_ source: MemoryImportSource, path: String = "") async {
+        importEstimate = nil
+        guard let reply = await ask("memory.import.estimate", ["source": source.rawValue, "path": path],
+                                    wait: Self.runtimeWait) else { return }
+        importEstimate = MemoryImportEstimate(source: source.rawValue, path: path, reply: reply)
+    }
+
+    func startImport() async {
+        guard let estimate = importEstimate else { return }
+        guard await ask("memory.import.start", ["source": estimate.source, "path": estimate.path],
+                        wait: Self.runtimeWait) != nil else { return }
+        importEstimate = nil
+        await loadImportStatus()
+    }
+
+    func cancelImport() async {
+        guard await ask("memory.import.cancel") != nil else { return }
+        await loadImportStatus()
+    }
+
+    func loadImportStatus() async {
+        guard let reply = await ask("memory.import.status") else { return }
+        let wasRunning = importStatus?.running ?? false
+        importStatus = MemoryImportStatus(reply["current"] as? [String: Any])
+        if wasRunning && !(importStatus?.running ?? false) { await loadMemory() }
     }
 
     /// The core profile (always in FERB's prompts): add an item to it or take one out; the memory itself stays.

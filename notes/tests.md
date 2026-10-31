@@ -118,6 +118,9 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       change, the software watcher on change, the bot-check fact); tests/test_memory_embeddings.py rewritten for the
       static model (tokenizer, pooling, hashes, the fetch with a fake, int8 ranking); test_memory_search.py and
       test_worker_memory.py moved to memory_items and the role limits (the 60/20 and fact-node tests replaced).
+      Step 9c (memory import): tests/test_memory_import.py (each reader on a fixture, redaction before any call, recall →
+      verify, FERB's understanding / no destinations, newer wins, resume, cancel, nothing raw kept, the quality eval and its
+      `-m real` variant); tests/support/import_fixtures.py.
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.

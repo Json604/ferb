@@ -237,3 +237,77 @@ public struct HealthLine: Identifiable, Equatable {
         return out
     }
 }
+
+/// Where a memory import reads from (`memory.import.*`, notes/memory-import.md decision 3): three account exports the
+/// owner chooses as a file or folder, and two local transcript folders FERB reads on this Mac.
+public enum MemoryImportSource: String, CaseIterable, Identifiable {
+    case chatgpt, claude, gemini, claude_code, codex
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .chatgpt: return "ChatGPT (data export)…"
+        case .claude: return "Claude (data export)…"
+        case .gemini: return "Gemini (Google Takeout)…"
+        case .claude_code: return "Claude Code (this Mac)"
+        case .codex: return "Codex CLI (this Mac)"
+        }
+    }
+
+    /// Exports need the owner's file; the local sources are read where they live.
+    public var needsFile: Bool { self == .chatgpt || self == .claude || self == .gemini }
+}
+
+/// One memory import run (`memory.import.status` `current`): its state and counts, as one line for the Memory page.
+public struct MemoryImportStatus: Equatable {
+    public let run: String
+    public let name: String
+    public let status: String
+    public let error: String
+    public let chunksDone: Int
+    public let chunks: Int
+    public let facts: Int
+    public let modelCalls: Int
+
+    public init?(_ row: [String: Any]?) {
+        guard let row, let run = row["run"] as? String, !run.isEmpty else { return nil }
+        self.run = run
+        name = text(row["name"])
+        status = text(row["status"])
+        error = text(row["error"])
+        let counts = row["counts"] as? [String: Any] ?? [:]
+        chunksDone = counts["chunks_done"] as? Int ?? 0
+        chunks = (counts["chunks_done"] as? Int ?? 0) + (counts["chunks_left"] as? Int ?? 0)
+        facts = counts["facts_saved"] as? Int ?? 0
+        modelCalls = counts["model_calls"] as? Int ?? 0
+    }
+
+    public var running: Bool { status == "running" }
+
+    public var line: String {
+        switch status {
+        case "running": return "Importing from \(name): \(chunksDone) of \(chunks) parts read, \(facts) facts so far."
+        case "done": return "Imported \(facts) facts from \(name) (\(modelCalls) model calls)."
+        case "cancelled": return "Import from \(name) cancelled after \(facts) facts. Start it again to go on."
+        default: return "Import from \(name) stopped: \(error.isEmpty ? status : error)."
+        }
+    }
+}
+
+/// What an import would read (`memory.import.estimate`), before anything is sent.
+public struct MemoryImportEstimate: Equatable {
+    public let source: String
+    public let path: String
+    public let line: String
+
+    public init(source: String, path: String, reply: [String: Any]) {
+        self.source = source
+        self.path = path
+        let name = text(reply["name"])
+        let conversations = reply["conversations"] as? Int ?? 0
+        let calls = reply["model_calls_estimate"] as? Int ?? 0
+        line = "\(name): \(conversations) conversations from the last 3 months, about \(calls) model calls. "
+            + "Only redacted text is sent; FERB keeps the facts, not the chats."
+    }
+}

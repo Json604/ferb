@@ -36,6 +36,7 @@ TELEMETRY = {"tool.called", "tool.finished", "trail.event", "action.observed", "
              "browser.connection_refused",   # protocol 18: a native-host connection no known browser started
              "disturbance.observed", "memory.derived", "memory.digest",
              "memory.embedding_unavailable", "perception.attention", "perception.batch", "security.alignment",
+             "memory.import.progress",   # a memory import's counts as it goes (memory.import.status has them too)
              "cursor.point"}   # L33: where an action is about to land, for the notch overlay (geometry only)
 STABLE_TOPICS = CRITICAL | TELEMETRY
 DROPPED = "bus.dropped"   # synthetic notice to a subscriber: {"count": n} telemetry events were dropped

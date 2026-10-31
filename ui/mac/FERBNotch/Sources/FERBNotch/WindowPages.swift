@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NotchCore
 
@@ -145,6 +146,7 @@ struct MemoryPage: View {
                     }
                 }
             }
+            importSection
             Section("Everything FERB remembers") {
                 if store.activeMemory.isEmpty { Text("FERB doesn't know anything about you yet.").foregroundStyle(.secondary) }
                 ForEach(store.activeMemory.filter { !$0.inProfile }) { item in row(item) }
@@ -158,6 +160,53 @@ struct MemoryPage: View {
         } message: { _ in
             Text(willDelete.isEmpty ? "FERB deletes this memory." : "FERB deletes: " + willDelete.joined(separator: "; "))
         }
+    }
+
+    /// Import from other assistants: pick a source (an export file or folder for the account exports), read the
+    /// estimate, Start; progress while it runs, Cancel. The facts arrive as FERB's understanding (decision 6).
+    @ViewBuilder private var importSection: some View {
+        Section("Import from other assistants") {
+            HStack {
+                Menu("Import from…") {
+                    ForEach(MemoryImportSource.allCases) { source in
+                        Button(source.title) { Task { await choose(source) } }
+                    }
+                }
+                .disabled(store.importStatus?.running ?? false)
+                Spacer()
+            }
+            if let estimate = store.importEstimate {
+                Text(estimate.line).font(.caption)
+                HStack {
+                    Button("Start import") { Task { await store.startImport() } }
+                    Button("Cancel") { store.importEstimate = nil }
+                }
+            }
+            if let status = store.importStatus {
+                HStack {
+                    Text(status.line).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if status.running { Button("Cancel import") { Task { await store.cancelImport() } } }
+                }
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if store.importStatus?.running ?? false { await store.loadImportStatus() }
+            }
+        }
+    }
+
+    private func choose(_ source: MemoryImportSource) async {
+        guard source.needsFile else { await store.estimateImport(source); return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the \(source.title.replacingOccurrences(of: "…", with: "")) file or its unzipped folder"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        await store.estimateImport(source, path: url.path)
     }
 
     /// One memory: its words, where it came from, what it is about; Always on / Not always on, Not right (stops using

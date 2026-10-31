@@ -75,6 +75,7 @@ class MemoryGlue:
             self._resources_task = asyncio.get_running_loop().create_task(self._resources_loop())
         if self.run_embeddings:                      # decision 8: the local model, then new text in the background
             self._embed_task = asyncio.get_running_loop().create_task(self._embed_loop())
+        self._resume_imports()                       # memory import: a run a restart interrupted goes on
 
     def _app_versions(self) -> dict[str, str]:
         profile = self._device_profile()
@@ -1017,8 +1018,11 @@ class MemoryGlue:
                 lines.append(f"Not saved as your username for {host}: you didn't name that site{here}.")
         return " ".join(lines)
 
-    def _item_dict(self, it: Any, conflict: bool = False) -> dict[str, Any]:
+    def _item_dict(self, it: Any, conflict: bool = False, imported: list[str] | None = None) -> dict[str, Any]:
+        from ferb.memory.import_extract import imported_from
         from ferb.memory.items import label
+        if imported is None:
+            imported = imported_from(self.db, [it.id]).get(it.id, [])
         in_profile = self.profile.ids() if getattr(self, "profile", None) is not None else set()
         return {"id": it.id, "kind": it.kind, "subject": it.subject, "key": it.key, "content": it.content,
                 "origin": it.origin, "label": label(it.origin), "about": it.about, "status": it.status,
@@ -1026,7 +1030,8 @@ class MemoryGlue:
                 "valid_to": it.valid_to.isoformat() if it.valid_to else None, "supersedes": it.supersedes,
                 "review_at": it.review_at.isoformat() if it.review_at else None, "in_profile": it.id in in_profile,
                 "set_aside": it.set_aside,
-                "sources": it.source_ids, "evidence_days": self.memory.evidence_days(it.id), "conflict": conflict}
+                "sources": it.source_ids, "evidence_days": self.memory.evidence_days(it.id), "conflict": conflict,
+                "imported_from": imported}
 
     async def _memory_profile(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """The app's memory page (decision 15: it shows and edits everything): the core profile as markdown and as
@@ -1048,12 +1053,18 @@ class MemoryGlue:
         return self.profile.view()
 
     async def _memory_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """Every memory item for the memory page and the CLI, each with its label and whether it is in the core
-        profile; `history` also lists ended versions; "all" every status."""
+        """Every memory item for the memory page and the CLI, each with its label, whether it is in the core profile
+        and which assistants it was imported from; `history` also lists ended versions; "all" every status;
+        `imported_from`: only items imported from that source ("any": from any)."""
+        from ferb.memory.import_extract import imported_from
         status = params.get("status", "active")
         items = self.memory.items(None if status == "all" else status, params.get("subject"),
                                   valid_now=not params.get("history"))
-        return {"items": [self._item_dict(i) for i in items]}
+        where = imported_from(self.db, [i.id for i in items])
+        wanted = str(params.get("imported_from") or "")
+        if wanted:
+            items = [i for i in items if (where.get(i.id) if wanted == "any" else wanted in where.get(i.id, []))]
+        return {"items": [self._item_dict(i, imported=where.get(i.id, [])) for i in items]}
 
     async def _memory_show(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         subject = str(params["subject"])

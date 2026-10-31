@@ -110,6 +110,8 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
 - [ ] Incremental vacuum + `journal_size_limit`; WAL truncate after the hourly pass.
 - [ ] One-time cleanup step (decision 4).
 - [ ] Upgrade path from any older build (decision 5), tested on copies of real older databases and configs.
+      (Step 9c: migration 0055 (`memory_import_runs`, `memory_import_done` part hashes, `memory_import_items` with a
+      trigger that drops a deleted fact's rows): ids, counts, hashes and dates only, never conversation text.)
       (Step 9b: migration 0054 (`recall_vectors`, `recall_state`, `chat_fts`, `memory_set_aside`, triggers that drop a
       deleted fact's or node's vector); the conversation index and the vectors are filled in the background at the first
       start (nothing at migration time); open fact/identity copies closed once (journaled `memory.fact_nodes_closed`).
