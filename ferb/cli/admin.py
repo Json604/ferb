@@ -433,12 +433,14 @@ def schedules(client: Client, action: str, sid: str | None, out: TextIO) -> int:
         print(client.call("schedules.change", {"id": sid, "action": action})["text"], file=out)
         return 0
     from datetime import datetime
-    from ferb.orchestrator.schedules import WATCH_SAID
+    from ferb.orchestrator.schedules import WATCH_SAID, until_said
     rows = client.call("schedules.list")["schedules"]
     for r in rows:
         nxt = datetime.fromisoformat(r["next_run"]).astimezone().strftime("%a %d %b %H:%M") if r["next_run"] else "-"
         watch = WATCH_SAID.get(r.get("watch") or "none", "")          # a watch says which kind it is
-        extra = (f" ({watch})" if watch else "") + (f", failed {r['failures']}x in a row" if r["failures"] else "")
+        ends = until_said(datetime.fromisoformat(r["until"])) if r.get("until") else ""   # decision 22
+        extra = (f", {ends}" if ends else "") + (f" ({watch})" if watch else "") + \
+            (f", failed {r['failures']}x in a row" if r["failures"] else "")
         print(f"  {r['id']}  {r['state']:<7} {r['rule']:<28} next {nxt}  {r['request']}{extra}", file=out)
     if not rows:
         print("  (no schedules)", file=out)

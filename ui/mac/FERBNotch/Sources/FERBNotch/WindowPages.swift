@@ -75,6 +75,9 @@ struct SchedulesPage: View {
                         Text(s.request).bold()
                         Text("\(s.rule) · \(s.state)").foregroundStyle(.secondary)
                         if let next = s.nextRun { Text("Next run: \(when(next))") }
+                        if let end = s.until {
+                            Text("Ends: " + (CountdownTarget.lastDay(of: end).map { "end of " + $0.formatted(date: .abbreviated, time: .omitted) } ?? when(end)))
+                        }
                         if let last = s.lastResult {
                             Text("Last run (\(words(last.status))): \(last.answer)").lineLimit(3).textSelection(.enabled)
                         }

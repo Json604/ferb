@@ -116,8 +116,8 @@ enum CardTime {
     static func time(_ date: Date) -> String { date.formatted(date: .omitted, time: .shortened) }
 }
 
-/// A scheduled run came due: its title, when it was due, its rule, and a countdown to its next run (the only time the
-/// schedule records beyond now; a deadline in the request's words gets none).
+/// A scheduled run came due: its title, when it was due, its rule, and a countdown to the schedule's recorded end when
+/// it has one (decision 22), else to its next run (a deadline only in the request's words gets none).
 struct ReminderCard: View {
     let card: ResultCard
 
@@ -132,21 +132,40 @@ struct ReminderCard: View {
                     }
                     if card.repeatRule != nil { RepeatsBadge(rule: card.repeatRule) }
                 }
-                if let next = card.nextRunDate {
-                    TimelineView(.periodic(from: Date(), by: 30)) { context in
-                        let left = Countdown.text(to: next, now: context.date)
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(verbatim: left == "now" ? "Now" : String(left.dropFirst(3)))
-                                .font(.system(size: 22, weight: .semibold)).monospacedDigit()
-                                .foregroundStyle(Palette.ink)
-                            Text(left == "now" ? "next run due" : "until the next one, "
-                                 + CardTime.day(next) + " " + CardTime.time(next))
-                                .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.secondary)
-                        }
-                    }
-                    .accessibilityLabel("Next one " + Countdown.text(to: next, now: Date()))
-                }
+                if let target = card.countdown { CountdownLine(target: target) }
             }
+        }
+    }
+}
+
+/// The hero countdown of a reminder or event card: to the schedule's end ("until it ends, last day Mon 3 Nov") or to
+/// its next run.
+private struct CountdownLine: View {
+    let target: CountdownTarget
+
+    var body: some View {
+        let at = target.date
+        TimelineView(.periodic(from: Date(), by: 30)) { context in
+            let left = Countdown.text(to: at, now: context.date)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(verbatim: left == "now" ? "Now" : String(left.dropFirst(3)))
+                    .font(.system(size: 22, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(Palette.ink)
+                Text(Self.caption(target, due: left == "now"))
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.secondary)
+            }
+        }
+        .accessibilityLabel(Self.caption(target, due: false) + ", " + Countdown.text(to: at, now: Date()))
+    }
+
+    static func caption(_ target: CountdownTarget, due: Bool) -> String {
+        switch target {
+        case .end(let end):
+            if due { return "ended" }
+            if let day = CountdownTarget.lastDay(of: end) { return "until it ends, last day " + CardTime.day(day) }
+            return "until it ends, " + CardTime.day(end) + " " + CardTime.time(end)
+        case .nextRun(let next):
+            return due ? "next run due" : "until the next one, " + CardTime.day(next) + " " + CardTime.time(next)
         }
     }
 }
@@ -192,6 +211,7 @@ struct EventCard: View {
                     Text(verbatim: watch.prefix(1).capitalized + watch.dropFirst())
                         .font(.system(size: 10.5)).foregroundStyle(Palette.secondary)
                 }
+                if let target = card.countdown { CountdownLine(target: target) }
             }
         }
     }
@@ -296,7 +316,8 @@ struct NoteCard: View {
 }
 
 /// A payment the owner approved that ran (Shapeshift's ExpenseRow): the merchant and site on the left, the amount as
-/// the page showed it on the right. No card number: FERB's facts carry none.
+/// the page showed it on the right, and the name of the owner's saved card that paid (decision 23). Never a card digit:
+/// FERB's facts carry none.
 struct ExpenseRow: View {
     let card: ResultCard
 
@@ -311,6 +332,7 @@ struct ExpenseRow: View {
                     FlowRow(spacing: 5) {
                         CardChip(icon: "checkmark.seal", text: "You approved").fixedSize()
                         if let site = card.site, site != card.merchant { CardChip(icon: "globe", text: site).fixedSize() }
+                        if let saved = card.savedCard { CardChip(icon: "creditcard", text: saved).fixedSize() }
                     }
                 }
                 .layoutPriority(1)

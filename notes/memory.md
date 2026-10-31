@@ -155,6 +155,8 @@ to commit c6621c3.
       with this case as a test scenario ("I'm a beginner" while asking about piano pieces).
 - [ ] Tier 1 core profile: storage, budget, code updates on fact change, weekly compaction pass, markdown view.
 - [ ] Replacement on save: planner sees similar facts and names replaced ids; reply names what was replaced.
+      Live case (2026-10-31): `appointment_preferences` still says "notify me before booking" although the owner later
+      said to just book (the visa schedule books immediately); the later instruction must replace the earlier one.
 - [ ] Validity: end/review dates for period facts; distill proposes retirement.
 - [ ] Local embedding model bundled; fused search (embeddings + bm25 + recency) over facts and episodes.
 - [ ] Playbooks: merge verified how-notes of the same kind of work.

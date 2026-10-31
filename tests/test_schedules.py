@@ -12,7 +12,7 @@ import pytest
 
 from ferb.cli.client import Client
 from ferb.clock.context import ago
-from ferb.orchestrator.schedules import Rule, ScheduleError
+from ferb.orchestrator.schedules import Rule, ScheduleError, until_said
 from ferb.policy.targets import Request, Targets
 from tests.conftest import Answers, RunningDaemon
 from tests.conftest import chat, install, sup, task, writes
@@ -385,3 +385,124 @@ def test_a_scheduled_run_respects_the_global_stop(daemon: RunningDaemon) -> None
         daemon.daemon.state.stopped = False
     skipped = run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.skipped", "schedule_id", s.id))
     assert [e.data["why"] for e in skipped] == ["FERB was stopped"]
+
+
+# ---------- decision 22: a schedule's end from the owner's words ----------
+
+def _until(quote: str, **said: Any) -> dict[str, Any]:
+    """The planner's `until` (unused fields "" / 0, as the schema has them)."""
+    return {"quote": quote, "day": "", "date": "", "in_days": 0, "time": "", "in_minutes": 0} | said
+
+
+def _ending(d: RunningDaemon, request: str, said: str, until: dict[str, Any], every: int = 60) -> str:
+    reply = json.loads(schedule_reply(d, request, said, d.daemon.clock.now() + timedelta(minutes=1), repeat="every",
+                                      paths=(), every=every))
+    reply["schedule"]["until"] = until
+    return json.dumps(reply)
+
+
+def test_a_schedule_ends_on_the_date_the_owners_words_give(daemon: RunningDaemon) -> None:
+    """The planner states the date in a typed field; code works out the end (the end of that local day) and stores it;
+    the scheduling line, the event card, the planner's facts and the schedule list show it."""
+    from ferb.clock.when import When, end_of_day, local_zone
+    now = daemon.daemon.clock.now()
+    day = (now.astimezone(local_zone()) + timedelta(days=2)).date()
+    words = f"until {day:%b} {day.day}"
+    said = f"every 3 hours remind me to apply to YC while applications are open {words}"
+    install(daemon, [_ending(daemon, "remind me to apply to YC", said, _until(words, date=f"{day:%m-%d}"), 180)])
+    reply = next(e for e in chat(daemon, said) if e["type"] == "reply")
+    [s] = run(daemon, daemon.daemon.schedules.all)
+    assert s.until == end_of_day(When(date=f"{day:%m-%d}"), now)
+    [card] = [c for c in reply["cards"] if c["type"] == "event"]
+    assert card["until"] == s.until.isoformat()
+    assert f"until {day:%a %d %b}" in card["line"] and card["line"] in reply["text"].split("\n")
+    assert f"until {day:%a %d %b}" in run(daemon, daemon.daemon._live_facts)
+    c = Client(daemon.sock)
+    try:
+        assert c.call("schedules.list")["schedules"][0]["until"] == s.until.isoformat()
+    finally:
+        c.close()
+
+
+def test_no_run_is_booked_after_a_schedules_end_and_its_last_run_says_it_ended(daemon: RunningDaemon) -> None:
+    """"for the next 3 hours", every hour from a minute on: runs at +1, +61 and +121 minutes; the one at +181 would be
+    past the end, so the run at +121 is the last, says so, and nothing is booked after it."""
+    said = "check the build every hour for the next 3 hours"
+    install(daemon, [_ending(daemon, "check the build", said, _until("for the next 3 hours", in_minutes=180))])
+    chat(daemon, said)
+    [s] = run(daemon, daemon.daemon.schedules.all)
+    assert s.until == daemon.daemon.clock.now() + timedelta(minutes=180)
+    answers = []
+    for wait in (61, 3600, 3600):
+        install(daemon, [sup("reply", "The build is green.")])
+        fire(daemon, wait)
+        answers += [r["answer"] for r in results(daemon)]
+    assert len(answers) == 3
+    assert not any("Schedule ended" in a for a in answers[:2])
+    assert answers[2].endswith(f"🗓 Schedule ended: check the build (it ran {until_said(s.until)})")
+    after = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
+    assert after.state == "done" and after.next_run is None and after.timer_id is None
+    install(daemon, [], {})                                           # no planner turn may run again
+    fire(daemon, 3600 * 5)
+    assert results(daemon) == []
+    assert len(run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.ended", "schedule_id", s.id))) == 1
+
+
+def test_end_date_words_the_owner_did_not_type_refuse_the_schedule(daemon: RunningDaemon) -> None:
+    said = "every hour check the build"
+    install(daemon, [_ending(daemon, "check the build", said, _until("until Friday", day="friday"))])
+    lines = [e["text"] for e in chat(daemon, said) if e["type"] == "timer"]
+    assert lines and "end date words" in lines[0]
+    assert run(daemon, daemon.daemon.schedules.all) == []
+
+
+def test_a_schedule_change_gives_an_existing_schedule_an_end(daemon: RunningDaemon) -> None:
+    first = daemon.daemon.clock.now() + timedelta(minutes=1)
+    s = make_schedule(daemon, "check the build", "every hour check the build", Targets.of(), first, "every", 60)
+    said = "keep checking the build for 2 more hours"
+    install(daemon, [json.dumps({"kind": "reply", "text": "Okay.", "schedule_changes": [
+        {"id": s.id, "action": "set_end", "quote": "keep checking the build",
+         "until": _until("for 2 more hours", in_minutes=120)}]})])
+    lines = [e["text"] for e in chat(daemon, said) if e["type"] == "timer"]
+    after = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
+    assert after.until == daemon.daemon.clock.now() + timedelta(minutes=120) and after.state == "active"
+    assert lines == [f"🗓 check the build now runs {until_said(after.until)}."]
+
+
+def test_a_schedule_made_before_ends_existed_runs_on_unchanged(tmp_path: Path, daemon: RunningDaemon) -> None:
+    """Upgrade (notes/storage.md decision 5): a schedule row from before migration 0052 has no end; it reads as one
+    without, its runs keep being booked, and its run card counts down to the next run as before. 0052 re-runs."""
+    import shutil
+    from ferb.clock.clock import FakeClock
+    from ferb.core.ids import SequentialIds
+    from ferb.orchestrator.schedules import Schedules
+    from ferb.store import db as dbmod
+    older = tmp_path / "m"
+    older.mkdir()
+    for f in dbmod.MIGRATIONS.glob("[0-9][0-9][0-9][0-9]_*.sql"):
+        if int(f.name[:4]) <= 51:
+            shutil.copy(f, older / f.name)
+    db = dbmod.Database(tmp_path / "old.db")
+    db.migrate(older)
+    clock = FakeClock()
+    first = clock.now() + timedelta(minutes=1)
+    rule = Rule.build("every", first, every_minutes=60)
+    db.conn.execute("INSERT INTO schedules (id, request, own_words, intent_json, rule_json, next_run, state, "
+                    "created_at) VALUES ('sc-old', 'check the build', 'every hour check the build', '{}', ?, ?, "
+                    "'active', ?)", (json.dumps(rule.__dict__ | {"first": first.isoformat()}), first.isoformat(),
+                                     clock.now().isoformat()))
+    assert db.migrate() == [52]
+    for statement in dbmod._split_sql((dbmod.MIGRATIONS / "0052_schedule_ends.sql").read_text()):
+        db.conn.execute(statement)                                   # re-runnable
+    old = Schedules(db, clock, SequentialIds("x")).get("sc-old")
+    assert old is not None and old.until is None and old.describe() == "every 60 minutes"
+    assert old.next_after(first + timedelta(days=30)) is not None and not old.ends_after(first + timedelta(days=30))
+    s = make_schedule(daemon, "check the build", "every hour check the build", Targets.of(),
+                      daemon.daemon.clock.now() + timedelta(minutes=1), "every", 60)
+    install(daemon, [sup("reply", "The build is green.")])
+    fire(daemon, 61)
+    [result] = results(daemon)
+    [card] = [c for c in result["cards"] if c["type"] == "reminder"]
+    after = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
+    assert "until" not in card and card["next_run"] == after.next_run.isoformat() and after.state == "active"
+    assert "Schedule ended" not in result["answer"]

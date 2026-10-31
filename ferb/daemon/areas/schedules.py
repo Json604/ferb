@@ -43,12 +43,15 @@ class Schedules:
             if timer is not None and timer.state in ("pending", "claimed") and not handled:
                 continue
             try:
-                due = s.next_run or s.rule.next_after(self.clock.now(), s.first_run)
+                due = s.next_run or s.next_after(self.clock.now())
             except ScheduleError:
                 due = None
             if due is None:
                 self.schedules.set_timer(s.id, None, None)
                 self.schedules.set_state(s.id, "done")
+                if s.ends_after(self.clock.now()):
+                    self._journal().append("schedule.ended", {"schedule_id": s.id, "until": s.until.isoformat()
+                                                              if s.until else None})
                 continue
             booked = self.timers.add("schedule", due, s.id)
             self.schedules.set_timer(s.id, booked.id, due)
@@ -129,15 +132,22 @@ class Schedules:
         `origins`: what the turn that wrote the scheduled request was given; its runs inherit them (S3, MP2).
         `request_origins`: what that request itself carried, its runs' request origins for the sink rule (S4, L4).
         Returns the owner's line and, for a schedule set, its event card from the stored row (step 8e)."""
-        from ferb.orchestrator.schedules import WATCH_SAID, Rule, ScheduleError
+        from ferb.orchestrator.schedules import WATCH_SAID, Rule, ScheduleError, until_said
         from ferb.policy.targets import Targets
         from ferb.memory.items import quoted
         if not quoted(own_words, spec.quote):
             self._journal().append("schedule.refused", {"why": "quote not in the owner's words"})
             return "I couldn't set that up — could you ask me again in your own words?", None
+        ends = getattr(spec, "until", None)
+        if ends is not None and not quoted(own_words, ends.quote):     # decision 22: the one quote check, as for both
+            self._journal().append("schedule.refused", {"why": "end date words not in the owner's words"})
+            return ("I couldn't set that up: the end date words I quoted from you aren't in what you typed — could you "
+                    "say when it should stop?"), None
         try:
-            from ferb.clock.when import resolve
-            first = resolve(spec.when, self.clock.now())                        # code computes the date, not the model
+            from ferb.clock.when import end_at, resolve
+            now = self.clock.now()
+            first = resolve(spec.when, now)                                     # code computes the date, not the model
+            until = end_at(ends.when(), now) if ends is not None else None      # and the end (decision 22)
             rule = Rule.build(spec.repeat, first, spec.weekday, spec.every_minutes)
             t = spec.targets
             recorded = Targets.of(
@@ -148,7 +158,7 @@ class Schedules:
             scopes, unnamed = self._schedule_scopes(getattr(spec, "standing_sends", []), own_words, request_id)
             s = self.schedules.add(spec.request, own_words,
                                    recorded.to_json() | ({"standing_sends": scopes} if scopes else {}), rule, first,
-                                   spec.watch)
+                                   spec.watch, until)
         except (ScheduleError, ValueError) as e:
             return f"I couldn't schedule that: {e}.", None
         t = self.timers.add("schedule", first, s.id)
@@ -156,16 +166,19 @@ class Schedules:
         # the statement the owner is shown: each run's grant (`schedule:<id>`) links back to these recorded scopes
         self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe(),
                                                     "request_id": request_id, "standing_sends": scopes,
-                                                    "not_recorded": unnamed, "watch": s.watch}
+                                                    "not_recorded": unnamed, "watch": s.watch,
+                                                    "until": s.until.isoformat() if s.until else None}
                                | ({"request_origins": sorted(request_origins)} if request_origins else {}),
                                origin=origin_.join(origins))
         # The owner's line in plain words (L11); the schedule's id stays in the journal row above
         at = f"{first.astimezone():%a %d %b %H:%M}"
         when = f"on {at}" if rule.repeat == "none" else f"{rule.describe()}, first on {at}"
-        said = ", ".join(part for part in (f"🗓 Scheduled: {s.request} — {when}", WATCH_SAID[s.watch]) if part)
+        said = ", ".join(part for part in (f"🗓 Scheduled: {s.request} — {when}", until_said(s.until) if s.until else "",
+                                           WATCH_SAID[s.watch]) if part)
         from ferb.orchestrator import cards
         card = cards.event("schedule", s.id, s.request, first.isoformat(), said,
-                           repeat=rule.describe() if rule.repeat != "none" else None, watch=WATCH_SAID[s.watch] or None)
+                           repeat=rule.describe() if rule.repeat != "none" else None, watch=WATCH_SAID[s.watch] or None,
+                           until=s.until.isoformat() if s.until else None)
         from ferb.orchestrator.plans import SendScope
         from ferb.policy import confirm
         if scopes:
@@ -239,9 +252,49 @@ class Schedules:
         from ferb.memory.items import quoted
         if not quoted(own_words, ch.quote):
             return "I didn't change any schedule — could you say which one in your own words?"
+        ends = getattr(ch, "until", None)
+        if (ch.action == "set_end") != (ends is not None):  # argument validity: an end goes with set_end, and only there
+            self._journal().append("schedule.refused", {"schedule_id": ch.id, "why": "set_end needs an end, and only "
+                                                                                     "set_end takes one"})
+            return "I didn't change that schedule — could you say again what should change?"
+        if ch.action == "set_end":
+            if not quoted(own_words, ends.quote):
+                return ("I didn't change that schedule: the end date words I quoted from you aren't in what you typed "
+                        "— could you say when it should stop?")
+            return self._schedule_set_end(ch.id, ends)
         if not self._changeable(ch.id, ch.action):          # the owner's line never shows the id (L11)
             return "There's no active schedule like that to change."
         return self._schedule_change(ch.id, ch.action)
+
+    def _schedule_set_end(self, sid: str, ends: Any) -> str:
+        """Decision 22: an active or paused schedule gets the end the owner's words give it (code works out the time);
+        a booked run after it is cancelled and the schedule ends now."""
+        from ferb.clock.when import end_at
+        from ferb.orchestrator.schedules import until_said
+        s = self.schedules.get(sid)
+        if s is None or s.state not in ("active", "paused"):
+            return "There's no active schedule like that to change."
+        try:
+            until = end_at(ends.when(), self.clock.now())
+        except ValueError as e:                                              # WhenError is a ValueError
+            return f"I didn't change that schedule: {e}."
+        self.schedules.set_until(sid, until)
+        self._journal().append("schedule.set_end", {"schedule_id": sid, "until": until.isoformat()})
+        if s.state == "active" and s.next_run is not None and s.next_run > until:
+            if s.timer_id:
+                self.timers.cancel(s.timer_id)
+            self.schedules.set_timer(sid, None, None)
+            self.schedules.set_state(sid, "done")
+            self._journal().append("schedule.ended", {"schedule_id": sid, "until": until.isoformat()})
+            self._withdraw_schedule_scope(sid, "ended")
+            return self._ended_line(s.request, until)
+        return f"🗓 {s.request} now runs {until_said(until)}."
+
+    @staticmethod
+    def _ended_line(request: str, until: datetime) -> str:
+        """The owner's line when a schedule's end leaves it no more runs (decision 22)."""
+        from ferb.orchestrator.schedules import until_said
+        return f"🗓 Schedule ended: {request} (it ran {until_said(until)})"
 
     def _last_run_holds_scope(self, sid: str) -> bool:
         """Whether a one-time schedule's last run is still under way: from `_run_schedule` marking it done (its
@@ -293,7 +346,7 @@ class Schedules:
             self._withdraw_schedule_scope(sid, action)
         elif action == "resume":
             self.schedules.set_state(sid, "active")
-            nxt = s.rule.next_after(max(self.clock.now(), s.first_run - timedelta(seconds=1)), s.first_run) \
+            nxt = s.next_after(max(self.clock.now(), s.first_run - timedelta(seconds=1))) \
                 if s.rule.repeat != "none" else (s.next_run if s.next_run and s.next_run > self.clock.now() else None)
             if nxt is None:
                 self.schedules.set_state(sid, "done")
@@ -340,7 +393,7 @@ class Schedules:
         if s is None or s.state != "active":
             return
         now = self.clock.now()
-        nxt = None if retry else s.rule.next_after(now, s.first_run)
+        nxt = None if retry else s.next_after(now)
         if retry:
             pass                                         # the regular next run stays as it is
         elif nxt is not None:
@@ -349,6 +402,9 @@ class Schedules:
         else:
             self.schedules.set_timer(sid, None, None)
             self.schedules.set_state(sid, "done")
+            if s.ends_after(now):                        # decision 22: its end, not its rule, makes this the last run
+                self._journal().append("schedule.ended", {"schedule_id": sid, "until": s.until.isoformat()
+                                                          if s.until else None})
         if self.supervisor is None:
             return
         busy = sid in self._schedule_runs or self.supervisor.schedule_running(sid)
@@ -356,8 +412,9 @@ class Schedules:
             why = "the previous run is still under way" if busy else "FERB was stopped"
             self._journal().append("schedule.skipped", {"schedule_id": sid, "why": why, "retry": retry})
             if nxt is None and not retry:
+                ended = f"\n\n{self._ended_line(s.request, s.until)}" if s.until and s.ends_after(now) else ""
                 await self._task_result({"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "cancelled", "goal": s.request,
-                                         "answer": f"“{s.request}” was due, but {why}, so it didn't run."},
+                                         "answer": f"“{s.request}” was due, but {why}, so it didn't run.{ended}"},
                                         shown=False)
             return
         if nxt is None and not retry:
@@ -426,7 +483,14 @@ class Schedules:
             line = f"🗓 Stopped checking: {s.request}"
             answer = f"{answer}\n\n{line}"
             self._record_stop_line(str(final.get("task_id")), line)
-        quiet = s.watch != "none" and not ended and (
+        # decision 22: the last run its end left it ends it, said once (never by a retry, which books nothing)
+        expired = not ended and not retry and self._schedule_expired(sid)
+        if expired:                      # like the stop line: always reaches the owner
+            current = self.schedules.get(sid)
+            line = self._ended_line(s.request, current.until if current is not None and current.until else now)
+            answer = f"{answer}\n\n{line}"
+            self._record_stop_line(str(final.get("task_id")), line)
+        quiet = s.watch != "none" and not ended and not expired and (
             superseded or status in FINISHED and reported is not None and not alert)
         if overdue_s > 60:              # code's last line, after the answer's other code lines (fixed order)
             answer = f"{answer}\n(ran late)"
@@ -436,13 +500,22 @@ class Schedules:
 
     def _run_card(self, sid: str, due: datetime) -> dict[str, Any]:
         """A scheduled run's reminder card (step 8e), from the schedule's row as it stands after the run: its recorded
-        request, when this run was due, its rule and its next run (the countdown). A deadline FERB didn't record as a
-        time (one only in the request's words) gets no countdown: nothing here reads the words."""
+        request, when this run was due, its rule, its next run and its end (decision 22: the notch counts down to the
+        end when there is one, else to the next run). An end only in the request's words, never recorded, gets no
+        countdown: nothing here reads the words."""
         s = self.schedules.get(sid)
         assert s is not None
+        active = s.state == "active"
         return {"type": "reminder", "schedule_id": sid, "title": s.request, "due": due.isoformat(),
                 **({"repeat": s.rule.describe()} if s.rule.repeat != "none" else {}),
-                **({"next_run": s.next_run.isoformat()} if s.next_run is not None and s.state == "active" else {})}
+                **({"next_run": s.next_run.isoformat()} if s.next_run is not None and active else {}),
+                **({"until": s.until.isoformat()} if s.until is not None and active else {})}
+
+    def _schedule_expired(self, sid: str) -> bool:
+        """Its end left it no more runs (`schedule.ended`) and nothing restarted it since (decision 22)."""
+        s = self.schedules.get(sid)
+        return s is not None and s.state == "done" and bool(self._journal().of_kind("schedule.ended", "schedule_id",
+                                                                                   sid))
 
     def _watch_ended(self, sid: str) -> bool:
         """A one-shot watch already ended by one of its checks (`schedule.met`)."""
@@ -478,6 +551,7 @@ class Schedules:
     async def _schedules_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         return {"schedules": [{"id": s.id, "request": s.request, "rule": s.rule.describe(), "state": s.state,
                                "next_run": s.next_run.isoformat() if s.next_run else None, "failures": s.failures,
+                               "until": s.until.isoformat() if s.until else None,
                                "watch": s.watch, "last_result": self._schedule_last_result(s.id)}
                               for s in self._listed_schedules()]}
 

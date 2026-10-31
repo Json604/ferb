@@ -127,15 +127,43 @@ def end_of_day(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime
     zone = zone or local_zone()
     if w.in_minutes is not None or w.time:
         raise WhenError("an end names a day, not a time")
+    d, today = _end_day(w, now, zone)
+    end = _wall(d + timedelta(days=1), time(0, 0), zone)
+    if end <= now:                                            # another year's day names its year
+        raise WhenError(f"that day is already over ({d:%a %d %b}{f' {d.year}' if d.year != today.year else ''})")
+    return end
+
+
+def _end_day(w: When, now: datetime, zone: ZoneInfo) -> tuple[date, date]:
+    """The calendar day an end names (exactly one of day, date or in_days; a "MM-DD" is the nearest one, `_nearest`),
+    and today."""
     if sum(value is not None for value in (w.day, w.date, w.in_days)) != 1:
         raise WhenError("give exactly one calendar day source: day, date or in_days")
     today = now.astimezone(zone).date()
     d = _nearest(w.date, today) if w.date and not re.match(r"\s*\d{4}-", w.date) else _day(w, today)
     assert d is not None
-    end = _wall(d + timedelta(days=1), time(0, 0), zone)
-    if end <= now:                                            # another year's day names its year
-        raise WhenError(f"that day is already over ({d:%a %d %b}{f' {d.year}' if d.year != today.year else ''})")
-    return end
+    return d, today
+
+
+def end_at(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime:
+    """When something the owner gave an end stops (decision 22: a schedule's end), strictly after `now`: in_minutes
+    alone is an exact span from now ("for the next 2 hours"); a day (day, date or in_days, as `end_of_day` reads them:
+    "for 2 weeks" = in_days 14, the last day) ends at its end, or at `time` on it when one is given ("until 6 pm
+    today")."""
+    zone = zone or local_zone()
+    if w.in_minutes is not None:
+        if w.day or w.date or w.in_days is not None or w.time:
+            raise WhenError("give in_minutes on its own")
+        if w.in_minutes <= 0:
+            raise WhenError("in_minutes must be more than 0")
+        return now.astimezone(timezone.utc) + timedelta(minutes=w.in_minutes)
+    if not w.time:
+        return end_of_day(w, now, zone)
+    d, _ = _end_day(w, now, zone)
+    at = _wall(d, _clock(w.time), zone)
+    if at <= now:
+        raise WhenError(f"that's already past ({at.astimezone(zone):%a %d %b %H:%M})")
+    return at
 
 
 def _nearest(month_day: str, today: date) -> date:

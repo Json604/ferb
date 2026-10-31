@@ -141,6 +141,7 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       read together, folders, keep_tabs_open, identity/plan changes through retry; the rewrite is step 10.)
       (Step 8d added the parts lines: several asks as `parts`, direct or answer_step, conditions per part, no summing-up
       step, a one-ask plan ends in one step.)
+      (Step 8e follow-up added schedule `until` and schedule_changes `set_end`, decision 22.)
 - [ ] Live re-test list adds prompt-only behaviours: the pause trigger, asking only what/who/which, asking before
       installing a named tool (the 10-14 Mole task failed with "not installed" instead of asking), how-note quality.
 - [ ] One foreground contract: code asks Yes/No once per task per app (30-minute option); remove "now / when idle /

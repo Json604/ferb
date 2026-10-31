@@ -60,6 +60,33 @@ final class TypedCardsTests: XCTestCase {
         XCTAssertEqual(Countdown.text(to: now.addingTimeInterval(-5), now: now), "now")
     }
 
+    func testACardCountsDownToTheSchedulesEndWhenItHasOneElseToTheNextRun() throws {
+        let end = "2026-11-03T18:30:00+00:00", next = "2026-10-31T12:00:00+00:00"
+        let cards = try XCTUnwrap(ResultCard.list([
+            ["type": "reminder", "title": "Apply to YC", "next_run": next, "until": end],
+            ["type": "reminder", "title": "Apply to YC", "next_run": next],                 // no end: as before
+            ["type": "reminder", "title": "Apply to YC"],                                   // its last run: none
+            ["type": "event", "kind": "schedule", "what": "Apply to YC", "when": next, "until": end],
+            ["type": "event", "kind": "schedule", "what": "write report.md", "when": next],  // no end: chips only
+        ]))
+        let endDate = try XCTUnwrap(LiveProgress.time(end)), nextDate = try XCTUnwrap(LiveProgress.time(next))
+        XCTAssertEqual(cards.map(\.countdown), [.end(endDate), .nextRun(nextDate), nil, .end(endDate), nil])
+        XCTAssertEqual(cards[0].until, end)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let midnight = try XCTUnwrap(LiveProgress.time("2026-11-04T00:00:00+00:00"))
+        XCTAssertEqual(CountdownTarget.lastDay(of: midnight, calendar: utc), midnight.addingTimeInterval(-1))
+        XCTAssertNil(CountdownTarget.lastDay(of: endDate, calendar: utc))           // 18:30 shows as itself
+    }
+
+    func testAPaymentCardNamesTheSavedCardAndNothingElse() throws {
+        let cards = try XCTUnwrap(ResultCard.list([
+            ["type": "payment", "amount": "₹137.39", "merchant": "Zomato", "card": "Personal Visa"],
+            ["type": "payment", "amount": "₹137.39", "merchant": "Zomato"],              // a one-time hidden input
+        ]))
+        XCTAssertEqual(cards.map(\.savedCard), ["Personal Visa", nil])
+    }
+
     // ---------- turns ----------
 
     func testAReplysCardsAreKeptOnTheTurnAndInHistory() throws {

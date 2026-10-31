@@ -7,12 +7,15 @@ line (`line`, exactly as the text carries it), so an app that draws the card lea
 
 Card types and their fields (every field but `type` may be absent when FERB has no record of it):
 - reminder: a schedule's run came due. `title` (the schedule's recorded request), `due` (when the run was due),
-  `repeat` (FERB's words for the rule), `next_run` (the next run's time: a countdown), `schedule_id`.
+  `repeat` (FERB's words for the rule), `next_run` (the next run's time), `until` (its recorded end, decision 22: the
+  countdown is to it when present, else to `next_run`), `schedule_id`.
 - event: a reminder or schedule just set. `kind` (reminder | schedule), `id`, `what`, `when` (its first time),
-  `repeat`, `watch` (FERB's words for a watch), `line`.
+  `repeat`, `watch` (FERB's words for a watch), `until` (a schedule's recorded end: a countdown), `line`.
 - note: a remembered item. `item_id`, `text`, `state` (saved | proposed), `line`.
 - payment: a payment-class call that ran under the owner's Yes to a payment. `amount` and `merchant` (as code read them
-  on the page; never the worker's numbers), `site`. No card number: FERB's facts carry none.
+  on the page; never the worker's numbers), `site`, `card` (decision 23: the name of the owner's saved card entry that
+  filled the checkout's card number, as the gateway recorded it with the payment; none for a one-time hidden input).
+  Never a card digit: FERB's facts carry none.
 - send: a send-class call that ran. `recipient` (the call's checked destination), `kind` (send, reply, post,
   mailbox_send, call), `site` or `app` (a Mac app's bundle id), `account`.
 - link: a site the task contacted. `host`, `line` (the "Sites contacted" line).
@@ -33,10 +36,11 @@ SEND_KINDS = (Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.CALL)
 
 
 def event(kind: str, ident: str, what: str, when: str, line: str, repeat: str | None = None,
-          watch: str | None = None) -> dict[str, Any]:
+          watch: str | None = None, until: str | None = None) -> dict[str, Any]:
     """A reminder or schedule just set, from its stored row."""
     return {"type": "event", "kind": kind, "id": ident, "what": what, "when": when, "line": line,
-            **({"repeat": repeat} if repeat else {}), **({"watch": watch} if watch else {})}
+            **({"repeat": repeat} if repeat else {}), **({"watch": watch} if watch else {}),
+            **({"until": until} if until else {})}
 
 
 def note(item_id: str, text: str, state: str, line: str) -> dict[str, Any]:
@@ -85,7 +89,8 @@ def _host(url: Any) -> str:
 def payments(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
     """One expense row per payment the owner said Yes to that then ran: payment-class calls covered by a granted
     `floor:pay` confirmation, grouped by that Yes. Amount and merchant are the page's (`ActionFacts.page_amount` /
-    `page_merchant`, read by code): the first the payment's calls recorded, i.e. the checkout's."""
+    `page_merchant`, read by code): the first the payment's calls recorded, i.e. the checkout's; the card is the saved
+    entry's name the gateway recorded with them (`card_entry`, decision 23)."""
     calls = [c for c in _calls(spans, tree_id) if Kind.PAY in _kinds(c)]
     ids = {str(i) for c in calls for i in [*(c.get("confirmations") or []),
                                            (c.get("payment") or {}).get("covered_by")] if i}
@@ -103,7 +108,8 @@ def payments(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
         facts, target = c.get("facts") or {}, c.get("target") or {}
         card = by.setdefault(yes, {"type": "payment"})
         for key, value in (("amount", facts.get("page_amount")), ("merchant", facts.get("page_merchant")),
-                           ("site", _host(facts.get("page_url")) or target.get("site"))):
+                           ("site", _host(facts.get("page_url")) or target.get("site")),
+                           ("card", c.get("card_entry"))):
             if value and key not in card:
                 card[key] = str(value)
     return list(by.values())

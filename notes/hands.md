@@ -50,6 +50,12 @@ from installed apps, terminal detection fails closed)*
    needs to listen; FERB stopping or changing playback in a tab the owner is using counts as a disturbance fact; a
    general "keep a tab playing while the owner switches away" ability is later.
 
+6. **Bot checks: workers try visible checks with the bot-check ability** (owner, 2026-10-27, recorded 2026-10-31):
+   workers use `ferb/abilities/browser_verification` for a visible "verify you are human" check; `browser_handoff` is
+   the fallback. 2026-10-31 (visa run cd80f4ee): the worker never read the ability and gave up at the check, while the
+   10-30 runs with the same task text read it and got through; nothing made the ability reach the worker. Owner:
+   code states the fact and names the ability; no extra prompt wording about what counts as a bypass.
+
 ## What exists today (verified)
 
 ### Reliability (live tool calls, 2026-09-29 → 10-30)
@@ -237,6 +243,9 @@ from installed apps, terminal detection fails closed)*
   owner's own run of the probe was in Terminal, so it showed Terminal's grants, not FERB's.)
 
 ## Fix list
+- [ ] Bot-check fact (decision 6): when a page shows a bot-check widget (a structural fact, e.g. the challenge frame's
+      origin, reported by the extension/snapshot like a field's kind), the tool result says so and names the
+      `browser_verification` ability. No prompt line about bypasses (owner).
 - [x] One extension protocol bump covering tab groups, card fields secret, and daemon→extension signing/pairing
       (manifest, JS/Python protocol and minimum versions together). (5c: protocol 18, extension and minimum 0.16.0,
       `tabGroups` permission; the `rest`/`show_tab` version gates removed. The owner reloads the extension once.)

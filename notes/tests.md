@@ -93,7 +93,11 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       Step 8e: tests/test_typed_cards.py: note/event cards on a reply, a schedule's event card, no card for a refusal,
       receipt cards on a one-ask outcome and a multi-part first reply (and part counts), a scheduled run's reminder card
       with and without a next run, a payment from page facts (a refused one has none), a send from the checked
-      destination, link and file cards; chat.status question fields, the FERB.app-only error code.)
+      destination, link and file cards; chat.status question fields, the FERB.app-only error code.
+      Step 8e follow-up: tests/test_schedules.py: an end date from the owner's words stored and shown, no run after the
+      end and the expiry line, end words the owner didn't type refused, set_end, a pre-0052 schedule unchanged (upgrade);
+      tests/test_typed_cards.py: the countdown field on a run's card, a payment naming its saved card / none for a
+      one-time hidden input, no card digits.)
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.

@@ -12,7 +12,11 @@ an occurrence or pause the owner's schedule automatically.
 
 A schedule can be a watch ("tell me when …"), marked by the planner when the owner's turn made it: "until_met" ends
 once a confirmed run finds its condition met (code applying the owner's stored words, never a run widening anything);
-"standing" keeps watching. A watch survives restarts and updates as every schedule does."""
+"standing" keeps watching. A watch survives restarts and updates as every schedule does.
+
+A schedule can have an end (decision 22): the time code worked out from the end the owner's words gave it ("until Nov
+3", "for 2 weeks"), stored beside it (`schedule_ends`, migration 0052). No run is booked after it; a schedule without
+one (every schedule made before) runs until stopped."""
 
 import json
 from dataclasses import dataclass
@@ -30,6 +34,15 @@ WATCHES = ("none", "until_met", "standing")
 # How a watch is said to the owner and the planner (its scheduling line, `ferb schedules`, the planner's facts)
 WATCH_SAID = {"none": "", "until_met": "until it happens, then it stops", "standing": "each time it happens"}
 FINISHED = ("done", "done_unverified")      # a run that finished: confirmed, or done but not confirmed (V4)
+
+
+def until_said(end: datetime) -> str:
+    """A schedule's end in the owner's words: "until Mon 03 Nov" for the end of a day (local midnight), else "until Mon
+    03 Nov 18:00"."""
+    local = end.astimezone(local_zone())
+    if (local.hour, local.minute, local.second) == (0, 0, 0):
+        return f"until {(local - timedelta(seconds=1)):%a %d %b}"
+    return f"until {local:%a %d %b %H:%M}"
 
 
 def watch_met(status: Any, met: Any) -> bool:
@@ -112,10 +125,22 @@ class Schedule:
     first_run: datetime
     watch: str = "none"              # WATCHES
     last_reported_met: bool | None = None   # a watch: what its latest finished check that reported it found
+    until: datetime | None = None    # decision 22: no run after it; None runs until stopped
 
     def describe(self) -> str:
-        """Its rule, and what kind of watch it is (if it is one), in plain words."""
-        return ", ".join(part for part in (self.rule.describe(), WATCH_SAID[self.watch]) if part)
+        """Its rule, its end and what kind of watch it is (if it is one), in plain words."""
+        return ", ".join(part for part in (self.rule.describe(), until_said(self.until) if self.until else "",
+                                           WATCH_SAID[self.watch]) if part)
+
+    def next_after(self, after: datetime) -> datetime | None:
+        """Its first run strictly after `after` (its rule from its first run), none past its end."""
+        nxt = self.rule.next_after(after, self.first_run)
+        return None if nxt is None or (self.until is not None and nxt > self.until) else nxt
+
+    def ends_after(self, after: datetime) -> bool:
+        """Its end, not its rule, leaves it no run after `after`: it has run its course (decision 22)."""
+        return self.until is not None and self.rule.next_after(after, self.first_run) is not None and \
+            self.next_after(after) is None
 
 
 class Schedules:
@@ -128,14 +153,17 @@ class Schedules:
         return Schedule(r["id"], r["request"], r["own_words"], json.loads(r["intent_json"]), Rule(**rule),
                         datetime.fromisoformat(r["next_run"]) if r["next_run"] else None, r["timer_id"], r["state"],
                         int(r["failures"]), first, r["watch"],
-                        None if r["last_reported_met"] is None else bool(r["last_reported_met"]))
+                        None if r["last_reported_met"] is None else bool(r["last_reported_met"]),
+                        datetime.fromisoformat(r["ends_at"]) if r["ends_at"] else None)
 
     def add(self, request: str, own_words: str, targets: dict[str, Any], rule: Rule, first: datetime,
-            watch: str = "none") -> Schedule:
+            watch: str = "none", until: datetime | None = None) -> Schedule:
         if first <= self.clock.now():
             raise ScheduleError("the first run must be in the future")
         if watch not in WATCHES:
             raise ScheduleError(f"unknown watch {watch!r}")
+        if until is not None and until < first:
+            raise ScheduleError(f"it would end ({until_said(until)}) before its first run")
         sid = "sc-" + self.ids.new_id()[:10]
         self.db.conn.execute(
             "INSERT INTO schedules (id, request, own_words, intent_json, rule_json, next_run, state, created_at, "
@@ -143,18 +171,28 @@ class Schedules:
             (sid, request, own_words, json.dumps(targets), json.dumps(rule.__dict__ | {
                 "first": first.astimezone(timezone.utc).isoformat()}),
              first.astimezone(timezone.utc).isoformat(), self.clock.now().isoformat(), watch))
+        if until is not None:
+            self.set_until(sid, until)
         s = self.get(sid)
         assert s is not None
         return s
 
+    def set_until(self, sid: str, until: datetime) -> None:
+        """Its end (decision 22), replacing any earlier one."""
+        self.db.conn.execute("INSERT INTO schedule_ends (schedule_id, ends_at) VALUES (?, ?) ON CONFLICT(schedule_id) "
+                             "DO UPDATE SET ends_at = excluded.ends_at",
+                             (sid, until.astimezone(timezone.utc).isoformat()))
+
+    _SELECT = "SELECT s.*, e.ends_at FROM schedules s LEFT JOIN schedule_ends e ON e.schedule_id = s.id"
+
     def get(self, sid: str) -> Schedule | None:
-        r = self.db.conn.execute("SELECT * FROM schedules WHERE id = ?", (sid,)).fetchone()
+        r = self.db.conn.execute(f"{self._SELECT} WHERE s.id = ?", (sid,)).fetchone()
         return self._row(r) if r else None
 
     def all(self, states: tuple[str, ...] = ("active", "paused")) -> list[Schedule]:
         q = ",".join("?" * len(states))
         return [self._row(r) for r in self.db.conn.execute(
-            f"SELECT * FROM schedules WHERE state IN ({q}) ORDER BY next_run", states)]
+            f"{self._SELECT} WHERE s.state IN ({q}) ORDER BY s.next_run", states)]
 
     def set_timer(self, sid: str, timer_id: str | None, next_run: datetime | None) -> None:
         self.db.conn.execute("UPDATE schedules SET timer_id = ?, next_run = ? WHERE id = ?",

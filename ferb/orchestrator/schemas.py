@@ -101,6 +101,13 @@ REMEMBER_SCHEMA = _obj({
     "login_origin": _nullable("string"),
     "until": {"anyOf": [{"type": "null"}, UNTIL_SCHEMA]},
 })
+# Decision 22: a schedule's end, the remembered item's `until` with a time of day or a span from now as well ("until 6
+# pm", "for the next 2 hours"); code works out the time (`when.end_at`). Unused fields are "" / 0, not null: the
+# planner's schema is at Anthropic's union-type limit (ferb/runtimes/schema_shape.py), and an object that is null when
+# absent costs none
+SCHEDULE_UNTIL_SCHEMA = _obj({"quote": {"type": "string"}, "day": {"type": "string", "enum": ["", *DAY_WORDS]},
+                              "date": {"type": "string"}, "in_days": {"type": "integer"}, "time": {"type": "string"},
+                              "in_minutes": {"type": "number"}})
 TIMER_SCHEMA = _obj({"when": WHEN_SCHEMA, "message": {"type": "string"}, "quote": {"type": "string"}})
 SCHEDULE_SCHEMA = _obj({
     "request": {"type": "string"}, "when": WHEN_SCHEMA,
@@ -111,10 +118,14 @@ SCHEDULE_SCHEMA = _obj({
     "standing_sends": {"type": "array", "items": SEND_SCOPE_SCHEMA},
     # "tell me when …": until_met ends itself once a confirmed run finds the condition met; standing keeps watching
     "watch": {"type": "string", "enum": ["none", "until_met", "standing"]},
+    # decision 22: the end the owner's words give it ("until Nov 3", "for 2 weeks"); null = runs until stopped
+    "until": {"anyOf": [{"type": "null"}, SCHEDULE_UNTIL_SCHEMA]},
 })
 SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
-                               "action": {"type": "string", "enum": ["cancel", "pause", "resume"]},
-                               "quote": {"type": "string"}})
+                               "action": {"type": "string", "enum": ["cancel", "pause", "resume", "set_end"]},
+                               "quote": {"type": "string"},
+                               # set_end only: the new end, in the owner's words (else null)
+                               "until": {"anyOf": [{"type": "null"}, SCHEDULE_UNTIL_SCHEMA]}})
 REMINDER_CHANGE_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}})
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "task"]},
@@ -277,6 +288,24 @@ class Until(BaseModel):
     in_days: int | None = None
 
 
+class ScheduleUntil(Until):
+    """A schedule's end in the owner's words (decision 22): a day as for `Until`, optionally a time on it, or a span from
+    now; code works out the time (`when.end_at`)."""
+    time: str | None = None
+    in_minutes: float | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unused(cls, data: Any) -> Any:
+        """The schema's "" / 0 for an unused field is None here."""
+        if isinstance(data, dict):
+            return {k: (None if k != "quote" and v in ("", 0) else v) for k, v in data.items()}
+        return data
+
+    def when(self) -> When:
+        return When(in_minutes=self.in_minutes, in_days=self.in_days, day=self.day, date=self.date, time=self.time)
+
+
 class Remember(BaseModel):
     """Something the owner stated about themselves or asked FERB to remember, with the exact words it rests on."""
     kind: Literal["fact", "preference", "person", "project", "env"]
@@ -350,12 +379,14 @@ class ScheduleRequest(BaseModel):
     targets: TargetsSpec = TargetsSpec()
     standing_sends: list[SendScope] = []   # stated now, with the owner here; a run can't add to them (D30)
     watch: Literal["none", "until_met", "standing"] = "none"      # a spec written before watches is ordinary work
+    until: ScheduleUntil | None = None     # decision 22: its end in the owner's words; None runs until stopped
 
 
 class ScheduleChange(BaseModel):
     id: str
-    action: Literal["cancel", "pause", "resume"]
+    action: Literal["cancel", "pause", "resume", "set_end"]
     quote: str
+    until: ScheduleUntil | None = None     # set_end: the new end in the owner's words
 
 
 class ReminderCancel(BaseModel):

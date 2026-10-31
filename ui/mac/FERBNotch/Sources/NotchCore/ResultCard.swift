@@ -16,6 +16,8 @@ public struct ResultCard: Codable, Equatable {
     public var repeatRule: String?
     public var nextRun: String?
     public var scheduleID: String?
+    /// reminder and event: the schedule's recorded end (decision 22); the countdown is to it when present.
+    public var until: String?
     // event: a reminder or schedule just set (kind reminder | schedule)
     public var kind: String?
     public var id: String?
@@ -30,6 +32,8 @@ public struct ResultCard: Codable, Equatable {
     public var amount: String?
     public var merchant: String?
     public var site: String?
+    /// payment: the name of the owner's saved card entry that filled the checkout (decision 23); never digits.
+    public var savedCard: String?
     // send: the call's checked destination (kind send, reply, post, mailbox_send, call)
     public var recipient: String?
     public var app: String?
@@ -50,10 +54,10 @@ public struct ResultCard: Codable, Equatable {
         self.type = type
         line = words("line")
         title = words("title"); due = words("due"); repeatRule = words("repeat"); nextRun = words("next_run")
-        scheduleID = words("schedule_id")
+        scheduleID = words("schedule_id"); until = words("until")
         kind = words("kind"); id = words("id"); what = words("what"); when = words("when"); watch = words("watch")
         itemID = words("item_id"); text = words("text"); state = words("state")
-        amount = words("amount"); merchant = words("merchant"); site = words("site")
+        amount = words("amount"); merchant = words("merchant"); site = words("site"); savedCard = words("card")
         recipient = words("recipient"); app = words("app"); account = words("account")
         host = words("host"); path = words("path"); name = words("name")
         // A card with nothing to show isn't one.
@@ -78,6 +82,16 @@ public struct ResultCard: Codable, Equatable {
     public var dueDate: Date? { LiveProgress.time(due) }
     public var nextRunDate: Date? { LiveProgress.time(nextRun) }
     public var whenDate: Date? { LiveProgress.time(when) }
+    public var untilDate: Date? { LiveProgress.time(until) }
+
+    /// What a reminder or event card counts down to: the schedule's end when it has one (decision 22), else a
+    /// reminder's next run; nothing for an event without an end (its first time shows as chips).
+    public var countdown: CountdownTarget? {
+        guard type == "reminder" || type == "event" else { return nil }
+        if let end = untilDate { return .end(end) }
+        if type == "reminder", let next = nextRunDate { return .nextRun(next) }
+        return nil
+    }
     public var fileURL: URL? { path.map { URL(fileURLWithPath: $0) } }
 
     /// The letter on a link's tile: the host without "www.", its first character.
@@ -130,6 +144,26 @@ public enum CardLayout {
     public static func remaining(_ lines: [String], _ cards: [ResultCard]) -> [String] {
         let drop = Self.lines(cards)
         return lines.filter { !drop.contains($0) }
+    }
+}
+
+/// The time a card counts down to, and which one it is.
+public enum CountdownTarget: Equatable {
+    case end(Date)
+    case nextRun(Date)
+
+    public var date: Date {
+        switch self {
+        case .end(let date), .nextRun(let date): return date
+        }
+    }
+
+    /// The day an end at local midnight closes ("until Nov 3" ends as Nov 4 begins: shown as the end of Nov 3); nil
+    /// for an end at another time of day, which shows as itself.
+    public static func lastDay(of end: Date, calendar: Calendar = .current) -> Date? {
+        let parts = calendar.dateComponents([.hour, .minute, .second], from: end)
+        guard parts.hour == 0, parts.minute == 0, parts.second == 0 else { return nil }
+        return calendar.date(byAdding: .second, value: -1, to: end)
     }
 }
 

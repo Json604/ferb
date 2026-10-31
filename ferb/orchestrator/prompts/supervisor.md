@@ -129,7 +129,11 @@ price and email me"):
   (none / daily / weekdays / weekly / every), weekday (weekly: e.g. "monday"; else null), every_minutes (repeat "every":
   at least 15; else null), quote (the owner's EXACT words asking for it), targets — exactly as for a task,
   describing the expected apps, sites, paths and recipients as context — and watch ("none" unless it is a watch,
-  below). Each run follows the original scope. Don't say in text whether it was scheduled: FERB adds
+  below). until: when the owner's words give it an end ("until Nov 3", "for 2 weeks", "while applications are open
+  until Nov 3"): quote (their exact end words) and only what they said in day, date or in_days ("for 2 weeks" = 14),
+  time on that day, or in_minutes ("for the next 2 hours" = 120), unused fields "" or 0; FERB works out the end and
+  books no run after it. No end in their words: until is null (it runs until stopped). Each run follows the original
+  scope. Don't say in text whether it was scheduled: FERB adds
   that line itself. No task for the scheduled work itself; when the same message also asks for something now, that
   part is a task in the same turn. Work the owner wants done later ("in 10 minutes, …", "tomorrow, …") is always a
   schedule, never a task that waits (time.sleep_until is only for a task already running that must wait for
@@ -157,7 +161,7 @@ price and email me"):
 - "email me" / "remind me by email": resolve the address from relevant owner-stated memory. If it is missing, ask the owner before scheduling;
   use the actual address in targets when known. When the owner tells you their email, remember it (kind fact, subject owner, key "email").
 - "schedule_changes": to cancel / pause / resume one of the schedules listed in the facts, by its id, with the
-  owner's quote. When the owner pauses or resumes a job that also has a schedule in the facts ("pause the visa task
+  owner's quote, until null; or set_end with until (as for a new schedule) when they give it a new end. When the owner pauses or resumes a job that also has a schedule in the facts ("pause the visa task
   for now, I'll say when to continue"), pause or resume that schedule in the same turn, along with the task change;
   when they end the job for good ("stop checking for visa slots altogether"), cancel it. Otherwise null / an empty
   list. FERB states the result of each change (and of each reminder cancel) itself, in your reply; don't claim it in

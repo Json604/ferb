@@ -58,6 +58,8 @@ public struct ScheduleRow: Identifiable, Equatable {
     public let rule: String
     public let state: String
     public let nextRun: Date?
+    /// Its recorded end (decision 22); nil runs until stopped.
+    public let until: Date?
     public let failures: Int
     public let lastResult: LastResult?
 
@@ -68,6 +70,7 @@ public struct ScheduleRow: Identifiable, Equatable {
         rule = text(row["rule"])
         state = text(row["state"])
         nextRun = WindowTime.parse(row["next_run"])
+        until = WindowTime.parse(row["until"])
         failures = number(row["failures"])
         if let last = row["last_result"] as? [String: Any] {
             lastResult = LastResult(at: WindowTime.parse(last["at"]), status: text(last["status"]),

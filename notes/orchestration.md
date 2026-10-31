@@ -96,6 +96,14 @@ to commit c6621c3. S = supervisor.py, M = main.py.
     banner). A macOS banner is the fallback only when the notch can't show: a full-screen app/video covers the notch
     area, the display is asleep, or FERB.app is quit; tapping it opens the notch.
 
+22. **Schedules get an end date from the owner's words** (owner, 2026-10-31): when the request gives one ("until
+    Nov 3", "for 2 weeks", "while applications are open until …"), the schedule stores it (quote-checked like every
+    side entry), stops after it, and its card counts down to it. No end date in the words = runs until stopped.
+    (Step 8e follow-up: built; see "Rulings (step 8e follow-up)".)
+23. **Payment cards name the saved card** (owner, 2026-10-31): the card shows the name the owner saved the card under
+    in FERB (recorded with the payment when a saved card entry filled it); never any card digits (rule 7).
+    (Step 8e follow-up: built; see "Rulings (step 8e follow-up)".)
+
 ## What exists today (verified)
 
 - Core shape: planner (no tools) → worker through the gateway → observe-only checker → code writes the status from
@@ -245,7 +253,8 @@ to commit c6621c3. S = supervisor.py, M = main.py.
   then the outcome's). `task_result_cards` (migration 0051, beside `task_results`) keeps them for `chat.status` results.
 - Reminder card = every scheduled run's result, not a guess at which schedules are "reminders" (a run of schedule X is a
   fact). Countdown = the schedule's recorded `next_run` (a repeating, still-active schedule); a one-time schedule has
-  none. Schedules record no deadline: "window open until Nov 3" stays prose and gets no countdown (owner question).
+  none. Schedules record no deadline: "window open until Nov 3" stays prose and gets no countdown (owner question;
+  answered by decision 22, built in the 8e follow-up).
   Timer reminders (⏰) still fire as banners only (the notch chat never showed `timer.fired`); not changed here.
 - Event card: a reminder set (timer id, fire time, message) and a schedule set (`_schedule_create` now returns its line
   and card: id, recorded request, first run, `Rule.describe()` when it repeats, the watch words). Changes/cancels stay
@@ -257,7 +266,8 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - Payment card: payment-class calls (`pay` in the call's kind, declared kinds or fact kinds) that ran without an error
   and were covered by a granted `floor:pay` confirmation, one card per Yes; `amount`/`merchant` are the first
   `ActionFacts.page_amount`/`page_merchant` those calls recorded (the checkout's), `site` the page's host. No card
-  ••last4: FERB records none (owner question). A refused payment has no card.
+  ••last4: FERB records none (owner question; decision 23: the saved card's name instead). A refused payment has no
+  card.
 - Send card: calls of kind send, reply, post, mailbox_send or call (own or declared; a plain form submit is not a send)
   that ran; recipient = the call's recorded, gateway-checked target (recipients or the app's contact), `app` = a Mac
   tool's bundle id (the notch shows the app's name from this Mac), else `site`; one per recipient and channel.
@@ -265,6 +275,34 @@ to commit c6621c3. S = supervisor.py, M = main.py.
   (kept on the Approval when asked); RPC errors reach the app with their code (`DaemonRPCError.remote(_, code:)`), a
   FERB.app-only refusal has its own code -32005 and the preview decides by code (-32001/-32601: daemon too old); part
   events carry the card's `done`/`total` after the change and the app takes them (an older daemon's are counted).
+
+## Rulings (step 8e follow-up, technical)
+- Schedule end (decision 22): the planner's `schedule.until` (and `schedule_changes[].until` with the new action
+  `set_end`) extends the remembered item's `until` (L36 §6; `schemas.Until`, the "until" 8c's quote check lists):
+  `ScheduleUntil` adds `time` (a time on that day) and `in_minutes` (a span from now). The quote goes through the one
+  quote check (`items.quoted`); code resolves it (`when.end_at`: a day ends at its local midnight, `end_of_day`'s
+  rules, "for 2 weeks" = in_days 14 = the last day; with `time`, that local time; in_minutes, an exact span). Unused
+  fields are "" / 0, not null: SUPERVISOR_SCHEMA sits at Anthropic's union limit (schema_shape.py), a nullable object
+  costs none. Date words the owner didn't type refuse the whole schedule (it would otherwise run forever); an end
+  before the first run is refused.
+- Stored in `schedule_ends` (migration 0052, a table beside `schedules`, re-runnable): a schedule without a row (every
+  older one) runs until stopped. `Schedule.next_after` books no run past it (every booking path: a run, a resume,
+  start-up reconcile); `ends_after` tells an end from a rule that has no more runs (a one-time schedule).
+- Expiry: the run its end makes the last one journals `schedule.ended` and its result ends with "🗓 Schedule ended: … (it
+  ran until …)" (recorded in the task's outcome too, like the watch's stop line; a skipped last run says it too); a
+  `set_end` that leaves no run ends the schedule at once with that line and withdraws its scope like a cancel. A
+  schedule FERB was off past its end: its booked run still fires late (it was due before the end), then the line.
+- Shown: the scheduling line, the planner's schedule facts, `schedules.list` (`until`), `ferb schedules`, the window's
+  Schedules page ("Ends: …"); cards gain `until` (event: a schedule's end; reminder: while active), and the notch
+  counts down to `until` when present, else to `next_run` (`ResultCard.countdown`). A local-midnight end shows as its
+  last day.
+- Saved card name (decision 23): the gateway records `card_entry` (the `secret` argument, which the span masks as a
+  secret-named key) on a sealed owner-secret fill (`SEALED_FILLS`: browser.secret, ferb_browser.secret, mac.secret)
+  whose field the page marks `card_number`; `OwnerSecrets.reveal` fills a card field only with an entry saved from that
+  kind, so the name is a saved card's. A payment-class call in a tab chain carries the latest such name of its tree and
+  chain (`Gateway._card_entry`); the payment card's `card` is it. A fill that saves the card (`remember`) counts too:
+  once saved it is a saved card entry, and the fill runs only after the save succeeded (coordinator ruling). A one-time
+  hidden input names none. Limit: mac.secret reports no field kind, so a Mac app payment has no name.
 
 ## Fix list
 - [x] The plan line states resolved `folders` whenever there are any ("I'll work in …"), not only for big jobs or
@@ -402,6 +440,11 @@ to commit c6621c3. S = supervisor.py, M = main.py.
       in place of their lines; History keeps them. (Step 8e: `ferb/orchestrator/cards.py`, migration 0051, notch
       `ResultCard`/`CardLayout`, ResultCards.swift; tests/test_typed_cards.py, TypedCardsTests.)
 - [x] 8d protocol gaps: `chat.status` question fields, RPC error codes in the app, part counts.
+- [x] Decision 22: schedule end dates from the owner's words, stored, honoured, counted down to. (Step 8e follow-up:
+      `ScheduleUntil`/`when.end_at`, migration 0052, `Schedule.next_after`, "🗓 Schedule ended" line, `set_end`;
+      tests/test_schedules.py decision-22 section, tests/test_typed_cards.py, TypedCardsTests.)
+- [x] Decision 23: payment cards name the saved card entry. (Step 8e follow-up: `Gateway._card_entry`, `card_entry`;
+      tests/test_typed_cards.py, TypedCardsTests.)
 
 ### Planner context
 - [x] Recent conversation + summary instead of filling the window (S:1709-1710; core/context.py:185, 284).

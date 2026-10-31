@@ -135,6 +135,24 @@ def test_a_repeating_schedules_run_is_a_reminder_card_counting_down_to_its_next_
     assert result["answer"].startswith("Reminder: you wanted to apply")                    # FERB's text under it
 
 
+def test_a_schedule_with_an_end_has_its_cards_count_down_to_it(daemon: RunningDaemon) -> None:
+    """Decision 22: the run's reminder card carries the recorded end (`until`, the notch counts down to it) beside the
+    next run; once its end leaves it no run, the last run's card has neither."""
+    now = daemon.daemon.clock.now()
+    s = make_schedule(daemon, YC, YC, Targets.of(), now + timedelta(minutes=1), repeat="every", every=180)
+    end = now + timedelta(hours=4)
+    run(daemon, lambda: daemon.daemon.schedules.set_until(s.id, end))
+    install(daemon, [sup("reply", "Reminder: apply to YC.")])
+    fire(daemon, 61)
+    [card] = _cards(results(daemon)[0], "reminder")
+    assert card["until"] == end.isoformat() and card["next_run"] == (s.first_run + timedelta(hours=3)).isoformat()
+    install(daemon, [sup("reply", "Reminder: apply to YC.")])
+    fire(daemon, 3 * 3600)
+    [last] = results(daemon)
+    [card] = _cards(last, "reminder")
+    assert "until" not in card and "next_run" not in card and "🗓 Schedule ended: " in last["answer"]
+
+
 def test_a_one_time_schedules_run_has_no_countdown(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     s = make_schedule(daemon, YC, YC, Targets.of(), now + timedelta(minutes=1), repeat="none")
@@ -181,6 +199,56 @@ def test_a_payment_is_an_expense_row_from_the_page_facts_never_the_report(ferb_y
     assert _cards(final, "payment") == [{"type": "payment", "amount": "₹137.39", "merchant": "Zomato",
                                          "site": "www.zomato.com"}]
     assert "4111" not in json.dumps(final["cards"])
+
+
+class _CardFill(FakeCap):
+    """The sealed fill of the checkout's card-number field (browser.secret's arguments and facts): from the owner's
+    saved card entry when `secret` names it, else from a one-time hidden input. No value is ever involved here."""
+    reversible = True
+
+    class Input(BaseModel):
+        secret: str | None = None
+        remember: str | None = None
+
+    def __init__(self) -> None:
+        super().__init__("browser.secret", Kind.FILL_FORM, {"probe"})
+
+    def describe(self, args: Any) -> ActionSpec:
+        return ActionSpec(Kind.FILL_FORM, Target(site="www.zomato.com"),
+                          facts=ActionFacts(field_kinds=("card_number",), page_url="https://www.zomato.com/checkout",
+                                            tab_chain="t1"))
+
+    async def run(self, args: Any, ctx: Any) -> ToolResult:
+        return ToolResult({"ok": True, "detail": "filled", "handle": args.secret})
+
+
+@pytest.mark.parametrize("how,entry", [("secret", "Personal Visa"), ("remember", "Work Amex"), ("", None)])
+def test_a_payment_names_the_saved_card_that_filled_it_and_never_a_digit(ferb_yes: FerbAnswers,
+                                                                        daemon: RunningDaemon, how: str,
+                                                                        entry: str | None) -> None:
+    """Decision 23: the card is the saved entry's name, recorded by the gateway with the payment: filled from a saved
+    entry (`secret`) or saved under that name in this very fill (`remember`); a one-time hidden input gives none. No
+    card digit anywhere: not in the card, the payment's record or the outcome."""
+    ferb_yes.expect("floor:pay")
+    daemon.daemon.registry.capabilities["probe.checkout"] = _Checkout()
+    daemon.daemon.registry.capabilities["browser.secret"] = _CardFill()
+
+    def pays(token: str) -> str:
+        filled = tool(daemon.sock, token, "browser.secret", **({how: entry} if entry else {}))
+        assert not filled["is_error"], filled
+        r = tool(daemon.sock, token, "probe.checkout", effect="pay")
+        assert not r["is_error"], r
+        return done("Paid ₹137.39 with card 4111 1111 1111 1111.")
+    install(daemon, [sup("task", "Ordering.", task("order paneer tikka on zomato"))], {"worker": pays})
+    final = outcome(chat(daemon, "order paneer tikka on zomato"))
+    [card] = _cards(final, "payment")
+    assert card == {"type": "payment", "amount": "₹137.39", "merchant": "Zomato", "site": "www.zomato.com",
+                    **({"card": entry} if entry else {})}
+    recorded = run(daemon, lambda: [r[0] for r in daemon.daemon.db.conn.execute(
+        "SELECT input_json FROM spans WHERE kind = 'tool.call' AND json_extract(input_json, '$.tool') = "
+        "'probe.checkout'")])
+    assert recorded and all(("card_entry" in r) == bool(entry) for r in recorded)
+    assert "4111" not in json.dumps(final["cards"]) + "".join(recorded)
 
 
 def test_a_payment_the_owner_refused_has_no_card(daemon: RunningDaemon) -> None:

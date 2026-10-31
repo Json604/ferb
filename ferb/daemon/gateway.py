@@ -83,7 +83,7 @@ from ferb.policy.rules import (EFFECTS, READING_KINDS, REVERSIBLE, ActionRequest
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import earlier_questions, pasted_parts
-from ferb.store.spans import SpanStore, PayloadOutput
+from ferb.store.spans import SpanStore, PayloadOutput, tree_where
 from ferb.trace import lines
 
 Publish = Callable[[str, dict[str, Any]], None]
@@ -142,6 +142,8 @@ TERMINAL_SECRET = ("{field} holds a saved secret, so FERB neither shows it in a 
                    "a saved secret goes in only through mac.secret, the owner's hidden input (D31)")
 NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report that it is waiting for the owner."
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
+# Decision 23: the owner-secret fills (ferb/daemon/hidden_input.py), whose `secret` argument names a saved entry
+SEALED_FILLS = ("browser.secret", "ferb_browser.secret", "mac.secret")
 # Decision 6: card details go in only sealed (browser.secret / mac.secret with the owner's saved card or hidden input)
 CARD_TYPED = ("card details go into a page only through FERB's sealed fill (browser.secret, with a card the owner saved "
               "or the owner's hidden input), never typed: nothing was typed")
@@ -962,6 +964,13 @@ class Gateway:
             c.extra["facts"] = facts                     # what the tool reported (ActionFacts), on the record
         if c.fact_targets:
             c.extra["fact_kinds"] = sorted({k for k, _ in c.fact_targets})
+        if name in SEALED_FILLS and c.facts is not None and "card_number" in c.facts.field_kinds and \
+                isinstance(entry := c.arguments.get("secret") or c.arguments.get("remember"), str) and entry.strip():
+            # decision 23: the saved card entry this fill puts into a card-number field, by its name: the one it fills
+            # from (`secret`), else the one the owner saves it under in this fill (`remember`; the fill runs only once
+            # the save succeeded, HiddenInput.secret). `secret` is masked on the record as a secret-named key; the
+            # name alone is no secret: models see it
+            c.extra["card_entry"] = entry.strip()
         return c
 
     def _fact_targets(self, c: "Call") -> list[tuple[str, Target]]:
@@ -1209,6 +1218,23 @@ class Gateway:
                             {"destination": host, "read": confirm.shown_origins(outside)},
                             destinations=(("host", host),))
 
+    def _card_entry(self, root: str, chain: str) -> str | None:
+        """Decision 23: the name of the owner's saved card entry that filled a card-number field in this tab chain: the
+        latest such sealed fill of the task tree that ran without an error (its `card_entry`, recorded when the call was
+        built). `OwnerSecrets.reveal` fills a card field only with an entry saved from that kind of field, and a fill
+        that saves the card (`remember`) saves it with the field's kind, so the name is a saved card's. A one-time
+        hidden input names none; so does mac.secret, which reports no field kind. Only the name, which models already see: never the
+        value or a digit of it."""
+        where, params = tree_where(root)
+        for (data,) in self.spans.db.conn.execute(
+                "SELECT input_json FROM spans WHERE kind = 'tool.call' AND ended_at IS NOT NULL AND error IS NULL AND "
+                f"json_extract(input_json, '$.card_entry') IS NOT NULL AND {where} ORDER BY started_at DESC, rowid DESC",
+                params):
+            call = json.loads(data or "{}")
+            if (call.get("facts") or {}).get("tab_chain") == chain and not call.get("boundary_refused"):
+                return str(call["card_entry"])
+        return None
+
     async def _payment(self, c: "Call", needs: list[confirm.Need]) -> list[confirm.Need]:
         """Decision 4: a payment in a task's browser tab is asked once per payment: its tab chain's approval covers it
         unless the page shows another payment (ferb/policy/payments.py); outside a tab each run asks (SQ1)."""
@@ -1221,6 +1247,8 @@ class Gateway:
             c.pay = payments.PayFacts(f.tab_chain, host_of(f.page_url), (f.frame_host or "").lower() or None,
                                       f.page_amount, f.page_merchant, bool(f.submits_form and kinds & CARD_KINDS),
                                       submits=bool(f.submits_form))
+            if (entry := self._card_entry(c.root, f.tab_chain)) is not None:
+                c.extra["card_entry"] = entry            # decision 23: the payment card names the saved card
         elif c.name.startswith("mac.") and c.spec.target.site and \
                 (window := _window_of(await self._off_loop(c.cap, hashed_args, c.cap, c.args))) is not None:
             # coordinator ruling 4: a Mac app's payment is scoped like a tab, to that app window for 10 minutes
