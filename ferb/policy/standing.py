@@ -3,10 +3,11 @@ is authority for these grants; code matches a call against a scope's concrete bo
 
 A scope covers a send-class call: one whose own kind is a send, or a generic input (a click, typing, an app's control)
 the worker declared to send (W2, ferb/policy/rules.py `declare`), never one with any declared or described kind that
-isn't a send (a payment, an account-security change, a permanent delete). Its tool, identity, site, account and
-recipients must equal the scope's (sites as the browser names them, `confirm.site_key`; accounts and recipients
-exactly but for ASCII case and a leading "@", `confirm.account_key`; a public post has no recipients); its content
-must equal the scope's text, unless the scope's content is None (any body: a campaign whose posts are composed
+isn't a send (a payment, an account-security change, a permanent delete). Each need is matched on its own: the call's
+tool, identity and account, and the need's own site and recipients (a submitted form's sink question is about the host
+it posts to, not the page), must equal the scope's (sites as the browser names them, `confirm.site_key`; accounts and
+recipients exactly but for ASCII case and a leading "@", `confirm.account_key`; a public post has no recipients); its
+content must equal the scope's text, unless the scope's content is None (any body: a campaign whose posts are composed
 later). A click carries no text, so a scope naming the exact text never covers one: FERB asks."""
 import json
 from typing import Any
@@ -50,16 +51,20 @@ class StandingPermissions:
             return False
         return spec.kind in SEND_CLASS or (spec.kind in GENERIC_INPUT and bool(declared & SEND_CLASS))
 
-    def covers(self, task_id: str, capability: str, identity: str, spec: Any) -> bool:
+    def covers(self, task_id: str, capability: str, identity: str, spec: Any, reaches: Target | None = None) -> bool:
+        """Whether a scope covers one need of a send-class call: the call as declared (tool, identity, account,
+        content) and the need's own target (`reaches`: its site and recipients, e.g. the host a submitted form posts
+        to, not the page it was submitted on); without one, the call's target."""
         if not self.sends(spec):
             return False
-        recipients = sorted(account_key(r) for r in spec.target.recipients)
+        target = reaches if reaches is not None else spec.target
+        recipients = sorted(account_key(r) for r in target.recipients)
         rows = self.db.conn.execute('SELECT scope FROM standing_permissions WHERE task_id=? AND active=1', (task_id,))
         for row in rows:
             scope = json.loads(row[0])
             if (scope['capability'] == capability and scope['identity'] == identity and
                 account_key(scope['account']) == account_key(spec.target.account) and
-                site_key(scope['site']) == site_key(spec.target.site) and
+                site_key(scope['site']) == site_key(target.site) and
                 sorted(account_key(r) for r in scope['recipients']) == recipients and
                 (scope['content'] is None or (bool(spec.content) and scope['content'] == spec.content)) and
                 bool(scope['recipients'] or scope['site'])):

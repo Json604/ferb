@@ -214,6 +214,46 @@ redact, image redaction, origins).
 - Left for later: legacy confirmation rows in the DB (inert: keyed by ended trees; step 12's cleanup); the remaining
   attributes set from outside (`standing`, `conversation_guard`, `observer`, `test_send_allowlist`).
 
+## Rulings (review 2026-11-01, technical)
+- **A standing scope covers a need only for that need's own target.** Before, `_authorize` matched every need it may
+  cover (new recipient, sink, bulk) against the call as declared. A sink question raised by a submitted form's facts
+  is about the host the form posts to, so a scope for the page's site covered a private value posted to another host
+  (scope {www.example.com, account me}, form on www.example.com posting to collect.example: ran unasked with
+  `effect=send`). Now each `confirm.Need` carries `reaches` (the target it was decided for: the call's, a fact's, a
+  counted folder) and `StandingPermissions.covers` compares the scope's site and recipients with that target; tool,
+  identity, account and content stay the call's (a fact names no account). tests/test_gateway_needs.py
+  `test_a_standing_scope_covers_a_submit_only_to_its_own_site`.
+- **A script for a browser is Mac input in that browser.** `mac.applescript` addressed to a web browser (the one
+  list, `browsers.is_browser_app`) skipped the browser checks while it can act in any of the owner's tabs. It now
+  takes the same foreground question as Mac input there (`confirm.foreground_need`, same key: one Yes covers the
+  browser for the task whichever Mac tool acts), worded for a script; a quoted browser page address in the script
+  (chrome://extensions…) asks every time like input on that page (`MacAppleScript.browser_page`). Not refused: Mac
+  input into browsers asks, it isn't refused. tests/test_foreground_asks.py.
+- **A script's named paths follow the protection lists.** The app a script tells acts with its own access, outside
+  FERB's sandbox, so a Finder script (asked, then Yes) could write into `~/.ferb` or FERB's LaunchAgents.
+  `MacAppleScript.file_paths` now reports each quoted POSIX path ("/…", "~/…") and HFS path on a mounted volume
+  (`applescript.named_paths`), each as a change (what a script does to a path can't be told from it), so the one
+  gateway file check applies: FERB's own state, FERB.app and its service definitions refused whatever the owner said,
+  a listed place asks per call. Residual: a path built at run time or named relative to a folder (`file "x" of home
+  folder`) isn't seen (the terminal question for Finder and System Events already says so); a folder named for
+  removal is checked as that folder, not as everything it holds. tests/test_protection.py
+  `test_a_script_naming_ferbs_own_files_is_refused_and_a_listed_place_asks`.
+- **Browser credential stores from the one browser list.** The never-read defaults missed Safari's container (its
+  cookies), Chrome Beta/Dev/Canary, Edge's channels, Opera and Opera GX, Orion, Comet, DuckDuckGo, Zen and others.
+  `protection.BROWSER_STORES` is `browsers.data_folders()`: each Chromium browser's user-data folder
+  (`profiles.BROWSERS`) and `browsers.BROWSER_DATA` (Safari and its container, Firefox, makers' shared folders), a folder
+  inside another listed one left out. An older config.toml gets each default it was never offered once
+  (`Daemon._new_protection_defaults`, journal kind `config.defaults_added` with every default offered so far; the
+  list before 2026-11-01 is `NEVER_READ_OFFERED`), so the owner's own entries and removals stay; the lists are read
+  again at that start. tests/test_protection.py.
+- **Native-app pay / account security / send facts before the call: nothing small and structural to read.** The
+  Accessibility snapshot gives one pre-call fact, a secure text field (AXSecureTextField), and it can't tell a sign-in
+  from a password change (no new-password marking), so it can't raise account security the way the browser's
+  password + new-password rule does; typed text into a secure field is already refused (mac.secret's sealed fill
+  only). Native apps expose no card-field or amount markup and no structural recipient. Left open in the fix list.
+- **The 30-minute window test covers what decision 7 says**: terminal input, account security, permanent delete,
+  certificate checks off and the sink question each still ask inside it (tests/test_confirmations.py).
+
 ## Target design
 1. **One pipeline, one Need loop.** Admission → validate → tool-reported facts → `needs(facts)` (protection, pay,
    account security, delete, new recipient, sink, TLS-off, foreground, browser page, terminal, escape all as Need
@@ -299,3 +339,11 @@ redact, image redaction, origins).
       `_BY_TASK`).)
 - [x] File tools bound by never-read / never-write, lift: reads once per folder per task, writes per action (decision 2; hands decision 1).
       (5a: `Gateway._file_lifts`; 6b: folded into the single Need pipeline, `_lift_needs`.)
+- [x] Standing scope decided per need against that need's own target (review 2026-11-01, see Rulings).
+- [x] `mac.applescript` to a browser takes the browser checks; its named paths follow the protection lists (review
+      2026-11-01, see Rulings).
+- [x] Never-read list covers every browser's store, built from the one browser list; older configs get new defaults
+      once (review 2026-11-01, see Rulings).
+- [ ] Native apps: pay / account security / send still rest on the worker's declaration (review 2026-11-01): the only
+      cheap pre-call Accessibility fact is a secure field, which can't tell a sign-in from a password change. Needs a
+      structural source first (e.g. an app's own markup for new-password or card fields); nothing built.

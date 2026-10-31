@@ -46,7 +46,7 @@ GROUPS: tuple[Group, ...] = (
 class Availability:
     scopes: set[str]               # installed scopes, regardless of transient connection state
     text: str                      # the planner's block
-    missing: list[str] = field(default_factory=list)   # "FERB's own browser (not connected — run `ferb doctor`)"
+    missing: list[str] = field(default_factory=list)   # "FERB's own browser (not connected — Settings → Browsers)"
 
     def unavailable_line(self) -> str:
         return ("Unavailable: " + "; ".join(self.missing) + ".") if self.missing else ""

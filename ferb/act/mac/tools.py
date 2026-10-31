@@ -22,6 +22,7 @@ from ferb.act.point import Point, PreviewTarget, display_of
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import (ActionSpec, ComputerAction, FileAccess, Identity, RiskLevel, Target, TerminalInput,
                              ToolContext, ToolResult)
+from ferb.policy import confirm as floors
 from ferb.policy.contacts import Contact
 from ferb.policy.provenance import typed_destination
 from ferb.policy.rules import Kind
@@ -813,7 +814,8 @@ class MacAppleScript(_Base):
     description = ("Run AppleScript statements inside one scriptable app (FERB wraps them in `tell application`; "
                    "the body may use the operations needed for the requested task). Returns the script's result. "
                    "It runs inside FERB's sandbox: it reaches only that app, opens nothing, and runs no shell code "
-                   "(`do shell script` is refused: use shell.run).")
+                   "(`do shell script` is refused: use shell.run). For web pages use the browser tools: a script for "
+                   "the owner's own browser asks the owner first.")
     scopes = {"applescript"}
     risk, reversible = RiskLevel.MEDIUM, False
 
@@ -838,6 +840,18 @@ class MacAppleScript(_Base):
 
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
+
+    def file_paths(self, args: Any) -> list[tuple[str, FileAccess]]:
+        """The protection lists check each path the script names (rule 10): the app it tells acts with its own access,
+        outside FERB's sandbox, and what it does to a path can't be told from the script, so each is checked as a
+        change. FERB's own files are refused whatever the owner answered; a listed place asks."""
+        return [(path, "write") for path in applescript.named_paths(str(getattr(args, "script", "")))]
+
+    async def browser_page(self, args: BaseModel) -> str | None:
+        """A browser's own page (chrome://extensions…) the script names as a quoted address: the gateway asks before
+        every such script, as for Mac input on that page (rule 5). Only asked about a browser (`foreground_need`)."""
+        return next((text for text in re.findall(r'"([^"\n]+)"', str(getattr(args, "script", "")))
+                     if floors.browser_page(text)), None)
 
     async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
         """D31: a script for a terminal app or System Events asks the owner first, showing it (the sandbox lets a
@@ -875,7 +889,8 @@ class MacAppleScript(_Base):
                                "detail": "macOS doesn't let FERB control this app: ask the owner to allow it in System "
                                          "Settings → Privacy & Security → Automation, then try again"}, is_error=True)
         if self.sandbox is None:
-            return _err("AppleScript runs only inside FERB's sandbox, which isn't available here (ferb doctor says why)")
+            return _err("AppleScript runs only inside FERB's sandbox, which isn't available here (Settings → Advanced → "
+                        "Health says why)")
         ok, out = await applescript.run(a.bundle_id, str(getattr(args, "script")),
                                         timeout=max(0, deadline - asyncio.get_running_loop().time()), sandbox=self.sandbox,
                                         cwd=ctx.workspace)

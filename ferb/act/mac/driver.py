@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Collection, ContextManager, Literal
 
 from ferb.act.mac import accessibility as axm
+from ferb.act.mac import applescript
 from ferb.act.mac import apps as appsm
 from ferb.act.mac import browsers
 from ferb.act.mac import screenshot as shotm
@@ -1416,13 +1417,8 @@ class MacComputerDriver:
 
     @staticmethod
     def _script_paths(script: str) -> list[str]:
-        """The existing files a script names in quotes (a POSIX path or one under ~): their facts go in its question."""
-        found = []
-        for literal in re.findall(r'"([^"\n]+)"', script):
-            path = os.path.expanduser(literal)
-            if path.startswith("/") and os.path.isfile(path):
-                found.append(path)
-        return found
+        """The existing files a script names in quotes (`applescript.named_paths`): their facts go in its question."""
+        return [path for path in applescript.named_paths(script) if os.path.isfile(path)]
 
     def script_terminal_input(self, app: str, script: str) -> TerminalInput | None:
         """Blocking: an AppleScript for a terminal app or an app that runs code (D31 review rounds 1 and 2; the
@@ -1433,7 +1429,7 @@ class MacComputerDriver:
         if why is None:
             return None
         paths = self._script_paths(script)
-        files = self._open_files(paths)
+        files = self._open_files(paths, scripted=True)
         opened = {p for p, _, _ in files}
         return TerminalInput(a.name, a.bundle_id, why, script=script, files=files,
                              named=tuple(p for p in dict.fromkeys(paths) if p not in opened),   # said plainly (N7)
@@ -1446,7 +1442,7 @@ class MacComputerDriver:
         if why is None:
             return None
         if grant is not None and grant.input.bundle_id == a.bundle_id and grant.input.script == script and \
-                self._files_covered(self._script_paths(script), grant):
+                self._files_covered(self._script_paths(script), grant, scripted=True):
             return None
         return terminals.UNASKED.format(why=why, app=a.name)
 
@@ -1454,8 +1450,7 @@ class MacComputerDriver:
 
     def _opens_in_terminal(self, path: str) -> bool:
         """Blocking: Launch Services would open this file with a terminal app (a .command in Terminal)."""
-        default = getattr(self.apps, "default_app_for", None)
-        bundle = default(path) if callable(default) else None
+        bundle = self._default_app(path)
         if not bundle:
             return False
         shell = getattr(self.apps, "declares_shell", None)
@@ -1481,16 +1476,34 @@ class MacComputerDriver:
         runs = getattr(self.apps, "runs_when_opened", None)
         return bool(runs(path)) if callable(runs) else False
 
-    def _open_files(self, paths: Collection[str | None]) -> tuple[tuple[str, str, str], ...]:
-        """Blocking: the facts of each file among `paths` that can run when opened by its default app: its type says
-        so, or that app is a terminal."""
-        return tuple(self._file_facts(p) for p in dict.fromkeys(p for p in paths if p)
-                     if self._runnable(p) or self._opens_in_terminal(p))
+    def _edited_in(self, bundle_id: str | None, path: str) -> bool:
+        """Blocking: the app that receives the file declares itself its Editor (`apps.edits`; never for a profile):
+        opening it there shows it. False when that app is unknown or can't be read."""
+        edits = getattr(self.apps, "edits", None)
+        return bool(bundle_id) and callable(edits) and bool(edits(bundle_id, path))
 
-    def _files_covered(self, paths: Collection[str | None], grant: TerminalGrant | None) -> bool:
+    def _runs_in(self, bundle_id: str | None, path: str) -> bool:
+        """Blocking: the file's type can start code when opened (`_runnable`) and the app receiving it isn't its
+        declared Editor."""
+        return self._runnable(path) and not self._edited_in(bundle_id, path)
+
+    def _default_app(self, path: str) -> str | None:
+        default = getattr(self.apps, "default_app_for", None)
+        return default(path) if callable(default) else None
+
+    def _open_files(self, paths: Collection[str | None], scripted: bool = False) -> tuple[tuple[str, str, str], ...]:
+        """Blocking: the facts of each file among `paths` that can run when opened by its default app: its type says
+        so and that app isn't its declared Editor, or that app is a terminal. A script (`scripted`) can name another
+        app to open a file with, so there the type alone decides."""
+        return tuple(self._file_facts(p) for p in dict.fromkeys(p for p in paths if p)
+                     if (self._runnable(p) if scripted else self._runs_in(self._default_app(p), p))
+                     or self._opens_in_terminal(p))
+
+    def _files_covered(self, paths: Collection[str | None], grant: TerminalGrant | None,
+                       scripted: bool = False) -> bool:
         """Blocking: every file among `paths` that can run when opened is in the owner's Yes, with these exact
         contents (re-hashed now)."""
-        need = self._open_files(paths)
+        need = self._open_files(paths, scripted)
         approved = {(p, h) for p, h, _ in grant.input.files} if grant is not None else set()
         return all((p, h) in approved for p, h, _ in need)
 
@@ -1518,14 +1531,18 @@ class MacComputerDriver:
 
     def _opens_to_run(self, bundle_id: str, path: str) -> tuple[Any, tuple[tuple[str, str, str], ...]]:
         """Blocking (step 12e fix 5, `mac.open` with a file): the app as the question names it, and the file's facts
-        when opening it there can start code outside the shell's sandbox: the file's type says so whatever the app (a
-        .jar opens in Java Launcher and runs; an app list can't say which apps run what they open), the app itself is
-        a terminal (a script opened in Terminal runs), or it opens files with their default apps (Finder: a .command
-        runs in Terminal) and that default is a terminal app. Else no files."""
+        when opening it there can start code outside the shell's sandbox: the file's type says so (a .jar opens in Java
+        Launcher and runs; an app list can't say which apps run what they open) unless the app receiving it (this one,
+        or the file's default app when this one opens files with their default apps: Finder) declares itself the
+        file's Editor (a script in VS Code, an .rtfd in TextEdit; never a configuration profile), the app itself is a
+        terminal (a script opened in Terminal runs), or it opens files with their default apps (Finder: a .command runs
+        in Terminal) and that default is a terminal app. Else no files."""
         found = self.apps.find(bundle_id)
         a = found if found is not None else SimpleNamespace(bundle_id=bundle_id, name=bundle_id)
-        runs = self._runnable(path) or self._app_terminal_why(a) is not None or (
-            bundle_id.casefold() in terminals.OPENS_FILES and self._opens_in_terminal(path))
+        by_default = bundle_id.casefold() in terminals.OPENS_FILES
+        receiver = self._default_app(path) if by_default else bundle_id
+        runs = self._runs_in(receiver, path) or self._app_terminal_why(a) is not None or (
+            by_default and self._opens_in_terminal(path))
         return a, ((self._file_facts(path),) if runs else ())
 
     def open_terminal_input(self, bundle_id: str, path: str) -> TerminalInput | None:

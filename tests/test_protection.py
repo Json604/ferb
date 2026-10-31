@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from ferb.act.browser.tools import OWNER_BROWSER, BrowserAct, BrowserRecord
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
-from ferb.act.mac.tools import MacRecord
+from ferb.act.mac.tools import MacAppleScript, MacRecord
 from ferb.act.recording import RecordingInspect, RecordingStop
 from ferb.clock.clock import FakeClock
 from ferb.config import Config
@@ -618,7 +618,10 @@ def test_the_daemon_builds_protection_from_the_owners_config(home: Path) -> None
     try:
         prot = d.daemon.protection
         assert prot is d.daemon.gateway.roots.protection
-        assert [e.id for e in prot.reads] == ["read:~/.aws"]
+        # the owner's list, plus only the defaults it was never offered (browser stores added on 2026-11-01)
+        offered = protection.NEVER_READ_OFFERED
+        assert [e.id for e in prot.reads] == ["read:~/.aws"] + [f"read:{e}" for e in DEFAULT_NEVER_READ
+                                                                if e not in offered]
         assert [e.id for e in prot.writes] == [f"write:{e}" for e in DEFAULT_NEVER_WRITE]
         assert prot.ferb_home == home.resolve()
     finally:
@@ -1237,3 +1240,100 @@ def test_building_the_lists_never_opens_other_apps_folders(tmp_path: Path, monke
     assert not [o for o in opened if "Library" in o], opened
     alias = Path("/System/Volumes/Data" + os.path.realpath(group)) / "db"
     assert p.fs_denied(alias, "read") == "read:~/Library/Group Containers/group.com.apple.usernoted"
+
+
+class _Script(_Declares):
+    """mac.applescript's own declaration: each path the script names in quotes, checked as a change (review
+    2026-11-01: the app a script tells acts with its own access, outside FERB's sandbox)."""
+    name, description, scopes = "probe.script", "runs a script in an app", {"probe"}
+
+    class Input(BaseModel):
+        script: str
+
+    file_paths = MacAppleScript.file_paths       # type: ignore[assignment]
+
+    async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        self.runs += 1
+        return ToolResult({"ok": True})
+
+
+def test_a_script_naming_ferbs_own_files_is_refused_and_a_listed_place_asks(daemon: RunningDaemon, tmp_path: Path,
+                                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    from ferb.act.mac import applescript
+    fake = tmp_path / "fakehome"
+    (fake / "Library" / "LaunchAgents").mkdir(parents=True)
+    (fake / ".zshrc").write_text("export A=1\n")
+    volumes = tmp_path / "Volumes"
+    volumes.mkdir()
+    (volumes / "Macintosh HD").symlink_to("/")                 # the startup disk, as /Volumes names it
+    monkeypatch.setattr(applescript, "VOLUMES", str(volumes))
+    daemon.daemon.gateway.roots.protection = Protection(fake, daemon.daemon.home, [], ["~/.zshrc"], [])
+    tool = _Script()
+    grant, _ = gateway_setup(daemon, {"probe"}, None, [tool])           # type: ignore[list-item]
+    state = daemon.daemon.home / "config.toml"
+    hfs = "Macintosh HD:" + ":".join(state.parts[1:])
+    service = fake / "Library" / "LaunchAgents" / "com.ferb.daemon.plist"
+    yes = Answers(daemon, granted=True, choice=1)
+    try:
+        refused = [gateway_tool_call(daemon, grant, "probe.script", script=script) for script in (
+            f'duplicate file (POSIX file "/tmp/x") to folder (POSIX file "{state.parent}")',
+            f'set f to "{hfs}"',
+            f'make new file at folder "{service.parent}" with properties {{name:"x"}}\nmove it to "{service}"')]
+        listed = gateway_tool_call(daemon, grant, "probe.script", script=f'open "{fake / ".zshrc"}"')
+        plain = gateway_tool_call(daemon, grant, "probe.script", script='open "/tmp/notes.txt"')
+    finally:
+        yes.stop()
+    assert all(r["is_error"] and "never" in r["content"]["error"].lower() for r in refused), refused
+    assert not listed["is_error"] and not plain["is_error"] and tool.runs == 2
+    assert len(yes.asked) == 1 and "change ~/.zshrc once" in yes.asked[0].summary   # only the listed place asked
+
+
+def test_every_browsers_credential_store_is_never_read(tmp_path: Path) -> None:
+    """Review 2026-11-01: the list missed Safari's container (its cookies), Chrome Beta/Canary, Opera and more. It is
+    built from the one browser list now, so each browser on it is closed (gateway decision 2)."""
+    from ferb.act.browser.profiles import BROWSERS
+    from ferb.act.mac import browsers
+    fake = tmp_path / "fakehome"
+    fake.mkdir()
+    p = Protection(fake, tmp_path / ".ferb", DEFAULT_NEVER_READ, [], [])
+    support = fake / "Library" / "Application Support"
+    for path in (fake / "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies",
+                 support / "Google/Chrome Beta/Default/Login Data", support / "Google/Chrome Canary/Local State",
+                 support / "com.operasoftware.Opera/Default/Cookies", support / "Firefox/Profiles/x/logins.json",
+                 support / "Microsoft Edge Dev/Default/Login Data", support / "BraveSoftware/Brave-Browser-Beta/x"):
+        assert p.fs_rules(path, "read"), path
+    assert not p.fs_rules(support / "Google/DriveFS/x", "read")             # another app of the same maker
+    stores = set(browsers.data_folders())
+    assert all(f"~/Library/Application Support/{b.data}" in stores or
+               any(f"~/Library/Application Support/{b.data}".startswith(s + "/") for s in stores)
+               for b in BROWSERS.values())
+    assert all(browsers.known(owner) for owner in browsers.BROWSER_DATA)   # each entry is a browser on the list
+
+
+def test_an_older_config_gets_new_browser_stores_once_and_keeps_the_owners_edits() -> None:
+    import shutil
+    import tempfile
+    from ferb.config import Config
+    from ferb.policy.protection import NEVER_READ_OFFERED
+    from tests.conftest import RunningDaemon
+    base = Path(tempfile.mkdtemp(prefix="ferbt-"))              # short: AF_UNIX socket paths are limited
+    home = base / "home"
+    beta = "~/Library/Application Support/Google/Chrome Beta"
+    try:
+        older = [e for e in NEVER_READ_OFFERED if e != "~/.docker"] + ["~/mine"]   # the owner removed one, added one
+        Config(home).set("protection", "never_read", older)
+        d = RunningDaemon(home)
+        try:
+            listed = d.daemon.config.get("protection", "never_read")
+            assert listed[:len(older)] == older and beta in listed and "~/.docker" not in listed
+            assert any(e.id == "read:" + beta for e in d.daemon.protection.reads)   # in force at this start
+            d.daemon.config.set("protection", "never_read", [e for e in listed if e != beta])   # the owner's choice
+        finally:
+            d.stop()
+        d = RunningDaemon(home)
+        try:
+            assert beta not in d.daemon.config.get("protection", "never_read")               # stays removed
+        finally:
+            d.stop()
+    finally:
+        shutil.rmtree(base, ignore_errors=True)

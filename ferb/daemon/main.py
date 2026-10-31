@@ -325,6 +325,23 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
                 await self.shutdown()
             raise
 
+    def _new_protection_defaults(self) -> None:
+        """A never-read default config.toml was never offered (a browser added to the one browser list) is added once
+        and journaled with every default offered so far; one the owner removed after that stays removed. The lists
+        are read again when it added any."""
+        from ferb.policy import protection as protection_lists
+        offered = set(protection_lists.NEVER_READ_OFFERED) | {
+            e for row in self.journal.of_kind(protection_lists.NEW_DEFAULTS, "key", "protection.never_read")
+            for e in row.data.get("offered", [])}
+        new = [e for e in protection_lists.DEFAULT_NEVER_READ if e not in offered]
+        if not new:
+            return
+        added = self.config.add_defaults("protection", "never_read", new)
+        self.journal.append(protection_lists.NEW_DEFAULTS, {"key": "protection.never_read", "added": added,
+                                                            "offered": list(protection_lists.DEFAULT_NEVER_READ)})
+        if added:
+            self.protection = protection_lists.load(self.config.get, Path.home(), self.home)
+
     async def _start(self) -> None:
         self.config.ensure_privacy_defaults()
         self._load_config()
@@ -353,6 +370,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         for decided in UPGRADES:                        # each once, in order, and journaled: never silent
             if not self.journal.of_kind("config.upgraded", "upgrade", decided):
                 self.journal.append("config.upgraded", {"upgrade": decided, "changes": self.config.upgrade(decided)})
+        self._new_protection_defaults()
         from ferb.orchestrator.continuity import LEGACY_UPGRADE, upgrade_legacy
         if not self.journal.of_kind("store.upgraded", "upgrade", LEGACY_UPGRADE):   # once, and journaled (step 8c)
             self.journal.append("store.upgraded", {"upgrade": LEGACY_UPGRADE,

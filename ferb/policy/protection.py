@@ -2,7 +2,8 @@
 code always protects (FERB's own state), and which rules the escape hatch may lift. Must not interpret commands or
 judge intent: these are paths and ids (rule 5), and nothing here decides what a command means (rule 6).
 
-The owner edits [protection] in config.toml (written once with these defaults). Code always adds FERB's own home
+The owner edits [protection] in config.toml (written once with these defaults; a never-read default added later, such
+as a new browser's store, is added to it once, and stays out if the owner removes it). Code always adds FERB's own home
 except its workspace, and the workspace's upload staging (a copy the browser is about to read): no entry can remove
 them and no escape hatch lifts them (rule 10). A path nobody may read is a path nobody may write.
 
@@ -38,29 +39,38 @@ from typing import Any, Callable, Iterable
 
 from ferb import paths
 from ferb.act.fs.files import opened_path, real_path
+from ferb.act.mac import browsers
 from ferb.core.errors import FerbError
 from ferb.policy.rules import Kind
 
 # SQ3 revised: the sensitive stores FERB's shell never reads. ~ is the owner's home.
 _PLAN_NEVER_READ = (
     "~/Library/Keychains", "/Library/Keychains",
-    "~/Library/Messages", "~/Library/Mail", "~/Library/Safari", "~/Library/Cookies",
+    "~/Library/Messages", "~/Library/Mail", "~/Library/Cookies",
     "~/Library/Group Containers/group.com.apple.usernoted",                       # the notification database
-    "~/Library/Application Support/Google/Chrome", "~/Library/Application Support/BraveSoftware",
-    "~/Library/Application Support/Chromium", "~/Library/Application Support/Microsoft Edge",
-    "~/Library/Application Support/Arc", "~/Library/Application Support/Vivaldi",
-    "~/Library/Application Support/Firefox",
     "~/Library/Application Support/1Password", "~/Library/Group Containers/2BUA8C4S2C.com.1password",
     "~/Library/Application Support/Bitwarden",
     "~/.ssh", "~/.aws", "~/.config/gh", "~/.netrc", "~/.npmrc", "~/.docker",
 )
+# Every browser's profiles, cookies and saved passwords (gateway decision 2: credential stores are closed), from the
+# one browser list (ferb/act/mac/browsers.py `data_folders`): Safari's container, every Chromium channel, Opera, Firefox…
+BROWSER_STORES = browsers.data_folders()
 # OPEN QUESTION 2 (asked 2026-10-09), built as recommended: more credential stores of the same class. If the owner
 # says no, delete this tuple (a config.toml already written keeps them until the owner edits [protection]).
 EXTRA_NEVER_READ = (
     "~/.gnupg", "~/.kube", "~/.config/gcloud", "~/.azure", "~/.git-credentials", "~/.pypirc",
     "~/.cargo/credentials.toml",
 )
-DEFAULT_NEVER_READ = _PLAN_NEVER_READ + EXTRA_NEVER_READ
+DEFAULT_NEVER_READ = _PLAN_NEVER_READ + BROWSER_STORES + EXTRA_NEVER_READ
+# The never-read list as config.toml got it before 2026-11-01 (the browser entries were written by hand then). A
+# default not in it, nor in an earlier NEW_DEFAULTS journal row's `offered`, is added to an older config.toml once,
+# journaled (ferb/daemon/main.py `_new_protection_defaults`); one the owner removed after it was offered stays removed.
+NEVER_READ_OFFERED = _PLAN_NEVER_READ + EXTRA_NEVER_READ + (
+    "~/Library/Safari", "~/Library/Application Support/Google/Chrome", "~/Library/Application Support/BraveSoftware",
+    "~/Library/Application Support/Chromium", "~/Library/Application Support/Microsoft Edge",
+    "~/Library/Application Support/Arc", "~/Library/Application Support/Vivaldi",
+    "~/Library/Application Support/Firefox")
+NEW_DEFAULTS = "config.defaults_added"      # the journal kind
 # SQ5: where FERB's shell and file tools never write (gateway decision 2: the owner can lift it for one change).
 DEFAULT_NEVER_WRITE = (
     "~/.ssh", "~/Library/Keychains", "~/Library/LaunchAgents", "/Library/LaunchAgents", "/Library/LaunchDaemons",

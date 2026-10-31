@@ -483,9 +483,18 @@ from installed apps, terminal detection fails closed)*
   `_opens_to_run`), and to every file FERB's input would open by its default app (`_open_files`: a Finder double-click,
   an AX press, ⌘O or File > Open on a selection, a file a Finder script names). Such an open goes through the existing
   terminal question (D31) with the file's path, hash and text ("a file that can run when opened"), and the Yes covers
-  exactly those bytes, re-hashed right before the open. So opening a script in an editor through `mac.open` asks too
-  (FERB can't tell which apps run what they open), and so does a package document like an `.rtfd`. The app-bundle
-  refusal stays. tests/test_mac_focus.py `test_a_file_whose_type_runs_when_opened_asks_in_any_app`.
+  exactly those bytes, re-hashed right before the open. The app-bundle refusal stays.
+  tests/test_mac_focus.py `test_a_file_whose_type_runs_when_opened_asks_in_any_app`.
+  **Refined (review 2026-11-01):** opening a script in an editor (VS Code, TextEdit, IDLE) or an `.rtfd` in TextEdit
+  asked. Now the question is skipped when the app that receives the file (the one `mac.open` names; for Finder or
+  System Events, the file's default app; for a Finder double-click, ⌘O or an AX press, the default app) declares
+  itself the file's Editor: a `CFBundleDocumentTypes` entry with `CFBundleTypeRole` "Editor" whose
+  `LSItemContentTypes` holds a type the file conforms to, or whose `CFBundleTypeExtensions` holds its extension
+  (`apps.edits` / `editor_role`, the app's own Info.plist, read once per bundle id). Viewer (Java Launcher, Python
+  Launcher, Installer, Shortcuts), Shell (Terminal), None, no role, or an unreadable app or plist still asks; a
+  configuration profile (`com.apple.mobileconfig`, `com.apple.configprofile`) always asks whatever the role. A file a
+  script names keeps the type-only rule (a script can name another app to open it with). tests/test_mac_focus.py
+  `test_a_runnable_file_opened_in_its_declared_editor_doesnt_ask`, `test_an_apps_editor_role_is_read_from_its_document_types`.
 
 ## Step 13 must measure (step 12e part 2)
 - Whether `open -g` (no `-j`) puts a launched app's first window behind the owner's front window, on the current
@@ -641,5 +650,10 @@ from installed apps, terminal detection fails closed)*
 - [x] Sound facts skip the owner's own mute and input-coincident changes (decision 11; protocol 21 / 0.19.0).
       (12e part 2; tests/test_mac_focus.py.)
 - [ ] Step 13 measurements above (Step 13 must measure (step 12e part 2)).
+- [x] A runnable file opened in its declared Editor doesn't ask; profiles always do (review 2026-11-01, see the
+      ruling "A file that can run when opened").
+- [x] `mac.applescript`: a browser target asks like Mac input there; each path the script names is checked against
+      the protection lists as a change, FERB's own files refused whatever the answer (review 2026-11-01; notes/gateway.md
+      Rulings (review 2026-11-01)).
 - [x] One protection check shared by shell and file tools, with the lift rule of gateway decision 2 and decision 1 here.
       (5a: `Protection.fs_rules`; `fs_reads_never_read` gone.)

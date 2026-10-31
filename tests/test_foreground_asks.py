@@ -77,3 +77,21 @@ def test_one_question_covers_an_app_by_name_pid_or_bundle_id(monkeypatch) -> Non
     terminal = confirm.foreground_need("mac.act", {"app": "pid:9040", "mechanism": "foreground", "action": "press"})
     assert terminal is not None and terminal.key not in keys
     assert terminal.key == confirm.foreground_need("mac.click", {"app": "Terminal", "allow_foreground": True}).key
+
+
+def test_a_script_for_a_browser_asks_like_mac_input_there() -> None:
+    """Review 2026-11-01: mac.applescript addressed to a web browser skipped the browser checks (it can act in any of
+    the owner's tabs). It now takes the same question as Mac input in that browser, under the same key, and a script
+    naming one of the browser's own pages asks every time like input there."""
+    import asyncio
+    from types import SimpleNamespace
+    from ferb.act.mac.tools import MacAppleScript
+    script = confirm.foreground_need("mac.applescript", {"app": "Google Chrome", "script": "get URL of active tab"})
+    click = confirm.foreground_need("mac.click", {"app": "Google Chrome", "mechanism": "pointer"})
+    assert script is not None and click is not None and script.key == click.key
+    assert "script" in confirm.summary([script])
+    assert confirm.foreground_need("mac.applescript", {"app": "Notes", "script": "get name of every note"}) is None
+    tool = MacAppleScript.__new__(MacAppleScript)
+    page = 'tell window 1 to make new tab with properties {URL:"chrome://extensions/?id=abc"}'
+    assert asyncio.run(tool.browser_page(SimpleNamespace(script=page))) == "chrome://extensions/?id=abc"
+    assert asyncio.run(tool.browser_page(SimpleNamespace(script='open location "https://kartikey.xyz"'))) is None

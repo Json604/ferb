@@ -32,7 +32,7 @@ import binascii
 import json
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Iterable
 from urllib.parse import unquote_plus
 
@@ -123,6 +123,8 @@ class Need:
                                               # what covers it is decided before (terminal input, a tab's payment)
     spent_on_ask: bool = False                # an always-ask Yes spent when given, never released (an escape's or a
                                               # protected folder's change, terminal input)
+    reaches: Target | None = None             # the target this need was decided for (the call's, or a fact's: the
+                                              # host a form posts to): what a standing scope must cover (D30)
 
 
 def foreground_need(tool: str, args: dict[str, Any]) -> "Need | None":
@@ -132,16 +134,20 @@ def foreground_need(tool: str, args: dict[str, Any]) -> "Need | None":
     # In a web browser, any Mac-tool input or menu choice drives the owner's own browser screen, which the extension
     # does in hidden tabs (live 2026-10-26: the worker switched Chrome profiles through its Profiles menu, moving the
     # owner's Space). Listing menus (no path) reads only. A where-boundary on the target app, never on the step.
+    # A script for a browser (mac.applescript) acts in those same windows (its tabs, their pages), so it is the same
+    # question, under the same key: one Yes covers the browser for the task, whichever Mac tool acts in it.
     # Which apps are browsers: the one list (ferb/act/mac/browsers.py: known bundle ids, installed http handlers,
     # names without invisible marks, `pid:N` by its running app).
     from ferb.act.mac.browsers import is_browser_app
-    acts = tool in FOREGROUND_TOOLS or (tool == "mac.menu" and bool(str(args.get("path") or "").strip()))
+    acts = tool in FOREGROUND_TOOLS or tool == "mac.applescript" or (
+        tool == "mac.menu" and bool(str(args.get("path") or "").strip()))
     in_browser = acts and is_browser_app(str(args.get("app") or ""))
     if not in_browser and (tool not in FOREGROUND_TOOLS
                            or not (args.get("allow_foreground") or args.get("mechanism") == "foreground")):
         return None
     app = str(args.get("app") or "an app")
-    return Need(FOREGROUND, key(FOREGROUND, app_key(app)), {"app": app})
+    return Need(FOREGROUND, key(FOREGROUND, app_key(app)),
+                {"app": app} | ({"script": "yes"} if tool == "mac.applescript" else {}))
 
 
 def app_key(app: str) -> str:
@@ -619,7 +625,7 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
                           {"what": what, "value": shown_amount(target.amount) if k == "amount" else value,
                            "origin": shown_origins(outside)},
                           destinations=(dest,) if dest is not None else ()))
-    return needs
+    return [replace(n, reaches=target) for n in needs]
 
 
 def bulk_delete(path: str, facts: dict[str, Any]) -> Need:
@@ -635,7 +641,7 @@ def bulk_delete(path: str, facts: dict[str, Any]) -> Need:
                  "files": _counted(int(facts["files"]), "file"),
                  "folders": _counted(int(facts["directories"]), "folder"),
                  "bytes": _counted(int(facts["bytes"]), "byte"), "sample": sample(inside),
-                 "covers": "floor:delete_permanent"})
+                 "covers": "floor:delete_permanent"}, reaches=Target(path=path))
 
 
 def _terminal(v: dict[str, str]) -> str:
@@ -714,6 +720,9 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
     v = n.values
     if n.rule == TLS_OFF:
         return _tls(v)
+    if n.rule == FOREGROUND and v.get("script"):
+        return (f"this would run a script in {v['app']}, your own browser, which can act in any of its windows and "
+                f"tabs; one Yes covers {v['app']} for the rest of this task, and a No keeps FERB to its own tabs")
     if n.rule == FOREGROUND:
         return (f"this would bring {v['app']} to the front and use your screen; one Yes covers {v['app']} for the rest "
                 "of this task, and a No keeps FERB in the background")
@@ -786,6 +795,8 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
     v = n.values
     if n.rule == TLS_OFF:
         return _tls(v)
+    if n.rule == FOREGROUND and v.get("script"):
+        return f"run scripts in {v['app']}, your own browser, for this task"
     if n.rule == FOREGROUND:
         return f"use your screen in {v['app']} (it comes to the front) for this task"
     if n.rule == BROWSER_PAGE:

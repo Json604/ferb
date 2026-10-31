@@ -32,6 +32,42 @@ BROWSER_VENDORS = frozenset({"com.operasoftware", "com.vivaldi", "company.thebro
                              "app.zen-browser", "net.waterfox", "com.sigmaos"})
 KNOWN = frozenset({b.bundle_id.casefold() for b in BROWSERS.values()} | {b.casefold() for b in OTHER_BROWSERS})
 _FAMILIES = KNOWN | {v.casefold() for v in BROWSER_VENDORS}
+SUPPORT = "~/Library/Application Support/"
+# Where browsers keep their profiles, cookies and saved passwords, beyond each Chromium browser's user-data folder
+# (profiles.BROWSERS), by bundle id or maker (a folder shared by a maker's channels). ~ is the owner's home. Data for
+# the never-read list (ferb/policy/protection.py `BROWSER_STORES`): a browser added here or to profiles.BROWSERS is
+# closed by that one edit (a config.toml written earlier gets it once, ferb/config.py `add_defaults`).
+BROWSER_DATA: dict[str, tuple[str, ...]] = {
+    "com.apple.Safari": ("~/Library/Safari", "~/Library/Containers/com.apple.Safari"),      # its cookies: the container
+    "com.apple.SafariTechnologyPreview": ("~/Library/SafariTechnologyPreview",
+                                          "~/Library/Containers/com.apple.SafariTechnologyPreview"),
+    "com.brave.Browser": (SUPPORT + "BraveSoftware",),                 # Brave and its Beta and Nightly
+    "company.thebrowser": (SUPPORT + "Arc", SUPPORT + "Dia"),
+    "com.operasoftware": (SUPPORT + "com.operasoftware.OperaGX",),
+    "org.mozilla.firefox": (SUPPORT + "Firefox",),                     # every Firefox channel's profiles
+    "com.kagi.kagimacOS": (SUPPORT + "Orion",),
+    "com.duckduckgo.macos.browser": ("~/Library/Containers/com.duckduckgo.macos.browser",),
+    "io.gitlab.librewolf-community": (SUPPORT + "librewolf",),
+    "ai.perplexity.comet": (SUPPORT + "Comet",),
+    "ru.yandex.desktop.yandex-browser": (SUPPORT + "Yandex",),
+    "one.ablaze.floorp": (SUPPORT + "Floorp",),
+    "net.mullvad.mullvadbrowser": (SUPPORT + "MullvadBrowser",),
+    "org.torproject": (SUPPORT + "TorBrowser-Data",),
+    "app.zen-browser": (SUPPORT + "zen",),
+    "net.waterfox": (SUPPORT + "Waterfox",),
+    "org.chromium": (SUPPORT + "Thorium",),
+}
+
+
+def data_folders() -> tuple[str, ...]:
+    """Every browser data folder above and each Chromium browser's user-data folder, in that order; a folder inside
+    another listed one is left out (that one already closes it)."""
+    folders = [f for found in BROWSER_DATA.values() for f in found] + [SUPPORT + b.data for b in BROWSERS.values()]
+    out: list[str] = []
+    for folder in dict.fromkeys(folders):
+        if not any(folder.startswith(other + "/") for other in folders):
+            out.append(folder)
+    return tuple(out)
 # The names those browsers' apps go by (an agent may name an app instead of its bundle id).
 KNOWN_NAMES = frozenset({n.casefold() for b in BROWSERS.values() for n in (b.label, b.app)} | {
     "safari", "safari technology preview", "firefox", "firefox developer edition", "firefox nightly", "orion",

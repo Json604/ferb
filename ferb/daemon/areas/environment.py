@@ -164,9 +164,9 @@ class Environment:
         # Not open right now is fine: FERB opens its own profile when a task needs it (the owner's report, 2026-09-30)
         perms = self._fresh.get(self._permissions)      # TCC checks: kept fresh off the loop, not asked per call
         if registered & {"mac:read", "mac:act"} and not perms.get("accessibility", True):
-            problems["mac"] = "FERB doesn't have the Accessibility permission — run `ferb doctor`"
+            problems["mac"] = "FERB doesn't have the Accessibility permission — the owner grants it in FERB's Settings → Permissions"
         if "screen" in registered and not perms.get("screen", True):
-            problems["screen"] = "FERB doesn't have the Screen Recording permission — run `ferb doctor`"
+            problems["screen"] = "FERB doesn't have the Screen Recording permission — the owner grants it in FERB's Settings → Permissions"
         if "audio" in registered and not perms.get("screen", True):   # app sound is captured under Screen Recording
             problems["hearing"] = "FERB doesn't have the Screen Recording permission, which covers app sound — the " \
                                   "owner grants it in FERB's Settings → Permissions"

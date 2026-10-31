@@ -153,8 +153,7 @@ class Runtimes:
         `{runtime: "claude"}` starts it (or reports the one waiting); `code` passes the code the sign-in page shows to
         the waiting sign-in; `cancel: true` stops it. Journaled without the code or anything Claude Code printed."""
         if params.get("runtime") != "claude":
-            raise FerbError("Only Claude signs in here; ChatGPT signs in with Sign in with ChatGPT "
-                            "(`ferb setup --codex-login`)")
+            raise FerbError("Only Claude signs in here; ChatGPT signs in with Settings → AI → Sign in with ChatGPT")
         if params.get("cancel") is True:
             return await self.claude_sign_in.cancel()
         if "code" in params:

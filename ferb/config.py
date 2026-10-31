@@ -177,6 +177,21 @@ class Config:
             self.save(doc)
         return changed
 
+    def add_defaults(self, section: str, key: str, entries: list[str]) -> list[str]:
+        """Add to a list the owner keeps in config.toml each of `entries` it lacks, in one atomic write; the owner's own
+        entries and order stay. Nothing is written when the list isn't there or isn't a list (FERB then reads it as it
+        is, or refuses it). Returns what was added."""
+        doc = self.load()
+        tbl = doc.get(section)
+        current = tbl.get(key) if tbl is not None else None
+        if not isinstance(current, list):
+            return []
+        added = [e for e in entries if e not in current]
+        if added:
+            current.extend(added)
+            self.save(doc)
+        return added
+
     def upgrade(self, name: str) -> list[dict[str, Any]]:
         """One of UPGRADES, by name (the daemon applies each once and journals what it changed)."""
         return self.upgrade_ferb_written() if name == LIMITS_DECIDED else self.upgrade_downloads()

@@ -397,7 +397,7 @@ def find(db: Any, ref: str) -> Any:
     """A record by its id or the start of it (the owner types a few characters)."""
     ref = ref.strip()
     if not ref:
-        raise NotRestorable("say which record: ferb restore <id>")
+        raise NotRestorable("say which record: Settings → Data → Restore lists them")
     exact = db.conn.execute("SELECT * FROM recovery WHERE id = ?", (ref,)).fetchone()
     if exact is not None:
         return exact
@@ -405,7 +405,7 @@ def find(db: Any, ref: str) -> Any:
     if len(rows) > 1:
         raise NotRestorable(f"more than one record starts with {ref}; give more of its id")
     if not rows:
-        raise NotRestorable(f"no recovery record {ref}; `ferb restore` lists the ones FERB still keeps")
+        raise NotRestorable(f"no recovery record {ref}; Settings → Data → Restore lists the ones FERB still keeps")
     return rows[0]
 
 

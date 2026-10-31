@@ -176,6 +176,53 @@ def runs_when_opened(path: str) -> bool:
         return True
 
 
+# Configuration profiles install settings whichever app opens them: an app's Editor role never lifts their question
+PROFILE_TYPES = ("com.apple.mobileconfig", "com.apple.configprofile")
+_document_types: dict[str, tuple[Any, ...]] = {}
+
+
+def editor_role(info: Any, kind: str, extension: str, conforms: Any) -> bool:
+    """Whether an Info.plist (a mapping) declares the app the Editor of a file: a CFBundleDocumentTypes entry with
+    CFBundleTypeRole "Editor" listing a content type the file's type (`kind`) conforms to (`conforms(kind, type)`), or
+    its extension in CFBundleTypeExtensions. Viewer, Shell, None or no role is not."""
+    types = (info.get("CFBundleDocumentTypes") if info is not None else None) or ()
+    for t in types:
+        if str(t.get("CFBundleTypeRole") or "") != "Editor":
+            continue
+        if kind and any(conforms(kind, str(u)) for u in (t.get("LSItemContentTypes") or ())):
+            return True
+        if extension and extension in {str(e).casefold() for e in (t.get("CFBundleTypeExtensions") or ())}:
+            return True
+    return False
+
+
+def edits(bundle_id: str, path: str) -> bool:
+    """Blocking: the installed app states it opens this file as its Editor (`editor_role`; the app's own Info.plist, a
+    fact it declares, read once per bundle id), so opening the file there shows it rather than runs it. Never for a
+    configuration profile; False when the app, its Info.plist or the file's type can't be read (the open asks)."""
+    import os
+    try:
+        from AppKit import NSWorkspace
+        ws = NSWorkspace.sharedWorkspace()
+        kind, _ = ws.typeOfFile_error_(path, None)
+        kind = str(kind) if kind else ""
+
+        def conforms(a: str, b: str) -> bool:
+            return bool(ws.type_conformsToType_(a, b))
+        if not kind or any(conforms(kind, t) for t in PROFILE_TYPES):
+            return False
+        key = bundle_id.strip().casefold()
+        if key not in _document_types:
+            from Foundation import NSBundle
+            url = ws.URLForApplicationWithBundleIdentifier_(bundle_id)
+            info = NSBundle.bundleWithURL_(url).infoDictionary() if url is not None else None
+            _document_types[key] = tuple((info or {}).get("CFBundleDocumentTypes") or ())
+        extension = os.path.splitext(path.rstrip("/"))[1][1:].casefold()
+        return editor_role({"CFBundleDocumentTypes": _document_types[key]}, kind, extension, conforms)
+    except Exception:
+        return False
+
+
 OPEN_WAIT_S = 15.0       # how long FERB waits for macOS to confirm an open (speed only: nothing is retried)
 
 

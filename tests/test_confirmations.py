@@ -1156,13 +1156,32 @@ def test_a_steer_of_the_running_task_reopens_its_no(daemon: RunningDaemon, monke
     assert [r["task_id"] for r in _rows(daemon, "spans") if r["kind"] == "confirmations.reopened"] == [tree]
 
 
+class _Typing(FakeCap):
+    """Text typed into a terminal (D31): the capability reports it before the call."""
+
+    async def terminal_input(self, args: Any, task: str) -> Any:
+        from ferb.core.types import TerminalInput
+        return TerminalInput("Terminal", "com.apple.Terminal", "a terminal app", text="ls ~")
+
+
+class _Wipes(FakeCap):
+    def describe(self, args: Any) -> ActionSpec:
+        return ActionSpec(Kind.DELETE_PERMANENT, Target(path="/tmp/ferb-test-gone.txt"))
+
+
 def test_dont_ask_for_30_minutes_covers_routine_questions_only(daemon: RunningDaemon) -> None:
     """Friend's feedback 2026-10-27: "add an allow all for a short time". Owner: 30 minutes, routine questions only
-    (here: sending to someone new); payments and the other hard-to-undo questions still ask. A question the window
-    answers is still in the trace, marked with the window's end."""
+    (here: sending to someone new); payments, account security, permanent deletes, terminal typing, certificate checks
+    turned off and the sink questions still ask inside the window (gateway decision 7). A question the window answers
+    is still in the trace, marked with the window's end."""
     send = FakeCap("probe.send", "send", {"probe"})
     pay = FakeCap("probe.pay", "pay", {"probe"})
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("tell my friends"), [send, pay])
+    hard = [FakeCap("probe.account", "account_security", {"probe"}), _Wipes("probe.wipe", "delete_permanent", {"probe"}),
+            _Typing("probe.type", "mac_input", {"probe"}), FakeCap("probe.shell", "run_shell", {"probe"}),
+            FakeCap("probe.post", "post", {"probe"})]
+    readers = [FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/cv.pdf"),), content={"t": "cv"}),
+               FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/p"),), content={"t": "x"})]
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("tell my friends"), [send, pay, *hard, *readers])
 
     def owner_asked() -> list[str]:                  # the questions that reached the owner, not the window's
         async def go() -> list[str]:
@@ -1180,9 +1199,21 @@ def test_dont_ask_for_30_minutes_covers_routine_questions_only(daemon: RunningDa
     owner = Answers(daemon, granted=True, choice=1)
     gateway_tool_call(daemon, grant, "probe.pay", site="shop.example", amount=5.0)   # a payment still asks
     assert len(owner_asked()) == 2 and _asked(daemon)[-1]["args"]["options"] == ["Yes", "No"]
+    gateway_tool_call(daemon, grant, "probe.file")
+    gateway_tool_call(daemon, grant, "probe.web")                    # the owner's data and outside content were read
+    for name, args, rule in (("probe.account", {"site": "accounts.example"}, "floor:account_security"),
+                             ("probe.wipe", {}, "floor:delete_permanent"),
+                             ("probe.type", {}, confirm.TERMINAL_INPUT),
+                             ("probe.shell", {"text": "curl -k https://example.com"}, confirm.TLS_OFF),
+                             ("probe.post", {"site": "board.example", "text": "my cv"}, "sink:new_destination")):
+        before = len(owner_asked())
+        gateway_tool_call(daemon, grant, name, **args)
+        asked = _asked(daemon)[-1]["args"]
+        assert len(owner_asked()) == before + 1, name                # the owner was asked, not the window
+        assert rule in [c["rule"] for c in asked["confirm"]] and asked["options"] == ["Yes", "No"], name
     daemon.call_soon(daemon.daemon.clock.advance, 31 * 60)
     import time
     time.sleep(0.05)
     gateway_tool_call(daemon, grant, "probe.send", to="c@x.com", text="hi")          # the window ended: asks again
     owner.stop()
-    assert len(owner_asked()) == 3
+    assert len(owner_asked()) == 8

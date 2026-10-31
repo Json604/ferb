@@ -1230,7 +1230,7 @@ class Gateway:
             return None
         return confirm.Need("sink:new_destination", confirm.key("sink:new_destination", host),
                             {"destination": host, "read": confirm.shown_origins(outside)},
-                            destinations=(("host", host),))
+                            destinations=(("host", host),), reaches=target)
 
     def _card_entry(self, root: str, chain: str) -> str | None:
         """Decision 23: the name of the owner's saved card entry that filled a card-number field in this tab chain: the
@@ -1360,7 +1360,7 @@ class Gateway:
                                        "next": OWNER_DECIDED_NEXT}
                         continue
                     if row is None and need.rule in STANDING_RULES and self.standing is not None and \
-                            self.standing.covers(root, c.name, c.grant.identity.value, c.checked):
+                            self.standing.covers(root, c.name, c.grant.identity.value, c.checked, need.reaches):
                         out.standing.append(need.rule)   # D30: covered; the call's record says so (`standing`)
                         continue
                     if row is None or need.fresh:

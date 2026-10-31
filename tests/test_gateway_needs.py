@@ -167,6 +167,32 @@ def test_a_private_submit_to_a_site_only_mentioned_earlier_still_asks_but_an_app
     assert _rules(daemon) == [["sink:new_destination"]]
 
 
+def test_a_standing_scope_covers_a_submit_only_to_its_own_site(daemon: RunningDaemon) -> None:
+    """A declaration only adds: a scope for www.example.com never covers the sink question its facts raise for the
+    host the form posts to. Each need is matched against its own destination, not the page the call was made on."""
+    from ferb.orchestrator.plans import SendScope
+    form = _Form()
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("read my file and the page"),
+                             [form, *_readers_with_private()])
+
+    async def stand() -> None:
+        daemon.daemon.gateway.standing.grant(grant.task_id, [SendScope(
+            capability="probe.form", identity="owner", site="www.example.com", account="me", content=None)], "t")
+    daemon.run(stand())
+    _read_private_and_outside(daemon, grant)
+    gateway_tool_call(daemon, grant, "probe.form", tab="t1", text=PRIVATE)
+    declared = dict(effect="send", destination={"account": "me"})
+    owner = Answers(daemon, granted=False, choice=2)
+    try:
+        elsewhere = gateway_tool_call(daemon, grant, "probe.form", tab="t1", action="collect.example", **declared)
+        own_site = gateway_tool_call(daemon, grant, "probe.form", tab="t1", action="www.example.com", **declared)
+    finally:
+        owner.stop()
+    assert elsewhere["is_error"] and not own_site["is_error"] and form.calls == 2   # the typing and the own-site one
+    assert _rules(daemon) == [["sink:new_destination"]]
+    assert "collect.example" in _asked(daemon)[0]["args"]["question"]
+
+
 def test_a_private_submit_to_the_site_the_owner_named_runs(daemon: RunningDaemon) -> None:
     form = _Form()
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("read my file and the page, then send it to "

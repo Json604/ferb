@@ -250,3 +250,59 @@ def test_the_owners_own_mute_or_input_coincident_change_records_no_sound_fact(da
 async def _settle() -> None:
     import asyncio
     await asyncio.sleep(0)
+
+
+def test_a_runnable_file_opened_in_its_declared_editor_doesnt_ask(monkeypatch: Any, tmp_path: Any) -> None:
+    """Review 2026-11-01 (side effect of the rule above): a script opened in an editor asked. Now the app that receives
+    the file (the one named, or Finder's default app for it) declaring itself the file's Editor lifts the question;
+    a launcher (Viewer), a terminal (Shell) or an unreadable app still asks, and a profile always does."""
+    import asyncio
+    from types import SimpleNamespace
+    d, tool, fake = _opener(monkeypatch)
+    d.apps.apps.append(RunningApp("com.apple.finder", "Finder", 22, False))
+    editors = {("com.microsoft.VSCode", ".py"), ("com.apple.TextEdit", ".py"), ("com.apple.TextEdit", ".mobileconfig")}
+    d.apps.edits = lambda bundle, path: any(bundle == b and path.endswith(e) for b, e in editors) and \
+        not path.endswith(".mobileconfig")                   # apps.edits never lifts a profile
+    script = tmp_path / "run.py"
+    script.write_text("import os\n")
+    profile = tmp_path / "wifi.mobileconfig"
+    profile.write_text("<plist/>")
+
+    def asks(app: str, path: Any) -> bool:
+        return asyncio.run(tool.terminal_input(tool.Input(bundle_id=app, path=str(path)), "t1")) is not None
+    assert not asks("com.microsoft.VSCode", script) and not asks("com.apple.finder", script)   # Finder: TextEdit
+    assert asks("org.python.PythonLauncher", script) and asks("com.apple.TextEdit", profile)
+    assert not asyncio.run(tool.run(tool.Input(bundle_id="com.microsoft.VSCode", path=str(script)),
+                                    SimpleNamespace(task_id="t1", terminal=None))).is_error
+    assert fake.opened == [("com.microsoft.VSCode", str(script))]
+
+
+def test_an_apps_editor_role_is_read_from_its_document_types(tmp_path: Any) -> None:
+    from ferb.act.mac import apps
+
+    def conforms(kind: str, to: str) -> bool:
+        return to in {"public.python-script": {"public.python-script", "public.script", "public.plain-text"},
+                      "com.apple.rtfd": {"com.apple.rtfd"}}.get(kind, {kind})
+    vscode = {"CFBundleDocumentTypes": [{"CFBundleTypeRole": "Editor", "CFBundleTypeExtensions": ["py", "sh"]}]}
+    textedit = {"CFBundleDocumentTypes": [{"CFBundleTypeRole": "Editor",
+                                           "LSItemContentTypes": ["public.plain-text", "com.apple.rtfd"]}]}
+    launcher = {"CFBundleDocumentTypes": [{"CFBundleTypeRole": "Viewer", "LSItemContentTypes": ["public.script"]}]}
+    terminal = {"CFBundleDocumentTypes": [{"CFBundleTypeRole": "Shell", "LSItemContentTypes": ["public.script"]}]}
+    untyped = {"CFBundleDocumentTypes": [{"LSItemContentTypes": ["public.script"]}]}
+    assert apps.editor_role(vscode, "public.python-script", "py", conforms)
+    assert apps.editor_role(textedit, "public.python-script", "py", conforms)      # by conformance
+    assert apps.editor_role(textedit, "com.apple.rtfd", "rtfd", conforms)
+    for info in (launcher, terminal, untyped, {}, None):
+        assert not apps.editor_role(info, "public.python-script", "py", conforms)
+    # the real lookup, on scratch files: a declared Editor lifts a script, never a profile; an unknown app never does
+    script, profile = tmp_path / "x.py", tmp_path / "p.mobileconfig"
+    script.write_text("print(1)\n")
+    profile.write_text("<plist/>")
+    apps._document_types["test.ferb.editor"] = ({"CFBundleTypeRole": "Editor", "CFBundleTypeExtensions": ["py"],
+                                                 "LSItemContentTypes": ["com.apple.mobileconfig", "public.data"]},)
+    try:
+        assert apps.edits("test.ferb.editor", str(script)) and not apps.edits("test.ferb.editor", str(profile))
+        assert not apps.edits("test.ferb.no-such-app", str(script))
+    finally:
+        apps._document_types.pop("test.ferb.editor", None)
+        apps._document_types.pop("test.ferb.no-such-app", None)

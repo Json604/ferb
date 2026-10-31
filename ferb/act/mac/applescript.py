@@ -6,13 +6,31 @@ Script content is not classified by permission keywords. osascript runs under FE
 profile, and `do shell script "cat <denied file>"` is refused, also inside a `tell` block. What the named app does when
 told to is that app's, outside any sandbox of FERB's: Automation grants bound it. Apple Events reach only the app the
 call names (D31 review round 1): a script addressed to Notes can't tell Terminal or System Events anything; a call that
-names a terminal app or System Events asks the owner first, showing the script (tools.MacAppleScript)."""
+names a terminal app or System Events asks the owner first, showing the script (tools.MacAppleScript). The paths a
+script names (`named_paths`) go through the protection lists, since the app acts on them with its own access."""
 
 import asyncio
+import os
 import re
 from typing import Any
 
 from ferb.core.errors import Refused
+
+VOLUMES = "/Volumes"            # every mounted volume by its name, the startup disk's a link to /
+
+
+def named_paths(script: str) -> list[str]:
+    """The paths a script names as quoted literals, absolute: a POSIX path ("/…", "~", "~/…") and an HFS path on a
+    mounted volume ("Macintosh HD:Users:me:", the text before the first colon naming a folder in /Volumes). A path
+    built at run time, or an item named relative to a folder (`file "x" of home folder`), can't be read from the text."""
+    found = []
+    for literal in re.findall(r'"([^"\n]+)"', script):
+        volume, colon, rest = literal.partition(":")
+        if literal.startswith("/") or literal == "~" or literal.startswith("~/"):
+            found.append(os.path.expanduser(literal))
+        elif colon and volume and "/" not in volume and os.path.isdir(os.path.join(VOLUMES, volume)):
+            found.append(os.path.join(VOLUMES, volume, *[part for part in rest.split(":") if part]))
+    return list(dict.fromkeys(found))
 
 
 def wrap(bundle_id: str, body: str) -> str:
