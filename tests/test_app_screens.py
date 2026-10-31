@@ -236,3 +236,38 @@ def test_a_notices_cards_reach_the_app_after_it_was_away(daemon: RunningDaemon) 
     daemon.run(d._tell_owner("memory-import-r1", [], "Imported 2 facts from ChatGPT", "ferb", cards=[page]))
     notice = next(n for n in _call(daemon, "chat.status", {"peek": True})["notices"] if n["id"] == "memory-import-r1")
     assert notice["cards"] == [page]
+
+
+def test_a_banner_never_carries_a_secret(daemon) -> None:
+    """Moved from test_app_notifications (deleted in step 12d): a banner FERB.app posts never holds a sealed value."""
+    import json as _json
+    import threading as _threading
+    import time as _time
+
+    from ferb.cli.client import Client as _Client
+    items: list[dict] = []
+    client = _Client(daemon.sock)
+
+    def read() -> None:
+        try:
+            for item in client.stream("notifications.subscribe", {"authorized": True}):
+                items.append(item)
+        except Exception:
+            pass
+    reader = _threading.Thread(target=read, daemon=True)
+    reader.start()
+    try:
+        end = _time.monotonic() + 5
+        while not daemon.daemon.posters.connected and _time.monotonic() < end:
+            _time.sleep(0.05)
+        daemon.call_soon(daemon.daemon._add_secret_value, "hunter2-correct-horse")
+        daemon.run(daemon.daemon._notify("FERB finished", "Logged in with hunter2-correct-horse",
+                                         category="task_finished", target={"kind": "task", "task_id": "t1"}))
+        end = _time.monotonic() + 5
+        while not items and _time.monotonic() < end:
+            _time.sleep(0.05)
+        assert items and "hunter2-correct-horse" not in _json.dumps(items)
+    finally:
+        client.interrupt()
+        reader.join(2)
+        client.close()

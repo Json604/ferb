@@ -1,4 +1,4 @@
-"""Offline pass/fail over a recorded trace: canary egress and attacker-chosen recipients.
+"""Test support: offline pass/fail over a recorded trace: canary egress and attacker-chosen recipients.
 Reads only; it judges what happened in a test trace, never live actions.
 
 Limit: span inputs are redacted by design, so a canary stored under a secret-named key (otp, token,

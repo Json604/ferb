@@ -369,17 +369,3 @@ def overhead_tokens(budget_tokens: int, reserved_tokens: int = 0) -> int:
 def overhead_chars(budget_tokens: int, reserved_tokens: int = 0) -> int:
     """`overhead_tokens` in characters: what a caller splitting work to fit a per-input character cap keeps free."""
     return len(_report(budget_tokens, reserved_tokens, 10 ** 9, True, 1)) + 2 * len("\n\n")
-
-
-def assemble_parts(blocks: list[ContextBlock], *, budget_tokens: int, reserved_tokens: int = 0,
-                   max_chars: int | None = None) -> tuple[list[str], int]:
-    """`assemble` as (ordered parts with the budget report last, how many leading parts repeat across calls)."""
-    out = assemble(blocks, budget_tokens=budget_tokens, reserved_tokens=reserved_tokens, max_chars=max_chars)
-    return out.parts, out.cacheable
-
-
-def assemble_context(blocks: list[ContextBlock], *, budget_tokens: int, reserved_tokens: int = 0,
-                     max_chars: int | None = None) -> str:
-    """The assembled context as one text (`assemble_parts` joined)."""
-    return "\n\n".join(assemble_parts(blocks, budget_tokens=budget_tokens, reserved_tokens=reserved_tokens,
-                                       max_chars=max_chars)[0])

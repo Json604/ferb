@@ -59,11 +59,13 @@ class TextRegion:
 def recognize_text(image: bytes) -> list[TextRegion]:
     import Vision
     import Quartz
-    from Foundation import NSData
+    from Foundation import NSData, NSDictionary
     request = Vision.VNRecognizeTextRequest.alloc().init()
     request.setUsesLanguageCorrection_(False)  # credentials must not be corrected to dictionary words
+    # An NSDictionary, never a Python {}: on macOS 27.2 Vision refuses PyObjC's dict proxy ("key does not exist"), so
+    # every image failed recognition and was withheld (found in step 12d)
     handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(
-        NSData.dataWithBytes_length_(image, len(image)), {})
+        NSData.dataWithBytes_length_(image, len(image)), NSDictionary.dictionary())
     ok, error = handler.performRequests_error_([request], None)
     if not ok or error is not None:
         raise RuntimeError('on-device text recognition failed')

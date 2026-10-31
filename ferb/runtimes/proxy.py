@@ -14,6 +14,7 @@ import hmac
 import http.server
 import json
 import secrets
+import socket
 import threading
 
 import httpx
@@ -82,7 +83,11 @@ class ToolListProxy:
             def log_message(self, *a: object) -> None:       # never log requests
                 pass
 
-        self._srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        class Server(http.server.ThreadingHTTPServer):
+            daemon_threads = True
+            request_queue_size = socket.SOMAXCONN          # macOS resets a connect past a full backlog (default 5)
+
+        self._srv = Server(("127.0.0.1", 0), Handler)
         threading.Thread(target=self._srv.serve_forever, daemon=True).start()
 
     def base_url(self, run_id: str) -> str:

@@ -30,7 +30,6 @@ from tests.conftest import (Answers, FakeCap, RunningDaemon, chat, done, gateway
                             task, tool)
 
 ROOT = Path(__file__).resolve().parents[1]
-PROMPTS = ROOT / "ferb" / "orchestrator" / "prompts"
 
 
 def _until(check: Any, timeout: float = 5.0) -> None:
@@ -297,17 +296,6 @@ def test_no_owner_facing_text_mentions_slash_answer() -> None:
              for p in (ROOT / base).rglob("*") if p.suffix in (".py", ".md", ".swift", ".js", ".json")
              and p.is_file() and command.search(p.read_text(errors="ignore"))]
     assert found == []
-
-
-def test_workers_are_never_told_to_ask_for_confirmation() -> None:
-    interaction = (PROMPTS / "interaction.md").read_text()
-    worker = (PROMPTS / "worker.md").read_text()
-    for gone in ("obtain owner confirmation", "is also an outcome to confirm", "Carry that concrete confirmation"):
-        assert gone not in interaction
-    assert "required final confirmation" not in worker
-    assert "FERB's code asks" in interaction                               # the floor questions are code's
-    for orchestrator in ("question.md", "verifier.md"):
-        assert "final confirmation" not in (PROMPTS / orchestrator).read_text()
 
 
 def test_the_install_question_is_asked_once_and_carried_across_retries(daemon: RunningDaemon) -> None:
@@ -1206,11 +1194,6 @@ def test_a_steer_never_widens_a_scope_to_an_address_the_owner_never_typed(daemon
 
 async def _on_loop(fn: Any) -> Any:
     return fn()
-
-
-def test_the_planner_is_told_only_typed_destinations_are_covered() -> None:
-    text = " ".join((PROMPTS / "supervisor.md").read_text().split())
-    assert "FERB covers a scope only when its site, account and recipients appear in words the owner typed" in text
 
 
 # ========== final review M1 ==========

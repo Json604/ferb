@@ -22,7 +22,7 @@ import stat
 import subprocess
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -301,11 +301,6 @@ async def preserve_async(path: Path, *, reason: str, task_id: str | None, db: An
         return None
     await asyncio.to_thread(_make_copy, c.src, c.dst)
     return _record_copy(c, reason, task_id, db)
-
-
-def mark_written(record_id: str, path: Path, db: Any) -> None:
-    """After the change: the file as FERB left it, so a restore can tell whether anyone changed it since."""
-    db.conn.execute("UPDATE recovery SET written_sha256 = ? WHERE id = ?", (_sha256(path.resolve()), record_id))
 
 
 async def mark_written_async(record_id: str, path: Path, db: Any) -> None:

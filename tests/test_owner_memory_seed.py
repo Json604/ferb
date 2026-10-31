@@ -6,7 +6,7 @@ from typing import Any
 
 from ferb.memory.upgrade import OWNER_SEED
 from ferb.store.db import Database
-from tests.test_planner_context import _own_daemon
+from tests.support.schedules import own_daemon as _own_daemon
 
 AT = "2026-10-24T05:44:31.624567+05:30"
 M5 = "When the owner says “message” or “call,” they mean WhatsApp unless they explicitly mention another app."

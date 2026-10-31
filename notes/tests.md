@@ -75,7 +75,7 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       (Step 8a: `ROLES`/`DEFAULT_ANSWERS`/`role_of` in conftest; 8b changes those two tables when the checker absorbs
       the next-attempt choice. Step 8b: done; `report()`/`verdict()` helpers; scripts written before 8b are completed
       by `complete_worker_report` / `complete_checker_next`.)
-- [ ] Write the 8-12 end-to-end runs; then delete the tests they replace.
+- [x] Write the 8-12 end-to-end runs; then delete the tests they replace.
       (Step 8a: tests/test_execution_runs.py: plain task, stop, pause/resume, plan step asks once, check-in Yes/No,
       scheduled declines and stops at 5, loop survives a restart, closed tab asks, taken tab, shutdown clean-up,
       resumed scheduled run. Remaining runs (file write checked, new recipient, unknown outcome, forget, payment) later.
@@ -126,15 +126,75 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       on each tool); tests/test_owner_memory_seed.py (the approved items once as the owner's words, inferred duplicates
       ended, M7/M8 search only, the visa username's login record, a second start changes nothing, another store gets
       none).
+      Step 12d: tests/test_safety_runs.py (a send to someone new asks and a No sends nothing; an action whose outcome is
+      unknown is never repeated without the owner; one payment asks once with the page's amount). The two runs left
+      already existed: a file write checked = tests/test_careful_checks.py, a forget removes the item =
+      tests/test_forget_in_chat.py. Then 106 files the runs and the safety files make redundant were deleted (see
+      "Step 12d: the deletion" below).
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
-- [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
+      (Step 12d: kept whole: every file of the target design's safety suite and every past-bug guard listed above (all
+      in kept files; test_front_window_context is kept, so its packaged-interpreter guard stays where it is). Moved: the
+      banner-secret test (test_app_notifications → test_app_screens). Left: trimming inside the kept files (their
+      wording and wiring tests, e.g. most of test_question_clarity, test_front_window_context, test_install,
+      test_setup_flow) — a per-test pass, not done.)
+- [x] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
       (Step 12a: upgrade-from-old-DB done: tests/test_upgrade.py builds stores as older builds left them (schemas 18–55,
       the pre-checksum runner, the deleted 0040 from git history) and an older config.toml, and upgrades them.)
+      (Step 12d: import check tests/test_imports.py (every ferb module but `__main__` entry points, in a fresh
+      interpreter with a temporary FERB home); vendor table + fuzz in tests/test_redaction_rebuild.py (the table, the
+      idempotence/JSON/stream fuzz from 6a, and `test_a_vendor_secret_anywhere_in_ordinary_text_is_always_masked`, which
+      found a leak: a truncated private key with words after its last line kept that line; fixed in
+      ferb/sanitize/formats.py `_KEY_BODY`); simple forget tests/test_forget_in_chat.py; adapter contract
+      tests/test_runtime_contract.py (every direct-API adapter), tests/test_codex_streaming.py (Codex app-server pinned
+      fixtures), tests/test_claude_steering.py (Agent SDK), tests/test_structured_results.py,
+      tests/test_provider_streaming.py.)
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.
       (Step 3: tests of removed code deleted (see the step-3 report); prompt-text and wiring tests not yet.)
+      (Step 12d: deleted with the 106 files: Jev/consolidation/eval-catalogue tests, the prompt-text, wording and
+      rendering files, and the old-harness wiring files; the two prompt-text tests left in test_owner_answers removed.
+      Left: wording and wiring tests inside the kept files (see the trim item above).)
 - [ ] Delete doc-reading tests with the docs cleanup.
-- [ ] Keep `no_real_models`, `offline_trash`, network routing, `runaway.py`.
-- [ ] Each area's fix lands with its tests in the same change (CLAUDE.md development rules).
+      (Step 14. They are: tests/test_decision_coverage.py, tests/test_doc_sources.py, and
+      tests/test_chat_events.py::test_ack_phrases_are_the_plans_p25_list_without_the_starred_one (reads docs/0.27_PLAN.md).)
+- [x] Keep `no_real_models`, `offline_trash`, network routing, `runaway.py`.
+      (Step 12d: kept in tests/conftest.py (`no_real_models`, `offline_trash`, `network_route`, `fake_browser_peer`,
+      `offline_tokenizer`) and tests/support/runaway.py with its tests, tests/test_runaway_guards.py.)
+- [x] Each area's fix lands with its tests in the same change (CLAUDE.md development rules).
+      (A standing rule, kept by every step; step 12d's fixes each came with theirs.)
+
+## Step 12d: the deletion
+Before: 300 test files, 92,866 lines with support, 5,545 offline items (5,544 passed, 1 skipped) in 20 min 01 s
+(measured while other work ran on this Mac). Deleted 109 test files (listed below; three with the eval code they
+tested) and 8 orphaned support modules (batches_reference, bus, codex_loopback, context_reference, interleave, loop_fakes, model_loopback, signing_stubs).
+Kept: every target-design safety file, every listed past-bug guard, the step 8a-12c behaviour files, the upgrade,
+import and adapter-contract tests, the guards, the live (`-m real`) tests for step 13, and the step-14 doc tests. After:
+see notes/fix-order.md step 12d. Deleted, by reason:
+- removed or switched-off code (Jev, consolidation, the eval catalogue) and memory internals (12): test_decide,
+  test_decide_real, test_destructive_shadow, test_release_measurement, test_security_harness, test_batcher_cost,
+  test_attention_understanding, test_perception_batches, test_learning_calls_visible, test_learning_after_forget,
+  test_memory_activation, test_memory_lineage
+- prompt text, owner-facing wording, rendering (21): test_prompt_order, test_full_answers, test_answers_owner_words,
+  test_answers, test_failure_reasons, test_notices_in_chat, test_connection_notice, test_progress_line,
+  test_trace_render, test_trace_levels, test_cli, test_unit1_speed_voice, test_history_cap, test_banners,
+  test_app_notifications, test_codex_prompt_cache, test_claude_prompt_cache, test_model_request, test_conditions,
+  test_orchestrated_control, test_completion_reporting
+- orchestration wiring and old-harness behaviour now covered by the end-to-end runs (40): test_supervisor,
+  test_statuses, test_report_check, test_task_plans, test_control_turn_entries, test_steering_races, test_live_steering,
+  test_tools_loaded, test_checker_effort, test_runtime_selection, test_api_runtime, test_codex_isolation,
+  test_usage_prices, test_input_char_cap, test_context_budget, test_context_sources_026, test_hardening_context,
+  test_literal_observation_026, test_outcome_export_026, test_evidence_inventory_026, test_daemon_shutdown_026,
+  test_acceptance_one_worker, test_named_target, test_after_action, test_launched_apps, test_task_status_facts,
+  test_task_recovery, test_inspection_recovery, test_delegated_conversations, test_loops, test_watches,
+  test_waits_and_loop, test_ux, test_planner_context, test_episodes, test_content_search, test_recall, test_bus,
+  test_clock, test_f6_context
+- hands features with no safety check (browser, Mac, extension plumbing) (27): test_availability, test_background_input,
+  test_browser_background, test_browser_default, test_browser_hardening_026, test_browser_media, test_browser_recovery,
+  test_capture_errors, test_closed_shadow_frames, test_cursor, test_desktop_attribution, test_device,
+  test_extension_autoinstall, test_extension_install, test_front_tab_script, test_human_check_handoff, test_mac_pointer,
+  test_mailbox, test_named_browser, test_native_hardening, test_pair_all, test_pointer, test_scroll_progress,
+  test_shell_attach, test_window_input, test_perception_retention, test_perception_software
+- app and setup plumbing (9): test_appcast, test_update_packaging, test_update_prepare, test_login_item_uninstall,
+  test_permissions_on_first_need, test_setup_rpcs, test_tokenizer_cache, test_verdict, test_window_rpcs
 
 ## Live re-test list (step 13)
 

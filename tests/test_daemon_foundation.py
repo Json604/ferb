@@ -268,3 +268,42 @@ def test_a_failed_start_shuts_down_what_it_built(home: Any, monkeypatch: pytest.
     finally:
         d.loop.call_soon_threadsafe(d.loop.stop)
         d.thread.join(5)
+
+
+_FREED: list[int] = []
+_PROBE: list[Any] = []
+
+
+def _autoreleasing_job() -> None:
+    """Cocoa work that leaves an autoreleased object behind: an array holding a probe until its pool drains."""
+    import objc
+    from Foundation import NSArray, NSObject
+    if not _PROBE:
+        class FerbAutoreleaseProbe(NSObject):                 # type: ignore[misc]
+            def dealloc(self) -> None:
+                _FREED.append(1)
+                objc.super(FerbAutoreleaseProbe, self).dealloc()
+        _PROBE.append(FerbAutoreleaseProbe)
+    probe = _PROBE[0].new()
+    NSArray.arrayWithObject_(probe)
+    del probe
+
+
+def test_work_on_the_daemons_threads_drains_its_autorelease_pool(daemon: RunningDaemon) -> None:
+    """Step 12d (footprint): an object a worker-thread job autoreleases is freed when the job ends, never kept by the
+    long-lived thread: asyncio.to_thread jobs and a watcher's poll step alike."""
+    import gc
+
+    from ferb.sense.watchers.base import poll
+    _FREED.clear()
+    daemon.run(asyncio.to_thread(_autoreleasing_job))
+    gc.collect()
+    assert _FREED == [1]
+
+    async def one_poll() -> None:
+        stop = asyncio.Event()
+        await poll(0.01, stop, lambda: (_autoreleasing_job(), stop.set()))
+    _FREED.clear()
+    daemon.run(one_poll())
+    gc.collect()
+    assert _FREED == [1]

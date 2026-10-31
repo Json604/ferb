@@ -244,9 +244,3 @@ def extension_state(p: BrowserProfile, extension_ids: frozenset[str], data_dir: 
     if entry is None:
         return "missing"
     return "on" if extension_enabled(entry[1]) else "off"
-
-
-def has_extension(p: BrowserProfile, extension_ids: frozenset[str], data_dir: Path | None = None) -> bool:
-    """Is the FERB extension installed in this profile? Read from the profile's own settings on disk (both files
-    Chromium uses), so it's known before the extension ever says hello."""
-    return extension_entry(p, extension_ids, data_dir) is not None

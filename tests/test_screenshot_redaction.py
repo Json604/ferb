@@ -64,3 +64,35 @@ def test_runs_with_periods_are_never_painted_so_ellipses_and_leaders_stay() -> N
     regions = [TextRegion(t, (i, i, 9, 9)) for i, t in enumerate(painted + kept)]
     ImageRedactor(Redactor(), recognize=lambda _: regions, mask=mask)(b'raw')
     assert boxes == [(i, i, 9, 9) for i in range(len(painted))]
+
+
+def _text_image(text: str) -> bytes:
+    """A JPEG of `text` in large black type on white, drawn here (no screen is captured)."""
+    import AppKit
+    import Quartz  # noqa: F401  (gives CGImageRef its type, so rep.CGImage() is an image, not a bare pointer)
+    from ferb.act.mac.screenshot import _jpeg
+    w, h = 900, 120
+    rep = AppKit.NSBitmapImageRep.alloc().initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel_(  # noqa: E501
+        None, w, h, 8, 4, True, False, AppKit.NSDeviceRGBColorSpace, 0, 0)
+    AppKit.NSGraphicsContext.saveGraphicsState()
+    AppKit.NSGraphicsContext.setCurrentContext_(AppKit.NSGraphicsContext.graphicsContextWithBitmapImageRep_(rep))
+    AppKit.NSColor.whiteColor().set()
+    AppKit.NSRectFill(((0, 0), (w, h)))
+    AppKit.NSString.stringWithString_(text).drawAtPoint_withAttributes_(
+        (20, 30), {AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_(48),
+                   AppKit.NSForegroundColorAttributeName: AppKit.NSColor.blackColor()})
+    AppKit.NSGraphicsContext.restoreGraphicsState()
+    return bytes(_jpeg(rep.CGImage()))
+
+
+def test_on_device_recognition_reads_an_image_and_its_secret_is_painted_over() -> None:
+    """Step 12d (macOS 27.2): Vision refused the Python dict FERB passed as its options, so every image failed
+    recognition and was withheld. Real on-device recognition on a drawn image: the text is read, and a known secret in
+    it is painted over."""
+    from ferb.sanitize.images import ImageRedactor, recognize_text
+    image = _text_image("Password: Zq9hunter77")
+    assert any("Zq9hunter77" in r.text for r in recognize_text(image))
+    r = Redactor()
+    r.add_secret_value("Zq9hunter77")
+    masked = ImageRedactor(r)(image)
+    assert masked != image and not any("Zq9hunter77" in t.text for t in recognize_text(masked))

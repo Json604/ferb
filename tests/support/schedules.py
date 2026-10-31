@@ -72,7 +72,7 @@ def fire(d: RunningDaemon, seconds: float) -> None:
         time.sleep(0.05)
 
 
-def own_daemon(home: Path, ids: str) -> RunningDaemon:
+def own_daemon(home: Path, ids: str = "id") -> RunningDaemon:
     """A test daemon the test stops itself, set up as the `daemon` fixture's is; a second one on the same home is FERB
     after a restart (its own id prefix, so its new rows never collide with the first one's)."""
     d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds(ids), watch_owner_input=False)

@@ -15,6 +15,7 @@ import threading
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from ferb.device.autorelease import DrainingExecutor
 from ferb.act.browser import downloads, uploads
 from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
 from ferb.act.browser.pairing import Pairings
@@ -304,6 +305,8 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         built or touched."""
         self._loop = asyncio.get_running_loop()
         self._loop.set_exception_handler(self._loop_exception)
+        # every asyncio.to_thread job drains its own autorelease pool (PyObjC on long-lived worker threads)
+        self._loop.set_default_executor(DrainingExecutor(thread_name_prefix="ferb-worker"))
         self.home.mkdir(parents=True, exist_ok=True)
         os.chmod(self.home, 0o700)
         _raise_file_limit()                     # the egress proxy holds a descriptor per live connection (F5a Task 3)

@@ -387,6 +387,7 @@ class GatewayDeps:
     route_question: Callable[[str, str, list[str]], Awaitable[dict[str, Any]]] | None   # a worker's question
     shadow_action: Callable[[dict[str, Any], str], Awaitable[None]] | None   # advice only (D23 shadow)
     test_send_allowlist: set[str] | None                # test mode only: send-class actions may reach just these
+    standing: Any = None                                # D30: standing permissions (None: every question is asked)
 
 
 class Observer:
@@ -516,6 +517,7 @@ class Gateway:
         # caller was gone (the runtime gave up the call): the same task's identical retry gets this, not a second run
         self._undelivered: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
         self._cancelled_tasks: set[str] = set()
+        # The orchestrator's two seams, given once by `attach` (it is built after the gateway, on top of it)
         self.observer: Observer = Observer()
         self.conversation_guard: Callable[[Any, str, Any, Any], str | None] = lambda grant, name, cap, spec: None
         self.on_path: Callable[[str, str], None] = deps.on_path   # trail attribution
@@ -535,7 +537,7 @@ class Gateway:
         self.changes: file_changes.Changes | None = deps.changes     # L39: copies before a step changes files
         self.confirmations: Confirmations = deps.confirmations       # D33, S4: the owner's answers to FERB
         self.destinations: KnownDestinations = deps.destinations     # SQ6: the destinations FERB knows
-        self.standing: Any = None                                    # D30: the supervisor's standing permissions
+        self.standing: Any = deps.standing                           # D30: standing permissions (shared store)
         self._confirming: dict[str, asyncio.Lock] = {}      # by task tree: one FERB question at a time
         # D31: the Yes a task's approved terminal text left for its one Return, valid only as the task's very next
         # acting call (review round 1, finding 3): any other acting call clears it
@@ -544,6 +546,11 @@ class Gateway:
         # folders its shell commands may change (ToolContext.folders). Step 8 sets them from the planner's `folders`
         # field; until then none, so commands change only hidden folders, ~/Library, temp and the workspace.
         self.task_folders: dict[str, tuple[str, ...]] = {}
+
+    def attach(self, observer: Observer, conversation_guard: Callable[[Any, str, Any, Any], str | None]) -> None:
+        """The orchestrator's seams, given once when it is built on top of this gateway: its observer of calls and
+        owner waits, and the delegated-conversation guard."""
+        self.observer, self.conversation_guard = observer, conversation_guard
 
     def _in_background(self, work: Awaitable[Any], what: str) -> None:
         """Fire-and-forget work, kept referenced until it ends; a failure is journaled (`journal_problem`), never lost

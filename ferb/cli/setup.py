@@ -1005,8 +1005,3 @@ def _voice_helper(env: Env, run: Callable[..., Any] | None = None) -> str | None
     if config.get("voice", "requirement") not in (None, req):   # push-to-talk checks the same app's signature
         config.set("voice", "requirement", req)
     return req
-
-
-def _voice_name(env: Env) -> str:
-    """The name macOS shows for the voice/speech app in permission prompts."""
-    return "FERB Voice" if env.inst.bundle is not None else "FERB"

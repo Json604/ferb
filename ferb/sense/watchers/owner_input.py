@@ -7,6 +7,8 @@ import threading
 import time
 from typing import Any, Callable
 
+from ferb.device.autorelease import pool
+
 FERB_EVENT_MARK = 0x46455242            # "FERB"
 
 
@@ -64,7 +66,8 @@ class OwnerInput:
             marked = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGEventSourceUserData) == FERB_EVENT_MARK
             if self.on_text is not None and etype == Quartz.kCGEventKeyDown:
                 try:
-                    self.on_text(event, marked)
+                    with pool():                   # CFRunLoopRun below never drains one; capture reads Accessibility
+                        self.on_text(event, marked)
                 except Exception:
                     pass                           # capture must never disturb input delivery
             if not marked:

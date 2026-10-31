@@ -260,6 +260,17 @@ from installed apps, terminal detection fails closed)*
   mouse-moved monitors and `PreviewHoverRouter`; whether the live app gets AppKit's call wasn't measurable without
   moving the owner's pointer (other overrides: PanelCoordinator, FerbIndicator, PanelResizeOverlay).
 
+## Rulings (step 12d, technical)
+- The shell's egress proxy listened with socketserver's default backlog of 5. macOS answers a connect past a full
+  backlog with a reset, so whenever the accept loop fell behind (the process busy, a burst of connections) a client got
+  `ConnectionResetError` before the proxy saw it: the cause of the flaky
+  `test_many_unauthenticated_connections_neither_starve_a_client_nor_the_daemon` (reset at the flood's connect, ~1 run
+  in 3 under full-suite load), and a real weakness: a package manager's parallel downloads, or a flood, could reset a
+  legitimate client the same way. Measured with one busy thread in the process, 8 runs of the test each: backlog 5,
+  8 of 8 reset; backlog 128, none (25 of 25 alone as well). Ruling: the proxy, and the Claude runtime's tool-list relay
+  (ferb/runtimes/proxy.py, same default), listen with `socket.SOMAXCONN` (the kernel caps it at kern.ipc.somaxconn,
+  128 here). The test is unchanged.
+
 ## Measurements (step 0, 2026-10-30)
 - **Sandbox semantics, measured with `sandbox-exec` on scratch folders:**
   - `deny file-write-unlink` blocks unlink, rmdir, renaming a file out of or within the folder, and renaming onto an

@@ -86,7 +86,10 @@ _FOLDED_NEEDLES = re.compile("|".join(sorted({re.escape(n) for needles, folded i
 PRIVATE_KEY_START = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----")
 PRIVATE_KEY_END = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----")
 _KEY_BODY = re.compile(r"(?:(?:\r\n|\r|\n|\\r\\n|\\n|\\r)[ \t]*(?:[A-Za-z0-9+/=]++|(?:Proc-Type|DEK-Info|Comment|"
-                       r"Version|Hash|Charset):[^\r\n\\]*+)?[ \t]*+(?=[\r\n\"]|\\[rn]|$))*+")     # whole lines only
+                       r"Version|Hash|Charset):[^\r\n\\]*+)?[ \t]*+(?=[\r\n\"]|\\[rn]|$))*+"     # whole lines, then
+                       # a last line whose base64 run is followed by other text on that line (step 12d fuzz: a pasted
+                       # key with words after it on its last line kept that line)
+                       r"(?:(?:\r\n|\r|\n|\\r\\n|\\n|\\r)[ \t]*[A-Za-z0-9+/=]{16,}+)?")
 # A JSON web token, read once (a failed start skips its run of token characters).
 _JWT_START = re.compile(r"eyJ(?<![A-Za-z0-9_-]eyJ)")
 JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}+\.[A-Za-z0-9_-]{8,}+\.[A-Za-z0-9_-]{8,}+")

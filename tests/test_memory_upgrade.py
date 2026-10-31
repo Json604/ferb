@@ -10,7 +10,7 @@ from typing import Any
 
 from ferb.store import db as dbmod
 from ferb.store.db import Database
-from tests.test_planner_context import _own_daemon
+from tests.support.schedules import own_daemon as _own_daemon
 
 AT = "2026-10-24T05:44:31.624567+05:30"
 PERSONA_DUMP = ("Apps you use: Brave Browser (10652 recorded uses), Code (5162 recorded uses), Google Chrome (2022 "

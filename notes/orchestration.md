@@ -456,7 +456,12 @@ to commit c6621c3. S = supervisor.py, M = main.py.
       the planner's instructions get `facts()` only.)
 - [x] Task state shown once (today up to 4 times: S:1765, 1772, 1783, 1926). (Step 8c: `_task_state`; the
       timeline's task rows and since-last-talk's task answers removed.)
-- [ ] Memory and activity blocks shrink per notes/memory.md (hybrid; accessibility out of the activity search).
+- [x] Memory and activity blocks shrink per notes/memory.md (hybrid; accessibility out of the activity search).
+      (Step 9b, checked in step 12d: one fused search within per-role limits, the planner's memory / old chat / activity
+      within limits on a 10,000-fact store (tests/test_memory_recall.py
+      `test_the_planners_memory_old_chat_and_activity_stay_within_their_limits_whatever_the_store`), accessibility out
+      of today's activity and its search (tests/test_perception_9b.py
+      `test_accessibility_rows_stay_out_of_todays_activity_and_its_search`, `test_activity_stays_within_its_limit_and_says_what_it_left_out`).)
 
 ### Attempt loop
 - [x] Merge dispatcher into the checker; remove `_dispatch`, NOTHING_TO_RECHECK, RECHECK_NOTHING_STOP (S:3213-3218,

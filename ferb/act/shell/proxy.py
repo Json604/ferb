@@ -197,12 +197,6 @@ class HelloReader:
         return None
 
 
-def parse_sni(buf: bytes) -> str | None:
-    """The SNI host from a client's first bytes (HelloReader in one go): None while more bytes are needed, NOT_HELLO,
-    "" for a complete ClientHello without an SNI, else the lowercased host."""
-    return HelloReader().feed(buf)
-
-
 def _literal(host: str) -> bool:
     try:
         ipaddress.ip_address(host.split("%", 1)[0])
@@ -484,6 +478,10 @@ class EgressProxy:
 
         class Server(http.server.ThreadingHTTPServer):
             daemon_threads = True
+            # The listen backlog. socketserver's default is 5, and macOS answers a connect past a full backlog with a
+            # reset: a burst of connections (a package manager's parallel downloads, or an unauthenticated flood)
+            # reset legitimate clients before the accept loop ran. The kernel clamps this to kern.ipc.somaxconn.
+            request_queue_size = socket.SOMAXCONN
 
             def handle_error(self, request: Any, client_address: Any) -> None:
                 # Kept, never logged with request bytes (rule 14): only the type, which `ferb doctor` shows

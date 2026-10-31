@@ -151,7 +151,7 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
 - [x] Direct replies name their source (screen / memory / general knowledge) and say guesses as guesses (2 of 3
       "who is on my screen" replies were wrong and corrected by the owner).
       (Step 10b: rule R4 in supervisor.md's "reply" and the worker's `answer` field.)
-- [ ] (Step 8c added minimal supervisor.md lines for code it needs: the pause trigger, every chat's running tasks, messages
+- [x] (Step 8c added minimal supervisor.md lines for code it needs: the pause trigger, every chat's running tasks, messages
       read together, folders, keep_tabs_open, identity/plan changes through retry; the rewrite is step 10.)
       (Step 8d added the parts lines: several asks as `parts`, direct or answer_step, conditions per part, no summing-up
       step, a one-ask plan ends in one step.)
@@ -176,6 +176,7 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       and the restart rule's "messages read together", folders, keep_tabs_open, retry for identity/plan changes, parts,
       until/set_end, the remember/forget contract with login_origin (example removed), replaces, until, review_in_days and
       the real memory block names; the step-9b tool lines are in worker.md's "Pull context" line.)
+      (Step 12d: checked against supervisor.md and worker.md as step 10b left them; nothing left to do here.)
 - [x] Live re-test list adds prompt-only behaviours: the pause trigger, asking only what/who/which, asking before
       installing a named tool (the 10-14 Mole task failed with "not installed" instead of asking), how-note quality.
       (Step 10b: in notes/tests.md "Live re-test list (step 13)", one list with the patch re-tests.)
@@ -219,7 +220,7 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       (Step 10b: checked, structural: the only path to attention.md is a `perception.attention` event, which only a Jev
       yes publishes (sense/batches.py `_attention`), and nothing batches while Jev is off (memory decision 4). No gate
       added: tests publish that event directly to drive considerations.)
-- [ ] Code: remove the Layer 3 catalog copy (main.py:3943); EFFECT_HELP/DESTINATION_SCHEMA once, not per tool if the
+- [x] Code: remove the Layer 3 catalog copy (main.py:3943); EFFECT_HELP/DESTINATION_SCHEMA once, not per tool if the
       runtime allows; catalogs and tool-fetch lines only to roles with tools (supervisor.py:654-656) (step 9a: done,
       `TOOLLESS_ROLES`); worker types
       out of the droppable activity block (main.py:3943-3946) into a fixed planner block; per-role schemas; remove
@@ -228,14 +229,14 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       checker's context); EFFECT_HELP + DESTINATION_HELP once in the worker's instructions (`{effects}`), each acting
       tool's `effect`/`destination` fields carry a one-line pointer (EFFECT_FIELD, DESTINATION_FIELD). Already done
       earlier and checked: worker types in Layer 1 (8c), per-role worker schemas (8b), `steer` out of TaskControl and
-      procedure/notification/map out of the schemas (step 3, 8a).)
-- [ ] Code-written context strings (REFUSED_PASS, CHANGED_FILES, CHECK_DIDNT_LOOK, NOTHING_TO_RECHECK, REPORT_*):
+      procedure/notification/map out of the schemas (step 3, 8a).) (Step 12d: ticked; every part is done above.)
+- [x] Code-written context strings (REFUSED_PASS, CHANGED_FILES, CHECK_DIDNT_LOOK, NOTHING_TO_RECHECK, REPORT_*):
       re-check against the merged checker; remove those for removed paths.
       (Step 8b: CHECK_DIDNT_LOOK, NOTHING_TO_RECHECK, RECHECK_NOTHING_STOP and REPORT_*/WATCH_* removed; REFUSED_PASS,
       CHANGED_FILES, NO_LOOK kept; the step-10 rewrite re-checks the rest.)
       (Step 10b: REFUSED_PASS, CHANGED_FILES, OTHER_CHANGES, NO_LOOK and NO_TOOLS_LOADED match the merged checker and
       stay; the "Preliminary observations" block now says it is code's literal predicate, never the judgment (the line
-      left verifier.md); LOOP_ROUND keeps only its data line.)
+      left verifier.md); LOOP_ROUND keeps only its data line.) (Step 12d: ticked; nothing for a removed path is left.)
 - [x] Patch mapping table (decision 2): trace each patch (git log -S), sort into memory / rule / tool / code; owner
       reviews; owner confirms the memory items; then remove the patches.
       (Step 10a: notes/prompt-patches.md; owner approved 2026-10-31, decision 4. Step 10b applied it: the 10 rules in

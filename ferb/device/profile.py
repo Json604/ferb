@@ -52,11 +52,6 @@ class DeviceProfile:
                    [AppInfo(**a) for a in d["apps"]], [BrowserInfo(**b) for b in d["browsers"]])
 
 
-def methods_for(app: AppInfo) -> list[str]:
-    """List declared app transports as evidence; agents choose the method."""
-    return (["applescript"] if app.scriptable else []) + ["ax", "screenshot"]
-
-
 @dataclass(frozen=True)
 class ProfileDiff:
     added: list[str]

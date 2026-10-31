@@ -58,7 +58,7 @@ from ferb.orchestrator.ports import (BrowserPort, DesktopPort, EnvironmentPort, 
                                     QuestionRouter, SchedulePort)
 from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
-from ferb.orchestrator.evidence import PAGE_CHARS, how_facts, memory_origin, recorded_calls
+from ferb.orchestrator.evidence import PAGE_CHARS, how_facts, recorded_calls
 from ferb.orchestrator.guards import STALL_S, Activity
 from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line,
                                      round_reason, short_label)
@@ -139,11 +139,6 @@ async def _value(result: Any) -> Any:
     reads files, or writes a login name, in a thread), so the event loop keeps serving acknowledgements and live lines
     while it runs (L8). Recall stays synchronous."""
     return await result if inspect.isawaitable(result) else result
-
-
-def _env_text(env: dict[str, Any]) -> str:
-    """The environment summary (stable enough to sit before the owner's message)."""
-    return (env["stable"] + "\n\n") if env.get("stable") else ""
 
 
 # A scheduled run whose task stream ended with no outcome: code knows only that
@@ -764,12 +759,10 @@ class Supervisor(WorkerRuns):
         self.sessions: dict[str, ChatSession] = {}
         self.continuity = Continuity(journal.db, gateway.redact, spans.task_origins)
         self.plans = PlanStore(journal.db, gateway.redact)
-        self.standing = StandingPermissions(journal.db)
+        self.standing: StandingPermissions = gateway.standing      # D30, one store shared with the gateway
         from ferb.orchestrator.conversations import ConversationStore
         self.conversations = ConversationStore(journal.db, clock, gateway.redact, publish)
-        self.gateway.conversation_guard = self.conversations.guard
         self.on_conversation_resume: Callable[[], None] = notify.on_conversation_resume
-        self.gateway.standing = self.standing
         self._plan_runs: dict[str, PlanExecutor] = {}
         # decision 19: the check of the task's conditions at a loop's or conversation's end, when it is an answer step
         # ((tree, step) -> verified, verification, note), taken into that step's output
@@ -840,7 +833,7 @@ class Supervisor(WorkerRuns):
         self.question_answered: Callable[[Any], str] = memory.question_answered
         self.settle: Callable[[], Awaitable[None]] = memory.settle
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
-        gateway.observer = _Watch(self)
+        gateway.attach(_Watch(self), self.conversations.guard)
         questions.bind(self.route_question)        # the gateway's worker questions reach this orchestrator
 
     def _approach(self) -> str:

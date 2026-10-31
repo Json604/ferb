@@ -93,10 +93,6 @@ def _words(text: str) -> list[str]:
         return [w.strip("'\"") for w in re.findall(r"&&|\|\||[;&|()\n]|[^\s;&|()]+", text)]
 
 
-def _commands(words: list[str]) -> list[list[str]]:
-    return [c for c, _ in _piped(words)]
-
-
 def _piped(words: list[str]) -> list[tuple[list[str], str]]:
     """Each simple command with the operator after it ("" at the end)."""
     out: list[tuple[list[str], str]] = [([], "")]

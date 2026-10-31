@@ -42,7 +42,7 @@ chat notice (section 16); it never authorizes a task or a send.
 | The Mac app (notch UI, the product) and its setup console | [`ui/mac/FERBNotch`](ui/mac/FERBNotch/) |
 | Packaged FERB.app: build, signing, agent stub | [`scripts/build-app.sh`](scripts/build-app.sh), [`scripts/build-dmg.sh`](scripts/build-dmg.sh), [`scripts/signing.sh`](scripts/signing.sh), [`ui/mac/FERBAgent`](ui/mac/FERBAgent/) |
 | Chat events: acknowledgement, live line, front window, hearing | [`acks.py`](ferb/orchestrator/acks.py), [`progress.py`](ferb/orchestrator/progress.py), [`sense/front_window.py`](ferb/sense/front_window.py), [`act/listen.py`](ferb/act/listen.py), [`sense/transcribe.py`](ferb/sense/transcribe.py) |
-| Measurement: regression runner, security test harness, FERB's resource log | [`eval/regress.py`](ferb/eval/regress.py), [`eval/security/`](ferb/eval/security/), [`daemon/resources.py`](ferb/daemon/resources.py) |
+| Measurement: FERB's resource log | [`daemon/resources.py`](ferb/daemon/resources.py) |
 
 Public store methods own their queries. Keep edits within these responsibilities. Split a module only for a real
 ownership boundary; do not add wrappers to preserve dead behavior.
@@ -808,7 +808,7 @@ the developer block is the recorded context with every label; a task result can'
 answer that followed a planted instruction still asks on both paths, with the same L3 and S4 rules) and the owner-run
 live eval [`tests/security/test_planner_injection_real.py`](tests/security/test_planner_injection_real.py) (18 planted
 instructions, both paths, each run proving it tested its path; [security catalog](docs/0.27_SECURITY_TESTS.md),
-"Planner context in Codex's developer role"). [`tests/test_codex_prompt_cache.py`](tests/test_codex_prompt_cache.py) pins the request shape to Codex 0.157.1
+"Planner context in Codex's developer role"). `tests/test_codex_prompt_cache.py` (deleted in step 12d) pinned the request shape to Codex 0.157.1
 through the loopback model server: tools, developer (system prompt), developer (context), user (tail); the fixed key;
 no multi-agent tool; otherwise identical to today's thread. The owner's checks are in
 [owner acceptance](docs/OWNER_ACCEPTANCE.md), "Planner prompt caching".

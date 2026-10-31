@@ -391,3 +391,21 @@ def test_the_stream_masks_exactly_as_the_text_redactor_on_random_corpus_text() -
         if (out + stream.feed(b"", final=True)).decode() != r.text(text):
             bad.append(text)
     assert bad == [], bad[:3]
+
+
+def test_a_vendor_secret_anywhere_in_ordinary_text_is_always_masked() -> None:
+    """Fuzz (tests target design 1): every vendor-table secret, placed at a random spot among random ordinary text and
+    separators, is gone from the output, whatever surrounds it; the text around it stays readable."""
+    rng = random.Random(12)
+    separators = [" ", "\n", ", ", "; ", "\t", " - ", "\n\n", ". "]
+    leaks = []
+    r = Redactor()
+    for _ in range(3000):
+        _, text, secret, _ = rng.choice(VENDOR_TABLE)
+        before = [rng.choice(ORDINARY) for _ in range(rng.randint(0, 3))]
+        after = [rng.choice(ORDINARY) for _ in range(rng.randint(0, 3))]
+        whole = "".join(p + rng.choice(separators) for p in before) + text + \
+            "".join(rng.choice(separators) + p for p in after)
+        if secret in r.text(whole):
+            leaks.append(whole)
+    assert leaks == [], leaks[:3]

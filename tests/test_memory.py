@@ -483,7 +483,7 @@ def test_a_memory_question_waits_across_a_restart(home) -> None:
     """Re-review F5 (CLAUDE.md rule 9): a question never expires while it waits. FERB's Yes/No questions about memory
     (keep its wording, forget an item) come back after a restart with the same words; nothing acts before the Yes."""
     import json as _json
-    from tests.test_planner_context import _own_daemon
+    from tests.support.schedules import own_daemon as _own_daemon
     d = _own_daemon(home)
     try:
         said = "I prefer Brave for work"
@@ -550,7 +550,7 @@ def test_a_line_break_ends_a_saved_sentence(daemon: RunningDaemon) -> None:
 def test_a_question_whose_memory_went_while_ferb_was_down_is_not_asked_again(home) -> None:
     """Re-review minor (test gap for F5): a waiting question about a learned item that was deleted outside FERB's
     forget paths is dropped at the next start, with its row."""
-    from tests.test_planner_context import _own_daemon
+    from tests.support.schedules import own_daemon as _own_daemon
     d = _own_daemon(home)
     try:
         node = run(d, lambda: d.daemon.learning.put("lesson", "use brave", {"text": "use brave"}, [],

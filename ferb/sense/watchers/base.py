@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from ferb.device.autorelease import drained, pool
 from ferb.sense.trail import Observation
 
 Emit = Callable[[Observation], None]
@@ -22,7 +23,8 @@ def run_loop_slice(done: threading.Event, interval_s: float) -> None:
     """Pump native events, then wait out any unused slice without spinning on empty run loops."""
     import Quartz
     started = time.monotonic()
-    Quartz.CFRunLoopRunInMode(Quartz.kCFRunLoopDefaultMode, interval_s, False)
+    with pool():                         # what the slice's callbacks autoreleased goes with it (device/autorelease.py)
+        Quartz.CFRunLoopRunInMode(Quartz.kCFRunLoopDefaultMode, interval_s, False)
     # With no sources CFRunLoop returns immediately, ignoring its requested duration.
     # Preserve the watcher's existing cadence; shutdown interrupts this fallback wait.
     remaining = interval_s - (time.monotonic() - started)
@@ -74,7 +76,7 @@ async def poll(interval_s: float, stop: asyncio.Event, step: Callable[[], Any]) 
     failures = 0
     while not stop.is_set():
         try:
-            await asyncio.to_thread(step)
+            await asyncio.to_thread(drained(step))
             failures = 0
         except Exception:
             failures += 1
@@ -103,6 +105,7 @@ class FsStream:
         ready = threading.Event()
         started = False
 
+        @drained                                 # CFRunLoopRun below never drains a pool of its own
         def cb(stream: Any, info: Any, n: int, paths: Any, flags: Any, ids: Any) -> None:
             for i in range(n):
                 self.on_event(str(paths[i]), int(flags[i]))

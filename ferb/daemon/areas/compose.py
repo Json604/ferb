@@ -15,6 +15,7 @@ from ferb.orchestrator.supervisor import Supervisor
 from ferb.orchestrator.verify import Checks
 from ferb.policy import protection as protection_lists
 from ferb.policy.destinations import Confirmations, KnownDestinations
+from ferb.policy.standing import StandingPermissions
 from ferb.registry import add_context_readers
 from ferb.sanitize.redact import Redactor
 
@@ -116,7 +117,8 @@ class Compose:
                                    profile_name=self._profile_display_name,   # browser_pair's question names it
                                    disturbance=self.disturbance, username_sources=self._username_sources,
                                    on_path=self.attribution.ferb_touched, route_question=questions,
-                                   shadow_action=self._destructive_shadow, test_send_allowlist=allowlist))
+                                   shadow_action=self._destructive_shadow, test_send_allowlist=allowlist,
+                                   standing=StandingPermissions(self.db)))
         self.supervisor = Supervisor(
             make_runtime=self._make_runtime, gateway=self.gateway, state=self.state, tokens=self.tokens,
             tasks=self.tasks, spans=self.spans, journal=self.journal, publish=self._publish, clock=self.clock,

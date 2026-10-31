@@ -229,7 +229,13 @@ redact, image redaction, origins).
       (6b: `Gateway._needs` + `_authorize`, see Rulings (step 6b).)
 - [x] Move non-authorization features out of `_call`/`_execute` into post-call hooks. (6b: `call_hooks.py`,
       `hidden_input.py`.)
-- [ ] Constructor-passed dependencies instead of ~20 injected attributes; protection and recovery fail closed.
+- [x] Constructor-passed dependencies instead of ~20 injected attributes; protection and recovery fail closed.
+      (Step 2: `GatewayDeps`, every field required, and `Gateway.__init__` refuses to start without recovery,
+      confirmations, known destinations or the protection lists (gateway.py, "fail closed"). Step 12d: the last three
+      set from outside went: standing permissions are one store built in composition and passed in `GatewayDeps.standing`
+      (the supervisor uses the same one), and the orchestrator's observer and conversation guard arrive through one
+      `Gateway.attach` call when the supervisor is built on top of the gateway. `test_send_allowlist` stays an attribute:
+      it is runtime state the `test.mode` RPC changes, not wiring.)
 - [x] Tool-reported facts for pay / account security / delete / send (decision 1). (5a: `ActionFacts` shape on
       ActionSpec/ToolResult, recorded untouched on the span; deciding from it is step 6. 5b: Mac tools report theirs.
       5c: browser tools report submit + host/method, field kinds, page amount/merchant, frame_host; deciding: step 6.)
@@ -263,8 +269,11 @@ redact, image redaction, origins).
       `terminal.surface(unread=)`. 6b: TLS cases, see policy/tls.py's list.)
 - [x] Window Yeses record destinations like normal Yeses; the 30-minute window stays daemon-wide (owner rule 9).
 - [x] Keep the test-mode send allowlist step (live send tests, CLAUDE.md rule 22), set through config; no CLI command.
-- [ ] Remove dead code listed above. (6b: gateway-side done (NOT_RECORDED paths, `_nothing_known`, `Claimed`, the
+- [x] Remove dead code listed above. (6b: gateway-side done (NOT_RECORDED paths, `_nothing_known`, `Claimed`, the
       None-store branches); the DELETE_PERMANENT branches are reachable from facts now and stay. Left: legacy
       confirmation rows in the DB, step 12.)
+      (Step 12d: the legacy rows need no code of their own: they belong to ended trees, and step 12a's retention deletes
+      confirmations 90 days after their tree ends with the other operational records (ferb/store/retention.py
+      `_BY_TASK`).)
 - [x] File tools bound by never-read / never-write, lift: reads once per folder per task, writes per action (decision 2; hands decision 1).
       (5a: `Gateway._file_lifts`; 6b: folded into the single Need pipeline, `_lift_needs`.)

@@ -85,19 +85,6 @@ def digest(value: Any) -> str:
 # Line breaks JSON keeps raw (`ensure_ascii=False`) that a reader of a prompt splits lines at (`str.splitlines`; JSON
 # already escapes the control characters). Escaped only after redaction, at prompt build: the redactor reads the raw
 # text, and an escape would hide a secret's label from it ("otp\x85 482913")
-_LINE_BREAKS = str.maketrans({'\u2028': '\\u2028', '\u2029': '\\u2029', '\x85': '\\u0085'})
-
-
-def line_safe(text: str) -> str:
-    """JSON text for one line of a prompt: U+2028, U+2029 and U+0085 written as JSON escapes (they appear only inside
-    its strings), so model-written or recorded text never starts a line of its own (Task 5 re-review N3). Prompt only:
-    `encoded`, which stored keys, digests and receipts use, keeps them as they are."""
-    return text.translate(_LINE_BREAKS)
-
-
-def prompt_json(value: Any) -> str:
-    """`value` as `encoded` JSON, `line_safe` for a prompt."""
-    return line_safe(encoded(value))
 
 
 def redacted_json(redact: Callable[[str], str], value: Any, secrets: Iterable[str] = (),

@@ -392,6 +392,51 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
   daemon (tracemalloc or `footprint`/`heap` on the process), which this step did not do (no attaching to the owner's
   process); the step-13 check below repeats the read on the rebuilt code first.
 
+## Footprint (step 12d: measured on the checkout's code)
+- Idle, reproduced on the checkout: a test daemon in a temporary home (`preload_secrets=False`, fake model, no browsers,
+  watchers off, the real clock, resource sampling and retention on) stayed at 108.3 MB for 25 minutes (one reading a
+  minute; tracemalloc's traced memory flat as well). The idle growth does not reproduce without the watchers, and the
+  watchers can't be measured faithfully from a test process: Accessibility answers it nothing (system-wide focused app:
+  -25204), so the AX paths return early.
+- Tasks, reproduced on the checkout: 400 fake tasks (planner, one worker with 8 file tool calls, the checker) after the
+  first 25 (warm-up 108 → 191 MB): 191.3 → 203.4 MB, ~32 KB a task, gc objects +10 a task; nothing near the live
+  200-400 MB per 5 minutes. Python objects are not the holder.
+- Native, measured per call on one long-lived worker thread without and with an autorelease pool (scratch scripts on
+  this Mac, macOS 27.2): on-device text recognition of a 1440×900 image (`recognize_text`, every image FERB sends a
+  model or keeps passes through it) **210 KB a call without a pool, 2-8 KB with one**; NSRunningApplication by pid 269
+  bytes vs 0; an Accessibility window read (`app_window`) 380 vs 0; an AX event's facts 72 vs 33; FSEvents callbacks
+  19 bytes an event. FERB ran all of these on threads that never drain a pool (asyncio's default executor, watcher
+  polls, native run-loop threads), so every image redacted during a task stayed in memory: a task taking screenshots,
+  window pictures and recording frames keeps hundreds of them, which is consistent with the per-task growth seen live
+  (an estimate, not measured on the live process: a Retina capture has about 4× the measured image's pixels).
+- Fixed (ferb/device/autorelease.py): the daemon loop's default executor drains one pool per job (`DrainingExecutor`,
+  so every `asyncio.to_thread` call: image redaction, screenshots, permission and app reads), and so do each watcher
+  poll step, each run-loop slice of the Accessibility and workspace watchers, each FSEvents callback and the owner-input
+  tap's text capture. Guard: tests/test_daemon_foundation.py
+  `test_work_on_the_daemons_threads_drains_its_autorelease_pool` (an object autoreleased in a job is freed when the job
+  ends).
+- Found on the way: on macOS 27.2 Vision refused the Python `{}` FERB passed as its options ("key does not exist"), so
+  every recognition failed and every image was withheld ("image redaction unavailable; pixels withheld"); the options
+  are an NSDictionary now (ferb/sanitize/images.py). Guard: tests/test_screenshot_redaction.py
+  `test_on_device_recognition_reads_an_image_and_its_secret_is_painted_over` (real recognition on a drawn image). Tests
+  had stubbed recognition everywhere, so nothing caught it.
+- The live process is still the old 0dd5185 build (Jev shadow on); the step-13 read of `resource_samples` after a day
+  on the new build says whether idle and per-task growth are gone.
+
+## Rulings (step 12d, technical)
+- One autorelease pool per unit of work on FERB's long-lived threads (above). The owner-input tap's callback itself is
+  not wrapped (it returns the event to the system); only its text capture, which reads Accessibility, is.
+- Standing permissions are built once in composition and passed to the gateway in `GatewayDeps.standing`; the
+  supervisor uses the same store. The supervisor's observer and conversation guard reach the gateway through one
+  `Gateway.attach` call (notes/gateway.md).
+- Removed as dead after the test deletion (no caller left in ferb/): `ferb/eval/release.py`, `regress.py`,
+  `destructive.py`, `eval/sets/` (the owner-acceptance and security catalogues; the P20 injection eval is
+  tests/security/test_planner_injection_real.py with tests/support/injection_scenarios.py), `eval/security/` (its trace
+  scanner moved to tests/support/trace_scan.py for tests/security/test_catalog_replay.py), `context.assemble_context`
+  and `assemble_parts`, `learning.prompt_json` and `line_safe`, `setup._voice_name`, `profile.methods_for`,
+  `eval.memory.paired_results`, `supervisor._env_text`, `tls._commands`, `proxy.parse_sni`, `profiles.has_extension`,
+  `recovery.mark_written` (the async one stays), and five unused imports.
+
 ## Live checks for step 13 (step 12b)
 - Moving from the hand-edited LaunchAgent to SMAppService: build FERB.app (`scripts/build-app.sh`), install it in
   /Applications, open it. Expected: launch decides `.update` (the old ~/Library/LaunchAgents/com.ferb.daemon.plist runs
@@ -414,4 +459,5 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
   fetched` row, nothing under ~/.ferb/models.
 - Settings → AI → Sign out of Claude signs FERB's Claude out; a failed Claude sign-in says why without a `ferb` command.
 - Footprint: after a day on the rebuilt code, read `resource_samples` again (idle and per-task growth); if it still
-  grows, a tracemalloc snapshot through a developer RPC (owner's go) names the holder.
+  grows, a tracemalloc snapshot through a developer RPC (owner's go) names the holder. (Step 12d: the autorelease-pool
+  fix above is what this read checks first.)

@@ -154,7 +154,7 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     from ferb.config import Config
     from ferb.device.persona import PersonaState
     from ferb.store import cleanup
-    from tests.test_planner_context import _own_daemon
+    from tests.support.schedules import own_daemon as _own_daemon
     home.mkdir(parents=True)
     home.chmod(0o700)
     _older_build(home / "ferb.db", 48, with_0040=True)
@@ -192,7 +192,7 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
 def test_the_memory_upgrade_on_an_older_store_runs_once(home: Path) -> None:
     """Tier 1 seeded once from the facts an older store holds; a second start changes nothing (the embeddings are
     filled in the background once the model is there: tests/test_memory_search.py)."""
-    from tests.test_planner_context import _own_daemon
+    from tests.support.schedules import own_daemon as _own_daemon
     home.mkdir(parents=True)
     _older_build(home / "ferb.db", 44)
     _rows(home / "ferb.db")
@@ -213,7 +213,7 @@ def test_jev_stays_off_after_an_upgrade_even_with_a_key(home: Path, monkeypatch:
     the Keychain is never touched), starts with Jev off: no decider, no Keychain read, no request to Jev, also after a
     reload; the switch is the only thing that turns it on."""
     from ferb.daemon.areas.jev import JevGlue
-    from tests.test_planner_context import _own_daemon
+    from tests.support.schedules import own_daemon as _own_daemon
     asked: list[str] = []
 
     async def key(self: Any) -> str:

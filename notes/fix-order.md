@@ -83,6 +83,16 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     signed helper) and the clean-up screen; "Uninstall FERB and delete all its data" (`ferb uninstall --purge --yes`);
     the owner-data RPCs FERB.app-only; memory import's page card and `.jsonl.zst` Codex rollouts (localized Takeout
     left: no structural marker). Rulings, UI pieces for the owner to polish and live checks in notes/daemon.md.)
+    (Step 12d: the suite cut to the target design's shape: 3 new chat-level safety runs (tests/test_safety_runs.py),
+    an import check, a redaction fuzz that found and fixed a truncated-private-key leak; 109 test files deleted (listed
+    in notes/tests.md), the safety files and past-bug guards kept; 300 → 193 files, 92.9k → 67.6k lines, 5,545 → 4,246
+    offline items, 20 min → 10 min (both measured with other work on this Mac). Per-test trimming inside the kept files
+    is left (notes/tests.md). The egress-proxy flake fixed at its cause (listen backlog 5 → SOMAXCONN; notes/hands.md).
+    The daemon footprint: not reproduced idle without watchers; Python objects ~32 KB a task; the native holder found
+    — Cocoa objects on threads that never drained an autorelease pool, 210 KB per image recognized — and fixed with one
+    pool per unit of work; on-device recognition was failing on macOS 27.2 (every image withheld), fixed. Gateway
+    seams finished (`GatewayDeps.standing`, `Gateway.attach`); dead eval code and functions removed. Notes: daemon.md
+    "Footprint (step 12d)" and its rulings, gateway.md, hands.md, tests.md.)
 13. **Live checks**: per-adapter live tests, the owner's P20 injection eval, the patch re-test list, the safety suite.
 14. **Docs cleanup** last: extract `notes/test-tasks.md`, settle CLAUDE.md/AGENTS.md, delete the old docs, rewrite
     the README.

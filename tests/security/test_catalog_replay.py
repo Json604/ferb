@@ -1,6 +1,6 @@
 import json
 import pytest
-from ferb.eval.security.replay import scan_trace
+from tests.support.trace_scan import scan_trace
 from tests.conftest import Answers, FakeCap, gateway_request, gateway_setup, gateway_tool_call
 from tests.support.scenarios import SCENARIOS
 
