@@ -122,8 +122,8 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     (Owner, 2026-11-01: a fresh start before the new install: every old build and FERB program file removed, the data
     kept, settings and sign-ins removed, permissions reset; the list is in notes/test-tasks.md "Before step 13".)
 15. **Setup redo** (owner, 2026-11-01: "a full redo on the setup of ferb too. its too bad experience, UI and UX"):
-    the owner brings a plan made in another chat and does this step together with me after the review fixes. Since
-    the fresh start installs through setup, the owner decides whether it comes before step 13's install.
+    the owner brings a plan made in another chat and does this step together with me after the review fixes. It
+    comes before step 13's fresh install (owner, 2026-11-01: "we had to redo the startup setup before i try fresh").
 14. **Docs cleanup** last: extract `notes/test-tasks.md`, settle CLAUDE.md/AGENTS.md, delete the old docs, rewrite
     the README.
     (Step 14a, 2026-10-31: `notes/test-tasks.md` holds the surfaces, the one step-13 checklist (11 sittings) and the
