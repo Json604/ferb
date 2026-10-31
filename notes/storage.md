@@ -137,6 +137,13 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
       in-window traces (`cleanup.PROTECTED`, asserted). The automatic C1 card clean-out during `--update` is folded into
       it (it now waits for the OK too). The app screen is step 12b. Tests: tests/test_setup_flow.py,
       tests/test_card_source_cleanout.py.)
+      (Step 12c: the app's screen, Settings → Data → Clean up: runs `ferb setup --cleanup`, shows each step (what,
+      rows), the total, the file's size, whether it compacts and the free disk, then OK runs `--cleanup --ok DIGEST`
+      with the preview's digest and shows the progress line and the result (removed rows, sizes before/after, or why it
+      didn't run: refused when the plan changed, a daemon still answering, an error). The doctor's "waiting for your OK"
+      reaches the app as `doctor.check`'s `database.cleanup_pending` (Health → Database, the Data page, About).
+      The digest refusal is tests/test_setup_flow.py::test_the_cleanup_refuses_without_the_owners_ok…; the app's
+      parsing is AppScreensTests.)
 - [x] Upgrade path from any older build (decision 5), tested on copies of real older databases and configs.
       (Step 12a: tests/test_upgrade.py builds stores as older builds left them (schemas 18, 30, 40 with the deleted 0040,
       44, 48 with and without 0040, 52, 55; the pre-checksum runner) and an older config.toml (persona under [setup],
@@ -185,6 +192,12 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
       by time in SQL and takes a limit; `timeline.get` returns the newest 1,000 rows and `more`. `Continuity.history`
       was already paged in step 9b.)
 - [x] The 3.09 GB `ferb.db.before-restore-20261025-224330` deleted (decision 2).
+
+## Rulings (step 12c, technical)
+- The retention rules are one table, `retention.RULES` (what, where, how long, the window name, the setting and its
+  default): the hourly pass reads its windows from it (`retention.windows`), settings.py its retention defaults, and
+  FERB's self-description and the app's About page its rows (`retention.describe`, notes/daemon.md decision 6).
+- Migration 0057 adds `attention_notices.cards_json` (a notice's typed cards; no owner data moved or deleted).
 
 ## Rulings (step 12a, technical)
 - Retention lives in ferb/store/retention.py; the daemon's area only runs it hourly. Reads that scan (the intake

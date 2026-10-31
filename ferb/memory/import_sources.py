@@ -19,13 +19,16 @@ Five sources (decision 3), each read from where the owner keeps it:
   the owner's: `user` records that are not meta, not a compact summary, not a sidechain and not a tool result, whose
   `turnOrigin` (when recorded) is human. Subagent transcripts (`subagents/`) and SDK sessions (`entrypoint` sdk-*: a
   program's prompts) are left out. Its saved memory notes (`<project>/memory/*.md`) are the assistant's claims.
-- `codex`: Codex CLI's local sessions `~/.codex/sessions/**/rollout-*.jsonl` (and `archived_sessions/`): only
+- `codex`: Codex CLI's local sessions `~/.codex/sessions/**/rollout-*.jsonl` (and `archived_sessions/`; a rollout Codex
+  compressed, `rollout-*.jsonl.zst`, is read the same way through `zstandard`): only
   interactive sessions (`session_meta.source` "cli" or "vscode"; `codex exec` runs and subagent threads carry prompts
   programs wrote). Owner turns are `response_item` messages of role user that Codex didn't inherit from a parent thread.
 - `gemini`: Google Takeout, "My Activity" → "Gemini Apps": `MyActivity.json` (each record a prompt: `title` "Prompted
   …", `time` in UTC, the reply's HTML in `safeHtmlItem`; or the variant with `details` Request / Response) or
   `MyActivity.html` (the same in `outer-cell` blocks, the time written in a local zone). No thread ids: a day's prompts
-  read as one conversation. English Takeout's "Prompted" marks a prompt (other languages: not yet read).
+  read as one conversation. English Takeout's "Prompted" marks a prompt. Other languages write their own marker
+  word(s) in the same title with nothing structural around them (no separate field, no markup), so they aren't read:
+  telling the marker from the prompt would take a list of words per language (step 12c ruling).
 
 What every reader shares (`finish`): only messages from the last three months by their own time (decision 1); text
 blocks a client injected into a turn (`<tag>…</tag>`: command output, environment context, pasted content) are not the
@@ -220,18 +223,33 @@ def _iso(value: Any) -> datetime | None:
     return at if at.tzinfo else at.replace(tzinfo=UTC)
 
 
+def _lines(path: Path) -> Iterator[str]:
+    """A JSON Lines file's lines; a `.zst` one (Codex compresses rollouts) decompressed as it is read."""
+    if path.suffix == ".zst":
+        import io
+        import zstandard
+        with path.open("rb") as raw, zstandard.ZstdDecompressor().stream_reader(raw) as unzipped:
+            yield from io.TextIOWrapper(unzipped, encoding="utf-8", errors="replace")
+        return
+    with path.open(encoding="utf-8", errors="replace") as fh:
+        yield from fh
+
+
 def _jsonl(path: Path) -> Iterator[dict[str, Any]]:
     try:
-        with path.open(encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if line.strip():
-                    try:
-                        record = json.loads(line)
-                    except ValueError:
-                        continue
-                    if isinstance(record, dict):
-                        yield record
+        for line in _lines(path):
+            if line.strip():
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(record, dict):
+                    yield record
     except OSError:
+        return
+    except Exception as e:                       # a damaged compressed file: what was read stays, the rest is skipped
+        if type(e).__name__ != "ZstdError":
+            raise
         return
 
 
@@ -549,13 +567,16 @@ def claude_code(root: Path) -> Iterator[Conversation]:
 
 def codex(root: Path) -> Iterator[Conversation]:
     root = root.expanduser()
-    files = sorted(root.glob("sessions/**/rollout-*.jsonl")) + sorted(root.glob("archived_sessions/**/rollout-*.jsonl"))
+    def found(pattern: str) -> list[Path]:
+        return sorted([*root.glob(pattern + ".jsonl"), *root.glob(pattern + ".jsonl.zst")])
+    files = found("sessions/**/rollout-*") + found("archived_sessions/**/rollout-*")
     if not files and root.is_dir():
-        files = sorted(root.glob("**/rollout-*.jsonl"))
+        files = found("**/rollout-*")
     if not root.is_dir():
         raise ImportUnreadable(f"no Codex sessions at {root}")
     for path in files:
-        out, interactive = Conversation("codex", path.stem.removeprefix("rollout-"), ""), None
+        stem = path.name.removesuffix(".zst").removesuffix(".jsonl").removeprefix("rollout-")
+        out, interactive = Conversation("codex", stem, ""), None
         for r in _jsonl(path):
             raw = r.get("payload")
             payload: dict[str, Any] = raw if isinstance(raw, dict) else {}

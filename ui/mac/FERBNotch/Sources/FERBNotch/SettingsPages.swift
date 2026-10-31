@@ -3,7 +3,7 @@ import SwiftUI
 import NotchCore
 
 enum SettingsTab: Hashable, CaseIterable, Identifiable {
-    case general, ai, permissions, browsers, notifications, privacy, advanced
+    case general, ai, permissions, browsers, notifications, privacy, data, advanced, about
 
     var id: SettingsTab { self }
 
@@ -15,7 +15,9 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         case .browsers: return "Browsers"
         case .notifications: return "Notifications"
         case .privacy: return "Privacy"
+        case .data: return "Data"
         case .advanced: return "Advanced"
+        case .about: return "About"
         }
     }
 
@@ -27,7 +29,9 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         case .browsers: return "globe"
         case .notifications: return "bell"
         case .privacy: return "hand.raised"
+        case .data: return "externaldrive"
         case .advanced: return "slider.horizontal.3"
+        case .about: return "info.circle"
         }
     }
 }
@@ -40,6 +44,7 @@ struct SettingsView: View {
     @StateObject private var aiOutput = FerbOutput()
     @StateObject private var advancedOutput = FerbOutput()
     @StateObject private var privacyDraft = PrivacySettingsDraft()
+    @StateObject private var cleanup = CleanupRunner()
 
     var body: some View {
         Group {
@@ -52,7 +57,9 @@ struct SettingsView: View {
             case .browsers: BrowsersSettingsPage(actions: actions)
             case .notifications: NotificationsSettingsPage(store: store)
             case .privacy: PrivacySettingsPage(store: store, draft: privacyDraft)
+            case .data: DataSettingsPage(store: store, actions: actions, cleanup: cleanup)
             case .advanced: AdvancedSettingsPage(store: store, actions: actions, output: advancedOutput)
+            case .about: AboutSettingsPage(store: store)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -80,12 +87,13 @@ struct GeneralSettingsPage: View {
                 Section("Updates") { UpdatesSection(updates: updates) }
             }
             Section("Notch") {
-                LabeledContent("Open / close FERB", value: "Double-tap right Option, or Control–Option–Space")
-                LabeledContent("Dictation", value: "Hold right Command + Option")
+                // The keys come from the app guide (NotchCore AppGuide), the list FERB's self-description also reads.
+                LabeledContent("Open / close FERB", value: AppGuide.keys("Open / close FERB"))
+                LabeledContent("Dictation", value: AppGuide.keys("Dictation"))
                 Toggle("Send dictation when I let go of the keys", isOn: $sendOnRelease)
                 Text("A dictated message is answered aloud as well as in the chat.")
                     .font(.caption).foregroundStyle(.secondary)
-                LabeledContent("Submit / new line", value: "Return / Shift–Return")
+                LabeledContent("Submit / new line", value: AppGuide.keys("Submit / new line"))
                 Toggle("Open when I hover over FERB", isOn: $hoverEnabled)
                     .onChange(of: hoverEnabled) { _, enabled in onHoverEnabledChange?(enabled) }
                 Text("You can change this any time here, or ask FERB to turn hover opening on or off.")
@@ -131,10 +139,13 @@ final class FerbOutput: ObservableObject {
         }
     }
 
-    func uninstall(with actions: FERBAppActions) {
+    func uninstall(with actions: FERBAppActions, purge: Bool = false) {
         actions.beforeUninstall?()
-        run(["uninstall"], with: actions)
+        run(Self.uninstallArguments(purge: purge), with: actions)
     }
+
+    /// `ferb uninstall`, or with everything deleted after the owner's one Yes here (`--purge --yes`).
+    static func uninstallArguments(purge: Bool) -> [String] { purge ? ["uninstall", "--purge", "--yes"] : ["uninstall"] }
 }
 
 private struct OutputLines: View {
@@ -213,9 +224,12 @@ struct BrowsersSettingsPage: View {
 
     var body: some View {
         if let setup = actions.setup {
-            Form { BrowsersStepView(model: setup) }
+            Form {
+                BrowsersStepView(model: setup)
+                Section("FERB's own account") { IdentityStepView(model: setup, showsHeader: false) }
+            }
                 .formStyle(.grouped)
-                .task { await setup.refreshBrowsers() }
+                .task { await setup.refreshBrowsers(); await setup.refreshIdentity() }
         } else {
             Form { OnlyInTheApp() }.formStyle(.grouped)
         }
@@ -284,6 +298,7 @@ struct PrivacySettingsPage: View {
                 DaysStepper(title: "Screenshots and evidence", key: "retention.evidence_days", store: store)
                 DaysStepper(title: "Recovery copies", key: "retention.recovery_days", store: store)
                 DaysStepper(title: "Resource log", key: "retention.resource_days", store: store)
+                DaysStepper(title: "Operational records", key: "retention.operational_days", store: store)
             }
         }
         .formStyle(.grouped)
@@ -337,6 +352,7 @@ struct AdvancedSettingsPage: View {
     let actions: FERBAppActions
     @ObservedObject var output: FerbOutput
     @State private var confirmUninstall = false
+    @State private var confirmPurge = false
 
     private var logs: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ferb/logs", isDirectory: true)
@@ -378,6 +394,8 @@ struct AdvancedSettingsPage: View {
                     Button("Install command-line tool") { output.run(["setup", "--cli"], with: actions) }
                         .disabled(output.running)
                     Button("Uninstall FERB…") { confirmUninstall = true }.disabled(output.running)
+                    Button("Uninstall FERB and delete all its data…", role: .destructive) { confirmPurge = true }
+                        .disabled(output.running)
                     OutputLines(output: output)
                 }
             }
@@ -389,6 +407,216 @@ struct AdvancedSettingsPage: View {
         } message: {
             Text("FERB stops its background service and removes its browser connection, its login item and the `ferb` " +
                  "link. Your data in ~/.ferb stays. Then quit FERB and drag it to the Trash.")
+        }
+        // Permanent (decision 8): asked once here; the command then runs without another question.
+        .alert("Uninstall FERB and delete everything?", isPresented: $confirmPurge) {
+            Button("Delete Everything", role: .destructive) { output.uninstall(with: actions, purge: true) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This can't be undone. FERB stops and deletes ~/.ferb (its memory, history, settings and FERB's own " +
+                 "browser data) and every FERB item in your Keychain: API keys, the secrets and cards you saved, and " +
+                 "FERB's sign-ins. Then quit FERB and drag it to the Trash.")
+        }
+    }
+}
+
+
+// MARK: - Step 12c screens (functional only; the owner polishes them)
+
+/// Settings → About (decision 6): FERB's self-description from the daemon (`about.get`), built from code and config, and
+/// this app's own how-tos and shortcuts. Read-only: every setting is changed on its own page.
+struct AboutSettingsPage: View {
+    @ObservedObject var store: FERBWindowStore
+
+    var body: some View {
+        Form {
+            if let about = store.about {
+                Section("FERB") {
+                    LabeledContent("Version", value: about.version)
+                    ForEach(about.models) { LabeledContent("Model for the \($0.name)", value: $0.value) }
+                    ForEach(about.account) { line in
+                        LabeledContent(line.name, value: line.value)
+                        if !line.note.isEmpty { Text(line.note).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                Section("What FERB keeps about you, where, and for how long") {
+                    ForEach(about.records) { line in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(line.name.prefix(1).uppercased() + line.name.dropFirst())
+                            Text("\(line.value) · \(line.note)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Section("Permissions") { ForEach(about.permissions) { LabeledContent($0.name, value: $0.value) } }
+                Section("Your settings") {
+                    ForEach(about.settings) { line in
+                        VStack(alignment: .leading, spacing: 2) {
+                            LabeledContent(line.name, value: line.value)
+                            Text(line.note).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Section("Health") {
+                    ForEach(about.health) { line in
+                        LabeledContent(line.name, value: line.value)
+                        if !line.note.isEmpty { Text(line.note).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                Section("Cost") {
+                    ForEach(about.cost) { LabeledContent($0.name, value: $0.value) }
+                    if let basis = about.cost.first?.note { Text(basis).font(.caption).foregroundStyle(.secondary) }
+                }
+            } else {
+                ProgressView()
+            }
+            Section("Shortcuts") { ForEach(AppGuide.shortcuts, id: \.action) { LabeledContent($0.action, value: $0.keys) } }
+            Section("How to") { ForEach(AppGuide.howtos, id: \.title) { LabeledContent($0.title, value: $0.steps) } }
+        }
+        .formStyle(.grouped)
+        .task { await store.loadAbout() }
+    }
+}
+
+/// Settings → Data (decision 8, storage decision 4): put back what FERB changed or trashed, delete a saved secret or
+/// card, and the one-time clean-up of data FERB no longer uses.
+struct DataSettingsPage: View {
+    @ObservedObject var store: FERBWindowStore
+    let actions: FERBAppActions
+    @ObservedObject var cleanup: CleanupRunner
+    @State private var deleting: SavedSecretRow?
+
+    var body: some View {
+        Form {
+            Section("Restore") {
+                if let line = store.restoreLine { Text(line).font(.caption).foregroundStyle(.secondary) }
+                if store.restoreRows.isEmpty { Text("Nothing to put back.").foregroundStyle(.secondary) }
+                ForEach(store.restoreRows) { row in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.original).textSelection(.enabled)
+                            Text([row.what, row.at?.formatted(date: .abbreviated, time: .shortened) ?? ""]
+                                .filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary)
+                            if !row.restorable {
+                                Text("Open it from macOS Recovery or Time Machine (\(row.savedTo)).")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if row.restorable { Button("Restore") { Task { await store.restore(row) } } }
+                    }
+                }
+            }
+            Section("Saved secrets and cards") {
+                Text("Names only: FERB never shows a saved value.").font(.caption).foregroundStyle(.secondary)
+                if store.savedSecrets.isEmpty { Text("Nothing saved.").foregroundStyle(.secondary) }
+                ForEach(store.savedSecrets) { row in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.name)
+                            Text("\(row.kindLabel) · \(row.place)" + (row.unusable ? " · can't be used any more" : ""))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Delete…", role: .destructive) { deleting = row }
+                    }
+                }
+            }
+            Section("Clean up") { CleanupSection(store: store, actions: actions, cleanup: cleanup) }
+        }
+        .formStyle(.grouped)
+        .task {
+            await store.loadRestore()
+            await store.loadSecrets()
+            await store.checkHealth()
+        }
+        // Permanent: asked once here.
+        .alert("Delete this saved secret?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+               presenting: deleting) { row in
+            Button("Delete", role: .destructive) { Task { await store.deleteSecret(row); deleting = nil } }
+            Button("Cancel", role: .cancel) { deleting = nil }
+        } message: { row in
+            Text("“\(row.name)” for \(row.place) is deleted from your Keychain. This can't be undone; FERB asks you again " +
+                 "the next time it needs it.")
+        }
+    }
+}
+
+/// The one-time clean-up's screen (storage decision 4): `ferb setup --cleanup` lists what it removes; OK runs it with
+/// the digest of exactly that list (`--ok`), the daemon stopped meanwhile; then the result.
+@MainActor
+final class CleanupRunner: ObservableObject {
+    enum Phase: Equatable { case idle, reading, plan(CleanupPlan), running, done(CleanupResult), failed(String) }
+    @Published private(set) var phase: Phase = .idle
+    @Published private(set) var lines: [String] = []
+
+    func preview(with actions: FERBAppActions) {
+        guard let runFerb = actions.runFerb else { return }
+        phase = .reading
+        lines = []
+        let started = runFerb(["setup", "--cleanup"], { [weak self] line in self?.lines.append(line) }) { [weak self] status in
+            guard let self else { return }
+            if let plan = CleanupPlan(FerbJSON.last(self.lines)), status == 0 { self.phase = .plan(plan) }
+            else { self.phase = .failed(self.lines.last ?? "FERB couldn't read what the clean-up would remove.") }
+        }
+        if !started { phase = .failed("FERB is already running a setup step; try again when it finishes.") }
+    }
+
+    func apply(_ plan: CleanupPlan, with actions: FERBAppActions) {
+        guard let runFerb = actions.runFerb, let arguments = plan.applyArguments else { return }
+        phase = .running
+        lines = []
+        let started = runFerb(arguments, { [weak self] line in self?.lines.append(line) }) { [weak self] status in
+            guard let self else { return }
+            self.phase = .done(CleanupResult(FerbJSON.last(self.lines), status: status))
+        }
+        if !started { phase = .failed("FERB is already running a setup step; try again when it finishes.") }
+    }
+}
+
+struct CleanupSection: View {
+    @ObservedObject var store: FERBWindowStore
+    let actions: FERBAppActions
+    @ObservedObject var cleanup: CleanupRunner
+
+    private var waiting: Bool { store.health.contains { $0.name == "Database" && !$0.ok } }
+
+    var body: some View {
+        if waiting { Text("A one-time clean-up of data FERB no longer uses waits for your OK.").bold() }
+        if actions.runFerb == nil {
+            Text("This is run from the installed FERB.app.").foregroundStyle(.secondary)
+        } else {
+            switch cleanup.phase {
+            case .idle:
+                Button("Show what the clean-up removes") { cleanup.preview(with: actions) }
+            case .reading:
+                ProgressView("Reading FERB's database…")
+            case .plan(let plan):
+                if plan.nothingToDo {
+                    Text("Nothing to clean up.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(plan.steps) { step in
+                        LabeledContent(step.what, value: "\(step.rows) rows")
+                    }
+                    Text("\(plan.rows) rows in all. Your memory, tasks, chats, schedules and recent traces are never touched.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("FERB's database: \(shownBytes(plan.bytes)); " + (plan.compact
+                        ? "then compacted once (needs \(shownBytes(plan.bytes)) free; \(shownBytes(plan.free)) free now)."
+                        : "already compacted."))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("FERB stops while it runs (a few minutes) and starts again by itself.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("OK, clean up") { cleanup.apply(plan, with: actions) }
+                }
+            case .running:
+                ProgressView(cleanup.lines.last ?? "Cleaning up…")
+            case .done(let result):
+                Text(result.line).textSelection(.enabled)
+                Button("Check again") { cleanup.preview(with: actions) }
+            case .failed(let why):
+                Text(why).foregroundStyle(.secondary).textSelection(.enabled)
+                Button("Try again") { cleanup.preview(with: actions) }
+            }
         }
     }
 }

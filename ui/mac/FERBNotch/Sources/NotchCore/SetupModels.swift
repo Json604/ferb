@@ -2,7 +2,7 @@ import Foundation
 
 /// FERB.app's setup window (L34 C): its steps, in the spec's order.
 public enum SetupStep: Int, CaseIterable, Equatable {
-    case welcome, ai, permissions, browsers, persona, done
+    case welcome, ai, permissions, browsers, identity, persona, done
     public var next: SetupStep? { SetupStep(rawValue: rawValue + 1) }
 }
 

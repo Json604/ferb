@@ -71,6 +71,13 @@ final class FERBWindowController: NSObject, NSWindowDelegate {
         if let tab { selection.settingsTab = tab }
     }
 
+    /// The Memory page, filtered to one import's source when given (a memory import notice's page card).
+    func showMemory(importedFrom source: String?) {
+        store.memoryFilter = source
+        show(.memory)
+        Task { await store.loadMemory() }
+    }
+
     func show(_ section: FERBSection, tab: SettingsTab? = nil) {
         select(section, tab: tab)
         if window == nil {

@@ -163,7 +163,10 @@ class Rpc:
             "runtimes.sign_in": self._runtimes_sign_in, "setup.browsers": self._setup_browsers,
             "setup.browser_open": self._setup_browser_open, "setup.permissions": self._setup_permissions,
             "setup.permission_request": self._setup_permission_request, "setup.finish": self._setup_finish,
-            "ui.click_through": self._ui_click_through, "ps.send": self._ps_send
+            "ui.click_through": self._ui_click_through, "ps.send": self._ps_send,
+            "about.get": self._about_get, "about.guide": self._about_guide, "secrets.saved": self._secrets_saved,
+            "secrets.delete": self._secrets_delete, "identity.find": self._identity_find,
+            "identity.choose": self._identity_choose
         }
         streams: dict[str, Any] = {
             "notifications.subscribe": self._notifications_subscribe, "logs.subscribe": self._logs,
@@ -345,12 +348,13 @@ class Rpc:
                                "secrets": [{"key": s.ref.key, "in_keychain": await self.secrets.present(s.ref)}
                                            for s in self.secrets.specs()]}
         if not address:
-            out["error"] = "no [mailbox] address in config.toml"
+            out["error"] = "FERB has no account of its own set up (Settings → Browsers → FERB's own account)"
         elif not folder:
-            out["error"] = "no [identity] profile in config.toml"
+            out["error"] = "FERB's own account has no browser profile chosen (Settings → Browsers → FERB's own account)"
         else:
+            data = self._browser_data().get(str(self.config.get("identity", "browser", "chrome")))
             try:
-                p = await asyncio.to_thread(seed.verify, address, folder)
+                p = await asyncio.to_thread(seed.verify, address, folder, *([data] if data else []))
                 out["profile_ok"], out["profile_name"] = True, p.name
             except seed.SeedError as e:
                 out["error"] = str(e)
@@ -392,6 +396,11 @@ class Rpc:
         out["clipboard"] = await asyncio.to_thread(self._clipboard_access)     # I3: never reads the contents
         from ferb.core.context import token_method
         out["tokenizer"] = token_method()                 # FERB's pinned o200k copy, or the byte ceiling (8a)
+        if self.db is not None:                       # FERB.app's Health: the store and its clean-up (storage decision 4)
+            from ferb.store import cleanup
+            from ferb.store.db import store_size
+            out["database"] = {"bytes": await asyncio.to_thread(store_size, self.db.path),
+                               "cleanup_pending": await asyncio.to_thread(cleanup.pending, self.db.path)}
         out.update({"pid": os.getpid(), "executable": os.path.realpath(sys.executable),
                     "version": ferb.__version__, "code_hash": code_hash(Path(ferb.__file__).parent),
                     "home": str(self.home), "stopped": self.state.stopped})

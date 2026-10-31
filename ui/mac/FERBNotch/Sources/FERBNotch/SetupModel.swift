@@ -32,6 +32,11 @@ final class SetupModel: ObservableObject {
     @Published private(set) var restarting = false
     @Published private(set) var browsers: BrowserSnapshot?
     @Published private(set) var persona: PersonaState = .loading
+    /// FERB's own Google account (decision 7, optional): as set now, and the profiles found for the address typed.
+    @Published private(set) var identity: IdentityState?
+    @Published var identityAddress = ""
+    @Published private(set) var identityLine: String?
+    @Published private(set) var identityBusy = false
     @Published private(set) var personaMessage: String?
     @Published var message: String?
 
@@ -139,6 +144,7 @@ final class SetupModel: ObservableObject {
         switch step {
         case .permissions: await refreshPermissions(probeHearing: true)
         case .persona: await refreshPersona()
+        case .identity: await refreshIdentity()
         default: await refreshCurrentStep()
         }
     }
@@ -248,6 +254,7 @@ final class SetupModel: ObservableObject {
         case .permissions: await refreshPermissions()
         case .browsers: await refreshBrowsers()
         case .persona: if persona == .loading || persona == .scanning { await refreshPersona() }
+        case .identity: if !identityBusy { await refreshIdentity() }
         case .welcome, .done: break
         }
     }
@@ -530,6 +537,62 @@ final class SetupModel: ObservableObject {
             message = failed.isEmpty ? nil : "Not paired: " + failed.joined(separator: ", ") + ". Is FERB turned on there?"
         } catch { message = error.localizedDescription }
         await refreshBrowsers()
+    }
+
+    // MARK: FERB's own account (decision 7)
+
+    /// FERB's account as set now and, for the address typed (else the one set), the profiles signed into it.
+    func refreshIdentity() async {
+        let address = identityAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        do {
+            let state = IdentityState(try await rpc.call("identity.find", params: address.isEmpty ? [:] : ["address": address]))
+            identity = state
+            if identityAddress.isEmpty && !state.address.isEmpty { identityAddress = state.address }
+            clearNotAnswering()
+        } catch { identityLine = error.localizedDescription }
+    }
+
+    /// The owner's pick of the profile holding FERB's account: written by the daemon (it checks the profile holds only
+    /// that account), then paired, which opens the extension's pairing page in that profile.
+    func useIdentity(_ candidate: IdentityCandidate) async {
+        guard !identityBusy else { return }
+        identityBusy = true
+        defer { identityBusy = false }
+        let address = identityAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        do {
+            _ = try await rpc.call("identity.choose", params: ["address": address, "browser": candidate.browser,
+                                                               "folder": candidate.folder])
+            identityLine = "Pairing “\(candidate.name)”: turn FERB's extension on there if the browser asks…"
+            await pairIdentity(confirm: identity?.paired == true)
+        } catch { identityLine = error.localizedDescription }
+        await refreshIdentity()
+    }
+
+    func pairIdentity(confirm: Bool = false) async {
+        do {
+            let reply = try await rpc.call("identity.pair", params: ["confirm": confirm], wait: 90)
+            identityLine = reply["paired"] as? Bool == true ? "FERB's own account is set up and paired."
+                : "Not paired yet: \(reply["hint"] as? String ?? "no answer from FERB's extension in that profile")."
+        } catch { identityLine = error.localizedDescription }
+    }
+
+    /// FERB stops using an account of its own (its profile's pairing stays in Browsers until unpaired there).
+    func removeIdentity() async {
+        do {
+            _ = try await rpc.call("identity.choose", params: ["clear": true])
+            identityAddress = ""
+            identityLine = "FERB has no account of its own now."
+        } catch { identityLine = error.localizedDescription }
+        await refreshIdentity()
+    }
+
+    /// Skipped: the owner's profile FERB browses in instead (`browsing.owner_profile`, the settings path); "" for none.
+    func browseAsOwner(in profile: String) async {
+        do {
+            _ = try await rpc.call("settings.set", params: ["key": "browsing.owner_profile", "value": profile])
+            identityLine = profile.isEmpty ? nil : "FERB browses as you in that profile."
+        } catch { identityLine = error.localizedDescription }
+        await refreshIdentity()
     }
 
     // MARK: Getting to know you

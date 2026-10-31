@@ -18,6 +18,7 @@ from tests.support.import_fixtures import (
     RAW,
     SECRET,
     ScriptedImportModel,
+    codex_home,
     gemini_export,
     make_exports,
     score,
@@ -85,6 +86,20 @@ def test_codex_only_interactive_sessions_and_typed_turns(tmp_path: Path) -> None
     assert len(convs) == 1                                                     # no `codex exec`, no subagent thread
     assert texts(convs, "owner") == ["I deploy my site on Vercel, why is the build failing?"]
     assert texts(convs, "assistant") == ["Check the build logs."]
+
+
+def test_codex_reads_a_zstd_compressed_rollout(tmp_path: Path) -> None:
+    """A rollout Codex compressed (`rollout-*.jsonl.zst`) is read like a plain one, and its id has no suffix."""
+    import zstandard
+    root = codex_home(tmp_path)
+    plain = next(root.glob("sessions/**/rollout-2025-12-12*.jsonl"))
+    packed = plain.with_name(plain.name + ".zst")
+    packed.write_bytes(zstandard.ZstdCompressor().compress(plain.read_bytes()))
+    plain.unlink()
+    convs = read("codex", root, now=NOW, redact=Redactor().text)
+    assert texts(convs, "owner") == ["I deploy my site on Vercel, why is the build failing?"]
+    assert texts(convs, "assistant") == ["Check the build logs."]
+    assert [c.id for c in convs] == ["sess-2025-12-12-cli"]
 
 
 # ---------- runs through the daemon ----------

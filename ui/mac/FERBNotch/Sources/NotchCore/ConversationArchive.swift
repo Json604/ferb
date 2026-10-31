@@ -194,6 +194,8 @@ public struct ConversationNotice: Codable, Equatable {
     public let afterTurnID: UUID?
     /// The learning digest's proposals, each answered in place.
     public var proposals: [LearningProposal]?
+    /// Typed cards from FERB's own records (step 12c: a memory import's examples as note cards and its page button).
+    public var cards: [ResultCard]?
 }
 
 /// One entry of the chat as shown, top to bottom.
@@ -313,10 +315,12 @@ public struct ConversationArchive: Codable, Equatable {
     /// Posts a FERB message no turn asked for, once per daemon id. Returns whether it is new to this chat.
     @discardableResult
     public mutating func addNotice(id: String, text: String, quotes: [NoticeQuote] = [], tag: String? = "noticed",
-                                   noticedAt: Date? = nil, proposals: [LearningProposal]? = nil, at date: Date = Date()) -> Bool {
+                                   noticedAt: Date? = nil, proposals: [LearningProposal]? = nil, cards: [ResultCard]? = nil,
+                                   at date: Date = Date()) -> Bool {
         guard !id.isEmpty, !text.isEmpty, !notices.contains(where: { $0.id == id }) else { return false }
         notices.append(ConversationNotice(id: id, entryID: UUID(), createdAt: date, noticedAt: noticedAt, text: text,
-                                          quotes: quotes, tag: tag, afterTurnID: turns.last?.id, proposals: proposals))
+                                          quotes: quotes, tag: tag, afterTurnID: turns.last?.id, proposals: proposals,
+                                          cards: cards))
         return true
     }
 

@@ -89,6 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             coordinator.hasWindow = true                      // plan D's menu shows Open FERB Window
             coordinator.onOpenWindow = { [window] in window.show(.tasks) }
             coordinator.onOpenSettings = { [window] in window.show(.settings) }
+            coordinator.model.onOpenMemory = { [window] source in window.showMemory(importedFrom: source) }
             ferbWindow = window
         }
         coordinator?.start()

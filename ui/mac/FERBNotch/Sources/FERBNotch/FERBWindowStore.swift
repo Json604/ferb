@@ -52,6 +52,13 @@ final class FERBWindowStore: ObservableObject {
     @Published var coreProfile = CoreProfileView()
     @Published var importStatus: MemoryImportStatus?
     @Published var importEstimate: MemoryImportEstimate?
+    /// The Memory page shows only facts imported from this source (a memory import notice's page card); nil: all.
+    @Published var memoryFilter: String?
+    // Step 12c: Settings → About and Settings → Data.
+    @Published var about: AboutDocument?
+    @Published var restoreRows: [RestoreRow] = []
+    @Published var restoreLine: String?
+    @Published var savedSecrets: [SavedSecretRow] = []
     @Published var settings = SettingsSnapshot()
     @Published var banners: [String: Bool] = [:]
     @Published var health: [HealthLine] = []
@@ -174,7 +181,9 @@ final class FERBWindowStore: ObservableObject {
     // MARK: Memory
 
     func loadMemory() async {
-        if let reply = await ask("memory.list", ["status": "active"]) {
+        var params: [String: Any] = ["status": "active"]
+        if let memoryFilter { params["imported_from"] = memoryFilter }
+        if let reply = await ask("memory.list", params) {
             activeMemory = (reply["items"] as? [[String: Any]] ?? []).compactMap(MemoryRow.init)
         }
         if let reply = await ask("memory.profile", [:]) { coreProfile = CoreProfileView(reply) }
@@ -232,6 +241,44 @@ final class FERBWindowStore: ObservableObject {
     func forget(_ item: MemoryRow) async {
         guard await ask("memory.forget", ["id": item.id, "confirm": true]) != nil else { return }
         await loadMemory()
+    }
+
+    // MARK: About (decision 6)
+
+    func loadAbout() async {
+        if let reply = await ask("about.get", [:], wait: Self.runtimeWait) { about = AboutDocument(reply) }
+    }
+
+    // MARK: Data: Restore and saved secrets (decision 8)
+
+    func loadRestore() async {
+        guard let reply = await ask("recovery.list") else { return }
+        restoreRows = (reply["records"] as? [[String: Any]] ?? []).compactMap(RestoreRow.init)
+        let days = (reply["days"] as? NSNumber)?.intValue ?? 0
+        let total = (reply["total"] as? NSNumber)?.intValue ?? restoreRows.count
+        restoreLine = "Copies of changed files are kept \(days) days; items moved to the Trash while they are still there."
+            + (total > restoreRows.count ? " Showing the newest \(restoreRows.count) of \(total)." : "")
+    }
+
+    /// Puts one back; never over a change made since (then the earlier version goes beside it, and the note says so).
+    func restore(_ row: RestoreRow) async {
+        guard let reply = await ask("recovery.restore", ["id": row.id]) else { return }
+        let was = reply["original"] as? String ?? row.original, now = reply["restored_to"] as? String ?? ""
+        note = reply["in_place"] as? Bool == true ? "Put back \(was)."
+            : "\(was) has changed since, so the earlier version was put beside it as \(now)."
+        await loadRestore()
+    }
+
+    func loadSecrets() async {
+        guard let reply = await ask("secrets.saved") else { return }
+        savedSecrets = (reply["entries"] as? [[String: Any]] ?? []).compactMap(SavedSecretRow.init)
+    }
+
+    /// Only after the owner's Delete in the one question the page asks (permanent).
+    func deleteSecret(_ row: SavedSecretRow) async {
+        guard await ask("secrets.delete", ["place": row.place, "name": row.name]) != nil else { return }
+        note = "Deleted “\(row.name)” for \(row.place)."
+        await loadSecrets()
     }
 
     // MARK: Settings (AI, Permissions and Browsers are plan C's SetupModel)

@@ -219,8 +219,16 @@ class Environment:
     def _facts(self) -> str:
         """Facts about this FERB that hold across turns (in every role's instructions, a cacheable prefix)."""
         address = self.config.get("mailbox", "address", "")
-        lines = [f"- FERB's own email (its identity, never the owner's): {address}" if address else
-                 "- FERB has no email account set up."]
+        lines = [self._about_summary()]
+        if address:
+            lines.append(f"- FERB's own email (its identity, never the owner's): {address}")
+        else:                                       # daemon decision 7: the owner skipped FERB's own account
+            browser, _, folder = str(self.config.get("browsing", "owner_profile", "") or "").partition("/")
+            lines.append("- FERB has no Google account or browser profile of its own (the owner can add one in "
+                         "FERB.app → Settings → Browsers): what needs FERB's own inbox (one-time codes for FERB's own "
+                         "sign-ups, sending from FERB's address) isn't set up; web work uses identity \"owner\" "
+                         + (f"in the owner's {browser} profile folder “{folder}”, which they chose for it."
+                            if browser and folder else "in a profile the owner names (none chosen for it)."))
         lines += [f"- FERB secret {s.ref.key}: {s.account_hint}, usable on {', '.join(s.allowed_origins)}"
                   for s in self.secrets.specs()]
         for phrase, meaning in self._time_meanings():

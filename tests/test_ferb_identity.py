@@ -40,6 +40,7 @@ def fd(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple
     d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
     d.browser_launch = launched.append
     d.pair_load_wait_s = 0.0
+    d.server.is_app = lambda token: token is not None       # identity.pair is FERB.app's (auth.APP_ONLY), stood in for
     for drv in (d.router, d.ferb_identity):
         drv.launch, drv.wake = launched.append, None                               # type: ignore[union-attr]
     d.config.set("identity", "browser", "chrome")

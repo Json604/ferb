@@ -53,6 +53,8 @@ extension NotchModel {
         supportsAttachments = (attached["capabilities"] as? [String] ?? []).contains("input_paths")
         previewAccess.reconnected()         // the daemon may have been updated: a refused preview is asked for again
         connectionStatus = "Connected to FERB"
+        // FERB's self-description says what this app shows (decision 6): its how-tos, shortcuts and settings' places.
+        Task { [rpc] in _ = try? await rpc.call("about.guide", params: AppGuide.payload) }
     }
 
     func refreshDaemonStatus() async {
@@ -600,7 +602,8 @@ extension NotchModel {
                 guard let text = quote["text"] as? String, !text.isEmpty else { return nil }
                 return NoticeQuote(text: text, origin: quote["origin"] as? String ?? "")
             }
-            if conversation.addNotice(id: id, text: text, quotes: quotes, noticedAt: LiveProgress.time(row["at"])) { added = true }
+            if conversation.addNotice(id: id, text: text, quotes: quotes, noticedAt: LiveProgress.time(row["at"]),
+                                      cards: ResultCard.list(row["cards"])) { added = true }
             ids.append(id)
         }
         guard !ids.isEmpty else { return }

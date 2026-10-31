@@ -6,7 +6,7 @@ final class SetupModelsTests: XCTestCase {
     private let pane = "x-apple.systempreferences:com.apple.preference.security?"
 
     func testStepsRunInTheSpecsOrder() {
-        XCTAssertEqual(SetupStep.allCases, [.welcome, .ai, .permissions, .browsers, .persona, .done])
+        XCTAssertEqual(SetupStep.allCases, [.welcome, .ai, .permissions, .browsers, .identity, .persona, .done])
         XCTAssertEqual(SetupStep.welcome.next, .ai)
         XCTAssertNil(SetupStep.done.next)
     }

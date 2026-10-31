@@ -28,6 +28,13 @@ func perform(_ request: [String: Any]) throws -> [String: Any] {
         guard status == errSecSuccess else { throw NSError(domain: "keychain", code: Int(status)) }
         return ["ok": true]
     }
+    if operation == "delete" {                  // the owner's Delete in FERB.app (daemon decision 8): never read first
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw NSError(domain: "keychain", code: Int(status))
+        }
+        return ["deleted": status == errSecSuccess]
+    }
     guard operation == "lookup" || operation == "present" else { throw NSError(domain: "input", code: 3) }
     query[kSecReturnData as String] = operation == "lookup"
     query[kSecMatchLimit as String] = kSecMatchLimitOne

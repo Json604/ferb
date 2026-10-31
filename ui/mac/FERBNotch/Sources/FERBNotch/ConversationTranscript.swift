@@ -261,6 +261,16 @@ private struct NoticeView: View {
                         .padding(.top, 2)
                     }
                 }
+                // Step 12c: its cards (an import's examples as note cards) and a button for each page it names.
+                ForEach(Array((notice.cards ?? []).filter { $0.type == "note" }.enumerated()), id: \.offset) { _, card in
+                    NoteCard(card: card, model: model)
+                }
+                ForEach(Array(CardLayout.pages(notice.cards ?? []).enumerated()), id: \.offset) { _, card in
+                    if card.page == "memory" {
+                        Button(card.line ?? "Open the Memory page") { model.onOpenMemory?(card.importedFrom) }
+                            .buttonStyle(FerbButtonStyle())
+                    }
+                }
                 ForEach(Array(notice.quotes.enumerated()), id: \.offset) { _, quote in
                     VStack(alignment: .leading, spacing: 2) {
                         NativeMessageText(quote.text, size: 11)

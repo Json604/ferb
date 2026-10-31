@@ -30,22 +30,26 @@ class AttentionNotices:
 
     def add(self, ident: str, refs: list[str], text: str, quotes: Any = None,
             considered: list[str] | None = None, quote_origin: str = origin.external("observation"),
-            notice_origin: str = ORIGIN) -> dict[str, Any] | None:
+            notice_origin: str = ORIGIN, cards: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
         """The new notice, or None when that id was already made (posted once: a replayed batch never posts again).
         `refs` are the rows it cites; `considered` every row the consideration saw (the D14 purge reaches both);
         `quote_origin` the least trusted origin of those rows, which every quote carries."""
         clean = self.redact({"text": text, "quotes": _quotes(quotes, quote_origin)})
         made = self.db.conn.execute(
             "INSERT OR IGNORE INTO attention_notices (id, source_refs_json, text, origin, created_at, delivered_at, "
-            "quotes_json, considered_refs_json) VALUES (?,?,?,?,?,NULL,?,?)",
+            "quotes_json, considered_refs_json, cards_json) VALUES (?,?,?,?,?,NULL,?,?,?)",
             (ident, json.dumps(refs), clean["text"], notice_origin, self.clock.now().isoformat(), json.dumps(clean["quotes"]),
-             json.dumps(sorted(set(considered or []) | set(refs))))).rowcount
+             json.dumps(sorted(set(considered or []) | set(refs))),
+             json.dumps(self.redact({"cards": cards or []})["cards"]))).rowcount
         return dict(self.db.conn.execute("SELECT * FROM attention_notices WHERE id=?", (ident,)).fetchone()) if made else None
 
     @staticmethod
     def view(row: dict[str, Any]) -> dict[str, Any]:
-        """What clients render (`chat.status.notices`, `attention.notice`): {id, text, quotes, at}."""
-        return {"id": row["id"], "text": row["text"], "quotes": json.loads(row["quotes_json"]), "at": row["created_at"]}
+        """What clients render (`chat.status.notices`, `attention.notice`): {id, text, quotes, at}, and `cards` when it
+        has any (step 12c)."""
+        cards = json.loads(row.get("cards_json") or "[]")
+        return {"id": row["id"], "text": row["text"], "quotes": json.loads(row["quotes_json"]), "at": row["created_at"],
+                **({"cards": cards} if cards else {})}
 
     def unseen(self) -> list[dict[str, Any]]:
         return [self.view(r) for r in self.list()]

@@ -51,6 +51,14 @@ def _keychain(handle: str, value: str | None = None, home: Path | None = None) -
     return out.get('value')
 
 
+def _keychain_delete(account: str, home: Path | None = None) -> bool:
+    """Delete one saved secret's Keychain item through the signed helper (which made it); never reads its value.
+    False when there was none."""
+    from ferb.identity.helper import request
+    out = request({'operation': 'delete', 'service': SERVICE, 'account': account}, home)
+    return bool(out.get('deleted'))
+
+
 def refuse_whole_browser(target: str) -> None:
     """A secret is bound to the exact place it is filled: a web page's HTTPS origin, or a native app. A web browser
     as an app (`app:com.google.Chrome`) is every site it shows, so no handle is bound to one (owner 2026-10-24: "at
@@ -201,9 +209,46 @@ def _account(records: dict[str, Any], place: str, sites: Iterable[str] = (),
 
 
 class OwnerSecrets:
-    def __init__(self, home: Path, keychain: Any = _keychain) -> None:
+    def __init__(self, home: Path, keychain: Any = _keychain, delete: Any = _keychain_delete) -> None:
         self.path = home / 'owner-secret-handles.json'
         self.keychain = (lambda handle, value=None: _keychain(handle, value, home)) if keychain is _keychain else keychain
+        self.keychain_delete = (lambda account: _keychain_delete(account, home)) if delete is _keychain_delete else delete
+
+    def inventory(self) -> list[dict[str, Any]]:
+        """Every saved entry by name, for FERB.app's Settings → Data (daemon decision 8): its place, its name (the
+        handle a model sees), its kind (a card detail's, else "secret") and whether it is unusable. Never a value, a
+        Keychain account or a username."""
+        data = self._load()
+        out = [{'place': place, 'name': name, 'kind': record['kinds'].get(name, 'secret'), 'unusable': False}
+               for place, record in sorted(data['records'].items()) for name in sorted(record['entries'])]
+        out += [{'place': u['place'], 'name': u['name'], 'kind': 'secret', 'unusable': True} for u in data['unusable']]
+        return out
+
+    def delete(self, place: str, name: str) -> dict[str, Any]:
+        """The owner's Delete on one saved entry (daemon decision 8): its Keychain item goes first (through the helper,
+        never read), then its name; a record left with no entries, username or sites goes too. Refused for a name not
+        saved there. Returns what was deleted (names only)."""
+        with self._edit() as data:
+            record = data['records'].get(place)
+            unusable = next((u for u in data['unusable'] if u['place'] == place and u['name'] == name), None)
+            if record is not None and name in record['entries']:
+                account = record['entries'][name]
+            elif unusable is not None:
+                account = unusable['name']
+            else:
+                raise Refused('nothing is saved under that name for that place')
+            uses = [a for r in data['records'].values() for a in r['entries'].values()] + \
+                [u['name'] for u in data['unusable']]
+            if uses.count(account) == 1:                        # an item another entry also names stays for that one
+                self.keychain_delete(account)
+            if record is not None and name in record['entries']:
+                del record['entries'][name]
+                record['kinds'].pop(name, None)
+                if not record['entries'] and not record.get('username') and not record.get('sites'):
+                    del data['records'][place]
+            else:
+                data['unusable'].remove(unusable)
+        return {'place': place, 'name': name, 'deleted': True}
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():

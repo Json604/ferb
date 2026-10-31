@@ -86,14 +86,7 @@ class Retention:
         return {"spans": 0, "decisions": 0, "operational": 0, "trail": 0, "roots_done": 0}
 
     def _windows(self) -> dict[str, int]:
-        get = self.config.get
-        return {"trace_days": retention.days(get("retention", "trace_days", 30)),      # each at least 1 day
-                "decision_days": retention.days(get("retention", "decision_days", 30)),
-                "evidence_days": retention.days(get("retention", "evidence_days", 7)),
-                "recovery_days": retention.days(get("retention", "recovery_days", 7)),
-                "resource_days": retention.days(get("retention", "resource_days", resource_use.DEFAULT_DAYS)),
-                "operational_days": retention.days(get("retention", "operational_days", retention.OPERATIONAL_DAYS)),
-                "trail_days": retention.days(get("sense", "trail_retention_days", 30))}
+        return retention.windows(self.config.get)          # the rule table's windows, each at least 1 day
 
     def _cutoffs(self, now: datetime | None = None) -> tuple[str, str, str, int]:
         now = now or self.clock.now()

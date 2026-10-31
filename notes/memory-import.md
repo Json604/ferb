@@ -146,6 +146,16 @@ Claude Code and Codex files were inspected for structure only (key names and rec
 - [x] Measured quality on labelled fixtures (offline); live score with step 13.
 - [ ] Live checks (step 13): import each real source once; read the notice, the memory page filter and a sample of
       facts against the owner's memory of them; run `-m real tests/test_memory_import.py::test_quality_live`.
-- [ ] Localized Takeout ("Prompted" in other languages), zstd-compressed Codex rollouts (`.jsonl.zst`): not read yet.
-- [ ] The app renders the notice's `page` card (opens the Memory page filtered to the source); today it shows the
+- [x] Localized Takeout ("Prompted" in other languages), zstd-compressed Codex rollouts (`.jsonl.zst`): not read yet.
+      (Step 12c: `.jsonl.zst` rollouts are read like plain ones (streamed through `zstandard` 0.25.0, BSD-3, ~0.6 MB
+      wheel, credited in THIRD_PARTY_NOTICES.md; a damaged file keeps what was read); test
+      `test_codex_reads_a_zstd_compressed_rollout`. Localized Takeout: left. There is no structural way: a localized
+      record carries its marker word(s) inside the same `title` string ("Prompted <prompt>" in English) with no field,
+      separator or markup around them, and the JSON variant with `details` Request is already read. Telling the marker
+      from the prompt would need a word list per language (CLAUDE.md rule 4 forbids deciding content that way) or a
+      guess from prefixes the titles share, which can eat the first words of a prompt.)
+- [x] The app renders the notice's `page` card (opens the Memory page filtered to the source); today it shows the
       text and note cards only.
+      (Step 12c: notices carry their cards in the app (`ConversationNotice.cards`; stored with the notice, migration
+      0057, so `chat.status` after the app was away has them too); the import notice shows its example note cards and
+      an "Open the Memory page" button that opens FERB's window on Memory filtered with `memory.list imported_from`.)

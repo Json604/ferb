@@ -183,7 +183,7 @@ class Notify:
         event and the journaled row."""
         if self.attention_notices is None:
             return
-        notice = self.attention_notices.add(ident, refs, text, notice_origin=notice_origin)
+        notice = self.attention_notices.add(ident, refs, text, notice_origin=notice_origin, cards=cards)
         if notice is not None:
             await self._post_notice(notice, category=category, task_id=task_id, cards=cards)
 
@@ -194,7 +194,7 @@ class Notify:
         told receipt now. A macOS banner (its text, never its outside quotes) only when no connected FERB client
         receives `attention.notice`."""
         assert self.attention_notices is not None and self.db is not None
-        view = self.attention_notices.view(notice) | ({"cards": cards} if cards else {})
+        view = self.attention_notices.view(notice)            # its cards were stored with it (step 12c)
         self._journal().append('chat.notice', {k: view[k] for k in ('id', 'text', 'quotes', 'cards') if k in view},
                                origin=notice['origin'])
         if self.perception is not None:

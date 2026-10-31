@@ -13,6 +13,7 @@ struct SetupView: View {
             case .ai: AIStepView(model: model)
             case .permissions: PermissionsStepView(model: model)
             case .browsers: BrowsersStepView(model: model)
+            case .identity: IdentityStepView(model: model)
             case .persona: PersonaStep(model: model)
             case .done: DoneStep()
             }
@@ -223,6 +224,75 @@ struct BrowsersStepView: View {
                 ProgressView()
             }
         }
+    }
+}
+
+/// FERB's own Google account (decision 7, optional; also Settings → Browsers): the owner makes the account and signs it
+/// into a browser profile of its own; FERB finds that profile and pairs it. Skipping it, the owner picks one of their
+/// paired profiles for FERB to browse in. Bare minimum; the owner polishes it.
+struct IdentityStepView: View {
+    @ObservedObject var model: SetupModel
+    var showsHeader = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if showsHeader {
+                StepHeader(title: "Give FERB its own Google account (recommended)", lines: [
+                    "Make a new Google account for FERB, then sign it into a browser profile of its own (nothing else signed in there).",
+                    "FERB uses it for its own sign-ups and codes, so it never needs yours. You can skip this and add it later in Settings → Browsers."])
+            }
+            if let state = model.identity, state.isSetUp {
+                LabeledContent("FERB's account", value: state.address)
+                LabeledContent("Its profile", value: "\(state.browser) / \(state.profile)" + (state.paired ? " · paired" : " · not paired"))
+                HStack {
+                    if !state.paired { Button("Pair it") { Task { await model.pairIdentity() } } }
+                    Button("Stop using it") { Task { await model.removeIdentity() } }
+                }
+            } else {
+                HStack {
+                    TextField("FERB's Google address", text: $model.identityAddress).onSubmit { Task { await model.refreshIdentity() } }
+                    Button("Find its profile") { Task { await model.refreshIdentity() } }
+                }
+                ForEach(model.identity?.candidates ?? []) { candidate in
+                    HStack {
+                        Text("\(candidate.browserName): \(candidate.name)")
+                        Spacer()
+                        if candidate.only {
+                            Button("Use this profile") { Task { await model.useIdentity(candidate) } }.disabled(model.identityBusy)
+                        } else {
+                            Text("also signed in to \(candidate.otherAccounts) other account(s)").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if let state = model.identity, !model.identityAddress.isEmpty, state.candidates.isEmpty {
+                    Text("No browser profile is signed into that account yet.").foregroundStyle(.secondary)
+                }
+                OwnerProfilePicker(model: model)
+            }
+            if model.identityBusy { ProgressView().controlSize(.small) }
+            if let line = model.identityLine { Text(line).font(.callout).textSelection(.enabled) }
+        }
+    }
+}
+
+/// Without an account of its own, FERB browses as the owner in the paired profile they pick here.
+struct OwnerProfilePicker: View {
+    @ObservedObject var model: SetupModel
+
+    var body: some View {
+        let paired = (model.browsers?.browsers ?? []).flatMap { browser in
+            browser.profiles.filter { $0.state == .paired && !$0.ferbIdentity }.map { (browser.label, $0) }
+        }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Without its own account, FERB browses as you in:").font(.callout)
+            Picker("Profile", selection: Binding(get: { model.identity?.ownerProfile ?? "" },
+                                                 set: { value in Task { await model.browseAsOwner(in: value) } })) {
+                Text("A profile I name in each request").tag("")
+                ForEach(paired, id: \.1.id) { label, profile in Text("\(label): \(profile.name)").tag(profile.id) }
+            }
+            .labelsHidden()
+        }
+        .task { if model.browsers == nil { await model.refreshBrowsers() } }
     }
 }
 

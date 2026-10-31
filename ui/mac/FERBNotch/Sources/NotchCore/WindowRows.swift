@@ -234,6 +234,12 @@ public struct HealthLine: Identifiable, Equatable {
             out.append(HealthLine(name: "Shell containment", ok: ok,
                                   detail: ok ? "" : (reason.isEmpty ? "sandbox or proxy down" : reason)))
         }
+        // The store and its one-time clean-up (storage decision 4): "waiting for your OK" until the owner runs it.
+        if let database = doctor["database"] as? [String: Any] {
+            let waiting = flag(database["cleanup_pending"])
+            out.append(HealthLine(name: "Database", ok: !waiting,
+                                  detail: waiting ? "a one-time clean-up waits for your OK (Settings → Data)" : ""))
+        }
         return out
     }
 }

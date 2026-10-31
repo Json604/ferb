@@ -224,6 +224,8 @@ final class NotchModel: ObservableObject {
 
     var onPresentationChange: ((Bool) -> Void)?
     var onBackgroundChange: ((Bool) -> Void)?
+    /// A notice's page card (step 12c): the FERB window's Memory page, filtered to an import's source when it names one.
+    var onOpenMemory: ((String?) -> Void)?
     let acknowledgement = AcknowledgementNotice()
     var onAttentionArrival: (() -> Void)?
     var onOpenDocument: ((URL) -> Void)?

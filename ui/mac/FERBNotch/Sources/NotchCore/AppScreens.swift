@@ -1,0 +1,347 @@
+import Foundation
+
+// Step 12c (notes/daemon.md decisions 6-8, notes/storage.md decision 4): the models behind Settings → About, Settings →
+// Data (Restore, saved secrets and cards, the one-time clean-up) and FERB's own account. Each is read from a daemon reply
+// or a `ferb` command's JSON; nothing here decides anything. Functional only: the owner polishes the screens later.
+
+private func text(_ value: Any?) -> String { value as? String ?? "" }
+private func number(_ value: Any?) -> Int { (value as? NSNumber)?.intValue ?? 0 }
+private func flag(_ value: Any?) -> Bool { (value as? NSNumber)?.boolValue ?? false }
+
+/// Bytes as the owner reads them ("1.7 GB").
+public func shownBytes(_ bytes: Int) -> String {
+    ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+}
+
+// MARK: - The app guide (decision 6: "a small list kept with the UI")
+
+/// FERB.app's how-tos, shortcuts and where each setting lives, kept here beside the screens they describe. FERB.app
+/// hands it to the daemon (`about.guide`) on each connection, so FERB's self-description and its workers say what this
+/// app actually shows. Change it together with the screen it names.
+public enum AppGuide {
+    public struct HowTo: Equatable { public let title: String; public let steps: String }
+    public struct Shortcut: Equatable { public let action: String; public let keys: String }
+
+    public static let shortcuts: [Shortcut] = [
+        Shortcut(action: "Open / close FERB", keys: "Double-tap right Option, or Control–Option–Space"),
+        Shortcut(action: "Dictation", keys: "Hold right Command + Option"),
+        Shortcut(action: "Submit / new line", keys: "Return / Shift–Return"),
+        Shortcut(action: "FERB's window and Settings", keys: "FERB's menu bar icon → Open FERB Window, or ⌘, in it"),
+    ]
+
+    public static let howtos: [HowTo] = [
+        HowTo(title: "Stop everything FERB is doing", steps: "FERB window → Tasks → Stop everything (Resume FERB undoes it)"),
+        HowTo(title: "Stop one task", steps: "FERB window → Tasks → the task → Stop"),
+        HowTo(title: "See or change what FERB remembers", steps: "FERB window → Memory: Always on, Not right, Forget…"),
+        HowTo(title: "Import memory from ChatGPT, Claude, Gemini, Claude Code or Codex",
+              steps: "FERB window → Memory → Import from other assistants"),
+        HowTo(title: "Change schedules and reminders", steps: "FERB window → Schedules & Reminders"),
+        HowTo(title: "Choose the AI FERB uses", steps: "Settings → AI"),
+        HowTo(title: "Grant or check permissions", steps: "Settings → Permissions"),
+        HowTo(title: "Connect a browser profile", steps: "Settings → Browsers → Add to… / Pair"),
+        HowTo(title: "Give FERB its own Google account", steps: "Settings → Browsers → FERB's own account"),
+        HowTo(title: "Choose which notifications FERB posts", steps: "Settings → Notifications"),
+        HowTo(title: "Make FERB ignore an app or a site", steps: "Settings → Privacy → Apps / Sites FERB ignores"),
+        HowTo(title: "Pause recording what happens on this Mac", steps: "Settings → Privacy → Pause recording"),
+        HowTo(title: "Change how long FERB keeps records", steps: "Settings → Privacy → How long FERB keeps records"),
+        HowTo(title: "Put back a file FERB changed or moved to the Trash", steps: "Settings → Data → Restore"),
+        HowTo(title: "Delete a saved secret or card", steps: "Settings → Data → Saved secrets and cards"),
+        HowTo(title: "Clean up data FERB no longer uses", steps: "Settings → Data → Clean up"),
+        HowTo(title: "Check FERB's health or send diagnostics", steps: "Settings → Advanced → Health / Diagnostic file"),
+        HowTo(title: "Uninstall FERB", steps: "Settings → Advanced → Uninstall FERB…"),
+        HowTo(title: "See what FERB is and what it records about you", steps: "Settings → About"),
+    ]
+
+    /// Where each setting the daemon lists (`settings.get`) is changed in this app.
+    public static let places: [String: String] = [
+        "privacy.exclude_apps": "Settings → Privacy → Apps FERB ignores",
+        "privacy.exclude_domains": "Settings → Privacy → Sites FERB ignores",
+        "sense.window_titles": "Settings → Privacy → Record window titles",
+        "sense.trail_retention_days": "Settings → Privacy → How long FERB keeps records → Activity trail",
+        "retention.trace_days": "Settings → Privacy → How long FERB keeps records → Task traces",
+        "retention.decision_days": "Settings → Privacy → How long FERB keeps records → Jev decisions",
+        "retention.evidence_days": "Settings → Privacy → How long FERB keeps records → Screenshots and evidence",
+        "retention.recovery_days": "Settings → Privacy → How long FERB keeps records → Recovery copies",
+        "retention.resource_days": "Settings → Privacy → How long FERB keeps records → Resource log",
+        "retention.operational_days": "Settings → Privacy → How long FERB keeps records → Operational records",
+        "browsing.owner_profile": "Settings → Browsers → FERB's own account (when FERB has none)",
+    ]
+
+    /// The keys of one shortcut, by its action.
+    public static func keys(_ action: String) -> String { shortcuts.first { $0.action == action }?.keys ?? "" }
+
+    /// `about.guide`'s parameters.
+    public static var payload: [String: Any] {
+        ["howtos": howtos.map { ["title": $0.title, "steps": $0.steps] },
+         "shortcuts": shortcuts.map { ["action": $0.action, "keys": $0.keys] },
+         "places": places]
+    }
+}
+
+// MARK: - About (decision 6)
+
+/// `about.get`: FERB's self-description, as the daemon built it from code and config.
+public struct AboutDocument: Equatable {
+    public struct Line: Equatable, Identifiable {
+        public var id: String { name + "\u{0}" + value }
+        public let name: String
+        public let value: String
+        public let note: String
+    }
+
+    public let version: String
+    public let models: [Line]
+    public let account: [Line]
+    public let permissions: [Line]
+    public let settings: [Line]
+    /// What FERB keeps: `name` what, `value` how long, `note` where.
+    public let records: [Line]
+    public let health: [Line]
+    public let cost: [Line]
+
+    public init(_ reply: [String: Any]) {
+        version = text((reply["version"] as? [String: Any])?["ferb"])
+        models = ((reply["models"] as? [String: Any]) ?? [:]).sorted { $0.key < $1.key }
+            .map { Line(name: $0.key, value: text($0.value), note: "") }
+        let account = reply["account"] as? [String: Any] ?? [:]
+        let email = text(account["email"])
+        self.account = email.isEmpty ? [Line(name: "FERB's own account", value: "not set up", note: text(account["note"]))]
+            : [Line(name: "FERB's own account", value: email,
+                    note: [text(account["browser"]), text(account["profile"])].filter { !$0.isEmpty }.joined(separator: " / ")
+                        + (flag(account["paired"]) ? " · paired" : " · not paired"))]
+        permissions = (reply["permissions"] as? [[String: Any]] ?? []).map {
+            Line(name: text($0["id"]).replacingOccurrences(of: "_", with: " "), value: text($0["status"]), note: "")
+        }
+        settings = (reply["settings"] as? [[String: Any]] ?? []).map {
+            Line(name: text($0["key"]), value: Self.shown($0["value"]), note: text($0["where"]))
+        }
+        records = (reply["records"] as? [[String: Any]] ?? []).map {
+            Line(name: text($0["records"]), value: text($0["kept"]), note: text($0["where"]))
+        }
+        let health = reply["health"] as? [String: Any] ?? [:]
+        var lines: [Line] = []
+        if let bytes = health["database_bytes"] as? NSNumber {
+            lines.append(Line(name: "Database", value: shownBytes(bytes.intValue),
+                              note: flag(health["cleanup_waiting_for_ok"]) ? "a one-time clean-up waits for your OK" : ""))
+        }
+        if let cpu = health["cpu_share_last_day"] as? NSNumber {
+            lines.append(Line(name: "CPU, last day", value: String(format: "%.1f%% of one core", cpu.doubleValue * 100),
+                              note: ""))
+        }
+        if let memory = health["memory_now_bytes"] as? NSNumber {
+            lines.append(Line(name: "Memory now", value: shownBytes(memory.intValue), note: ""))
+        }
+        self.health = lines
+        let cost = reply["cost"] as? [String: Any] ?? [:]
+        self.cost = [7, 30].compactMap { days -> Line? in
+            guard let usd = cost["last_\(days)_days_usd"] as? NSNumber else { return nil }
+            return Line(name: "Last \(days) days", value: String(format: "$%.2f", usd.doubleValue), note: text(cost["basis"]))
+        }
+    }
+
+    static func shown(_ value: Any?) -> String {
+        if let list = value as? [Any] { return list.isEmpty ? "none" : list.map { "\($0)" }.joined(separator: ", ") }
+        if let number = value as? NSNumber {
+            return CFGetTypeID(number) == CFBooleanGetTypeID() ? (number.boolValue ? "on" : "off") : number.stringValue
+        }
+        let words = text(value)
+        return words.isEmpty ? "not set" : words
+    }
+}
+
+// MARK: - Restore (decision 8)
+
+/// One thing FERB can put back (`recovery.list`): a copy of a file before FERB changed it, an item it moved to the
+/// Trash, or a disk snapshot (restored from macOS Recovery or Time Machine, not here).
+public struct RestoreRow: Identifiable, Equatable {
+    public let id: String
+    public let kind: String
+    public let original: String
+    public let reason: String
+    public let at: Date?
+    public let savedTo: String
+
+    public init?(_ row: [String: Any]) {
+        guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+        self.id = id
+        kind = text(row["kind"])
+        original = text(row["original"])
+        reason = text(row["reason"])
+        at = WindowTime.parse(row["at"])
+        savedTo = text(row["saved_to"])
+    }
+
+    /// A snapshot is restored outside FERB; the rest have a Restore button.
+    public var restorable: Bool { kind != "snapshot" }
+
+    public var what: String {
+        switch kind {
+        case "trash": return "Moved to the Trash"
+        case "snapshot": return "Disk snapshot"
+        default: return reason == "overwrite" ? "Overwritten" : reason == "edit" ? "Edited" : "Changed"
+        }
+    }
+}
+
+// MARK: - Saved secrets and cards (decision 8)
+
+/// One saved entry (`secrets.saved`): where it fills and its name. Never a value.
+public struct SavedSecretRow: Identifiable, Equatable {
+    public var id: String { place + "\u{0}" + name }
+    public let place: String
+    public let name: String
+    public let kind: String
+    public let unusable: Bool
+
+    public init?(_ row: [String: Any]) {
+        guard let place = row["place"] as? String, let name = row["name"] as? String, !name.isEmpty else { return nil }
+        self.place = place
+        self.name = name
+        kind = text(row["kind"])
+        unusable = flag(row["unusable"])
+    }
+
+    public var kindLabel: String {
+        switch kind {
+        case "card_number": return "card number"
+        case "card_csc": return "card security code"
+        case "card_expiry": return "card expiry"
+        default: return "secret"
+        }
+    }
+}
+
+// MARK: - The one-time clean-up (storage decision 4)
+
+/// The last line of a `ferb setup --cleanup` run that is a JSON object (the command prints its plan, or its result, as
+/// one JSON line after any progress lines).
+public enum FerbJSON {
+    public static func last(_ lines: [String]) -> [String: Any]? {
+        for line in lines.reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("{"), let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            return object
+        }
+        return nil
+    }
+}
+
+/// `ferb setup --cleanup`'s preview: what the clean-up removes, and the `ok` digest the owner's OK sends back.
+public struct CleanupPlan: Equatable {
+    public struct Step: Equatable, Identifiable {
+        public var id: String { table + "\u{0}" + what }
+        public let table: String
+        public let rows: Int
+        public let what: String
+        public let dropped: Bool
+    }
+
+    public let steps: [Step]
+    public let rows: Int
+    public let compact: Bool
+    public let bytes: Int
+    public let free: Int
+    /// The digest the OK carries; nil when there is nothing to do.
+    public let ok: String?
+
+    public init?(_ reply: [String: Any]?) {
+        guard let reply, reply["steps"] != nil else { return nil }
+        steps = (reply["steps"] as? [[String: Any]] ?? []).map {
+            Step(table: text($0["table"]), rows: number($0["rows"]), what: text($0["what"]), dropped: flag($0["drop"]))
+        }
+        rows = number(reply["rows"])
+        compact = flag(reply["compact"])
+        bytes = number(reply["bytes"])
+        free = number(reply["free"])
+        ok = (reply["ok"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Nothing to remove and nothing to compact: the clean-up has nothing to do.
+    public var nothingToDo: Bool { steps.isEmpty && !compact }
+
+    /// `ferb setup --cleanup --ok DIGEST`.
+    public var applyArguments: [String]? { ok.map { ["setup", "--cleanup", "--ok", $0] } }
+}
+
+/// `ferb setup --cleanup --ok`'s result line (and its exit status).
+public struct CleanupResult: Equatable {
+    public let removed: Int
+    public let compacted: Bool
+    public let before: Int
+    public let after: Int
+    public let refused: Bool
+    public let stopped: Bool
+    public let problem: String?
+
+    public init(_ reply: [String: Any]?, status: Int32) {
+        let reply = reply ?? [:]
+        removed = (reply["removed"] as? [String: Any] ?? [:]).values.reduce(0) { $0 + number($1) }
+        compacted = flag(reply["compacted"])
+        before = number(reply["bytes_before"])
+        after = number(reply["bytes_after"])
+        refused = flag(reply["refused"])
+        stopped = flag(reply["stopped"])
+        let why = text(reply["error"]).isEmpty ? text(reply["not_run"]) : text(reply["error"])
+        problem = why.isEmpty ? (status == 0 || refused ? nil : "the clean-up stopped (exit status \(status))") : why
+    }
+
+    public var line: String {
+        if refused { return "Nothing was removed: what the clean-up would remove changed since you saw it. Look at it again." }
+        if let problem { return "The clean-up didn't finish: \(problem). Running it again finishes it." }
+        if stopped { return "The clean-up stopped after removing \(removed) rows; running it again finishes it." }
+        if compacted { return "Removed \(removed) rows; FERB's database went from \(shownBytes(before)) to \(shownBytes(after))." }
+        return "Removed \(removed) rows."
+    }
+}
+
+// MARK: - FERB's own account (decision 7)
+
+/// A browser profile signed into the account the owner made for FERB (`identity.find`).
+public struct IdentityCandidate: Identifiable, Equatable {
+    public var id: String { browser + "/" + folder }
+    public let browser: String
+    public let browserName: String
+    public let folder: String
+    public let name: String
+    /// It holds only FERB's account, as FERB's profile must.
+    public let only: Bool
+    public let otherAccounts: Int
+
+    public init?(_ row: [String: Any]) {
+        guard let browser = row["browser"] as? String, let folder = row["folder"] as? String, !folder.isEmpty else {
+            return nil
+        }
+        self.browser = browser
+        self.folder = folder
+        browserName = text(row["browser_name"]).isEmpty ? browser : text(row["browser_name"])
+        name = text(row["name"]).isEmpty ? folder : text(row["name"])
+        only = flag(row["only"])
+        otherAccounts = number(row["other_accounts"])
+    }
+}
+
+/// FERB's own account as set now and the profiles found for an address.
+public struct IdentityState: Equatable {
+    public let address: String
+    public let browser: String
+    public let profile: String
+    public let paired: Bool
+    /// `browsing.owner_profile`: the owner's profile FERB browses in while it has none of its own.
+    public let ownerProfile: String
+    public let candidates: [IdentityCandidate]
+
+    public init(_ reply: [String: Any]) {
+        let current = reply["current"] as? [String: Any] ?? [:]
+        address = text(current["address"])
+        browser = text(current["browser"])
+        profile = text(current["profile"])
+        paired = flag(current["paired"])
+        ownerProfile = text(current["owner_profile"])
+        candidates = (reply["candidates"] as? [[String: Any]] ?? []).compactMap(IdentityCandidate.init)
+    }
+
+    public var isSetUp: Bool { !address.isEmpty && !profile.isEmpty }
+    /// The one profile that holds only FERB's account, when exactly one does.
+    public var usable: [IdentityCandidate] { candidates.filter(\.only) }
+}

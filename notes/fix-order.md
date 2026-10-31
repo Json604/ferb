@@ -75,6 +75,14 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     the app's new Sign out of Claude); the embedding model shipped in FERB.app; app-word runtime errors; more raw SQL
     into the stores; the footprint read. Rulings, footprint and live checks in notes/daemon.md. Not done: the app's
     clean-up screen (notes/storage.md decision 4).)
+    (Step 12c: the app screens and their daemon side: "About FERB" built from code and config (an always-on facts line,
+    `about.read` for workers, Settings → About; what FERB keeps from the new retention rule table; the app's how-tos and
+    shortcuts kept with the UI and sent with `about.guide`); FERB's own account as an optional setup step and Settings →
+    Browsers section (`identity.find` / `identity.choose` through the settings path, then `identity.pair`; skipped, the
+    owner picks the profile FERB browses in); Settings → Data with Restore, saved secrets and cards (Delete through the
+    signed helper) and the clean-up screen; "Uninstall FERB and delete all its data" (`ferb uninstall --purge --yes`);
+    the owner-data RPCs FERB.app-only; memory import's page card and `.jsonl.zst` Codex rollouts (localized Takeout
+    left: no structural marker). Rulings, UI pieces for the owner to polish and live checks in notes/daemon.md.)
 13. **Live checks**: per-adapter live tests, the owner's P20 injection eval, the patch re-test list, the safety suite.
 14. **Docs cleanup** last: extract `notes/test-tasks.md`, settle CLAUDE.md/AGENTS.md, delete the old docs, rewrite
     the README.

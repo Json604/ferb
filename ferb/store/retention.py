@@ -71,6 +71,73 @@ def days(value: Any) -> int:
     return max(MIN_DAYS, int(value))
 
 
+DB = "FERB's database on this Mac (~/.ferb/ferb.db)"
+
+
+@dataclass(frozen=True)
+class Rule:
+    """One row of what FERB keeps and for how long: the hourly pass reads its windows from here (`windows`), and the
+    About page and FERB's self-description show the same rows (`describe`), so neither can drift from what runs.
+    `window`: the pass's name for its days; `setting`: the config key (section, key) the owner changes, with `default`;
+    no setting and a `default`: fixed days; neither: kept until `kept` says."""
+    records: str
+    where: str
+    kept: str
+    window: str | None = None
+    setting: tuple[str, str] | None = None
+    default: int | None = None
+
+
+# The rule table (decisions 1 and 3; memory decision 3). Evidence, recovery and resource samples are purged by their
+# own stores in the same pass, with the days read here; the Keychain row is no retention rule but belongs in "what FERB
+# keeps about you".
+RULES: tuple[Rule, ...] = (
+    Rule("your tasks, their results and your verdicts", DB, "forever"),
+    Rule("what each task did (episodes) and how-notes", DB, "forever"),
+    Rule("what FERB remembers about you and what it learned", DB, "until you forget it (Memory page)"),
+    Rule("your chats with FERB, notices and day summaries", DB, "forever"),
+    Rule("schedules, reminders and the sites and people you approved", DB, "until you remove them"),
+    Rule("each task's full trace (every model and tool call)", DB, "after the task ends, once its episode exists",
+         "trace_days", ("retention", "trace_days"), 30),
+    Rule("operational records (actions taken, confirmations, plans, loop state, finished timers, FERB's own "
+         "bookkeeping)", DB, "after their task or timer ends", "operational_days", ("retention", "operational_days"),
+         OPERATIONAL_DAYS),
+    Rule("Jev's decisions (Jev is switched off)", DB, "after they were made", "decision_days",
+         ("retention", "decision_days"), 30),
+    Rule("text read from apps on screen (accessibility)", DB, "after it was read", None, None, ACCESSIBILITY_DAYS),
+    Rule("other activity on this Mac (apps, windows, pages, files, notifications)", DB,
+         "once that day's summary exists", "trail_days", ("sense", "trail_retention_days"), 30),
+    Rule("screenshots, evidence and shell output", "~/.ferb/evidence and ~/.ferb/logs/shell on this Mac",
+         "after they were captured", "evidence_days", ("retention", "evidence_days"), 7),
+    Rule("copies of files before FERB changed them, records of what it moved to the Trash, disk snapshots",
+         "~/.ferb/recovery on this Mac (snapshots: your disk)", "after FERB made them", "recovery_days",
+         ("retention", "recovery_days"), 7),
+    Rule("FERB's own CPU and memory use", DB, "after it was measured", "resource_days",
+         ("retention", "resource_days"), 30),
+    Rule("secrets and card details you saved", "your login Keychain (never the database)",
+         "until you delete them (Settings → Data)"),
+)
+
+
+def windows(get: Any) -> dict[str, int]:
+    """The pass's windows in days from config (`get(section, key, default)`), each at least MIN_DAYS."""
+    return {str(r.window): days(get(r.setting[0], r.setting[1], r.default)) for r in RULES
+            if r.window and r.setting and r.default is not None}
+
+
+def describe(get: Any) -> list[dict[str, Any]]:
+    """The rule table as the owner reads it: what, where, for how long (days from config), and the setting that
+    changes it."""
+    out: list[dict[str, Any]] = []
+    for r in RULES:
+        n = days(get(r.setting[0], r.setting[1], r.default)) if r.setting and r.default is not None else r.default
+        out.append({"records": r.records, "where": r.where,
+                    "kept": f"{n} day{'s' if n != 1 else ''} {r.kept}" if n is not None else r.kept,
+                    **({"days": n} if n is not None else {}),
+                    **({"setting": ".".join(r.setting)} if r.setting else {})})
+    return out
+
+
 @dataclass
 class Plan:
     """What one pass deletes, read before anything is deleted: each old tree's spans (children before parents), loose

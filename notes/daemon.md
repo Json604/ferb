@@ -224,11 +224,44 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       `ferb setup --claude-login`. Identity-profile setup has no path until the app's screen exists (decision 7).)
 - [x] Remove the daemon push-to-talk stack together with CLI chat (they share CLI rendering; notes/voice.md decision 3).
       (Step 3: see notes/voice.md.)
-- [ ] Identity-profile setup moves into the app (owner's UI side); `identity.check`/`identity.pair` RPCs stay.
+- [x] Identity-profile setup moves into the app (owner's UI side); `identity.check`/`identity.pair` RPCs stay.
+      (Step 12c: see "FERB email setup in the app" below.)
 - [x] Test-mode send allowlist kept in config for live send tests (CLAUDE.md rule 22); no CLI command.
       (Step 3: the `test.mode` RPC and config stay; the CLI command is gone.)
-- [ ] "About FERB" source and worker lookup tool (decision 6).
-- [ ] FERB email setup in the app (decision 7); identity RPCs for the app.
+- [x] "About FERB" source and worker lookup tool (decision 6).
+      (Step 12c: ferb/daemon/about.py + areas/about.py. One document built on each read from code and config: version,
+      models per role (config, runtime table defaults), FERB's own account, permissions (the daemon's own grants),
+      every setting FERB.app changes with its value and where it lives, what FERB keeps / where / how long
+      (`retention.describe` over the new rule table `retention.RULES`, which the hourly pass now reads its windows
+      from, and which settings.py takes its retention defaults from), health (database size, clean-up waiting,
+      CPU share and memory over the last day from `resource_samples`), cost (priced model calls in traces, 7 and 30
+      days, API-equivalent) and FERB.app's how-tos and shortcuts. The always-on line (`about.summary`: version, models,
+      where settings live, the tool) is the first line of "Facts about this FERB" (`_facts`), the shared path every
+      role's instructions take; no live numbers. Workers read the whole document with `about.read` (observation,
+      gateway, redacted; checkers may use it). FERB.app's Settings → About reads `about.get`. The how-tos, shortcuts and
+      the setting places are a list kept with the UI (NotchCore `AppGuide`), which FERB.app hands to the daemon with
+      `about.guide` (APP_ONLY) on each connection; kept in memory. Tests: tests/test_app_screens.py, AppScreensTests.)
+- [x] FERB email setup in the app (decision 7); identity RPCs for the app.
+      (Step 12c: an optional setup step after Browsers, "Give FERB its own Google account (recommended)", also Settings
+      → Browsers → FERB's own account. `identity.find {address}` lists every installed browser's profiles signed into
+      that address (Local State + Preferences only) and whether each holds it alone; `identity.choose` checks the pick
+      with `seed.verify` and writes `[mailbox] provider/address` and `[identity] browser/profile` in one write through
+      `settings.write_identity` (journaled `settings.changed`, key identity; `clear` removes them); then
+      `identity.pair` as before. All three are APP_ONLY. Skipped: the owner picks one of their paired profiles
+      (`browsing.owner_profile`, a new setting) and the browser resolver uses it for an owner task with no profile
+      named, only while FERB has no profile of its own; the facts line says FERB has no account of its own, what isn't
+      set up, and which profile web work uses (prompts decision 5 reconciled: FERB's own profile stays the default when
+      it exists). `identity.check` reads the configured browser's data folder (it read Chrome's always). The
+      diagnostic-report address stays hard-coded to the developer (reports.py:26), unchanged.)
+- [x] Restore, Delete saved secret/card and Uninstall in the app (decision 8).
+      (Step 12c: Settings → Data → Restore lists `recovery.list` (copies, Trash moves, snapshots: snapshots say how to
+      open them) and restores with `recovery.restore`, the same handlers `ferb restore` uses. Settings → Data → Saved
+      secrets and cards: `secrets.saved` (place, name, kind; never a value, Keychain account or username) and
+      `secrets.delete {place, name}` (both APP_ONLY), after one question in the app; `OwnerSecrets.delete` deletes the
+      Keychain item through the signed helper's new `delete` operation (never read first; an item another entry still
+      names stays) and drops the name, journaled `secret.deleted` with place and name. Settings → Advanced → "Uninstall
+      FERB and delete all its data…": one question in the app, then `ferb uninstall --purge --yes` (the app's service
+      unregistered first, as plain uninstall does). Tests: tests/test_app_screens.py, AppScreensTests.)
 - [x] `ferb logs --policy` filter fixed; main.py's raw SQL moved into the stores; investigate the 2.2-2.4 GB footprint.
       (Step 2: `--policy` fixed and an unknown filter refused; 13 of 54 statements moved (task_results, tasks lookups,
       task_memory_refs, learning retire, trail rows); the rest belong to areas later steps rewrite or remove. Footprint
@@ -238,6 +271,80 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       memory questions into ferb/memory/questions.py; the dead `reminders.unseen` RPC removed. Left in the areas: the
       memory area's card/search/activity reads (9, the memory stores' own seams), Jev's 3 (switched off), PRAGMAs and the
       schedule transaction. Footprint: see "Footprint (step 12b)".)
+
+## Rulings (step 12c, technical)
+- **About's three readers, one builder**: the always-on line rides in `_facts` ("Facts about this FERB"), which
+  `Supervisor._system` adds for every role: one shared path, no per-role text (notes/prompts.md contract: a fact line,
+  not a prompt rule). It holds version, models per role and where settings live; it changes only when the owner changes
+  a model or FERB is updated, so the cacheable prefix holds between calls. Live numbers (size, CPU, cost) are only in
+  the document.
+- **The retention rule table** (`retention.RULES`) is load-bearing: the hourly pass's windows (`retention.windows`),
+  the retention settings' defaults (settings.py) and the About rows (`retention.describe`) all read it. Rows with no
+  window (forever, until deleted) and the Keychain row are in it so "what FERB keeps about you" is one table.
+- **The app guide** lives in NotchCore (`AppGuide`), beside the screens it names; FERB.app sends it with `about.guide`
+  (APP_ONLY: only FERB.app's words become FERB's guide) on every connection, the daemon keeps it in memory (until the
+  app connects after a daemon start the document says so). Setting places come from the same list.
+- **Cost** is the API-equivalent price of the model calls traces carry (spans age out at 30 days, so 7 and 30 days are
+  what it can say); a subscription is billed by its plan, as the document states.
+- **APP_ONLY** (auth.py) now also covers `secrets.saved`, `secrets.delete`, `identity.find`, `identity.choose`,
+  `identity.pair` and `about.guide`. `recovery.list` / `recovery.restore` stay on the cli role: the developer
+  toolbox's `ferb restore` (decision 4) uses them, and the owner-uid socket check already keeps FERB's own shell out
+  (sandbox.py names the socket). Owner question below.
+- **Uninstall and the clean-up are commands, not RPCs**: both stop the daemon. `--yes` (with `--purge`) means the owner
+  answered FERB.app's one question; the CLI still asks for "delete" without it. FERB's own shell can't use either to
+  any effect: its sandbox denies FERB's home, the Keychain service (`com.apple.SecurityServer`), signals outside its
+  sandbox and job creation.
+- **Deleting a saved secret** goes through the signed helper that made the item (`delete` operation, SecItemDelete by
+  service and account), so macOS needs no extra approval and no value is read; an item not found counts as deleted.
+  A FERB.app built before this step has an older helper: delete fails until `ferb setup --update` rebuilds it.
+- **FERB's own account** is written only by `settings.write_identity` (one atomic write of the four keys) after
+  `seed.verify` saw exactly that account in that profile. The account itself is the owner's to create (human
+  verification); FERB only finds and pairs it.
+- **Browsing as the owner without FERB's own profile**: `browsing.owner_profile` ("browser/folder", the owner's pick in
+  the app) is used by the resolver only when no FERB profile is configured and that profile is paired; with FERB's own
+  profile configured nothing changes (decision 5's default).
+- **Notice cards stored with the notice** (migration 0057, `attention_notices.cards_json`): a notice read from
+  `chat.status` after the app was away shows its cards too, not only the live event.
+- **The doctor's "waiting for your OK"** reaches the app as `doctor.check`'s `database {bytes, cleanup_pending}` (Health
+  line "Database") and in About's health; Settings → Data shows it above the clean-up.
+
+## Added UI pieces (step 12c; functional only, for the owner to polish)
+- Settings → About (new tab): FERB (version, models, own account), what FERB keeps / where / how long, permissions,
+  your settings with where each lives, health, cost, shortcuts, how-tos.
+- Settings → Data (new tab): Restore list with Restore buttons; Saved secrets and cards with Delete… and its one
+  question; Clean up (preview list, sizes, OK, progress line, result) with the "waits for your OK" line.
+- Setup window: the optional "Give FERB its own Google account (recommended)" step (address field, Find its profile,
+  candidate rows with Use this profile, Pair it / Stop using it, and the "browses as you in" profile picker).
+- Settings → Browsers: the same as a "FERB's own account" section.
+- Settings → Advanced: "Uninstall FERB and delete all its data…" button and its alert.
+- Settings → Privacy: an "Operational records" days stepper (the setting existed without one).
+- Settings → Advanced → Health: a "Database" line when the clean-up waits.
+- Notch: a memory import notice shows its example note cards and an "Open the Memory page" button; the Memory page
+  shows "Showing what FERB imported from …" with Show everything.
+
+## Open owner questions (step 12c)
+- Restore stays a cli-role method (the developer toolbox's `ferb restore` uses it); making it FERB.app-only would
+  remove `ferb restore`. Keep as is, or FERB.app-only?
+
+## Live checks for step 13 (step 12c)
+- Settings → About: version and models match Settings → AI; "What FERB keeps" lists 30-day traces (change Task traces
+  to 20 days on the Privacy page; About shows 20); Health shows the database size; Cost shows two lines. Ask FERB "how
+  long do you keep my traces and where do I change it?": the answer cites 20 days and Settings → Privacy (the worker's
+  `about.read` in its trace).
+- `ferb trace` of any task: the planner's instructions carry the "About FERB" line once; two turns in a row have the
+  same instructions prefix (prompt cache hits in the trace's usage).
+- Setup window from the menu: the new FERB's own account step after Browsers. With FERB's account signed into its own
+  profile: type the address, Find its profile, Use this profile, turn the extension on if asked: "set up and paired";
+  config.toml has `[mailbox] address` and `[identity] browser/profile`; `ferb doctor` ✓ identity profile. Stop using
+  it: the keys go. Skip instead and pick a paired profile: a request like "open example.com" with no profile named
+  opens in that profile.
+- Settings → Data → Restore: ask FERB to trash a disposable file on the Desktop, then Restore it from the list.
+- Save a disposable secret during a test login, then Settings → Data → Delete… it: Keychain Access no longer lists
+  the item (service ferb.owner-secrets); `ferb trace`/journal show `secret.deleted` with only place and name.
+- Settings → Data → Clean up on the live store: the list, OK, FERB stops and comes back, the result line; Health's
+  Database line clears.
+- A memory import notice: Open the Memory page opens FERB's window on Memory filtered to that assistant.
+- Uninstall and delete everything only on a disposable install (another macOS user), never the owner's.
 
 ## Rulings (step 12b, technical)
 - **Dev launch path for a checkout**: the same label as a user LaunchAgent in ~/Library/LaunchAgents

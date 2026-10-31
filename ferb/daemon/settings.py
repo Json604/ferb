@@ -5,9 +5,11 @@ Rule 10 (FERB never changes its own config): these writes come only through `set
 alone (auth.py). That role is proven by the owner's uid on the daemon's socket, which FERB's shell and AppleScript
 can't reach (the sandbox names the socket last: sandbox.py, test_shell_sandbox), no tool calls, and FERB's Mac tools
 never operate FERB.app (driver.OWN_APP). Each value is checked here (rule 5). A key not in SETTINGS can't be written
-this way: [protection], secrets and API keys, models, the mailbox and identity, the feedback address, exclude_paths
-and watch_folders stay in config.toml and the CLI; the runtimes have `runtimes.use` and the banner switches
-`notifications.categories`, each owner-only and checked where it is defined."""
+this way: [protection], secrets and API keys, models, the feedback address, exclude_paths and watch_folders stay in
+config.toml; the runtimes have `runtimes.use` and the banner switches `notifications.categories`, each owner-only and
+checked where it is defined. FERB's own account (`[mailbox] address`, `[identity] browser/profile`, daemon decision 7)
+is written only by `write_identity`, which FERB.app's `identity.choose` calls after code found exactly that account
+in that profile (auth.APP_ONLY)."""
 
 import re
 from dataclasses import dataclass
@@ -15,7 +17,7 @@ from typing import Any, Callable
 
 from ferb.config import DEFAULT_EXCLUDE_APPS, Config
 from ferb.core.errors import FerbError
-from ferb.store.retention import MIN_DAYS
+from ferb.store.retention import MIN_DAYS, RULES
 
 # A site as [privacy] exclude_domains holds it (sense/exclusions.py matches the host and its subdomains)
 HOST = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*")
@@ -64,6 +66,19 @@ def _hosts(value: Any) -> list[str]:
     return out
 
 
+def _profile(value: Any) -> str:
+    """`browser/folder` of one of the owner's browser profiles (ferb/act/browser/profiles.py BROWSERS), or "" for none."""
+    from ferb.act.browser.profiles import BROWSERS
+    if not isinstance(value, str):
+        raise BadSetting("must be a browser profile as browser/folder, or empty")
+    text = value.strip()
+    browser, _, folder = text.partition("/")
+    if text and (browser not in BROWSERS or not folder.strip() or len(text) > APP_CHARS
+                 or any(ord(c) < 32 for c in text)):
+        raise BadSetting(f"has {value!r}, which isn't a browser profile as browser/folder")
+    return text
+
+
 @dataclass(frozen=True)
 class Setting:
     section: str
@@ -80,13 +95,9 @@ SETTINGS: dict[str, Setting] = {s.name: s for s in (
     Setting("privacy", "exclude_apps", _apps, list(DEFAULT_EXCLUDE_APPS)),
     Setting("privacy", "exclude_domains", _hosts, []),
     Setting("sense", "window_titles", _bool, True),
-    Setting("sense", "trail_retention_days", _days, 30),
-    Setting("retention", "trace_days", _days, 30),
-    Setting("retention", "decision_days", _days, 30),
-    Setting("retention", "evidence_days", _days, 7),
-    Setting("retention", "recovery_days", _days, 7),
-    Setting("retention", "resource_days", _days, 30),
-    Setting("retention", "operational_days", _days, 90),       # storage decision 3
+    # how long records are kept: every retention rule with a setting (ferb/store/retention.py RULES, one table)
+    *(Setting(r.setting[0], r.setting[1], _days, r.default) for r in RULES if r.setting and r.default is not None),
+    Setting("browsing", "owner_profile", _profile, ""),         # daemon decision 7: browsing as the owner, when chosen
 )}
 
 
@@ -113,3 +124,30 @@ def write(config: Config, name: str, value: Any) -> Any:
         raise BadSetting(f"{name} {e}") from None
     config.set(setting.section, setting.key, checked)
     return checked
+
+
+EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def write_identity(config: Config, address: str, browser: str, folder: str) -> dict[str, str]:
+    """FERB's own Google account and the browser profile it is signed into (daemon decision 7), in one checked write
+    each; or, with every value empty, none (the owner removed it). Returns what was stored."""
+    from ferb.act.browser.profiles import BROWSERS
+    address, browser, folder = address.strip().lower(), browser.strip(), folder.strip()
+    if not (address or browser or folder):
+        config.remove("mailbox", "address")
+        config.remove("identity", "browser", "profile")
+        return {"address": "", "browser": "", "profile": ""}
+    if not EMAIL.fullmatch(address) or len(address) > 320:
+        raise BadSetting(f"{address!r} isn't an email address")
+    if browser not in BROWSERS or not folder or len(folder) > APP_CHARS or any(ord(c) < 32 for c in folder):
+        raise BadSetting("FERB's profile must be one of your browsers' profiles")
+    import tomlkit
+    doc = config.load()                          # one atomic write for the four keys
+    for section, key, value in (("mailbox", "provider", "gmail"), ("mailbox", "address", address),
+                                ("identity", "browser", browser), ("identity", "profile", folder)):
+        if section not in doc:
+            doc[section] = tomlkit.table()
+        doc[section][key] = value
+    config.save(doc)
+    return {"address": address, "browser": browser, "profile": folder}

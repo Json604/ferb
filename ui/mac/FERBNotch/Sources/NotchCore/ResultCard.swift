@@ -43,8 +43,11 @@ public struct ResultCard: Codable, Equatable {
     // file
     public var path: String?
     public var name: String?
+    // page (step 12c): a FERB window page to open, with its filter (the memory import's notice: Memory, imported_from)
+    public var page: String?
+    public var importedFrom: String?
 
-    public static let types: Set<String> = ["reminder", "event", "note", "payment", "send", "link", "file"]
+    public static let types: Set<String> = ["reminder", "event", "note", "payment", "send", "link", "file", "page"]
 
     public init?(_ value: Any?) {
         guard let value = value as? [String: Any], let type = value["type"] as? String, Self.types.contains(type) else {
@@ -60,6 +63,8 @@ public struct ResultCard: Codable, Equatable {
         amount = words("amount"); merchant = words("merchant"); site = words("site"); savedCard = words("card")
         recipient = words("recipient"); app = words("app"); account = words("account")
         host = words("host"); path = words("path"); name = words("name")
+        page = words("page")
+        importedFrom = ((value["filter"] as? [String: Any])?["imported_from"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         // A card with nothing to show isn't one.
         switch type {
         case "note": if itemID == nil || text == nil { return nil }
@@ -68,6 +73,7 @@ public struct ResultCard: Codable, Equatable {
         case "send": if recipient == nil && site == nil && app == nil { return nil }
         case "payment": if amount == nil && merchant == nil { return nil }
         case "event": if what == nil { return nil }
+        case "page": if page == nil { return nil }
         default: break
         }
     }
@@ -121,6 +127,8 @@ public enum CardLayout {
     }
     public static func links(_ cards: [ResultCard]) -> [ResultCard] { cards.filter { $0.type == "link" } }
     public static func files(_ cards: [ResultCard]) -> [ResultCard] { cards.filter { $0.type == "file" } }
+    /// Buttons that open a page of FERB's window (step 12c).
+    public static func pages(_ cards: [ResultCard]) -> [ResultCard] { cards.filter { $0.type == "page" } }
 
     /// The lines the cards stand for.
     public static func lines(_ cards: [ResultCard]) -> Set<String> { Set(cards.compactMap(\.line)) }

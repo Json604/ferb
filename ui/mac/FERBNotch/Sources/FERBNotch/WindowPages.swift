@@ -147,6 +147,15 @@ struct MemoryPage: View {
                 }
             }
             importSection
+            if let source = store.memoryFilter {
+                Section {
+                    HStack {
+                        Text("Showing what FERB imported from \(MemoryImportSource(rawValue: source)?.title.replacingOccurrences(of: "…", with: "") ?? source)")
+                        Spacer()
+                        Button("Show everything") { store.memoryFilter = nil; Task { await store.loadMemory() } }
+                    }
+                }
+            }
             Section("Everything FERB remembers") {
                 if store.activeMemory.isEmpty { Text("FERB doesn't know anything about you yet.").foregroundStyle(.secondary) }
                 ForEach(store.activeMemory.filter { !$0.inProfile }) { item in row(item) }

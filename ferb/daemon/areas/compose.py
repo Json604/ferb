@@ -169,6 +169,8 @@ class Compose:
         self.registry.add(SecretsList(lambda: self.home,               # L36 §5: names only, never values
                                       lambda ctx, place: self.gateway.hidden._question_sites(ctx, place) if self.gateway
                                       else [], self._username_sources))
+        from ferb.daemon.about import AboutRead
+        self.registry.add(AboutRead(self._about_document))             # decision 6: read-only, redacted
         from ferb.orchestrator.conversation_tools import ConversationRead
         self.registry.add(ConversationRead(self.supervisor.conversations, self.tasks.tree_of))
         # the live preview's state over its last frame (notes/preview.md decision 2), from the supervisor's records

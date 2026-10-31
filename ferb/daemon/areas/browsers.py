@@ -2,6 +2,7 @@
 browser RPCs. Must not choose a profile for a task: agents do."""
 
 import asyncio
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from ferb.act.browser import downloads, profiles as browser_profiles, uploads
@@ -126,6 +127,12 @@ class Browsers:
         dirs = tuple(sorted((k, str(v)) for k, v in (self.browser_data_dirs or {}).items()))
         return list(self._fresh.get(self._profiles, dirs))
 
+    def _owner_browsing_profile(self) -> tuple[str, str] | None:
+        """The owner's profile FERB browses in while it has no profile of its own (`browsing.owner_profile`, chosen in
+        FERB.app; daemon decision 7), else None."""
+        browser, _, folder = str(self.config.get("browsing", "owner_profile", "") or "").partition("/")
+        return (browser, folder) if browser and folder else None
+
     def _identity_profile(self) -> tuple[str, str] | None:
         folder = self.config.get("identity", "profile")
         return (str(self.config.get("identity", "browser", "chrome")), str(folder)) if folder else None
@@ -134,7 +141,8 @@ class Browsers:
         assert self.db and self.ledger
         self.pairings = Pairings(self.db, self.clock)
         self.hub = Hub(self.pairings, self.ledger, self._publish, lambda: self.device_id)
-        resolver = Resolver(self._profiles, self.pairings.all, self._identity_profile)
+        resolver = Resolver(self._profiles, self.pairings.all, self._identity_profile,
+                            owner_default=self._owner_browsing_profile)
         await self.wake.start()
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
         self.router.native_secrets = self._native_page_secrets      # B6: an unread tab's fields from Accessibility
@@ -202,6 +210,12 @@ class Browsers:
         rec = self.tasks.get(root)
         return rec.task.goal if rec is not None else ""
 
+    def _identity_paired(self) -> bool:
+        """FERB's own profile is paired as FERB (read only)."""
+        prof = self._identity_profile()
+        b = self.pairings.for_profile(*prof) if (prof and self.pairings) else None
+        return b is not None and b.identity is Identity.FERB
+
     def _attach_identity_if_paired(self) -> bool:
         """FERB's tools exist only once its identity profile is paired as FERB."""
         prof = self._identity_profile()
@@ -220,7 +234,7 @@ class Browsers:
         prof, address = self._identity_profile(), str(self.config.get("mailbox", "address", "") or "")
         if not prof or not address:
             raise FerbError("FERB's identity profile isn't chosen yet")
-        data = (self.browser_data_dirs or {}).get(prof[0])
+        data = self._browser_data().get(prof[0])
         try:
             await asyncio.to_thread(seed.verify, address, prof[1], *([data] if data else []))
         except seed.SeedError as e:
@@ -246,6 +260,65 @@ class Browsers:
             await asyncio.sleep(0.2)
         self.pairings.revoke(token)                          # its page went unanswered: the key can't pair later
         return {"paired": False, "profile": prof[1], "hint": "is the FERB extension loaded in FERB's profile?"}
+
+    def _browser_data(self) -> dict[str, Path]:
+        """Each installed browser's user-data folder (tests give their own)."""
+        if self.browser_data_dirs is not None:
+            return dict(self.browser_data_dirs)
+        return {b: browser_profiles.data_dir(b) for b in browser_profiles.installed()}
+
+    def _identity_candidates(self, address: str) -> list[dict[str, Any]]:
+        """Every browser profile signed into `address` (Local State and Preferences, read only; never cookies), and
+        whether it holds that account alone, as FERB's profile must (`seed`)."""
+        from ferb.identity import seed
+        out: list[dict[str, Any]] = []
+        for browser, data in self._browser_data().items():
+            try:
+                found = seed.profiles(data)
+            except seed.SeedError:
+                continue
+            for p in found:
+                if address in p.accounts:
+                    out.append({"browser": browser, "browser_name": browser_profiles.BROWSERS[browser].label
+                                if browser in browser_profiles.BROWSERS else browser,
+                                "folder": p.folder, "name": p.name, "only": p.accounts == (address,),
+                                "other_accounts": len(p.accounts) - 1})
+        return out
+
+    async def _identity_find(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """FERB.app's "Give FERB its own Google account" (daemon decision 7; auth.APP_ONLY): FERB's account as set now
+        and whether its profile is paired, and, for `address` (the account the owner made), each profile signed into
+        it. The owner made the account and signed it in; FERB only looks."""
+        address = str(params.get("address") or self.config.get("mailbox", "address", "") or "").strip().lower()
+        prof = self._identity_profile()
+        current = {"address": str(self.config.get("mailbox", "address", "") or ""),
+                   "browser": prof[0] if prof else "", "profile": prof[1] if prof else "",
+                   "paired": self._identity_paired(),
+                   "owner_profile": str(self.config.get("browsing", "owner_profile", "") or "")}
+        candidates = await asyncio.to_thread(self._identity_candidates, address) if address else []
+        return {"current": current, "address": address, "candidates": candidates}
+
+    async def _identity_choose(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """The owner's pick of FERB's profile (auth.APP_ONLY): written through the settings path
+        (`settings.write_identity`) only when that profile holds exactly that account (`seed.verify`); `clear` removes
+        FERB's account (its pairing stays in Browsers until unpaired). Journaled as a settings change."""
+        from ferb.daemon import settings
+        from ferb.identity import seed
+        if params.get("clear") is True:
+            stored = settings.write_identity(self.config, "", "", "")
+        else:
+            address = str(params.get("address") or "").strip().lower()
+            browser, folder = str(params.get("browser") or ""), str(params.get("folder") or "")
+            data = self._browser_data().get(browser)
+            if data is None:
+                raise FerbError(f"{browser or 'That browser'} isn't installed")
+            try:
+                await asyncio.to_thread(seed.verify, address, folder, data)
+            except seed.SeedError as e:
+                raise FerbError(str(e)) from None
+            stored = settings.write_identity(self.config, address, browser, folder)
+        self._journal().append("settings.changed", {"key": "identity", "value": stored}, origin="owner")
+        return stored
 
     async def _open_pairing(self, browser: str, folder: str, token: str) -> str | None:
         """Open the extension's pairing page in that profile. A profile with no window isn't loaded, and a pairing

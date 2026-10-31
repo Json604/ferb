@@ -254,6 +254,13 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       → search only. tests/test_owner_memory_seed.py.)
 - [x] Live re-test list: the original task behind each removed patch. (Step 10b: notes/tests.md "Live re-test list
       (step 13)".)
+- [x] "About FERB" in every prompt (notes/daemon.md decision 6) without breaking the contract. (Step 12c: one fact
+      line, first in "Facts about this FERB" (`_facts`, the shared path `_system` adds for every role; no prompt file
+      changed): version, models per role, that settings are the owner's to change in FERB.app and FERB says where, and
+      that workers read the full self-description with `about.read`. Stable between calls (no live numbers), so the
+      cacheable prefix holds. Decision 5 reconciled in code facts: with FERB's own account set up the line names its
+      email (as before) and its profile stays the default; without one, a fact says so, what isn't set up, and which
+      owner profile web work uses (the owner's pick in FERB.app, `browsing.owner_profile`), or that none is chosen.)
 - [x] Remove "every_minutes at least 15" (supervisor.md:124). (Step 10b: "the owner's interval, a positive number".)
 
 ## Expected size

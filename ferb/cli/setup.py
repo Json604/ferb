@@ -816,7 +816,8 @@ def doctor(env: Env) -> int:
             add(Check("identity session", "warn", f"couldn't check: {e}", "run `ferb doctor` again"))
         if ident:
             if not ident["profile"]:
-                add(Check("identity profile", "warn", "not set up", "FERB's identity profile is chosen in FERB.app"))
+                add(Check("identity profile", "warn", "not set up",
+                          "FERB's own account is set up in FERB.app → Settings → Browsers → FERB's own account"))
             else:
                 add(Check("identity profile", "ok" if ident["profile_ok"] else "fail",
                           f"{ident.get('profile_name')} ({ident['profile']}) holds only {ident['address']}"
@@ -906,16 +907,18 @@ def doctor(env: Env) -> int:
 
 # ---------- uninstall ----------
 
-def uninstall(env: Env, purge: bool) -> int:
+def uninstall(env: Env, purge: bool, confirmed: bool = False) -> int:
     """Remove FERB's background service, browser connection and `ferb` link; `purge` (after the owner types
-    'delete') also deletes FERB's home and every FERB Keychain item (API keys, the Jev key, FERB's own secrets, the
-    owner's saved secrets and cards, FERB's Claude sign-in). FERB.app unregisters its own service itself."""
+    'delete', or `confirmed`: they said yes to FERB.app's one question, daemon decision 8) also deletes FERB's home and
+    every FERB Keychain item (API keys, the Jev key, FERB's own secrets, the owner's saved secrets and cards, FERB's
+    Claude sign-in). FERB.app unregisters its own service itself. FERB's own shell can't run this to any effect: its
+    sandbox denies FERB's home, the Keychain service and launchd (ferb/act/shell/sandbox.py)."""
     inst = env.inst
     if purge:
         if not (inst.home / MARKER).exists():
             env.say(f"Refusing to purge {inst.home}: it has no {MARKER} marker.")
             return 1
-        if env.ask(f"This deletes {inst.home} entirely (database, journal, config, FERB's Chrome profile) and every "
+        if not confirmed and env.ask(f"This deletes {inst.home} entirely (database, journal, config, FERB's Chrome profile) and every "
                    "FERB item in your Keychain (API keys, saved secrets and cards, FERB's sign-ins). "
                    "Type 'delete' to confirm: ").strip() != "delete":
             env.say("Not purged.")

@@ -27,6 +27,9 @@ class Resolver:
     bindings: Callable[[], list[Binding]]
     identity_profile: Callable[[], tuple[str, str] | None]       # FERB's own profile, never for OWNER tasks
     aliases: Callable[[], dict[str, tuple[str, str]]] = lambda: {}
+    # the owner's own pick (Settings, `browsing.owner_profile`) for browsing as them while FERB has no profile of its own
+    # (daemon decision 7): an explicit owner setting, never inferred
+    owner_default: Callable[[], tuple[str, str] | None] = lambda: None
 
     def owner_paired(self) -> list[Binding]:
         ferb = self.identity_profile()
@@ -47,6 +50,9 @@ class Resolver:
                                  f"with FERB yet: pair it with browser_pair profile={p.browser}/{p.folder} (FERB asks "
                                  "the owner once)")
             return Choice(p.browser, p.folder, f"named: {named}")
+        chosen = self.owner_default() if ferb is None else None
+        if chosen is not None and chosen in paired:
+            return Choice(chosen[0], chosen[1], "the owner's chosen profile for browsing (FERB has no profile of its own)")
         if not paired:
             raise NeedsOwner("no browser profile is paired with FERB yet: pick the owner's profile from browser_profiles "
                              "and pair it with browser_pair (FERB asks the owner once)")

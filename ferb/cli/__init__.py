@@ -19,7 +19,7 @@ LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions", "timers
 # clean-up screen, notes/storage.md decision 4); tests keep them working
 APP_COMMANDS = (("setup", "--service"), ("setup", "--service", "--update"), ("setup", "--codex-login"),
                 ("setup", "--codex-logout"), ("setup", "--claude-logout"), ("setup", "--cli"), ("setup", "--cleanup"),
-                ("uninstall",), ("mcp",))
+                ("uninstall",), ("uninstall", "--purge", "--yes"), ("mcp",))
 
 
 def plain_error(e: BaseException) -> str:
@@ -138,6 +138,8 @@ def build_parser() -> argparse.ArgumentParser:
     xp = sub.add_parser("uninstall", help="stop the background service and remove its files; --purge also deletes "
                                           "~/.ferb and every FERB Keychain item")
     xp.add_argument("--purge", action="store_true")
+    xp.add_argument("--yes", action="store_true",
+                    help="with --purge: the owner already confirmed in FERB.app (Settings → Advanced), so no question")
     return p
 
 
@@ -212,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
                 return setup_cmd.setup(env, update=args.update)
             if args.cmd == "doctor":
                 return setup_cmd.doctor(env)
-            return setup_cmd.uninstall(env, purge=args.purge)
+            return setup_cmd.uninstall(env, purge=args.purge, confirmed=args.yes)
         except (InstallError, FerbError, OSError) as e:
             print(plain_error(e), file=sys.stderr)
             return 1

@@ -35,6 +35,7 @@ from ferb.core.errors import FerbError
 from ferb.core.ids import RandomIds
 from ferb.core.interfaces import Clock, IdSource
 from ferb.daemon import banners, resources as resource_use
+from ferb.daemon.areas.about import About
 from ferb.daemon.areas.browsers import Browsers
 from ferb.daemon.areas.chat import Chat
 from ferb.daemon.areas.compose import Compose
@@ -87,7 +88,7 @@ LOOP_RESTART_S, LOOP_RESTART_MAX_S = 1.0, 60.0    # a background loop that raise
 
 
 class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Browsers, Desktop, Egress, Sensing, Environment, Runtimes,
-             Retention, JevGlue, VoiceGlue, Rpc):
+             Retention, JevGlue, VoiceGlue, About, Rpc):
     """FERB's daemon: one process that owns the stores, the agents, the drivers and the socket."""
 
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
