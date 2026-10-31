@@ -10,7 +10,7 @@ from ferb.act.browser.autoinstall import accepted_extension_ids
 from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router
 from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver
-from ferb.act.browser.tools import IdentityDriver
+from ferb.act.browser.tools import FERB_BROWSER, IdentityDriver
 from ferb.act.mac.driver import WebSecrets, same_title
 from ferb.core.errors import FerbError
 from ferb.core.types import Identity
@@ -33,6 +33,16 @@ class Browsers:
         from ferb.identity.helper import seal as helper_seal
         driver.seal_value = lambda key, value, command, origin: helper_seal(self.home, key, value, command, origin)
         add_identity_browser(self.registry, driver, self.recordings)
+
+    def _detach_identity_browser(self) -> None:
+        """FERB's account removed: its `ferb_browser.*` tools go and the tabs it opened close (no task can release them
+        through it any more). Choosing and pairing a profile again attaches it (`_attach_identity_if_paired`)."""
+        driver, self.identity_browser = self.identity_browser, None
+        if driver is None:
+            return
+        for name in [n for n in self.registry.capabilities if n.startswith(f"{FERB_BROWSER.prefix}.")]:
+            del self.registry.capabilities[name]
+        self._spawn(driver.shutdown(), "identity cleared: browser")
 
     def _tab_closed(self, br: Any, tab_id: int) -> Awaitable[None] | None:
         """A tab closed in a paired browser: the upload copies it showed need not stay (rule 17). Those of a tree that
@@ -302,11 +312,13 @@ class Browsers:
     async def _identity_choose(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """The owner's pick of FERB's profile (auth.APP_ONLY): written through the settings path
         (`settings.write_identity`) only when that profile holds exactly that account (`seed.verify`); `clear` removes
-        FERB's account (its pairing stays in Browsers until unpaired). Journaled as a settings change."""
+        FERB's account and detaches its browser (its pairing stays in Browsers until unpaired). Journaled as a settings
+        change."""
         from ferb.daemon import settings
         from ferb.identity import seed
         if params.get("clear") is True:
             stored = settings.write_identity(self.config, "", "", "")
+            self._detach_identity_browser()
         else:
             address = str(params.get("address") or "").strip().lower()
             browser, folder = str(params.get("browser") or ""), str(params.get("folder") or "")

@@ -18,7 +18,8 @@ removed by its tools or its shell, and no lift reopens them (rule 10). Reading t
 
 FERB.app (L27), when FERB runs from one, holds the daemon's own code, its interpreter and its secret helper: it is
 closed to writes and removal by FERB's tools and its shell, wherever the app sits, and no escape hatch lifts that
-(rule 10). Reading it stays open.
+(rule 10). A daemon run from ~/.ferb/venv or a checkout closes the installed FERB.app the same way (its signature
+decides which process is FERB.app, and its service definition is FERB's). Reading it stays open.
 
 A path is checked as typed, as the OS reaches it now (links first, then `..`) and as the kernel names the file it
 reaches (F_GETPATH on its deepest existing folder or regular file, opened for its name only: the Data volume's
@@ -295,16 +296,19 @@ def workspace_problem(ferb_home: Path) -> str | None:
 
 
 def load(get: Callable[[str, str, Any], Any], home: Path, ferb_home: Path) -> "Protection":
-    """The daemon's lists from config.toml's [protection] (`get` is Config.get), after checking the workspace, plus the
-    FERB.app this code runs from. Raises BadProtection with the reason, which the daemon shows by not starting and
-    `ferb doctor` shows as a failed check."""
+    """The daemon's lists from config.toml's [protection] (`get` is Config.get), after checking the workspace, plus
+    FERB.app: the one this code runs from, else the installed one (a daemon run from ~/.ferb/venv or a checkout: its
+    signature is what FERB.app's own requests are checked against, and its service definition is FERB's, rule 6).
+    Raises BadProtection with the reason, which the daemon shows by not starting and `ferb doctor` shows as a failed
+    check."""
     problem = workspace_problem(ferb_home)
     if problem:
         raise BadProtection(problem)
     return Protection(home, ferb_home, get("protection", "never_read", DEFAULT_NEVER_READ),
                       get("protection", "never_write", DEFAULT_NEVER_WRITE),
                       get("protection", "terminal_apps", DEFAULT_TERMINAL_APPS),
-                      local_ports=get("protection", "local_ports", []), app_bundle=paths.app_bundle())
+                      local_ports=get("protection", "local_ports", []),
+                      app_bundle=paths.app_bundle() or paths.installed_app())
 
 
 class Protection:

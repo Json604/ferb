@@ -988,11 +988,11 @@ def test_a_finder_script_naming_a_file_that_doesnt_open_in_a_terminal_says_so_pl
     inp = d.script_terminal_input("Finder", f'open POSIX file "{notes}"')
     assert inp is not None and inp.files == () and inp.named == (notes,)
     said = confirm.summary([terminal.need(inp)])
-    assert f"it names {terminal.visible(notes)}, which doesn't open in a terminal app" in said, said
+    assert f"it names {terminal.visible(notes)}, which can't run when opened" in said, said
     assert "can't see which file" not in said and "groceries" not in said
     inp = d.script_terminal_input("Finder", f'open POSIX file "{notes}"\nopen POSIX file "{cmd}"')
     said = confirm.summary([terminal.need(inp)]) if inp is not None else ""
-    assert "which opens in a terminal app and runs" in said and "which doesn't open in a terminal app" in said
+    assert "which can run when opened" in said and "which can't run when opened" in said
     assert "can't see which file" not in said
 
 

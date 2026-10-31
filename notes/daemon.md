@@ -459,6 +459,43 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
   request captured (`tasks.request_id`/`tree_id`). A task this chat didn't send: by its tree. Settings → Data: all.
 - `EvidenceStore.stored_file` is the one way the RPC reaches a file (inside the store only; the read runs off the loop).
 
+## Rulings (12e review, technical)
+- **Uninstall waits for the service to unregister.** FERB.app's Uninstall (Settings → Advanced, plain or Delete
+  Everything) awaits `SMAppService.unregister()` and then checks the status (`unregisterForUninstall`): only
+  not-registered or not-found goes on to `ferb uninstall [--purge --yes]`. A throw or a service macOS still lists
+  shows why in the output lines and nothing is uninstalled (before, the unregister was fire-and-forget and the
+  uninstall started at once). FERBWindowViewTests `testUninstallWaitsForTheServiceToUnregisterAndStopsIfItDidnt`.
+- **A checkout never uninstalls over FERB.app's service.** `Installer.uninstall()` refuses, before removing anything,
+  while launchd runs FERB's label from a definition that isn't the checkout's LaunchAgent (`foreign_service`), as
+  `install()` already did (one `check_not_foreign`). Refusing rather than leaving the service alone and removing the
+  rest: the rest (native-host manifests, `--purge` of ~/.ferb) would break the FERB.app install that is running, and
+  booting it out left FERB.app's registration with nothing running; only FERB.app can unregister it.
+- **Nothing runs while the stopped daemon is still exiting.** `while_stopped` (a checkout's venv swap, the store
+  clean-up, setup's store work; both the checkout's unload and FERB.app's stop) checks `exiting()` after the stop's
+  10 s wait and raises InstallError instead of running the work; the daemon is started again either way. The clean-up
+  reports it as before ("hasn't exited since launchd stopped it", exit 1).
+- **Clearing FERB's own account (`identity.choose {clear}`)** removes `[mailbox] provider`, `[mailbox] address`,
+  `[identity] browser` and `[identity] profile` in one atomic save (`settings.IDENTITY_KEYS`, the same four the
+  choice writes), and detaches FERB's browser: its `ferb_browser.*` tools are unregistered and the tabs it opened
+  close (no task could release them through it any more). Its pairing stays in Browsers; choosing and pairing again
+  attaches it.
+- **Autorelease pools on the event loop's thread.** `_macos_events` drains one pool per run-loop turn, and
+  `_running_apps` (the setup permissions step and the planner's environment port call it on the loop) drains its own.
+- **`setup.finish` is FERB.app's alone** (auth.APP_ONLY): only the Swift app calls it, and it records setup done from
+  the grants FERB.app reports for itself. `ferb setup` (the CLI) no longer records `permissions_version`: every row
+  decides it, FERB.app's own Notifications and Microphone included, and the CLI can't read those; it still lists
+  what the daemon lacks.
+- **A daemon not run from FERB.app protects the installed one.** For a daemon run from ~/.ferb/venv or a checkout,
+  `protection.load` closes the installed FERB.app (`paths.installed_app`: /Applications, then ~/Applications, with
+  FERB's bundle id; the lookup `AppPeers` uses) like the bundled one: never written or removed by FERB's tools or its
+  shell, and its service definition counts as FERB's (rule 6). Read at daemon start.
+- **Not built (needs the owner's choice): pinning FERB.app's identity in "installed" mode.** `AppPeers` derives the
+  requirement again from whatever bundle with FERB's id sits at /Applications/FERB.app, so another program running as
+  the owner that replaces that bundle passes the app-only check. Pinning at setup (as `sealed_requirement` does for
+  the secrets helper) needs a choice: what to pin (the certificate leaf survives release and local-certificate updates;
+  an ad-hoc build's code hash changes every build and would lock the notch out until setup runs again) and who
+  records it again after an app update in that mode.
+
 ## Added UI pieces (step 12e; functional only, for the owner to polish)
 - Notch: a small "What FERB saw" text button under each of the owner's messages (and under a task this chat didn't
   send), opening the "What FERB saw" window.

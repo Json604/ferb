@@ -150,6 +150,32 @@ def is_application(path: str) -> bool:
         return True
 
 
+# Launch Services types whose files start code when opened, whichever app opens them (hands ruling, mac.open): a
+# program or script (a .jar opens in Java Launcher, a .py in Python Launcher), an installer package, a configuration
+# profile, a shortcut or workflow
+RUNNABLE_TYPES = ("public.executable", "public.script", "com.apple.installer-package-archive",
+                  "com.apple.installer-package", "com.apple.installer-meta-package", "com.apple.mobileconfig",
+                  "com.apple.configprofile", "com.apple.shortcut", "com.apple.shortcuts.workflow-file",
+                  "com.apple.automator-workflow")
+
+
+def runs_when_opened(path: str) -> bool:
+    """Blocking: opening this file can start code, by its Launch Services type (it conforms to one of
+    `RUNNABLE_TYPES`) or because it is a package directory; a structural fact about the file, not about the app.
+    Read-only; an unknown type (a dynamic `dyn.` one) or an unreadable one counts as one (the open asks first)."""
+    try:
+        from AppKit import NSWorkspace
+        ws = NSWorkspace.sharedWorkspace()
+        if ws.isFilePackageAtPath_(path):
+            return True
+        kind, _ = ws.typeOfFile_error_(path, None)
+        if not kind or str(kind).startswith("dyn."):
+            return True
+        return any(ws.type_conformsToType_(kind, t) for t in RUNNABLE_TYPES)
+    except Exception:
+        return True
+
+
 OPEN_WAIT_S = 15.0       # how long FERB waits for macOS to confirm an open (speed only: nothing is retried)
 
 

@@ -131,6 +131,25 @@ def test_every_provider_gets_redacted_text_only(monkeypatch: pytest.MonkeyPatch)
     assert got.began and all("4111" not in t and "1111" not in t for t in got.began + said)
 
 
+def test_a_saved_value_with_markdown_marks_is_redacted_before_speech_reshapes_it(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Past bug (12e review): speech stripped `**`, `#`, `$`, `{}`, `~` first and redacted after, so a saved value
+    holding them no longer matched and its letters were spoken and published in `voice.said`."""
+    from ferb.sanitize.redact import Redactor
+    got = Blocking()
+    got.release.set()
+    monkeypatch.setitem(speak.PROVIDERS, "hosted", speak.Provider("hosted", lambda s: got))
+    redactor, said = Redactor(), []
+    redactor.add_secret_value("pa**ss#w0rd${k}~zq")
+
+    async def go() -> None:
+        speech = speak.Speech(lambda: speak.build(Cfg(tts="hosted")), redactor.text, said=said.append)
+        speech.say("Your code is pa**ss#w0rd${k}~zq, ready.")
+        await asyncio.wait_for(_idle(speech), 5)
+    asyncio.run(go())
+    assert got.began and all("w0rd" not in t and "zq" not in t for t in got.began + said), got.began
+
+
 async def _idle(speech: speak.Speech) -> None:
     while speech.speaking:
         await asyncio.sleep(0.01)

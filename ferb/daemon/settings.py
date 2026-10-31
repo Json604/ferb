@@ -127,25 +127,28 @@ def write(config: Config, name: str, value: Any) -> Any:
 
 
 EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+IDENTITY_KEYS = (("mailbox", "provider"), ("mailbox", "address"), ("identity", "browser"), ("identity", "profile"))
 
 
 def write_identity(config: Config, address: str, browser: str, folder: str) -> dict[str, str]:
     """FERB's own Google account and the browser profile it is signed into (daemon decision 7), in one checked write
-    each; or, with every value empty, none (the owner removed it). Returns what was stored."""
+    each; or, with every value empty, none (the owner removed it: all four keys go). Returns what was stored."""
     from ferb.act.browser.profiles import BROWSERS
+    import tomlkit
     address, browser, folder = address.strip().lower(), browser.strip(), folder.strip()
+    doc = config.load()                          # one atomic write for the four keys, set or removed
     if not (address or browser or folder):
-        config.remove("mailbox", "address")
-        config.remove("identity", "browser", "profile")
+        present = [(section, key) for section, key in IDENTITY_KEYS if key in doc.get(section, {})]
+        for section, key in present:
+            del doc[section][key]
+        if present:
+            config.save(doc)
         return {"address": "", "browser": "", "profile": ""}
     if not EMAIL.fullmatch(address) or len(address) > 320:
         raise BadSetting(f"{address!r} isn't an email address")
     if browser not in BROWSERS or not folder or len(folder) > APP_CHARS or any(ord(c) < 32 for c in folder):
         raise BadSetting("FERB's profile must be one of your browsers' profiles")
-    import tomlkit
-    doc = config.load()                          # one atomic write for the four keys
-    for section, key, value in (("mailbox", "provider", "gmail"), ("mailbox", "address", address),
-                                ("identity", "browser", browser), ("identity", "profile", folder)):
+    for (section, key), value in zip(IDENTITY_KEYS, ("gmail", address, browser, folder)):
         if section not in doc:
             doc[section] = tomlkit.table()
         doc[section][key] = value

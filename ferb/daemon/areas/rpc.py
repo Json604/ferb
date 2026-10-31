@@ -478,10 +478,11 @@ class Rpc:
         return {"permission": permission, "status": status}
 
     async def _setup_finish(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """L34 C: the setup window's Done. Setup is recorded as done (`permissions_version`, so launch stops showing the
-        window) only when every permission is granted: this daemon's own (its four grants, FERB Voice's Speech
-        Recognition, the clipboard) and the ones FERB.app reports for itself (`app`: Notifications, Microphone); else
-        `missing` names what isn't, and the window comes back at the next launch. Journaled either way."""
+        """L34 C: the setup window's Done (FERB.app's alone, auth.APP_ONLY). Setup is recorded as done
+        (`permissions_version`, so launch stops showing the window) only when every permission is granted: this
+        daemon's own (its four grants, FERB Voice's Speech Recognition, the clipboard) and the ones FERB.app reports for
+        itself (`app`: Notifications, Microphone); else `missing` names what isn't, and the window comes back at the
+        next launch. Journaled either way."""
         from ferb.device import permissions
         grants = await asyncio.to_thread(self.permission_check)
         rows = permissions.rows(grants, self._setup_containment(), await self._hearing_status(True)) + [

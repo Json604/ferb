@@ -107,8 +107,9 @@ class Speech:
         self._job: asyncio.Task[None] | None = None
 
     def say(self, text: str) -> None:
-        """Queue `text` (on the event loop); it is redacted here, before anything else sees it."""
-        words = self.redact(spoken(text))
+        """Queue `text` (on the event loop); it is redacted here, before anything else sees it: the raw text first (a
+        saved value holding `**` or `$` no longer matches once `spoken` strips those), then the words as reshaped."""
+        words = self.redact(spoken(self.redact(text)))
         if not words.strip():
             return
         self._pending.append(words)

@@ -98,9 +98,13 @@ final class FakeBackgroundService: BackgroundServiceRegistering {
         if let refusal { throw refusal }
         status = after
     }
+    var afterUnregister: ServiceStatus = .notRegistered
+    var unregisterError: Error?
+
     func unregister() async throws {
         unregistrations += 1
-        status = .notRegistered
+        if let unregisterError { throw unregisterError }
+        status = afterUnregister
     }
     func openLoginItems() { openedSettings += 1 }
 }

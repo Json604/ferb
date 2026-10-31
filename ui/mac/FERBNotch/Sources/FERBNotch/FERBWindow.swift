@@ -45,8 +45,9 @@ struct FERBAppActions {
     /// status. False when another run is under way.
     var runFerb: ((_ arguments: [String], _ line: @escaping (String) -> Void,
                    _ done: @escaping (Int32) -> Void) -> Bool)?
-    /// Runs before `ferb uninstall` (plan F removes FERB.app's login item here).
-    var beforeUninstall: (() -> Void)?
+    /// Runs before `ferb uninstall` (plan F removes FERB.app's login item and unregisters the background service
+    /// here): nil to go on, else why not, and the uninstall doesn't run.
+    var beforeUninstall: (@MainActor () async -> String?)?
     /// Plan F's: Settings → General → Startup.
     var loginItems: LoginItemController?
     var updates: UpdateCoordinator?

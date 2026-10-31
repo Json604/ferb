@@ -36,6 +36,8 @@ from ferb.policy import confirm as floors
 # Rule 8, rule 9, D31, W2: FERB never operates its own apps (the notch shows FERB's own questions; pressing, clicking or
 # typing into it would answer them for the owner): `front_window.FERB_APPS` and the daemon's own process
 OWN_APP = "FERB never operates its own app; questions are answered by the owner"
+# D31, hands ruling (mac.open): input that opens a file that can start code outside the shell's sandbox
+RUNS_OPENED = "a file that can run when opened"
 # Fix round 3, H1: fail closed when FERB can't tell whose window would take a click
 CANT_CONFIRM = ("FERB can't confirm what is under this point, so it didn't click: one of its own windows could be "
                 "there (rule 8, rule 9)")
@@ -1424,8 +1426,8 @@ class MacComputerDriver:
 
     def script_terminal_input(self, app: str, script: str) -> TerminalInput | None:
         """Blocking: an AppleScript for a terminal app or an app that runs code (D31 review rounds 1 and 2; the
-        sandbox lets a script reach only the app it names): the script, with each file it names that opens in a
-        terminal app (path, hash, text), else None."""
+        sandbox lets a script reach only the app it names): the script, with each file it names that can run when
+        opened (path, hash, text), else None."""
         a = self.app(app)
         why = self._script_why(a)
         if why is None:
@@ -1439,7 +1441,7 @@ class MacComputerDriver:
 
     def script_refusal(self, a: Any, script: str, grant: TerminalGrant | None) -> str | None:
         """Blocking, right before the script runs: None unless its app needs the owner's Yes to exactly it (and to the
-        exact contents of each file it names that opens in a terminal)."""
+        exact contents of each file it names that can run when opened)."""
         why = self._script_why(a)
         if why is None:
             return None
@@ -1448,7 +1450,7 @@ class MacComputerDriver:
             return None
         return terminals.UNASKED.format(why=why, app=a.name)
 
-    # ---- files that open in a terminal app (review round 2, O1)
+    # ---- files that can run when opened (review round 2, O1; hands ruling, mac.open)
 
     def _opens_in_terminal(self, path: str) -> bool:
         """Blocking: Launch Services would open this file with a terminal app (a .command in Terminal)."""
@@ -1473,12 +1475,20 @@ class MacComputerDriver:
             text = f"(a binary file of {len(data)} bytes)"
         return path, hashlib.sha256(data).hexdigest(), text
 
+    def _runnable(self, path: str) -> bool:
+        """Blocking: the file's type says opening it can start code, whichever app opens it (`apps.runs_when_opened`:
+        a program, a script, an installer package, a profile, a shortcut)."""
+        runs = getattr(self.apps, "runs_when_opened", None)
+        return bool(runs(path)) if callable(runs) else False
+
     def _open_files(self, paths: Collection[str | None]) -> tuple[tuple[str, str, str], ...]:
-        """Blocking: the facts of each file among `paths` that opens in a terminal app."""
-        return tuple(self._file_facts(p) for p in dict.fromkeys(p for p in paths if p) if self._opens_in_terminal(p))
+        """Blocking: the facts of each file among `paths` that can run when opened by its default app: its type says
+        so, or that app is a terminal."""
+        return tuple(self._file_facts(p) for p in dict.fromkeys(p for p in paths if p)
+                     if self._runnable(p) or self._opens_in_terminal(p))
 
     def _files_covered(self, paths: Collection[str | None], grant: TerminalGrant | None) -> bool:
-        """Blocking: every file among `paths` that opens in a terminal app is in the owner's Yes, with these exact
+        """Blocking: every file among `paths` that can run when opened is in the owner's Yes, with these exact
         contents (re-hashed now)."""
         need = self._open_files(paths)
         approved = {(p, h) for p, h, _ in grant.input.files} if grant is not None else set()
@@ -1495,37 +1505,37 @@ class MacComputerDriver:
 
     def _files_input(self, a: Any, paths: Collection[str | None]) -> TerminalInput | None:
         files = self._open_files(paths)
-        return None if not files else TerminalInput(a.name, a.bundle_id, "a file that opens in a terminal app",
-                                                    files=files)
+        return None if not files else TerminalInput(a.name, a.bundle_id, RUNS_OPENED, files=files)
 
     def _files_refusal(self, a: Any, paths: Collection[str | None], grant: TerminalGrant | None) -> str | None:
-        """Blocking, right before input that can open these files: None unless one opens in a terminal app and the
+        """Blocking, right before input that can open these files: None unless one can run when opened and the
         owner's Yes doesn't name it with these exact contents."""
         if not self._open_files(paths):
             return None
         if grant is not None and grant.input.bundle_id == a.bundle_id and self._files_covered(paths, grant):
             return None
-        return terminals.UNASKED.format(why="a file that opens in a terminal app and runs", app=a.name)
+        return terminals.UNASKED.format(why=RUNS_OPENED, app=a.name)
 
     def _opens_to_run(self, bundle_id: str, path: str) -> tuple[Any, tuple[tuple[str, str, str], ...]]:
         """Blocking (step 12e fix 5, `mac.open` with a file): the app as the question names it, and the file's facts
-        when opening it there can run it: the app itself is a terminal (a script opened in Terminal runs), or it opens
-        files with their default apps (Finder: a .command runs in Terminal) and that default is a terminal app. Else
-        no files."""
+        when opening it there can start code outside the shell's sandbox: the file's type says so whatever the app (a
+        .jar opens in Java Launcher and runs; an app list can't say which apps run what they open), the app itself is
+        a terminal (a script opened in Terminal runs), or it opens files with their default apps (Finder: a .command
+        runs in Terminal) and that default is a terminal app. Else no files."""
         found = self.apps.find(bundle_id)
         a = found if found is not None else SimpleNamespace(bundle_id=bundle_id, name=bundle_id)
-        runs = self._app_terminal_why(a) is not None or (bundle_id.casefold() in terminals.OPENS_FILES and
-                                                         self._opens_in_terminal(path))
+        runs = self._runnable(path) or self._app_terminal_why(a) is not None or (
+            bundle_id.casefold() in terminals.OPENS_FILES and self._opens_in_terminal(path))
         return a, ((self._file_facts(path),) if runs else ())
 
     def open_terminal_input(self, bundle_id: str, path: str) -> TerminalInput | None:
-        """Blocking: opening this file in this app runs it in a terminal (`_opens_to_run`): the file, with its exact
-        contents, for the owner's question; else None."""
+        """Blocking: opening this file in this app can run it (`_opens_to_run`): the file, with its exact contents, for
+        the owner's question; else None."""
         a, files = self._opens_to_run(bundle_id, path)
-        return TerminalInput(a.name, a.bundle_id, "a file that opens in a terminal app", files=files) if files else None
+        return TerminalInput(a.name, a.bundle_id, RUNS_OPENED, files=files) if files else None
 
     def open_refusal(self, bundle_id: str, path: str, grant: TerminalGrant | None) -> str | None:
-        """Blocking, right before the open: None unless the file would run in a terminal and the owner's Yes doesn't
+        """Blocking, right before the open: None unless the file can run when opened there and the owner's Yes doesn't
         name it with these exact contents (re-hashed now)."""
         a, files = self._opens_to_run(bundle_id, path)
         if not files:
@@ -1534,7 +1544,7 @@ class MacComputerDriver:
             grant.input.bundle_id == a.bundle_id else set()
         if all((p, h) in approved for p, h, _ in files):
             return None
-        return terminals.UNASKED.format(why="a file that opens in a terminal app and runs", app=a.name)
+        return terminals.UNASKED.format(why=RUNS_OPENED, app=a.name)
 
     def _hit(self, a: Any, shot_id: str, x: float, y: float) -> Any:
         """Blocking: the element under (x, y) of the app's latest screenshot, or None."""

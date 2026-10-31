@@ -304,11 +304,12 @@ class TerminalInput:
     selection: str | None = None             # the editor's selected text such a press would run
     file: str | None = None                  # the active file such a press would run
     runs_where: str = ""                     # where such a press runs code: the app, or its terminal
-    # files the input would open in a terminal app (a .command): (path, sha256 of its contents, its text as shown)
+    # files the input would open that can run when opened (a .command, a .jar): (path, sha256 of its contents, its text
+    # as shown)
     files: tuple[tuple[str, str, str], ...] = ()
     label: str = ""                          # the terminal element's own label (VS Code: "Terminal 108, zsh …")
     opens: bool = False                      # a script for an app that opens files by their default app (round 3, O1)
-    named: tuple[str, ...] = ()              # files a script names that don't open in a terminal app (round 4, N7)
+    named: tuple[str, ...] = ()              # files a script names that can't run when opened (round 4, N7)
 
 
 @dataclass(frozen=True)

@@ -242,9 +242,9 @@ def need(inp: TerminalInput) -> confirm.Need:
               "selection": visible(inp.selection) if inp.selection else "",
               "selection_size": _size(inp.selection) if inp.selection else "",
               "file": visible(inp.file) if inp.file else "", "runs_where": visible(inp.runs_where, False),
-              "files": "; ".join(f"{visible(path)}, which opens in a terminal app and runs {visible(text)}"
+              "files": "; ".join(f"{visible(path)}, which can run when opened and holds {visible(text)}"
                                  for path, _, text in inp.files),
-              "named": "; ".join(f"{visible(path)}, which doesn't open in a terminal app" for path in inp.named),
+              "named": "; ".join(f"{visible(path)}, which can't run when opened" for path in inp.named),
               "paste": "yes" if inp.paste else "", "concealed": "yes" if inp.concealed else "",
               "enter": "yes" if inp.enter else "", "opens": "yes" if inp.opens else ""}
     return confirm.Need(RULE, confirm.key(RULE, inp.bundle_id.casefold(), inp.text, inp.keys, inp.paste, inp.menu,

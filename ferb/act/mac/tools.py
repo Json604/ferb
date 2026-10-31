@@ -306,8 +306,9 @@ class MacOpen(_Base):
                                                 path=self._path(args)))
 
     async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
-        """D31: a file that would run when opened there (a script in a terminal app, a .command through Finder): the
-        file with its exact contents, so the gateway asks the owner first; else None."""
+        """D31: a file that can run when opened there (its type is a program, script, installer package, profile or
+        shortcut, whatever the app; a script in a terminal app; a .command through Finder): the file with its exact
+        contents, so the gateway asks the owner first; else None."""
         path = self._path(args)
         if not path:
             return None

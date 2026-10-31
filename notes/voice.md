@@ -147,6 +147,10 @@ Basis: a read of every line (2026-10-30), read-only DB counts. Nothing was recor
 8. **Update and FERB Voice**: a transcription in flight that no listed task covers (a setup or doctor probe) holds
    `update.prepare` like a running task; with Quit and Install, FERB Voice isn't terminated mid-transcription: the
    daemon's shutdown cancels the ask, which deletes the lease, and FERB Voice exits itself.
+9. **Redact before reshaping (12e review).** `Speech.say` redacts the raw text, then reshapes it for speech
+   (`spoken`), then redacts again: `spoken` strips `** __ # $ { } ~` and the like, so a saved value holding them no
+   longer matched once reshaped and was spoken and published in `voice.said`. tests/test_voice.py
+   `test_a_saved_value_with_markdown_marks_is_redacted_before_speech_reshapes_it`.
 
 ## Live checks (step 13)
 - With "Send dictation when I let go of the keys" on: hold Right Command + Option, ask "what time is it", release:

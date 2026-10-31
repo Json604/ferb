@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ferb.paths import app_bundle, ferb_home
+from ferb.paths import app_bundle, ferb_home, installed_app
 
 SOL_LOCAL, LOCAL_PEERTOKEN = 0, 0x006            # <sys/un.h>: the peer's audit_token_t (32 bytes)
 AUDIT_TOKEN_SIZE = 32
@@ -136,7 +136,7 @@ class AppPeers:
         if self.mode == "bundled":
             return self.bundle
         if self.mode == "installed":
-            return next((c for c in self.candidates if _bundle_id(c) == APP_ID), None)
+            return installed_app(self.candidates)
         return None
 
     def _required(self) -> tuple[Any, int] | None:
@@ -164,9 +164,6 @@ class AppPeers:
         return self._seen[token]
 
 
-APP_ID = "com.ferb.FERB"                         # FERB.app's bundle id (ui/mac/FERBNotch/Info.plist)
-
-
 def _checkout(prefix: Path) -> bool:
     """A source checkout's own venv (`<repo>/.venv` beside its pyproject.toml), never FERB's installed one."""
     try:
@@ -175,15 +172,6 @@ def _checkout(prefix: Path) -> bool:
     except OSError:
         return False
     return prefix.name == ".venv" and (prefix.parent / "pyproject.toml").is_file()
-
-
-def _bundle_id(app: Path) -> str | None:
-    try:
-        with (app / "Contents" / "Info.plist").open("rb") as f:
-            value = plistlib.load(f).get("CFBundleIdentifier")
-        return str(value) if value else None
-    except (OSError, ValueError, plistlib.InvalidFileException):
-        return None
 
 
 def _signature_stamp(app: Path) -> tuple[Any, ...] | None:

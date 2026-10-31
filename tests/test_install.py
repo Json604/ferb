@@ -5,6 +5,7 @@ import json
 import math
 import shlex
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -220,6 +221,43 @@ def test_unload_stops_waiting_at_its_bound_and_names_the_process_still_running(
     assert 10 <= clock.now < 10.2 and inst.exiting() == 4242
     inst.unload()                                                # nothing loaded now: no process of its own to wait for
     assert inst.exiting() is None
+
+
+def test_an_update_never_swaps_the_venv_while_the_stopped_daemon_is_still_exiting(
+        inst: Installer, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Past bug (12e review): `unload` gives up after 10 s, and the venv the old process still runs from was renamed
+    and deleted anyway. Now nothing is switched over (or cleaned up) until it has exited, and the agent is loaded
+    again."""
+    r: FakeRunner = inst.run  # type: ignore[assignment]
+    monkeypatch.setattr(install_mod, "time", SteppedTime())
+    inst.install()
+    old = inst.venv.resolve()
+    (old / "marker").write_text("the venv the old daemon runs")
+    r.tail = math.inf                                            # it never exits
+    ran: list[str] = []
+    with pytest.raises(InstallError, match="hasn't exited"):
+        inst.install(update_only=True, while_stopped=lambda: ran.append("store"))
+    assert (inst.venv / "marker").exists() and ran == [] and r.loaded
+
+
+def test_a_checkout_never_uninstalls_over_ferb_apps_registered_service(inst: Installer) -> None:
+    """Past bug (12e review): `install` refused while launchd ran FERB's label from FERB.app's definition, but
+    `uninstall` booted it out. Now both refuse, and nothing is removed."""
+    r: FakeRunner = inst.run  # type: ignore[assignment]
+    inst.install()
+    plain, booted = r.__call__, r.ran("launchctl", "bootout")
+
+    def app_service(cmd: list[str]) -> Any:
+        out = plain(cmd)
+        if cmd[:2] == ["launchctl", "print"] and out.returncode == 0:
+            out.stdout += "path = /Applications/FERB.app/Contents/Library/LaunchAgents/com.ferb.daemon.plist\n"
+        return out
+    inst.run = app_service
+    with pytest.raises(InstallError, match="FERB.app's background service is registered"):
+        inst.uninstall()
+    with pytest.raises(InstallError, match="FERB.app's background service is registered"):
+        inst.install(update_only=True)
+    assert r.loaded and r.ran("launchctl", "bootout") == booted and inst.plist_path.exists()
 
 
 def test_uninstall_removes_agent_and_plist_but_keeps_home(inst: Installer) -> None:

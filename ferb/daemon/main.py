@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from ferb.device.autorelease import DrainingExecutor
+from ferb.device.autorelease import DrainingExecutor, pool
 from ferb.act.browser import downloads, uploads
 from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
 from ferb.act.browser.pairing import Pairings
@@ -578,7 +578,8 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         except ImportError:
             return
         while True:
-            CF.CFRunLoopRunInMode(CF.kCFRunLoopDefaultMode, 0, True)
+            with pool():                                     # the event loop's thread lives as long as the daemon
+                CF.CFRunLoopRunInMode(CF.kCFRunLoopDefaultMode, 0, True)
             await asyncio.sleep(MACOS_TICK_S)
 
     def _redact_text(self, text: str) -> str:

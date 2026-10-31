@@ -124,8 +124,16 @@ def test_choosing_ferbs_profile_writes_config_through_the_settings_path(daemon: 
     assert (d.config.get("mailbox", "address"), d.config.get("identity", "browser"),
             d.config.get("identity", "profile")) == ("ferb@gmail.com", "chrome", "Profile 22")
     assert any(e.data.get("key") == "identity" for e in _kind(daemon, "settings.changed"))
+
+    async def paired() -> None:                                    # its profile paired as FERB: its tools attach
+        d.use_identity_browser(d.ferb_identity)
+    daemon.run(paired())
+    assert "ferb_browser.open" in d.gateway.caps
     _call(daemon, "identity.choose", {"clear": True})
     assert d.config.get("mailbox", "address") is None and d.config.get("identity", "profile") is None
+    # past bug (12e review): the provider stayed and FERB's browser tools stayed registered
+    assert d.config.get("mailbox", "provider") is None and d.config.get("identity", "browser") is None
+    assert d.identity_browser is None and not any(n.startswith("ferb_browser.") for n in d.gateway.caps)
 
 
 def test_without_its_own_profile_ferb_browses_in_the_profile_the_owner_picked() -> None:
@@ -203,7 +211,7 @@ def test_the_app_lists_and_restores_a_trash_move(daemon: RunningDaemon, monkeypa
 # ---------- FERB.app only ----------
 
 @pytest.mark.parametrize("method", ["secrets.saved", "secrets.delete", "identity.find", "identity.choose",
-                                    "identity.pair", "about.guide"])
+                                    "identity.pair", "about.guide", "setup.finish"])
 def test_the_owner_data_methods_refuse_any_other_program(daemon: RunningDaemon, method: str) -> None:
     with pytest.raises(RpcError) as refused:
         _call(daemon, method, {"place": "https://x.example", "name": "n"})

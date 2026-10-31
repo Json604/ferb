@@ -24,6 +24,24 @@ def app_bundle(prefix: Path | None = None) -> Path | None:
     return None
 
 
+APP_ID = "com.ferb.FERB"                         # FERB.app's bundle id (ui/mac/FERBNotch/Info.plist)
+
+
+def installed_app(candidates: tuple[Path, ...] | None = None) -> Path | None:
+    """The installed FERB.app, for a daemon that doesn't run from one (setup records no location): /Applications/FERB.app,
+    then ~/Applications/FERB.app, the first with FERB's bundle id; None when neither is there."""
+    import plistlib
+    for app in candidates if candidates is not None else (Path("/Applications/FERB.app"),
+                                                          Path.home() / "Applications" / "FERB.app"):
+        try:
+            with (app / "Contents" / "Info.plist").open("rb") as f:
+                if plistlib.load(f).get("CFBundleIdentifier") == APP_ID:
+                    return app
+        except (OSError, ValueError, plistlib.InvalidFileException):
+            continue
+    return None
+
+
 BUNDLE_PYTHON = Path("Contents/Resources/python/bin/python3.12")   # FERB.app's plain interpreter (L27)
 
 

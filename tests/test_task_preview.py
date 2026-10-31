@@ -264,13 +264,21 @@ async def _counts(daemon: Any) -> tuple[int, int]:
 
 def test_the_app_peer_check_fails_closed_for_any_other_process() -> None:
     """The real check (Security framework, the peer's audit token): this test process is not FERB.app."""
+    import ctypes
+    import os
     import socket
+    from pathlib import Path
     from ferb.daemon.app_peer import AppPeers, peer_token
     a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         token = peer_token(a)
         assert token is not None and len(token) == 32
         assert AppPeers()(token) is False and AppPeers()(None) is False
+        # the positive control: against the signature of the code this test runs as, the same check passes
+        libproc, path = ctypes.CDLL("/usr/lib/libproc.dylib"), ctypes.create_string_buffer(4096)
+        assert libproc.proc_pidpath(os.getpid(), path, len(path)) > 0
+        assert AppPeers(Path(path.value.decode()))(token) is True
+        assert AppPeers(Path("/bin/ls"))(token) is False               # another program's signature: refused
     finally:
         a.close()
         b.close()

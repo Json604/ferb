@@ -140,8 +140,20 @@ final class FerbOutput: ObservableObject {
     }
 
     func uninstall(with actions: FERBAppActions, purge: Bool = false) {
-        actions.beforeUninstall?()
-        run(Self.uninstallArguments(purge: purge), with: actions)
+        guard let before = actions.beforeUninstall else {
+            run(Self.uninstallArguments(purge: purge), with: actions)
+            return
+        }
+        guard !running else { return }
+        lines = []
+        status = nil
+        running = true
+        Task { @MainActor in
+            let refused = await before()                  // the background service off first, waited for
+            running = false
+            if let refused { lines = [refused]; return }
+            run(Self.uninstallArguments(purge: purge), with: actions)
+        }
     }
 
     /// `ferb uninstall`, or with everything deleted after the owner's one Yes here (`--purge --yes`).

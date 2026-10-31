@@ -17,6 +17,7 @@ from ferb.act.shell.proxy import EgressProxy
 from ferb.act.shell.sandbox import Sandbox
 from ferb.core.errors import NoTarget, Refused, Withheld
 from ferb.core.types import Identity
+from ferb.device.autorelease import pool
 from ferb.registry import add_evidence, add_hearing, add_mac, add_shell, add_time, add_trail
 from ferb.sanitize.redact import Redactor
 
@@ -393,10 +394,12 @@ class Desktop:
         return [(a.bundle_id, a.name) for a in p.apps] if p is not None else []
 
     def _running_apps(self) -> list[tuple[str, str, int]]:
-        """(bundle id, name, pid) of the apps running now; none when they can't be read."""
+        """(bundle id, name, pid) of the apps running now; none when they can't be read. Called on the event loop's
+        thread too, so it drains its own autorelease pool."""
         from ferb.act.mac import apps as appsm
         try:
-            return [(a.bundle_id, a.name, a.pid) for a in appsm.running()]
+            with pool():
+                return [(a.bundle_id, a.name, a.pid) for a in appsm.running()]
         except Exception:
             return []
 

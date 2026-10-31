@@ -258,6 +258,31 @@ def test_the_service_definition_inside_ferb_app_is_never_changed_or_lifted(tmp_p
     assert f'(deny file-write* (literal "{definition.resolve()}"))' in profile
 
 
+def test_a_daemon_not_run_from_ferb_app_closes_the_installed_ferb_app(tmp_path: Path,
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    """Past bug (12e review): a daemon run from ~/.ferb/venv had no FERB.app to protect, so its tools and shell could
+    rewrite the installed FERB.app (whose signature decides which process is FERB.app) and its service definition.
+    Now the installed one is closed as the bundled one is; another app with that name is not FERB's."""
+    import plistlib
+    from ferb import paths
+    from ferb.device.install import BUNDLE_SERVICE
+    from ferb.policy.protection import FERB_APP, FERB_SERVICE
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    app, other = tmp_path / "Applications" / "FERB.app", tmp_path / "Other" / "FERB.app"
+    for bundle, ident in ((app, "com.ferb.FERB"), (other, "com.example.other")):
+        (bundle / BUNDLE_SERVICE).parent.mkdir(parents=True)
+        (bundle / "Contents" / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": ident}))
+    assert paths.installed_app((tmp_path / "none" / "FERB.app", other, app)) == app
+    assert paths.installed_app((other,)) is None
+    monkeypatch.setattr(paths, "app_bundle", lambda prefix=None: None)          # run from ~/.ferb/venv
+    monkeypatch.setattr(paths, "installed_app", lambda candidates=None: app)
+    p = protection.load(lambda section, key, default: default, home, ferb)
+    assert p.fs_rules(app / "Contents" / "MacOS" / "FERB", "write") == [FERB_APP]
+    assert p.fs_rules(app / BUNDLE_SERVICE, "write") == [FERB_SERVICE]
+    assert p.fs_denied(app / "Contents" / "Info.plist", "read") is None
+
+
 def test_removing_a_folder_that_holds_a_never_read_store_is_refused(tmp_path: Path) -> None:
     """Trashing ~/.config would hand over ~/.config/gh in the Trash: a removal of a folder holding a never-read store is
     closed with that store's rule. Reading the folder itself (a listing) is fine."""

@@ -51,10 +51,12 @@ METHODS: dict[Role, frozenset[str]] = {
 # pictures borrow FERB's Screen Recording permission; any other program running as the owner gets "unauthorized").
 # Step 12c: what lists or deletes the owner's saved secrets, writes FERB's own account into config or pairs its
 # profile, and FERB.app's guide that becomes FERB's self-description (daemon decisions 6-8).
-# Step 12e: "What FERB saw", the stored redacted screenshots and their facts.
+# Step 12e: "What FERB saw", the stored redacted screenshots and their facts; the setup window's Done, which records
+# setup as done from the grants FERB.app reports for itself (only FERB.app can read them).
 # The server checks the peer's code signature (app_peer.py) once per connection.
 APP_ONLY: frozenset[str] = frozenset({"tasks.preview", "secrets.saved", "secrets.delete", "identity.find",
-                                      "identity.choose", "identity.pair", "about.guide", "seen.list", "seen.image"})
+                                      "identity.choose", "identity.pair", "about.guide", "seen.list", "seen.image",
+                                      "setup.finish"})
 
 
 def allowed(role: Role, method: str) -> bool:

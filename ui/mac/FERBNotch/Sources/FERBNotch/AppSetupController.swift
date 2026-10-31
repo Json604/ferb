@@ -88,10 +88,11 @@ final class AppSetupController: NSObject, NSWindowDelegate {
                                    daemonRunning: daemonRunning())
     }
 
-    /// Uninstall: the background service unregistered from macOS (the definition goes with the app itself).
-    func unregisterService() {
-        guard isPackaged else { return }
-        Task { try? await background.unregister() }
+    /// Uninstall: the background service unregistered from macOS (the definition goes with the app itself), before
+    /// `ferb uninstall` runs. Nil when it's off, else why not.
+    func unregisterService() async -> String? {
+        guard isPackaged else { return nil }
+        return await background.unregisterForUninstall()
     }
 
     private func quietUpdate() {

@@ -227,7 +227,7 @@ def setup(env: Env, update: bool = False) -> int:
             _voice_helper(env)        # L26: hearing's helper; L27: the new app's own helper; no permission dialog
         client = _started(env)
         if client is not None:
-            _permissions_state(env, Config(inst.home), client)
+            _permissions_state(env, client)
             _review_persona(env, client)
             client.close()
         else:
@@ -271,7 +271,7 @@ def setup(env: Env, update: bool = False) -> int:
     if client is None:
         env.say("     FERB's setup window asks for them once its background service runs.")
         return 0
-    _permissions_state(env, config, client)
+    _permissions_state(env, client)
 
     env.say("4/4  Self-test through the daemon")
     ok = _print_selftest(env, client.call("doctor.check"))
@@ -285,18 +285,19 @@ def setup(env: Env, update: bool = False) -> int:
     return 0 if ok else 1
 
 
-def _permissions_state(env: Env, config: Config, client: Any) -> None:
+def _permissions_state(env: Env, client: Any) -> None:
     """The macOS permissions as the running daemon reports them, hearing (FERB Voice) and the clipboard included. FERB's
-    setup window asks for them (the CLI has no permission walkthrough); setup is recorded as done
-    (`permissions_version`) only once every one is granted (`permissions.missing`, the rule the window's Done uses)."""
+    setup window asks for them (the CLI has no permission walkthrough). Setup is never recorded as done here
+    (`permissions_version`): every row decides it, FERB.app's own Notifications and Microphone included, and only the
+    window's Done (`setup.finish`) can read those."""
     report = client.call("doctor.check", {"selftest": False, "hearing": True})
     missing = permissions.missing(permissions.report_rows(report))
     if missing:
         env.say(f"     Not granted yet: {', '.join(f'{row}={status}' for row, status in missing)}. Grant them in "
                 "FERB's setup window (Set Up FERB… in FERB's menu bar); `ferb doctor` lists them.")
         return
-    permissions.record_done(config)
-    env.say("     All macOS permissions are granted (checked by the running daemon).")
+    env.say("     All of the daemon's macOS permissions are granted (checked by the running daemon); FERB's setup "
+            "window checks FERB.app's own and records setup as done.")
 
 
 # ---------- the store's one-time clean-up (notes/storage.md decision 4; step 12a) ----------
@@ -341,7 +342,11 @@ def cleanup_apply(env: Env, ok: str) -> int:
         result.update(_run_cleanup(env, ok, stop))
     with _finish_install() as stops:               # a stop waits until the daemon is loaded again, then ends setup
         if inst.loaded() or (not inst.app_service and inst.legacy_plist()):
-            inst.while_stopped(lambda: work(lambda: bool(stops)))
+            try:
+                inst.while_stopped(lambda: work(lambda: bool(stops)))
+            except InstallError as e:                # the stopped process hasn't exited: nothing ran
+                env.say(f"The clean-up didn't run: {e}. Try again in a moment.")
+                result["not_run"] = str(e)
         else:                                        # no service installed or registered: nothing to stop
             work(lambda: bool(stops))
         env.say(json.dumps(result))

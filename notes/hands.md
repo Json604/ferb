@@ -466,6 +466,26 @@ from installed apps, terminal detection fails closed)*
   open folder (`O_NOFOLLOW`), regular files only, never a link (a link or a missing file is recorded "gone"); rows stay
   with `kept` deleted. Journal: `downloads.cap_asked` {files, bytes, total_bytes, cap_bytes}, `downloads.deleted`
   {files, bytes}, `downloads.cap_declined`: no names.
+- **A file that can run when opened (12e review, finding 1).** The rule: opening a file must not start code the shell
+  wrote outside the shell's sandbox without the owner's Yes on its exact contents. Before, only a terminal app, or
+  Finder/System Events handing the file to one, counted; but some default openers run the file themselves (on this
+  Mac a `.jar` opens in Java Launcher and runs, a `.py` can open in Python Launcher, a `.pkg` in Installer, a
+  `.mobileconfig` in ProfileHelper, a `.shortcut` in Shortcuts), so those opened unasked. **Ruling:** the file's Launch
+  Services type decides, a structural fact about the file, not an app list (`apps.runs_when_opened`): it conforms to
+  `public.executable`, `public.script`, an installer package (`com.apple.installer-package-archive`, `-package`,
+  `-meta-package`), a configuration profile (`com.apple.mobileconfig`, `com.apple.configprofile`), or a shortcut or
+  workflow (`com.apple.shortcut`, `com.apple.shortcuts.workflow-file`, `com.apple.automator-workflow`), or the path is
+  a package directory (`isFilePackageAtPath`). An unknown type (a dynamic `dyn.` one: an extension macOS doesn't know)
+  or an unreadable one counts as runnable (fail toward asking, like `is_application`). Checked on this Mac: `.jar`
+  (com.sun.java-archive), an executable with no extension and `.js` conform to executable; `.py`, `.sh`, `.command`,
+  `.scpt` to script; `.pkg`, `.mobileconfig`, `.shortcut` to theirs; `.txt`, `.pdf`, `.html`, `.rtf`, `.zip`, a plain
+  folder and a non-executable file with no extension don't. It applies whatever app receives the file (`mac.open`
+  `_opens_to_run`), and to every file FERB's input would open by its default app (`_open_files`: a Finder double-click,
+  an AX press, ⌘O or File > Open on a selection, a file a Finder script names). Such an open goes through the existing
+  terminal question (D31) with the file's path, hash and text ("a file that can run when opened"), and the Yes covers
+  exactly those bytes, re-hashed right before the open. So opening a script in an editor through `mac.open` asks too
+  (FERB can't tell which apps run what they open), and so does a package document like an `.rtfd`. The app-bundle
+  refusal stays. tests/test_mac_focus.py `test_a_file_whose_type_runs_when_opened_asks_in_any_app`.
 
 ## Step 13 must measure (step 12e part 2)
 - Whether `open -g` (no `-j`) puts a launched app's first window behind the owner's front window, on the current

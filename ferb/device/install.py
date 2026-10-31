@@ -492,6 +492,13 @@ class Installer:
                     None)
         return path if path is not None and Path(path) != self.plist_path else None
 
+    def check_not_foreign(self, then: str) -> None:
+        """A checkout refuses to install or uninstall over FERB.app's registered service (`foreign_service`): booting
+        it out would leave FERB.app's registration behind with nothing running, and only FERB.app can unregister it."""
+        if refusal := self.foreign_service():
+            raise InstallError(f"FERB.app's background service is registered ({refusal}); turn it off in FERB.app "
+                               f"(Settings → Advanced → Uninstall FERB…) {then}")
+
     def agent_pid(self) -> int | None:
         out = self._printed() or ""
         for line in out.splitlines():
@@ -564,9 +571,7 @@ class Installer:
         self._recover_venv()
         if update_only and not self.installed():
             raise InstallError("FERB isn't installed yet: run `ferb setup` first")
-        if refusal := self.foreign_service():
-            raise InstallError(f"FERB.app's background service is registered ({refusal}); turn it off in FERB.app "
-                               "(Settings → Advanced → Uninstall FERB…) before running FERB from this checkout")
+        self.check_not_foreign("before running FERB from this checkout")
         self.write_marker()
         interpreter = self.ensure_interpreter()
         try:                                          # everything that can fail, before the switch-over
@@ -614,19 +619,28 @@ class Installer:
     def while_stopped(self, work: Callable[[], None]) -> None:
         """Run `work` with the daemon stopped, then start it again whatever `work` does (an error or a stop included).
         A checkout's LaunchAgent is unloaded (launchd dropped it and, within its wait, its process exited) and loaded
-        again; FERB.app's registered service stays registered: its daemon is stopped and started (`stop`, `start`)."""
+        again; FERB.app's registered service stays registered: its daemon is stopped and started (`stop`, `start`).
+        `work` doesn't run while the stopped process is still exiting (`exiting`, past the stop's 10 s wait): it may
+        still be writing the store, and a checkout's venv swap would delete the code it runs; that raises InstallError,
+        and the daemon is started again."""
         if self.app_service:
             self.stop()
             try:
+                self._check_exited()
                 work()
             finally:
                 self.start()
             return
         self.unload()
         try:
+            self._check_exited()
             work()
         finally:
             self.load()
+
+    def _check_exited(self) -> None:
+        if (pid := self.exiting()) is not None:
+            raise InstallError(f"FERB's daemon (process {pid}) hasn't exited since launchd stopped it")
 
     def check_bundle(self) -> None:
         """The daemon runs from this FERB.app, so it must stay where it is and be the app as signed: not macOS's
@@ -787,7 +801,8 @@ class Installer:
         """Stop the daemon and remove the checkout's LaunchAgent (FERB.app unregisters its own service), the old user
         LaunchAgent, FERB.app's login fallback, the native-host files and the `ferb` link. purge=True also deletes
         FERB's home and every FERB Keychain item (`remove_keychain_items`), after the caller has asked the owner.
-        Returns what was removed."""
+        Returns what was removed. A checkout refuses while FERB.app's service is registered (as `install` does)."""
+        self.check_not_foreign("before uninstalling FERB from this checkout")
         removed = []
         if self.loaded():
             self.unload()

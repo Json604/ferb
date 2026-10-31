@@ -68,6 +68,10 @@ class _Opening:
     def is_application(self, path: str) -> bool:
         return path.endswith(".app")
 
+    def runs_when_opened(self, path: str) -> bool:
+        """Launch Services' type facts, faked: a program, a script, an installer package, a profile, a shortcut."""
+        return path.endswith((".command", ".jar", ".py", ".pkg", ".mobileconfig", ".shortcut"))
+
 
 def _opener(monkeypatch: Any, windows: bool = True) -> tuple[Any, Any, Any]:
     from ferb.act.mac.tools import MacOpen
@@ -75,7 +79,7 @@ def _opener(monkeypatch: Any, windows: bool = True) -> tuple[Any, Any, Any]:
     d, ax, apps, posted = mac(monkeypatch)
     fake = _Opening(apps)
     fake.windows[11] = windows
-    for name in ("open_in", "reopen", "launch", "is_application"):
+    for name in ("open_in", "reopen", "launch", "is_application", "runs_when_opened"):
         setattr(apps, name, getattr(fake, name))
     apps.default_app_for = lambda path: "com.apple.Terminal" if path.endswith(".command") else "com.apple.TextEdit"
     apps.declares_shell = lambda bundle: False
@@ -132,7 +136,36 @@ def test_a_file_that_would_run_in_a_terminal_needs_the_owners_yes_to_its_content
     script.write_text("rm -rf ~\n")                          # changed after the Yes: the Yes doesn't cover it
     assert asyncio.run(tool.run(tool.Input(bundle_id="com.apple.Terminal", path=str(script)),
                                 SimpleNamespace(task_id="t1", terminal=yes))).is_error
-    assert asyncio.run(tool.terminal_input(tool.Input(bundle_id="com.apple.Notes", path=str(script)), "t1")) is None
+    note = tmp_path / "notes.txt"
+    note.write_text("groceries")
+    assert asyncio.run(tool.terminal_input(tool.Input(bundle_id="com.apple.Notes", path=str(note)), "t1")) is None
+
+
+@pytest.mark.parametrize("name,app", [("tool.jar", "com.apple.JavaLauncher"), ("run.py", "org.python.PythonLauncher"),
+                                      ("setup.pkg", "com.apple.installer"), ("wifi.mobileconfig", "com.apple.finder"),
+                                      ("go.shortcut", "com.apple.shortcuts")])
+def test_a_file_whose_type_runs_when_opened_asks_in_any_app(monkeypatch: Any, tmp_path: Any, name: str,
+                                                            app: str) -> None:
+    """Past bug (12e review): only a terminal app, or Finder handing the file to one, counted as running it, so a .jar
+    the shell wrote opened in Java Launcher (which runs it) unasked. Now the file's type decides, whatever the app:
+    the terminal question shows its contents, nothing opens without that Yes, and the Yes covers only those bytes."""
+    import asyncio
+    from types import SimpleNamespace
+    from ferb.core.types import TerminalGrant
+    d, tool, fake = _opener(monkeypatch)
+    f = tmp_path / name
+    f.write_bytes(b"PK\x03\x04\xff payload")
+    args = tool.Input(bundle_id=app, path=str(f))
+    inp = asyncio.run(tool.terminal_input(args, "t1"))
+    assert inp is not None and inp.surface == "a file that can run when opened"
+    assert inp.files[0][0] == str(f) and inp.files[0][2] == "(a binary file of 13 bytes)"
+    assert asyncio.run(tool.run(args, SimpleNamespace(task_id="t1", terminal=None))).is_error and fake.opened == []
+    yes = TerminalGrant(inp, "c1")
+    f.write_bytes(b"changed")                                # not the bytes the owner saw
+    assert asyncio.run(tool.run(args, SimpleNamespace(task_id="t1", terminal=yes))).is_error and fake.opened == []
+    f.write_bytes(b"PK\x03\x04\xff payload")
+    assert not asyncio.run(tool.run(args, SimpleNamespace(task_id="t1", terminal=yes))).is_error
+    assert fake.opened == [(app, str(f))]
 
 
 def test_a_running_app_with_no_window_is_asked_for_one_in_the_background(monkeypatch: Any) -> None:

@@ -176,9 +176,10 @@ def test_refuses_while_a_foreground_dev_daemon_holds_the_socket(world: dict[str,
     assert world["runner"].ran("uv", "python", "install") == 0
 
 
-def test_plain_setup_asks_for_no_permission_and_records_setup_only_when_all_are_granted(world: dict[str, Any]) -> None:
+def test_plain_setup_asks_for_no_permission_and_never_records_setup_done(world: dict[str, Any]) -> None:
     """The CLI permission walkthrough is gone (notes/daemon.md decision 4: FERB's setup window asks); `ferb setup`
-    opens no pane, requests nothing, and records setup as done only once the daemon reports every permission."""
+    opens no pane, requests nothing, and never records setup as done: every row decides that, FERB.app's own
+    Notifications and Microphone included, which only the window's Done can read (12e review)."""
     env, out = make_env(world, [], daemon_up=False)          # any request for owner input would fail this test
     assert S.setup(env) == 0, out.getvalue()
     d = world["daemon"]
@@ -189,7 +190,8 @@ def test_plain_setup_asks_for_no_permission_and_records_setup_only_when_all_are_
     d.perms = {name: "granted" for name in S.SETUP_PERMISSIONS}
     env, out = make_env(world, [], daemon_up=False)
     assert S.setup(env) == 0, out.getvalue()
-    assert Config(world["home"]).get("setup", "permissions_version") == 27
+    assert "permissions are granted" in out.getvalue()
+    assert Config(world["home"]).get("setup", "permissions_version", 0) == 0
 
 
 def test_doctor_reports_and_fails_on_missing_required_permission(world: dict[str, Any]) -> None:
@@ -256,8 +258,8 @@ def test_update_recognizes_existing_grants_despite_an_older_setup_marker(world):
     env, out = make_env(world, [])
     assert S.setup(env, update=True) == 0
     assert 'deferred' not in out.getvalue()
-    assert 'All macOS permissions are granted' in out.getvalue()
-    assert Config(world['home']).get('setup', 'permissions_version') == 27
+    assert "permissions are granted" in out.getvalue()
+    assert Config(world['home']).get('setup', 'permissions_version') == 22       # only the window's Done records it
     assert world['panes'] == [] and world['daemon'].automation_requests == []
 
 

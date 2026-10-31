@@ -80,6 +80,20 @@ final class AppServiceAgent: BackgroundServiceRegistering {
     func openLoginItems() { SMAppService.openSystemSettingsLoginItems() }
 }
 
+extension BackgroundServiceRegistering {
+    /// Uninstall's first step: the service unregistered from macOS, waited for and checked. Nil when macOS no longer has
+    /// it registered, else why not (`ferb uninstall` then doesn't run: it would leave launchd running FERB).
+    func unregisterForUninstall() async -> String? {
+        do { try await unregister() } catch {
+            return "macOS didn't turn off FERB's background service (\(error.localizedDescription)), so nothing was " +
+                "uninstalled. Try again, or turn FERB off in System Settings → General → Login Items first."
+        }
+        if status == .notRegistered || status == .notFound { return nil }
+        return "macOS still lists FERB's background service as on, so nothing was uninstalled. Try again, or turn " +
+            "FERB off in System Settings → General → Login Items first."
+    }
+}
+
 enum AppBundle {
     /// Only an app bundle has a notification center (a `swift run` build has none).
     static var isApp: Bool { Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil }
