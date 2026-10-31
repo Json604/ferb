@@ -23,19 +23,21 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 ## Rules
 
 1. Commit and push only when the owner asks; never force-push.
-2. Work in the order of `notes/fix-order.md`: each step lands with its tests, then the owner installs it
-   (`ferb setup --update`) and checks it live before the next step. Update the area's notes file when a decision
-   changes or a fix lands.
+2. Work in the order of `notes/fix-order.md`: each step lands with its tests and is committed and pushed; the owner's
+   live checks are batched into the step the fix order names (step 13 for the rebuild), on a FERB.app build the owner
+   installs. Update the area's notes file when a decision changes or a fix lands.
 3. Code enforces where/what boundaries: argument validity, paths, destinations, recoverability, confirmations, the
    sink rule, redaction, task/resource ownership and stop, never through a model.
 4. Code never judges intent to gate an action; no keyword or label list decides intent or content. Agents interpret
    intent, authorization, account choice, retry and escalation. Structural facts (a field's type, a form submission,
    which app got the input) are facts, not intent.
-5. Confirmations: code asks only for concrete hard-to-undo actions, as decided in notes/gateway.md (money, account
-   security, permanent deletion, sending as the owner to someone new unless a standing permission covers it,
-   certificate checks turned off, input on a browser's own pages, terminal typing, the sink rule, foreground input).
-   Tools report facts; the worker's declaration can only add a question, never remove one. FERB prepares the action
-   before asking, asks once per task, and the answer carries across retries.
+5. Confirmations: code asks only for concrete hard-to-undo actions, as decided in notes/gateway.md and notes/hands.md
+   (money, account security, permanent deletion, sending as the owner to someone new unless a standing permission
+   covers it, certificate checks turned off, input on a browser's own pages, terminal typing, the sink rule, foreground
+   input, protected folders, profile pairing, files that run when opened). Tools report facts; the worker's declaration
+   can only add a question, never remove one. FERB prepares the action before asking and asks once per action as the
+   notes define it (a payment, an app, a protected folder per task; terminal typing every time); the answer carries
+   across retries. The owner's "don't ask for 30 minutes" covers only the routine questions (gateway decision 7).
 6. Nothing lets FERB change its own audit records, protection rules, sandbox profile, config, service definition or
    secrets helper, or bypass its network proxy. Typing into any terminal always asks first, showing the exact command.
 7. Secrets, OTPs and card details never reach a model provider, a trace, a log or the database; code redacts at
@@ -55,8 +57,9 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
     and a self-only group, kartikey.xyz pages with the request-logging server, disposable files). Tests reach real
     third parties only in a run the owner approves; tests that can send enable the test-mode send allowlist. Tests
     close only what they created; no installed-host rewrites or global process kills.
-17. Do not install or restart the running daemon or the owner's browsers without the owner's authorization; the owner
-    normally runs `ferb setup --update`. Never commit secrets.
+17. Do not install, restart or stop the running FERB.app, its daemon or the owner's browsers without the owner's
+    authorization; the owner installs FERB.app builds (a checkout's `ferb setup --update` refuses while FERB.app's
+    service is registered). Never commit secrets.
 18. Caps, budgets and retention that change FERB's behavior are owner decisions; ask, never rule.
 
 ## Development

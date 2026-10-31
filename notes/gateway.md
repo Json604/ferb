@@ -32,6 +32,19 @@ are to commit c6621c3. G = gateway.py.
    Keychain) or the site's / browser's saved card; the redactor also masks CVV beside its label and expiry beside a
    card, and the card-after-a-number bug is fixed. Storing a card works like other owner secrets today: the owner
    asks, or FERB asks, to store it; it goes to the Keychain through a hidden input; models see only its handle.
+7. **"Allow all for a short time"** (owner, 2026-10-26/27: a tester's ask, then "YES to all and above too"; recorded
+   2026-10-31 from the 10-27 decision list). One "don't ask for 30 minutes" answer covers routine questions only: the
+   foreground (screen/front) question, protected folders (read lifts), a browser's own pages, new recipients and the
+   profile pairing question (`ferb/policy/confirm.py` `ROUTINE`, `ALLOW_WINDOW_S`). It never covers payments, account
+   security, permanent deletion, terminal typing or certificate checks turned off. The window is one value for the
+   gateway (it spans tasks until it ends).
+8. **Questions read plainly** (owner, 2026-10-24 and 2026-10-26: "just ask simply what you want with a small reason
+   below"): every question is one plain line of what FERB wants plus a small reason line built from page facts (the
+   field's label, the currency, the merchant rather than a bank's verification domain); the step and the raw call go
+   under Details (`ferb/policy/confirm.py`).
+9. **Shell egress stays free and recorded** (owner, 2026-11-01, confirming 2026-10-13's "Free, recorded"; replaces
+   the 2026-10-10 "ask the first time" and the old docs' L2): the shell can reach any site, every connection is recorded
+   in the trace, and sending private data from the browser still asks (the sink rule).
 
 ## What exists today (verified)
 
@@ -99,7 +112,7 @@ redact, image redaction, origins).
 - Any tool exception marks the ledger row unknown, even if it failed before acting (G:1605); only the browser
   bridge ever reconciles (ext_bridge.py:237-239). Live: 20 unknown rows, 0 retry approvals.
 - Run tokens never expire when a task has no deadline (worker.py:338-340); revoked at worker end.
-- Shell egress is open by design (L2): any remote host, LAN and 169.254.169.254 included; `curl -d @file
+- Shell egress is open by design (decision 9, was L2): any remote host, LAN and 169.254.169.254 included; `curl -d @file
   https://new-host` asks nothing, so the browser URL sink (~200 lines of URL-token machinery) guards a channel the
   shell leaves open.
 
@@ -230,7 +243,7 @@ redact, image redaction, origins).
 - notes/daemon.md: composition (constructor deps replace injected attributes); disturbance sampler hooks into the
   post-call hooks built here.
 - Redaction rebuild here also fixes the 15 parked memory cards (notes/memory.md).
-- Shell egress stays open by owner decision L2; the browser URL sink therefore guards only browser navigation
+- Shell egress stays open by owner decision 9 (was L2); the browser URL sink therefore guards only browser navigation
   (accepted residual).
 
 ## Fix list
