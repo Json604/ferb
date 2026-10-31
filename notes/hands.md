@@ -271,6 +271,29 @@ from installed apps, terminal detection fails closed)*
   (ferb/runtimes/proxy.py, same default), listen with `socket.SOMAXCONN` (the kernel caps it at kern.ipc.somaxconn,
   128 here). The test is unchanged.
 
+## Rulings (step 14b, technical: decision 5, sound)
+- Muting is the browser's tab mute (`chrome.tabs.update({muted})`), never the page's media: the page is untouched and
+  can't tell. A tab FERB opens (`open`, with or without a task) is muted before anything loads; a popup a FERB tab opens
+  (`adopt_tab`, not borrowed) too. The owner's tabs (borrowed, handed over, or never FERB's) are never muted or
+  unmuted: the extension's `mute_tab` refuses them (`not_ferbs`) as `close` does, and the daemon never sends it for an
+  attached tab.
+- "Needs to listen": `audio.listen` on a tab, or `browser.record with_audio`, unmutes that FERB tab before capture and
+  it stays unmuted for the rest of the task (voice decision 5 unchanged: hearing is still the whole browser app,
+  unmuted). The worker's own `browser_media unmute` in a FERB tab unmutes the tab too ("play this for me": the owner
+  wants to hear it), and `mute` mutes it again; the tool description says FERB's tabs are muted until then. Results
+  carry `tab_muted` (and `tab_sound_error` when the browser refused), never failing the call.
+- A tab that becomes the owner's gets its sound back, only when FERB's extension muted it (`mutedInfo.reason` extension
+  with FERB's id): `release_tab` keep_open (the result tab, "keep the tabs open") and a tab moved out of its group
+  (`taken`). Closed tabs need nothing.
+- Disturbance fact: the extension sends a `sound` tab event when a tab's `audible` or mute changes (browser facts, tab
+  id, whether it is FERB's; no URL or title). For a tab that isn't FERB's, the disturbance sampler records a
+  `tab_sound` change for each active task with an acting call (any capability not marked `observation`) in flight or
+  ended within SOUND_NEAR_S = 5 s (Chrome drops `audible` about 2 s after sound stops). No FERB call near: the owner's
+  own play/pause, nothing kept. Attribution stays "temporal correlation only". The merged checker gets them in
+  `how_facts` as `sound_changes_in_other_tabs_near_ferb_calls`; the trace lists them with the near calls. Sensing
+  paused: dropped like every owner-tab event.
+- Not built (decision 5 says later): keeping a tab playing while the owner switches away.
+
 ## Measurements (step 0, 2026-10-30)
 - **Sandbox semantics, measured with `sandbox-exec` on scratch folders:**
   - `deny file-write-unlink` blocks unlink, rmdir, renaming a file out of or within the folder, and renaming onto an
@@ -288,6 +311,13 @@ from installed apps, terminal detection fails closed)*
   owner's own run of the probe was in Terminal, so it showed Terminal's grants, not FERB's.)
 
 ## Fix list
+- [x] Sound is part of background-first (decision 5): FERB's own tabs muted unless the task needs to listen; FERB
+      stopping or changing playback in a tab the owner is using is a disturbance fact. (Step 14b: protocol 19,
+      extension and minimum 0.17.0: `open`/`adopt_tab` `muted`, `mute_tab`, sound back on handover, `sound` tab events;
+      `_TabDriver.tab_sound` used by audio.listen, browser.record with_audio and browser.media mute/unmute;
+      `DisturbanceSentinel.call_started/call_ended/sound_changed`, `how_facts`
+      `sound_changes_in_other_tabs_near_ferb_calls`. See Rulings (step 14b); tests/test_tab_sound.py. The owner reloads
+      the extension once in step 13.)
 - [ ] macOS 27.2: AppKit stopped calling `updateTrackingAreas` in the test process (2026-10-31). The source pill now
       reconciles its own tracking area; the other overrides (PanelCoordinator.swift:85, FerbIndicator.swift:94,
       PanelResizeOverlay.swift:68) are checked live in step 13 (hover-to-open, resize) and get the same pattern if

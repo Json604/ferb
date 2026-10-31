@@ -9,6 +9,10 @@ checker reads them, notes/orchestration.md decision 9); a change found when the 
 FERB on-screen call in flight, is recorded as that fact, with when the last one ended and the processes FERB started
 that were running (P26). Who did it stays the reader's conclusion (rule 6). No window titles, content, pixels or
 keystrokes are collected. Public Space notifications report transitions, not IDs.
+Sound is part of background-first too (hands decision 5): a browser tab that isn't FERB's starting or stopping sound, or
+being muted or unmuted (the extension's `sound` event, protocol 19), while one of FERB's acting calls is in flight or
+ended within SOUND_NEAR_S, is recorded for that call's task as a `tab_sound` change (the browser's own facts, the tab's
+id and the task holding it if any; never its page). With no FERB call near it is the owner's own and nothing is kept.
 While the owner has paused sensing (`ferb pause`), nothing about the desktop is recorded; a read already under way
 when the pause begins is dropped. Space switches may still be counted in memory meanwhile; the baseline taken after
 `ferb resume` discards them.
@@ -27,6 +31,9 @@ from typing import Any, Callable
 from ferb.trace import lines
 
 NO_ON_SCREEN_KEPT = 10   # the newest plain statements an agent's context carries; every change stays in the records
+# hands decision 5: how long after one of FERB's acting calls a sound change in another tab counts as near it (a pause
+# takes effect at once; the browser's audible flag drops about 2 s after the sound stops)
+SOUND_NEAR_S = 5.0
 # What FERB could change on the owner's screen, and all that is compared (daemon decision 5): never the cursor
 FERB_KEYS = ("frontmost_app", "key_window", "fullscreen", "active_space_epoch")
 PAUSED = "sensing paused by the owner (Pause FERB): nothing about the desktop is read or recorded until Resume"
@@ -149,6 +156,8 @@ class DisturbanceSentinel:
         self.active: dict[str, _Observation] = {}
         self._actions: dict[str, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
+        self._acting: dict[str, dict[str, Any]] = {}          # acting calls in flight (any kind), by span id
+        self._ended: deque[tuple[float, dict[str, Any]]] = deque(maxlen=64)   # (monotonic end, call) recently ended
 
     async def start(self, task_id: str) -> None:
         if task_id in self.active:
@@ -206,6 +215,38 @@ class DisturbanceSentinel:
         if changed and (observed := self.active.get(str(action["task_id"]).split(".", 1)[0])) is not None:
             observed.screen_changes.append({"tool": action["tool"], "span_id": span_id, "changes": changed})
         return changed
+
+    def call_started(self, task_id: str, span_id: str, tool: str) -> None:
+        """One of FERB's acting calls (not an observation) starts: a sound change in another tab meanwhile, or within
+        SOUND_NEAR_S of its end, is near it (hands decision 5). Nothing is read."""
+        self._acting[span_id] = {"task_id": task_id, "span_id": span_id, "tool": tool}
+
+    def call_ended(self, span_id: str) -> None:
+        if (call := self._acting.pop(span_id, None)) is not None:
+            self._ended.append((time.monotonic(), call))
+
+    def sound_changed(self, tab: dict[str, Any], change: dict[str, Any]) -> None:
+        """A tab that isn't FERB's changed its sound (`change`: {audible|muted: {before, after}}): recorded as a
+        `tab_sound` change for each active task with an acting call in flight or just ended (temporal correlation,
+        never who did it); nothing when no FERB call is near or sensing is paused."""
+        if not self.active or not change or self.paused():
+            return
+        now = time.monotonic()
+        near = list(self._acting.values()) + [c for at, c in self._ended if now - at <= SOUND_NEAR_S]
+        by_tree: dict[str, list[dict[str, Any]]] = {}
+        for call in near:
+            by_tree.setdefault(str(call["task_id"]).split(".", 1)[0], []).append(dict(call))
+        for tree, calls in by_tree.items():
+            observed = self.active.get(tree)
+            if observed is None or observed.paused:
+                continue
+            changes = {"tab_sound": {"tab": tab, **change}}
+            observed.changes += 1
+            observed.screen_changes.append({"tool": calls[-1]["tool"], "span_id": calls[-1]["span_id"],
+                                            "changes": changes})
+            self.record(tree, "disturbance.change", {"changes": changes, "actions": calls,
+                                                     "permission_assessment": "not_inferred",
+                                                     "attribution": "temporal_correlation_only"})
 
     def facts(self, task_id: str) -> list[dict[str, Any]]:
         """What FERB's calls in this task changed on the screen so far (for the merged checker, step 8)."""

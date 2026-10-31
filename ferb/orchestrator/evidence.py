@@ -209,6 +209,7 @@ def how_facts(conn: Any, task_id: str, since: int = 0) -> dict[str, Any]:
     """Code facts about how a task's work was done, read from its own tool-call records (owner decision 9, daemon
     decision 5): how many calls and failures per tool; the screen changes the disturbance sampler recorded around each
     call that can change the screen (front app, focused window, fullscreen, Space: `screen` on the call's record);
+    sound changes in tabs that aren't FERB's near this task's calls (hands decision 5);
     the calls that asked for the foreground; each call's structural facts (ActionFacts: where input landed, forms,
     deletes, writes); and the accounts and sites the calls targeted. Never the worker's words. `since`: a span cursor
     (a loop round's own calls). FERB's own context reads are left out. Each list keeps its newest HOW_KEPT."""
@@ -241,8 +242,21 @@ def how_facts(conn: Any, task_id: str, since: int = 0) -> dict[str, Any]:
         for key, kind in (("account", "accounts"), ("site", "sites")):
             if target.get(key):
                 targets[kind].add(str(target[key]))
+    # hands decision 5: sound started, stopped, muted or unmuted in a tab that isn't FERB's while this task's acting
+    # call was in flight or had just ended (the disturbance sampler's `tab_sound` records, kept under the tree)
+    sound: list[dict[str, Any]] = []
+    for span_id, raw_out in conn.execute(
+            "SELECT id, output_json FROM spans WHERE task_id = ? AND kind = 'disturbance.change' AND rowid > ? "
+            "AND output_json LIKE '%tab_sound%' ORDER BY rowid", (task_id.split(".", 1)[0], since)):
+        out = json.loads(raw_out) if raw_out else {}
+        change = (out.get("changes") or {}).get("tab_sound") if isinstance(out, dict) else None
+        calls = [c for c in out.get("actions") or [] if isinstance(c, dict) and c.get("task_id") == task_id] \
+            if change else []
+        if calls:
+            sound.append({"span_id": span_id, "near_calls": [c.get("tool") for c in calls], "changed": change})
     return {"calls_by_tool": by_tool,
             "screen_changes_during_ferb_calls": {"count": len(screen), "newest": screen[-HOW_KEPT:]},
+            "sound_changes_in_other_tabs_near_ferb_calls": {"count": len(sound), "newest": sound[-HOW_KEPT:]},
             "foreground_calls": {"count": len(foreground), "newest": foreground[-HOW_KEPT:]},
             "call_facts": {"count": len(facts), "newest": facts[-HOW_KEPT:]},
             "targeted": {k: sorted(v) for k, v in targets.items()}}

@@ -120,7 +120,8 @@ def _desktop(nodes: list[dict[str, Any]], task_id: str, ended: str | None) -> di
             changes = out.get("changes") or {}
             actions = out.get("actions") or []
             what = forward.change(changes)
-            screen = [a for a in actions if _on_screen(a, kinds)]
+            # a sound change in another tab (hands decision 5) is recorded only near FERB's acting calls, any kind
+            screen = [a for a in actions if _on_screen(a, kinds) or "tab_sound" in changes]
             own = sorted({str(a.get("tool", "?")) for a in screen
                           if str(a.get("task_id") or tree).split(".", 1)[0] == tree})
             other = sorted({str(a.get("tool", "?")) for a in screen

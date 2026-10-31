@@ -383,6 +383,9 @@ class Hub:
         self.on_tab_closed: Callable[["Bridge", int], Awaitable[None] | None] = lambda br, tab_id: None
         self.paused: Callable[[], bool] = lambda: False
         self.owned: Callable[["Bridge", int], bool] = lambda br, tab_id: False
+        # Hands decision 5 (protocol 19): a tab's sound changed; the daemon records one in a tab that isn't FERB's as a
+        # disturbance fact (never in the activity trail)
+        self.on_sound: Callable[["Bridge", TabEvent], None] = lambda br, e: None
         # A download the extension holds (D35); the daemon sets downloads.Downloads.receive. Unset: back to the browser.
         self.on_download: Callable[["Bridge", Event], None] = _let_download_go
         self.drivers: list["_TabDriver"] = []               # the browser drivers (they register): whose tab is it
@@ -625,6 +628,9 @@ class Hub:
                     self._spawn(job)
             if self.paused() and not self.owned(br, e.tab_id):
                 return                                       # paused: the owner's tabs aren't watched at all
+            if e.event == "sound":
+                self.on_sound(br, e)
+                return
             self.on_tab(br, e)
             if e.event == "removed":
                 br.tabs.pop(e.tab_id, None)
@@ -858,6 +864,7 @@ class _Tab:
     held: bool = False              # it counts in its bridge's keepalive holds
     frame_urls: dict[int, str] = field(default_factory=dict)   # the latest snapshot's frames' URLs (masked)
     commerce: dict[str, Any] = field(default_factory=dict)     # the page's structured amount/merchant (protocol 18)
+    muted: bool = False             # hands decision 5: FERB muted it (the browser's tab mute); its task may unmute it
     page: _Page | None = None       # where the latest snapshot saw the tab, for FERB's cursor (L33)
     motion: dict[str, tuple[str | None, bool]] = field(default_factory=dict)   # element id -> its scroll facts (L33)
     moved: bool = False             # FERB scrolled the page since the snapshot: its rects aren't where they were (L33)
@@ -989,6 +996,8 @@ class _TabDriver:
             args["allow_foreground"] = True
         if owner and not attached:                       # the task's collapsed group (owner decision 3)
             args["group"] = self._group(owner)
+        if not attached:                                 # hands decision 5: a tab FERB opens is muted (protocol 19)
+            args["muted"] = True
         v = await br.call("open", args, timeout=30)
         if (v.get("opened") is False and v.get("reason") == "window_selection_required" and window_id is None
                 and not allow_foreground):
@@ -1010,7 +1019,8 @@ class _TabDriver:
             br.window = int(v["window_id"])               # remembered for this profile (protocol 18 fixes)
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
-        t = self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, BLANK, attached=attached)
+        t = self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, BLANK, attached=attached,
+                                          muted=v.get("muted") is True)
         self._hold(t)
         if registered is not None:
             registered(ref)
@@ -1246,7 +1256,8 @@ class _TabDriver:
         if opener is None or opener.owner is None or opener.owner in self._released:
             return None
         record = {"tab_id": chrome_id, "task": opener.owner, "root": self.task_root(opener.owner),
-                  "borrowed": opener.attached, "title": self._group(opener.owner)["title"]}
+                  "borrowed": opener.attached, "title": self._group(opener.owner)["title"],
+                  "muted": not opener.attached}         # a popup of a FERB tab is FERB's: muted (hands decision 5)
         if any(t.bridge is br and t.chrome_id == chrome_id for t in self._tabs.values()):
             return record
         if not self._count_tab(opener.owner):
@@ -1256,7 +1267,8 @@ class _TabDriver:
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._hold(self._tabs.setdefault(ref.tab_id, _Tab(ref, br, chrome_id, opener.owner, url,
-                                                          attached=opener.attached, opener=opener.ref.tab_id)))
+                                                          attached=opener.attached, opener=opener.ref.tab_id,
+                                                          muted=not opener.attached)))
         opener.opened.append({"tab": ref.tab_id, "url": url, "via": "the page opened it"})
         return record
 
@@ -1727,8 +1739,29 @@ class _TabDriver:
                               f"({MIN_EXTENSION_VERSION} or later)") from None
             raise
         own = next((qid for qid, i in t.media_ids.items() if i == index), None)
+        sound: dict[str, Any] = {}
+        if action in ("mute", "unmute") and not t.attached and not v.get("error"):
+            # hands decision 5: in a tab FERB opened, the task's own unmute lets the tab be heard (it is muted
+            # otherwise), and its mute silences it again; the owner's tabs keep their own sound setting
+            sound = await self.tab_sound(tab, action == "unmute")
         return ({k: v[k] for k in (*MEDIA_FIELDS, "error") if k in v} | {"index": index}
-                | ({"id": own} if own else {}) | ({"frame": frame} if frame else {}))
+                | ({"id": own} if own else {}) | ({"frame": frame} if frame else {}) | sound)
+
+    async def tab_sound(self, tab: TabRef, on: bool) -> dict[str, Any]:
+        """Hands decision 5: let a tab FERB opened be heard (`on`: a task that listens to it, records it with sound, or
+        unmutes its media) or mute it again, through the browser's tab mute (`mute_tab`, protocol 19). The owner's own
+        tabs are never touched. Returns `tab_muted` as the browser reports it, or why it couldn't change ({} for the
+        owner's tab). A failure never fails the caller: the fact is said instead."""
+        t = self._tab(tab)
+        if t.attached:
+            return {}
+        try:                                             # always asked: a tab re-adopted after a restart keeps its mute
+            v = await t.bridge.call("mute_tab", {"tab_id": t.chrome_id, "muted": not on}, timeout=10)
+        except DriverError as e:
+            return {"tab_muted": t.muted, "tab_sound_error": str(e)}
+        if v.get("changed") is True:
+            t.muted = v.get("muted") is True
+        return {"tab_muted": t.muted} | ({"tab_sound_error": str(v.get("reason"))} if v.get("changed") is False else {})
 
     async def show_tab(self, tab: TabRef) -> bool:
         """The owner clicked FERB's human-check notification: this tab comes to the front in its own window. False when

@@ -147,6 +147,7 @@ class FakeExtension:
         self.download_fail_at: int | None = None          # a part at/after this offset fails (the stream broke)
         self.download_urls: dict[str, tuple[str, bytes]] = {}   # navigating here becomes a download (name, bytes)
         self.audible: set[int] = set()                     # tabs making sound (list_tabs `audible`)
+        self.muted: set[int] = set()                       # tabs muted through the browser's tab mute (protocol 19)
         self.rests: list[tuple[int, bool]] = []            # rest commands (tab, resting) for held tabs (0.15.10)
         # protocol 18: this connection's signing state and the extension's tab records / groups
         self.nonce = ""
@@ -391,8 +392,32 @@ class FakeExtension:
         g = a.get("group")
         self.records[tab] = {"task": (g or {}).get("task"), "root": (g or {}).get("root"), "cid": cid}
         gid = self._group(tab, w, g)
+        if a.get("muted") is True:                         # protocol 19: muted before anything loads
+            self.muted.add(tab)
         self.tab_event("created", tab, a["url"])
-        return {"tab_id": tab, "url": a["url"], "title": page(a["url"])["title"], "window_id": w, "group_id": gid}
+        return {"tab_id": tab, "url": a["url"], "title": page(a["url"])["title"], "window_id": w, "group_id": gid,
+                "muted": tab in self.muted}
+
+    def op_mute_tab(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """Protocol 19: only a tab FERB opened (its record, not borrowed, not handed over) is muted or unmuted."""
+        tab = a["tab_id"]
+        if tab not in self.tabs:
+            raise RuntimeError(f"No tab with id: {tab}.")
+        rec = self.records.get(tab)
+        if rec is None or rec.get("borrowed") or tab in self.kept:
+            return {"tab_id": tab, "changed": False, "reason": "not_ferbs", "muted": tab in self.muted,
+                    "audible": tab in self.audible}
+        (self.muted.add if a["muted"] else self.muted.discard)(tab)
+        return {"tab_id": tab, "changed": True, "muted": tab in self.muted, "audible": tab in self.audible}
+
+    def sound(self, tab_id: int, audible: bool) -> None:
+        """Protocol 19: a tab's sound started or stopped (the browser's own fact), told as a `sound` tab event."""
+        (self.audible.add if audible else self.audible.discard)(tab_id)
+        rec = self.records.get(tab_id)
+        self.send("tab_event", {"event": "sound", "tab_id": tab_id, "audible": audible, "muted": tab_id in self.muted,
+                                "changed": ["audible"],
+                                "ferb": tab_id not in self.kept and (self.tab_windows.get(tab_id) == self.ferb_window or
+                                                                     (rec is not None and not rec.get("borrowed")))})
 
     def op_adopt_tab(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self.adopted.append(dict(a))
@@ -401,7 +426,9 @@ class FakeExtension:
             raise RuntimeError(f"No tab with id: {tab}.")
         self.records[tab] = {"task": a.get("task"), "root": a.get("root"), **({"borrowed": True} if a.get("borrowed") else {})}
         gid = None if a.get("borrowed") else self._group(tab, self.tab_windows.get(tab) or 0, a)
-        return {"adopted": True, "tab_id": tab, "group_id": gid}
+        if not a.get("borrowed") and a.get("muted") is True:
+            self.muted.add(tab)
+        return {"adopted": True, "tab_id": tab, "group_id": gid, "muted": tab in self.muted}
 
     def op_navigate(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         if a["url"] in self.nav_refuse:
@@ -519,6 +546,8 @@ class FakeExtension:
         if a.get('keep_open'):
             self.kept.add(tab)
         rec = self.records.pop(tab, None)                  # handed over: out of the group, left open
+        if a.get('keep_open') and rec is not None and not rec.get("borrowed"):
+            self.muted.discard(tab)                        # the owner's now: its sound with it (protocol 19)
         self._settle((rec or {}).get("group"))
         self.attached.discard(tab)
         self.owned = [o for o in self.owned if o['tab_id'] != tab]
@@ -536,7 +565,7 @@ class FakeExtension:
         # `audible` / `muted`: the browser's own sound facts (extension 0.15.8, L31), for a loop probe on a tab
         return {"tabs": [{"tab_id": t, "host": urlsplit(u).hostname, "url": u, "title": page(u)["title"],
                           "active": self.tab_active.get(t, False),
-                          "audible": t in self.audible, "muted": False,
+                          "audible": t in self.audible, "muted": t in self.muted,
                           "window_id": self.tab_windows.get(t), "kept_open": t in self.kept,
                           "ferb": t not in self.kept and (self.tab_windows.get(t) == self.ferb_window or
                                                           (t in self.records and not self.records[t].get("borrowed")))}

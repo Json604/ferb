@@ -16,7 +16,7 @@ from pathlib import Path
 from contextlib import suppress
 from functools import partial
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal, cast
 from urllib.parse import urlsplit
 
@@ -204,6 +204,12 @@ def _plain_choice(ap: Any) -> str:
     return PLAIN_CHOICE.format(choices=choices(ap.options), question=ap.reason)
 
 
+def _reminder_time(asked: Any, now: datetime, present: bool) -> tuple[datetime, datetime | None]:
+    """When a reminder is due, and the return to the Mac it waits for (decision 17: one the owner wants when they're at
+    their Mac, `when.when_present`; else None)."""
+    return when.when_present(asked, "none", now) if present else (when.resolve(asked, now), None)
+
+
 def _overlap(a: str, b: str) -> bool:
     """Two reminders' normalized words name the same request when one lies within the other."""
     return a in b or b in a
@@ -232,9 +238,15 @@ def _not_set(refused: list[tuple[str, str]]) -> str:
     return f"I couldn't set {what} {_with_reasons(refused)}. Nothing is scheduled for {it}. Could you ask again?"
 
 
-def _reminder_line(timer: Any) -> str:
-    """A reminder just set, in plain words (L11)."""
-    return f"⏰ Reminder set for {timer.fire_at.astimezone():%a %d %b %H:%M}: {timer.message}"
+def _reminder_line(timer: Any, present: bool = False, now: datetime | None = None) -> str:
+    """A reminder just set, in plain words (L11); one held until the owner is at the Mac (decision 17) says so."""
+    local = timer.fire_at.astimezone()
+    if not present:
+        return f"⏰ Reminder set for {local:%a %d %b %H:%M}: {timer.message}"
+    if now is not None and timer.fire_at <= now + timedelta(seconds=1):
+        return f"⏰ Reminder set for the next time you're back at your Mac: {timer.message}"
+    at = f"{local:%a %d %b}" if (local.hour, local.minute) == (0, 0) else f"{local:%a %d %b %H:%M}"
+    return f"⏰ Reminder set for {at}, when you're at your Mac: {timer.message}"
 
 
 def _already_set(timer: Any) -> str:
@@ -592,6 +604,7 @@ class _Tree:
     conversation_action: str | None = None
     conversation_proposals: list[dict[str, Any]] = field(default_factory=list)
     watch_met: bool | None = None        # a watch run's worker: whether the watched condition holds now (fix wave 6c)
+    nothing_to_tell: bool = False        # a scheduled run's worker: it found nothing to tell and did nothing (dec. 17)
     watch: bool = False                  # a watch's run: its check judges watch_met; its start isn't published
     loop_action: str | None = None       # a loop round's worker: continue / finished / blocked (L31)
     probe: Any = None                    # and the probe it chose for between rounds (probes.Probe | None)
@@ -635,6 +648,8 @@ TASK_ASK = "plan.ask"
 # (a tap, or `runtimes.switch_task`): it isn't routable, so the planner can't choose a runtime from chat words.
 RUNTIME_ASK = "runtime.switch"
 CONTINUE, STOP = "Continue", "Stop"
+RESUME = "Resume"
+PAUSED_MENTION = "{goal} is still paused. Resume?"     # decision 13: once a day, from the task's record
 
 
 @dataclass
@@ -911,9 +926,11 @@ class Supervisor(WorkerRuns):
                 if not asked:
                     raise ValueError("the words I quoted from you aren't in any message you typed in this chat")
                 at: datetime | None = None
+                back: datetime | None = None        # decision 17: a return to the Mac it waits for, if any
                 late: ValueError | None = None
+                present = bool(getattr(it, "when_active", False))
                 try:
-                    at = when.resolve(it.when, now)                             # code computes the date, not the model
+                    at, back = _reminder_time(it.when, now, present)            # code computes the date, not the model
                 except ValueError as e:     # no future time now ("today at 9" after 9): it may still be one already set
                     late = e
                 twin = next((t for t, words in made if _overlap(words, quote) and t.fire_at == at), None)
@@ -921,7 +938,7 @@ class Supervisor(WorkerRuns):
                     self.journal.append("timer.refused", {"why": "already set in this turn"})
                     exists(twin)
                     continue
-                found = {s: self._reminder_set(s, quote, it.when) for s in asked}
+                found = {s: self._reminder_set(s, quote, it.when, present) for s in asked}
                 source = next((s for s in asked if found[s] is None), None)
                 if source is None:                     # each message that asked for it already had it set
                     self.journal.append("timer.refused", {"why": "already set from that message"})
@@ -929,9 +946,11 @@ class Supervisor(WorkerRuns):
                     continue
                 if late is not None:                   # a new reminder that can't be set: refused as before
                     raise late
-                t = self.timers.add("reminder", at, it.message, request_id=source)
+                t = self.timers.add("reminder", at, it.message, request_id=source, when_active=present,
+                                    return_after=back)
                 self.journal.append("timer.set", {"timer_id": t.id, "request_id": source, "quote": quote,
-                                                  "set_in": request_id, "resolved_from": now.isoformat()})
+                                                  "set_in": request_id, "resolved_from": now.isoformat()}
+                                    | ({"when_active": True} if present else {}))
             except ValueError as e:                                             # WhenError is a ValueError
                 self.journal.append("timer.refused", {"why": str(e)})
                 refused.append((str(it.message), str(e)))
@@ -940,7 +959,7 @@ class Supervisor(WorkerRuns):
             made.append((t, quote))
         return out, refused, existing
 
-    def _reminder_set(self, source: str, quote: str, asked_when: Any) -> Any:
+    def _reminder_set(self, source: str, quote: str, asked_when: Any, present: bool = False) -> Any:
         """The reminder already set from request `source` for these words at the time the planner's `asked_when`
         means, whatever became of it (pending, cancelled, delivered), else None. The same reminder: words one of which
         contains the other, and `asked_when` resolved from the moment that reminder was resolved gives its time ("in
@@ -959,7 +978,7 @@ class Supervisor(WorkerRuns):
             if moment is None:
                 return timer
             try:
-                if when.resolve(asked_when, datetime.fromisoformat(str(moment))) == timer.fire_at:
+                if _reminder_time(asked_when, datetime.fromisoformat(str(moment)), present)[0] == timer.fire_at:
                     return timer
             except ValueError:                         # no time from that moment: not the same reminder
                 continue
@@ -1232,7 +1251,9 @@ class Supervisor(WorkerRuns):
                                           extra={'question_kind': 'closed_tab'} if question else {})
             self.journal.append('task.paused', {'task_id': tree_id, 'question': question}, origin=origin)
             self._set_status(tree_id, 'paused')
-            self.publish('task.paused', {'task_id': tree_id})
+            # decision 13: the owner's pause of a scheduled run pauses that schedule's next runs too (the daemon)
+            self.publish('task.paused', {'task_id': tree_id} | (
+                {'schedule_id': tree.schedule_id} if tree.schedule_id and not question else {}))
         self._interrupt(tree)
         if tree_id in self._plan_runs:
             self._plan_runs[tree_id].wake()
@@ -1241,6 +1262,54 @@ class Supervisor(WorkerRuns):
 
     def _is_paused(self, tree: _Tree) -> bool:
         return tree.id in self._pauses
+
+    async def mention_paused(self) -> None:
+        """Decision 13 ("Visa check is still paused. Resume?"): when the owner is back at the Mac, each task they paused
+        on an earlier day, not mentioned yet today, is mentioned once, from its record: a question in its own chat with
+        Resume / Stop, on the pause's one wait, so its answer goes the way any answer to that wait goes (Resume carries
+        it on in place, Stop stops it) and a message that corrects the task still resumes it. At most once a day per
+        task (journaled `task.pause_mentioned`); yesterday's unanswered mention is replaced, never stacked. A pause that
+        already asks something (a closed tab), or a tree with another open question, is shown already: nothing more.
+        Only the owner's return calls this, so it never comes while they're away (decision 21: the question opens the
+        notch, a banner only when the notch can't show)."""
+        today = self.clock.now().astimezone().date()
+        for tree_id, wait in list(self._pauses.items()):
+            tree = self._tree_of.get(tree_id)
+            if tree is None or tree.stop or wait.question or not wait.opened or self._suspending:
+                continue
+            mentioned = wait.extra.get('mention')
+            if self._questions.get(tree_id) and self._questions.get(tree_id) != mentioned:
+                continue                                     # another question of this task is open: it shows
+            marks = [e for kind in ('task.paused', 'task.pause_mentioned')
+                     for e in self.journal.of_kind(kind, 'task_id', tree_id)]
+            if not marks or max(e.at for e in marks).astimezone().date() >= today:
+                continue                                     # paused today, or already mentioned today
+            self._mention_pause(tree, wait)
+
+    def _mention_pause(self, tree: _Tree, wait: _Wait) -> None:
+        """Ask on a paused tree's wait whether to resume (decision 13), replacing an earlier unanswered mention: the
+        new question goes on the wait first, so the waiting step never reads the old one's closing as a reply."""
+        task = tree.worker
+        question = PAUSED_MENTION.format(goal=short_label(tree.spec.goal))
+        options = [confirm.from_task(o) for o in (RESUME, STOP)]
+        action = ActionRequest(TASK_ASK, 'owner_question', task.identity, frozenset(), task.id, task.id,
+                               task.request_id, frozenset(task.scopes), content=question)
+        earlier = wait.approval
+        wait.approval = ap = self.state.approvals.question(action, question, options)
+        row = self._part_of(tree, tree.step_id)
+        ap.part = row[1].id if row is not None else ""
+        wait.extra = {**wait.extra, 'mention': question}
+        self._questions[tree.id] = question
+        if earlier is not None and self.state.approvals.supersede(earlier.id) is not None:
+            self.publish('approval.resolved', {'approval_id': earlier.id, 'state': 'superseded'})
+        self.journal.append('task.pause_mentioned', {'task_id': tree.id, 'approval_id': ap.id, 'question': question},
+                            origin=origins_.FERB)
+        self.publish('approval.requested', {'approval_id': ap.id, 'capability': TASK_ASK, 'kind': 'owner_question',
+                                            'reason': question, 'options': options, 'task_id': task.id,
+                                            'request_id': task.request_id, 'question_kind': 'paused'}
+                     | ({'part': row[1].id} if row is not None else {}))
+        if row is not None:
+            row[0].show(row[1], 'asks', question={'approval_id': ap.id, 'text': question, 'options': options})
 
     async def _hold_pause(self, tree: _Tree, task: Task, step_id: str) -> OwnerReply:
         """A step of a paused tree waits here for the owner: the tree's one wait (one question when it has one). A No,
@@ -1337,8 +1406,8 @@ class Supervisor(WorkerRuns):
             if not self._suspending:
                 wait.reply = reply
                 wait.done.set()
-            if question and not self._suspending and not self._stopped(tree) and reply.kind != 'stopped' and \
-                    (row := self._part_of(tree, step_id)) is not None:
+            if (question or wait.extra.get('mention')) and not self._suspending and not self._stopped(tree) and \
+                    reply.kind != 'stopped' and (row := self._part_of(tree, step_id)) is not None:
                 row[0].show(row[1], 'working', chosen=confirm.from_task(reply.choice) if reply.choice else '')
         return reply
 
@@ -1375,7 +1444,8 @@ class Supervisor(WorkerRuns):
             return
         if self.tasks.column(tree.id, 'status') == 'paused':
             self._set_status(tree.id, 'running')
-            self.publish('task.resumed', {'task_id': tree.id})
+            self.publish('task.resumed', {'task_id': tree.id} | (
+                {'schedule_id': tree.schedule_id} if tree.schedule_id else {}))
 
     def _plan_steps(self, tree_id: str) -> set[str]:
         try:
@@ -2383,8 +2453,9 @@ class Supervisor(WorkerRuns):
             if out.timers else []
         set_timers, unset, existing = self._set_timers(out.timers, said, request_id, chain=typed)
         for t in set_timers:              # plain words (the notch shows them); the id is a field of its own
-            events.append({"type": "timer", "text": _reminder_line(t), "timer_id": t.id})
-            cards.append(cards_.event("reminder", t.id, t.message, t.fire_at.isoformat(), _reminder_line(t)))
+            line = _reminder_line(t, self.timers.when_active(t.id), self.clock.now())
+            events.append({"type": "timer", "text": line, "timer_id": t.id})
+            cards.append(cards_.event("reminder", t.id, t.message, t.fire_at.isoformat(), line))
         # L11: what happened to each side output is said by code, never by the planner (which wrote its reply before
         # code set or refused anything): a refusal never replaces the reply. A reply or question gets the lines (so
         # they reach the conversation's history too); a task's turn sends refusals as events, and its outcome carries
@@ -2403,7 +2474,7 @@ class Supervisor(WorkerRuns):
         refused = [("timer", line) for line in [_not_set(unset), *map(_already_set, existing)] if line] + \
             [("memory", line) for line in [_not_saved(unsaved)] if line]
         side_lines = (saved + changed
-                      + [_reminder_line(t) for t in set_timers]
+                      + [_reminder_line(t, self.timers.when_active(t.id), self.clock.now()) for t in set_timers]
                       + [line for _, line in refused])
         return _Side(events, side_lines, refused, cards)
 
@@ -4412,6 +4483,7 @@ class Supervisor(WorkerRuns):
         tree.input_notes, tree.conversation_proposals, tree.part_updates = [], [], []
         tree.conversation_action = tree.loop_action = None
         tree.watch_met = tree.probe = None
+        tree.nothing_to_tell = False
 
     @staticmethod
     def _steered(tree: _Tree) -> bool:
@@ -4438,9 +4510,11 @@ class Supervisor(WorkerRuns):
         root = self._tree_of.get(tree.id)
         flags = {"inputs": bool(tree.required_inputs), "proposals": proposals, "conversation": "conversation" in step,
                  "watch": tree.watch, "loop": "loop" in step,
-                 "parts": bool(step.get("step")) and root is not None and root.card is not None}
+                 "parts": bool(step.get("step")) and root is not None and root.card is not None,
+                 # decision 17: a one-step scheduled run (not a watch) may find nothing to tell, and then posts nothing
+                 "scheduled": not step.get("step") and not tree.watch and root is not None and bool(root.schedule_id)}
         blocks = {"inputs": "inputs", "proposals": "proposals", "conversation": "converse", "watch": "watch",
-                  "loop": "loop", "parts": "parts"}
+                  "loop": "loop", "parts": "parts", "scheduled": "scheduled"}
         roles = (("step",) if step.get("step") else ()) + tuple(blocks[k] for k, on in flags.items() if on)
         return worker_schema(**flags), roles
 
@@ -4459,6 +4533,7 @@ class Supervisor(WorkerRuns):
         tree.owner_answer, tree.how, tree.input_notes = w.answer, w.how, w.input_notes
         tree.conversation_action, tree.conversation_proposals = w.conversation_action, w.conversation_proposals
         tree.watch_met, tree.loop_action, tree.probe = w.watch_met, w.loop_action, w.probe
+        tree.nothing_to_tell = w.nothing_to_tell
         tree.part_updates = [u for u in w.part_updates if isinstance(u, dict)]
         tree.reason = w.reason if w.status == "not_done" else ""
         tree.worker_question = (w.question or "") if w.status == "not_done" else ""
@@ -5248,6 +5323,7 @@ class Supervisor(WorkerRuns):
                 {"how": src.how} if status in ("done", "done_unverified") and src.how.strip() else {}) | (
                 {"runtime_switch": switch} if switch and status == "failed" else {}) | (
                 {"watch_met": tree.watch_met} if tree.watch and tree.watch_met is not None else {}) | (
+                {"nothing_to_tell": True} if src.nothing_to_tell and status in ("done", "done_unverified") else {}) | (
                 {"cards": cards} if cards else {})
 
     def _final_card(self, tree: _Tree) -> dict[str, Any]:

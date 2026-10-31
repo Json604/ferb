@@ -198,6 +198,10 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
   default): the hourly pass reads its windows from it (`retention.windows`), settings.py its retention defaults, and
   FERB's self-description and the app's About page its rows (`retention.describe`, notes/daemon.md decision 6).
 - Migration 0057 adds `attention_notices.cards_json` (a notice's typed cards; no owner data moved or deleted).
+- (Step 14b) Migration 0058 adds `timer_when_active` (orchestration decision 17: a timer held until the owner is at the
+  Mac), a table beside `timers`, re-runnable, rows going with their timer (ON DELETE CASCADE, so retention's timer purge
+  takes them); no owner data moved or deleted. A schedule's `when_active` rides in its existing `rule_json` (older rules
+  read as false).
 
 ## Rulings (step 12a, technical)
 - Retention lives in ferb/store/retention.py; the daemon's area only runs it hourly. Reads that scan (the intake

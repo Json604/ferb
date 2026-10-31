@@ -228,6 +228,10 @@ class Compose:
         self.events.on(None, lambda topic, data: self.bus.publish(topic, data))   # the bus as it is then
         self.events.on({'approval.requested'}, lambda topic, data: self._approval_notice(data))
         self.events.on({'approval.requested', 'approval.resolved'}, self._question_record)
+        # orchestration decision 13: a pause stops the task's terminal commands and listening, and a scheduled run's
+        # pause pauses its schedule (resumed with it)
+        self.events.on({'task.paused', 'task.resumed'}, lambda topic, data: self._spawn(
+            self._task_paused(data) if topic == 'task.paused' else self._task_resumed(data), topic))
 
     def _question_record(self, topic: str, data: dict[str, Any]) -> None:
         """Every question FERB asks the owner, with its kind, and how it was answered (fix list: so "few questions" can

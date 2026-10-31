@@ -327,3 +327,114 @@ def test_a_resumed_scheduled_run_stays_unattended_and_reports_to_its_schedule(da
     daemon.run(sv.resume_plans(), timeout=30)
     assert not daemon.daemon.state.approvals.pending()               # declined at once, never a wait
     assert run(daemon, lambda: daemon.daemon.schedules.get(sched.id)).failures == 1
+
+
+# ---------- owner decision 13: pause details ----------
+
+def _pause_through_chat(daemon: RunningDaemon, script: Any, tree: str, words: str = "wait, hold on") -> None:
+    script.sup.append(json.dumps({"kind": "reply", "text": "Paused.", "task": None,
+                                  "control": {"task_id": tree, "action": "pause", "standing_sends": "unchanged",
+                                              "supersedes": []}}))
+    chat(daemon, words)
+    _until(daemon, lambda: _row(daemon, tree) == "paused")
+
+
+def _owner_input(daemon: RunningDaemon, after_s: float = 0) -> None:
+    """The owner touches the Mac `after_s` seconds from now (back at it when they were away), on the daemon's loop."""
+    if after_s:
+        daemon.call_soon(daemon.daemon.clock.advance, after_s)
+    run(daemon, daemon.daemon.owner_input.owner_event)
+
+
+def _mentions(daemon: RunningDaemon) -> list[Any]:
+    return [ap for ap in run(daemon, daemon.daemon.state.approvals.pending) if "Resume" in ap.options]
+
+
+def test_a_paused_task_is_mentioned_once_a_day_when_the_owner_is_back_and_resume_resumes_it(
+        daemon: RunningDaemon) -> None:
+    """Decision 13: FERB mentions a paused task once a day, from its record, in its chat, with a Resume that goes the
+    pause's own way; only when the owner is back at the Mac (never while away), never twice a day, and yesterday's
+    unanswered mention is replaced, not stacked."""
+    script = install(daemon, [sup("task", "On it.", task("Check the visa page"))],
+                     {"worker": [STALL, done("Checked: no new slots.")]})
+    turn = Turn(daemon, "check the visa page")
+    tree = _tree(daemon)
+    _until(daemon, lambda: _row(daemon, tree + ".worker") == "running")
+    _pause_through_chat(daemon, script, tree)
+    oi = daemon.daemon.owner_input
+    oi.running, oi.last_owner_wall = True, None
+    try:
+        _owner_input(daemon)                                 # back the same day it was paused: nothing yet
+        time.sleep(0.3)
+        assert _mentions(daemon) == []
+        _owner_input(daemon, 24 * 3600)                      # the next day, back at the Mac
+        _until(daemon, lambda: len(_mentions(daemon)) == 1)
+        [first] = _mentions(daemon)
+        assert first.task_id.split(".", 1)[0] == tree and set(first.options) == {"Resume", "Stop"}
+        _owner_input(daemon, 600)                            # back again later that day: once a day
+        time.sleep(0.3)
+        assert [ap.id for ap in _mentions(daemon)] == [first.id]
+        _owner_input(daemon, 24 * 3600)                      # the day after, still unanswered: replaced
+        _until(daemon, lambda: [ap.id for ap in _mentions(daemon)] not in ([], [first.id]))
+        assert len(_mentions(daemon)) == 1 and _row(daemon, tree) == "paused"
+        assert run(daemon, lambda: daemon.daemon.state.approvals.get(first.id)).state == "superseded"
+        answer_question(daemon, choice="Resume")
+        result = turn.result()
+        assert result["status"] == "done" and script.calls("worker") == ["worker", "worker"]
+        marks = run(daemon, lambda: daemon.daemon.journal.of_kind("task.pause_mentioned", "task_id", tree))
+        assert len(marks) == 2
+    finally:
+        oi.running = False
+
+
+def test_pause_stops_the_tasks_listening_and_running_commands_and_keeps_the_rest(daemon: RunningDaemon,
+                                                                                 tmp_path: Any) -> None:
+    """Decision 13: a paused task keeps only its tabs and progress: its listening and its commands still running stop;
+    a long-lived command (made to outlive the task) and another task's are left alone."""
+    import asyncio
+    from ferb.act.shell.manager import ShellManager
+    from tests.support.hearing import wait_started
+    from tests.test_audio_listen import _hearing
+    hearing, _, capture = _hearing(tmp_path)
+    daemon.daemon.hearing = hearing
+    shells = daemon.daemon.shells = ShellManager(tmp_path / "logs", lambda text: text)
+
+    async def start() -> dict[str, str]:
+        asyncio.get_running_loop().create_task(hearing.listen("x.worker", "com.apple.Music", 77, 3600, None))
+        out = {}
+        for name, owner, long_lived in (("mine", "x.worker", False), ("server", "x.s1", True),
+                                        ("other", "y.worker", False)):
+            out[name] = (await shells.start("sleep 30", tmp_path, owner, long_lived)).id
+        return out
+    procs = daemon.run(start())
+    wait_started(capture)
+    daemon.call_soon(daemon.daemon._publish, "task.paused", {"task_id": "x"})
+
+    def running(name: str) -> bool:
+        return next(p for p in run(daemon, shells.list) if p.id == procs[name]).running
+    _until(daemon, lambda: not running("mine") and capture.handles[0].stopped)
+    assert running("server") and running("other") and not hearing.listening
+    stopped = run(daemon, lambda: daemon.daemon.journal.of_kind("task.pause_stopped", "task_id", "x"))
+    assert stopped and {r["resource"] for r in stopped[0].data["resources"]} == {"shell", "listen"}
+    daemon.run(shells.kill_all())
+
+
+def test_pausing_a_scheduled_run_pauses_its_schedule_and_resuming_it_resumes_the_schedule(
+        daemon: RunningDaemon) -> None:
+    sv = daemon.daemon.supervisor
+    first = daemon.daemon.clock.now() + timedelta(minutes=5)
+    sched = make_schedule(daemon, "check the visa page", "check the visa page every day", Targets.of(), first)
+    script = install(daemon, [sup("task", "Checking.", task("Check the visa page"))],
+                     {"worker": [STALL, done("Checked.")]})
+    daemon.loop.call_soon_threadsafe(lambda: daemon.loop.create_task(sv.run_scheduled(sched, late=False)))
+    tree = _tree(daemon)
+    _until(daemon, lambda: _row(daemon, tree + ".worker") == "running")
+    _pause_through_chat(daemon, script, tree, "hold on, pause the visa check")
+    _until(daemon, lambda: run(daemon, lambda: daemon.daemon.schedules.get(sched.id)).state == "paused")
+    script.sup.append(json.dumps({"kind": "reply", "text": "Carrying on.", "task": None,
+                                  "control": {"task_id": tree, "action": "continue", "standing_sends": "unchanged",
+                                              "supersedes": []}}))
+    chat(daemon, "ok go on")
+    _until(daemon, lambda: run(daemon, lambda: daemon.daemon.schedules.get(sched.id)).state == "active")
+    resumed = run(daemon, lambda: daemon.daemon.schedules.get(sched.id))
+    assert resumed.next_run is not None and resumed.timer_id is not None

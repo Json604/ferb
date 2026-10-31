@@ -292,9 +292,9 @@ def test_protocol_and_extension_versions_move_together() -> None:
     manifest = json.loads((EXT / "manifest.json").read_text())
     js = subprocess.run([_node(), "-e", f"console.log(require({json.dumps(str(EXT / 'protocol.js'))}).FERB_PROTOCOL)"],
                         capture_output=True, text=True, timeout=20).stdout.strip()
-    # Protocol 18 (step 5c) is one bump for all of its changes (signing, tab groups, card fields, read failures, the
-    # outbox), with the minimum and the shipped bundle at 0.16.0 and the tabGroups permission
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (18, 18, "0.16.0", "0.16.0")
+    # Protocol 19 (step 14b: muted FERB tabs, sound events) moves with the minimum and the shipped bundle at 0.17.0;
+    # protocol 18's tabGroups permission stays
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (19, 19, "0.17.0", "0.17.0")
     assert "tabGroups" in manifest["permissions"]
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 

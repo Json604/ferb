@@ -3,7 +3,9 @@
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
 // Protocol 18 (extension 0.16.0): daemon messages signed (DAEMON_SIGNED), tab groups and connection-independent tab
 // records (adopt_tab, hello `tabs`, `taken`), card fields secret, read errors known failures (READ_OPS).
-const FERB_PROTOCOL = 18;
+// Protocol 19 (extension 0.17.0, hands decision 5): FERB's tabs muted (`open`/`adopt_tab` `muted`, `mute_tab`), sound
+// back when a tab becomes the owner's, and `sound` tab events.
+const FERB_PROTOCOL = 19;
 const FERB_HOST = "com.ferb.native_host";
 
 // Reads: commands that never change the page. One failing (a timeout, a frame gone, a page the browser won't let FERB
@@ -327,7 +329,7 @@ const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
-             "adopt_tab"];
+             "adopt_tab", "mute_tab"];
 
 // Whether a key press puts text into the focused field (a character without ⌘/⌃/⌥, Space, or a paste): such a press
 // into a secret field is refused, as typing is; Return, Tab, Escape, arrows and other shortcuts still go (notes/hands.md

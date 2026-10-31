@@ -58,6 +58,49 @@ class Desktop:
                 resources.append({'resource': 'shell', 'released': False, 'error': f"{type(exc).__name__}: {exc}"})
         return resources
 
+    async def _task_paused(self, data: dict[str, Any]) -> None:
+        """Orchestration decision 13: a paused task keeps only its tabs and progress. Its terminal commands still
+        running (not long-lived ones) and its listening and recordings stop now (a listen's sound is deleted
+        untranscribed, as at a task's end); apps and tabs stay. The owner's pause of a scheduled run pauses that
+        schedule's next runs (journaled `with_task`, so resuming the run resumes it)."""
+        tree = str(data.get("task_id") or "")
+        if not tree:
+            return
+        def mine(owner: str | None) -> bool:
+            return bool(owner) and str(owner).split(".", 1)[0] == tree
+        stopped: list[dict[str, Any]] = []
+        if self.shells is not None:
+            try:
+                if n := await self.shells.stop_running(mine):
+                    stopped.append({"resource": "shell", "stopped": n})
+            except Exception as exc:
+                stopped.append({"resource": "shell", "error": f"{type(exc).__name__}: {exc}"})
+        for owner in sorted({x.owner for x in self.hearing.listening.values() if mine(x.owner)}):
+            stopped.extend(await self.hearing.end_task(owner))
+        for owner in sorted({r.owner for r in self.recordings.records.values() if mine(r.owner)}):
+            stopped.extend(await self.recordings.end_task(owner))
+        if stopped:
+            self._journal().append("task.pause_stopped", {"task_id": tree, "resources": stopped})
+        sid = data.get("schedule_id")
+        if sid and self.schedules is not None:
+            s = self.schedules.get(str(sid))
+            if s is not None and s.state == "active":
+                self._schedule_change(s.id, "pause", with_task=tree)
+
+    async def _task_resumed(self, data: dict[str, Any]) -> None:
+        """A scheduled run resumed: the schedule its pause paused (decision 13) runs again, unless the owner paused,
+        resumed or cancelled it themselves since."""
+        sid, tree = data.get("schedule_id"), str(data.get("task_id") or "")
+        if not sid or self.schedules is None:
+            return
+        s = self.schedules.get(str(sid))
+        last = self._journal().latest_kind(("schedule.pause", "schedule.resume", "schedule.cancel"), "schedule_id",
+                                           str(sid))
+        paused = self._journal().of_kind("schedule.pause", "schedule_id", str(sid))
+        if s is not None and s.state == "paused" and last == "schedule.pause" and paused and \
+                paused[-1].data.get("with_task") == tree:
+            self._schedule_change(s.id, "resume", with_task=tree)
+
     async def _tree_finished(self, tree_id: str) -> None:
         """A task tree ended: the desktop observer's summary, then its change record's copies (L39) and FERB's upload
         copies for it go (rule 17), except those a tab that outlives the tree still shows. What couldn't be removed is

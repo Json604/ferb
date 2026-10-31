@@ -176,7 +176,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         self.wake = WakeServer()
         # The owner's Mac + shell
         self.watch_owner_input = watch_owner_input
-        self.owner_input = OwnerInput()
+        self.owner_input = OwnerInput(wall=lambda: self.clock.now().timestamp())   # the daemon's clock
         from ferb.daemon.disturbance import DesktopProbe, DisturbanceSentinel
         self.disturbance = DisturbanceSentinel(DesktopProbe(), self._record_disturbance,
             owner_input=lambda: {"monitored": self.owner_input.running,

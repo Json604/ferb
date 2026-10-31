@@ -24,7 +24,18 @@ class Schedules:
 
     def _build_timers(self) -> None:
         """Start the timer loop and the held-banner flush (the timers and schedules were built with the stores), after
-        every active schedule has its next run booked (`_reconcile_schedules`)."""
+        every active schedule has its next run booked (`_reconcile_schedules`). Decision 17: timers held for the owner
+        follow the one idle/active signal (the owner-input tap); their return wakes the timers and brings the day's
+        paused-task mentions (decision 13)."""
+        from datetime import datetime as _dt
+        idle = self.owner_input
+        idle.idle_after_s = float(self.config.get("sense", "idle_after_s", 120))
+        self.timers.owner_away = idle.away
+        # when the current active stretch began; None when FERB can't tell (no tap): unknown counts as present
+        self.timers.present_since = lambda: (None if not idle.running else _dt.fromtimestamp(
+            idle.present_since if idle.present_since is not None and not idle.away() else 0).astimezone())
+        loop = asyncio.get_running_loop()
+        idle.on_return = lambda: loop.call_soon_threadsafe(self._owner_back)
         self._reconcile_schedules()
         self._timer_task = asyncio.get_running_loop().create_task(self.timers.run())
         self._held_task = asyncio.get_running_loop().create_task(self._supervise("held_banners", self._flush_held))
@@ -52,9 +63,23 @@ class Schedules:
                     self._journal().append("schedule.ended", {"schedule_id": s.id, "until": s.until.isoformat()
                                                               if s.until else None})
                 continue
-            booked = self.timers.add("schedule", due, s.id)
+            booked = self._book(s, due)
             self.schedules.set_timer(s.id, booked.id, due)
             self._journal().append("schedule.reconciled", {"schedule_id": s.id, "at": due.isoformat()})
+
+    def _book(self, s: Any, due: datetime, message: str = "", return_after: datetime | None = None) -> Any:
+        """A timer for one of a schedule's runs (`message`: its id, or a retry's), held for the owner when the schedule
+        waits for them (decision 17): the one place every run of a schedule is booked."""
+        return self.timers.add("schedule", due, message or s.id, when_active=s.rule.when_active,
+                               return_after=return_after)
+
+    def _owner_back(self) -> None:
+        """The owner is back at the Mac after being away (decision 17): what was held for them fires now, and paused
+        tasks get their mention of the day (decision 13)."""
+        if self.timers is not None:
+            self.timers.wake()
+        if self.supervisor is not None and not self._shutting_down:
+            self._spawn(self.supervisor.mention_paused(), "paused-task mention")
 
     def _timer_failed(self, timer: Any, error: Exception) -> None:
         """A timer's consumer raised (the timer stays claimed and is handed over again), or a timer check failed. Not
@@ -143,11 +168,21 @@ class Schedules:
             return ("I couldn't set that up: the end date words I quoted from you aren't in what you typed — could you "
                     "say when it should stop?"), None
         try:
-            from ferb.clock.when import end_at, resolve
+            from ferb.clock.when import end_at, resolve, when_present
             now = self.clock.now()
-            first = resolve(spec.when, now)                                     # code computes the date, not the model
+            present = bool(getattr(spec, "when_active", False))                 # decision 17: when they're at the Mac
+            return_after = None
+            if present:
+                first, return_after = when_present(spec.when, spec.repeat, now, spec.every_minutes)
+            else:
+                first = resolve(spec.when, now)                                 # code computes the date, not the model
             until = end_at(ends.when(), now) if ends is not None else None      # and the end (decision 22)
-            rule = Rule.build(spec.repeat, first, spec.weekday, spec.every_minutes)
+            rule = Rule.build(spec.repeat, first, spec.weekday, spec.every_minutes, when_active=present)
+            if present and spec.repeat in ("daily", "weekdays", "weekly") and spec.when.time is None:
+                # due from the start of a day its rule names: the first such day from the one `when` gave
+                first = rule.next_after(first - timedelta(seconds=1), first) or first
+            if first <= now:                    # "when I'm back at my Mac", said now: due now, fires at their return
+                first = now + timedelta(seconds=1)
             t = spec.targets
             recorded = Targets.of(
                 t.apps, t.sites, [normalize_path(p, str(self.home / "workspace")) for p in t.paths],
@@ -160,7 +195,7 @@ class Schedules:
                                    spec.watch, until)
         except (ScheduleError, ValueError) as e:
             return f"I couldn't schedule that: {e}.", None
-        t = self.timers.add("schedule", first, s.id)
+        t = self._book(s, first, return_after=return_after)
         self.schedules.set_timer(s.id, t.id, first)
         # the statement the owner is shown: each run's grant (`schedule:<id>`) links back to these recorded scopes
         self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe(),
@@ -170,8 +205,17 @@ class Schedules:
                                | ({"request_origins": sorted(request_origins)} if request_origins else {}),
                                origin=origin_.join(origins))
         # The owner's line in plain words (L11); the schedule's id stays in the journal row above
-        at = f"{first.astimezone():%a %d %b %H:%M}"
-        when = f"on {at}" if rule.repeat == "none" else f"{rule.describe()}, first on {at}"
+        local = first.astimezone()
+        at = f"{local:%a %d %b}" if rule.when_active and (local.hour, local.minute) == (0, 0) else \
+            f"{local:%a %d %b %H:%M}"                    # decision 17: due from a day's start, held for the owner
+        if rule.repeat != "none":
+            when = f"{rule.describe()}, first on {at}"
+        elif not rule.when_active:
+            when = f"on {at}"
+        elif return_after is not None and return_after <= now + timedelta(seconds=1):
+            when = "the next time you're back at your Mac"
+        else:
+            when = f"on {at}, when you're at your Mac"
         said = ", ".join(part for part in (f"🗓 Scheduled: {s.request} — {when}", until_said(s.until) if s.until else "",
                                            WATCH_SAID[s.watch]) if part)
         from ferb.orchestrator import cards
@@ -318,7 +362,8 @@ class Schedules:
         and a done one whose last run is under way (M9)."""
         return self.schedules.all() + [s for s in self.schedules.all(("done",)) if self._last_run_holds_scope(s.id)]
 
-    def _schedule_change(self, sid: str, action: str) -> str:
+    def _schedule_change(self, sid: str, action: str, with_task: str = "") -> str:
+        """`with_task`: a pause or resume that follows the owner's pause or resume of the schedule's run (decision 13)."""
         s = self.schedules.get(sid)
         if s is None or not self._changeable(sid, action):
             return f"There's no active schedule {sid}."
@@ -349,9 +394,10 @@ class Schedules:
             if nxt is None:
                 self.schedules.set_state(sid, "done")
                 return f"{s.request} has no future runs left."
-            t = self.timers.add("schedule", nxt, sid)
+            t = self._book(s, nxt)
             self.schedules.set_timer(sid, t.id, nxt)
-        self._journal().append(f"schedule.{action}", {"schedule_id": sid})
+        self._journal().append(f"schedule.{action}", {"schedule_id": sid} | ({"with_task": with_task} if with_task
+                                                                            else {}))
         return {"cancel": "Cancelled", "pause": "Paused", "resume": "Resumed"}[action] + f": {s.request}"
 
     def _withdraw_schedule_scope(self, sid: str, action: str) -> None:
@@ -393,7 +439,7 @@ class Schedules:
         if retry:
             pass                                         # the regular next run stays as it is
         elif nxt is not None:
-            t = self.timers.add("schedule", nxt, sid)
+            t = self._book(s, nxt)
             self.schedules.set_timer(sid, t.id, nxt)
         else:
             self.schedules.set_timer(sid, None, None)
@@ -455,7 +501,7 @@ class Schedules:
             regular = self.schedules.get(sid)
             due = now + timedelta(seconds=SCHEDULE_RETRY_S)
             if regular is not None and regular.state == "active" and (regular.next_run is None or regular.next_run > due):
-                self.timers.add("schedule", due, SCHEDULE_RETRY + sid)
+                self._book(s, due, SCHEDULE_RETRY + sid)
                 self._journal().append("schedule.retry_queued", {"schedule_id": sid, "at": due.isoformat()})
         answer = str(final.get("answer") or final.get("summary") or "")
         # A watch (fix wave 6c): a met condition (its check judged the reported condition) is told like a reminder,
@@ -486,8 +532,11 @@ class Schedules:
             line = self._ended_line(s.request, current.until if current is not None and current.until else now)
             answer = f"{answer}\n\n{line}"
             self._record_stop_line(str(final.get("task_id")), line)
-        quiet = s.watch != "none" and not ended and not expired and (
-            superseded or status in FINISHED and reported is not None and not alert)
+        # decision 17: an ordinary run that found nothing to tell and did nothing (its worker's report) posts nothing,
+        # as a watch check with nothing new doesn't: recorded, never published
+        idle_run = s.watch == "none" and status in FINISHED and final.get("nothing_to_tell") is True
+        quiet = not ended and not expired and (idle_run or s.watch != "none" and (
+            superseded or status in FINISHED and reported is not None and not alert))
         if overdue_s > 60:              # code's last line, after the answer's other code lines (fixed order)
             answer = f"{answer}\n(ran late)"
         cards = [self._run_card(sid, due)] + [c for c in final.get("cards") or [] if isinstance(c, dict)]

@@ -574,10 +574,13 @@ class BrowserRecord(_Base):
             if audio[0] != BROWSERS[tab.browser].bundle_id:
                 raise Refused(f"the process showing that tab isn't {tab.browser}; FERB didn't record its sound")
         target, capture = self.driver.recording_source(tab, ctx.task_id)
+        sound: dict[str, Any] = {}
+        if audio is not None and (let_heard := getattr(self.driver, "tab_sound", None)) is not None:
+            sound = await let_heard(tab, True)          # hands decision 5: heard for the rest of the task
         result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps,
                                              audio=audio, language=args.language, sources=(('web', page),),
                                              closed=write_check(ctx))
-        return ToolResult(result, read_sources=(('web', page),))
+        return ToolResult(result | sound, read_sources=(('web', page),))
 
 
 class BrowserMedia(_Base):
@@ -591,8 +594,9 @@ class BrowserMedia(_Base):
              "Returns that element's state: playing (true only once its time has moved), paused, current_time, "
              "duration, muted, volume. Right after play, `playing` stays false until the media's time moves: check "
              "again with {p}_snapshot. Sound must actually play for audio_listen or a recording with_audio to hear it. A page can refuse play() without a real click "
-             "(the error is returned): then use the page's own play control with {p}_act. The owner may briefly hear "
-             "what plays.")
+             "(the error is returned): then use the page's own play control with {p}_act. A tab FERB opened is muted "
+             "(the owner hears nothing) until unmute here, audio_listen or a recording with_audio lets it be heard for "
+             "the rest of the task; the owner's own tab keeps its sound.")
 
     class Input(_Tab):
         action: Literal["play", "pause", "mute", "unmute", "seek"]

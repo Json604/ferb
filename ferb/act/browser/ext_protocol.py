@@ -81,7 +81,18 @@ Protocol 18 (step 5c, extension 0.16.0, the minimum; one bump for all of it, so 
   `commerce` {amount, merchant} from structured data; an act that can submit reports the page's own `submitted` events.
 - A read's error (READS) is a known failure, never "outcome unknown". Queued messages leave after the welcome, signed
   then. `list_tabs` URLs are masked. The page hook's events and the linking attributes have random names per
-  service-worker start (no fixed `ferb-armed` / `data-ferb-*` marker)."""
+  service-worker start (no fixed `ferb-armed` / `data-ferb-*` marker).
+
+Protocol 19 (step 14b, extension 0.17.0, the minimum; hands decision 5, "sound is part of background-first"):
+- `open` and `adopt_tab` (a popup of a FERB tab) take `muted`: the tab is muted through the browser's own tab mute
+  before anything loads (the page is untouched) and the reply says whether it is (`muted`). `mute_tab {tab_id, muted}`
+  mutes or unmutes only a tab FERB opened (its records hold it, not borrowed, not handed over); any other answers
+  `changed: false, reason: not_ferbs`. A tab that becomes the owner's (`release_tab` keep_open, or moved out of its
+  group: `taken`) gets its sound back when FERB's extension had muted it.
+- A `sound` tab event: a tab's sound started or stopped, or it was muted or unmuted (`changed`: audible / muted), with
+  its `audible`, `muted` and whether it is FERB's (`ferb`, as `list_tabs` says it); no URL or title. The daemon records
+  one in a tab that isn't FERB's, near a FERB call, as a disturbance fact.
+An older extension would open loud tabs and send no sound events, so the minimum moves with the protocol."""
 
 import base64
 import hashlib
@@ -91,8 +102,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 18
-MIN_EXTENSION_VERSION = "0.16.0"
+PROTOCOL_VERSION = 19
+MIN_EXTENSION_VERSION = "0.17.0"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
@@ -101,7 +112,7 @@ Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
-             "adopt_tab"]
+             "adopt_tab", "mute_tab"]
 # Commands that never change the page (protocol.js READ_OPS): one that fails or times out is a known failure.
 READS: frozenset[str] = frozenset({"list_tabs", "snapshot", "wait", "screenshot", "screenshot_part", "record_frame",
                                    "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping",
@@ -156,12 +167,16 @@ class Result(BaseModel):
 
 
 class TabEvent(BaseModel):
-    event: Literal["created", "updated", "activated", "removed"]
+    event: Literal["created", "updated", "activated", "removed", "sound"]
     tab_id: int
     url: str | None = None
     title: str | None = None
     active: bool | None = None
     incognito: bool | None = None
+    audible: bool | None = None                # sound (protocol 19): the browser's own facts after the change
+    muted: bool | None = None
+    ferb: bool | None = None                   # sound: a tab FERB opened, or in FERB's own window
+    changed: list[Literal["audible", "muted"]] = []
 
 
 class Event(BaseModel):

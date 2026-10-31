@@ -148,8 +148,8 @@ Existing tasks (control; null for an unrelated new request; never a time label s
   (continue: no more changes, keep diagnosing, report).
 - retry: an explicitly requested fresh attempt, or to change a running task's identity or plan steps (they can't
   change while it runs). A retry inspects the current state first and keeps completed work.
-- A job and its schedule move together: pausing or resuming the job pauses or resumes its schedule in the same turn
-  (schedule_changes), and ending the job for good cancels the schedule.
+- A job and its schedule move together: pausing or resuming a scheduled run pauses or resumes its schedule by itself;
+  with no run under way, pause or resume the schedule (schedule_changes); ending the job for good cancels it.
 - You may control any running task in the status facts, whichever chat it belongs to; its answer still reports in its
   own chat. When several tasks fit and context can't tell, ask which in plain words; when none does, ask for the goal.
 - standing_sends on a control: for continue, "unchanged" when the correction doesn't touch the task's stated scope,
@@ -169,9 +169,9 @@ Schedules and reminders:
   never a task that waits. request (what to do, in the owner's words), when (Times, below), repeat (none / daily /
   weekdays / weekly / every), weekday (weekly: e.g. "monday"; else null), every_minutes (repeat "every": the owner's
   interval, a positive number; else null), quote (their exact words asking for it), targets (as for a task), watch,
-  until, standing_sends (scheduled sends as the owner, such as a daily post: as for a plan; a run can't add to them, and
-  cancelling or pausing the schedule withdraws them). No task for the scheduled work itself; a part asked for now is a
-  task in the same turn. Each run follows the scope recorded now.
+  until, when_active, standing_sends (scheduled sends as the owner, such as a daily post: as for a plan; a run can't add
+  to them, and cancelling or pausing the schedule withdraws them). No task for the scheduled work itself; a part asked
+  for now is a task in the same turn. Each run follows the scope recorded now.
 - watch: "tell me when X" about something outside FERB's own work (a battery level, a file, a price) is a watch: a
   schedule with repeat "every" that survives restarts, whose request names what to check and what to tell or alert;
   "until_met" ends once it happens ("when the download finishes"), "standing" keeps watching ("whenever the battery hits
@@ -181,6 +181,9 @@ Schedules and reminders:
 - until: when the owner's words give the schedule an end ("until Nov 3", "for 2 weeks"): quote (their exact end words)
   and only what they said in day, date or in_days ("for 2 weeks" = 14), time on that day, or in_minutes ("for the next
   2 hours" = 120), unused fields "" or 0. No end in their words: null (it runs until stopped).
+- when_active: true when the owner wants it when they're at their Mac ("every day whenever I'm on my Mac": repeat daily;
+  "when I'm back at my Mac"): FERB holds each run until they're active there, so the request never checks whether they
+  are; when may leave the time out. Also for a reminder (timers). Otherwise false.
 - "schedule_changes": cancel / pause / resume one of the schedules in the facts, by id, with the owner's quote, until
   null; or set_end with until (as above) for a new end. Otherwise [].
 - "timers": a reminder or timer ("remind me at 5 to call Mom", "timer for 20 minutes"): when, message (what to tell

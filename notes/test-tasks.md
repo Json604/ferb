@@ -40,12 +40,13 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       FERB is under Login Items → Allow in the Background; `launchctl print gui/$UID/com.ferb.daemon` shows the app's
       plist path; `ps` shows `-m ferb.daemon`; `~/.ferb/service.json` names the build; the daemon's cwd is `~/.ferb`;
       `logs/daemon.err.log` receives output. [daemon.md 12b]
-- [ ] First start on the new build: migrations 0049–0057 applied, `store.upgraded` and memory upgrade records once, no
+- [ ] First start on the new build: migrations 0049–0058 applied, `store.upgraded` and memory upgrade records once, no
       `retention.failed`; the first hourly pass journals `retention.purged` and `trail.purged`. [storage.md]
 - [ ] Daemon start journals no `runtime.codex_problem`; a run starts without a `codex --version` process. [runtimes.md]
 - [ ] Jev stays off after the upgrade even with a key present. [daemon.md decision 9]
-- [ ] Reload the browser extension once in each paired profile (protocol 18, extension 0.16.0: tab groups, card fields,
-      signing); `ferb doctor` / `ferb browsers` show the version and "connected". [hands.md 5c]
+- [ ] Reload the browser extension once in each paired profile (protocol 19, extension 0.17.0: tab groups, card fields,
+      signing, muted FERB tabs and sound events); `ferb doctor` / `ferb browsers` show the version and "connected".
+      [hands.md 5c, 14b]
 - [ ] One-time clean-up: the owner runs `ferb setup --cleanup`, reads the list, then `ferb setup --cleanup --ok
       <digest>` (or Settings → Data → Clean up). The daemon stops and comes back (`launchctl kill`, registration kept),
       `store.cleaned` and `store.compacted` are journaled, the file is near 1.7 GB, `ferb doctor` ✓ database, Health's
@@ -98,8 +99,13 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
 - [ ] "Pause the visa task" / a doubt about a running task: the task pauses (shells and listening stop, tabs and
       progress kept, the schedule's next runs paused); resume continues in place. [orchestration.md decisions 8, 13;
       tests.md 28]
-- Not found in code (step 14a search), so not checkable yet: decision 13's once-a-day mention of a paused task ("Visa
-  check is still paused. Resume?"). [orchestration.md]
+- [ ] Decision 13 rest: pause a task that runs a terminal command and listens to a tab: the command and the listening
+      stop (`task.pause_stopped` in the journal), its tabs stay in their group; pause a scheduled run (the visa check):
+      `ferb schedules` shows the schedule paused; resume the run: the schedule is active again. [orchestration.md 14b]
+- [ ] Paused-task mention: leave a task paused overnight; the first time back at the Mac the next day, its chat shows
+      "<task> is still paused. Resume?" with Resume / Stop (the notch opens itself without taking focus; a banner only
+      when the notch can't show); coming back again that day shows nothing new; Resume carries it on in place. Never
+      while away or asleep. [orchestration.md decision 13, 14b]
 - [ ] Five failed attempts on a disposable target: FERB pauses and checks in. [orchestration.md decision 7]
 - [ ] The notch opens itself when a part needs the owner; a banner only when it can't. [orchestration.md decision 21]
 - [ ] Typed cards: a reminder firing (reminder card + countdown), a new schedule/reminder (event card, "Repeats"
@@ -108,8 +114,13 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       orchestration.md decision 23]
 - [ ] A schedule with an end date in the words ("every day until Friday") stops after it and its card counts down.
       [orchestration.md decision 22]
-- Not built, so not checkable yet: orchestration.md decision 17 ("when you're back at your Mac" trigger) has no
-  fix-list entry and no code (step 14a search). [orchestration.md]
+- [ ] "When you're back at your Mac" (decision 17): "remind me every day whenever I'm on my Mac to apply to YC": the
+      scheduling line says every day, when you're at your Mac, first tomorrow; `ferb schedules` shows it; no run every
+      15 minutes. Away overnight (asleep/locked): nothing fires; the first input the next morning brings exactly one
+      reminder; nothing more that day. "When I'm back at my Mac remind me to call Mom", said at the Mac: nothing until
+      you leave for 2+ minutes and come back. [orchestration.md 14b]
+- [ ] A scheduled check with nothing new ("every hour tell me if kartikey.xyz/test changed", page unchanged): runs show
+      in `ferb trace` but post nothing in chat; a change posts. [orchestration.md decision 17, 14b]
 - [ ] Settings → About: version and models match Settings → AI; "What FERB keeps" lists 30-day traces; change Task
       traces to 20 days: About shows 20. Ask "how long do you keep my traces and where do I change it?": the answer
       cites 20 days and Settings → Privacy (`about.read` in the trace). [daemon.md 12c]
@@ -141,8 +152,12 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       [hands.md]
 - [ ] Tab groups: one collapsed, labelled group per task holding only FERB's tabs; FERB never closes the owner's tab.
       [hands.md decision 3]
-- Not built, so not checkable yet: hands.md decision 5 (FERB's own tabs muted by default; playback changes in the
-  owner's tab as a disturbance fact) has no fix-list entry and no code (step 14a search). [hands.md]
+- [ ] Sound (hands decision 5): "open a YouTube video in the background and tell me its title": FERB's tab shows the
+      muted speaker icon and nothing is heard; "what is the speaker saying in this video?" (audio.listen on FERB's
+      tab): the tab unmutes for that task and the transcript comes back; "keep the tab open": it's handed over unmuted.
+      With the owner's Spotify/YouTube tab playing, a task that clicks in that tab and stops it: the trace lists the
+      sound change near FERB's call (`ferb trace TASK --full`, disturbance) and the checker's facts carry it; the
+      owner pausing their own music with no FERB call near records nothing. [hands.md 14b]
 - [ ] Shell scope + snapshots: a task on `~/Downloads` ("Downlods") states the folder in the plan line and changes
       only there; a change outside asks; FERB's snapshot covers it. [hands.md decision 4]
 - [ ] One read question per protected folder per task ("Let FERB read your Chrome …"). [hands.md decision 1]

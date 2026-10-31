@@ -186,6 +186,19 @@ async function taskWindow(g) {
   return null;
 }
 
+// Sound is part of background-first (hands decision 5, protocol 19): a tab FERB opens for a task is muted (the browser
+// mutes its output; the page itself is untouched), unless the task needs its sound (`mute_tab`). A tab that becomes the
+// owner's (handed over, or moved out of its group) gets its sound back, only when FERB's extension muted it.
+async function soundBack(tabId) {
+  try {
+    const t = await chrome.tabs.get(tabId);
+    const m = t.mutedInfo || {};
+    if (m.muted && m.reason === "extension" && m.extensionId === chrome.runtime.id) {
+      await chrome.tabs.update(tabId, { muted: false });
+    }
+  } catch (_) { /* gone: nothing to give back */ }
+}
+
 // A tab FERB opened left its task's group (the owner dragged it out, into another group or window, or ungrouped the
 // group): it is the owner's now. FERB lets go of it as of a borrowed tab (debugger off, a held download back to the
 // browser), never closes it, and tells the daemon (`taken`), which stops using it.
@@ -201,6 +214,7 @@ async function tabMoved(tabId, groupId) {
   });
   if (!gone) return;
   try { await dropDownloads(tabId); await detach(tabId); } catch (e) { console.warn("FERB taken tab:", String(e)); }
+  await soundBack(tabId);
   send("event", { event: "taken", tab_id: tabId, reason: groupId >= 0 ? "moved_to_another_group" : "moved_out_of_group" });
   await settleGroup(gone.group);
 }
@@ -1552,7 +1566,7 @@ const commands = {
   },
   // `group` ({root, task, title}): the task this tab is for; it joins the task's collapsed group, in the window the
   // group is in when no window is named (one group per task). No task (FERB's inbox read): no group.
-  async open({ url, window_id = null, allow_foreground = false, group = null }, id) {
+  async open({ url, window_id = null, allow_foreground = false, group = null, muted = false }, id) {
     const windowId = window_id !== null ? (await chrome.windows.get(window_id)).id
                                         : (await taskWindow(group)) ?? await ferbWindow(allow_foreground);
     if (windowId === null) {
@@ -1568,6 +1582,10 @@ const commands = {
     await mutateRecords(r => { r.tabs[tab.id] = { task: g && typeof g.task === "string" ? g.task : null,
                                                   root: g && typeof g.root === "string" ? g.root : null, cid: id }; });
     try { await chrome.tabs.update(tab.id, { autoDiscardable: false }); } catch (_) { /* Memory Saver opt-out is best effort */ }
+    let silent = false;                               // protocol 19: muted before anything loads (hands decision 5)
+    if (muted === true) {
+      try { silent = !!((await chrome.tabs.update(tab.id, { muted: true })).mutedInfo || {}).muted; } catch (_) { /* said */ }
+    }
     try { await arm(tab.id); }
     catch (e) {
       try { await chrome.tabs.remove(tab.id); } catch (_) { /* already gone */ }
@@ -1581,7 +1599,20 @@ const commands = {
     if (url !== "about:blank") await load(tab.id, url);   // FERB's daemon opens blank and navigates once the tab is its
     const t = await chrome.tabs.get(tab.id);
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "", window_id: t.windowId,
-             group_id: groupId };
+             group_id: groupId, muted: silent };
+  },
+  // Protocol 19 (hands decision 5): mute or unmute one tab FERB opened (its records hold it, never borrowed), through the
+  // browser's own tab mute; the owner's tabs are never touched. Returns the tab's sound state afterwards.
+  async mute_tab({ tab_id, muted }) {
+    if (typeof muted !== "boolean") throw Error("muted must be true or false");
+    const rec = (await records()).tabs[tab_id];
+    const t = await chrome.tabs.get(tab_id);
+    if (!rec || rec.borrowed || (await keptTabs()).includes(tab_id)) {
+      return { tab_id, changed: false, reason: "not_ferbs", muted: !!(t.mutedInfo && t.mutedInfo.muted),
+               audible: !!t.audible };
+    }
+    const after = await chrome.tabs.update(tab_id, { muted });
+    return { tab_id, changed: true, muted: !!(after.mutedInfo && after.mutedInfo.muted), audible: !!after.audible };
   },
   async navigate({ tab_id, url }) {
     const st = tabState(tab_id);
@@ -1668,6 +1699,7 @@ const commands = {
       try { await chrome.tabs.ungroup(tab_id); } catch (_) { /* already out of it */ }
       await settleGroup(rec.group);
     }
+    if (keep_open && rec && !rec.borrowed) await soundBack(tab_id);   // the owner's now: its sound with it
     await detach(tab_id);
     return {tab_id, released:true, kept_open:keep_open || (await keptTabs()).includes(tab_id),
             url:maskUrl(tab.url || tab.pendingUrl || ''), window_id:tab.windowId};
@@ -1675,7 +1707,7 @@ const commands = {
   // A tab that became a task's without `open` (protocol 18): a popup a task tab's page opened (it joins the task's
   // group when its window can hold one) or the owner's tab taken over (`borrowed`: recorded only, so a reconnect can
   // re-adopt it; never grouped, never closed).
-  async adopt_tab({ tab_id, task = null, root = null, borrowed = false, title = null }) {
+  async adopt_tab({ tab_id, task = null, root = null, borrowed = false, title = null, muted = false }) {
     const tab = await chrome.tabs.get(tab_id);
     await mutateRecords(r => { r.tabs[tab_id] = { task: typeof task === "string" ? task : null,
                                                   root: typeof root === "string" ? root : null,
@@ -1685,7 +1717,11 @@ const commands = {
       try { groupId = await joinGroup(tab_id, tab.windowId, { root, task, title }); }
       catch (e) { console.warn("FERB group:", String(e.message || e)); }
     }
-    return { adopted: true, tab_id, group_id: groupId };
+    let silent = !!(tab.mutedInfo && tab.mutedInfo.muted);
+    if (borrowed !== true && muted === true) {        // a popup of a FERB tab is FERB's: muted as well (protocol 19)
+      try { silent = !!((await chrome.tabs.update(tab_id, { muted: true })).mutedInfo || {}).muted; } catch (_) { /* said */ }
+    }
+    return { adopted: true, tab_id, group_id: groupId, muted: silent };
   },
   // Trusted wheel at the scroller's centre: the window, or a container from the latest snapshot.
   async scroll({ tab_id, frame_id = 0, direction, container, dy }) {
@@ -2025,5 +2061,21 @@ chrome.tabs.onCreated.addListener((t) => tabEvent("created", t));
 chrome.tabs.onUpdated.addListener((id, info, t) => { if (info.status === "complete") { ensurePort(); tabEvent("updated", t); } });
 chrome.tabs.onActivated.addListener(async ({ tabId }) => { try { tabEvent("activated", await chrome.tabs.get(tabId)); } catch (_) {} });
 chrome.tabs.onRemoved.addListener((tabId) => tabEvent("removed", { id: tabId }));
+// Protocol 19 (hands decision 5): a tab's sound started or stopped, or it was muted or unmuted: the browser's own facts,
+// with whether the tab is FERB's (as list_tabs says it). The daemon records a change in a tab that isn't FERB's as a
+// disturbance fact when a FERB call was near; nothing about the page is sent.
+async function soundEvent(tabId, info, tab) {
+  const st = await install();
+  if (!st.key) return;
+  const s = await session(), kept = new Set(await keptTabs()), mine = (await records()).tabs;
+  const changed = ["audible", "mutedInfo"].filter((k) => k in info).map((k) => (k === "mutedInfo" ? "muted" : k));
+  await send("tab_event", { event: "sound", tab_id: tabId, audible: !!tab.audible,
+                            muted: !!(tab.mutedInfo && tab.mutedInfo.muted), changed,
+                            ferb: !kept.has(tabId) && ((mine[tabId] && !mine[tabId].borrowed) ||
+                                                      (s.windowId != null && tab.windowId === s.windowId)) });
+}
+chrome.tabs.onUpdated.addListener((id, info, t) => {
+  if (info && ("audible" in info || "mutedInfo" in info)) soundEvent(id, info, t).catch(() => {});
+});
 
 ensurePort();

@@ -214,3 +214,33 @@ def resolve(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime:
     if at <= now:
         raise WhenError(f"that's in the past ({at.astimezone(zone):%a %d %b %H:%M})")
     return at.astimezone(timezone.utc)
+
+
+def when_present(w: When, repeat: str, now: datetime, every_minutes: int | None = None,
+                 zone: ZoneInfo | None = None) -> tuple[datetime, datetime | None]:
+    """Orchestration decision 17 ("when you're back at your Mac"): when something the owner wants at the Mac is first
+    due, and the time a return of theirs must come after (None: being active when it is due is enough). A time in their
+    words (time, in_minutes) is that time. Without one, it is due from the start of the day they named (today when
+    none): a one-time reminder or run then waits for the owner's next return to the Mac from then (or from now: "when
+    I'm back at my Mac", said while at it); a repeating one is due at that day's start, or the next day's when that has
+    passed ("every N minutes": N minutes from now when no day is named), and fires when the owner is active then or
+    when they're back."""
+    zone = zone or local_zone()
+    if w.in_minutes is not None or w.time:
+        return resolve(w, now, zone), None
+    if sum(value is not None for value in (w.day, w.date, w.in_days)) > 1:
+        raise WhenError("give only one calendar day source: day, date or in_days")
+    local = now.astimezone(zone)
+    d = _day(w, local.date())
+    utc_now = now.astimezone(timezone.utc)
+    if repeat == "every" and d is None:
+        if every_minutes is None or every_minutes <= 0:
+            raise WhenError("a repeating interval must be positive")
+        return utc_now + timedelta(minutes=every_minutes), None
+    start = _wall(d or local.date(), time(0, 0), zone)
+    if repeat == "none":
+        due = max(start, utc_now)
+        return due, due
+    if start <= utc_now:                                     # that day has begun: from the next one
+        start = _wall(local.date() + timedelta(days=1), time(0, 0), zone)
+    return start, None

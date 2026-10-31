@@ -14,6 +14,10 @@ A schedule can be a watch ("tell me when …"), marked by the planner when the o
 once a confirmed run finds its condition met (code applying the owner's stored words, never a run widening anything);
 "standing" keeps watching. A watch survives restarts and updates as every schedule does.
 
+A schedule can wait for the owner (decision 17, "when you're back at your Mac"): `Rule.when_active`. Its runs come due
+as its rule says and each fires when the owner is at the Mac then, or when they're back (its timers are booked
+`when_active`, ferb/clock/timers.py); the rule alone sets how often (no limit of its own).
+
 A schedule can have an end (decision 22): the time code worked out from the end the owner's words gave it ("until Nov
 3", "for 2 weeks"), stored beside it (`schedule_ends`, migration 0052). No run is booked after it; a schedule without
 one (every schedule made before) runs until stopped."""
@@ -62,10 +66,11 @@ class Rule:
     weekday: int | None = None   # 0 = Monday (weekly)
     every_minutes: int | None = None
     tz: str = "UTC"
+    when_active: bool = False    # decision 17: each run fires when the owner is at the Mac (a rule saved before: no)
 
     @classmethod
     def build(cls, repeat: str, first: datetime, weekday: str | None = None, every_minutes: int | None = None,
-              tz: ZoneInfo | None = None) -> "Rule":
+              tz: ZoneInfo | None = None, when_active: bool = False) -> "Rule":
         if repeat not in REPEATS:
             raise ScheduleError(f"unknown repeat {repeat!r}")
         zone = tz or local_zone()
@@ -76,7 +81,8 @@ class Rule:
         wd = None
         if repeat == "weekly":
             wd = DAYS.index(weekday.lower()) if weekday and weekday.lower() in DAYS else local.weekday()
-        return cls(repeat, local.strftime("%H:%M"), wd, every_minutes if repeat == "every" else None, zone.key)
+        return cls(repeat, local.strftime("%H:%M"), wd, every_minutes if repeat == "every" else None, zone.key,
+                   when_active)
 
     def next_after(self, after: datetime, anchor: datetime) -> datetime | None:
         """The first run strictly after `after` (anchor: the schedule's first run)."""
@@ -102,13 +108,17 @@ class Rule:
         return None
 
     def describe(self) -> str:
+        return self._rule() + (", when you're at your Mac" if self.when_active else "")
+
+    def _rule(self) -> str:
         if self.repeat == "none":
             return "once"
         if self.repeat == "every":
             return f"every {self.every_minutes} minutes"
+        at = "" if self.when_active and self.at == "00:00" else f" at {self.at}"   # due from the day's start
         if self.repeat == "weekly":
-            return f"every {DAYS[self.weekday or 0].capitalize()} at {self.at}"
-        return f"{'every day' if self.repeat == 'daily' else 'weekdays'} at {self.at}"
+            return f"every {DAYS[self.weekday or 0].capitalize()}{at}"
+        return f"{'every day' if self.repeat == 'daily' else 'weekdays'}{at}"
 
 
 @dataclass(frozen=True)

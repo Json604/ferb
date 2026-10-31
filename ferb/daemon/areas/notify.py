@@ -92,12 +92,9 @@ class Notify:
                 self.perception.banner_failed(banner)
 
     def owner_idle(self) -> bool:
-        """Away from the Mac longer than [sense] idle_after_s (the owner-input tap); unknown counts as present."""
-        last = self.owner_input.last_owner_wall
-        if not self.owner_input.running or last is None:
-            return False
-        import time as _t
-        return _t.time() - last > float(self.config.get("sense", "idle_after_s", 120))
+        """Away from the Mac longer than [sense] idle_after_s: the one idle/active signal (`OwnerInput.away`, the
+        owner-input tap); unknown counts as present."""
+        return self.owner_input.away()
 
     async def _notify(self, title: str, text: str, urgent: bool = False, *, category: str = "",
                       target: dict[str, str] | None = None, when_hidden: bool = False, ident: str = "") -> None:

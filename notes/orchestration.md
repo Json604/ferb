@@ -304,7 +304,60 @@ to commit c6621c3. S = supervisor.py, M = main.py.
   once saved it is a saved card entry, and the fill runs only after the save succeeded (coordinator ruling). A one-time
   hidden input names none. Limit: mac.secret reports no field kind, so a Mac app payment has no name.
 
+## Rulings (step 14b, technical: decisions 17 and 13)
+- One idle/active signal: the owner-input tap (`OwnerInput`). The owner is away after `[sense] idle_after_s` (120 s,
+  existing) with no input of theirs (FERB's marked events don't count); back at the first input after that, which is
+  also how waking or unlocking the Mac shows (no separate wake signal: the NSWorkspace wake watcher is perception's,
+  paused). `present_since` is when the current active stretch began. Without the tap (Input Monitoring off, sensing
+  paused with Pause FERB) FERB can't tell: unknown counts as present, as the held-banner rule already did; held
+  banners now use the same signal (`owner_idle` = `OwnerInput.away`). The tap's wall clock is the daemon's clock.
+- The trigger is on the timer, not a poll: a timer booked `when_active` (table `timer_when_active`, migration 0058,
+  re-runnable, cascades with its timer) isn't claimed while the owner is away and fires when they're active at its time
+  or at their return (the tap's return calls `Timers.wake()`). The loop never spins on a held timer (`next_due_in`
+  skips it). Everything else about timers is unchanged (pending, cancel, exactly once, restarts). Every run of a
+  when-active schedule (first, next, resume, reconcile, a failed run's retry) is booked through one helper,
+  `Schedules._book`. Lateness for a held timer counts from the owner's return (a held run isn't "(ran late)").
+- Planner field: `when_active` (boolean, no union: the planner's schema is at its union-type limit) on `schedule` and on
+  each `timers` entry, described in the schema; the planner reads it from the owner's words, code never matches words.
+- Times without a clock time (`when.when_present`): a one-time reminder or run is due from the start of the day the
+  words name (today when none) and waits for the owner's next return after that moment ("when I'm back at my Mac",
+  said while at it, needs a return; `return_after`). A repeating one is due at the start of the next day its rule names
+  (00:00 local; "every N minutes": N minutes from now) and fires when the owner is active then or when they're back. A
+  clock time in the words is used as given.
+- Frequency: no limit of FERB's own. The rule governs: "every day whenever I'm on my Mac" is daily, so at most one run
+  per day, at the first active moment from the day's start; a run held while the owner is away for days is one run on
+  their return (the timer is one row), never a backlog. No debounce beyond `idle_after_s` (a return is the first input
+  after 2 minutes away).
+- "A run that did nothing posts nothing": a one-step scheduled run that isn't a watch gets `nothing_to_tell` in its
+  report schema (role block roles/scheduled.md); true with a finished run records the result (task_results, its
+  conversation) but publishes nothing, as a watch check with nothing new already did. A multi-step scheduled plan and a
+  scheduled run the planner answers without a task (a reply) always post.
+- Decision 13 gaps found: pause only ended the attempt; terminal commands and listening kept running, and the schedule
+  pause depended on the planner adding schedule_changes. Now `task.paused` (the daemon's events) stops the tree's
+  still-running commands (`ShellManager.stop_running`; long-lived ones stay, as at task end; their records stay so a
+  resumed attempt can read them), its listening and recordings (sound deleted untranscribed, as at task end), keeps
+  tabs and launched apps, and journals `task.pause_stopped`. The owner's pause of a scheduled run pauses its schedule
+  (`schedule.pause` with `with_task`), and resuming that run resumes the schedule unless the owner paused, resumed or
+  cancelled it since. As with the planner's pause before, pausing the schedule withdraws its standing scope from the
+  paused run.
+- Paused-task mention: on the owner's return, each task they paused on an earlier local day and not mentioned yet today
+  gets one question on the pause's own wait, from its record: "<short goal> is still paused. Resume?" with Resume /
+  Stop (`question_kind` paused). Answering Resume carries it on in place (the existing resume path: the pause's wait),
+  Stop stops it, and a correction in chat still resumes it and closes the question. Journaled `task.pause_mentioned`;
+  at most once per local day per task; an unanswered mention is replaced the next day (the new one goes on the wait
+  first, then the old one is superseded), never stacked. Not for a pause that already asks (a closed tab) or a task
+  with another open question. Since only a return triggers it, it never comes while the owner is away or asleep;
+  as a question it opens the notch (decision 21), and a banner only when the notch can't show. Without the tap there
+  is no return, so no mention.
+
 ## Fix list
+- [x] Decision 17, "when you're back at your Mac": reminders and schedules fire when the owner is active at the Mac, a
+      run that did nothing posts nothing, the planner expresses it. (Step 14b: `OwnerInput.away/present_since/on_return`,
+      `Timers` held timers, migration 0058, `when.when_present`, `Rule.when_active`, planner `when_active` on schedule
+      and timers, `nothing_to_tell` for scheduled runs; see Rulings (step 14b); tests/test_when_active.py.)
+- [x] Decision 13 rest: pause stops terminal commands and listening, keeps tabs and progress, pauses a scheduled run's
+      schedule; FERB mentions a paused task once a day. (Step 14b: daemon `_task_paused`/`_task_resumed`,
+      `Supervisor.mention_paused`; tests/test_execution_runs.py decision-13 section.)
 - [x] The plan line states resolved `folders` whenever there are any ("I'll work in …"), not only for big jobs or
       standing sends (supervisor.py ~2499, 2733), so a wrong folder guess can be corrected.
       (Step 8c: TASK_SCHEMA `folders`; `run_tree` adds "I'll work in ~/…" to the plan line and sets

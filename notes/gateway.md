@@ -189,6 +189,9 @@ redact, image redaction, origins).
   Space; per-call changes on the call's span output (`screen`) and in the task summary (`screen_changes`), and
   `DisturbanceSentinel.facts(task)` for the merged checker (step 8). A change found when the next on-screen call starts,
   with none in flight, is stated as before (P26).
+  (Step 14b, hands decision 5: the same sampler also records a sound change in a browser tab that isn't FERB's, told by
+  the extension's `sound` event, when any acting call (not `observation`) was in flight or ended within 5 s: no extra
+  sampling, `tab_sound` in the task's changes, `how_facts` for the checker. notes/hands.md Rulings (step 14b).)
 - Left for later: legacy confirmation rows in the DB (inert: keyed by ended trees; step 12's cleanup); the remaining
   attributes set from outside (`standing`, `conversation_guard`, `observer`, `test_send_allowlist`).
 

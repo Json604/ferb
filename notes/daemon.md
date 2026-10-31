@@ -36,6 +36,8 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
    UI. Settings stay the owner's to change in the app; FERB says where. (Today FERB knows its email, secret names,
    schedules, reminders, time meanings, paired profiles and tool groups, but not its settings, what it stores, its
    version or models, or how to do things in FERB.)
+   Owner, 2026-10-31: this replaces the 2026-10-08 P27 rule 8 ("FERB doesn't recite its runtime, model names or
+   design in chat"): FERB may talk about its models, settings and how it works when asked.
 7. **FERB's own email account is an optional setup step in the app** (owner confirmed, 2026-10-30). FERB's own email account becomes an optional setup step in the app. Today it
    is per-user, not hard-coded: `[mailbox] address` and `[identity] browser/profile`, set only by the CLI
    `setup --identity` (cli/setup.py:1003-1020). Proposed: the app's setup offers "Give FERB its own Google account

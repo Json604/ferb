@@ -263,6 +263,17 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       email (as before) and its profile stays the default; without one, a fact says so, what isn't set up, and which
       owner profile web work uses (the owner's pick in FERB.app, `browsing.owner_profile`), or that none is chosen.)
 - [x] Remove "every_minutes at least 15" (supervisor.md:124). (Step 10b: "the owner's interval, a positive number".)
+- [x] Lines for code step 14b needs (orchestration decisions 13 and 17, hands decision 5), minimal:
+      supervisor.md "Schedules and reminders": `when_active` added to the schedule's field list and one bullet ("true
+      when the owner wants it when they're at their Mac (\"every day whenever I'm on my Mac\": repeat daily; \"when
+      I'm back at my Mac\"): FERB holds each run until they're active there, so the request never checks whether they
+      are; when may leave the time out. Also for a reminder (timers). Otherwise false."); the schema field carries the
+      same description. supervisor.md's job-and-schedule line now says a scheduled run's pause or resume moves its
+      schedule by itself (code does it), with schedule_changes only when no run is under way. New role block
+      roles/scheduled.md (one-step scheduled runs, not watches): `nothing_to_tell`, true only when the run found
+      nothing its request asks to tell and did nothing (the schema field says the same). browser_media's description:
+      a tab FERB opened is muted until unmute, audio_listen or a recording with_audio lets it be heard for the rest of
+      the task (replacing "The owner may briefly hear what plays."). Live re-test in step 13 (notes/test-tasks.md).
 
 ## Expected size
 Planner static ≈53k → ≈15k chars; worker system ≈47k → ≈9k; plus ≈38k less per worker/checker run from the catalog

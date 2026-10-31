@@ -89,6 +89,8 @@ class CallHooks:
                             cap: Any) -> None:
         """Daemon decision 5: the desktop is sampled before a call only when it can change the owner's screen."""
         sentinel = self.gw.disturbance
+        if sentinel is not None and not getattr(cap, "observation", False) and hasattr(sentinel, "call_started"):
+            sentinel.call_started(grant.task_id, span_id, name)   # hands decision 5: a sound change near it is noted
         if sentinel is not None and on_screen(cap):
             self._sampled.add(span_id)
             await sentinel.before_action(grant.task_id, span_id, name, arguments, True)
@@ -96,6 +98,8 @@ class CallHooks:
     async def screen_after(self, span_id: str) -> dict[str, Any]:
         """What FERB could have changed on the screen during the call ({} when not sampled or nothing changed)."""
         sentinel = self.gw.disturbance
+        if sentinel is not None and hasattr(sentinel, "call_ended"):
+            sentinel.call_ended(span_id)
         if sentinel is None or span_id not in self._sampled:
             return {}
         self._sampled.discard(span_id)

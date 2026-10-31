@@ -248,6 +248,11 @@ class AudioListen:
                 if app != bundle:
                     raise Refused(f"the process showing that tab isn't {ref.browser} ({app}); FERB didn't listen")
                 sources, extra = (("web", url),), {"tab": ref.tab_id}
+                # hands decision 5: a tab FERB opened is muted; the task needs to hear this one, so it is unmuted for
+                # the rest of the task (the owner's own tab keeps its setting)
+                sound = getattr(driver, "tab_sound", None)
+                if sound is not None:
+                    extra |= await sound(ref, True)
             else:
                 app, pid = self.hearing.resolve(args.app)
             out = await self.hearing.listen(ctx.task_id, app, pid, args.seconds, args.language)

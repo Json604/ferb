@@ -93,6 +93,12 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     pool per unit of work; on-device recognition was failing on macOS 27.2 (every image withheld), fixed. Gateway
     seams finished (`GatewayDeps.standing`, `Gateway.attach`); dead eval code and functions removed. Notes: daemon.md
     "Footprint (step 12d)" and its rulings, gateway.md, hands.md, tests.md.)
+12e. **Before live checks** (owner, 2026-10-31): download limits (hands decision, 2026-10-31: no per-file cap; 300 files /
+    32 GB per task; 10 GB free-disk floor; shell downloads under the same per-task budget and floor) and the bugs the
+    research found; a "What FERB saw" viewer for the saved screenshots; Mac background/focus fixes from the Mac-only
+    diagnosis; then a review in 5 grouped read-only agents (safety; planner and memory; daemon and app; storage and
+    upgrade; every owner decision against the code and the owner's own words), findings verified, real bugs fixed,
+    contradictions to the owner.
 13. **Live checks**: per-adapter live tests, the owner's P20 injection eval, the patch re-test list, the safety suite.
     The one ordered checklist, in sittings, is notes/test-tasks.md "Step-13 checklist".
 14. **Docs cleanup** last: extract `notes/test-tasks.md`, settle CLAUDE.md/AGENTS.md, delete the old docs, rewrite
@@ -103,3 +109,9 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     rewritten from code and notes; CHANGELOG.md and THIRD_PARTY_NOTICES.md kept. Old decisions no notes file records
     are listed in notes/docs-cleanup.md "For the owner to confirm or drop". Before step 13: a Command Line Tools /
     Xcode update, since the linker can't read the macOS 27.2 SDK and scripts/build-app.sh fails.)
+    (Step 14b: three owner decisions the 14a pass found without code, built: hands decision 5 (FERB's tabs muted,
+    playback changes in the owner's tabs as disturbance facts; extension protocol 19 / 0.17.0, so the step-13 reload
+    is 0.17.0), orchestration decision 17 ("when you're back at your Mac" reminders and schedules, migration 0058; a
+    run with nothing to tell posts nothing) and the rest of decision 13 (pause stops commands and listening, pauses a
+    scheduled run's schedule; a paused task mentioned once a day). Rulings in notes/hands.md and
+    notes/orchestration.md; live checks in notes/test-tasks.md.)

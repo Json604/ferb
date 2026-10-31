@@ -325,6 +325,17 @@ class ShellManager:
         self._settle(lambda info: info.owner_task == task_id)
         return n
 
+    async def stop_running(self, owned: Callable[[str], bool]) -> int:
+        """A task paused (orchestration decision 13): the still-running commands of the tasks `owned` names stop, their
+        whole groups, except long-lived ones (which outlive the task anyway); their records stay, so a resumed attempt
+        can still read what they printed. Returns how many were stopped."""
+        n = 0
+        for pid, (p, info) in list(self._procs.items()):
+            if owned(info.owner_task) and not info.long_lived and p.exit_code is None:
+                n += 1
+                await p.kill(self._ours(pid))
+        return n
+
     async def kill_all(self) -> int:
         n = 0
         for pid, (p, _) in list(self._procs.items()):

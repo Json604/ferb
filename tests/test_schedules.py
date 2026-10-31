@@ -196,11 +196,11 @@ def test_non_urgent_notifications_wait_while_the_owner_is_away(daemon: RunningDa
     d = daemon.daemon
     d.notify = note
     d.owner_input.running = True
-    d.owner_input.last_owner_wall = time.time() - 3600                             # away for an hour
+    d.owner_input.last_owner_wall = d.clock.now().timestamp() - 3600               # away for an hour
     daemon.run(d._notify("FERB finished", "done"))
     daemon.run(d._notify("FERB reminder", "call Mom", urgent=True))
     assert notes == [("FERB reminder", "call Mom")] and d._held == [Banner("FERB finished", "done")]
-    d.owner_input.last_owner_wall = time.time()                                    # back
+    d.owner_input.last_owner_wall = d.clock.now().timestamp()                      # back
     for _ in range(150):
         if len(notes) == 2:
             break

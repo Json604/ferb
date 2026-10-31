@@ -105,10 +105,9 @@ moved into the area notes.
 11. **Acknowledgement list** (0.27_PLAN.md P25 and L7): an instant acknowledgement from the daemon, from the approved
     phrase list without the starred one, never one of the last eight. The list now lives only in
     `ferb/orchestrator/acks.py` (its plan-reading test went with the plan).
-12. **FERB doesn't recite its runtime, model names or design in chat** (0.27_PLAN.md P27 rule 8, 2026-10-08: "dont make
-    changes, beacuse this carries int ehverison i release to the public too"). This conflicts with notes/daemon.md
-    decision 6 (2026-10-30), whose About summary puts the models per role in every prompt: the later decision likely
-    supersedes it; confirm.
+12. **FERB doesn't recite its runtime, model names or design in chat** (0.27_PLAN.md P27 rule 8, 2026-10-08): dropped.
+    Owner, 2026-10-31: notes/daemon.md decision 6 (About FERB) replaces it; FERB may discuss its models and design.
+    No prompt carries the old rule (checked 2026-10-31).
 13. **Loops** (docs/superpowers/specs/2026-10-24-loops-design.md, 2026-10-24/25): a loop with no stated end runs until
     the owner says stop, across restarts and updates; when fixes don't last it backs off and tells the owner once; the
     constants are the owner's (backup round 1,800 s; "didn't last" within 120 s; 3 such rounds in 600 s start back-off at
@@ -123,9 +122,9 @@ moved into the area notes.
 16. **Proactivity** (docs/superpowers/specs/2026-10-24-proactivity-design.md, 2026-10-24): offer only (nothing done
     until **Do it**), Jev as a switch, no limit on approaches, a daily brief plus Mail and Calendar as sources. Not
     built; perception is paused until a Jev-free design (owner, 2026-10-27).
-17. **Memory budgets**: the owner's "Planner 60, worker 20" items (docs/superpowers/specs/2026-10-24-memory-that-works-design.md)
-    were replaced by token and item limits in a coordinator ruling (notes/memory.md, "Limits per role", 2026-10-31).
-    Recorded in notes, but a cap set by a ruling over an owner decision (CLAUDE.md rule 18): confirm the new limits.
+17. **Memory budgets**: settled. The owner's "Planner 60, worker 20" items (docs/superpowers/specs/2026-10-24-memory-that-works-design.md)
+    were superseded by memory decision 7 ("retrieved within limits"); on 2026-10-31 the owner said that decision
+    already covers the limits, so the per-role limits in notes/memory.md ("Limits per role") stand. Not to be re-asked.
 
 Also for the owner: `extensions/store/listing.md` has stale lines (the repository "becomes public on 2026-10-21"; the
 `ferb browsers pair` and `ferb setup --update` steps after approval predate the app's setup); refresh it before the next
