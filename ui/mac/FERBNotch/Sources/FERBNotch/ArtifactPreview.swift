@@ -163,12 +163,22 @@ class PreviewHoverTrackingView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         window?.invalidateCursorRects(for: self)
+        reconcileTrackingArea()
         PreviewHoverRouter.shared.schedule()
     }
     override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
         window?.invalidateCursorRects(for: self)
+        reconcileTrackingArea()
         PreviewHoverRouter.shared.schedule()
+    }
+    // macOS 27.2 no longer calls updateTrackingAreas when a view joins a window, moves, resizes or scrolls into view
+    // (measured 2026-10-31 in a test window, plain NSView too). The inVisibleRect area follows the visible part by
+    // itself once it exists, so only its existence is reconciled here: added when the pill becomes visible,
+    // removed when it can't be seen.
+    private func reconcileTrackingArea() {
+        guard window != nil, (area == nil) != hoverRect.isEmpty else { return }
+        updateTrackingAreas()
     }
     override func cursorUpdate(with event: NSEvent) { updatePointer(with: event) }
     override func mouseMoved(with event: NSEvent) { updatePointer(with: event) }
@@ -259,13 +269,19 @@ class PreviewHoverTrackingView: NSView {
             if let clip = enclosingScrollView?.contentView {
                 clip.postsBoundsChangedNotifications = true
                 clipObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-                    object: clip, queue: .main) { _ in
-                        MainActor.assumeIsolated { PreviewHoverRouter.shared.schedule() }
+                    object: clip, queue: .main) { [weak self] _ in
+                        MainActor.assumeIsolated {
+                            self?.reconcileTrackingArea()
+                            PreviewHoverRouter.shared.schedule()
+                        }
                     }
             }
         }
         if window == nil { clearHover() }
-        else { window?.invalidateCursorRects(for: self) }
+        else {
+            window?.invalidateCursorRects(for: self)
+            reconcileTrackingArea()
+        }
     }
     deinit { if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) } }
 }

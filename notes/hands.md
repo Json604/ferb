@@ -226,6 +226,40 @@ from installed apps, terminal detection fails closed)*
   when the accessibility pass gave none (screenshot points, a tab without the debugger). A re-render that replaces the
   node escapes the identity; a shifted DOM path can collide (only asks the owner).
 
+## Rulings (regression 2026-10-31, macOS 27.2, technical)
+- **Regression:** after the update to macOS 27.2 (Darwin 27.2.0) FERB refused every local port ("FERB couldn't
+  inspect the local TCP sockets"); 6 shell/proxy tests failed on clean 41ef7dff. Cause, measured: the kernel's
+  socket lists (`net.inet.{tcp,udp}.pcblist[_n]`) now hold only the caller's own sockets for an ad-hoc-signed Python
+  (FERB's ~/.ferb/venv, the checkout .venv, Homebrew's) and for any program it starts, so `netstat -anv` exits 0 and
+  prints nothing. The same netstat from a terminal, or exec'd in place of that Python, lists everything; an
+  ad-hoc-signed copy of netstat lists nothing. Apple's rule isn't documented; it behaves like Local Network privacy's
+  attribution of a tool to the third-party program that ran it.
+- **Source now (ferb/act/shell/sockets.py):** libproc in FERB's own process, no subprocess (`proc_listpids`,
+  `proc_pidinfo PROC_PIDLISTFDS`, `proc_pidfdinfo PROC_PIDFDSOCKETINFO`, SDK `struct socket_fdinfo`, 792 bytes;
+  an answer of any other size is no reading). It sees every process of the owner's user and none of another
+  user's or root's. The proxy route (`LocalAccess`) uses only it, about 2 ms per reading: the exact connected
+  server socket must belong to an inspectable process, so a root or other-user server is refused.
+- **Every user's listeners for the profile route:** the shell profile's direct ports (a contained server's port,
+  a pinned port) need every listener on that port, or another user's listener on the same port number (other
+  address family) would be reachable around the proxy. `sockets.complete()` adds what `/usr/bin/nettop -L 1 -n -x
+  -J state` lists for processes libproc can't inspect, each unnamed (pid None: outside, never pinned). nettop is
+  Apple's, entitled, and still lists every user's sockets when FERB starts it. It counts only when it lists every
+  listener libproc found (a nettop that sees less, the way netstat does now, is no reading: nothing direct, only the
+  proxy) and only when every line parses (a program name with a line break makes it unreadable, never misread).
+  About 9 ms per profile.
+- **Accept wait:** a connection the server hasn't accepted yet is in no descriptor table, only counted in its
+  listener's queue (libproc, measured). `LocalAccess.connected` re-reads while a visible listener on that port has a
+  queued connection, at most `ACCEPT_WAIT` (30 s, the proxy's own connect timeout), then refuses; with nothing queued
+  on a visible listener it refuses at once. netstat had named a queued connection after its listener.
+- Sockets shared by several processes are listed once per process, and each must pass (stricter than netstat's one
+  last-user pid).
+- **FERBNotch:** macOS 27.2 never calls `updateTrackingAreas` in a test window (measured: plain NSView too, on or
+  off screen, NSApp running or not, after add, move, resize, scroll), so `LatestSourceHoverTests.testFullNotchSource…`
+  found no tracking area. `PreviewHoverTrackingView` now adds or removes its inVisibleRect area itself when it joins a
+  window, changes frame, or its clip view scrolls. The pill's hover in the app already ran through the panel's
+  mouse-moved monitors and `PreviewHoverRouter`; whether the live app gets AppKit's call wasn't measurable without
+  moving the owner's pointer (other overrides: PanelCoordinator, FerbIndicator, PanelResizeOverlay).
+
 ## Measurements (step 0, 2026-10-30)
 - **Sandbox semantics, measured with `sandbox-exec` on scratch folders:**
   - `deny file-write-unlink` blocks unlink, rmdir, renaming a file out of or within the folder, and renaming onto an
@@ -243,6 +277,10 @@ from installed apps, terminal detection fails closed)*
   owner's own run of the probe was in Terminal, so it showed Terminal's grants, not FERB's.)
 
 ## Fix list
+- [ ] macOS 27.2: AppKit stopped calling `updateTrackingAreas` in the test process (2026-10-31). The source pill now
+      reconciles its own tracking area; the other overrides (PanelCoordinator.swift:85, FerbIndicator.swift:94,
+      PanelResizeOverlay.swift:68) are checked live in step 13 (hover-to-open, resize) and get the same pattern if
+      the live app is affected.
 - [x] Bot-check fact (decision 6): when a page shows a bot-check widget (a structural fact, e.g. the challenge frame's
       origin, reported by the extension/snapshot like a field's kind), the tool result says so and names the
       `browser_verification` ability. No prompt line about bypasses (owner).

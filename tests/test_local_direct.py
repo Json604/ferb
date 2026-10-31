@@ -31,15 +31,11 @@ def protection(tmp_path: Path, entries: object = ()) -> Protection:
     return Protection(tmp_path, tmp_path / ".ferb", [], [], [], local_ports=entries)
 
 
-def row(ours: str, peer: str, state: str, pid: int | None = 123) -> str:
-    owner = f"python:{pid}" if pid is not None else "?:?"
-    return f"tcp4 0 0 {ours} {peer} {state} 0 0 {owner} 00100 00000000 0 0\n"
-
-
 def listening(monkeypatch: pytest.MonkeyPatch, executables: dict[int | None, str], port: int = 8765) -> None:
-    """netstat's listeners on the port, each process id with the executable proc_pidpath reports for it."""
-    rows = "".join(row(f"127.0.0.1.{port}", "*.*", "LISTEN", pid) for pid in executables)
-    monkeypatch.setattr(local, "tcp_snapshot", lambda: local.parse_tcp(rows))
+    """The listeners on the port, each process id with the executable proc_pidpath reports for it (None: a process
+    FERB can't inspect, another user's or root's). The direct route reads every user's sockets."""
+    rows = [local.TcpSocket(("127.0.0.1", port), None, "LISTEN", pid) for pid in executables]
+    monkeypatch.setattr(local, "tcp_snapshot", lambda complete=False: rows if complete else None)
     monkeypatch.setattr(local, "executable_of", lambda pid: Path(executables[pid]) if pid in executables else None)
 
 
@@ -83,7 +79,7 @@ def test_a_pinned_port_is_direct_when_its_listener_runs_the_pinned_executable(tm
 
 @pytest.mark.parametrize("executables", [{123: "/bin/sh"},                      # another program holds the port
                                          {123: PIN, 456: "/bin/sh"},           # one of two listeners isn't the pin
-                                         {None: PIN},                          # netstat can't name the process
+                                         {None: PIN},                          # another user's: no process to inspect
                                          {}],                                  # nothing listens yet
                          ids=["other-executable", "one-of-two", "unknown-pid", "no-listener"])
 def test_a_pinned_port_whose_listener_is_not_the_pinned_executable_is_excluded(

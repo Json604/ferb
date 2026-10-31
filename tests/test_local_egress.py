@@ -8,6 +8,7 @@ import os
 import socket
 import sys
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -71,24 +72,24 @@ def test_trustd_is_one_liftable_rule_and_leaves_every_other_deny_intact(tmp_path
         assert '(deny mach-lookup (global-name "com.apple.SecurityServer"))' in lifted
 
 
-def row(ours: str, peer: str, state: str, pid: int | None = 123) -> str:
-    owner = f"python:{pid}" if pid is not None else "?:?"
-    return f"tcp4 0 0 {ours} {peer} {state} 0 0 {owner} 00100 00000000 0 0\n"
+def row(ours: tuple[str, int], peer: tuple[str, int] | None, state: str, pid: int | None = 123,
+        queued: int = 0) -> local.TcpSocket:
+    return local.TcpSocket(ours, peer, state, pid, queued)
 
 
 def test_socket_identity_uses_exact_connected_peer_not_the_new_listener(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     p = protection(tmp_path, [{"port": 8765, "executable": "/usr/bin/python3"}])
     access = local.LocalAccess(p)
     monkeypatch.setattr(local, "executable_of", lambda pid: Path("/usr/bin/python3") if pid == 123 else Path("/bin/sh"))
-    monkeypatch.setattr(local, "tcp_snapshot", lambda: local.parse_tcp(
-        row("127.0.0.1.8765", "*.*", "LISTEN") +
-        row("127.0.0.1.8765", "127.0.0.1.54321", "ESTABLISHED", 456)))
+    monkeypatch.setattr(local, "tcp_snapshot", lambda: [
+        row(("127.0.0.1", 8765), None, "LISTEN"),
+        row(("127.0.0.1", 8765), ("127.0.0.1", 54321), "ESTABLISHED", 456)])
     access.before_connect(("127.0.0.1", 8765))
     with pytest.raises(local.LocalRefused, match="executable"):
         access.connected(("127.0.0.1", 8765), ("127.0.0.1", 54321))
 
 
-@pytest.mark.parametrize("rows", [None, [], local.parse_tcp(row("127.0.0.1.8765", "*.*", "LISTEN", None))])
+@pytest.mark.parametrize("rows", [None, [], [row(("127.0.0.1", 8765), None, "LISTEN", None)]])
 def test_unknown_listener_identity_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rows: object) -> None:
     access = local.LocalAccess(protection(tmp_path, [{"port": 8765, "executable": "/bin/x"}]))
     monkeypatch.setattr(local, "tcp_snapshot", lambda: rows)
@@ -96,10 +97,46 @@ def test_unknown_listener_identity_is_refused(tmp_path: Path, monkeypatch: pytes
         access.before_connect(("127.0.0.1", 8765))
 
 
+def test_the_proxy_waits_for_the_server_to_accept_its_queued_connection(tmp_path: Path,
+                                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Until the server accepts, the connected socket is in no process's descriptor table, only counted in its
+    listener's queue (libproc, measured 2026-10-31): the exact peer is checked once it is accepted."""
+    access = local.LocalAccess(protection(tmp_path, [{"port": 8765, "executable": "/usr/bin/python3"}]))
+    listener = row(("127.0.0.1", 8765), None, "LISTEN")
+    readings = iter([[replace(listener, queued=1)], [replace(listener, queued=1)],
+                     [listener, row(("127.0.0.1", 8765), ("127.0.0.1", 54321), "ESTABLISHED")]])
+    monkeypatch.setattr(local, "tcp_snapshot", lambda: next(readings))
+    monkeypatch.setattr(local, "executable_of", lambda pid: Path("/usr/bin/python3"))
+    assert access.connected(("127.0.0.1", 8765), ("127.0.0.1", 54321)).executable == "/usr/bin/python3"
+
+
+@pytest.mark.parametrize("rows", [[row(("127.0.0.1", 8765), None, "LISTEN")],      # nothing queued on it
+                                  [row(("127.0.0.1", 9999), None, "LISTEN", queued=1)],   # queued elsewhere
+                                  []])                                    # a server FERB can't inspect
+def test_a_connection_no_inspectable_server_holds_or_queues_is_refused_at_once(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rows: list[local.TcpSocket]) -> None:
+    access = local.LocalAccess(protection(tmp_path, [{"port": 8765, "executable": "/usr/bin/python3"}]))
+    calls: list[int] = []
+    monkeypatch.setattr(local, "tcp_snapshot", lambda: calls.append(1) or rows)
+    monkeypatch.setattr(local, "executable_of", lambda pid: Path("/usr/bin/python3"))
+    with pytest.raises(local.LocalRefused, match="couldn't identify"):
+        access.connected(("127.0.0.1", 8765), ("127.0.0.1", 54321))
+    assert len(calls) == 1
+
+
+def test_a_server_that_never_accepts_is_refused_after_the_wait(tmp_path: Path,
+                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    access = local.LocalAccess(protection(tmp_path, [{"port": 8765, "executable": "/usr/bin/python3"}]))
+    monkeypatch.setattr(local, "ACCEPT_WAIT", 0.05)
+    monkeypatch.setattr(local, "tcp_snapshot", lambda: [row(("127.0.0.1", 8765), None, "LISTEN", queued=1)])
+    with pytest.raises(local.LocalRefused, match="couldn't identify"):
+        access.connected(("127.0.0.1", 8765), ("127.0.0.1", 54321))
+
+
 def test_unconfigured_contained_server_is_preserved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     access = local.LocalAccess(protection(tmp_path, [{"port": 8765, "executable": "/bin/x"}]))
-    monkeypatch.setattr(local, "tcp_snapshot", lambda: local.parse_tcp(
-        row("127.0.0.1.9876", "*.*", "LISTEN") + row("127.0.0.1.9876", "127.0.0.1.54321", "ESTABLISHED")))
+    monkeypatch.setattr(local, "tcp_snapshot", lambda: [
+        row(("127.0.0.1", 9876), None, "LISTEN"), row(("127.0.0.1", 9876), ("127.0.0.1", 54321), "ESTABLISHED")])
     monkeypatch.setattr(local, "contained", lambda *args: True)
     monkeypatch.setattr(local, "executable_of", lambda pid: Path("/usr/bin/python3"))
     access.before_connect(("127.0.0.1", 9876))

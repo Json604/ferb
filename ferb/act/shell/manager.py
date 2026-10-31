@@ -126,7 +126,7 @@ class ShellManager:
                 raise Refused("no sandbox here to lift a rule from")
             argv, profile = ["/bin/sh", "-c", command], None
         else:
-            # Building the profile runs netstat and sandbox_check (listeners.py): off the event loop. Pinned local
+            # Building the profile reads the sockets and runs sandbox_check (listeners.py): off the event loop. Pinned
             # ports are direct only for a command whose record goes out with the proxy's, and never after its tree's
             # No to one of this Mac's addresses: that No stays final, checked per connection by the proxy
             rule = None if lift == ADMIN else lift

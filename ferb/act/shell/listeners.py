@@ -5,9 +5,10 @@ process inside FERB's sandbox or it doesn't, by fact.
 Why: a contained command could otherwise use another program's local server to leave the Mac unrecorded (a local
 proxy or VPN helper, an `ssh -L` tunnel, a DNS forwarder, a browser's debugging port) or to run code outside the
 sandbox (a notebook server, an agent gateway). Servers a FERB command started itself (a dev server, a test suite's
-server) stay reachable, so they must be told apart. Measured on macOS 26.6 (F5a Task 3 report):
-- `netstat -anv` lists every listening TCP socket and every unconnected UDP socket of every user with its process
-  id, in about 3 ms.
+server) stay reachable, so they must be told apart. Measured on macOS 26.6 (F5a Task 3 report) and 27.2:
+- `sockets.complete()` lists every listening TCP socket and every unconnected UDP socket of every user, with the
+  process id of each the owner's user runs and none for another user's or root's (about 9 ms). Until macOS 27.2
+  this was `netstat -anv`, which now prints nothing when FERB starts it (regression 2026-10-31, sockets.py).
 - `sandbox_check` (libsystem_sandbox) answers, for another process, whether its sandbox allows an operation.
   FERB's profile is the one sandbox that denies reading FERB's run folder and allows FERB's workspace: unsandboxed
   programs are allowed both, other sandboxes (Apple's daemons, App Store apps) deny both. A server keeps its
@@ -19,13 +20,11 @@ server) stay reachable, so they must be told apart. Measured on macOS 26.6 (F5a 
 
 import ctypes
 import os
-import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
-NETSTAT = "/usr/sbin/netstat"
-_PID = re.compile(r":(\d+)\s+[0-9a-f]{5}\s+[0-9a-f]{8}\s")          # "process:pid  state options" (netstat -v)
+from ferb.act.shell import sockets
+
 _PATH, _NO_REPORT = 1, 0x40000000                                    # SANDBOX_FILTER_PATH, SANDBOX_CHECK_NO_REPORT
 
 
@@ -56,36 +55,15 @@ def contained(pid: int, ferb_home: Path, workspace: Path) -> bool:
         return False
 
 
-def _listening(text: str, udp: bool) -> list[tuple[int, int | None]]:
-    """(port, pid) of each listening TCP socket, or unconnected UDP socket, in `netstat -anv` output."""
-    out = []
-    for line in text.splitlines():
-        cols = line.split()
-        if len(cols) < 6 or not cols[0].startswith("udp" if udp else "tcp"):
-            continue
-        if (cols[4] != "*.*") if udp else (cols[5] != "LISTEN"):
-            continue
-        port = cols[3].rsplit(".", 1)[-1]
-        if not port.isdigit():
-            continue
-        m = _PID.search(line)
-        out.append((int(port), int(m.group(1)) if m else None))
-    return out
-
-
 def local_listeners(ferb_home: Path, workspace: Path) -> tuple[set[int], set[int]] | None:
     """(outside, inside): ports of this Mac's servers that run outside FERB's containment, and ports whose every
     listener runs inside it (a FERB command's own server), as listed now. None when the listing can't be read, so the
     caller keeps every local server out."""
-    found: list[tuple[int, int | None]] = []
-    for proto in ("tcp", "udp"):
-        try:
-            r = subprocess.run([NETSTAT, "-anv", "-p", proto], capture_output=True, text=True, timeout=5)
-        except (OSError, subprocess.SubprocessError):
-            return None
-        if r.returncode != 0 or "process:pid" not in r.stdout:
-            return None
-        found += _listening(r.stdout, proto == "udp")
+    every = sockets.complete()
+    if every is None:
+        return None
+    found = [(s.local[1], s.pid) for s in every if s.local[1]
+             and ((s.proto == "tcp" and s.state == "LISTEN") or (s.proto == "udp" and s.remote is None))]
     inside: dict[int, bool] = {}
     for _, pid in found:
         if pid is not None and pid not in inside:

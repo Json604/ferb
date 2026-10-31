@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from ferb.act.shell import sockets
 from ferb.act.shell.manager import ShellManager
 from ferb.act.shell.sandbox import (APP_SERVICES, CERT_BUNDLE, NETWORK_SERVICES, SANDBOX_EXEC, SECURITY_SERVER,
                                     TRUST_SERVICES, WINDOW_SERVER, Sandbox)
@@ -175,8 +176,8 @@ def test_direct_network_is_denied_inside_the_sandbox(daemon: RunningDaemon) -> N
                   f"s.bind((\"127.0.0.1\", {port})); s.listen(1); time.sleep(30)'")
     sid = server["content"]["id"]
     try:
-        for _ in range(100):                                             # listening, as netstat lists it
-            if f".{port} " in subprocess.run(["netstat", "-an", "-p", "tcp"], capture_output=True, text=True).stdout:
+        for _ in range(100):                                             # listening, as the kernel lists it
+            if any(s.state == "LISTEN" and s.local[1] == port for s in (sockets.inspectable() or ([], set()))[0]):
                 break
             time.sleep(0.05)
         r = call(daemon, g, "shell.run", command=f"python3 -c 'import socket; socket.create_connection((\"127.0.0.1\", {port}), 2); "

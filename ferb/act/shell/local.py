@@ -13,7 +13,9 @@ identifies their executable. Two routes reach a pinned port:
   so the command's `shell.network` record names the port, the executable and the programs that connected
   (`local_direct`, each `local: true`). The kernel's deny reports carry text a program chooses (a file name), so
   they can never parse as an allow report or name another command's tag (review 2026-10-14, measured).
-Unknown identities fail closed: no direct port, and the proxy refuses.
+Unknown identities fail closed: no direct port, and the proxy refuses. The sockets are read through libproc
+(sockets.py), which sees only the owner's user's processes: a server another user or root runs is never verified, and
+the direct route also reads every user's listeners (sockets.complete) so such a server's port is never allowed.
 
 Residuals: these are OS snapshots, not an atomic kernel executable constraint; a process can exec after inspection.
 A direct allowance lasts the command's life, so a program that takes the port over later (the pinned server stopped)
@@ -40,7 +42,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ferb.act.shell.listeners import NETSTAT, _PID, contained
+from ferb.act.shell import sockets
+from ferb.act.shell.listeners import contained
 from ferb.paths import helper_python
 from ferb.policy.protection import LocalPort, Protection
 
@@ -73,13 +76,19 @@ class TcpSocket:
     local: tuple[str, int]
     remote: tuple[str, int] | None
     state: str
-    pid: int | None
+    pid: int | None                 # None: a process FERB can't inspect (another user's, root's)
+    queued: int = 0                 # a listener's connections no process has accepted yet
 
 
 @dataclass(frozen=True)
 class LocalPeer:
     address: str
     executable: str
+
+
+# How long the proxy waits for a pinned or contained server to accept a connection it has queued: the connected
+# socket is in no process's descriptor table until then (sockets.py), and the proxy's own connect allows 30 s
+ACCEPT_WAIT = 30.0
 
 
 def _ip(address: str) -> str:
@@ -90,38 +99,17 @@ def _ip(address: str) -> str:
     return str(parsed)
 
 
-def _endpoint(text: str) -> tuple[str, int] | None:
-    address, _, port = text.rpartition(".")
-    if not port.isdigit():
+def tcp_snapshot(complete: bool = False) -> list[TcpSocket] | None:
+    """This Mac's TCP sockets: those of every process FERB can inspect (libproc, about 2 ms), or with `complete`
+    also every other user's, each with pid None (sockets.complete, about 9 ms). None when they can't be read."""
+    if complete:
+        found = sockets.complete()
+    else:
+        both = sockets.inspectable()
+        found = None if both is None else both[0]
+    if found is None:
         return None
-    try:
-        return ("*" if address == "*" else _ip(address)), int(port)
-    except ValueError:
-        return None
-
-
-def parse_tcp(text: str) -> list[TcpSocket]:
-    out = []
-    for line in text.splitlines():
-        fields = line.split()
-        if len(fields) < 6 or not fields[0].startswith("tcp"):
-            continue
-        endpoint = _endpoint(fields[3])
-        if endpoint is None:
-            continue
-        match = _PID.search(line)
-        out.append(TcpSocket(endpoint, _endpoint(fields[4]), fields[5], int(match[1]) if match else None))
-    return out
-
-
-def tcp_snapshot() -> list[TcpSocket] | None:
-    try:
-        result = subprocess.run([NETSTAT, "-anv", "-p", "tcp"], capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode or "process:pid" not in result.stdout:
-        return None
-    return parse_tcp(result.stdout)
+    return [TcpSocket(s.local, s.remote, s.state, s.pid, s.queued) for s in found if s.proto == "tcp"]
 
 
 def executable_of(pid: int) -> Path | None:
@@ -176,27 +164,38 @@ class LocalAccess:
         self._verified(rows, port)
 
     def connected(self, target: tuple[str, int], client: tuple[str, int]) -> LocalPeer:
-        """Verify the server end of this exact connected socket, not whichever listener now holds that port."""
+        """Verify the server end of this exact connected socket, not whichever listener now holds that port. Until a
+        server accepts, the connection sits in its listener's queue and no process holds it: wait while a listener
+        FERB can see on this port has one queued (at most ACCEPT_WAIT); a server FERB can't see never shows it."""
         server = (_ip(target[0]), target[1])
         source = (_ip(client[0]), client[1])
-        rows = [row for row in self._sockets() if row.state == "ESTABLISHED"
-                and row.local == server and row.remote == source]
-        executable = self._verified(rows, target[1])
+        deadline, pause = time.monotonic() + ACCEPT_WAIT, 0.001
+        while True:
+            rows = self._sockets()
+            held = [row for row in rows if row.state == "ESTABLISHED" and row.local == server and row.remote == source]
+            queued = any(row.state == "LISTEN" and row.local[1] == server[1] and row.queued > 0
+                         and row.local[0] in (server[0], "*") for row in rows)
+            if held or not queued or time.monotonic() >= deadline:
+                break
+            time.sleep(pause)
+            pause = min(pause * 2, 0.05)
+        executable = self._verified(held, target[1])
         return LocalPeer(server[0], str(executable))
 
 
 def direct_ports(protection: Protection) -> tuple[LocalPort, ...]:
     """The owner-pinned ports a shell command starting now may reach directly: each port whose every listening TCP
-    socket belongs to a process running its pinned executable at this moment. None of them when the sockets can't be
-    read; a port with no listener, a listener netstat can't name, or any other executable is left out."""
+    socket belongs to a process running its pinned executable at this moment, every user's sockets read. None of them
+    when the sockets can't be read; a port with no listener, a listener whose process FERB can't inspect (another
+    user's, root's), or any other executable is left out."""
     if not protection.local_ports:
         return ()
-    sockets = tcp_snapshot()
-    if sockets is None:
+    rows = tcp_snapshot(complete=True)
+    if rows is None:
         return ()
     allowed = []
     for pin in protection.local_ports:
-        pids = [row.pid for row in sockets if row.state == "LISTEN" and row.local[1] == pin.port]
+        pids = [row.pid for row in rows if row.state == "LISTEN" and row.local[1] == pin.port]
         if pids and all(pid is not None and executable_of(pid) == pin.executable for pid in pids):
             allowed.append(pin)
     return tuple(allowed)
