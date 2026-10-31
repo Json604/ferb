@@ -59,12 +59,20 @@ class Journal:
         entry = JournalEntry(self._ids.new_id(), self._clock.now(), kind, body,
                              origin or journal_origin(kind, body))
         self._db.conn.execute("INSERT INTO journal (id, at, kind, data_json, origin) VALUES (?, ?, ?, ?, ?)",
-                              (entry.id, entry.at.isoformat(), entry.kind, json.dumps(entry.data), entry.origin))
+                              (entry.id, entry.at.isoformat(), entry.kind, json.dumps(entry.data, ensure_ascii=False),
+                               entry.origin))
         return entry
 
-    def entries(self, since: datetime | None = None) -> list[JournalEntry]:
-        rows = self._db.conn.execute("SELECT * FROM journal ORDER BY seq").fetchall()
-        return [e for e in map(_entry, rows) if since is None or e.at >= since]
+    def entries(self, since: datetime | None = None, limit: int | None = None) -> list[JournalEntry]:
+        """Rows from `since` on, oldest first; with `limit`, only the newest `limit` of them. Filtered in SQL (its time
+        functions read the stored offsets), never by parsing the whole journal."""
+        where, params = ("WHERE julianday(at) >= julianday(?)", [since.isoformat()]) if since is not None else ("", [])
+        if limit is None:
+            rows = self._db.conn.execute(f"SELECT * FROM journal {where} ORDER BY seq", params).fetchall()
+        else:
+            rows = self._db.conn.execute(f"SELECT * FROM journal {where} ORDER BY seq DESC LIMIT ?",
+                                         [*params, limit]).fetchall()[::-1]
+        return [_entry(r) for r in rows]
 
     def entries_of(self, *kinds: str) -> list[JournalEntry]:
         """These kinds' rows, oldest first, read through the journal_kind index (not the whole journal)."""

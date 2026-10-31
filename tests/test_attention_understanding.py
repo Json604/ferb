@@ -468,8 +468,8 @@ NOTICE = {"id": "batch:b1", "text": UPGRADE, "quotes": [{"text": PRICE, "origin"
 
 def test_the_seven_day_purge_clears_a_notice_from_every_recorded_copy_of_the_chat_history(daemon: RunningDaemon) -> None:
     """The planner's recorded context (`model.turn`), and for a turn that starts a task the history entries it keeps
-    as a `context.exposure` output (task.evidence can return it). The history line also names the notice's source rows,
-    so what a task learns from it traces back to them (forget)."""
+    as a `context.exposure` output (task.evidence can return it). The history line names the notice's chat entry, by
+    which the purge finds it (step 12a: the activity rows behind it are no longer listed)."""
     from ferb.sense.trail import Observation as Obs
     from tests.conftest import done, outcome, task
     d = daemon.daemon
@@ -495,7 +495,10 @@ def test_the_seven_day_purge_clears_a_notice_from_every_recorded_copy_of_the_cha
     history = [(json.loads(inp), out) for kind, inp, out in json.loads(_on_loop(daemon, lambda: spans("context.exposure")))
                if json.loads(inp)["reference"] == "chat.history" and "uniquenoticeword" in json.loads(out)["payload"]]
     assert history and "uniquenoticeword" in history[0][1] and "uniquequotedline" in history[0][1]  # task kept it
-    assert "trail:" + copied.id in history[0][0]["source_refs"]                 # ...naming the notice's rows
+    # ...naming the notice's chat entry (step 12a: no longer the activity rows behind it; the purge finds the
+    # exposure by that entry)
+    assert [r for r in history[0][0]["source_refs"] if r.startswith("entry:")]
+    assert "trail:" + copied.id not in history[0][0]["source_refs"]
     # its S4 payload is the notice's own text and quote, plain (L28): no JSON "text" field the told forms match
     plain = "You copied a uniquenoticeword reminder.\nuniquequotedline"
     assert plain in json.loads(history[0][1])["payload"]

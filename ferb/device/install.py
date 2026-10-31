@@ -337,8 +337,8 @@ class Installer:
         self._ok(["launchctl", "kickstart", "-k", f"{self.domain}/{self.label}"], "restarting the daemon")
 
     def install(self, update_only: bool = False, while_stopped: Callable[[], None] | None = None) -> None:
-        """`while_stopped`: work that must run while no daemon does (setup's one-time store clean-out), run once
-        everything is installed, between stopping the agent and starting it again (`_start`)."""
+        """`while_stopped`: work that must run while no daemon does, run once everything is installed, between
+        stopping the agent and starting it again (`_start`)."""
         if self.bundle:
             self.check_bundle()                       # before anything is written
             self.write_marker()
@@ -380,15 +380,20 @@ class Installer:
         restarted. With `while_stopped`, the agent is unloaded first, that runs, and the agent is loaded again whatever
         it does (an error or a stop included)."""
         if while_stopped is not None:
-            self.unload()
-            try:
-                while_stopped()
-            finally:
-                self.load()
+            self.while_stopped(while_stopped)
         elif changed or not self.loaded():
             self.load()
         else:
             self.restart()
+
+    def while_stopped(self, work: Callable[[], None]) -> None:
+        """Run `work` with the agent stopped (`unload`: launchd dropped it and, within its wait, its process exited),
+        then load the agent again whatever `work` does (an error or a stop included)."""
+        self.unload()
+        try:
+            work()
+        finally:
+            self.load()
 
     def check_bundle(self) -> None:
         """The daemon runs from this FERB.app, so it must stay where it is and be the app as signed: not macOS's

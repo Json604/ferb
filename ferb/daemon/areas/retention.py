@@ -1,62 +1,191 @@
-"""Own the retention pass (D21) and the resource log's samples (L30). Must not purge the task list, episodes, journal or
-memory."""
+"""Own the retention pass (D21; notes/storage.md decisions 1 and 3) and the resource log's samples (L30). The rules are
+ferb/store/retention.py's; this runs them hourly. Must not purge the task list, episodes, chat, results or memory."""
 
 import asyncio
+import sqlite3
 import sys
 from datetime import datetime, timedelta
-from typing import NamedTuple
+from pathlib import Path
+from typing import Any, Iterator, NamedTuple
 
 from ferb.act.fs import recovery
 from ferb.daemon import resources as resource_use
 from ferb.orchestrator import episodes
 from ferb.store import retention
+from ferb.store.db import BUSY_TIMEOUT_MS, VACUUM_PASS_PAGES, VACUUM_SLICE_PAGES
 
 
 ROOTS_PER_PURGE = 200
 
 
 class _PurgePlan(NamedTuple):
-    """One retention pass: its clock, its windows, the roots it handles and how many wait for the next pass."""
+    """One retention pass: its clock, its windows, and what it deletes (read before anything is deleted)."""
     now: datetime
     trace_days: int
     decision_days: int
     evidence_days: int
     recovery_days: int
     resource_days: int
-    roots: list[str]
-    left: int
+    operational_days: int
+    trail_days: int
+    rows: retention.Plan
+
+    @property
+    def roots(self) -> list[str]:
+        return self.rows.roots
+
+    @property
+    def left(self) -> int:
+        return self.rows.left
+
+
+def _read_plan(path: Path, *cutoffs: Any) -> retention.Plan:
+    """The pass's reads on a read-only connection of their own, in a worker thread: the intake planner's spans are
+    found by a scan, which must never hold the loop."""
+    conn = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True)
+    try:
+        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+        return retention.plan(conn, *cutoffs)
+    finally:
+        conn.close()
 
 
 class Retention:
     """A mixin of the Daemon (ferb/daemon/main.py): its methods use the daemon's state."""
 
     def _purge_records(self) -> dict[str, int]:
-        """D21: spans of tasks that ended more than trace_days ago (once their episode exists) and loose spans;
-        Jev decisions older than decision_days; evidence (screenshots, snapshots, recordings) and shell output logs
-        older than evidence_days (V1, D20: 7); recovery copies and records older than recovery_days (S1: 7). Never the task list,
-        episodes, journal or memory. One synchronous pass (tests, call sites); the hourly loop runs the same steps in
-        `_purge_pass`."""
+        """One synchronous pass (tests, call sites): the same steps as the hourly `_purge_pass`, without yielding."""
         plan = self._purge_plan()
-        return self._purge_rest(plan, sum(self._purge_root(root, plan.now) for root in plan.roots))
+        counts = self._new_counts()
+        for _ in self._purge_steps(plan, counts):
+            pass
+        return self._purge_rest(plan, counts)
 
     async def _purge_pass(self) -> dict[str, int]:
-        """The retention pass on the daemon loop: the same steps as `_purge_records`, yielding between roots. If
-        shutdown cancels it between roots, what it already purged is still journaled (`stopped`)."""
-        plan = self._purge_plan()
-        spans = done = 0
+        """The hourly pass: what goes is read off the loop (`_read_plan`), then deleted on the loop's connection in
+        short batches with the loop free between them, then the free pages handed back and the WAL cut back. If
+        shutdown cancels it, what it already purged is still journaled (`stopped`)."""
+        assert self.db is not None
+        plan = self._purge_plan(await asyncio.to_thread(_read_plan, self.db.path, *self._cutoffs()))
+        counts = self._new_counts()
         finished = False
         try:
-            for root in plan.roots:
-                spans += self._purge_root(root, plan.now)
-                done += 1
+            for _ in self._purge_steps(plan, counts):
                 await asyncio.sleep(0)
             finished = True
         finally:
-            if not finished and spans:
-                self._journal_purged(plan, spans, 0, 0, 0, plan.left + len(plan.roots) - done, stopped=True)
-        result = self._purge_rest(plan, spans)               # journaled before the slow snapshot step
+            if not finished and any(counts[k] for k in ("spans", "decisions", "operational", "trail")):
+                self._journal_purged(plan, counts, plan.left + len(plan.roots) - counts["roots_done"], stopped=True)
+        result = self._purge_rest(plan, counts)              # journaled before the slow steps
+        await self._give_back_space()
         result["snapshots"] = await self._purge_snapshots(plan)
         return result
+
+    @staticmethod
+    def _new_counts() -> dict[str, int]:
+        return {"spans": 0, "decisions": 0, "operational": 0, "trail": 0, "roots_done": 0}
+
+    def _windows(self) -> dict[str, int]:
+        get = self.config.get
+        return {"trace_days": retention.days(get("retention", "trace_days", 30)),      # each at least 1 day
+                "decision_days": retention.days(get("retention", "decision_days", 30)),
+                "evidence_days": retention.days(get("retention", "evidence_days", 7)),
+                "recovery_days": retention.days(get("retention", "recovery_days", 7)),
+                "resource_days": retention.days(get("retention", "resource_days", resource_use.DEFAULT_DAYS)),
+                "operational_days": retention.days(get("retention", "operational_days", retention.OPERATIONAL_DAYS)),
+                "trail_days": retention.days(get("sense", "trail_retention_days", 30))}
+
+    def _cutoffs(self, now: datetime | None = None) -> tuple[str, str, str, int]:
+        now = now or self.clock.now()
+        w = self._windows()
+        return ((now - timedelta(days=w["trace_days"])).isoformat(),
+                (now - timedelta(days=w["decision_days"])).isoformat(),
+                (now - timedelta(days=w["operational_days"])).isoformat(), ROOTS_PER_PURGE)
+
+    def _purge_plan(self, rows: retention.Plan | None = None) -> _PurgePlan:
+        """The pass's clock and windows, with what it deletes (`rows`, else read now on the loop's connection)."""
+        now = self.clock.now()
+        if rows is None:
+            rows = retention.plan(self.db.conn, *self._cutoffs(now))
+        return _PurgePlan(now=now, rows=rows, **self._windows())
+
+    def _purge_steps(self, plan: _PurgePlan, counts: dict[str, int]) -> Iterator[None]:
+        """Every delete of the pass, one short batch per step: old trees (each once its episode exists), loose
+        spans, Jev decisions, operational records, then activity rows. `counts` holds what went so far."""
+        for root in plan.roots:
+            batches = iter(self._purge_root(root, plan))
+            n = next(batches, None)                          # one batch runs between two steps
+            while True:
+                counts["spans"] += n or 0
+                n = next(batches, None)
+                if n is None:
+                    counts["roots_done"] += 1                # counted before its last step: a stop then knows it
+                    yield
+                    break
+                yield
+        for n in retention.delete_rows(self.db, "spans", "id", plan.rows.loose):
+            counts["spans"] += n
+            yield
+        for n in retention.delete_rows(self.db, "decisions", "rowid", plan.rows.decisions):
+            counts["decisions"] += n
+            yield
+        for table, ids in plan.rows.operational.items():
+            for n in retention.delete_rows(self.db, table, "rowid", ids):
+                counts["operational"] += n
+                counts[table] = counts.get(table, 0) + n
+                yield
+        yield from self._purge_trail(plan, counts)
+
+    def _purge_root(self, root: str, plan: _PurgePlan) -> Iterator[int]:
+        """One tree: its spans (as the plan read them) go only once its episode exists (built now if missing), in
+        batches (each batch's count yielded). Isolated: a failure is journaled and the pass goes on."""
+        try:
+            if episodes.get(self.db, root) is None:          # build it while the spans still exist
+                episodes.record(self.spans, self._journal(), root, plan.now.isoformat())
+            if episodes.get(self.db, root) is None:
+                return                                       # no episode: keep the spans
+            row = self.db.conn.execute("SELECT status FROM tasks WHERE id = ?", (root,)).fetchone()
+            if row is not None and row["status"] in ("running", "planned", "paused"):
+                return                                       # resumed since the pass read it
+            yield from retention.delete_rows(self.db, "spans", "id", plan.rows.trees.get(root, []))
+        except Exception as e:
+            self._journal().append("retention.failed", {"task_id": root, "error": f"{type(e).__name__}: {e}"})
+
+    def _purge_trail(self, plan: _PurgePlan, counts: dict[str, int]) -> Iterator[None]:
+        """Activity rows: accessibility after 7 days (memory decision 3), the rest after `sense.trail_retention_days`
+        once their day's summary exists. Journaled `trail.purged` when any went."""
+        if getattr(self, "trail", None) is None:
+            return
+        try:
+            gone = 0
+            for n in self.trail.purge_source_steps("accessibility", retention.ACCESSIBILITY_DAYS):
+                gone += n
+                yield
+            if gone:
+                self._journal().append("trail.purged", {"source": "accessibility", "rows": gone})
+            counts["trail"] += gone
+            purged, _, steps = self.trail.purge_steps(plan.trail_days)
+            for n in steps:
+                counts["trail"] += n
+                yield
+            if purged:
+                self._journal().append("trail.purged", {"days": purged})
+        except Exception as e:
+            self._journal().append("retention.failed", {"trail": True, "error": f"{type(e).__name__}: {e}"})
+
+    async def _give_back_space(self) -> None:
+        """After the hourly deletes: free pages handed back to the disk a slice at a time (a store compacted with
+        incremental auto-vacuum; `ferb setup --cleanup` does that once), then the WAL checkpointed and cut back.
+        Never fails the pass."""
+        try:
+            if self.db.incremental():
+                handed = 0
+                while handed < VACUUM_PASS_PAGES and self.db.vacuum_slice(VACUUM_SLICE_PAGES):
+                    handed += VACUUM_SLICE_PAGES
+                    await asyncio.sleep(0)
+            self.db.checkpoint()
+        except sqlite3.Error as e:
+            self._journal().append("retention.failed", {"vacuum": True, "error": f"{type(e).__name__}: {e}"})
 
     async def _purge_snapshots(self, plan: _PurgePlan) -> int:
         """FERB's own snapshots older than recovery_days (S1): each deletion takes seconds (measured 15.5 s) and is
@@ -70,49 +199,25 @@ class Retention:
         return await recovery.purge_snapshots((plan.now - timedelta(days=plan.recovery_days)).isoformat(), kept.db,
                                               self.snapshot_deleter, gone)
 
-    def _purge_plan(self) -> _PurgePlan:
-        now = self.clock.now()
-        trace_days = retention.days(self.config.get("retention", "trace_days", 30))          # each at least 1 day
-        decision_days = retention.days(self.config.get("retention", "decision_days", 30))
-        evidence_days = retention.days(self.config.get("retention", "evidence_days", 7))
-        recovery_days = retention.days(self.config.get("retention", "recovery_days", 7))
-        resource_days = retention.days(self.config.get("retention", "resource_days", resource_use.DEFAULT_DAYS))
-        roots = retention.finished_roots_before(self.db, (now - timedelta(days=trace_days)).isoformat())
-        return _PurgePlan(now, trace_days, decision_days, evidence_days, recovery_days, resource_days,
-                          roots[:ROOTS_PER_PURGE], max(0, len(roots) - ROOTS_PER_PURGE))   # oldest first; the rest wait
-
-    def _purge_root(self, root: str, now: datetime) -> int:
-        """One root: its spans go only once its episode exists (built now if missing). Isolated: a failure is
-        journaled and the pass goes on."""
-        try:
-            if episodes.get(self.db, root) is None:          # build it while the spans still exist
-                episodes.record(self.spans, self._journal(), root, now.isoformat())
-            if episodes.get(self.db, root) is None:
-                return 0                                     # no episode: keep the spans
-            return retention.purge_task_spans(self.db, root)
-        except Exception as e:
-            self._journal().append("retention.failed", {"task_id": root, "error": f"{type(e).__name__}: {e}"})
-            return 0
-
-    def _purge_rest(self, plan: _PurgePlan, spans: int) -> dict[str, int]:
-        """Loose spans, old Jev decisions, old evidence and old recovery copies and records (a trash record stays while
-        its item is in the Trash, TRASH_RECORD_MAX_DAYS at most); snapshots are the async pass's last step.
-        `retention.purged` is journaled only when the pass purged something or left roots for the next one. Old
-        resource samples (L30, numbers only) go too, counted in the result, not journaled."""
-        spans += retention.purge_loose_spans(self.db, (plan.now - timedelta(days=plan.trace_days)).isoformat())
-        decisions = retention.purge_decisions(self.db, (plan.now - timedelta(days=plan.decision_days)).isoformat())
+    def _purge_rest(self, plan: _PurgePlan, counts: dict[str, int]) -> dict[str, int]:
+        """Old evidence and old recovery copies and records (a trash record stays while its item is in the Trash,
+        TRASH_RECORD_MAX_DAYS at most); snapshots are the async pass's last step. `retention.purged` is journaled only
+        when the pass purged something or left roots for the next one. Old resource samples (L30, numbers only) go
+        too, counted in the result, not journaled."""
         evidence = self.evidence.purge_before((plan.now - timedelta(days=plan.evidence_days)).isoformat()) \
             if self.evidence is not None else 0
         kept = self._recovery()
         copies = recovery.purge_before(
             (plan.now - timedelta(days=plan.recovery_days)).isoformat(), kept.db, kept.root,
             trash_backstop_iso=(plan.now - timedelta(days=recovery.TRASH_RECORD_MAX_DAYS)).isoformat())
-        if spans or decisions or evidence or copies or plan.left:
-            self._journal_purged(plan, spans, decisions, evidence, copies, plan.left)
+        counts = counts | {"evidence": evidence, "recovery": copies}
+        if any(counts[k] for k in ("spans", "decisions", "operational", "evidence", "recovery")) or plan.left:
+            self._journal_purged(plan, counts, plan.left)
         trashed = self._purge_downloads()
         if self.perception is not None:
             self.perception.purge_text()
-        return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies, "downloads": trashed,
+        return {"spans": counts["spans"], "decisions": counts["decisions"], "operational": counts["operational"],
+                "trail": counts["trail"], "evidence": evidence, "recovery": copies, "downloads": trashed,
                 "resources": self._purge_resources(plan), "shell_logs": self._purge_shell_logs(plan)}
 
     def _purge_shell_logs(self, plan: _PurgePlan) -> int:
@@ -151,12 +256,17 @@ class Retention:
                 "trashed": trashed, "total_mb": self.downloads.limits().total_bytes // (1024 * 1024)})
         return trashed
 
-    def _journal_purged(self, plan: _PurgePlan, spans: int, decisions: int, evidence: int, copies: int, left: int,
-                        stopped: bool = False) -> None:
-        self._journal().append("retention.purged", {"trace_days": plan.trace_days, "spans": spans,
-                                                    "decision_days": plan.decision_days, "decisions": decisions,
-                                                    "evidence_days": plan.evidence_days, "evidence": evidence,
-                                                    "recovery_days": plan.recovery_days, "recovery": copies,
+    def _journal_purged(self, plan: _PurgePlan, counts: dict[str, int], left: int, stopped: bool = False) -> None:
+        operational = {k: v for k, v in counts.items() if k in plan.rows.operational and v}
+        self._journal().append("retention.purged", {"trace_days": plan.trace_days, "spans": counts["spans"],
+                                                    "decision_days": plan.decision_days,
+                                                    "decisions": counts["decisions"],
+                                                    "evidence_days": plan.evidence_days,
+                                                    "evidence": counts.get("evidence", 0),
+                                                    "recovery_days": plan.recovery_days,
+                                                    "recovery": counts.get("recovery", 0),
+                                                    "operational_days": plan.operational_days,
+                                                    "operational": operational,
                                                     "roots_left": left} | ({"stopped": True} if stopped else {}))
 
     async def _retention_loop(self) -> None:

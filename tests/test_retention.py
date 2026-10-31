@@ -95,7 +95,8 @@ def _purged(daemon: RunningDaemon, roots: list[str], before: int, result: dict[s
             "evidence": result["evidence"], "evidence_left": _q(daemon, "SELECT count(*) FROM evidence"),
             "journal": row == {"trace_days": 30, "spans": result["spans"], "decision_days": 30,
                                "decisions": result["decisions"], "evidence_days": 7, "evidence": result["evidence"],
-                               "recovery_days": 7, "recovery": result["recovery"], "roots_left": 0},
+                               "recovery_days": 7, "recovery": result["recovery"], "operational_days": 90,
+                               "operational": {}, "roots_left": 0},
             "roots_emptied": [_tree_spans(daemon, r) == 0 for r in roots],
             "loose_left": _spans_with_prefix(daemon, "z-p"),
             "decisions_left": _q(daemon, "SELECT count(*) FROM decisions"),
@@ -120,7 +121,7 @@ def test_the_async_pass_purges_the_same_as_the_sync_one_and_yields_between_roots
                 d.call_soon(lambda: result.update(d.daemon._purge_records()))
             else:
                 real = d.daemon._purge_root
-                d.daemon._purge_root = lambda root, now: (order.append("root"), real(root, now))[1]  # type: ignore
+                d.daemon._purge_root = lambda root, plan: (order.append("root"), real(root, plan))[1]  # type: ignore
 
                 async def ticking() -> dict[str, int]:
                     async def tick() -> None:
@@ -198,11 +199,9 @@ def test_a_large_nested_tree_is_purged_completely(daemon: RunningDaemon) -> None
         _insert_span(daemon, f"a-c{i:03d}", f"z-t{i:03d}", root + ".1", None, _old())
     before = _q(daemon, "SELECT count(*) FROM spans")
     assert before > 601
-    from ferb.store import retention
-    async def go():
-        return retention.purge_task_spans(daemon.daemon.db, root)
-    deleted = daemon.run(go())
-    assert deleted == before - _q(daemon, "SELECT count(*) FROM spans") > 601                                           # the true count, not -1
+    result: dict[str, int] = {}
+    daemon.call_soon(lambda: result.update(daemon.daemon._purge_records()))
+    assert result["spans"] == before - _q(daemon, "SELECT count(*) FROM spans") > 601      # the true count, in batches
     assert _tree_spans(daemon, root) == 0
     assert _spans_with_prefix(daemon, "z-") == 0 and _spans_with_prefix(daemon, "a-c") == 0
 
@@ -214,15 +213,6 @@ def test_many_old_loose_spans_with_children_are_purged(daemon: RunningDaemon) ->
     _purge(daemon)
     assert _spans_with_prefix(daemon, "z-p") == 0 and _spans_with_prefix(daemon, "a-k") == 0
     assert _q(daemon, "SELECT json_extract(data_json, '$.spans') FROM journal WHERE kind = 'retention.purged'") == 600
-
-
-def test_purge_functions_return_true_counts(daemon: RunningDaemon) -> None:
-    from ferb.store import retention
-    _insert_span(daemon, "c-p", None, None, None, _old())
-    _insert_span(daemon, "c-k", "c-p", None, None, _old())
-    async def go():
-        return retention.purge_loose_spans(daemon.daemon.db, "2021-01-01T00:00:00+00:00")
-    assert daemon.run(go()) == 2
 
 
 def test_loose_span_rules(daemon: RunningDaemon) -> None:
@@ -262,9 +252,9 @@ def test_a_pass_cancelled_between_roots_journals_what_it_purged(daemon: RunningD
         pass_ = asyncio.ensure_future(daemon.daemon._purge_pass())
         real = daemon.daemon._purge_root
 
-        def purge_one(root: str, now: Any) -> int:
+        def purge_one(root: str, plan: Any) -> Any:
             pass_.cancel()                               # shutdown arrives while this root is purged
-            return real(root, now)
+            return real(root, plan)
         daemon.daemon._purge_root = purge_one  # type: ignore[method-assign]
         try:
             await pass_
@@ -285,7 +275,7 @@ def test_a_pass_cancelled_after_its_last_root_still_journals_it(daemon: RunningD
     async def cancel_during_the_last_root() -> None:
         pass_ = asyncio.ensure_future(daemon.daemon._purge_pass())
         real = daemon.daemon._purge_root
-        daemon.daemon._purge_root = lambda r, now: (pass_.cancel(), real(r, now))[1]  # type: ignore[method-assign]
+        daemon.daemon._purge_root = lambda r, plan: (pass_.cancel(), real(r, plan))[1]  # type: ignore[method-assign]
         try:
             await pass_
         except asyncio.CancelledError:
@@ -303,7 +293,7 @@ def test_a_pass_cancelled_before_anything_was_purged_journals_nothing(daemon: Ru
 
     async def cancel_at_once() -> None:
         pass_ = asyncio.ensure_future(daemon.daemon._purge_pass())
-        daemon.daemon._purge_root = lambda root, now: (pass_.cancel(), 0)[1]  # type: ignore[method-assign]
+        daemon.daemon._purge_root = lambda root, plan: (pass_.cancel(), iter(()))[1]  # type: ignore[method-assign]
         try:
             await pass_
         except asyncio.CancelledError:
@@ -414,3 +404,94 @@ def test_the_retention_loop_goes_on_when_even_its_failure_cant_be_journaled(tmp_
     assert err.count("FERB: a retention pass failed (RuntimeError: purge failed for token [REDACTED]) and couldn't "
                      "be journaled (OperationalError)") == 3, err
     assert "hunter2" not in err
+
+
+# ---------- step 12a: operational records (decision 3), activity rows, one place ----------
+
+def _task(daemon: RunningDaemon, ident: str, status: str, days_ago: int) -> None:
+    at = (daemon.daemon.clock.now() - timedelta(days=days_ago)).isoformat()
+    _do(daemon, "INSERT INTO tasks (id, tree_id, request_id, goal, identity, role, scopes_json, status, created_at, "
+                "updated_at) VALUES (?, ?, ?, 'g', 'owner', 'worker', '[]', ?, ?, ?)", ident, ident, "r-" + ident,
+        status, at, at)
+
+
+def _records(daemon: RunningDaemon, tree: str, days_ago: int) -> None:
+    """One of each operational record for a tree, written `days_ago`."""
+    at = (daemon.daemon.clock.now() - timedelta(days=days_ago)).isoformat()
+    _do(daemon, "INSERT INTO action_ledger (id, task_id, capability, target_json, payload_hash, state, created_at, "
+                "updated_at) VALUES (?, ?, 'browser.click', '{}', 'h', 'done', ?, ?)", "l-" + tree, tree + ".1", at, at)
+    _do(daemon, "INSERT INTO confirmations (id, tree_id, rule, key, granted, at) VALUES (?, ?, 'floor:pay', 'k', 1, ?)",
+        "c-" + tree, tree, at)
+    _do(daemon, "INSERT INTO task_plans (task_id, plan, request, status) VALUES (?, '{}', 'r', 'done')", tree)
+    _do(daemon, "INSERT INTO plan_steps (task_id, step_id, status) VALUES (?, 's1', 'done')", tree)
+    _do(daemon, "INSERT INTO loop_state (task_id, step_id, updated_at) VALUES (?, 's1', ?)", tree, at)
+    _do(daemon, "INSERT INTO journal (id, at, kind, data_json) VALUES (?, ?, 'plan.step', ?)", "p-" + tree, at,
+        json.dumps({"task_id": tree + ".1"}))
+
+
+def _count(daemon: RunningDaemon, table: str, where: str = "1", *params: Any) -> int:
+    return _q(daemon, f"SELECT count(*) FROM {table} WHERE {where}", *params)
+
+
+def test_operational_records_go_90_days_after_their_task_ends_with_what_depends_on_them(daemon: RunningDaemon) -> None:
+    """Decision 3: the ledger, confirmations, plans and their steps, loop state, delivered or cancelled timers and their
+    deliveries, and operational journal rows go 90 days after their task or timer ended, never before, never while the
+    task runs; chat and owner rows, results, and a row a memory fact cites stay."""
+    _task(daemon, "old", "done", 91)
+    _task(daemon, "recent", "done", 10)
+    _task(daemon, "looping", "running", 120)
+    for tree, days in (("old", 91), ("recent", 10), ("looping", 120)):
+        _records(daemon, tree, days)
+    _do(daemon, "INSERT INTO task_results (task_id, at, status, goal, answer) VALUES ('old', ?, 'done', 'g', 'a')",
+        _old())
+    old, recent = ((daemon.daemon.clock.now() - timedelta(days=d)).isoformat() for d in (91, 10))
+    for ident, state, at in (("tm-old", "delivered", old), ("tm-recent", "delivered", recent),
+                             ("tm-pending", "pending", old), ("tm-cancelled", "cancelled", old)):
+        _do(daemon, "INSERT INTO timers (id, kind, fire_at, state, delivered_at, created_at) VALUES (?, 'reminder', ?, "
+                    "?, ?, ?)", ident, at, state, at if state == "delivered" else None, at)
+        _do(daemon, "INSERT INTO timer_deliveries (timer_id, at) VALUES (?, ?)", ident, at)
+    for ident, kind in (("j-started", "daemon.started"), ("j-chat", "chat.message"), ("j-verdict", "owner.verdict"),
+                        ("j-cited", "memory.distill_failed")):
+        _do(daemon, "INSERT INTO journal (id, at, kind, data_json) VALUES (?, ?, ?, '{}')", ident, old, kind)
+    _do(daemon, "INSERT INTO memory_sources (item_id, kind, source_id) VALUES ('m1', 'journal', 'j-cited')")
+    result: dict[str, int] = {}
+    daemon.call_soon(lambda: result.update(daemon.daemon._purge_records()))
+    for table, key in (("action_ledger", "id"), ("confirmations", "id"), ("task_plans", "task_id"),
+                       ("plan_steps", "task_id"), ("loop_state", "task_id")):
+        left = {r for r in _rows_of(daemon, f"SELECT {key} FROM {table}")}
+        assert not any("old" in r for r in left) and any("recent" in r for r in left) and \
+            any("looping" in r for r in left), (table, left)
+    assert {r for r in _rows_of(daemon, "SELECT id FROM timers")} == {"tm-recent", "tm-pending"}
+    assert {r for r in _rows_of(daemon, "SELECT timer_id FROM timer_deliveries")} == {"tm-recent", "tm-pending"}
+    journal = set(_rows_of(daemon, "SELECT id FROM journal"))
+    assert {"j-chat", "j-verdict", "j-cited", "p-recent", "p-looping"} <= journal
+    assert not {"j-started", "p-old"} & journal
+    assert _count(daemon, "task_results") == 1                           # results stay forever
+    row = json.loads(_q(daemon, "SELECT data_json FROM journal WHERE kind = 'retention.purged'"))
+    assert row["operational_days"] == 90 and row["operational"]["timers"] == 2 and result["operational"] == 8
+
+
+def _rows_of(daemon: RunningDaemon, sql: str) -> list[Any]:
+    async def go():
+        return [r[0] for r in daemon.daemon.db.conn.execute(sql)]
+    return daemon.run(go())
+
+
+def test_old_activity_rows_go_with_the_perception_receipts_that_point_at_them(daemon: RunningDaemon) -> None:
+    """Accessibility rows after 7 days, others after 30 once their day is summarized (memory decision 3, D21), in
+    short batches; a Jev perception receipt of a deleted row goes with it (68 pointed at purged rows before)."""
+    now = daemon.daemon.clock.now()
+    for ident, source, days in (("a-old", "accessibility", 8), ("a-new", "accessibility", 2),
+                                ("w-old", "app_focus", 40)):
+        at = now - timedelta(days=days)
+        _do(daemon, "INSERT INTO trail (id, at, day, device_id, actor, source, data_json) VALUES (?, ?, ?, 'd', "
+                    "'unknown', ?, '{}')", ident, at.isoformat(), at.astimezone().date().isoformat(), source)
+    _do(daemon, "INSERT INTO perception_batches VALUES ('b1', ?, 'size', 'done', '[]', NULL)", now.isoformat())
+    for ident in ("a-old", "a-new", "w-old"):
+        _do(daemon, "INSERT INTO perception_receipts VALUES (?, 'b1')", ident)
+    result: dict[str, int] = {}
+    daemon.call_soon(lambda: result.update(daemon.daemon._purge_records()))
+    left = set(_rows_of(daemon, "SELECT id FROM trail WHERE id IN ('a-old', 'a-new', 'w-old')"))
+    assert left == {"a-new", "w-old"}                                    # w-old's day has no summary yet
+    assert set(_rows_of(daemon, "SELECT event_id FROM perception_receipts")) == {"a-new", "w-old"}
+    assert result["trail"] == 1

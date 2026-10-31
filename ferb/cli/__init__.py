@@ -1,8 +1,8 @@
 """Register CLI commands and common connection helpers. Must not implement task orchestration.
 
 `ferb` is plumbing and a developer toolbox, never a user interface (the FERB app is; notes/daemon.md decisions 3, 4):
-setup --service/--update/--codex-login/--codex-logout/--cli, mcp and daemon run for the app and the models; trace,
-logs, stats, doctor, memory, restore, ps, verdict, runtimes and browsers for debugging."""
+setup --service/--update/--cleanup/--codex-login/--codex-logout/--cli, mcp and daemon run for the app and the models;
+trace, logs, stats, doctor, memory, restore, ps, verdict, runtimes and browsers for debugging."""
 
 import argparse
 import json
@@ -138,6 +138,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="sign in FERB's own Claude (its own home: your personal Claude Code settings stay out)")
     sp.add_argument("--claude-logout", action="store_true",
                     help="sign out FERB's own Claude (your personal Claude Code login is never touched)")
+    sp.add_argument("--cleanup", action="store_true",
+                    help="FERB.app's clean-up screen: what the one-time clean-up of unused data removes, as JSON; with "
+                         "--ok, run it (the daemon is stopped meanwhile)")
+    sp.add_argument("--ok", metavar="DIGEST", help="with --cleanup: the `ok` of the preview the owner agreed to")
     sp.add_argument("--service", action="store_true",
                     help="FERB.app's setup window: install (with --update, update) the background service with no "
                          "questions and wait until it answers")
@@ -221,6 +225,8 @@ def main(argv: list[str] | None = None) -> int:
                                    cli_dir=Path.home() / ".local" / "bin")       # where FERB.app links `ferb`
         env = setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout, browser_support=SUPPORT)
         try:
+            if args.cmd == "setup" and args.cleanup:
+                return setup_cmd.cleanup_apply(env, args.ok) if args.ok else setup_cmd.cleanup_preview(env)
             if args.cmd == "setup" and args.service:
                 return setup_cmd.service_setup(env, update=args.update)
             if args.cmd == "setup" and args.key:

@@ -7,8 +7,8 @@ flows are testable without touching the real Mac. Permissions are always checked
 Setup never opens, quits or kills a browser and never writes a browser's Preferences: per browser it writes only
 FERB's own files (the native host, the Web Store install request) and reads each profile's state (L25)."""
 
+import json
 import signal
-import sqlite3
 import subprocess
 import threading
 import time
@@ -134,7 +134,7 @@ def device_id(config: Config) -> str:
 def _finish_install() -> Iterator[list[int]]:
     """A stop (SIGTERM from FERB.app quitting, or Ctrl-C) while the background service is being (re)installed waits
     until it is loaded again, then stops setup: the daemon is never left unloaded halfway (M5). Yields the stops caught
-    so far, so work done meanwhile (the store clean-out) can end early."""
+    so far, so work done meanwhile (the store's clean-up) can end early."""
     if threading.current_thread() is not threading.main_thread():
         yield []
         return
@@ -151,15 +151,12 @@ def _finish_install() -> Iterator[list[int]]:
 
 
 def _install(env: Env, update: bool) -> None:
-    """Install, then say where FERB now runs when that changed (FERB.app and a checkout share one LaunchAgent). A store
-    that still needs its one-time clean-out (asked read-only, while the old daemon runs) gets it between stopping the
-    old daemon and starting the new one (`_clean_store`)."""
+    """Install, then say where FERB now runs when that changed (FERB.app and a checkout share one LaunchAgent). The
+    store's one-time clean-up is not part of an install: it waits for the owner's OK (`cleanup`)."""
     inst = env.inst
     before = inst.active_program()
-    state = cleanout_state(inst.home / "ferb.db")
-    with _finish_install() as stops:
-        inst.install(update_only=update,
-                     while_stopped=(lambda: _clean_store(env, lambda: bool(stops), state)) if state else None)
+    with _finish_install():
+        inst.install(update_only=update)
     now = inst.active_program()
     if before and now and before != now:
         env.say(f"     The background service now runs from {now} (it ran from {before}).")
@@ -277,35 +274,7 @@ def _permissions_state(env: Env, config: Config, grants: dict[str, Any]) -> None
     env.say("     All macOS permissions are granted (checked by the running daemon).")
 
 
-# ---------- the store's one-time clean-out (plan 2026-10-23 Task 1; L28, C1) ----------
-
-CLEANED = "store.cards_cleaned"      # journal: the clean-out of card rows ran to the end (counts only)
-COMPACTED = "store.compacted"        # journal: the compaction after it ran (sizes only)
-
-
-def cleanout_state(path: Path) -> str | None:
-    """What this store's one-time clean-out still has to do: "clean" while it holds cards the composer before memory
-    review C1 wrote (`COPYING_CARD_MAKER`) and no `store.cards_cleaned` entry, "compact" when the rows were removed
-    but the file wasn't compacted yet (`store.compacted`), else None. Read-only, so it can ask while a daemon runs; a
-    store it can't read (none yet, or from before F8) has nothing to do."""
-    from ferb.memory.learning import COPYING_CARD_MAKER
-    if not path.exists():
-        return None
-    try:
-        c = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True)
-    except sqlite3.Error:
-        return None
-    try:
-        old, cleaned, compacted = c.execute(
-            "SELECT EXISTS (SELECT 1 FROM learning_nodes WHERE kind = 'episode' AND made_by = ?), EXISTS (SELECT 1 FROM "
-            "journal WHERE kind = ?), EXISTS (SELECT 1 FROM journal WHERE kind = ?)",
-            (COPYING_CARD_MAKER, CLEANED, COMPACTED)).fetchone()
-    except sqlite3.Error:
-        return None
-    finally:
-        c.close()
-    return None if not old else "clean" if not cleaned else "compact" if not compacted else None
-
+# ---------- the store's one-time clean-up (notes/storage.md decision 4; step 12a) ----------
 
 def _daemon_answers(env: Env) -> bool:
     try:
@@ -317,80 +286,89 @@ def _daemon_answers(env: Env) -> bool:
         return False
 
 
-def _clean_store(env: Env, stop: Callable[[], bool], state: str) -> None:
-    """The store's one-time clean-out, run by the installer while no daemon runs. With `state` "clean", every version of
-    each traced task's card keeps only the source rows the current card rule gives it (`Learning.prune_card_sources`),
-    and `store.cards_cleaned` records the counts. Then, and alone with "compact", the file is compacted
-    (`Database.compact`, when the disk has room for a full copy) and `store.compacted` records the sizes. Never while
-    launchd still has the agent, while the process it stopped hasn't exited (`Installer.exiting`: the installer's wait
-    ended first), or while a daemon answers (`ferb daemon run` in a terminal). A stop (`stop`: Ctrl-C, FERB.app
-    quitting) ends it before the next card, and an error is reported; the update goes on either way, and the next
-    `ferb setup --update` does what is left."""
+def cleanup_preview(env: Env) -> int:
+    """`ferb setup --cleanup`: what the one-time clean-up would remove, as one JSON object for FERB.app to show the
+    owner (tables, row counts, what each held, whether the file still needs compacting, its size and the disk's free
+    space, and `ok`, the digest the owner's OK carries). Read-only: a running daemon is left alone."""
+    from ferb.store import cleanup
+    path = env.inst.home / "ferb.db"
+    if not path.exists():
+        env.say(json.dumps({"steps": [], "rows": 0, "compact": False, "ok": None}))
+        return 0
+    env.say(json.dumps(cleanup.preview(path)))
+    return 0
+
+
+def cleanup_apply(env: Env, ok: str) -> int:
+    """`ferb setup --cleanup --ok DIGEST`: the clean-up the owner agreed to, with the daemon stopped, then the daemon
+    started again whatever happens. Refused, with nothing removed, when the plan read with the daemon stopped isn't
+    the one the owner saw (exit 2, the new plan printed), and while a daemon still runs (exit 1). A stop (FERB.app
+    quitting, Ctrl-C) ends it between batches; what was removed stays removed and the next run finishes. The last line
+    is the result as JSON."""
+    inst = env.inst
+    if _daemon_answers(env) and not inst.loaded():
+        env.say("The clean-up didn't run: a FERB daemon outside launchd answers (`ferb daemon run` in a terminal?). "
+                "Stop it, then try again.")
+        return 1
+    result: dict[str, Any] = {}
+
+    def work(stop: Callable[[], bool]) -> None:
+        result.update(_run_cleanup(env, ok, stop))
+    with _finish_install() as stops:               # a stop waits until the daemon is loaded again, then ends setup
+        if inst.plist_path.exists():
+            inst.while_stopped(lambda: work(lambda: bool(stops)))
+        else:                                        # no service installed (a checkout): nothing to stop
+            work(lambda: bool(stops))
+        env.say(json.dumps(result))
+    return 2 if result.get("refused") else 1 if result.get("error") or result.get("not_run") else 0
+
+
+def _run_cleanup(env: Env, ok: str, stop: Callable[[], bool]) -> dict[str, Any]:
+    """The clean-up on the stopped daemon's store: never while launchd still has the agent, while the process it
+    stopped hasn't exited (`Installer.exiting`), or while a daemon answers. An error is reported, never raised: the
+    daemon is started again either way."""
     from ferb.clock.clock import SystemClock
     from ferb.core.ids import RandomIds
     from ferb.memory.journal import Journal
-    from ferb.memory.learning import Learning
     from ferb.sanitize.redact import Redactor
-    from ferb.store.db import Database, store_size
+    from ferb.store import cleanup
+    from ferb.store.db import Database
     inst = env.inst
-    loaded = inst.loaded()
+    loaded = inst.plist_path.exists() and inst.loaded()
     exiting = None if loaded else inst.exiting()
     running = ("launchd hasn't stopped FERB's daemon yet" if loaded else
                f"FERB's daemon (process {exiting}) hasn't exited since launchd stopped it" if exiting is not None else
-               "a FERB daemon outside launchd answers (`ferb daemon run` in a terminal?)" if _daemon_answers(env) else "")
+               "a FERB daemon still answers" if _daemon_answers(env) else "")
     if running:
-        env.say(f"     Database clean-out not run: {running}. Stop it, then run `ferb setup --update` again.")
-        return
-    path = inst.home / "ferb.db"
-    env.say("     Cleaning FERB's database with the daemon stopped (once; it may take a few minutes)…" if state == "clean"
-            else "     Compacting FERB's database with the daemon stopped (its unused card rows were removed earlier)…")
-    said = [0]                                       # the tenths said so far
-
-    def progress(done: int, total: int) -> None:
-        if done * 10 // total > said[0]:
-            said[0] = done * 10 // total
-            env.say(f"     …{done:,} of {total:,} card versions done")
-
-    def rebuilding() -> None:
-        env.say("     Stopping: making a database index again over the rows left first (it can take a minute)…")
+        env.say(f"The clean-up didn't run: {running}. Try again in a moment.")
+        return {"not_run": running}
     db = None
     try:
-        before = store_size(path)
-        db = Database(path)
+        db = Database(inst.home / "ferb.db")
+        db.migrate()
         journal = Journal(db, SystemClock(), RandomIds(), Redactor())
-        done = ""                                    # what this run removed, as setup says it
-        if state == "clean":
-            counts = Learning(db, SystemClock(), lambda *args, **kwargs: None, lambda text: text).prune_card_sources(
-                stop=stop, progress=progress, rebuilding=rebuilding)
-            if counts["stopped"]:
-                env.say(f"     Database clean-out stopped before it finished ({counts['rows']:,} unused rows removed so "
-                        "far); the next `ferb setup --update` finishes it.")
-                return
-            journal.append(CLEANED, {k: counts[k] for k in ("tasks", "nodes", "cleaned", "rows", "untraced")})
-            done = f"Cleaned FERB's database: {counts['rows']:,} unused rows removed" + (
-                f" ({counts['untraced']} card versions whose trace aged out were left as they are)"
-                if counts["untraced"] else "")
-        if stop():                                   # VACUUM can't be stopped halfway: it waits for the next update
-            env.say("     " + (done or "Compacting FERB's database stopped") + "; the next `ferb setup --update` "
-                    "compacts the file.")
-            return
-        compaction = db.compact()
-        if not compaction["compacted"]:
-            env.say("     " + (done + ". Not" if done else "FERB's database is still not") + " compacted "
-                    f"({shown_bytes(before)}): that needs {shown_bytes(compaction['needed'])} free and the disk has "
-                    f"{shown_bytes(compaction['free'])}; FERB reuses the freed space inside the file, and the next "
-                    "`ferb setup --update` compacts it.")
-            return
-        after = store_size(path)
-        journal.append(COMPACTED, {"bytes_before": before, "bytes_after": after})
-        env.say("     " + (f"{done}; " if done else "Compacted FERB's database: ") +
-                f"{shown_bytes(before)} → {shown_bytes(after)}.")
+        out = cleanup.apply(db, journal, ok, stop=stop, say=env.say)
     except Exception as e:
-        env.say(f"     Database clean-out stopped ({type(e).__name__}: {e}); FERB works without it, and the next "
-                "`ferb setup --update` tries again.")
+        env.say(f"The clean-up stopped ({type(e).__name__}: {e}); what it removed stays removed, and running it "
+                "again finishes it.")
+        return {"error": f"{type(e).__name__}: {e}"}
     finally:
         if db is not None:
             db.close()
+    if out.get("refused"):
+        env.say("The clean-up didn't run: what it would remove changed since you saw it. Look at it again.")
+    elif out["stopped"]:
+        env.say(f"The clean-up stopped before it finished ({sum(out['removed'].values()):,} rows removed so far); "
+                "running it again finishes it.")
+    elif out.get("compacted") is False and "needed" in out:
+        env.say(f"Removed {sum(out['removed'].values()):,} rows. Not compacted: that needs "
+                f"{shown_bytes(out['needed'])} free and the disk has {shown_bytes(out['free'])}; FERB reuses the freed "
+                "space inside the file, and running the clean-up again compacts it.")
+    else:
+        env.say(f"Removed {sum(out['removed'].values()):,} rows" + (
+            f"; FERB's database: {shown_bytes(out['bytes_before'])} → {shown_bytes(out['bytes_after'])}."
+            if out.get("compacted") else "."))
+    return out
 
 
 def _app_installed(env: Env) -> None:
@@ -624,19 +602,16 @@ def protection_check(home: Path) -> Check:
 
 
 def database_check(home: Path) -> Check | None:
-    """The store's size on disk, and what its one-time clean-out still has to do (plan 2026-10-23 Task 1)."""
+    """The store's size on disk, and whether its one-time clean-up waits for the owner's OK (decision 4)."""
+    from ferb.store import cleanup
     from ferb.store.db import store_size
     path = home / "ferb.db"
     if not path.exists():
         return None
     size = shown_bytes(store_size(path))
-    state = cleanout_state(path)
-    if state == "clean":
-        return Check("database", "warn", f"{size}; a one-time clean-out of unused card rows is pending",
-                     "run `ferb setup --update` (it stops FERB for a few minutes)")
-    if state == "compact":
-        return Check("database", "warn", f"{size}; its unused card rows were removed, compacting the file is left (it "
-                     "needs free disk of at least the database's size)", "free disk space, then run `ferb setup --update`")
+    if cleanup.pending(path):
+        return Check("database", "warn", f"{size}; a one-time clean-up of data FERB no longer uses waits for your OK",
+                     "FERB's app shows what it removes (`ferb setup --cleanup` lists it)")
     return Check("database", "ok", size)
 
 

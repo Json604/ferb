@@ -182,7 +182,8 @@ def page_bounds(text: str, offset: int, size: int, secrets: Iterable[str]) -> tu
     one starts where it starts; one crossing the end ends the page where it starts, or, when the page starts with it,
     is taken whole. Read-time redaction, which masks whole values only, then sees each one whole on one page; offsets
     stay on the stored text."""
-    forms = {form for value in secrets if value for form in (value, json.dumps(value, ensure_ascii=False)[1:-1])}
+    forms = {form for value in secrets if value
+             for form in (value, json.dumps(value, ensure_ascii=False)[1:-1], json.dumps(value)[1:-1])}
     found = []
     for form in forms:
         at = text.find(form)

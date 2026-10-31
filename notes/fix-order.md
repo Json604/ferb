@@ -60,6 +60,13 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     in notes/voice.md; live checks with step 13.)
 12. **Storage**: retention, `source_refs` removal, incremental vacuum, one-time cleanup (owner OK), upgrade path
     tested on copies of real older databases and configs.
+    (Step 12a: retention in one place (ferb/store/retention.py: reads off the loop, 200-row batches, cascades,
+    operational records 90 d), migration 0056 (reply ref lists stripped under a remade append-only trigger, one tombstone
+    table; no owner data deleted), incremental vacuum + WAL truncate after each pass, `busy_timeout`, the one-time
+    clean-up as `ferb setup --cleanup [--ok DIGEST]` (preview, owner's OK, daemon stopped, journaled, compacted; it also
+    drops the four tables no code reads), the
+    continued-tree/non-ASCII/exposure-origin/timer-kind fixes, upgrade tests from older schemas and configs. Measured on
+    a copy of the owner's store: notes/storage.md. The app's clean-up screen is step 12b.)
 13. **Live checks**: per-adapter live tests, the owner's P20 injection eval, the patch re-test list, the safety suite.
 14. **Docs cleanup** last: extract `notes/test-tasks.md`, settle CLAUDE.md/AGENTS.md, delete the old docs, rewrite
     the README.

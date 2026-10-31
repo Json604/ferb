@@ -4,7 +4,7 @@ Daily distillation: for each past day, in order —
 1. the permanent summary, by code, before anything else (so a purge is never blocked on a model);
 2. one model run (the worker runtime from config, no tools, typed output, unmetered): a short narrative of the day
    and proposed memory items citing evidence handles (summary.py);
-3. then the retention purge, which only ever deletes days that have their summary.
+3. the hourly retention pass (ferb/store/retention.py) then deletes raw rows only of days that have their summary.
 
 Code checks every proposal before `Memory.save` (which checks the sources again): handles must exist; an observed
 item cites only the owner's own trail (E); nothing about the owner or their preferences may rest on FERB's activity

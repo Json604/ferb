@@ -71,8 +71,9 @@ def test_activity_and_history_the_planner_was_shown_are_not_card_sources(daemon)
     daemon.run(check())
 
 
-def test_todays_activity_keeps_its_labels_and_source_refs(daemon):
-    """Today's matching activity is a read with its own labels and refs. The raw recent trail is fetch-only (L28)."""
+def test_todays_activity_keeps_its_labels_without_listing_its_rows(daemon):
+    """Today's matching activity is a read with its own labels. The raw recent trail is fetch-only (L28); its rows are no
+    longer listed on the recorded exposure (step 12a)."""
     from tests.conftest import chat, done, install, sup, task
     supervisor = daemon.daemon.supervisor
     supervisor.relevant_context = lambda _: ('Recorded matching action', 'private', 'Recorded matching action',
@@ -82,9 +83,10 @@ def test_todays_activity_keeps_its_labels_and_source_refs(daemon):
     assert 'Recorded matching action' in script.contexts[0][2]
     async def exposure():
         return [dict(row) for row in daemon.daemon.db.conn.execute(
-            "SELECT input_json,origin FROM spans WHERE kind='context.exposure'")]
-    matched = [row for row in daemon.run(exposure()) if 'trail:matching' in row['input_json']]
+            "SELECT input_json,output_json,origin FROM spans WHERE kind='context.exposure'")]
+    matched = [row for row in daemon.run(exposure()) if 'Recorded matching action' in (row['output_json'] or '')]
     assert matched and all('private' in row['origin'] for row in matched)
+    assert not [row for row in matched if 'trail:matching' in row['input_json']]
 
 
 def test_context_payload_omits_catalogue_but_preserves_recorded_memory(daemon):

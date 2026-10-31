@@ -250,12 +250,17 @@ to commit c6621c3.
       (Step 9b: ferb/memory/playbooks.py + playbook.md: code groups verified cards by goal similarity, one model call
       says same kind or not and writes the steps, code checks the ids; a `playbook` node (rewritten as new runs join;
       the owner's edit is never replaced; a declined group is not asked again), at most 3 merges an hourly pass.)
-- [ ] Upgrade: build an initial Tier 1 from existing facts and initial embeddings on first start of the new
+- [x] Upgrade: build an initial Tier 1 from existing facts and initial embeddings on first start of the new
       version (notes/storage.md decision 5).
       (Step 9a: Tier 1 done: `CoreProfile.seed` after the clean-up, journaled `memory.profile_seeded`, then the first
       pass; tests/test_memory_upgrade.py on a schema-52 store shaped like the owner's. Embeddings are step 9b.)
       (Step 9b: the background embedder embeds everything already stored at the first start after the model is there
       (`_embed_loop`), never in a turn.)
+      (Step 12a: checked on a copy of the owner's schema-48 store: the first start applied 0049–0056, journaled
+      `memory.cleanup`, `memory.profile_seeded` (46 Tier 1 items) and `memory.fact_nodes_closed` once each; a second start
+      changes nothing (tests/test_upgrade.py, tests/test_memory_upgrade.py); `_embed_now` embeds what an older store holds
+      (tests/test_memory_recall.py). The real model's first fill on the owner's store is a step-13 live check: the model
+      isn't on the owner's Mac yet.)
 - [x] Prompt text names the real memory blocks; only roles with tools are told to use lookup tools.
       (Step 9a: supervisor.md names the real blocks; `TOOLLESS_ROLES` (planner, question router, attention) get no
       skills/abilities catalog.)

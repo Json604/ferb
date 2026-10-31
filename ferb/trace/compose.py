@@ -20,7 +20,9 @@ OPEN, OPEN_TEXT = "⏹", "did not finish (interrupted)"   # a step span never fi
 RERUN = "↻"     # a check run whose model window overflowed: the same check round ran again (verify.rerun)
 NO_SCREEN = ("shell.", "fs.")   # a record made before `on_screen` was kept: these families never counted (RQ2)
 OBSERVE_KINDS = {Kind.READ, Kind.SEARCH, Kind.MAILBOX_READ}   # nor did recorded reads (FERB's readers, snapshots)
-ORIGIN_KINDS = {"task", "tool.call", "context.source"}   # what the task's models were shown (S3; task_origins)
+# what the task's models were shown (S3; task_origins), the blocks its planner was shown included (step 12a: their
+# outside-content labels outlive the spans)
+ORIGIN_KINDS = {"task", "tool.call", "context.source", "context.exposure"}
 PASTED = "[pasted text]"
 
 
@@ -174,7 +176,9 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
     outcome = trace.get("outcome") or {}
     spec = outcome.get("task_spec") or {}
     conditions_text = [c.get("text", "") for c in spec.get("success_conditions") or []]
-    root: dict[str, Any] = next((n for n in forest if n["kind"] == "task"), {})
+    # a continued tree's last run ends it (one root span per run, in start order; step 12a)
+    root: dict[str, Any] = next((n for n in reversed(forest) if n["kind"] == "task" and n.get("task_id") == task_id),
+                                next((n for n in forest if n["kind"] == "task"), {}))
     result = outcome.get("result") or {}
     row: dict[str, Any] = next((t for t in outcome.get("tasks") or [] if t.get("id") == task_id), {})
     checked = next((r["verification"] for r in reversed(outcome.get("outcome_records") or [])

@@ -202,7 +202,9 @@ def test_history_payload_holds_only_entry_texts(daemon):
     assert "entry_id=" not in payload and "Owner:" not in payload
 
 
-def test_reply_rows_record_their_history_by_handle_not_by_copy(daemon):
+def test_reply_rows_carry_no_lists_of_what_their_planner_was_shown(daemon):
+    """Step 12a (notes/storage.md target design 2): a reply row once copied the refs of every block its planner was
+    shown (79 MB of the owner's journal); nothing read them back."""
     sv = daemon.daemon.supervisor
     sv.memory_candidates = lambda words, focus: []
     sv.relevant_context = lambda words: ('Matching activity', 'private', 'Matching activity', ['trail:first-turn'])
@@ -214,10 +216,8 @@ def test_reply_rows_record_their_history_by_handle_not_by_copy(daemon):
     async def replies():
         return daemon.daemon.journal.of_kind("chat.reply")
     first, second = daemon.run(replies())
-    assert "trail:first-turn" in first.data["source_refs"]
-    # the second reply cites the first reply by its entry, never by copying the refs that reply already cites
-    assert "entry:" + first.id in second.data["source_refs"]
-    assert "trail:first-turn" not in second.data["source_refs"]
+    assert "source_refs" not in first.data and "source_refs" not in second.data
+    assert first.data["text"] == "answer 0" and second.data["text"] == "answer 1"
 
 
 def test_assembly_counts_each_block_once(monkeypatch):
@@ -553,20 +553,29 @@ def test_episode_capture_runs_off_the_loop_so_a_new_message_is_not_held(daemon, 
     assert daemon.run(card())                                          # and the card was still written
 
 
-def test_reply_rows_keep_their_source_ids_intact(daemon):
-    """A registered secret value can occur inside an id; journal rows, like span inputs, keep FERB's ids whole by key,
-    or an altered ref breaks lineage (production: 44 episode captures failed on 'unknown source m-8e95…[redacted]…')."""
+def test_context_rows_keep_their_source_ids_intact_and_replies_carry_no_ref_lists(daemon):
+    """A registered secret value can occur inside an id; span inputs keep FERB's ids whole by key, or an altered ref
+    breaks lineage (production: 44 episode captures failed on 'unknown source m-8e95…[redacted]…'). Step 12a: a reply
+    row no longer copies the refs of what its planner was shown, and a context span keeps a block's refs but not the
+    activity rows behind it."""
+    import json
     sv = daemon.daemon.supervisor
     node = "m-8e953d2b8ca8fa1fce4363854ff888cff4b8e7875d600c2682390412a8cf79ab"
     daemon.call_soon(daemon.daemon._add_secret_value, "4363854ff888")
     sv.memory_candidates = lambda words, focus: [{'text': 'A remembered fact.', 'reference': 'memory.learned id=x',
-                                           'origin': 'private', 'source_refs': [node]}]
-    install(daemon, [sup("reply", "ok")])
+                                           'origin': 'private', 'source_refs': [node, "trail:e1", "trail:e2"]}]
+    install(daemon, [sup("reply", "ok"), sup("task", "Doing.", task("job"))], {"worker": done("done")})
     chat(daemon, "hello")
+    outcome(chat(daemon, "do the job"))
 
-    async def reply():
-        return daemon.daemon.journal.of_kind("chat.reply")[-1].data["source_refs"]
-    assert node in daemon.run(reply())
+    async def rows():
+        spans = daemon.daemon.db.conn.execute("SELECT input_json FROM spans WHERE kind IN "
+                                              "('context.exposure', 'context.source')").fetchall()
+        return ([ref for row in spans for ref in json.loads(row[0]).get("source_refs", [])],
+                [e.data for e in daemon.daemon.journal.entries_of("chat.reply", "chat.clarify")])
+    refs, replies = daemon.run(rows())
+    assert node in refs and not [r for r in refs if r.startswith("trail:")]
+    assert replies and not [r for r in replies if "source_refs" in r]
 
 
 def test_the_card_reader_is_started_as_its_exact_entry_point_with_no_arguments(daemon, monkeypatch):

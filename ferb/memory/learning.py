@@ -37,7 +37,8 @@ CARD_MAKER = 'code:evidence-card/4'
 # is read again (`cards_to_read`); a second failure records a new error, so it is tried once.
 PARKED_BY_REDACTION = 'redaction would still change it'
 # The composer before C1 (fixed in e0e344b): it copied into a card the refs of every block its planner was shown, and
-# every earlier version's. A store holding its cards gets the one-time clean-out (`prune_card_sources`, run by setup).
+# every earlier version's. The one-time clean-up (`ferb setup --cleanup`, ferb/store/cleanup.py) prunes them
+# (`card_source_plan`, `prune_card_sources`).
 COPYING_CARD_MAKER = 'code:evidence-card/1'
 # The source-ref index (migration 0030): that clean-out drops it while it deletes and makes it again after; a power
 # loss in between leaves it missing whatever the schema version, so every daemon start makes it too (L28, C1)
@@ -356,6 +357,8 @@ class Learning:
         # Bumped by every change to an episode card's inputs (a forget, an owner verdict, a write of a card): a card
         # read before one is read again before it is written (L28).
         self.generation = 0
+        self._origins_memo: dict[str, frozenset[str] | LearningRefused] | None = None   # `card_source_plan` only
+        self._removing: frozenset[str] = frozenset()                  # nodes a clean-up plan reads as already gone
 
     def now(self) -> str:
         return self.clock.now().isoformat()
@@ -408,7 +411,23 @@ class Learning:
         return origin.least_trusted(self._source_origins(ref))
 
     def _source_origins(self, ref: str) -> set[str]:
-        node = self.get(ref)
+        """A source ref's origins (refused when nothing records it). Within one clean-up plan (`card_source_plan`, read
+        once without writing) each ref is looked up once: a card's versions cite the same rows."""
+        memo = self._origins_memo
+        if memo is None:
+            return self._read_origins(ref)
+        if ref not in memo:
+            try:
+                memo[ref] = frozenset(self._read_origins(ref))
+            except LearningRefused as e:
+                memo[ref] = e
+        hit = memo[ref]
+        if isinstance(hit, LearningRefused):
+            raise hit
+        return set(hit)
+
+    def _read_origins(self, ref: str) -> set[str]:
+        node = self.get(ref, False) if ref not in self._removing else None
         if node:
             return set(node['origins'])
         family, sep, ident = ref.partition(':')
@@ -438,8 +457,9 @@ class Learning:
             r = self.db.conn.execute('SELECT origin FROM journal WHERE id=?', (ident,)).fetchone()
             if r:
                 return origin.recorded(r[0], True)
-        retained = self.db.conn.execute('SELECT n.origins_json FROM learning_sources s JOIN learning_nodes n '
-            'ON n.id=s.node_id WHERE s.source_ref=? ORDER BY n.recorded_at DESC', (ref,)).fetchall()
+        retained = [row for row in self.db.conn.execute(
+            'SELECT n.origins_json, n.id FROM learning_sources s JOIN learning_nodes n ON n.id=s.node_id '
+            'WHERE s.source_ref=? ORDER BY n.recorded_at DESC', (ref,)).fetchall() if row[1] not in self._removing]
         if retained:
             return {label for row in retained for label in json.loads(row[0])}
         raise LearningRefused(f'source is missing: {ref}')
@@ -452,8 +472,7 @@ class Learning:
         """Whether an explicit owner forget deleted this ref: its tombstone (the id, never its content). A missing ref
         without one was removed by retention."""
         ref = direct(ref)
-        return self.db.conn.execute('SELECT 1 FROM forgotten_refs WHERE ref=? UNION ALL SELECT 1 FROM learning_forgotten '
-                                    'WHERE id=? LIMIT 1', (ref, ref)).fetchone() is not None
+        return self.db.conn.execute('SELECT 1 FROM forgotten_refs WHERE ref=?', (ref,)).fetchone() is not None
 
     @staticmethod
     def card_key(task_id: str) -> str:
@@ -489,7 +508,7 @@ class Learning:
         inherited = origin.least_trusted(labels)
         node_id = 'm-' + digest([kind, key, body, refs, sorted(labels), made_by])
         logical_id = 'key-' + digest([kind, key])
-        if self.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id IN (?,?)', (node_id, logical_id)).fetchone():
+        if self.db.conn.execute('SELECT 1 FROM forgotten_refs WHERE ref IN (?,?)', (node_id, logical_id)).fetchone():
             raise LearningRefused('this content was forgotten')
         old = self.get(node_id)
         if old:
@@ -534,7 +553,7 @@ class Learning:
         if prepared is None:
             return None
         if prepared.get('forgotten'):
-            self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)',
+            self.db.conn.execute('INSERT OR IGNORE INTO forgotten_refs VALUES (?,?)',
                                  (self.card_key(prepared['task_id']), self.now()))
             return None
         card = self.put('episode', prepared['task_id'], prepared['body'], prepared['sources'],
@@ -555,7 +574,7 @@ class Learning:
         never touches it. `damaged`/`expired`: the refs skipped as altered by redaction or kept as removed by retention
         (`_card_labels`). A card built on a forgotten source comes back as `{'task_id', 'forgotten'}` only."""
         ep = episodes.get(self.db, task_id)
-        if ep is None or self.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id=?',
+        if ep is None or self.db.conn.execute('SELECT 1 FROM forgotten_refs WHERE ref=?',
                                               (self.card_key(task_id),)).fetchone():
             return None
         actions = []
@@ -658,9 +677,13 @@ class Learning:
         return {direct(ref) for ref in self._action_sources(span.input, span.result)}
 
     def card_source_refs(self, task_id: str) -> set[str] | None:
-        """The source edges the card rule gives a task's card from its trace: its episode and each span's
-        (`_span_refs`, as `prepare_episode` reads them), the trace read one span at a time. None when the task has no
-        trace left: its card then keeps the lineage it was captured with (`prepare_episode`)."""
+        """The source edges a card the current composer writes for this task cites: the card rule over its trace
+        (`_span_refs`, as `prepare_episode` reads them, one span at a time), with one ref per distinct set of origins
+        among its activity rows and learned nodes (`_card_labels`, step 9b). None when the task has no trace left."""
+        refs = self._trace_refs(task_id)
+        return None if refs is None else self._bounded(refs)
+
+    def _trace_refs(self, task_id: str) -> set[str] | None:
         refs = {'episode:' + task_id}
         traced = False
         for span in self.card_trace(task_id):
@@ -668,74 +691,110 @@ class Learning:
             refs |= self._span_refs(span)
         return refs if traced else None
 
-    def prune_card_sources(self, stop: Callable[[], bool] = lambda: False,
-                           progress: Callable[[int, int], None] = lambda done, total: None,
-                           rebuilding: Callable[[], None] = lambda: None) -> dict[str, Any]:
-        """The one-time clean-out of episode cards' source edges (L28, C1; setup runs it with the daemon stopped). The
-        composer before C1 (COPYING_CARD_MAKER) copied into each card every ref its planner was shown, and each earlier
-        version's. Each version of a card, in any state, now keeps only the edges the card rule gives its task's trace
-        (`card_source_refs`); the rest are the rows that rule would never write. A card whose trace aged out is left as
-        it is (its lineage can't be read again) and counted. No edge is added and no other kind of node is touched.
+    def _bounded(self, refs: Iterable[str]) -> set[str]:
+        """What a card keeps of these refs (`_card_labels`): every episode, journal and memory ref, one per distinct
+        set of origins of the others, and a forgotten one (that card's forget is the forget's to finish)."""
+        _, _, _, forgotten, kept = self._card_labels(refs)
+        return set(kept) | set(forgotten)
 
-        Each node is cleaned in a transaction of its own, so a run stopped halfway (a crash, power loss) leaves every
-        node either clean or as it was, and the next run finishes. `stop`, asked before each node (a stop the owner
-        asked for), ends the run there. `progress(done, total)` is told the versions dealt with so far (cleaned, or
-        left alone) after each node, so setup can say how far it is.
-
-        The deletes run without `learning_source_ref` (migration 0030). It is dropped right before the first node that
-        has rows to delete (a run with nothing to delete keeps it), and made again on the way out, first and whatever
-        happens, also when it was missing before the run. With it, each node's delete rewrote ~50k random pages of that
-        index: about 7 s a node, 47 minutes projected on a synthetic store of the owner's shape (23.3M rows), against
-        91.7 s without (the drop's ~40 s included). After a stop or an error the index is made over every row left,
-        which can take a while: `rebuilding` is told first, and an error it raises (a closed pipe) still lets the index
-        be made, then reaches the caller. A power loss in between leaves it to the daemon's next start (migration 0043
-        once, then `SOURCE_REF_INDEX` at every start), and to the next run.
-
-        Returns counts: `tasks` and `nodes` (card versions) seen, `cleaned` (versions that lost rows), `rows` removed,
-        `untraced` (versions left alone) and `stopped`."""
+    def card_source_plan(self, stop: Callable[[], bool] = lambda: False,
+                         removing: Iterable[str] = ()) -> dict[str, Any]:
+        """What the one-time clean-out removes from episode cards' source rows (notes/storage.md decision 4), read
+        without writing: each version of a card, in any state, keeps only what the current card rule gives it. A
+        traced task's versions keep what its trace gives (the composer before memory review C1, COPYING_CARD_MAKER,
+        copied in every ref its planner was shown, and each earlier version's); a version whose trace aged out keeps
+        what it cites. Of that, one ref per distinct set of origins of the activity rows and learned nodes (step 9b: the
+        composer before it kept every activity row, 1.47M rows on the owner's 211 cards). No edge is ever added.
+        Returns `drop` (node id → the refs it loses), `tasks`, `nodes` and `untraced` (versions whose trace aged out);
+        `stop`, asked before each task, ends the reading early (then `stopped`). `removing`: learned nodes the same
+        clean-up removes, read as already gone, so a second plan after the run finds nothing more."""
         conn = self.db.conn
         cards: dict[str, list[str]] = {}
         for row in conn.execute("SELECT id, key FROM learning_nodes WHERE kind='episode' ORDER BY key, recorded_at, id"
                                 ).fetchall():
             cards.setdefault(row[1], []).append(row[0])
-        counts: dict[str, Any] = {'tasks': len(cards), 'nodes': sum(map(len, cards.values())), 'cleaned': 0, 'rows': 0,
-                                  'untraced': 0, 'stopped': False}
-        # the refs to keep, on this connection only (a temp table): each node's rows are checked against it in SQLite
-        unkept = 'FROM learning_sources WHERE node_id = ? AND source_ref NOT IN (SELECT ref FROM temp.card_keep)'
+        drop: dict[str, list[str]] = {}
+        out: dict[str, Any] = {'tasks': len(cards), 'nodes': sum(map(len, cards.values())), 'untraced': 0,
+                               'stopped': False, 'drop': drop}
+        self._origins_memo, self._removing = {}, frozenset(removing)
+        try:
+            for task_id, nodes in cards.items():
+                if stop():
+                    out['stopped'] = True
+                    return out
+                trace = self._trace_refs(task_id)
+                for node_id in nodes:
+                    have = {r[0] for r in conn.execute('SELECT source_ref FROM learning_sources WHERE node_id=?',
+                                                       (node_id,))}
+                    if trace is None:
+                        out['untraced'] += 1
+                    gone = have - self._bounded(have & trace if trace is not None else have)
+                    if gone:
+                        drop[node_id] = sorted(gone)
+            return out
+        finally:
+            self._origins_memo, self._removing = None, frozenset()
+
+    def prune_card_sources(self, stop: Callable[[], bool] = lambda: False,
+                           progress: Callable[[int, int], None] = lambda done, total: None,
+                           rebuilding: Callable[[], None] = lambda: None,
+                           plan: dict[str, Any] | None = None) -> dict[str, Any]:
+        """The one-time clean-out of episode cards' source edges (`card_source_plan`, read now unless given; the
+        clean-up step runs it with the daemon stopped). Only the planned rows go: no edge is added and no other kind
+        of node is touched.
+
+        Each node is cleaned in a transaction of its own, so a run stopped halfway (a crash, power loss) leaves every
+        node either clean or as it was, and the next run finishes. `stop`, asked before each node (a stop the owner
+        asked for), ends the run there. `progress(done, total)` is told the card versions dealt with so far after each
+        one, so setup can say how far it is.
+
+        The deletes run without `learning_source_ref` (migration 0030). It is dropped right before the first delete
+        (a run with nothing to delete keeps it), and made again on the way out, first and whatever happens, also when
+        it was missing before the run. With it, each node's delete rewrote ~50k random pages of that index: about 7 s
+        a node, 47 minutes projected on a synthetic store of the owner's shape (23.3M rows), against 91.7 s without
+        (the drop's ~40 s included). After a stop or an error the index is made over every row left, which can take a
+        while: `rebuilding` is told first, and an error it raises (a closed pipe) still lets the index be made, then
+        reaches the caller. A power loss in between leaves it to the daemon's next start (migration 0043 once, then
+        `SOURCE_REF_INDEX` at every start), and to the next run.
+
+        Returns counts: `tasks` and `nodes` (card versions) seen, `cleaned` (versions that lost rows), `rows` removed,
+        `untraced` (versions whose trace aged out) and `stopped`."""
+        conn = self.db.conn
+        plan = plan if plan is not None else self.card_source_plan()
+        drop: dict[str, list[str]] = plan['drop']
+        counts: dict[str, Any] = {'tasks': plan['tasks'], 'nodes': plan['nodes'], 'cleaned': 0, 'rows': 0,
+                                  'untraced': plan['untraced'], 'stopped': False}
+        nodes = [r[0] for r in conn.execute("SELECT id FROM learning_nodes WHERE kind='episode' "
+                                            "ORDER BY key, recorded_at, id").fetchall()]
+        total = max(len(nodes), 1)
         done = 0
         dropped = finished = False
         try:
-            conn.execute('CREATE TEMP TABLE IF NOT EXISTS card_keep (ref TEXT PRIMARY KEY)')
-            for task_id, nodes in cards.items():
-                keep = self.card_source_refs(task_id)
-                if keep is None:
-                    counts['untraced'] += len(nodes)
-                    done += len(nodes)
-                    progress(done, counts['nodes'])
-                    continue
-                conn.execute('DELETE FROM temp.card_keep')
-                conn.executemany('INSERT INTO temp.card_keep VALUES (?)', [(ref,) for ref in sorted(keep)])
-                for node_id in nodes:
+            conn.execute('CREATE TEMP TABLE IF NOT EXISTS card_drop (ref TEXT PRIMARY KEY)')
+            for node_id in nodes:
+                gone = drop.get(node_id)
+                if gone:
                     if stop():
                         counts['stopped'] = True
                         return counts
-                    if not dropped and conn.execute(f'SELECT EXISTS (SELECT 1 {unkept})', (node_id,)).fetchone()[0]:
+                    if not dropped:
                         conn.execute('DROP INDEX IF EXISTS learning_source_ref')
                         dropped = True
-                    removed = 0
-                    if dropped:
-                        try:
-                            conn.execute('BEGIN IMMEDIATE')
-                            removed = conn.execute(f'DELETE {unkept}', (node_id,)).rowcount
-                            conn.execute('COMMIT')
-                        except BaseException:
-                            if conn.in_transaction:  # SQLite may have rolled back already; keep the real error
-                                conn.execute('ROLLBACK')
-                            raise
+                    conn.execute('DELETE FROM temp.card_drop')
+                    conn.executemany('INSERT INTO temp.card_drop VALUES (?)', [(ref,) for ref in gone])
+                    try:
+                        conn.execute('BEGIN IMMEDIATE')
+                        removed = conn.execute('DELETE FROM learning_sources WHERE node_id = ? AND source_ref IN '
+                                               '(SELECT ref FROM temp.card_drop)', (node_id,)).rowcount
+                        conn.execute('COMMIT')
+                    except BaseException:
+                        if conn.in_transaction:      # SQLite may have rolled back already; keep the real error
+                            conn.execute('ROLLBACK')
+                        raise
                     counts['cleaned'] += removed > 0
                     counts['rows'] += removed
-                    done += 1
-                    progress(done, counts['nodes'])
+                done += 1
+                progress(done, total)
             finished = True
         finally:
             try:
@@ -745,7 +804,7 @@ class Learning:
                 finally:
                     conn.execute(SOURCE_REF_INDEX)
             finally:
-                conn.execute('DROP TABLE IF EXISTS temp.card_keep')
+                conn.execute('DROP TABLE IF EXISTS temp.card_drop')
         return counts
 
     def card_inputs(self, task_id: str | None = None) -> dict[str, str]:
@@ -766,7 +825,7 @@ class Learning:
         current = self.card_inputs()
         recorded = {r[0]: (r[1], r[2], r[3] or '') for r in self.db.conn.execute(
             'SELECT task_id, inputs, status, error FROM learning_card_inputs')}
-        gone = {r[0] for r in self.db.conn.execute("SELECT id FROM learning_forgotten WHERE id LIKE 'key-%'")}
+        gone = {r[0] for r in self.db.conn.execute("SELECT ref FROM forgotten_refs WHERE ref LIKE 'key-%'")}
         order = [r[0] for r in self.db.conn.execute('SELECT task_id FROM episodes ORDER BY ended_at')]
         return [t for t in order if self.card_key(t) not in gone and (
             recorded.get(t, ('', '', ''))[0] != current.get(t) or recorded[t][1] == 'failed' or
@@ -933,30 +992,19 @@ class Learning:
                 versions.update(r[0] for r in self.db.conn.execute('SELECT id FROM learning_nodes WHERE kind=? AND key=?',
                                                                   (node['kind'], node['key'])))
         doomed = self.descendants(versions)
-        rows = self.db.conn.execute(f"SELECT kind,key,body_json FROM learning_nodes WHERE id IN "
+        rows = self.db.conn.execute(f"SELECT kind,key FROM learning_nodes WHERE id IN "
                                     f"({','.join('?' * len(doomed))})", sorted(doomed)).fetchall() if doomed else []
-        jobs = set()
         for row in rows:
             if row['kind'] in ID_KEYED:                       # a card or annotation of one task: never rebuilt
                 logical.append('key-' + digest([row['kind'], row['key']]))
-            if row['kind'] == 'episode_intent':               # a card's label (L29): its intent's job goes too
-                jobs.add('intent:' + str(json.loads(row['body_json']).get('intent_id')))
         now = self.now()
         self.db.conn.execute('SAVEPOINT learning_forget')
         try:
-            for ident in logical:
-                self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)', (ident, now))
+            # one tombstone table (migration 0056): the requested refs, the deleted nodes and the cards' keys
             self.db.conn.executemany('INSERT OR IGNORE INTO forgotten_refs VALUES (?,?)',
-                                     [(direct(ref), now) for ref in sorted(set(requested) | doomed)])
+                                     [(ref, now) for ref in sorted(set(logical) | {direct(r) for r in requested} | doomed)])
             for ident in doomed:
-                self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)', (ident, now))
-                # a card's label job (and a job keyed by the card, from before L29), whose error may name what was
-                # forgotten
-                self.db.conn.execute('DELETE FROM learning_jobs WHERE source_ref IN (?,?)', (ident, 'label:' + ident))
                 self.db.conn.execute('DELETE FROM learning_nodes WHERE id=?', (ident,))
-            # the jobs of the intents whose labels go (L29): an error may quote what the call was sent, and the
-            # intent's runs changed anyway
-            self.db.conn.executemany('DELETE FROM learning_jobs WHERE source_ref=?', [(j,) for j in sorted(jobs)])
             self.db.conn.execute('RELEASE learning_forget')
         except BaseException:
             self.db.conn.execute('ROLLBACK TO learning_forget')

@@ -32,8 +32,10 @@ ENDED_NOTICE = "Memory: I stopped using {items}, which look out of date. Tell me
 # Decision 17: the owner's own words FERB's check found over are set aside (kept, restored by saying they still hold)
 SET_ASIDE_NOTICE = ("Memory: {items} look over, so I'll stop using them. They're kept; tell me if any still holds and "
                     "I'll use it again.")
-ACCESSIBILITY_DAYS = 7                    # memory decision 3 (owner): accessibility rows are kept 7 days
 
+
+# Ruling (step 12a): the newest rows a `timeline.get` returns unless it asks for more (a developer listing)
+TIMELINE_ROWS = 1000
 
 class MemoryGlue:
     """A mixin of the Daemon (ferb/daemon/main.py): its methods use the daemon's state."""
@@ -58,7 +60,7 @@ class MemoryGlue:
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
-                                   purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")),
+                                   device_id=str(self.config.get("device", "id", "dev")),
                                    record_usage=self._record_learning_usage("distill"), spans=self.spans)
         self.distiller.tell = self._tell_owner
         # step 9a upgrade (storage decision 5): memory cleaned once, then the core profile seeded from it, both journaled
@@ -760,17 +762,6 @@ class MemoryGlue:
             self.spans.finish(span, output=data, cost_usd=data.get("cost_usd"))
         return record
 
-    def _purge_trail(self) -> Any:
-        if self.trail is None:
-            return None
-        purged, refused = self.trail.purge(int(self.config.get("sense", "trail_retention_days", 30)))
-        if purged:
-            self._journal().append("trail.purged", {"days": purged})
-        # memory decision 3: accessibility rows are kept 7 days (trail only, pull-only)
-        if gone := self.trail.purge_source("accessibility", ACCESSIBILITY_DAYS):
-            self._journal().append("trail.purged", {"source": "accessibility", "rows": gone})
-        return purged, refused
-
     async def _distill_loop(self) -> None:
         """Hourly: summarize and distill every past day not done yet, then purge (summarized days only)."""
         while True:
@@ -1116,8 +1107,10 @@ class MemoryGlue:
 
     async def _timeline(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         since = datetime.fromisoformat(params["since"]).astimezone() if params.get("since") else None
-        rows = self._journal().entries(since)
-        return {"entries": [{"at": e.at.isoformat(), "kind": e.kind, "data": e.data} for e in rows]}
+        limit = max(1, int(params.get("limit") or TIMELINE_ROWS))
+        rows = self._journal().entries(since, limit + 1)             # bounded: never the whole journal (step 12a)
+        return {"entries": [{"at": e.at.isoformat(), "kind": e.kind, "data": e.data} for e in rows[-limit:]],
+                "more": len(rows) > limit}
 
     def _mac_profile_service(self) -> Any:
         """What FERB saw on this Mac (decision 16): built once per daemon, its collector reading only owner-attributed

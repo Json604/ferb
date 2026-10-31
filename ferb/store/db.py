@@ -9,6 +9,15 @@ from typing import Any, Callable
 from ferb.core.errors import FerbError
 
 MIGRATIONS = Path(__file__).parent / "migrations"
+# Ruling (step 12a): how long a connection waits for another's write lock before "database is locked": the 5 s sqlite3
+# already waited, now explicit on every connection FERB opens (the loop's and each worker thread's)
+BUSY_TIMEOUT_MS = 5000
+# Ruling (step 12a): the size the WAL file is cut back to after a checkpoint (it never stays at its largest)
+JOURNAL_SIZE_LIMIT = 64 * 1024 * 1024
+# Ruling (step 12a): free pages handed back to the disk after each hourly retention pass, in slices of this many pages
+# (4 KB each) with the loop free between slices; only on a store compacted with incremental auto-vacuum
+VACUUM_SLICE_PAGES = 512
+VACUUM_PASS_PAGES = 8192
 
 
 class MigrationError(FerbError):
@@ -26,9 +35,14 @@ class Database:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
+        new = not path.exists() or path.stat().st_size == 0
         self.conn = sqlite3.connect(path, isolation_level=None)   # autocommit; explicit transactions below
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+        if new:                                   # only before the first table: an older store gets it by `compact`
+            self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute(f"PRAGMA journal_size_limit={JOURNAL_SIZE_LIMIT}")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.execute("PRAGMA secure_delete=ON")              # "forget" must really erase
         path.chmod(0o600)
@@ -43,15 +57,34 @@ class Database:
             self.on_wal_kept(after, {"wal_frames": frames, "checkpointed": moved})
         return not busy
 
+    def checkpoint(self) -> bool:
+        """The routine WAL checkpoint after an hourly pass, cutting the file back (TRUNCATE); a reader in the way only
+        means it waits for the next pass. Returns whether the WAL was emptied."""
+        return not self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+
+    def incremental(self) -> bool:
+        """Whether the store hands free pages back to the disk on its own (`auto_vacuum` INCREMENTAL: a store created
+        by this code, or one `compact` rebuilt)."""
+        return int(self.conn.execute("PRAGMA auto_vacuum").fetchone()[0]) == 2
+
+    def vacuum_slice(self, pages: int = VACUUM_SLICE_PAGES) -> int:
+        """Up to `pages` free pages handed back to the disk (a no-op unless `incremental`); returns how many free pages
+        are left."""
+        self.conn.execute(f"PRAGMA incremental_vacuum({int(pages)})").fetchall()
+        return int(self.conn.execute("PRAGMA freelist_count").fetchone()[0])
+
     def compact(self, free: Callable[[Path], int] = lambda folder: shutil.disk_usage(folder).free) -> dict[str, Any]:
-        """Shrink the file to what it holds: the WAL checkpointed, VACUUM, the WAL checkpointed again. Only on a
-        connection nothing else shares (setup, with the daemon stopped). VACUUM writes a full copy of the database, so
-        it runs only when the disk has at least the database and its WAL free (`free`: the free bytes of the folder's
-        volume); otherwise nothing is written. Returns whether it compacted, the bytes it needed and those free."""
+        """Shrink the file to what it holds, and from then on let it give free pages back by itself: the WAL
+        checkpointed, `auto_vacuum` set to INCREMENTAL, VACUUM (which makes that setting take effect), the WAL
+        checkpointed again. Only on a connection nothing else shares (setup, with the daemon stopped). VACUUM writes a
+        full copy of the database, so it runs only when the disk has at least the database and its WAL free (`free`:
+        the free bytes of the folder's volume); otherwise nothing is written. Returns whether it compacted, the bytes
+        it needed and those free."""
         self.truncate_wal("store.compact")
         needed, room = store_size(self.path), free(self.path.parent)
         if room < needed:
             return {"compacted": False, "needed": needed, "free": room}
+        self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         self.conn.execute("VACUUM")
         self.truncate_wal("store.compact")
         return {"compacted": True, "needed": needed, "free": room}

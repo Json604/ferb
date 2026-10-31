@@ -243,7 +243,7 @@ class Schedules:
         if not quoted(own_words, rc.quote):
             return "I didn't change any reminder — could you say which one in your own words?"
         t = self.timers.get(rc.id) if self.timers is not None else None
-        if t is None or t.kind != "reminder" or not self.timers.cancel(rc.id):
+        if t is None or t.kind not in ("reminder", "timer") or not self.timers.cancel(rc.id):
             return "I couldn't find that reminder among the pending ones."
         self._journal().append("timer.cancelled", {"timer_id": rc.id, "by": "owner"})     # the id stays here (L11)
         return f"⏰ Cancelled the reminder “{t.message}” for {t.fire_at.astimezone():%a %d %b %H:%M}."

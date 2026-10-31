@@ -626,172 +626,66 @@ def test_setup_puts_ferbs_tokenizer_in_place_before_the_daemon_restarts(world: d
     assert said == [world["home"]] and "Tokenizer: FERB's pinned copy is in place." in out.getvalue()
 
 
-# ---------- plan 2026-10-23 Task 1 (L28, C1): the store's one-time clean-out, with the daemon stopped ----------
+# ---------- storage decision 4 (step 12a): the one-time clean-up, after the owner's OK, with the daemon stopped ----------
 
-def _old_cards(home: Path) -> tuple[set[str], set[str], list[str]]:
-    """A store whose cards the composer before memory review C1 wrote: three versions of one traced task's card, each
-    also citing every ref its planner was only shown."""
+def _old_store(home: Path) -> dict[str, Any]:
+    """A store an older FERB left: cards the composer before C1 wrote (three versions of one traced task's card, each
+    citing every ref its planner was shown), Jev's decisions and perception receipts, the old embedding vectors, task
+    memory refs and a rollup node; beside them what decision 4 protects (memory, the episode, chat, the task, a
+    schedule, the traced task's spans)."""
+    import sqlite3
+    from ferb.core import origin
     from tests.support.cards import card_store, copied_cards, traced_task
+    home.mkdir(parents=True, exist_ok=True)
+    made = sqlite3.connect(home / "ferb.db")                              # a file from before incremental auto-vacuum
+    made.executescript("PRAGMA auto_vacuum = NONE; CREATE TABLE made (x); DROP TABLE made;")
+    made.close()
     db, _, spans, learning = card_store(home)
     kept, shown = traced_task(db, spans, learning, "c0ffee01")
+    rule = learning.card_source_refs("c0ffee01")
     versions = copied_cards(learning, "c0ffee01", kept | shown)
+    c = db.conn
+    for i in range(7):
+        c.execute("INSERT INTO decisions (id, at, question, baseline, mode) VALUES (?, '2026-10-01T00:00:00+00:00', "
+                  "'q', 'b', 'shadow')", (f"d{i}",))
+    c.execute("INSERT INTO perception_batches VALUES ('b1', '2026-10-01', 'size', 'done', '[]', NULL)")
+    c.executemany("INSERT INTO perception_receipts VALUES (?, 'b1')", [(f"e{i}",) for i in range(5)])
+    rollup = learning.put("summary", "2026-W40", {"text": "a week"}, ["journal:x"], made_by="code:rollup/1",
+                          labels={origin.PRIVATE})["id"]
+    c.execute("INSERT INTO learning_vectors VALUES (?, 'old-model', x'00', '2026-10', 'h')", (rollup,))
+    c.executemany("INSERT INTO task_memory_refs VALUES ('c0ffee01', ?)", [(f"memory:m{i}",) for i in range(4)])
+    c.executemany("INSERT INTO learning_jobs (source_ref, status, at) VALUES (?, 'done', '2026-10-01')",
+                  [(f"intent:{i}",) for i in range(3)])                  # a table no code reads any more
+    c.execute("INSERT INTO memory_items (id, kind, subject, key, content, origin, status, confidence, observed_at, "
+              "valid_from, created_at) VALUES ('mem1', 'preference', 'owner', 'tea', 'likes green tea', 'owner_stated', "
+              "'active', 1.0, '2026-10-01', '2026-10-01', '2026-10-01')")
+    c.execute("INSERT INTO journal (id, at, kind, data_json, origin) VALUES ('j1', '2026-10-01T00:00:00+00:00', "
+              "'chat.message', '{\"text\": \"hi\"}', 'owner')")
     db.close()
-    return kept, shown, versions
+    return {"versions": versions, "rule": rule, "copied": kept | shown, "rollup": rollup}
 
 
-def _card_rows(home: Path, versions: list[str]) -> dict[str, set[str]]:
-    from tests.support.cards import sources_of
-    from ferb.store.db import Database
-    db = Database(home / "ferb.db")
-    try:
-        return {v: sources_of(db, v) for v in versions}
-    finally:
-        db.close()
-
-
-def _watch_prune(monkeypatch: pytest.MonkeyPatch, before: Any = None) -> list[tuple[bool, int]]:
-    """Each clean-out run: whether launchd had the agent loaded, and how many commands had run, when it started."""
-    from ferb.memory.learning import Learning
-    real = Learning.prune_card_sources
-    seen: list[tuple[bool, int]] = []
-
-    def watched(self: Learning, stop: Any = lambda: False, **kwargs: Any) -> dict[str, Any]:
-        runner = before["runner"]
-        seen.append((runner.loaded, len(runner.cmds)))
-        if before.get("then"):
-            before["then"]()
-        if before.get("after_first"):                  # once the first card version is done
-            told = kwargs["progress"]
-            kwargs["progress"] = lambda done, total: (told(done, total), done == 1 and before["after_first"]())
-        if before.get("after_last"):                   # once the last card version is done
-            told = kwargs["progress"]
-            kwargs["progress"] = lambda done, total: (told(done, total), done == total and before["after_last"]())
-        return real(self, stop, **kwargs)
-    monkeypatch.setattr(Learning, "prune_card_sources", watched)
-    return seen
-
-
-def test_an_update_cleans_the_database_once_between_stopping_and_starting_the_daemon(
-        world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    world["inst"].install()
-    kept, shown, versions = _old_cards(world["home"])
-    runner = world["runner"]
-    seen = _watch_prune(monkeypatch, {"runner": runner})
-    env, out = make_env(world, [], daemon_up=False)
-    assert S.setup(env, update=True) == 0, out.getvalue()
-    [(loaded, at)] = seen
-    assert not loaded                                                      # never while the daemon runs
-    agent = [c[:2] for c in runner.cmds if c[:2] in (["launchctl", "bootout"], ["launchctl", "bootstrap"])]
-    before = [c for c in runner.cmds[:at] if c[:2] in (["launchctl", "bootout"], ["launchctl", "bootstrap"])]
-    assert before[-1][:2] == ["launchctl", "bootout"]                      # stopped right before it
-    assert ["launchctl", "bootstrap"] in [c[:2] for c in runner.cmds[at:]] and runner.loaded   # started after it
-    assert agent.count(["launchctl", "bootstrap"]) == 2                    # the first install's, and this one
-    text = out.getvalue()
-    assert f"Cleaned FERB's database: {3 * len(shown)} unused rows removed;" in text and "→" in text, text
-    assert "1 of 3 card versions done" in text and "3 of 3 card versions done" in text   # how far it is
-    assert _card_rows(world["home"], versions) == {v: kept for v in versions}
-    assert S.cleanout_state(world["home"] / "ferb.db") is None
-    runner.cmds.clear()
-    env, out = make_env(world, [], daemon_up=False)
-    assert S.setup(env, update=True) == 0
-    assert len(seen) == 1 and runner.ran("launchctl", "bootout") == 0      # done once: a plain restart now
-    assert "Cleaned FERB's database" not in out.getvalue()
-
-
-def test_the_clean_out_waits_while_another_daemon_still_answers(world: dict[str, Any],
-                                                               monkeypatch: pytest.MonkeyPatch) -> None:
-    """E.g. `ferb daemon run` in a terminal, which launchd doesn't stop: nothing is cleaned, the agent is started
-    again, and the next update runs the clean-out."""
-    world["inst"].install()
-    kept, shown, versions = _old_cards(world["home"])
-    seen = _watch_prune(monkeypatch, {"runner": world["runner"]})
-    env, out = make_env(world, [])                                         # the daemon answers even unloaded
-    assert S.setup(env, update=True) == 0
-    assert seen == [] and world["runner"].loaded
-    assert "a FERB daemon outside launchd answers" in out.getvalue()
-    assert _card_rows(world["home"], versions) == {v: kept | shown for v in versions}
-    assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
-
-
-def test_the_clean_out_waits_until_the_stopped_daemons_process_has_exited(world: dict[str, Any],
-                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
-    """L28, C1: launchd dropping the agent doesn't mean its process is gone; a daemon in its shutdown tail still
-    writes the store. One that exits within unload's wait gets the clean-out after it has; one still running when the
-    wait ends gets none: setup says so, starts the agent again, and the clean-out stays pending."""
-    import math
-    import ferb.device.install as install_mod
-    monkeypatch.setattr(install_mod, "time", SteppedTime())
-    world["inst"].install()
-    kept, shown, versions = _old_cards(world["home"])
-    runner = world["runner"]
-    seen = _watch_prune(monkeypatch, {"runner": runner})
-    runner.tail = math.inf                                                 # it never exits
-    env, out = make_env(world, [], daemon_up=False)
-    assert S.setup(env, update=True) == 0, out.getvalue()
-    assert seen == [] and runner.loaded
-    assert ("Database clean-out not run: FERB's daemon (process 4242) hasn't exited since launchd stopped it"
-            in out.getvalue()), out.getvalue()
-    assert _card_rows(world["home"], versions) == {v: kept | shown for v in versions}
-    assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
-    runner.tail = 3                                                        # a slow exit, within the wait
-    env, out = make_env(world, [], daemon_up=False)
-    assert S.setup(env, update=True) == 0, out.getvalue()
-    [(loaded, at)] = seen
-    assert not loaded and runner.cmds[at - 1] == ["/bin/kill", "-0", "4242"] and runner.tail < 0   # exited first
-    assert _card_rows(world["home"], versions) == {v: kept for v in versions}
-    assert S.cleanout_state(world["home"] / "ferb.db") is None
-
-
-def test_a_failed_clean_out_still_starts_the_daemon_and_the_update_goes_on(world: dict[str, Any],
-                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+def _protected(home: Path) -> dict[str, list[Any]]:
+    """Every row of every table decision 4 protects, order-free (VACUUM may renumber rowids)."""
     import sqlite3
-    from ferb.memory.learning import Learning
-    world["inst"].install()
-    _old_cards(world["home"])
-
-    def broken(self: Learning, stop: Any = lambda: False, **kwargs: Any) -> dict[str, Any]:
-        raise sqlite3.OperationalError("disk I/O error")
-    monkeypatch.setattr(Learning, "prune_card_sources", broken)
-    env, out = make_env(world, [], daemon_up=False)
-    assert S.setup(env, update=True) == 0
-    assert world["runner"].loaded and "Done." in out.getvalue()
-    assert "Database clean-out stopped (OperationalError: disk I/O error)" in out.getvalue()
-    assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
+    from ferb.store.cleanup import PROTECTED
+    c = sqlite3.connect(home / "ferb.db")
+    try:
+        names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        return {t: sorted(map(repr, c.execute(f"SELECT * FROM {t}" + (" WHERE kind NOT LIKE 'store.%'"   # its records
+                                                                        if t == "journal" else ""))))
+                for t in PROTECTED if t in names}
+    finally:
+        c.close()
 
 
-def test_quitting_during_the_clean_out_stops_it_and_starts_the_daemon_first(world: dict[str, Any],
-                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
-    """FERB.app quitting (SIGTERM) or Ctrl-C while the clean-out runs: it stops before the next card, the daemon is
-    loaded again, then setup stops (M5); what was cleaned stays clean and the next update finishes it."""
-    import os
-    import signal
-    world["inst"].install()
-    kept, shown, versions = _old_cards(world["home"])
-    _watch_prune(monkeypatch, {"runner": world["runner"], "then": lambda: os.kill(os.getpid(), signal.SIGTERM)})
-    env, out = make_env(world, [], daemon_up=False)
-    with pytest.raises(KeyboardInterrupt):
-        S.setup(env, update=True)
-    assert world["runner"].loaded and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
-    assert "Database clean-out stopped before it finished" in out.getvalue()
-    assert _card_rows(world["home"], versions) == {v: kept | shown for v in versions}   # stopped before the first
-    assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
-
-
-def test_doctor_shows_the_database_size_and_a_pending_clean_out(world: dict[str, Any]) -> None:
-    world["inst"].install()
-    env, out = make_env(world, [])
-    S.doctor(env)
-    assert "database:" not in out.getvalue()                               # no store yet
-    _old_cards(world["home"])
-    env, out = make_env(world, [])
-    S.doctor(env)
-    assert "! database: " in out.getvalue() and "clean-out of unused card rows is pending" in out.getvalue()
-    assert "run `ferb setup --update`" in out.getvalue()
-    env, out = make_env(world, [], daemon_up=False)
-    assert S.setup(env, update=True) == 0
-    env, out = make_env(world, [])
-    S.doctor(env)
-    assert "✓ database: " in out.getvalue() and "pending" not in out.getvalue()
+def _q(home: Path, sql: str, *params: Any) -> Any:
+    import sqlite3
+    c = sqlite3.connect(home / "ferb.db")
+    try:
+        return c.execute(sql, params).fetchone()[0]
+    finally:
+        c.close()
 
 
 def _journal_kinds(home: Path) -> list[str]:
@@ -803,97 +697,176 @@ def _journal_kinds(home: Path) -> list[str]:
         c.close()
 
 
-def test_a_database_that_wont_open_is_reported_and_the_update_goes_on(world: dict[str, Any],
-                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
-    import sqlite3
-    from ferb.store import db as store_db
+def _preview(world: dict[str, Any]) -> dict[str, Any]:
+    import json
+    env, out = make_env(world, [])
+    assert S.cleanup_preview(env) == 0
+    return json.loads(out.getvalue().strip().splitlines()[-1])
+
+
+def _apply(world: dict[str, Any], ok: str, daemon_up: bool = False) -> tuple[int, str, dict[str, Any]]:
+    import json
+    env, out = make_env(world, [], daemon_up=daemon_up)
+    code = S.cleanup_apply(env, ok)
+    return code, out.getvalue(), json.loads(out.getvalue().strip().splitlines()[-1])
+
+
+def test_an_update_never_cleans_the_database_on_its_own(world: dict[str, Any]) -> None:
+    """Decision 4: the clean-up waits for the owner's OK; installing or updating FERB removes nothing."""
     world["inst"].install()
-    _old_cards(world["home"])
-
-    class Locked:
-        def __init__(self, path: Path) -> None:
-            raise sqlite3.OperationalError("database is locked")
-    monkeypatch.setattr(store_db, "Database", Locked)
+    old = _old_store(world["home"])
+    before = _protected(world["home"]), _q(world["home"], "SELECT COUNT(*) FROM learning_sources")
     env, out = make_env(world, [], daemon_up=False)
-    assert S.setup(env, update=True) == 0
-    assert world["runner"].loaded and "Done." in out.getvalue()
-    assert "Database clean-out stopped (OperationalError: database is locked)" in out.getvalue()
-    assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    assert (_protected(world["home"]), _q(world["home"], "SELECT COUNT(*) FROM learning_sources")) == before
+    assert _q(world["home"], "SELECT COUNT(*) FROM decisions") == 7 and _journal_kinds(world["home"]) == []
+    assert old["versions"]
 
 
-def test_without_room_to_compact_the_rows_are_removed_and_the_next_update_compacts(
-        world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    """Too little free disk for VACUUM's copy: the rows go, setup says why it didn't compact, doctor says only the
-    compaction is left, and the next update compacts without cleaning again."""
-    from ferb.store.db import Database
+def test_the_preview_lists_what_the_cleanup_removes_and_changes_nothing(world: dict[str, Any]) -> None:
     world["inst"].install()
-    kept, shown, versions = _old_cards(world["home"])
-    seen = _watch_prune(monkeypatch, {"runner": world["runner"]})
-    real = Database.compact
-    monkeypatch.setattr(Database, "compact", lambda self, free=None: real(self, free=lambda folder: 0))
-    env, out = make_env(world, [], daemon_up=False)
-    assert S.setup(env, update=True) == 0
-    text = out.getvalue()
-    assert f"Cleaned FERB's database: {3 * len(shown)} unused rows removed." in text and "Not compacted (" in text
-    assert "and the disk has 0 KB" in text and "the next `ferb setup --update` compacts it" in text, text
-    assert _card_rows(world["home"], versions) == {v: kept for v in versions}
-    assert S.cleanout_state(world["home"] / "ferb.db") == "compact"
-    assert _journal_kinds(world["home"]) == ["store.cards_cleaned"]
+    old = _old_store(world["home"])
+    before = _protected(world["home"]), _q(world["home"], "SELECT COUNT(*) FROM learning_sources")
+    shown = _preview(world)
+    rows = {(s["table"], s["rows"]) for s in shown["steps"]}
+    card_rows = 3 * len(old["copied"] - old["rule"])
+    assert {("decisions", 7), ("perception_receipts", 5), ("perception_batches", 1), ("learning_vectors", 1),
+            ("task_memory_refs", 4), ("learning_nodes", 1), ("learning_sources", card_rows)} <= rows, rows
+    assert shown["compact"] is True and shown["ok"] and shown["rows"] == sum(s["rows"] for s in shown["steps"])
+    assert {s["table"]: s["rows"] for s in shown["steps"] if s.get("drop")} == {
+        "owner_questions": 0, "notification_rules": 0, "learning_receipts": 0, "learning_jobs": 3}
+    assert shown["bytes"] > 0 and shown["free"] > 0
+    assert (_protected(world["home"]), _q(world["home"], "SELECT COUNT(*) FROM learning_sources")) == before
     env, out = make_env(world, [])
     S.doctor(env)
-    assert "compacting the file is left" in out.getvalue() and "clean-out of unused card rows" not in out.getvalue()
+    assert "! database: " in out.getvalue() and "waits for your OK" in out.getvalue()
+
+
+def test_the_cleanup_refuses_without_the_owners_ok_and_starts_the_daemon_again(world: dict[str, Any]) -> None:
+    world["inst"].install()
+    _old_store(world["home"])
+    before = _q(world["home"], "SELECT COUNT(*) FROM learning_sources"), _q(world["home"], "SELECT COUNT(*) FROM decisions")
+    code, text, result = _apply(world, "not-what-was-shown")
+    assert code == 2 and result["refused"] is True and result["plan"]["ok"] == _preview(world)["ok"]
+    assert "changed since you saw it" in text
+    assert (_q(world["home"], "SELECT COUNT(*) FROM learning_sources"),
+            _q(world["home"], "SELECT COUNT(*) FROM decisions")) == before
+    assert _journal_kinds(world["home"]) == [] and world["runner"].loaded
+
+
+def test_the_cleanup_runs_with_the_daemon_stopped_removes_only_what_was_shown_and_journals_it(
+        world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    from ferb.store import cleanup
+    world["inst"].install()
+    old = _old_store(world["home"])
+    protected = _protected(world["home"])
+    shown = _preview(world)
+    runner = world["runner"]
+    seen: list[tuple[bool, int]] = []
+    real = cleanup.apply
+    monkeypatch.setattr(cleanup, "apply", lambda *a, **k: (seen.append((runner.loaded, len(runner.cmds))),
+                                                           real(*a, **k))[1])
+    runner.cmds.clear()
+    code, text, result = _apply(world, shown["ok"])
+    assert code == 0, text
+    [(loaded, at)] = seen
+    assert not loaded                                                     # never while the daemon runs
+    before = [c[:2] for c in runner.cmds[:at] if c[:2] in (["launchctl", "bootout"], ["launchctl", "bootstrap"])]
+    assert before == [["launchctl", "bootout"]]                           # stopped right before it
+    assert ["launchctl", "bootstrap"] in [c[:2] for c in runner.cmds[at:]] and runner.loaded   # started after it
+    assert sum(result["removed"].values()) == shown["rows"] and result["compacted"] is True
+    assert _protected(world["home"]) == protected                        # memory, episodes, chat, tasks, traces...
+    from tests.support.cards import sources_of
+    from ferb.store.db import Database
+    db = Database(world["home"] / "ferb.db")
+    try:
+        assert all(sources_of(db, v) == old["rule"] for v in old["versions"])
+        for table in ("decisions", "perception_receipts", "perception_batches", "learning_vectors", "task_memory_refs"):
+            assert db.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0, table
+        assert db.conn.execute("SELECT COUNT(*) FROM learning_nodes WHERE id = ?", (old["rollup"],)).fetchone()[0] == 0
+        assert db.incremental()                                           # later passes hand pages back
+        tables = {r[0] for r in db.conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert not tables & {"owner_questions", "notification_rules", "learning_receipts", "learning_jobs"}
+        [cleaned] = [r[0] for r in db.conn.execute("SELECT data_json FROM journal WHERE kind = 'store.cleaned'")]
+    finally:
+        db.close()
+    import json
+    assert json.loads(cleaned)["rows"] == shown["rows"]                   # counts only
+    assert sorted(json.loads(cleaned)["dropped"]) == ["learning_jobs", "learning_receipts", "notification_rules",
+                                                      "owner_questions"]
+    assert _journal_kinds(world["home"]) == ["store.cleaned", "store.compacted"]
+    again = _preview(world)
+    assert again["steps"] == [] and again["compact"] is False
+    env, out = make_env(world, [])
+    S.doctor(env)
+    assert "✓ database: " in out.getvalue()
+
+
+def test_the_cleanup_waits_while_another_daemon_answers_or_the_stopped_one_hasnt_exited(
+        world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    import math
+    import ferb.device.install as install_mod
+    monkeypatch.setattr(install_mod, "time", SteppedTime())
+    world["inst"].install()
+    _old_store(world["home"])
+    ok = _preview(world)["ok"]
+    code, text, result = _apply(world, ok, daemon_up=True)               # answers even with launchd's agent gone
+    assert code == 1 and "a FERB daemon still answers" in text and world["runner"].loaded
+    world["runner"].tail = math.inf                                      # its process never exits
+    code, text, result = _apply(world, ok)
+    assert code == 1 and "hasn't exited since launchd stopped it" in text and world["runner"].loaded
+    assert _q(world["home"], "SELECT COUNT(*) FROM decisions") == 7 and _journal_kinds(world["home"]) == []
+    world["runner"].tail = 3                                             # a slow exit, within the wait
+    code, text, result = _apply(world, ok)
+    assert code == 0, text
+    assert _q(world["home"], "SELECT COUNT(*) FROM decisions") == 0
+
+
+def test_quitting_during_the_cleanup_stops_it_starts_the_daemon_and_the_next_run_finishes(
+        world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+    import signal
+    from ferb.memory.learning import Learning
+    world["inst"].install()
+    old = _old_store(world["home"])
+    ok = _preview(world)["ok"]
+    real = Learning.prune_card_sources
+
+    def quit_first(self: Learning, stop: Any = lambda: False, **kwargs: Any) -> dict[str, Any]:
+        os.kill(os.getpid(), signal.SIGTERM)                             # FERB.app quits while it runs
+        return real(self, stop, **kwargs)
+    monkeypatch.setattr(Learning, "prune_card_sources", quit_first)
+    env, out = make_env(world, [], daemon_up=False)
+    with pytest.raises(KeyboardInterrupt):
+        S.cleanup_apply(env, ok)
+    assert world["runner"].loaded and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+    assert "stopped before it finished" in out.getvalue()
+    assert _q(world["home"], "SELECT COUNT(*) FROM decisions") == 7       # stopped before the next step
+    assert _journal_kinds(world["home"]) == ["store.cleaned"]             # what it did, marked stopped
+    monkeypatch.setattr(Learning, "prune_card_sources", real)
+    code, text, result = _apply(world, _preview(world)["ok"])            # the owner agrees to what is left
+    assert code == 0, text
+    assert _q(world["home"], "SELECT COUNT(*) FROM decisions") == 0 and old["versions"]
+
+
+def test_without_room_to_compact_the_rows_go_and_a_later_run_compacts(world: dict[str, Any],
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    from ferb.store.db import Database
+    world["inst"].install()
+    _old_store(world["home"])
+    real = Database.compact
+    monkeypatch.setattr(Database, "compact", lambda self, free=None: real(self, free=lambda folder: 0))
+    code, text, result = _apply(world, _preview(world)["ok"])
+    assert code == 0 and result["compacted"] is False and "Not compacted" in text, text
+    assert _q(world["home"], "SELECT COUNT(*) FROM decisions") == 0
+    shown = _preview(world)
+    assert shown["steps"] == [] and shown["compact"] is True               # only the compaction is left
     monkeypatch.setattr(Database, "compact", real)
-    env, out = make_env(world, [], daemon_up=False)
-    assert S.setup(env, update=True) == 0
-    assert "Compacted FERB's database: " in out.getvalue() and len(seen) == 1     # not cleaned again
-    assert S.cleanout_state(world["home"] / "ferb.db") is None
-    assert _journal_kinds(world["home"]) == ["store.cards_cleaned", "store.compacted"]
+    code, text, result = _apply(world, shown["ok"])
+    assert code == 0 and result["compacted"] is True, text
+    assert _journal_kinds(world["home"]) == ["store.cleaned", "store.cleaned", "store.compacted"]
+    assert _preview(world)["compact"] is False
 
-
-def test_a_stop_after_the_first_card_says_the_index_is_made_again_first(world: dict[str, Any],
-                                                                       monkeypatch: pytest.MonkeyPatch) -> None:
-    """Quitting after a card was cleaned: before the daemon starts again the index is made over every row left, which
-    can take a minute on a big store; setup says so instead of seeming to hang."""
-    import os
-    import signal
-    world["inst"].install()
-    kept, shown, versions = _old_cards(world["home"])
-    _watch_prune(monkeypatch, {"runner": world["runner"], "after_first": lambda: os.kill(os.getpid(), signal.SIGTERM)})
-    env, out = make_env(world, [], daemon_up=False)
-    with pytest.raises(KeyboardInterrupt):
-        S.setup(env, update=True)
-    text = out.getvalue()
-    assert "making a database index again over the rows left" in text, text
-    assert text.index("making a database index again") < text.index("Database clean-out stopped before it finished")
-    assert world["runner"].loaded
-    rows = _card_rows(world["home"], versions)
-    assert sorted(len(r) for r in rows.values()) == [len(kept), len(kept | shown), len(kept | shown)]
-
-
-def test_a_stop_after_the_last_card_keeps_the_clean_out_and_leaves_the_compaction(world: dict[str, Any],
-                                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
-    """Quitting once every card is clean, before VACUUM (which can't stop halfway): the rows stay removed and recorded,
-    setup says the next update compacts the file, and it does, without cleaning again."""
-    import os
-    import signal
-    world["inst"].install()
-    kept, shown, versions = _old_cards(world["home"])
-    seen = _watch_prune(monkeypatch, {"runner": world["runner"],
-                                      "after_last": lambda: os.kill(os.getpid(), signal.SIGTERM)})
-    env, out = make_env(world, [], daemon_up=False)
-    with pytest.raises(KeyboardInterrupt):
-        S.setup(env, update=True)
-    text = out.getvalue()
-    assert (f"Cleaned FERB's database: {3 * len(shown)} unused rows removed; the next `ferb setup --update` compacts "
-            "the file.") in text, text
-    assert "making a database index again" not in text and world["runner"].loaded
-    assert _card_rows(world["home"], versions) == {v: kept for v in versions}
-    assert S.cleanout_state(world["home"] / "ferb.db") == "compact"
-    assert _journal_kinds(world["home"]) == ["store.cards_cleaned"]
-    env, out = make_env(world, [], daemon_up=False)
-    assert S.setup(env, update=True) == 0
-    assert "Compacted FERB's database: " in out.getvalue() and len(seen) == 1
-    assert S.cleanout_state(world["home"] / "ferb.db") is None
 
 # ---------- FERB.app's setup window (L34 C): `ferb setup --service` ----------
 

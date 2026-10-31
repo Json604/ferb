@@ -132,7 +132,7 @@ class ConversationStore:
     def observe(self, event: dict[str, Any]) -> None:
         if not event.get('id'):
             return
-        if self.db.conn.execute('SELECT 1 FROM conversation_forgotten_sources WHERE source_id=?', ('trail:' + event['id'],)).fetchone():
+        if self.db.conn.execute('SELECT 1 FROM forgotten_refs WHERE ref=?', ('trail:' + event['id'],)).fetchone():
             return
         data = event.get('data', {})
         for row in self.list():
@@ -251,8 +251,9 @@ class ConversationStore:
         events = notices = 0
         self.db.conn.execute('BEGIN IMMEDIATE')
         try:
+            now = self.clock.now().isoformat()
             for ref in refs:
-                self.db.conn.execute('INSERT OR IGNORE INTO conversation_forgotten_sources VALUES(?)', (ref,))
+                self.db.conn.execute('INSERT OR IGNORE INTO forgotten_refs VALUES(?, ?)', (ref, now))
                 affected.update(row[0] for row in self.db.conn.execute(
                     'SELECT conversation_id FROM conversation_events WHERE source_id=?', (ref,)))
                 events += self.db.conn.execute('DELETE FROM conversation_events WHERE source_id=?', (ref,)).rowcount

@@ -25,6 +25,7 @@ from ferb.core.types import TrailEvent
 from ferb.memory.items import query_terms
 from ferb.memory.summary import NARRATIVE_KIND, SUMMARY_KIND
 from ferb.sense.exclusions import Exclusions
+from ferb.store import retention
 from ferb.store.db import Database
 
 Actor = Literal["owner", "ferb", "unknown"]
@@ -244,27 +245,46 @@ class Trail:
 
     def purge(self, retention_days: int, today: date | None = None) -> tuple[list[str], list[str]]:
         """Delete raw rows of days older than the retention window, but only days whose permanent summary is in
-        the journal. Returns (purged days, refused days)."""
+        the journal. Returns (purged days, refused days). The hourly retention pass runs `purge_steps` instead."""
+        purged, refused, steps = self.purge_steps(retention_days, today)
+        for _ in steps:
+            pass
+        return purged, refused
+
+    def purge_steps(self, retention_days: int, today: date | None = None
+                    ) -> tuple[list[str], list[str], Iterator[int]]:
+        """`purge`'s days (purged, refused), and the deletes as steps of at most `retention.BATCH` rows, each its own
+        transaction, yielding each step's count (the loop runs between steps)."""
         today = today or self.clock.now().astimezone().date()
         cutoff = (today - timedelta(days=retention_days)).isoformat()
         old = [r["day"] for r in self.db.conn.execute(
             "SELECT DISTINCT day FROM trail WHERE day < ? ORDER BY day", (cutoff,)).fetchall()]
         done = self.summarized_days()
         purged = [d for d in old if d in done]
-        for d in purged:
-            self.db.conn.execute("DELETE FROM trail WHERE day = ?", (d,))
-        return purged, [d for d in old if d not in done]
+        steps = (n for d in purged for n in self._delete_where("day = ?", (d,), retention.BATCH))
+        return purged, [d for d in old if d not in done], steps
 
-    def purge_source(self, source: str, days: int, today: date | None = None, chunk: int = 2000) -> int:
+    def purge_source(self, source: str, days: int, today: date | None = None, chunk: int = retention.BATCH) -> int:
         """Delete one source's rows of days older than `days` (memory decision 3: accessibility rows are kept 7 days),
-        summarized or not, in chunks of `chunk` rows, each its own statement, so the write lock is never held for a
-        whole day's rows (up to 81k). Returns how many went."""
+        summarized or not. Returns how many went (`purge_source_steps`, run to the end)."""
+        return sum(self.purge_source_steps(source, days, today, chunk))
+
+    def purge_source_steps(self, source: str, days: int, today: date | None = None,
+                           chunk: int = retention.BATCH) -> Iterator[int]:
+        """`purge_source` as steps of at most `chunk` rows, each its own transaction, so the write lock is never held
+        for a whole day's rows (up to 81k); yields each step's count."""
         today = today or self.clock.now().astimezone().date()
         cutoff = (today - timedelta(days=days)).isoformat()
-        gone = 0
+        return self._delete_where("source = ? AND day < ?", (source, cutoff), chunk)
+
+    def _delete_where(self, where: str, params: tuple[Any, ...], chunk: int) -> Iterator[int]:
+        """The rows `where` selects, deleted `chunk` at a time with what points at them (a Jev perception receipt:
+        `retention.DEPENDENTS`); the index search and FTS triggers fire per row, so a step stays short."""
         while True:
-            n = self.db.conn.execute("DELETE FROM trail WHERE rowid IN (SELECT rowid FROM trail WHERE source = ? AND "
-                                     "day < ? LIMIT ?)", (source, cutoff, chunk)).rowcount
-            gone += n
-            if n < chunk:
-                return gone
+            ids = [r[0] for r in self.db.conn.execute(f"SELECT rowid FROM trail WHERE {where} LIMIT ?",
+                                                     (*params, chunk))]
+            if not ids:
+                return
+            yield from retention.delete_rows(self.db, "trail", "rowid", ids, chunk)
+            if len(ids) < chunk:
+                return

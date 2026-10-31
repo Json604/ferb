@@ -128,6 +128,8 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       none).
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
+      (Step 12a: upgrade-from-old-DB done: tests/test_upgrade.py builds stores as older builds left them (schemas 18–55,
+      the pre-checksum runner, the deleted 0040 from git history) and an older config.toml, and upgrades them.)
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.
       (Step 3: tests of removed code deleted (see the step-3 report); prompt-text and wiring tests not yet.)
 - [ ] Delete doc-reading tests with the docs cleanup.

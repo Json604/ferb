@@ -86,6 +86,7 @@ SETTINGS: dict[str, Setting] = {s.name: s for s in (
     Setting("retention", "evidence_days", _days, 7),
     Setting("retention", "recovery_days", _days, 7),
     Setting("retention", "resource_days", _days, 30),
+    Setting("retention", "operational_days", _days, 90),       # storage decision 3
 )}
 
 

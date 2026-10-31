@@ -1,16 +1,69 @@
-"""Owns age-based retention for traces and Jev decisions (D14, D21). Must not delete what nothing else preserves: a
-task's spans go only after its permanent episode exists; the task list, episodes, the journal (chat, day summaries,
-verdicts) and memory are never aged out here. Raw activity (trail) has its own purge (ferb/sense/trail.py); evidence
-media (V1, D20: `retention.evidence_days`, 7) is purged in the same pass by its store, which owns the files
-(ferb/act/evidence/store.py `purge_before`), and so are FERB's recovery copies and records (S1:
-`retention.recovery_days`, 7; ferb/act/fs/recovery.py `purge_before`)."""
+"""Owns age-based retention in one place: what goes when, table by table (notes/storage.md decisions 1 and 3, target
+design 1; memory decision 3), read first and deleted in short batches. Must not delete what nothing else preserves.
 
-from contextlib import contextmanager
+Kept forever (never named here): the task list and task results, episodes and how-notes, memory and learned nodes,
+owner verdicts, schedules, known destinations, conversations, and the journal's owner and chat rows and day summaries.
+
+Aged out:
+- spans: a task tree's 30 days (`retention.trace_days`) after it ended, and only once its permanent episode exists
+  (the daemon builds a missing one first); spans tied to no task 30 days after they started;
+- operational records (`retention.operational_days`, 90) after their task or timer ended: the action ledger,
+  confirmations, plans and their steps, loop state, delivered or cancelled timers and their deliveries, and the
+  journal's operational kinds (`OPERATIONAL_KINDS`). A record whose task isn't in the task list counts from its own
+  last write; a journal row a memory fact cites is kept;
+- Jev decisions after `retention.decision_days` (30);
+- activity rows (ferb/sense/trail.py): accessibility after 7 days, the rest after `sense.trail_retention_days` (30) once
+  their day's summary exists;
+- evidence media and shell logs (7, ferb/act/evidence/store.py), recovery copies (7, ferb/act/fs/recovery.py), resource
+  samples (30, ferb/daemon/resources.py): purged by the stores that own their files, in the same pass.
+
+Reads that scan (the intake planner's spans by request id) run off the daemon's loop on a read-only connection
+(`plan`); deletes run on the loop's own connection, `BATCH` rows a transaction, dependents first (`delete_rows`), so no
+write lock is held long and a worker thread's write never waits on a whole purge (notes/daemon.md)."""
+
+from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 from ferb.store.spans import tree_where
 
 MIN_DAYS = 1        # a retention of 0 days would purge what was just kept, before the checker or the owner could use it
+OPERATIONAL_DAYS = 90                   # decision 3 (owner, 2026-10-30)
+ACCESSIBILITY_DAYS = 7                  # memory decision 3 (owner): accessibility rows are kept 7 days
+# Ruling (step 12a): rows a delete transaction takes; small enough that a write elsewhere waits a few milliseconds
+BATCH = 200
+# Decision 3's "operational journal kinds": the daemon's own bookkeeping, failures and progress records. Owner and chat
+# kinds, day summaries, schedule, timer-set and memory records, and audit records (security, network, escape, clipboard)
+# are not among them and stay (ruling, step 12a; the audit kinds are the owner's call, notes/storage.md).
+OPERATIONAL_KINDS = frozenset({
+    "daemon.started", "daemon.stopped", "daemon.slow_call", "daemon.internal_error", "daemon.unhandled",
+    "daemon.background_failed", "daemon.loop_failed",
+    "retention.purged", "retention.snapshot_purged", "retention.failed", "retention.downloads", "trail.purged",
+    "store.wal_not_truncated", "resources.failed", "sense.watcher_failed",
+    "voice.attached", "voice.switched", "browser.focus_returned", "screen.image_refused", "screen.capture_timeout",
+    "runtime.failed", "runtime.stale_runs_swept",
+    "plan.step", "plan.repair", "plan.extended", "plan.tidied", "loop.round",
+    "task.send_digest", "task.steering_delivered", "task.dispatch_failed", "tasks.interrupted_after_restart",
+    "timer.failed", "attention.failed", "episode.failed",
+    "memory.episode_failed", "memory.episode_deferred", "memory.episode_refs_damaged", "memory.episode_refs_expired",
+    "memory.distill_failed", "memory.consolidate_failed", "memory.cards_failed", "memory.playbooks_failed",
+    "memory.profile_failed", "memory.mac_profile_failed", "memory.search_reindex_failed",
+})
+# A task id's tree: the part before its first "." (tasks of a tree are <root>.<step>…)
+_ROOT = "CASE WHEN instr({0}, '.') > 0 THEN substr({0}, 1, instr({0}, '.') - 1) ELSE {0} END"
+_ENDED = ("SELECT id FROM tasks WHERE parent_id IS NULL AND status NOT IN ('running', 'planned', 'paused') "
+          "AND updated_at < :cutoff")
+_KNOWN = "SELECT id FROM tasks WHERE parent_id IS NULL"
+_LIVE = ("SELECT id FROM tasks WHERE parent_id IS NULL AND (status IN ('running', 'planned', 'paused') "
+         "OR updated_at >= :cutoff)")
+# (table, the column naming its task or tree, its own last-write column or None): records that go with their task
+_BY_TASK = (("action_ledger", "task_id", "updated_at"), ("confirmations", "tree_id", "at"),
+            ("loop_state", "task_id", "updated_at"))
+# What goes with a deleted row: (dependent table, its column, the parent's column it names)
+DEPENDENTS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "task_plans": (("plan_steps", "task_id", "task_id"),),
+    "timers": (("timer_deliveries", "timer_id", "id"),),
+    "trail": (("perception_receipts", "event_id", "id"),),
+}
 
 
 def days(value: Any) -> int:
@@ -18,56 +71,117 @@ def days(value: Any) -> int:
     return max(MIN_DAYS, int(value))
 
 
-@contextmanager
-def _transaction(db: Any) -> Iterator[None]:
-    """All or nothing: a failure leaves no half-deleted trace."""
-    db.conn.execute("BEGIN")
-    try:
-        yield
-        db.conn.execute("COMMIT")
-    except BaseException:
-        if db.conn.in_transaction:                # SQLite may have rolled back already; keep the real error
-            db.conn.execute("ROLLBACK")
-        raise
+@dataclass
+class Plan:
+    """What one pass deletes, read before anything is deleted: each old tree's spans (children before parents), loose
+    spans, Jev decisions and operational rows by table (rowids). `left`: old trees waiting for the next pass."""
+    roots: list[str] = field(default_factory=list)
+    trees: dict[str, list[str]] = field(default_factory=dict)
+    loose: list[str] = field(default_factory=list)
+    decisions: list[int] = field(default_factory=list)
+    operational: dict[str, list[int]] = field(default_factory=dict)
+    left: int = 0
 
 
-def _delete_with_descendants(db: Any, seed_where: str, params: tuple[Any, ...]) -> int:
-    """One statement, so a parent never goes before its child (spans.parent_id is a foreign key)."""
-    return int(db.conn.execute(
-        # The CTE sits inside the subquery: a statement starting with WITH reports rowcount -1.
-        f"DELETE FROM spans WHERE id IN (WITH RECURSIVE sub(id) AS (SELECT id FROM spans WHERE {seed_where} "
-        "UNION SELECT s.id FROM spans s JOIN sub ON s.parent_id = sub.id) SELECT id FROM sub)", params).rowcount)
+def plan(conn: Any, trace_cutoff: str, decision_cutoff: str, operational_cutoff: str, roots_limit: int) -> Plan:
+    """Read what a pass deletes (any connection; the daemon reads it off its loop). At most `roots_limit` old trees,
+    oldest first; the rest are counted in `left`."""
+    roots = finished_roots_before(conn, trace_cutoff)
+    out = Plan(roots=roots[:roots_limit], left=max(0, len(roots) - roots_limit))
+    requests = {r[0]: r[1] for r in conn.execute(
+        f"SELECT id, request_id FROM tasks WHERE id IN ({','.join('?' * len(out.roots))})", out.roots)}
+    # the intake planner's spans carry the request id, not a task id: one scan for every tree of the pass
+    intake: dict[str, list[str]] = {}
+    if requests:
+        wanted = set(requests.values())
+        for ident, request in conn.execute("SELECT id, json_extract(input_json, '$.request_id') FROM spans "
+                                           "WHERE task_id IS NULL"):
+            if request in wanted:
+                intake.setdefault(request, []).append(ident)
+    for root in out.roots:
+        where, params = tree_where(root)
+        seeds = [r[0] for r in conn.execute(f"SELECT id FROM spans WHERE {where}", params)]
+        out.trees[root] = _with_descendants(conn, seeds + intake.get(requests.get(root, ""), []))
+    loose = [r[0] for r in conn.execute(
+        "SELECT id FROM spans WHERE task_id IS NULL AND parent_id IS NULL AND started_at < ? AND "
+        "(json_extract(input_json, '$.request_id') IS NULL OR "
+        " json_extract(input_json, '$.request_id') NOT IN (SELECT request_id FROM tasks))", (trace_cutoff,))]
+    out.loose = _with_descendants(conn, loose)
+    out.decisions = [r[0] for r in conn.execute("SELECT rowid FROM decisions WHERE at < ?", (decision_cutoff,))]
+    out.operational = operational(conn, operational_cutoff)
+    return out
 
 
-def finished_roots_before(db: Any, cutoff: str) -> list[str]:
+def _with_descendants(conn: Any, seeds: list[str]) -> list[str]:
+    """These spans and every span under them, deepest first: a parent is never deleted before its child
+    (spans.parent_id is a foreign key)."""
+    depth: dict[str, int] = {ident: 0 for ident in seeds}
+    frontier, level = list(depth), 0
+    while frontier:
+        level += 1
+        children: list[str] = []
+        for i in range(0, len(frontier), 500):
+            chunk = frontier[i:i + 500]
+            children += [r[0] for r in conn.execute(
+                f"SELECT id FROM spans WHERE parent_id IN ({','.join('?' * len(chunk))})", chunk)]
+        frontier = [c for c in children if depth.get(c, -1) < level]     # walked again when found deeper
+        depth.update((c, level) for c in frontier)
+    return sorted(depth, key=lambda ident: -depth[ident])
+
+
+def operational(conn: Any, cutoff: str) -> dict[str, list[int]]:
+    """Decision 3: the rowids of operational records whose task or timer ended before `cutoff`, by table."""
+    args = {"cutoff": cutoff}
+    found: dict[str, list[int]] = {}
+    for table, column, written in _BY_TASK:
+        root = _ROOT.format(column)
+        found[table] = [r[0] for r in conn.execute(
+            f"SELECT rowid FROM {table} WHERE {root} IN ({_ENDED}) OR ({root} NOT IN ({_KNOWN}) AND {written} < :cutoff)",
+            args)]
+    found["task_plans"] = [r[0] for r in conn.execute(
+        f"SELECT rowid FROM task_plans WHERE {_ROOT.format('task_id')} IN ({_ENDED}) "
+        "AND status NOT IN ('running', 'suspended', 'steps_done')", args)]
+    found["timers"] = [r[0] for r in conn.execute(
+        "SELECT rowid FROM timers WHERE state IN ('delivered', 'cancelled') AND COALESCE(delivered_at, fire_at) < :cutoff",
+        args)]
+    found["timer_deliveries"] = [r[0] for r in conn.execute(      # one left by a timer already gone
+        "SELECT rowid FROM timer_deliveries WHERE at < :cutoff AND timer_id NOT IN (SELECT id FROM timers)", args)]
+    task = _ROOT.format("json_extract(data_json, '$.task_id')")
+    kinds = {f"k{i}": kind for i, kind in enumerate(sorted(OPERATIONAL_KINDS))}
+    found["journal"] = [r[0] for r in conn.execute(
+        f"SELECT rowid FROM journal WHERE kind IN ({','.join(':' + k for k in kinds)}) "
+        "AND julianday(at) < julianday(:cutoff) "
+        f"AND (json_extract(data_json, '$.task_id') IS NULL OR {task} NOT IN ({_LIVE})) "
+        "AND id NOT IN (SELECT source_id FROM memory_sources WHERE kind = 'journal')", args | kinds)]
+    return {table: ids for table, ids in found.items() if ids}
+
+
+def finished_roots_before(conn: Any, cutoff: str) -> list[str]:
     """Root tasks that ended before the cutoff and still have spans, oldest first (never a running or planned
     one)."""
-    return [r["id"] for r in db.conn.execute(
+    return [r[0] for r in conn.execute(
         "SELECT id FROM tasks t WHERE parent_id IS NULL AND status NOT IN ('running', 'planned', 'paused') AND updated_at < ? "
         "AND EXISTS (SELECT 1 FROM spans WHERE task_id = t.id OR (task_id >= t.id || '.' AND task_id < t.id || '/')) "
         "ORDER BY updated_at, rowid",
         (cutoff,))]
 
 
-def purge_task_spans(db: Any, root_id: str) -> int:
-    """Delete a task tree's spans, and its intake planner's (they carry the request id, not a task id)."""
-    row = db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (root_id,)).fetchone()
-    where, params = tree_where(root_id)
-    with _transaction(db):
-        return _delete_with_descendants(
-            db, f"{where} OR (task_id IS NULL AND json_extract(input_json, '$.request_id') = ?)",
-            (*params, row["request_id"] if row else None))
-
-
-def purge_loose_spans(db: Any, cutoff: str) -> int:
-    """Old spans tied to no task: no task id, and no request id or one that never became a task (chat replies,
-    distillation usage, runtime checks)."""
-    with _transaction(db):
-        return _delete_with_descendants(
-            db, "task_id IS NULL AND parent_id IS NULL AND started_at < ? AND "
-                "(json_extract(input_json, '$.request_id') IS NULL OR "
-                " json_extract(input_json, '$.request_id') NOT IN (SELECT request_id FROM tasks))", (cutoff,))
-
-
-def purge_decisions(db: Any, cutoff: str) -> int:
-    return int(db.conn.execute("DELETE FROM decisions WHERE at < ?", (cutoff,)).rowcount or 0)
+def delete_rows(db: Any, table: str, key: str, ids: list[Any], batch: int = BATCH) -> Iterator[int]:
+    """Delete `table`'s rows whose `key` is in `ids`, in the order given, `batch` rows a transaction, each batch's
+    dependents (DEPENDENTS) in the same transaction first; yields each batch's count, so the daemon's loop runs between
+    batches. A failed batch is rolled back whole and raises. Table and column names are FERB's own constants."""
+    for i in range(0, len(ids), batch):
+        chunk = ids[i:i + batch]
+        marks = ",".join("?" * len(chunk))
+        db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            for dependent, column, parent in DEPENDENTS.get(table, ()):
+                db.conn.execute(f"DELETE FROM {dependent} WHERE {column} IN "
+                                f"(SELECT {parent} FROM {table} WHERE {key} IN ({marks}))", chunk)
+            n = int(db.conn.execute(f"DELETE FROM {table} WHERE {key} IN ({marks})", chunk).rowcount)
+            db.conn.execute("COMMIT")
+        except BaseException:
+            if db.conn.in_transaction:            # SQLite may have rolled back already; keep the real error
+                db.conn.execute("ROLLBACK")
+            raise
+        yield n

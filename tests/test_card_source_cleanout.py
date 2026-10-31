@@ -1,10 +1,12 @@
-"""Plan 2026-10-23 Task 1 (L28, C1): the one-time clean-out of episode cards' source rows, and the compaction after it.
+"""Plan 2026-10-23 Task 1 (L28, C1) and step 12a: the one-time clean-out of episode cards' source rows, and the
+compaction after it.
 
-The composer before memory review C1 (`code:evidence-card/1`, installed until the owner's next update) copied into a
-card the refs of every block its planner was shown, and each earlier version's: 22.6M rows on 438 card versions of 85
-tasks in the owner's 8.1 GB store. The clean-out keeps on each version of a traced task's card exactly what the current
-rule gives it (`Learning.card_source_refs`). It leaves a card whose trace aged out as it is, never adds an edge and
-never touches another kind of node. Each node is cleaned in its own transaction."""
+The composer before memory review C1 (`code:evidence-card/1`) copied into a card the refs of every block its planner
+was shown, and each earlier version's: 22.6M rows on 438 card versions of 85 tasks in the owner's 8.1 GB store; the
+composer before step 9b kept every activity row its actions read (1.47M rows on the owner's 211 cards). The clean-out
+keeps on each version of a card exactly what the current rule gives it (`Learning.card_source_refs`: from its trace,
+or from what it cites once the trace aged out, one activity row per distinct set of origins). It never adds an edge
+and never touches another kind of node. Each node is cleaned in its own transaction."""
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -14,7 +16,6 @@ import pytest
 from ferb.core import origin
 from ferb.memory.learning import Learning
 from ferb.store.db import Database, store_size
-from ferb.store.retention import purge_task_spans
 from tests.support.cards import card_store, copied_cards, sources_of, traced_task
 
 
@@ -23,6 +24,11 @@ def store(tmp_path: Path) -> Any:
     db, redactor, spans, learning = card_store(tmp_path)
     yield db, spans, learning
     db.close()
+
+
+def purge_task_spans(db: Database, task_id: str) -> None:
+    """What retention does to a task's trace after 30 days (these fixtures' spans have no parents)."""
+    db.conn.execute("DELETE FROM spans WHERE task_id = ? OR task_id LIKE ?", (task_id, task_id + ".%"))
 
 
 def _rows(db: Database) -> dict[str, set[str]]:
@@ -38,9 +44,9 @@ def test_card_source_refs_are_what_a_current_card_cites(store: Any) -> None:
     activity rows (fix list: up to 58,250 refs a card); a task with no trace left gives None."""
     db, spans, learning = store
     kept, shown = traced_task(db, spans, learning, "c0ffee01")
-    assert learning.card_source_refs("c0ffee01") == kept
+    rule = learning.card_source_refs("c0ffee01")
     card = learning.capture_episode("c0ffee01")
-    assert card is not None and set(card["sources"]) <= kept and "episode:c0ffee01" in card["sources"]
+    assert card is not None and set(card["sources"]) == rule and rule <= kept and "episode:c0ffee01" in rule
     trail = [r for r in card["sources"] if r.startswith("trail:")]
     assert trail and len(trail) < len([r for r in kept if r.startswith("trail:")])    # one per origin set
     assert learning.card_source_refs("c0ffee99") is None
@@ -56,12 +62,13 @@ def test_each_version_of_a_traced_card_keeps_only_what_the_current_rule_gives(st
     partial = learning.put("episode", "c0ffee01", {"task_id": "c0ffee01", "version": "partial"},
                            (kept - {"episode:other"}) | shown, made_by="code:evidence-card/1",
                            origin_label=origin.FERB, state="active", labels={origin.PRIVATE})["id"]
+    rule = learning.card_source_refs("c0ffee01")
     counts = learning.prune_card_sources()
     for node in versions:
-        assert sources_of(db, node) == kept
-    assert sources_of(db, partial) == kept - {"episode:other"}            # an edge is never added
-    assert counts == {"tasks": 1, "nodes": 4, "cleaned": 4, "rows": 4 * len(shown), "untraced": 0,
-                      "stopped": False}
+        assert sources_of(db, node) == rule
+    assert sources_of(db, partial) == rule - {"episode:other"}            # an edge is never added
+    gone = 3 * len((kept | shown) - rule) + len(((kept - {"episode:other"}) | shown) - (rule - {"episode:other"}))
+    assert counts == {"tasks": 1, "nodes": 4, "cleaned": 4, "rows": gone, "untraced": 0, "stopped": False}
 
 
 def test_a_card_the_current_composer_built_loses_nothing(store: Any) -> None:
@@ -74,17 +81,21 @@ def test_a_card_the_current_composer_built_loses_nothing(store: Any) -> None:
     assert _rows(db) == before and counts["rows"] == 0 and counts["cleaned"] == 0 and counts["nodes"] == 1
 
 
-def test_a_card_whose_trace_aged_out_is_left_alone_and_counted(store: Any) -> None:
-    """Review focus 1: its lineage can't be read again, so the clean-out doesn't guess at it."""
+def test_a_card_whose_trace_aged_out_keeps_what_it_cites_with_one_activity_row_per_origin_set(store: Any) -> None:
+    """Review focus 1: its lineage can't be read again, so nothing is guessed: it keeps every episode, journal and
+    memory ref it cites and, of its activity rows, one per distinct set of origins (step 9b's rule, step 12a)."""
     db, spans, learning = store
     kept, shown = traced_task(db, spans, learning, "c0ffee02")
     versions = copied_cards(learning, "c0ffee02", kept | shown, versions=2)
     purge_task_spans(db, "c0ffee02")                                     # what retention does after 30 days
-    before = _rows(db)
     counts = learning.prune_card_sources()
-    assert _rows(db) == before
-    assert counts["untraced"] == 2 and counts["rows"] == 0 and counts["nodes"] == 2
-    assert all(sources_of(db, v) == kept | shown for v in versions)
+    assert counts["untraced"] == 2 and counts["nodes"] == 2 and counts["rows"] > 0
+    for v in versions:
+        left = sources_of(db, v)
+        assert left < kept | shown                                       # never an edge added
+        assert {r for r in kept | shown if r.split(":")[0] in ("episode", "journal", "memory")} <= left
+        assert 1 <= len([r for r in left if r.startswith("trail:")]) < len([r for r in shown if r.startswith("trail:")])
+    assert learning.prune_card_sources()["rows"] == 0                    # a second run removes nothing
 
 
 def test_other_kinds_of_node_are_untouched(store: Any) -> None:
@@ -99,9 +110,10 @@ def test_other_kinds_of_node_are_untouched(store: Any) -> None:
               learning.put("episode_annotation", card, {"text": "went well"}, [card, *sorted(shown)], made_by="test",
                            labels=labels)["id"]]
     before = {node: sources_of(db, node) for node in others}
+    rule = learning.card_source_refs("c0ffee01")
     learning.prune_card_sources()
     assert {node: sources_of(db, node) for node in others} == before
-    assert sources_of(db, card) == kept
+    assert sources_of(db, card) == rule
 
 
 def test_a_second_run_removes_nothing(store: Any) -> None:
@@ -123,7 +135,8 @@ def test_forgetting_a_row_an_action_used_still_forgets_the_card_and_what_was_bui
     lesson = learning.put("lesson", "tea", {"text": "check the order page first"}, [versions[-1]], made_by="test",
                           labels={origin.PRIVATE})["id"]
     learning.prune_card_sources()
-    doomed = set(learning.forget(["trail:ev-c0ffee01-b"]))
+    [used] = [r for r in sources_of(db, versions[-1]) if r.startswith("trail:ev-")]     # one per origin set (9b)
+    doomed = set(learning.forget([used]))
     assert set(versions) | {lesson} <= doomed
     assert learning.current_card("c0ffee01") is None and learning.get(lesson) is None
     assert learning.prepare_episode("c0ffee01") is None                  # its key's tombstone: never rebuilt (C1)
@@ -145,8 +158,9 @@ def _three_tasks(db: Database, spans: Any, learning: Any) -> tuple[dict[str, set
     pruned: dict[str, set[str]] = {}
     for task in ("c0ffee01", "c0ffee02", "c0ffee03"):
         kept, shown = traced_task(db, spans, learning, task, shown=300)
+        rule = learning.card_source_refs(task)
         for node in copied_cards(learning, task, kept | shown, versions=2):
-            original[node], pruned[node] = kept | shown, kept
+            original[node], pruned[node] = kept | shown, rule
     return original, pruned
 
 
@@ -278,7 +292,8 @@ def test_a_store_with_nothing_to_clean_keeps_its_ref_index(store: Any) -> None:
     db, spans, learning = store
     kept, shown = traced_task(db, spans, learning, "c0ffee02")
     copied_cards(learning, "c0ffee02", kept | shown, versions=1)
-    purge_task_spans(db, "c0ffee02")                                     # an untraced card
+    purge_task_spans(db, "c0ffee02")                                     # an untraced card, cleaned once
+    learning.prune_card_sources()
     traced_task(db, spans, learning, "c0ffee01")
     learning.capture_episode("c0ffee01")                                 # a card the current composer wrote
     assert not _drops(db, learning)
@@ -292,9 +307,8 @@ def test_the_ref_index_is_made_whenever_it_is_missing(store: Any, monkeypatch: p
     """Every run makes a missing index (one an earlier run lost after 0043 was applied), even one with nothing to
     clean, and even one an error ends before anything was dropped."""
     db, spans, learning = store
-    kept, shown = traced_task(db, spans, learning, "c0ffee02")
-    copied_cards(learning, "c0ffee02", kept | shown, versions=1)
-    purge_task_spans(db, "c0ffee02")                                     # nothing to clean
+    traced_task(db, spans, learning, "c0ffee02")
+    learning.capture_episode("c0ffee02")                                 # nothing to clean
     db.conn.execute("DROP INDEX learning_source_ref")
     learning.prune_card_sources()
     assert _ref_index(db)
@@ -303,7 +317,7 @@ def test_the_ref_index_is_made_whenever_it_is_missing(store: Any, monkeypatch: p
         raise sqlite3.OperationalError("disk I/O error")
     _three_tasks(db, spans, learning)
     db.conn.execute("DROP INDEX learning_source_ref")
-    monkeypatch.setattr(Learning, "card_source_refs", broken)
+    monkeypatch.setattr(Learning, "_trace_refs", broken)
     with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
         learning.prune_card_sources()
     assert _ref_index(db) and not db.conn.in_transaction
@@ -329,14 +343,23 @@ def test_a_stop_after_the_drop_says_the_index_is_being_made_again(store: Any) ->
     assert told == []                                                    # stopped before any drop
 
 
-def test_the_next_start_makes_the_ref_index_again_after_a_power_loss_mid_clean_out(store: Any) -> None:
+def test_the_next_start_makes_the_ref_index_again_after_a_power_loss_mid_clean_out(store: Any, tmp_path: Path) -> None:
     """A power loss between the drop and the remake leaves no index; the daemon's next start (its migrations) makes it
     again, so forgets and missing-source lookups never scan the whole table."""
-    db, spans, learning = store
-    db.conn.execute("DROP INDEX learning_source_ref")
-    db.conn.execute("DELETE FROM schema_version WHERE version >= 43")    # the first start of the new code
+    import shutil
+    from ferb.store import db as store_db
+    _, _, _ = store
+    old = tmp_path / "old"                                               # a store migrated by the code before 0043
+    old.mkdir()
+    for f in sorted(store_db.MIGRATIONS.glob("*.sql")):
+        if int(f.name[:4]) < 43:
+            shutil.copy(f, old / f.name)
+    db = Database(tmp_path / "power-loss.db")
+    db.migrate(old)
+    db.conn.execute("DROP INDEX learning_source_ref")                    # the clean-out's drop, then the power loss
     assert not _ref_index(db)
-    assert 43 in db.migrate() and _ref_index(db)
+    assert 43 in db.migrate() and _ref_index(db)                         # the first start of the new code
+    db.close()
 
 
 def test_every_daemon_start_makes_a_missing_ref_index_again(home: Path) -> None:

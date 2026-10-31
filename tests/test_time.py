@@ -133,7 +133,8 @@ def test_time_tools_set_reminders_and_sleep_without_counting_as_stuck(daemon: Ru
     g = task(daemon, "tt", Identity.OWNER, {"time"}, {"research"})
     r = call(daemon, g, "time.remind_at", in_minutes=60, message="check the oven")
     assert not r["is_error"] and r["content"]["timer"].startswith("tm-")
-    assert not call(daemon, g, "time.set_timer", minutes=20, message="tea")["is_error"]
+    t = call(daemon, g, "time.set_timer", minutes=20, message="tea")
+    assert not t["is_error"] and run(daemon, lambda: daemon.daemon.timers.get(t["content"]["timer"])).kind == "timer"
     assert call(daemon, g, "time.remind_at", date="2020-01-01", message="x")["is_error"]           # in the past
     assert call(daemon, g, "time.remind_at", message="x")["is_error"]                              # no time at all
     assert call(daemon, g, "time.sleep_until", in_days=1)["is_error"]                              # past the limit

@@ -30,12 +30,12 @@ class _Base:
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.TIMER, Target(), content=getattr(args, "message", None))
 
-    def _add(self, at: datetime, message: str, ctx: ToolContext) -> ToolResult:
+    def _add(self, at: datetime, message: str, ctx: ToolContext, kind: str = "reminder") -> ToolResult:
         t = self.timers()
         if t is None:
             return _err("timers aren't available")
         try:
-            tm = t.add("reminder", at, message, task_id=ctx.task_id, request_id=ctx.request_id)
+            tm = t.add(kind, at, message, task_id=ctx.task_id, request_id=ctx.request_id)
         except ValueError as e:
             return _err(str(e))
         return ToolResult({"timer": tm.id, "at": tm.fire_at.astimezone().isoformat(timespec="minutes"),
@@ -67,7 +67,7 @@ class TimeSetTimer(_Base):
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         return self._add(self.now() + timedelta(minutes=float(getattr(args, "minutes"))), str(getattr(args, "message")),
-                         ctx)
+                         ctx, kind="timer")
 
 
 class TimeSleepUntil(_Base):

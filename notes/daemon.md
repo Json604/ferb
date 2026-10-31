@@ -161,9 +161,12 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       fingerprint, when); `setup.persona` answers state "seen" with `summary` and `facts`; no approval.)
 - [x] Exception handler; fire-and-forget tasks tracked; timers isolate a failing consumer. (Step 2: `daemon.unhandled`,
       `daemon.background_failed`, `daemon.loop_failed`, `timer.failed` journal rows.)
-- [ ] Blocking calls to threads (codesign, sandbox check, retention, profile discovery, TCC checks). (Step 2: all but
+- [x] Blocking calls to threads (codesign, sandbox check, retention, profile discovery, TCC checks). (Step 2: all but
       retention. Retention's slow part is a span scan inside its delete transaction; a worker-thread writer would make
       the loop's writes wait on SQLite's lock. Fix with step 12: ids read off the loop, short delete batches.)
+      (Step 12a: the pass reads what goes in a worker thread on a read-only connection (`retention.plan`), then deletes
+      on the loop's connection 200 rows a transaction, the loop free between batches; first pass on a copy of the
+      owner's store: longest loop gap 189 ms.)
 - [x] `chat.status` read-only (marking shown is explicit).
 - [x] `ps.list` redacted; `memory.learning retire` through Learning; search off the loop.
 - [x] Privacy settings applied live to the Redactor, proxy and hearing.

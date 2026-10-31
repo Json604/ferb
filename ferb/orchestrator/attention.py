@@ -179,8 +179,10 @@ def scrub_spans(db: Any, told: list[tuple[str, str]], *, every_kind: bool = Fals
     of the strings, so any number of them fits."""
     db.conn.execute("CREATE TEMP TABLE IF NOT EXISTS expiring_text (held TEXT PRIMARY KEY)")
     try:
+        # as it sits inside the stored JSON: as written since step 12a (UTF-8), and with \\uXXXX escapes before
         db.conn.executemany("INSERT OR IGNORE INTO expiring_text VALUES (?)",
-                            [(json.dumps(old)[1:-1],) for old, _ in told])      # as it sits inside the stored JSON
+                            [(form,) for old, _ in told
+                             for form in {json.dumps(old)[1:-1], json.dumps(old, ensure_ascii=False)[1:-1]}])
         rows = db.conn.execute(
             "SELECT id,input_json,output_json FROM spans s WHERE (? OR kind!='attention.consider') AND EXISTS (SELECT 1 "
             "FROM expiring_text e WHERE instr(s.input_json, e.held) > 0 OR instr(COALESCE(s.output_json, ''), e.held) > 0)",

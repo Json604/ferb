@@ -287,6 +287,14 @@ def _bare(text: str) -> str:
     return text.strip().rstrip(".!").strip()
 
 
+def _stored_refs(refs: Any) -> list[str]:
+    """The refs a context span stores (step 12a, notes/storage.md target design 2): what a block cites, without the
+    activity rows (`trail:`) behind it. Those lists were most of the trace's size (one span held thousands) and nothing
+    reads them back: a card cites the owner's request entry and its own tool results, a forget's scrub finds a shown
+    entry by its `entry:`/`journal:` ref, the repeat measure a learned node by its id."""
+    return [str(ref) for ref in refs if not str(ref).startswith("trail:")]
+
+
 def _exposure_output(record: dict[str, Any]) -> dict[str, Any]:
     """A context exposure's stored output: the text shown and its S4 payload; for the conversation (no `text`), the
     payload alone, so a task never keeps the chat twice (final review M7)."""
@@ -1947,12 +1955,9 @@ class Supervisor(WorkerRuns):
 
     def _record_reply(self, turn: _Turn, kind: str, text: str, made: set[str]) -> None:
         """The one reply recorder: FERB's reply or question in the conversation record (the next turns' history),
-        always with its origin (`made`: what wrote it), and the context it was written from; a question also records its
-        kind (fix list: so "few questions" can be measured)."""
-        refs = sorted({ref for exposure in turn.exposures for ref in exposure["source_refs"]})
+        always with its origin (`made`: what wrote it; no list of the rows it was written from, step 12a); a question
+        also records its kind (fix list: so "few questions" can be measured)."""
         data: dict[str, Any] = {"session_id": turn.session.id, "request_id": turn.request_id, "text": text}
-        if refs:
-            data["source_refs"] = refs
         if kind == "clarify":
             data["question_kind"] = "which" if made == {origins_.FERB, origins_.INFERRED} else "clarify"
         self.journal.append(f"chat.{kind}", data, origin=origins_.join(made))
@@ -2499,7 +2504,7 @@ class Supervisor(WorkerRuns):
         # The situation's full texts are also attached to a task as its planner snapshot (task.evidence planner-context).
         turn.planner_sources = json.dumps([
             {"reference": block.reference, "text": block.text, "origin": origins_.join(made),
-             "source_refs": list(block.source_refs)} for block, made in situation], ensure_ascii=False)
+             "source_refs": _stored_refs(block.source_refs)} for block, made in situation], ensure_ascii=False)
         snapshot = "; original planner snapshot: task.evidence kind=context.source query=planner-context"
         first, last = len(stable), len(stable) + len(situation)
         ctx = [dataclasses.replace(block, reference=block.reference + snapshot) if first <= i < last else block
@@ -3297,7 +3302,8 @@ class Supervisor(WorkerRuns):
                                tuple(sorted({ref for item in items for ref in item.get("source_refs", [])})))
         for exposure in turn.exposures:
             captured = self.spans.start('context.exposure', task_id=tree.id, parent_id=root_span,
-                                       input={'source_refs': exposure['source_refs'], 'reference': exposure['reference']})
+                                       input={'source_refs': _stored_refs(exposure['source_refs']),
+                                              'reference': exposure['reference']})
             self.spans.finish(captured, output=_exposure_output(exposure), origin=exposure['origin'])
 
     async def _plan_question(self, tree: _Tree, question: str, options: list[str],
@@ -4838,7 +4844,8 @@ class Supervisor(WorkerRuns):
             return
         for record in records:
             span = self.spans.start('context.exposure', task_id=tree.id,
-                                   input={'source_refs': record['source_refs'], 'reference': record['reference']})
+                                   input={'source_refs': _stored_refs(record['source_refs']),
+                                          'reference': record['reference']})
             self.spans.finish(span, output=_exposure_output(record), origin=record['origin'])
 
     def _source_block(self, tree: _Tree, label: str, text: str, origin: str,
@@ -4850,7 +4857,7 @@ class Supervisor(WorkerRuns):
         if key not in tree.context_sources and text:
             parent = self.tasks.get(tree.id)
             span = self.spans.start("context.source", task_id=tree.id, parent_id=parent.span_id if parent else None,
-                                    input={"label": label, "source_refs": list(source_refs)})
+                                    input={"label": label, "source_refs": _stored_refs(source_refs)})
             self.spans.finish(span, output={"text": text}, origin=origin)
             tree.context_sources[key] = span.id
         reference = "task.evidence span_id=" + tree.context_sources.get(key, "")

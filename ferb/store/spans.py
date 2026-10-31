@@ -17,6 +17,12 @@ OUTPUT_TEXT_CAP = 20000          # characters of each tool result matched for ar
 _RECORDED = "CASE WHEN kind != 'task' AND origin IS NULL AND output_json IS NOT NULL THEN ? ELSE origin END"
 
 
+def _dumps(value: Any) -> str:
+    """A span's stored JSON: text as written (UTF-8), not as \\uXXXX escapes, so a search for non-ASCII words finds it
+    (step 12a; rows from before hold escapes, and the search matches both forms)."""
+    return json.dumps(value, ensure_ascii=False)
+
+
 def tree_where(root_id: str) -> tuple[str, tuple[Any, ...]]:
     """SQL and parameters selecting a task tree's spans. A range, not substr(): it can use the task_id index.
     "/" is the character right after "."."""
@@ -56,7 +62,7 @@ class SpanStore:
         self._db.conn.execute(
             "INSERT INTO spans (id, parent_id, task_id, kind, device_id, started_at, input_json)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (span.id, parent_id, task_id, kind, device_id, span.started_at.isoformat(), json.dumps(span.input)))
+            (span.id, parent_id, task_id, kind, device_id, span.started_at.isoformat(), _dumps(span.input)))
         return span
 
     def _redact_input(self, input: dict[str, Any]) -> dict[str, Any]:
@@ -77,7 +83,7 @@ class SpanStore:
         self._db.conn.execute(
             "UPDATE spans SET ended_at = ?, output_json = ?, error = ?, cost_usd = ?, origin = COALESCE(?, origin), "
             "summary = COALESCE(?, summary) WHERE id = ?",
-            (span.ended_at.isoformat(), None if span.output is None else json.dumps(span.output), span.error,
+            (span.ended_at.isoformat(), None if span.output is None else _dumps(span.output), span.error,
              cost_usd, None if origin is None else span.origin, span.summary, span.id))
         return span
 
@@ -346,9 +352,11 @@ class SpanStore:
     def outcome(self, task_id: str) -> dict[str, Any]:
         """Export one redacted evidence object. Missing historical facts stay explicit, never reconstructed guesses."""
         events = [_span_record(_row_to_span(row)) for row in self._task_rows(task_id)]
+        # A continued tree has one root span per run (a resume, a continuation): the request is the first run's, the
+        # result the last run's (step 12a: an episode built from a continued tree had no result and a wrong end)
         roots = [e for e in events if e['kind'] == 'task' and e['task_id'] == task_id]
-        root = roots[0] if len(roots) == 1 else {}
-        source = root.get('input', {})
+        root = roots[-1] if roots else {}
+        source = roots[0].get('input', {}) if roots else {}
         tasks = []
         for row in self._db.conn.execute("SELECT * FROM tasks WHERE tree_id = ? ORDER BY created_at, id", (task_id,)):
             task = dict(row)
@@ -400,7 +408,7 @@ class SpanStore:
         if row is None:
             raise ValueError("unknown span")
         swap(self._db, "spans", "id", span_id, ("input_json",),
-             lambda held: (json.dumps(json.loads(held[0]) | clean),), (row[0],))
+             lambda held: (_dumps(json.loads(held[0]) | clean),), (row[0],))
 
     @staticmethod
     def _evidence_where(task_id: str, root_id: str | None) -> tuple[str, list[Any]]:
@@ -437,8 +445,12 @@ class SpanStore:
             raise ValueError('limit must be positive and after nonnegative')
         where, params = self._evidence_where(task_id, root_id)
         if query:
-            where += " AND instr(lower(kind || input_json || coalesce(output_json, '') || coalesce(error, '')), lower(?)) > 0"
-            params.append(query)
+            # as written now (UTF-8), and as rows written before step 12a hold it (JSON's \\uXXXX escapes)
+            forms = list(dict.fromkeys((query, json.dumps(query)[1:-1])))
+            where += " AND (" + " OR ".join(
+                "instr(lower(kind || input_json || coalesce(output_json, '') || coalesce(error, '')), lower(?)) > 0"
+                for _ in forms) + ")"
+            params.extend(forms)
         if kind:
             where += " AND kind = ?"
             params.append(kind)
@@ -471,8 +483,8 @@ def rewrite_recorded(db: Any, ident: str, change: Callable[[Any, Any], tuple[Any
         new_in, new_out = change(before_in, before_out)
         if new_in == before_in and new_out == before_out:
             return stored
-        return (inp if new_in == before_in else json.dumps(new_in),
-                out if new_out == before_out else None if new_out is None else json.dumps(new_out))
+        return (inp if new_in == before_in else _dumps(new_in),
+                out if new_out == before_out else None if new_out is None else _dumps(new_out))
     written = swap(db, "spans", "id", ident, ("input_json", "output_json"), step, held)
     return written is not None
 
