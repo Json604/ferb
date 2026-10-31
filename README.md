@@ -58,8 +58,8 @@ Keychain items.
 - **Voice**: hold Right Command + Option to dictate, and FERB can answer aloud in the Mac's voice.
 - **Sign in for you**: passwords, one-time codes and card details go through a sealed path; the model never sees them.
   FERB tries simple "verify you are human" checks itself and hands the tab to you when it can't.
-- **Report a failure**: a failed task offers **Send to developer**, which opens an email in your Mail app with the
-  task's record (secrets removed) for you to read before sending.
+- **Report a failure**: a failed task offers **Send to developer**: FERB prepares the task's record (secrets removed),
+  you can view it, and **Send** delivers it to FERB's developer. No account or email needed.
 
 ## AI models
 

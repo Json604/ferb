@@ -69,15 +69,11 @@ final class FERBWindowStore: ObservableObject {
     @Published var problem: String?
     /// The result of the last action, one line ("Paused: …", "codex answered.").
     @Published var note: String?
-    /// Where Send diagnostics to developer stands, under its button.
-    @Published var diagnosticLine: String?
+    /// Where Send diagnostics to developer stands, under its button: prepared, sent, or not sent and kept.
+    @Published var diagnostic: ReportState?
 
-    /// The owner's own Mail app, for Send diagnostics to developer; FERB only opens a new email.
-    let mailer: ReportMailing
-
-    init(rpc: DaemonRPCTransport, mailer: ReportMailing = SystemReportMailer()) {
+    init(rpc: DaemonRPCTransport) {
         self.rpc = rpc
-        self.mailer = mailer
     }
 
     /// One RPC. A failure becomes the problem line and nil; never a crash or an empty list that reads as "nothing".
@@ -339,25 +335,25 @@ final class FERBWindowStore: ObservableObject {
         health = HealthLine.lines(reply)
     }
 
-    /// Send diagnostics to developer (owner 2026-10-27): the diagnostic file in a new email to the developer in the
-    /// owner's own Mail app, as a failure report is (they press Send); without Mail, the file is shown in Finder.
-    func sendDiagnostic(appVersion: String?) async {
+    /// Send diagnostics to developer (owner 2026-10-27): FERB writes the diagnostic file (secrets removed) and the
+    /// page offers View and Send, as a failure report does; nothing leaves the Mac until the owner presses Send.
+    func prepareDiagnostic(appVersion: String?) async {
+        diagnostic = .preparing
         var params: [String: Any] = ["send": true]
         if let appVersion { params["app_version"] = appVersion }
         guard let reply = await ask("reports.diagnostic", params, wait: Self.diagnosticWait),
-              let report = FailureReport(reply, note: FailureReport.diagnosticNote) else { return }
-        let mailer = self.mailer
-        let opened = mailer.compose(recipients: [report.address], subject: report.subject,
-                                    items: [report.body, report.file]) { [weak self] in
-            mailer.reveal(report.file)
-            self?.diagnosticLine = "Send this file to " + report.address
+              let report = FailureReport(reply) else {
+            diagnostic = .failed(problem ?? "FERB couldn't write the diagnostic file.")
+            return
         }
-        if opened {
-            diagnosticLine = "A new email with the diagnostic file is open in Mail."
-        } else {
-            mailer.reveal(report.file)
-            diagnosticLine = "Send this file to " + report.address
-        }
+        diagnostic = .ready(report)
+    }
+
+    /// Send, or Send again after it couldn't: one try (`reports.send`).
+    func sendDiagnostic(appVersion: String?) async {
+        guard let report = diagnostic?.report, diagnostic != .sending(report) else { return }
+        diagnostic = .sending(report)
+        diagnostic = await ReportSender.send(report, appVersion: appVersion, rpc: rpc)
     }
 
     func exportDiagnostic(appVersion: String?) async -> URL? {

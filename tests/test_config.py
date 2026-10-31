@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from ferb.config import FERB_WRITTEN, LIMITS_DECIDED, Config, InsecureConfig
+from ferb.config import FEEDBACK_DECIDED, FERB_WRITTEN, LIMITS_DECIDED, Config, InsecureConfig
 
 EXISTING = """# FERB runtime config. Owner-only (0600).
 
@@ -96,6 +96,20 @@ def test_the_2026_10_31_download_decision_replaces_the_old_values_and_keeps_an_o
     assert c.upgrade_downloads() == []                              # nothing left to change
     c.set("browser", "download_task_max_files", 80)                  # the owner's own value afterwards stays
     assert c.upgrade_downloads() == [] and c.get("browser", "download_task_max_files") == 80
+
+
+def test_the_relay_decision_drops_the_old_feedback_address(home: Path) -> None:
+    """Owner 2026-11-01: reports go to the relay; an older config's `[feedback] address` goes (its value unjournaled),
+    a relay address the owner set stays, and a table left empty goes."""
+    c = Config(home)
+    c.set("feedback", "address", "dev@example.org")
+    assert c.upgrade(FEEDBACK_DECIDED) == [{"key": "feedback.address", "to": None}]
+    assert "feedback" not in (home / "config.toml").read_text()
+    assert c.upgrade(FEEDBACK_DECIDED) == []
+    c.set("feedback", "address", "dev@example.org")
+    c.set("feedback", "relay_url", "https://relay.example.org/report")
+    c.upgrade(FEEDBACK_DECIDED)
+    assert c.section("feedback") == {"relay_url": "https://relay.example.org/report"}
 
 
 def test_the_limits_ferb_wrote_take_the_decided_values_and_an_owner_value_stays(home: Path) -> None:

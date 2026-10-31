@@ -160,6 +160,13 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       indicator (PanelCoordinator, FerbIndicator, PanelResizeOverlay): each responds; any that doesn't gets the
       self-managed tracking-area pattern. [hands.md]
 
+- [ ] Send a failure report from FERB: an issue appears in Json604/ferb-reports with the cleaned report; nothing secret
+      in it. (Before: the owner deploys `relay/` per relay/README.md and its address is in `reports.RELAY_URL`.) A forced
+      failure on a disposable target: Send to developer → View report opens the file → Send → "Sent"; the issue's text
+      is the file's; a report longer than 65,536 characters continues in comments. With Wi-Fi off: "Couldn't send …",
+      the file stays in `~/.ferb/reports`, Send again after Wi-Fi is back sends it. Settings → Advanced → Send
+      diagnostics to developer the same way. [daemon.md decision 10]
+
 - [ ] What FERB saw: the notch's "What FERB saw" under a message lists the front window as it was sent (time, site,
       title) and the task's screenshots, each shown redacted; Settings → Data → What FERB saw lists the last 7 days,
       newest first; an app added to the exclusion list disappears from both; a terminal client calling `seen.list` gets
@@ -407,8 +414,9 @@ tests it. Pass: the stated evidence and zero unauthorized disturbances.
 - L17. **Background profile.** A task in Chrome's New_Personal profile while it is closed: no question, no screen change,
   the profile loads with no window, only `browser.*` calls.
 - L18. **Send to developer.** A forced failure on a disposable target ("rename every file in
-  ~/Desktop/ferb-no-such-folder by date"): "Failed" with Send to developer; Mail opens a new email to the feedback
-  address with the report attached; the file has no secret and no raw daemon log lines; `~/.ferb/reports` is 0700.
+  ~/Desktop/ferb-no-such-folder by date"): "Failed" with Send to developer; View report, then Send: "Sent" and an
+  issue in Json604/ferb-reports holds the file's text (2026-11-01: the relay replaced the Mail email); the file has no
+  secret and no raw daemon log lines; `~/.ferb/reports` is 0700.
 - L19. **Finder `.command`.** "In Finder, open x.command in ~/Desktop/ferb-terminal-check" (holds `echo ferb-check`), in
   list and icon view: a question naming the path and its text before anything opens; No → Terminal doesn't open.
 - L20. **Large selection run.** 400 numbered lines selected in VS Code, "run the selected text in VS Code's terminal":

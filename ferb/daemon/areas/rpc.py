@@ -69,16 +69,13 @@ class Rpc:
         return {"tasks": out, "more": len(rows) > limit}
 
     async def _reports_diagnostic(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """Settings → Advanced → Export a diagnostic file: reports.diagnostic writes it. With `send`, Send diagnostics to
-        developer (owner 2026-10-27): also the feedback address and a subject for a new email in the owner's own Mail
-        app, as a failure report; FERB itself sends nothing. Params: `app_version`, the app's version; `send`."""
+        """Settings → Advanced → Export a diagnostic file: reports.diagnostic writes it, with the subject Send
+        diagnostics to developer (owner 2026-10-27) gives it; the app previews it and `reports.send` posts it, as a
+        failure report. Params: `app_version`, the app's version; `send`, recorded only."""
         from ferb.daemon import reports
         if self.db is None:
             raise FerbError("daemon not started")
         send = params.get("send") is True
-        address = str(self.config.get("feedback", "address", reports.FEEDBACK_ADDRESS) or "").strip()
-        if send and not address:
-            raise FerbError(reports.NOT_SET_UP)
         text = getattr(self.redact, "text", None)
         if not callable(text):                     # never written unredacted
             raise FerbError("FERB couldn't redact the diagnostic file, so it wrote none")
@@ -88,8 +85,6 @@ class Rpc:
             reports.diagnostic, self.db.path, health, recording, self._report_facts(), home=self.home,
             now=self.clock.now(), walk=self.redact, text=text, app_version=str(params.get("app_version") or ""))
         self._journal().append("diagnostic.built", {"file": built["path"], "send": send})
-        if send:
-            return {**built, "address": address, "subject": f"FERB diagnostics ({built['summary']})"}
         return built
 
     def _update_blockers(self) -> list[dict[str, str]]:
@@ -154,7 +149,7 @@ class Rpc:
             "setup.browsers_pair_all": self._setup_browsers_pair_all, "identity.pair": self._identity_pair,
             "ps.list": self._ps_list, "ps.kill": self._ps_kill, "conversations.list": self._conversations_list,
             "conversations.change": self._conversations_change, "notifications.categories": self._notifications_categories, "attention.ack": self._attention_ack,
-            "reports.build": self._reports_build, "tasks.list": self._tasks_list,
+            "reports.build": self._reports_build, "reports.send": self._reports_send, "tasks.list": self._tasks_list,
             "tasks.preview": self._task_preview, "update.prepare": self._update_prepare,
             "reports.diagnostic": self._reports_diagnostic, "notices.list": self._notices_list,
             "settings.get": self._settings_get, "settings.set": self._settings_set,
@@ -305,14 +300,11 @@ class Rpc:
 
     async def _reports_build(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Send to developer (L35): the report file of a turn FERB recorded as ending badly (`reports.failure`), with
-        the feedback address and subject for a new email in the owner's own Mail app. FERB sends nothing. Params: the
-        turn's `task_id` and `request_id`, whichever the notch holds, and `app_version`, the notch's version."""
+        its subject and summary. Nothing is sent: the app shows the file and the owner's Send calls `reports.send`.
+        Params: the turn's `task_id` and `request_id`, whichever the notch holds, and `app_version`, the notch's."""
         from ferb.daemon import reports
         if self.db is None:
             raise FerbError("daemon not started")
-        address = str(self.config.get("feedback", "address", reports.FEEDBACK_ADDRESS) or "").strip()
-        if not address:
-            raise FerbError(reports.NOT_SET_UP)
         text = getattr(self.redact, "text", None)
         if not callable(text):                # never written unredacted (review 1, M4)
             raise FerbError("FERB couldn't redact the report, so it wrote none")
@@ -323,7 +315,29 @@ class Rpc:
             now=self.clock.now(), clock=self.clock, ids=self.ids, walk=self.redact, text=text,
             app_version=str(params.get("app_version") or ""))
         self._journal().append("report.built", {"task_id": found.task_id, "file": built["path"]})
-        return {**built, "address": address}
+        return built
+
+    async def _reports_send(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """The owner's Send under a report or diagnostic file they previewed (owner decision 2026-11-01): the daemon
+        posts that file's text, through the redaction once more, to the developer's report relay. Never retried by
+        itself: on any failure the file stays saved, the reply says why (`sent: false`) and the owner can press Send
+        again. Params: `path` (as `reports.build`/`reports.diagnostic` returned it), `title` (their subject),
+        `app_version`."""
+        from ferb.daemon import reports
+        text = getattr(self.redact, "text", None)
+        if not callable(text):                # never sent unredacted
+            raise FerbError("FERB couldn't redact the report, so it sent nothing")
+        path, kind = reports.saved(self.home, str(params.get("path") or ""))
+        try:
+            url = reports.relay_url(self.config.get("feedback", "relay_url", ""))
+            data = await asyncio.to_thread(reports.payload, path, kind, str(params.get("title") or ""),
+                                           str(params.get("app_version") or ""), text=text)
+            report_id = await reports.post(url, data)
+        except reports.Unsent as e:
+            self._journal().append("report.send_failed", {"file": str(path), "kind": kind, "why": str(e)})
+            return {"sent": False, "path": str(path), "error": str(e)}
+        self._journal().append("report.sent", {"file": str(path), "kind": kind, "report_id": report_id})
+        return {"sent": True, "path": str(path), "report_id": report_id}
 
     async def _stop_engage(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         summary = self.stop_control.engage()

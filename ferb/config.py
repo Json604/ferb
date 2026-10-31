@@ -41,8 +41,12 @@ DOWNLOAD_FILES = (("browser", "download_task_max_files"), 50, 300)
 DOWNLOAD_MB_TO_GB = {("browser", "download_task_max_mb"): ("download_task_max_gb", 4096),
                      ("browser", "download_total_mb"): ("download_total_gb", 20480)}
 DOWNLOAD_RETIRED = (("browser", "download_max_mb"),)
+# Reports go to the developer's relay (owner, 2026-11-01), not by email: the feedback email address (`[feedback]
+# address`, read by no build since) goes; `[feedback] relay_url` is the new key.
+FEEDBACK_DECIDED = "feedback-relay-2026-11-01"
+FEEDBACK_RETIRED = (("feedback", "address"),)
 # The owner's decisions applied to config.toml once each, in this order, each journaled (`config.upgraded`).
-UPGRADES = (LIMITS_DECIDED, DOWNLOADS_DECIDED)
+UPGRADES = (LIMITS_DECIDED, DOWNLOADS_DECIDED, FEEDBACK_DECIDED)
 
 
 class InsecureConfig(FerbError):
@@ -194,7 +198,29 @@ class Config:
 
     def upgrade(self, name: str) -> list[dict[str, Any]]:
         """One of UPGRADES, by name (the daemon applies each once and journals what it changed)."""
-        return self.upgrade_ferb_written() if name == LIMITS_DECIDED else self.upgrade_downloads()
+        if name == LIMITS_DECIDED:
+            return self.upgrade_ferb_written()
+        if name == DOWNLOADS_DECIDED:
+            return self.upgrade_downloads()
+        if name == FEEDBACK_DECIDED:
+            return self.retire(FEEDBACK_RETIRED)
+        raise ValueError(f"no config upgrade {name!r}")
+
+    def retire(self, keys: tuple[tuple[str, str], ...]) -> list[dict[str, Any]]:
+        """Remove keys no build reads any more, in one atomic write; a table left empty goes too. Returns what changed
+        (the old value is not journaled: a retired key may have held an address)."""
+        doc = self.load()
+        changed: list[dict[str, Any]] = []
+        for section, key in keys:
+            tbl = doc.get(section)
+            if tbl is not None and key in tbl:
+                del tbl[key]
+                changed.append({"key": f"{section}.{key}", "to": None})
+                if not tbl:
+                    del doc[section]
+        if changed:
+            self.save(doc)
+        return changed
 
     def upgrade_downloads(self) -> list[dict[str, Any]]:
         """Hands decision 7 (DOWNLOADS_DECIDED), all or nothing in one atomic write: the per-file key goes; the files

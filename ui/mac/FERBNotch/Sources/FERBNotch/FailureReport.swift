@@ -2,92 +2,75 @@ import AppKit
 import SwiftUI
 import NotchCore
 
-/// Send to developer (L35): the report file FERB wrote about a failed task, as `reports.build` returns it. The address
-/// is the daemon's (`[feedback] address`); the app never holds one of its own.
+/// Send to developer (L35): the report file FERB wrote about a failed task (or the diagnostic file), as
+/// `reports.build` / `reports.diagnostic` return it. The owner views it, then Send has the daemon post that same file to
+/// the developer's report relay (owner decision 2026-11-01); the app never holds the relay's address.
 struct FailureReport: Equatable {
-    static let note = "The attached file is everything FERB recorded about this task, with secrets removed. "
-        + "Open it to see exactly what you're sending."
-
-    /// Send diagnostics to developer's note (2026-10-27).
-    static let diagnosticNote = "The attached file is FERB's diagnostic file: its health check, versions, recent tasks "
-        + "and setup events, with secrets removed. Open it to see exactly what you're sending."
-
     let file: URL
     let subject: String
     let summary: String
-    let address: String
-    let note: String
 
-    init?(_ reply: [String: Any], note: String = FailureReport.note) {
+    init?(_ reply: [String: Any]) {
         guard let path = reply["path"] as? String, path.hasPrefix("/"),
-              let address = reply["address"] as? String, !address.isEmpty,
               let subject = reply["subject"] as? String else { return nil }
         file = URL(fileURLWithPath: path)
         self.subject = subject
         self.summary = reply["summary"] as? String ?? ""
-        self.address = address
-        self.note = note
     }
-
-    /// The email's body: FERB's short summary, then what the attached file is.
-    var body: String { summary.isEmpty ? note : summary + "\n\n" + note }
 }
 
-/// Where a report stands under its answer.
+/// Where a report stands under its button.
 enum ReportState: Equatable {
     case preparing
-    /// A new email is open in the owner's Mail app; the owner presses Send.
-    case composed
-    /// No Mail account could take it: the file is shown in Finder, with the address to send it to.
-    case revealed(address: String)
-    /// FERB's reason, shown under the answer.
+    /// Written, with secrets removed: the owner can view it, then press Send.
+    case ready(FailureReport)
+    case sending(FailureReport)
+    case sent
+    /// Not sent (not set up, offline, the relay refused): the file stays saved and Send again tries once more.
+    case unsent(FailureReport, reason: String)
+    /// FERB couldn't write the report: its reason; the button asks again.
     case failed(String)
+
+    var report: FailureReport? {
+        switch self {
+        case .ready(let report), .sending(let report), .unsent(let report, _): return report
+        case .preparing, .sent, .failed: return nil
+        }
+    }
+
+    var isUnsent: Bool {
+        if case .unsent = self { return true }
+        return false
+    }
 
     var line: String? {
         switch self {
         case .preparing: return nil
-        case .composed: return "A new email with the report is open in Mail."
-        case .revealed(let address): return "Send this file to " + address
+        case .ready: return "Ready to send, with secrets removed. View it to see exactly what goes."
+        case .sending: return "Sending…"
+        case .sent: return "Sent"
+        case .unsent(_, let reason): return "Couldn't send: " + reason + " The report is saved; you can send it again."
         case .failed(let reason): return reason
         }
     }
 }
 
-/// The owner's own Mail app. FERB only opens a new email; it never sends one.
-protocol ReportMailing: AnyObject {
-    /// A new email to `recipients` with `items` (the body text and the file); false when no compose service can
-    /// take them. `failed` runs if the service fails after it started.
-    func compose(recipients: [String], subject: String, items: [Any], failed: @escaping @MainActor () -> Void) -> Bool
-    func reveal(_ file: URL)
-}
+/// Send and Send again: the daemon posts the file the owner viewed (`reports.send`); it never retries by itself.
+@MainActor
+enum ReportSender {
+    /// Seconds the app waits for the relay's answer (the daemon's own limit is 60 s).
+    static let sendWait = 90
 
-final class SystemReportMailer: NSObject, ReportMailing, NSSharingServiceDelegate {
-    private var sharing: [ObjectIdentifier: (service: NSSharingService, failed: @MainActor () -> Void)] = [:]
-
-    func compose(recipients: [String], subject: String, items: [Any], failed: @escaping @MainActor () -> Void) -> Bool {
-        guard let service = NSSharingService(named: .composeEmail) else { return false }
-        service.recipients = recipients
-        service.subject = subject
-        guard service.canPerform(withItems: items) else { return false }
-        service.delegate = self
-        sharing[ObjectIdentifier(service)] = (service, failed)
-        service.perform(withItems: items)
-        return true
-    }
-
-    func reveal(_ file: URL) { NSWorkspace.shared.activateFileViewerSelecting([file]) }
-
-    func sharingService(_ sharingService: NSSharingService, didShareItems items: [Any]) {
-        sharing.removeValue(forKey: ObjectIdentifier(sharingService))
-    }
-
-    /// The owner closing the email is no failure: nothing more opens then. The fallback runs on the main actor
-    /// whichever thread AppKit calls this on (review 1, M3).
-    func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: Error) {
-        guard let failed = sharing.removeValue(forKey: ObjectIdentifier(sharingService))?.failed else { return }
-        let reason = error as NSError
-        let cancelled = reason.domain == NSCocoaErrorDomain && reason.code == NSUserCancelledError
-        if !cancelled { Task { @MainActor in failed() } }
+    static func send(_ report: FailureReport, appVersion: String?, rpc: DaemonRPCTransport) async -> ReportState {
+        var params: [String: Any] = ["path": report.file.path, "title": report.subject]
+        if let appVersion { params["app_version"] = appVersion }
+        do {
+            let reply = try await rpc.call("reports.send", params: params, wait: sendWait)
+            if reply["sent"] as? Bool == true { return .sent }
+            return .unsent(report, reason: reply["error"] as? String ?? "FERB gave no reason.")
+        } catch {
+            return .unsent(report, reason: error.localizedDescription)
+        }
     }
 }
 
@@ -103,10 +86,14 @@ extension NotchModel {
         return build.map { short + " (" + $0 + ")" } ?? short
     }
 
-    /// The owner's click on Send to developer: FERB writes the report, then a new email opens in their Mail app with
-    /// the file attached (their own foreground action, rule 17). Without Mail, the file is shown in Finder.
+    /// The owner's click on Send to developer: FERB writes the report (secrets removed) and the row offers View and
+    /// Send. Nothing leaves the Mac until the owner presses Send.
     func sendReport(for turn: ConversationTurn) {
-        guard turn.offersReport, reports[turn.id] != .preparing else { return }
+        guard turn.offersReport else { return }
+        switch reports[turn.id] {
+        case nil, .failed?: break
+        default: return                       // being prepared, or already prepared or sent
+        }
         let turnID = turn.id
         reports[turnID] = .preparing
         // Both ids the turn holds: the daemon applies the same rule to whichever recorded the failure (L35).
@@ -118,11 +105,7 @@ extension NotchModel {
             do {
                 let reply = try await rpc.call("reports.build", params: params, wait: Self.reportWait)
                 guard let report = FailureReport(reply) else { throw DaemonRPCError.invalidResponse }
-                let opened = reportMailer.compose(recipients: [report.address], subject: report.subject,
-                                                  items: [report.body, report.file]) { [weak self] in
-                    self?.revealReport(report, for: turnID)
-                }
-                if opened { reports[turnID] = .composed } else { revealReport(report, for: turnID) }
+                reports[turnID] = .ready(report)
             } catch {
                 reports[turnID] = .failed(error.localizedDescription)
             }
@@ -130,10 +113,14 @@ extension NotchModel {
         }
     }
 
-    func revealReport(_ report: FailureReport, for turnID: UUID) {
-        reportMailer.reveal(report.file)
-        reports[turnID] = .revealed(address: report.address)
-        onBackgroundChange?(true)
+    /// Send, or Send again after it couldn't: one try, its answer shown under the button.
+    func sendBuiltReport(for turnID: UUID) {
+        guard let report = reports[turnID]?.report, reports[turnID] != .sending(report) else { return }
+        reports[turnID] = .sending(report)
+        Task {
+            reports[turnID] = await ReportSender.send(report, appVersion: Self.appVersion, rpc: rpc)
+            onBackgroundChange?(true)
+        }
     }
 }
 
@@ -145,22 +132,29 @@ struct ReportRow: View {
     var body: some View {
         let state = model.reports[turn.id]
         VStack(alignment: .leading, spacing: 4) {
-            Button(state == .preparing ? "Preparing report…" : "Send to developer") { model.sendReport(for: turn) }
-                .buttonStyle(FerbButtonStyle(quiet: true))
-                .disabled(state == .preparing)
-                .help("Opens a new email in Mail with everything FERB recorded about this task, secrets removed")
-            if let line = state?.line {
-                HStack(spacing: 6) {
-                    Text(line).textSelection(.enabled)
-                    if case .revealed(let address)? = state {
-                        Button("Copy address") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(address, forType: .string)
-                        }
+            HStack(spacing: 6) {
+                switch state {
+                case .ready(let report), .unsent(let report, _), .sending(let report):
+                    Button("View report") { model.openReportFile(report.file) }
                         .buttonStyle(FerbButtonStyle(quiet: true))
+                    Button(state?.isUnsent == true ? "Send again" : "Send") { model.sendBuiltReport(for: turn.id) }
+                        .buttonStyle(FerbButtonStyle(quiet: true))
+                        .disabled(state == .sending(report))
+                        .help("Sends this report to FERB's developer")
+                case .sent:
+                    EmptyView()
+                case .preparing, .failed, nil:
+                    Button(state == .preparing ? "Preparing report…" : "Send to developer") {
+                        model.sendReport(for: turn)
                     }
+                    .buttonStyle(FerbButtonStyle(quiet: true))
+                    .disabled(state == .preparing)
+                    .help("Prepares everything FERB recorded about this task, secrets removed, for you to view and send")
                 }
-                .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            }
+            if let line = state?.line {
+                Text(line).textSelection(.enabled)
+                    .font(.system(size: 10)).foregroundStyle(Palette.secondary)
             }
         }
     }

@@ -393,12 +393,22 @@ struct AdvancedSettingsPage: View {
                         }
                     }
                 }
-                Button("Send diagnostics to developer…") {
-                    Task { await store.sendDiagnostic(appVersion: actions.appVersion) }
+                if let report = store.diagnostic?.report {
+                    HStack {
+                        Button("View diagnostic file") { store.open(report.file) }
+                        Button(store.diagnostic?.isUnsent == true ? "Send again" : "Send") {
+                            Task { await store.sendDiagnostic(appVersion: actions.appVersion) }
+                        }
+                        .disabled(store.diagnostic == .sending(report))
+                    }
+                } else {
+                    Button(store.diagnostic == .preparing ? "Preparing…" : "Send diagnostics to developer…") {
+                        Task { await store.prepareDiagnostic(appVersion: actions.appVersion) }
+                    }
+                    .disabled(store.diagnostic == .preparing)
                 }
-                if let line = store.diagnosticLine { Text(line).textSelection(.enabled) }
-                Text("Written on this Mac with secrets removed. Send opens a new email in your Mail app with the file "
-                     + "attached; nothing goes until you press Send there.")
+                if let line = store.diagnostic?.line { Text(line).textSelection(.enabled) }
+                Text("Written on this Mac with secrets removed. Nothing is sent until you view it and press Send.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if actions.runFerb != nil {

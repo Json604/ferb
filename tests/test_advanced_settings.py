@@ -1,5 +1,6 @@
 """L34 Phase E, Settings → Advanced and AI: the diagnostic file is written on this Mac with every part redacted and is
-sent nowhere; `ferb setup --cli` links FERB.app's command; `ferb setup --codex-logout` signs out FERB's own Codex only."""
+sent nowhere until the owner presses Send (`reports.send`, tests/test_failure_report.py); `ferb setup --cli` links
+FERB.app's command; `ferb setup --codex-logout` signs out FERB's own Codex only."""
 
 import io
 import json
@@ -157,19 +158,17 @@ def test_sign_out_without_a_sign_in_changes_nothing(tmp_path: Path) -> None:
     assert "isn't signed in" in out.getvalue()
 
 
-def test_send_diagnostics_names_the_developer_address_and_shows_setup_events(daemon: RunningDaemon) -> None:
-    """Owner 2026-10-27: Settings → Send diagnostics to developer, emailed like a failure report (a new email in the
-    owner's own Mail app; FERB sends nothing), with the recent setup and pairing events a first install hits."""
+def test_send_diagnostics_gives_a_subject_and_shows_setup_events(daemon: RunningDaemon) -> None:
+    """Owner 2026-10-27: Settings → Send diagnostics to developer, sent like a failure report (owner 2026-11-01: the
+    app previews it and Send posts it to the report relay), with the recent setup and pairing events a first install
+    hits. Building it names no destination and sends nothing."""
     _fake_health(daemon)
     _on_loop(daemon, lambda: daemon.daemon._journal().append("browsers.pair_failed", {
         "browser": "chrome", "folder": "Profile 3", "why": "the pairing page wasn't answered"}))
     _on_loop(daemon, lambda: daemon.daemon._journal().append("task.created", {"goal": "not a setup event"}))
-    with pytest.raises(RpcError, match="isn't set up yet"):          # no destination by default
-        _export(daemon, send=True, app_version="0.28.0")
-    daemon.daemon.config.set("feedback", "address", "reports@example.org")
     r = _export(daemon, send=True, app_version="0.28.0")
-    assert r["address"] == "reports@example.org" and r["subject"].startswith("FERB diagnostics (FERB ")
+    assert r["subject"].startswith("FERB diagnostics (FERB ") and "address" not in r
     text = Path(r["path"]).read_text()
     events = text[text.index("\n## Recent setup, pairing and watcher events\n"):]
     assert "browsers.pair_failed" in events and "Profile 3" in events and "not a setup event" not in events
-    assert "address" not in _export(daemon)                            # Export alone names no one
+    assert not _on_loop(daemon, lambda: daemon.daemon.journal.of_kind("report.sent"))

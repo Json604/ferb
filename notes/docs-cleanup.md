@@ -116,7 +116,9 @@ moved into the area notes.
     rounds. In code (`ferb/orchestrator/loops.py`), not in notes.
 14. **Failure reports** (docs/superpowers/specs/2026-10-24-failure-reports-design.md; 2026-10-25 address): the full
     record with secrets removed, previewed by the user; sent from the user's own Mail app to a dedicated feedback
-    address (`ferb/daemon/reports.py`); offered after each failure.
+    address (`ferb/daemon/reports.py`); offered after each failure. Owner, 2026-11-01: sent by FERB itself through the
+    developer's relay to the private repo `Json604/ferb-reports` when the user presses Send; no Mail app, no address
+    (notes/daemon.md decision 10).
 15. **Code watchers** (docs/superpowers/specs/2026-10-25-code-watchers-design.md, 2026-10-25): long-running watches
     without AI calls (reload, read, view-switch clicks set up once), a 30 s floor, FERB looks up the service's rate
     limits and says which interval it chose. Decided as a design; not built.

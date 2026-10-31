@@ -195,6 +195,9 @@ task_max_tabs = 20
 [retention]
 trace_days = 30
 download_days = 3
+
+[feedback]
+address = "reports@example.org"
 """
 
 
@@ -226,10 +229,11 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     finally:
         d.stop()
     assert got["schema"] == NEWEST
-    first, second = got["upgraded"]                                  # 2026-10-09's limits, then hands decision 7
+    first, second, third = got["upgraded"]          # 2026-10-09's limits, hands decision 7, then the report relay
     assert {c["key"] for c in first["changes"]} >= {"browser.download_max_mb", "browser.task_max_tabs",
                                                      "retention.download_days"}
     assert {"key": "browser.download_max_mb", "from": 512, "to": None} in second["changes"]
+    assert third["changes"] == [{"key": "feedback.address", "to": None}]       # the email address isn't journaled
     assert got["memory"] == ["memory.cleanup", "memory.profile_seeded"]
     assert got["pending"]["summary"] == "Uses a browser and an editor."  # moved to persona.json when read
     config = Config(home)
@@ -237,6 +241,7 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     assert config.get("browser", "download_max_mb") is None and config.get("setup", "persona_pending") is None
     assert config.get("browser", "download_task_max_gb") == 32 and config.get("browser", "download_task_max_files") == 300
     assert config.get("gates", "owner_profiles") == ["Default"]          # a key no longer read is left alone
+    assert config.section("feedback") == {} and "reports@example.org" not in (home / "config.toml").read_text()
     assert (home / "persona.json").exists()
     shown = cleanup.preview(home / "ferb.db")
     assert shown["compact"] is True and shown["ok"]

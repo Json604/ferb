@@ -44,13 +44,23 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
    (recommended)" — the owner creates the account (account creation needs human verification) and signs it into a
    browser profile; FERB finds and pairs it. If skipped, FERB browses as the owner in a profile the owner picks;
    features that need FERB's own inbox (one-time codes for FERB's own sign-ups, sending from FERB's address) say they
-   aren't set up. Note: the diagnostic-report address is hard-coded to the developer (reports.py:26).
+   aren't set up. Note: the diagnostic-report address is hard-coded to the developer (reports.py:26). (2026-11-01:
+   superseded by decision 10; reports go to the relay, the address is gone.)
 
 8. **The app gains Restore, Delete saved secret/card and Uninstall** (owner, 2026-10-30), functional only (owner
    polishes the UI later): Restore lists FERB's Trash moves, backup copies and snapshots and restores one; Delete removes
    a stored owner secret or card (OwnerSecrets gains a delete); Uninstall removes FERB fully, Keychain items included.
    Daemon RPCs plus minimal app screens; the added UI pieces are listed for the owner.
 9. **Jev stays off after an upgrade** even when a key exists (owner, 2026-10-30).
+
+## Owner decisions (2026-11-01)
+10. **Failure reports go through the developer's relay, not email** (owner, 2026-11-01; replaces the 2026-10-25 Mail
+    path, docs-cleanup item 14): reports and diagnostic files become issues in the **private** GitHub repo
+    `Json604/ferb-reports`, through a relay the owner owns (a Cloudflare Worker holding a fine-grained GitHub token
+    limited to Issues read/write on that one repo, no expiration). The owner created the repo, the Cloudflare account
+    and the token, and deploys the relay. **The user only presses Send in FERB**: no GitHub account, browser, Mail app or
+    extra step; the user still previews the cleaned report before sending. The repo stays general (no personal data;
+    the repo name and the relay's public URL are fine).
 
 ## What exists today (verified)
 
@@ -140,6 +150,15 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
 - The crash "interrupted + auto-resume" fix is owned by notes/orchestration.md.
 
 ## Fix list
+- [x] Report relay (decision 10, 2026-11-01). `relay/`: the Worker (`worker.mjs`, plain JavaScript, no build, no
+      dependencies), `wrangler.toml` (worker `ferb-reports`, `GITHUB_REPO`, the `REPORT_LIMIT` rate-limit binding),
+      `README.md` (the owner's deploy, test, rotate and delete steps) and `test.mjs` (`node relay/test.mjs`, fake GitHub).
+      FERB: `reports.build` / `reports.diagnostic` only write the file (no address, nothing sent); the app shows View
+      and Send; `reports.send {path, title, app_version}` posts that file. The Mail compose path, `FEEDBACK_ADDRESS`
+      and `[feedback] address` are gone (config upgrade `feedback-relay-2026-11-01` drops the key once, journaled
+      without its value). Waiting: the owner deploys the relay and sends its address for `reports.RELAY_URL`.
+      (Tests: tests/test_failure_report.py, test_advanced_settings.py, test_config.py, test_upgrade.py;
+      FailureReportTests, FERBWindowStoreTests.)
 - [x] "What FERB saw" (owner, 2026-10-31, step 12e): a button on each message in the notch opens the screenshot taken
       when it was sent and the images its task captured, each exactly as the model got it, with time and app or site;
       Settings → Data lists every saved screenshot of the last 7 days, newest first. FERB.app-only RPCs over the stored
@@ -258,7 +277,8 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       named, only while FERB has no profile of its own; the facts line says FERB has no account of its own, what isn't
       set up, and which profile web work uses (prompts decision 5 reconciled: FERB's own profile stays the default when
       it exists). `identity.check` reads the configured browser's data folder (it read Chrome's always). The
-      diagnostic-report address stays hard-coded to the developer (reports.py:26), unchanged.)
+      diagnostic-report address stays hard-coded to the developer (reports.py:26), unchanged.) (2026-11-01: decision 10
+      replaced the address with the report relay.)
 - [x] Restore, Delete saved secret/card and Uninstall in the app (decision 8).
       (Step 12c: Settings → Data → Restore lists `recovery.list` (copies, Trash moves, snapshots: snapshots say how to
       open them) and restores with `recovery.restore`, the same handlers `ferb restore` uses. Settings → Data → Saved
@@ -277,6 +297,40 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       memory questions into ferb/memory/questions.py; the dead `reminders.unseen` RPC removed. Left in the areas: the
       memory area's card/search/activity reads (9, the memory stores' own seams), Jev's 3 (switched off), PRAGMAs and the
       schedule transaction. Footprint: see "Footprint (step 12b)".)
+
+## Report relay (2026-11-01, decision 10)
+Rulings (technical):
+- **Flow**: Send to developer → `reports.build` writes the redacted file as before (the 2026-10-24 design) → the notch
+  row shows "View report" (opens the file) and "Send" → `reports.send` → "Sent", or "Couldn't send: <why>. The report
+  is saved; you can send it again." with **Send again**. Settings → Advanced → Send diagnostics to developer works the
+  same way (`reports.diagnostic` now returns a `subject`). One try per press; nothing retries by itself.
+- **What is sent** is the saved file the owner viewed, through the Redactor's text pass once more (a value sealed
+  since the build is hidden too; the saved file is rewritten to match, so what is kept is what was sent). `send` takes
+  only a regular file named like a report or diagnostic file directly in `~/.ferb/reports` (no symlink), read with
+  `O_NOFOLLOW`. Body: `{"version": 1, "kind": "failure"|"diagnostic", "title", "body", "app_version", "report_id"}`;
+  `report_id` is the file's name without `.txt`.
+- **Where**: `reports.RELAY_URL` (empty until the owner's relay is deployed), overridden by config `[feedback]
+  relay_url`; https only (plain http only to 127.0.0.1/localhost, for tests); none → "Sending reports to the developer
+  isn't set up yet" and the file is kept. The address never reaches the app.
+- **How**: the daemon posts asynchronously with httpx (the file read and redaction run in a thread), 60 s timeout
+  (the app waits 90 s), like its other outbound calls (model APIs, Jev): direct, not through FERB's egress proxy, which is for
+  FERB's shell commands. Journaled `report.sent` (file, kind, report_id) or `report.send_failed` (file, kind, why);
+  never the text.
+- **Relay**: only `POST /report`, `application/json`, body ≤ 512 KB (413), exact shape (400), wrong method 405, other
+  paths 404; per sender address 2 a minute per Cloudflare location (the binding allows only 10 or 60 s windows) plus
+  5 per 10 minutes per running instance (best effort); never logs a body; answers `{"ok": true, "report_id"}` only,
+  never the issue URL or number. A report over GitHub's 65,536-character body limit continues as comments on that
+  issue, in order; each part is a code block so nothing renders, links an issue or @mentions anyone. Labels: the kind
+  and the app version.
+
+Added UI pieces (functional only, for the owner to polish): the notch's report row (View report, Send / Send again,
+the status line); Settings → Advanced → Diagnostic file (View diagnostic file, Send / Send again, the status line).
+
+Open owner question: a report over 512 KB (the relay's cap, from the 2026-11-01 brief) can't be sent; FERB says so and
+keeps it. Large failed tasks produce multi-MB reports (the largest on record held 41.6 MB of trace). Keep the cap and
+send only what fits, raise it, or shorten what a report holds (e.g. the Steps section) when it is too big?
+
+Live checks for step 13: notes/test-tasks.md sitting 3 ("Send a failure report from FERB").
 
 ## Rulings (step 12c, technical)
 - **About's three readers, one builder**: the always-on line rides in `_facts` ("Facts about this FERB"), which

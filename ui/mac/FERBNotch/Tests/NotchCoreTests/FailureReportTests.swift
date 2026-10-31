@@ -3,14 +3,13 @@ import XCTest
 @testable import NotchCore
 
 /// Send to developer (L35): a button under failed, interrupted and planning-failure answers. A click asks the daemon
-/// for the report file (`reports.build`), then opens a new email in the owner's own Mail with the file attached; FERB
-/// sends nothing. Without a Mail account the file is shown in Finder with the address to send it to.
+/// for the report file (`reports.build`); the owner can view it, and Send has the daemon post it to the developer's
+/// report relay (`reports.send`, owner decision 2026-11-01). A send that fails keeps the file and offers Send again.
 @MainActor
 final class FailureReportTests: XCTestCase {
     private let reply: [String: Any] = ["path": "/tmp/FERB-report-2026-10-25-task-1.txt",
                                         "subject": "FERB report: I couldn't finish that: the folder was protected.",
-                                        "summary": "What happened: I couldn't finish that: the folder was protected.",
-                                        "address": "reports@example.org"]
+                                        "summary": "What happened: I couldn't finish that: the folder was protected."]
 
     func testOnlyFailedInterruptedAndPlanningFailureAnswersOfferTheButton() {
         func turn(_ status: String, task: String? = "task-1", request: String? = "req-1") -> ConversationTurn {
@@ -97,12 +96,13 @@ final class FailureReportTests: XCTestCase {
         }
     }
 
-    func testComposeGetsTheAddressSubjectAndAttachment() async throws {
+    func testTheReportIsPreparedThenSentOnlyWhenTheOwnerPressesSend() async throws {
         let rpc = ReportRPC()
         rpc.responses["reports.build"] = reply
-        let mailer = FakeMailer(composes: true)
+        rpc.responses["reports.send"] = ["sent": true, "path": reply["path"]!, "report_id": "FERB-report-x"]
         let model = makeModel(rpc)
-        model.reportMailer = mailer
+        var opened: [URL] = []
+        model.openReportFile = { opened.append($0) }
         let turn = failedTurn(in: model)
         model.sendReport(for: turn)
         await settle()
@@ -111,72 +111,80 @@ final class FailureReportTests: XCTestCase {
         XCTAssertEqual(call.1["task_id"] as? String, "task-1")
         XCTAssertEqual(call.1["request_id"] as? String, "req-1")
         XCTAssertEqual(rpc.waits["reports.build"], NotchModel.reportWait)
-        let mail = try XCTUnwrap(mailer.composed.first)
-        XCTAssertEqual(mail.recipients, ["reports@example.org"])
-        XCTAssertEqual(mail.subject, "FERB report: I couldn't finish that: the folder was protected.")
-        XCTAssertEqual(mail.items.compactMap { $0 as? URL },
-                       [URL(fileURLWithPath: "/tmp/FERB-report-2026-10-25-task-1.txt")])
-        let body = try XCTUnwrap(mail.items.compactMap { $0 as? String }.first)
-        XCTAssertEqual(body, "What happened: I couldn't finish that: the folder was protected.\n\n"
-            + "The attached file is everything FERB recorded about this task, with secrets removed. "
-            + "Open it to see exactly what you're sending.")
-        XCTAssertTrue(mailer.revealed.isEmpty)
-        XCTAssertEqual(model.reports[turn.id], .composed)
+        let report = try XCTUnwrap(FailureReport(reply))
+        XCTAssertEqual(model.reports[turn.id], .ready(report))
+        XCTAssertFalse(rpc.calls.contains { $0.0 == "reports.send" })      // nothing leaves before Send
+        model.openReportFile(report.file)
+        XCTAssertEqual(opened, [URL(fileURLWithPath: "/tmp/FERB-report-2026-10-25-task-1.txt")])
+
+        model.sendBuiltReport(for: turn.id)
+        await settle()
+        let send = try XCTUnwrap(rpc.calls.first { $0.0 == "reports.send" })
+        XCTAssertEqual(send.1["path"] as? String, "/tmp/FERB-report-2026-10-25-task-1.txt")
+        XCTAssertEqual(send.1["title"] as? String, "FERB report: I couldn't finish that: the folder was protected.")
+        XCTAssertEqual(rpc.waits["reports.send"], ReportSender.sendWait)
+        XCTAssertEqual(model.reports[turn.id], .sent)
+        XCTAssertEqual(ReportState.sent.line, "Sent")
+        // Sent: a second click on the old button does nothing.
+        model.sendReport(for: turn)
+        await settle()
+        XCTAssertEqual(rpc.calls.filter { $0.0 == "reports.build" }.count, 1)
     }
 
-    func testWithoutMailTheFileIsRevealedAndTheAddressShown() async {
+    func testASendThatCouldNotGoKeepsTheReportAndOffersSendAgain() async throws {
         let rpc = ReportRPC()
         rpc.responses["reports.build"] = reply
-        let mailer = FakeMailer(composes: false)
+        rpc.responses["reports.send"] = ["sent": false, "path": reply["path"]!,
+                                         "error": "Sending reports to the developer isn't set up yet"]
         let model = makeModel(rpc)
-        model.reportMailer = mailer
         let turn = failedTurn(in: model)
         model.sendReport(for: turn)
         await settle()
-        XCTAssertEqual(mailer.revealed, [URL(fileURLWithPath: "/tmp/FERB-report-2026-10-25-task-1.txt")])
-        XCTAssertEqual(model.reports[turn.id], .revealed(address: "reports@example.org"))
-        XCTAssertEqual(ReportState.revealed(address: "reports@example.org").line,
-                       "Send this file to reports@example.org")
+        model.sendBuiltReport(for: turn.id)
+        await settle()
+        let report = try XCTUnwrap(FailureReport(reply))
+        let unsent = ReportState.unsent(report, reason: "Sending reports to the developer isn't set up yet")
+        XCTAssertEqual(model.reports[turn.id], unsent)
+        XCTAssertTrue(unsent.isUnsent)
+        XCTAssertEqual(unsent.line, "Couldn't send: Sending reports to the developer isn't set up yet "
+                       + "The report is saved; you can send it again.")
+        XCTAssertEqual(rpc.calls.filter { $0.0 == "reports.send" }.count, 1)     // no retry by itself
+        // The connection failing is the same: kept, Send again.
+        rpc.failures["reports.send"] = DaemonRPCError.remote("FERB isn't running")
+        model.sendBuiltReport(for: turn.id)
+        await settle()
+        XCTAssertEqual(model.reports[turn.id], .unsent(report, reason: "FERB isn't running"))
+        // Send again, now accepted.
+        rpc.failures["reports.send"] = nil
+        rpc.responses["reports.send"] = ["sent": true, "path": reply["path"]!, "report_id": "x"]
+        model.sendBuiltReport(for: turn.id)
+        await settle()
+        XCTAssertEqual(model.reports[turn.id], .sent)
+        XCTAssertEqual(rpc.calls.filter { $0.0 == "reports.send" }.count, 3)
     }
 
-    func testAComposeThatFailsAfterItStartedRevealsTheFile() async {
+    func testFERBsRefusalShowsInlineAndSendsNothing() async {
         let rpc = ReportRPC()
-        rpc.responses["reports.build"] = reply
-        let mailer = FakeMailer(composes: true)
+        rpc.failures["reports.build"] = DaemonRPCError.remote("Only a failed or interrupted task can be sent")
         let model = makeModel(rpc)
-        model.reportMailer = mailer
         let turn = failedTurn(in: model)
         model.sendReport(for: turn)
         await settle()
-        XCTAssertEqual(model.reports[turn.id], .composed)
-        mailer.composed.first?.failed()
-        XCTAssertEqual(mailer.revealed, [URL(fileURLWithPath: "/tmp/FERB-report-2026-10-25-task-1.txt")])
-        XCTAssertEqual(model.reports[turn.id], .revealed(address: "reports@example.org"))
-    }
-
-    func testFERBsRefusalShowsInlineAndOpensNothing() async {
-        let rpc = ReportRPC()
-        rpc.failures["reports.build"] = DaemonRPCError.remote("No feedback address set")
-        let mailer = FakeMailer(composes: true)
-        let model = makeModel(rpc)
-        model.reportMailer = mailer
-        let turn = failedTurn(in: model)
-        model.sendReport(for: turn)
+        XCTAssertEqual(model.reports[turn.id], .failed("Only a failed or interrupted task can be sent"))
+        model.sendBuiltReport(for: turn.id)                 // nothing prepared: nothing to send
         await settle()
-        XCTAssertEqual(model.reports[turn.id], .failed("No feedback address set"))
-        XCTAssertTrue(mailer.composed.isEmpty && mailer.revealed.isEmpty)
+        XCTAssertFalse(rpc.calls.contains { $0.0 == "reports.send" })
         // A second click asks again.
         rpc.failures["reports.build"] = nil
         rpc.responses["reports.build"] = reply
         model.sendReport(for: turn)
         await settle()
-        XCTAssertEqual(model.reports[turn.id], .composed)
+        XCTAssertEqual(model.reports[turn.id], .ready(FailureReport(reply)!))
     }
 
     func testADoneAnswerNeverAsksForAReport() async {
         let rpc = ReportRPC()
         let model = makeModel(rpc)
-        model.reportMailer = FakeMailer(composes: true)
         model.receiveOutcome(["task_id": "task-2", "status": "done", "answer": "Done.", "goal": "A task"],
                              announce: false)
         model.sendReport(for: model.conversation.turns[0])

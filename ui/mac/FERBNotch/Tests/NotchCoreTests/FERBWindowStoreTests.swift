@@ -10,25 +10,32 @@ final class FERBWindowStoreTests: XCTestCase {
         ["task_id": id, "goal": "goal \(id)", "status": status, "created_at": at, "answer": "", "verdict": NSNull()]
     }
 
-    func testSendDiagnosticsOpensANewEmailToTheDeveloperWithTheFile() async {
-        // Owner 2026-10-27: Settings → Send diagnostics to developer, like a failure report; FERB sends nothing itself
+    func testSendDiagnosticsPreparesTheFileThenSendsItOnSend() async {
+        // Owner 2026-10-27 / 2026-11-01: Settings → Send diagnostics to developer, like a failure report: prepared,
+        // viewable, and posted to the report relay only when the owner presses Send
         let rpc = ScriptedRPC()
-        rpc.replies["reports.diagnostic"] = ["path": "/Users/me/.ferb/reports/FERB-diagnostic-2026-10-27-020000.txt",
-                                             "summary": "FERB 0.27, macOS 15.6", "address": "dev@example.com",
+        let path = "/Users/me/.ferb/reports/FERB-diagnostic-2026-10-27-020000.txt"
+        rpc.replies["reports.diagnostic"] = ["path": path, "summary": "FERB 0.27, macOS 15.6",
                                              "subject": "FERB diagnostics (FERB 0.27, macOS 15.6)"]
-        let mailer = FakeMailer(composes: true)
-        let store = FERBWindowStore(rpc: rpc, mailer: mailer)
-        await store.sendDiagnostic(appVersion: "0.27 (1)")
+        rpc.replies["reports.send"] = ["sent": false, "path": path, "error": "The report service didn't answer"]
+        let store = FERBWindowStore(rpc: rpc)
+        var opened: [URL] = []
+        store.open = { opened.append($0) }
+        await store.prepareDiagnostic(appVersion: "0.27 (1)")
         XCTAssertEqual(rpc.params(of: "reports.diagnostic").first?["send"] as? Bool, true)
-        XCTAssertEqual(mailer.composed.first?.recipients, ["dev@example.com"])
-        XCTAssertEqual(mailer.composed.first?.subject, "FERB diagnostics (FERB 0.27, macOS 15.6)")
-        XCTAssertTrue((mailer.composed.first?.items.first as? String)?.contains("diagnostic file") == true)
-        XCTAssertEqual(store.diagnosticLine, "A new email with the diagnostic file is open in Mail.")
-        let noMail = FakeMailer(composes: false)
-        let other = FERBWindowStore(rpc: rpc, mailer: noMail)
-        await other.sendDiagnostic(appVersion: nil)
-        XCTAssertEqual(noMail.revealed.map(\.lastPathComponent), ["FERB-diagnostic-2026-10-27-020000.txt"])
-        XCTAssertEqual(other.diagnosticLine, "Send this file to dev@example.com")
+        guard case .ready(let report)? = store.diagnostic else { return XCTFail("not prepared") }
+        XCTAssertTrue(rpc.params(of: "reports.send").isEmpty)
+        store.open(report.file)
+        XCTAssertEqual(opened.map(\.lastPathComponent), ["FERB-diagnostic-2026-10-27-020000.txt"])
+        await store.sendDiagnostic(appVersion: "0.27 (1)")
+        XCTAssertEqual(rpc.params(of: "reports.send").first?["path"] as? String, path)
+        XCTAssertEqual(rpc.params(of: "reports.send").first?["title"] as? String,
+                       "FERB diagnostics (FERB 0.27, macOS 15.6)")
+        XCTAssertEqual(store.diagnostic, .unsent(report, reason: "The report service didn't answer"))
+        rpc.replies["reports.send"] = ["sent": true, "path": path, "report_id": "x"]
+        await store.sendDiagnostic(appVersion: "0.27 (1)")                         // Send again
+        XCTAssertEqual(store.diagnostic, .sent)
+        XCTAssertEqual(rpc.params(of: "reports.send").count, 2)
     }
 
     func testRefreshTasksReadsTheDaemonsPageAndStopState() async {

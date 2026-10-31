@@ -5,7 +5,7 @@ Rule 10 (FERB never changes its own config): these writes come only through `set
 alone (auth.py). That role is proven by the owner's uid on the daemon's socket, which FERB's shell and AppleScript
 can't reach (the sandbox names the socket last: sandbox.py, test_shell_sandbox), no tool calls, and FERB's Mac tools
 never operate FERB.app (driver.OWN_APP). Each value is checked here (rule 5). A key not in SETTINGS can't be written
-this way: [protection], secrets and API keys, models, the feedback address, exclude_paths and watch_folders stay in
+this way: [protection], secrets and API keys, models, the report relay address, exclude_paths and watch_folders stay in
 config.toml; the runtimes have `runtimes.use` and the banner switches `notifications.categories`, each owner-only and
 checked where it is defined. FERB's own account (`[mailbox] address`, `[identity] browser/profile`, daemon decision 7)
 is written only by `write_identity`, which FERB.app's `identity.choose` calls after code found exactly that account

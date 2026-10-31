@@ -1,9 +1,11 @@
-"""Send to developer (L35, the simple cut the owner approved 2026-10-25): `reports.build` writes one readable text file
-for a turn FERB recorded as ending badly (its root task failed or was interrupted, or its request has a `chat.failed`
-row) and returns the address and subject the notch puts in a new Mail email. FERB sends nothing; the owner presses
-Send. Every part of the file is redacted (rule 14): each span structurally before it is rendered, then each block as
-text, with sealed values matched in their escaped forms too. It lives in an owner-only folder, and reports older than
-30 days go when the next one is built. FERB's raw stderr never goes in: its last section is FERB's recorded problems."""
+"""Send to developer (L35; relay owner decision 2026-11-01): `reports.build` writes one readable text file for a turn
+FERB recorded as ending badly (its root task failed or was interrupted, or its request has a `chat.failed` row) and
+returns its subject; the owner previews it in FERB.app and presses Send, and `reports.send` posts that same text to
+the developer's report relay. Every part of the file is redacted (rule 14): each span structurally before it is
+rendered, then each block as text, with sealed values matched in their escaped forms too, and once more at Send. It
+lives in an owner-only folder, and reports older than 30 days go when the next one is built. A failed send keeps the
+file and says why; nothing retries by itself. FERB's raw stderr never goes in: its last section is FERB's recorded
+problems."""
 
 import asyncio
 import json
@@ -12,6 +14,7 @@ import stat
 import threading
 import time
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -20,7 +23,8 @@ import pytest
 
 from ferb.cli.client import Client, RpcError
 from ferb.daemon import auth
-from ferb.daemon.reports import FEEDBACK_ADDRESS, KEEP_DAYS, NOT_SET_UP, PROBLEMS_LAST, SECTIONS, TURN_FAILED
+from ferb.daemon.reports import (KEEP_DAYS, NOT_SET_UP, PROBLEMS_LAST, RELAY_MAX_BYTES, RELAY_URL, SECTIONS,
+                                  TURN_FAILED)
 from ferb.daemon.server import INTERNAL_ERROR, SLOW_CALL
 from ferb.sanitize.redact import Redactor, SealedWord, escaped_forms, sealed_spans
 from tests.conftest import RunningDaemon, chat, install, sup
@@ -30,13 +34,49 @@ QUOTED = 'Tr0ub"dor\\x9!\tQ'                          # one holding a quote, a b
 API_KEY = "sk-ant-api03-" + "Zq7" * 12                 # an Anthropic key shape (a secret class)
 REQUEST = "Rename the invoices in Downloads by month"
 ANSWER = "I couldn't finish that: the Downloads folder was protected."
-ADDRESS = "reports@example.org"                       # a configured destination (none is set by default)
 
 
-@pytest.fixture(autouse=True)
-def _destination(request: pytest.FixtureRequest) -> None:
-    if "daemon" in request.fixturenames:
-        request.getfixturevalue("daemon").daemon.config.set("feedback", "address", ADDRESS)
+class Relay:
+    """The developer's report relay, faked on this Mac: what each POST carried, and the answer it gives."""
+
+    def __init__(self) -> None:
+        self.received: list[tuple[dict[str, str], bytes]] = []
+        self.status, self.answer = 200, {"ok": True, "report_id": ""}
+        relay = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                relay.received.append((dict(self.headers), body))
+                answer = dict(relay.answer)
+                if answer.get("report_id") == "":
+                    answer["report_id"] = json.loads(body).get("report_id")
+                out = json.dumps(answer).encode()
+                self.send_response(relay.status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            def log_message(self, *args: Any) -> None:
+                pass
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/report"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def reports(self) -> list[dict[str, Any]]:
+        return [json.loads(body) for _, body in self.received]
+
+
+@pytest.fixture
+def relay(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> Any:
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    r = Relay()
+    daemon.daemon.config.set("feedback", "relay_url", r.url)
+    yield r
+    r.server.shutdown()
+    r.server.server_close()
 
 
 def _forms(value: str, nested: bool = False) -> set[str]:
@@ -105,6 +145,14 @@ def _build(daemon: RunningDaemon, task_id: str = "", timeout: float = 10, **para
         c.close()
 
 
+def _send(daemon: RunningDaemon, path: str, **params: Any) -> dict[str, Any]:
+    c = Client(daemon.sock, timeout=30)
+    try:
+        return c.call("reports.send", {"path": path} | params)
+    finally:
+        c.close()
+
+
 def _turn(daemon: RunningDaemon, text: str) -> list[dict[str, Any]]:
     """One chat turn's raw events, request ids kept (the ids the notch binds a turn to)."""
     c = Client(daemon.sock, timeout=30)
@@ -136,7 +184,7 @@ def test_the_file_has_the_four_sections_in_order(daemon: RunningDaemon) -> None:
     assert "tool.call  fs.list" in steps and "denied: ~/Downloads is protected" in steps
     assert "find the invoices" in steps
     assert r["subject"] == f"FERB report: {ANSWER}"
-    assert ANSWER in r["summary"] and r["address"] == ADDRESS
+    assert ANSWER in r["summary"] and "address" not in r
     assert Path(r["path"]).name == "FERB-report-2026-01-01-t-fail.txt"
 
 
@@ -241,19 +289,150 @@ def test_an_unknown_task_is_refused(daemon: RunningDaemon) -> None:
         _build(daemon)
 
 
-def test_an_empty_address_is_refused(daemon: RunningDaemon) -> None:
+def test_send_posts_the_previewed_text_and_no_secret_reaches_the_relay(daemon: RunningDaemon, relay: Relay) -> None:
+    """The owner's Send: the relay gets exactly the file they previewed, as the relay's JSON shape; the secrets planted
+    in a span (a sealed value in its escaped forms, an API key) never reach it, nor the title."""
     _failed_task(daemon)
-    daemon.daemon.config.set("feedback", "address", "")
-    with pytest.raises(RpcError, match=NOT_SET_UP):
-        _build(daemon, "t-fail")
-    assert not (daemon.daemon.home / "reports").exists()
+    built = _build(daemon, "t-fail", app_version="0.28.0 (7)")
+    previewed = Path(built["path"]).read_text()
+    r = _send(daemon, built["path"], title=built["subject"], app_version="0.28.0 (7)")
+    assert r == {"sent": True, "path": built["path"], "report_id": Path(built["path"]).stem}
+    [(headers, raw)] = relay.received
+    assert headers["Content-Type"] == "application/json" and headers["User-Agent"].startswith("FERB/")
+    [sent] = relay.reports()
+    assert set(sent) == {"version", "kind", "title", "body", "app_version", "report_id"}
+    assert (sent["version"], sent["kind"], sent["app_version"]) == (1, "failure", "0.28.0 (7)")
+    assert sent["title"] == built["subject"] and sent["report_id"] == "FERB-report-2026-01-01-t-fail"
+    assert sent["body"] == previewed and Path(built["path"]).read_text() == previewed      # unchanged, still saved
+    text = raw.decode()
+    for value in (SEALED, QUOTED):
+        for form in _forms(value, nested=True):
+            assert form not in text, form
+    assert API_KEY not in text and "sk-ant" not in text and "[redacted]" in sent["body"]
+    sent_rows = _on_loop(daemon, lambda: [e.data for e in daemon.daemon.journal.of_kind("report.sent")])
+    assert sent_rows == [{"file": built["path"], "kind": "failure", "report_id": sent["report_id"]}]
 
 
-def test_the_address_comes_from_config(daemon: RunningDaemon) -> None:
+def test_a_value_sealed_after_the_build_is_hidden_at_send_and_in_the_kept_file(daemon: RunningDaemon,
+                                                                              relay: Relay) -> None:
     _failed_task(daemon)
-    assert FEEDBACK_ADDRESS == ""                                  # none by default: not set up yet
-    daemon.daemon.config.set("feedback", "address", "dev@example.org")
-    assert _build(daemon, "t-fail")["address"] == "dev@example.org"
+    built = _build(daemon, "t-fail")
+    late = "Quillon-Brask-8812"
+    Path(built["path"]).write_text(Path(built["path"]).read_text() + f"\nlearned later: {late}\n")
+    _on_loop(daemon, lambda: daemon.daemon.redact.remember_hidden_secret(late))     # type: ignore[attr-defined]
+    assert _send(daemon, built["path"], title=built["subject"])["sent"] is True
+    assert late not in relay.received[0][1].decode() and late not in Path(built["path"]).read_text()
+    assert relay.reports()[0]["body"] == Path(built["path"]).read_text()     # what is kept is what was sent
+
+
+def test_a_diagnostic_file_is_sent_the_same_way(daemon: RunningDaemon, relay: Relay) -> None:
+    async def health(session: Any, params: dict[str, Any]) -> dict[str, Any]:
+        return {"note": f"fine {SEALED}"}
+
+    async def recording(session: Any, params: dict[str, Any]) -> dict[str, Any]:
+        return {"paused": False}
+    daemon.daemon._doctor_check = health                 # type: ignore[method-assign]
+    daemon.daemon._sense_status = recording              # type: ignore[method-assign]
+    _on_loop(daemon, lambda: daemon.daemon.redact.remember_hidden_secret(SEALED))     # type: ignore[attr-defined]
+    c = Client(daemon.sock, timeout=30)
+    try:
+        built = c.call("reports.diagnostic", {"app_version": "0.28.0", "send": True})
+    finally:
+        c.close()
+    assert built["subject"].startswith("FERB diagnostics (FERB ")
+    assert _send(daemon, built["path"], title=built["subject"], app_version="0.28.0")["sent"] is True
+    [sent] = relay.reports()
+    assert sent["kind"] == "diagnostic" and sent["body"] == Path(built["path"]).read_text()
+    assert SEALED not in relay.received[0][1].decode()
+
+
+@pytest.mark.parametrize("status,answer,why", [
+    (502, {"ok": False, "error": "GitHub refused the report (HTTP 401)"}, "HTTP 502: GitHub refused the report"),
+    (200, {"ok": False, "error": "odd"}, "HTTP 200: odd"),
+    (429, {"ok": False, "error": "too many"}, "try again in a few minutes"),
+])
+def test_a_refused_send_keeps_the_file_and_says_why(daemon: RunningDaemon, relay: Relay, status: int,
+                                                    answer: dict[str, Any], why: str) -> None:
+    _failed_task(daemon)
+    built = _build(daemon, "t-fail")
+    relay.status, relay.answer = status, answer
+    r = _send(daemon, built["path"], title=built["subject"])
+    assert r["sent"] is False and why in r["error"] and Path(built["path"]).exists()
+    assert len(relay.received) == 1                                         # tried once; never by itself again
+    relay.status, relay.answer = 200, {"ok": True, "report_id": ""}
+    assert _send(daemon, built["path"], title=built["subject"])["sent"] is True       # Send again
+    failed = _on_loop(daemon, lambda: [e.data for e in daemon.daemon.journal.of_kind("report.send_failed")])
+    assert len(failed) == 1 and failed[0]["file"] == built["path"] and why in failed[0]["why"]
+
+
+def test_an_unreachable_relay_keeps_the_file_and_says_so(daemon: RunningDaemon, relay: Relay) -> None:
+    _failed_task(daemon)
+    built = _build(daemon, "t-fail")
+    relay.server.shutdown()
+    relay.server.server_close()
+    r = _send(daemon, built["path"], title=built["subject"])
+    assert r["sent"] is False and "couldn't reach the report service" in r["error"]
+    assert Path(built["path"]).exists()
+
+
+def test_without_a_relay_address_the_report_is_written_and_send_says_it_isnt_set_up(daemon: RunningDaemon) -> None:
+    assert RELAY_URL == ""                       # filled in once the owner's relay is deployed
+    _failed_task(daemon)
+    built = _build(daemon, "t-fail")
+    assert Path(built["path"]).exists()
+    r = _send(daemon, built["path"], title=built["subject"])
+    assert r == {"sent": False, "path": built["path"], "error": NOT_SET_UP}
+    assert Path(built["path"]).exists()
+
+
+@pytest.mark.parametrize("url", ["http://relay.example.org/report", "ftp://127.0.0.1/report", "not a url",
+                                 "https://user:pw@relay.example.org/report"])
+def test_a_relay_address_that_isnt_https_is_refused(daemon: RunningDaemon, url: str) -> None:
+    _failed_task(daemon)
+    built = _build(daemon, "t-fail")
+    daemon.daemon.config.set("feedback", "relay_url", url)
+    r = _send(daemon, built["path"])
+    assert r["sent"] is False and "isn't a valid https address" in r["error"]
+
+
+def test_send_takes_only_a_file_ferb_wrote_in_its_reports_folder(daemon: RunningDaemon, relay: Relay,
+                                                                tmp_path: Path) -> None:
+    _failed_task(daemon)
+    built = _build(daemon, "t-fail")
+    folder = Path(built["path"]).parent
+    other = tmp_path / "FERB-report-2026-01-01-t-x.txt"
+    other.write_text("not FERB's")
+    (folder / "notes.txt").write_text("the owner's")
+    (folder / "FERB-report-2026-01-01-link.txt").symlink_to(other)
+    for path in (str(other), str(folder / "notes.txt"), str(folder / "FERB-report-2026-01-01-link.txt"),
+                 str(folder / ".." / "reports" / Path(built["path"]).name), "", "FERB-report-2026-01-01-t-fail.txt"):
+        with pytest.raises(RpcError, match="only a report or diagnostic file"):
+            _send(daemon, path)
+    with pytest.raises(RpcError, match="no longer saved"):
+        _send(daemon, str(folder / "FERB-report-2026-01-01-gone.txt"))
+    assert relay.received == []
+
+
+def test_a_report_larger_than_the_relay_takes_is_kept_and_not_sent(daemon: RunningDaemon, relay: Relay) -> None:
+    _failed_task(daemon)
+    built = _build(daemon, "t-fail")
+    Path(built["path"]).write_text("x" * (RELAY_MAX_BYTES + 1))
+    r = _send(daemon, built["path"])
+    assert r["sent"] is False and "at most 512 KB" in r["error"] and built["path"] in r["error"]
+    assert relay.received == [] and Path(built["path"]).exists()
+
+
+def test_a_redactor_without_a_text_path_sends_nothing(daemon: RunningDaemon, relay: Relay) -> None:
+    _failed_task(daemon)
+    built = _build(daemon, "t-fail")
+    held = daemon.daemon.redact
+    daemon.daemon.redact = lambda obj: obj                                   # type: ignore[assignment]
+    try:
+        with pytest.raises(RpcError, match="couldn't redact"):
+            _send(daemon, built["path"])
+    finally:
+        daemon.daemon.redact = held
+    assert relay.received == []
 
 
 def test_a_redactor_without_a_text_path_writes_nothing(daemon: RunningDaemon) -> None:
@@ -427,6 +606,7 @@ def test_the_notch_waits_longer_for_a_report_so_a_slow_one_is_no_slow_call(daemo
     assert not _on_loop(daemon, lambda: daemon.daemon.journal.of_kind(SLOW_CALL))
 
 
-def test_only_the_owners_clients_may_build_a_report() -> None:
-    assert auth.allowed(auth.Role.CLI, "reports.build")
-    assert not auth.allowed(auth.Role.MCP_SHIM, "reports.build")
+def test_only_the_owners_clients_may_build_or_send_a_report() -> None:
+    for method in ("reports.build", "reports.send"):
+        assert auth.allowed(auth.Role.CLI, method)
+        assert not auth.allowed(auth.Role.MCP_SHIM, method) and not auth.allowed(auth.Role.NATIVE_HOST, method)

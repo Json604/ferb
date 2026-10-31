@@ -38,7 +38,7 @@ METHODS: dict[Role, frozenset[str]] = {
                          "chat.status", "results.ack", "chat.attach", "task.stop", "schedules.list", "schedules.change",
                          "verdict.set", "recovery.list", "recovery.restore",
                          "conversations.list", "conversations.change", "attention.ack",
-                         "reports.build", "ui.click_through", "tasks.preview",
+                         "reports.build", "reports.send", "ui.click_through", "tasks.preview",
                          "setup.browsers", "setup.browser_open", "setup.browser_pair", "setup.browsers_pair_all", "browser.show_handoff", "reports.diagnostic", "update.prepare", "tasks.list", "notices.list", "settings.get", "settings.set", "notifications.subscribe", "notifications.categories", "runtimes.sign_in", "runtimes.status", "runtimes.use", "runtimes.switch_task", "setup.permissions", "setup.permission_request", "setup.finish",
                          "about.get", "about.guide", "secrets.saved", "secrets.delete", "identity.find",
                          "identity.choose", "seen.list", "seen.image"}),

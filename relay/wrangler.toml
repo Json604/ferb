@@ -1,0 +1,19 @@
+# FERB's failure-report relay (relay/README.md). Deployed by the owner with `npx wrangler deploy`.
+name = "ferb-reports"
+main = "worker.mjs"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+GITHUB_REPO = "Json604/ferb-reports"
+
+# Per sender address: at most 2 reports a minute in each Cloudflare location (the binding allows a 10 or 60 second
+# window only). worker.mjs also keeps 5 per 10 minutes per address in each running instance. Needs Wrangler 4.36.0 or
+# later. GITHUB_TOKEN is a secret (`npx wrangler secret put GITHUB_TOKEN`), never written here.
+[[ratelimits]]
+name = "REPORT_LIMIT"
+namespace_id = "60401"
+
+  [ratelimits.simple]
+  limit = 2
+  period = 60

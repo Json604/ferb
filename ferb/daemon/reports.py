@@ -1,17 +1,20 @@
-"""Own the failure report the owner can send the developer (L35, the simple cut the owner approved 2026-10-25): one
-plain-text file per turn FERB recorded as ending badly, under ~/.ferb/reports, every part of it redacted. Must not send
-anything or judge why a task failed: FERB writes the file and the notch opens a new email in the owner's own Mail app;
-the owner reads the file and presses Send. Raw stderr (logs/daemon.err.log, never redacted at capture) never goes in."""
+"""Own the failure report the owner can send the developer (L35; relay owner decision 2026-11-01): one plain-text file
+per turn FERB recorded as ending badly, under ~/.ferb/reports, every part of it redacted. Must not judge why a task
+failed or send anything the owner didn't preview: FERB writes the file, the owner reads it in FERB.app and presses Send,
+and only then the daemon posts that same text to the developer's report relay (relay/), which files it as an issue in a
+private repo. Raw stderr (logs/daemon.err.log, never redacted at capture) never goes in."""
 
 import json
 import os
 import platform
 import re
+import stat
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
+from urllib.parse import urlsplit
 
 import ferb
 from ferb.core.errors import FerbError
@@ -21,10 +24,16 @@ from ferb.store.db import Database
 from ferb.store.spans import SpanStore
 from ferb.trace import lines
 
-# Where reports go: config `[feedback] address`, empty by default; with none, Send to developer says it isn't set up
-# yet and writes nothing. The app never holds it: the daemon returns it with each report.
-FEEDBACK_ADDRESS = ""
-NOT_SET_UP = "Sending to the developer isn't set up yet"
+# Where Send posts a report (owner, 2026-11-01): the developer's relay (relay/worker.mjs), which files it as an issue in
+# a private repo. Built in once it is deployed; config `[feedback] relay_url` overrides it. With neither, the report is
+# still written and kept, and Send says sending isn't set up yet. The app never holds the address.
+RELAY_URL = ""
+NOT_SET_UP = "Sending reports to the developer isn't set up yet"
+RELAY_MAX_BYTES = 512 * 1024         # the relay's body cap (relay/worker.mjs MAX_BODY): what one Send can carry
+SEND_TIMEOUT_S = 60.0
+TITLE_CHARS = 200                    # the relay's limits on a title and on the version label (relay/worker.mjs)
+VERSION_CHARS = 50
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")   # the only hosts a plain-http relay address may name (tests)
 KEEP_DAYS = 30                       # the span retention the L35 design names
 REPORTABLE = ("failed", "interrupted")
 TURN_FAILED = "turn failed"          # a turn whose request has a `chat.failed` row, whatever its task's row says
@@ -207,9 +216,9 @@ def diagnostic(db_path: Path, health: dict[str, Any], recording: dict[str, Any],
                app_version: str = "") -> dict[str, str]:
     """Settings → Advanced → Export a diagnostic file (L34 Phase E): versions, the daemon's own health check, what it
     records, its latest tasks by id and status, its recorded problems and its recent setup, pairing and watcher events,
-    every part redacted as a failure report is (rule 14; never raw stderr). FERB sends nothing itself: Send diagnostics
-    to developer opens it in a new email in the owner's own Mail app. Runs off the event loop on its own connection;
-    diagnostic files older than KEEP_DAYS go first. Returns {path, summary}."""
+    every part redacted as a failure report is (rule 14; never raw stderr). Nothing is sent here: Send diagnostics to
+    developer previews it, then `reports.send` posts it as a failure report. Runs off the event loop on its own
+    connection; diagnostic files older than KEEP_DAYS go first. Returns {path, summary, subject}."""
     db = Database(db_path)
     try:
         tasks = [dict(r) for r in db.conn.execute(
@@ -244,7 +253,8 @@ def diagnostic(db_path: Path, health: dict[str, Any], recording: dict[str, Any],
     folder = home / FOLDER
     purge(folder, now, names=DIAGNOSTIC)
     path = write(folder, f"FERB-diagnostic-{now.astimezone():%Y-%m-%d-%H%M%S}.txt", "\n".join(parts))
-    return {"path": str(path), "summary": text(f"FERB {ferb.__version__}, macOS {mac}")}
+    told = text(f"FERB {ferb.__version__}, macOS {mac}")
+    return {"path": str(path), "summary": told, "subject": f"FERB diagnostics ({told})"}
 
 
 def _redacted(node: dict[str, Any], walk: Callable[[Any], Any]) -> dict[str, Any]:
@@ -295,3 +305,91 @@ def write(folder: Path, name: str, text: str) -> Path:
         Path(tmp).unlink(missing_ok=True)
         raise
     return folder / name
+
+
+class Unsent(FerbError):
+    """Why a report wasn't sent; the file stays where it is and Send can be pressed again."""
+
+
+def relay_url(configured: Any) -> str:
+    """Where Send posts: config `[feedback] relay_url`, else RELAY_URL. An https address, or plain http to this Mac
+    only; anything else is refused (code checks the destination, rule 3)."""
+    url = str(configured or RELAY_URL or "").strip()
+    if not url:
+        raise Unsent(NOT_SET_UP)
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+    except ValueError:
+        parts, host = None, ""
+    if parts is None or not host or parts.username or parts.password or not (
+            parts.scheme == "https" or (parts.scheme == "http" and host in LOCAL_HOSTS)):
+        raise Unsent("The report relay address in config.toml ([feedback] relay_url) isn't a valid https address")
+    return url
+
+
+def saved(home: Path, path: str) -> tuple[Path, str]:
+    """A report or diagnostic file FERB wrote, by the path `build`/`diagnostic` returned: only a regular file in
+    ~/.ferb/reports with one of their names; (path, kind) with kind "failure" or "diagnostic"."""
+    p = Path(path)
+    folder = home / FOLDER
+    kind = "failure" if NAME.fullmatch(p.name) else "diagnostic" if DIAGNOSTIC.fullmatch(p.name) else ""
+    if not kind or p.parent != folder or not p.is_absolute():
+        raise FerbError("FERB can send only a report or diagnostic file it wrote in ~/.ferb/reports")
+    try:
+        st = p.lstat()
+    except FileNotFoundError:
+        raise FerbError("That report is no longer saved; send it again from where it was offered") from None
+    if not stat.S_ISREG(st.st_mode):
+        raise FerbError("FERB can send only a report or diagnostic file it wrote in ~/.ferb/reports")
+    return p, kind
+
+
+def payload(path: Path, kind: str, title: str, app_version: str, *, text: Callable[[str], str]) -> bytes:
+    """The relay's JSON for one saved file, off the event loop. The file is what the owner previewed; it goes through
+    the redaction once more (a value sealed since the build is hidden too, and the saved file is rewritten to match,
+    so what is kept is what was sent). Refused, unread, when it can't fit the relay's cap."""
+    size = path.lstat().st_size
+    if size > RELAY_MAX_BYTES:
+        raise Unsent(f"This report is {size / 1_000_000:.1f} MB; FERB can send at most {RELAY_MAX_BYTES // 1024} KB "
+                     f"at once. It stays saved at {path}.")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, encoding="utf-8") as f:
+        written = f.read()
+    body = text(written)
+    if body != written:
+        write(path.parent, path.name, body)
+    default = "FERB report" if kind == "failure" else "FERB diagnostics"
+    version = " ".join("".join(c for c in app_version if c.isprintable()).split()) or ferb.__version__
+    data = json.dumps({"version": 1, "kind": kind, "title": lines.clip(text(title), TITLE_CHARS) or default,
+                       "body": body, "app_version": version[:VERSION_CHARS],
+                       "report_id": path.stem[:128]}, ensure_ascii=False).encode()
+    if len(data) > RELAY_MAX_BYTES:
+        raise Unsent(f"This report is {len(data) / 1_000_000:.1f} MB; FERB can send at most "
+                     f"{RELAY_MAX_BYTES // 1024} KB at once. It stays saved at {path}.")
+    return data
+
+
+async def post(url: str, data: bytes, timeout: float = SEND_TIMEOUT_S) -> str:
+    """POST one report to the relay, as other daemon-side calls reach their services (httpx, no FERB proxy: that one
+    is for FERB's shell); the relay's report_id. Any failure is Unsent with a reason the owner can read."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(url, content=data, headers={"Content-Type": "application/json",
+                                                               "User-Agent": f"FERB/{ferb.__version__}"})
+    except httpx.TimeoutException:
+        raise Unsent("FERB couldn't send the report: the report service didn't answer in time") from None
+    except httpx.HTTPError as e:
+        raise Unsent(f"FERB couldn't reach the report service ({type(e).__name__})") from None
+    try:
+        answer = r.json()
+    except ValueError:
+        answer = None
+    answer = answer if isinstance(answer, dict) else {}
+    if r.status_code == 429:
+        raise Unsent("Too many reports were sent from this network just now; try again in a few minutes")
+    if r.status_code != 200 or answer.get("ok") is not True:
+        why = lines.clip(answer.get("error") or "no reason given", 200)
+        raise Unsent(f"The report service didn't take the report (HTTP {r.status_code}: {why})")
+    return str(answer.get("report_id") or "")
