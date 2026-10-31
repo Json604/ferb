@@ -28,8 +28,12 @@ rule 15); a passing offline test never accepts any of these.
 Run in order; each sitting can be a separate session. `[source]` names the notes file with the detail.
 
 ### Before step 13
-- [ ] Update Command Line Tools / Xcode: the current linker can't read the macOS 27.2 SDK, so `scripts/build-app.sh`
-      (and `tests/test_packaging.py`) fail on HEAD. FERB.app must build before sitting 1. [step 14a finding]
+- [x] Toolchain (2026-11-01): the owner updated Command Line Tools to 27.2; the active Xcode 26.3's linker can't read
+      that SDK, and the Command Line Tools alone lack SwiftUI's macro plugin (the app won't build with them). Until
+      Xcode is updated to 27.x, build with Xcode pinned to its own SDK: prefix the build with
+      `SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk`
+      (swift build checked; `tests/test_packaging.py` passes with `DEVELOPER_DIR=/Library/Developer/CommandLineTools`).
+      Don't switch `xcode-select` to the Command Line Tools. [step 14a finding]
 - [ ] Checkout validation on the final commit: `nice -n 10 uv run pytest -q`, `uv run mypy ferb/core`,
       `git diff --check` (the safety suite). [tests.md]
 - [ ] Fresh start (owner, 2026-11-01: "every old ferb build removed … except its data … i wanna start fresh"), done
