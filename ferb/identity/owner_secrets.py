@@ -10,8 +10,8 @@ under that question's text), each a Keychain item under service `ferb.owner-secr
 that place replaces its value, so no duplicates. The place is always code-derived (D12); the worker chooses only the
 entry's name.
 
-A record serves its own place and the sites it lists (I14): the visa site's sign-in form is a single sign-on page on
-another origin (atlasauth.b2clogin.com) while the owner names usvisascheduling.com, so the form's record lists the
+A record serves its own place and the sites it lists (I14): an appointment site's sign-in form is a single sign-on page
+on another origin (login.provider.example) while the owner names appointments.example, so the form's record lists the
 task's site the owner typed, when they typed exactly one (the gateway picks it, `HiddenInput._question_sites`), a listing
 for the site finds it, and a username the owner gave for the site names the form's account too. Before any entry is
 saved there, a question or a listing during a task reads the task's one owner-typed site as a link the same way,

@@ -293,7 +293,7 @@ def test_enters_text_matches_the_extensions_rule() -> None:
 def test_labels_and_amounts() -> None:
     assert group_title("") == "FERB" and group_title("Book a table") == "FERB · Book a table"
     assert len(group_title("x " * 40)) <= 40
-    assert label_amount("Pay ₹137.39") == "₹137.39" and label_amount("Place order · USD 12.50") == "USD 12.50"
+    assert label_amount("Pay ₹248.75") == "₹248.75" and label_amount("Place order · USD 12.50") == "USD 12.50"
     assert label_amount("Pay 40 EUR") == "40 EUR" and label_amount("PAY 12") is None
     assert label_amount("Continue") is None and label_amount("$5 or $6") is None
 
@@ -313,19 +313,19 @@ def _tab_with(drv: Any, elements: dict[str, tuple[int, PageElement]], url: str =
 
 def test_facts_say_a_submit_its_host_method_kinds_amount_and_a_cross_origin_frame() -> None:
     drv = eb._TabDriver.__new__(eb._TabDriver)
-    pay = _el(label="Pay ₹137.39", submit=FormSubmit(True, False, "pay.shop.example", "POST", ("card_number",)))
+    pay = _el(label="Pay ₹248.75", submit=FormSubmit(True, False, "pay.shop.example", "POST", ("card_number",)))
     card = _el(id="s1e2", role="textbox", secret=True, field_kind="card_number",
                submit=FormSubmit(False, True, "pay.shop.example", "POST", ("card_number", "card_csc"), "Pay now"))
     _tab_with(drv, {"s1e1": (0, pay), "s1e2": (3, card)},
               frames={0: "https://shop.example/checkout", 3: "https://bank.example/3ds"},
-              commerce={"amount": "INR 137.39", "merchant": "Shop"})
+              commerce={"amount": "INR 248.75", "merchant": "Shop"})
     click = drv.act_facts("t1", "s1e1", "click", None)
     assert (click.submits_form, click.form_action_host, click.form_method, click.page_amount, click.page_merchant) == \
-        (True, "pay.shop.example", "POST", "₹137.39", "Shop")
+        (True, "pay.shop.example", "POST", "₹248.75", "Shop")
     assert click.field_kinds == ("card_number",) and click.frame_host is None
     enter = drv.act_facts("t1", "s1e2", "press", "Enter")
     assert enter.submits_form and enter.frame_host == "bank.example" and enter.secure_field
-    assert enter.field_kinds == ("card_number", "card_csc") and enter.page_amount == "INR 137.39"
+    assert enter.field_kinds == ("card_number", "card_csc") and enter.page_amount == "INR 248.75"
     typed = drv.act_facts("t1", "s1e2", "type", "x")
     assert typed.submits_form is None and typed.field_kinds == ("card_number",)
     assert drv.act_facts("t1", "nope", "click", None) is None
@@ -375,9 +375,9 @@ def test_pairing_rolls_back_when_storing_the_binding_fails(tmp_path: Any) -> Non
 
 def test_profile_names_resolve_in_the_forms_workers_use() -> None:
     from ferb.act.browser.profiles import BrowserProfile as B, resolve
-    ps = [B("chrome", "Profile 2", "scaler", ""), B("chrome", "Default", "Kartikey", "k@x.com"),
+    ps = [B("chrome", "Profile 2", "acme", ""), B("chrome", "Default", "Sam", "k@x.com"),
           B("brave", "Default", "Work", ""), B("chrome", "Profile 9", "‎Trip", "")]
-    for spoken in ("chrome scaler", "chrome:scaler", "Chrome/Profile 2", "chrome “scaler”", "Google Chrome scaler"):
+    for spoken in ("chrome acme", "chrome:acme", "Chrome/Profile 2", "chrome “acme”", "Google Chrome acme"):
         r = resolve(spoken, ps)
         assert r.kind == "one" and r.candidates[0].folder == "Profile 2", spoken
     assert resolve("Brave Browser", ps).candidates[0].browser == "brave"           # a browser with one profile

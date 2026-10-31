@@ -174,7 +174,7 @@ _AMOUNT = re.compile(rf"{_CURRENCY}\s?\d[\d,]*(?:\.\d{{1,2}})?|\b\d[\d,]*(?:\.\d
 
 
 def label_amount(label: str | None) -> str | None:
-    """The one amount a control's label shows ("Pay ₹137.39" -> "₹137.39"), None when it shows none or several."""
+    """The one amount a control's label shows ("Pay ₹248.75" -> "₹248.75"), None when it shows none or several."""
     found = {m.group(0).strip() for m in _AMOUNT.finditer(str(label or "")[:300])}
     return found.pop() if len(found) == 1 else None
 
@@ -2344,7 +2344,7 @@ class Router(_TabDriver):
         selected = self._owner_bridges(profile, connected_only=False)
         if profile and self.wake is not None:
             # A named profile that isn't running starts with no window first, as for browser.open (live 2026-10-26,
-            # task 7c1eca3a: the listing never started New_Personal and said "reload the FERB extension")
+            # task 7c1eca3a: the listing never started the named profile and said "reload the FERB extension")
             for br in selected:
                 await self._connected(br)
         missing = [br for br in selected if br.conn is None]

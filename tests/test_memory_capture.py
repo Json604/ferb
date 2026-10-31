@@ -71,8 +71,8 @@ PASSING = [
      "The owner wants short summary lists without jargon", "I can't read this much jargon"),
     ("sounds too linkedinish, rewrite it", "preference", "writing_tone",
      "The owner doesn't want writing that sounds too linkedinish", "sounds too linkedinish"),
-    ("do kaggle on my brave kaggle personal account", "preference", "kaggle_account",
-     "do kaggle on my brave kaggle personal account", "on my brave kaggle personal account"),
+    ("do contest on my brave contest personal account", "preference", "contest_account",
+     "do contest on my brave contest personal account", "on my brave contest personal account"),
 ]
 
 

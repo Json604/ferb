@@ -78,7 +78,7 @@ class Rpc:
         send = params.get("send") is True
         address = str(self.config.get("feedback", "address", reports.FEEDBACK_ADDRESS) or "").strip()
         if send and not address:
-            raise FerbError("No feedback address set")
+            raise FerbError(reports.NOT_SET_UP)
         text = getattr(self.redact, "text", None)
         if not callable(text):                     # never written unredacted
             raise FerbError("FERB couldn't redact the diagnostic file, so it wrote none")
@@ -312,7 +312,7 @@ class Rpc:
             raise FerbError("daemon not started")
         address = str(self.config.get("feedback", "address", reports.FEEDBACK_ADDRESS) or "").strip()
         if not address:
-            raise FerbError("No feedback address set")
+            raise FerbError(reports.NOT_SET_UP)
         text = getattr(self.redact, "text", None)
         if not callable(text):                # never written unredacted (review 1, M4)
             raise FerbError("FERB couldn't redact the report, so it wrote none")

@@ -4,7 +4,7 @@ import AppKit
 
 final class DragCanvasCursorTests: XCTestCase {
     @MainActor func testNonKeyFirstHoverAndChangedBorderUseTrackingWithoutClick() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.expand()
         let window = NSWindow(contentRect: CGRect(x: 0,y: 0,width: 700,height: 700), styleMask: .borderless, backing: .buffered, defer: true)
         let backdrop = NotchBackdropView(frame: CGRect(x:0,y:0,width:700,height:700))

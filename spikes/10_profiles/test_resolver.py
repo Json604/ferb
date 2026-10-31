@@ -5,16 +5,16 @@ import json
 from profiles import BrowserProfile, discover, resolve
 
 P = [
-    BrowserProfile("chrome", "Default", "Kartikey", "k.personal@example.com"),
+    BrowserProfile("chrome", "Default", "Alex", "k.personal@example.com"),
     BrowserProfile("chrome", "Profile 3", "Work", "k@work.example"),
-    BrowserProfile("chrome", "Profile 7", "kartikey", "k.other@example.com"),   # same name, different case
+    BrowserProfile("chrome", "Profile 7", "alex", "k.other@example.com"),   # same name, different case
     BrowserProfile("brave", "Default", "Work", ""),
     BrowserProfile("brave", "Profile 1", "Shopping", "shop@example.com"),
 ]
 
 
 def test_exact_display_name_case_insensitive_is_ambiguous_when_two_match():
-    r = resolve("KARTIKEY", P)
+    r = resolve("ALEX", P)
     assert (r.kind, r.step) == ("ambiguous", "display_name")
     assert {c.folder for c in r.candidates} == {"Default", "Profile 7"}
 
@@ -46,9 +46,9 @@ def test_alias_after_name_and_email():
 
 
 def test_no_match_lists_what_exists_and_never_guesses():
-    r = resolve("kartik", P)  # close to "Kartikey" — still no match
+    r = resolve("ale", P)  # close to "Alex" — still no match
     assert r.kind == "none" and r.candidates == ()
-    assert "no profile called 'kartik'; found:" in r.message("kartik", P)
+    assert "no profile called 'ale'; found:" in r.message("ale", P)
 
 
 def test_discover_reads_only_local_state(tmp_path):

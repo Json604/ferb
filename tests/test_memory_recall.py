@@ -196,25 +196,25 @@ def test_the_planners_memory_old_chat_and_activity_stay_within_their_limits_what
 # ---------- how-notes, playbooks and the repeat measure ----------
 
 def test_a_how_note_is_built_from_the_recorded_calls_the_worker_and_the_owner(daemon: Any) -> None:
-    actions = [{"tool": "browser.navigate", "args": {"url": "https://www.usvisascheduling.com/en-US/login?x=1"}},
+    actions = [{"tool": "browser.navigate", "args": {"url": "https://www.bookslots.com/en-US/login?x=1"}},
                {"tool": "browser.snapshot", "args": {}}, {"tool": "browser.snapshot", "args": {}},
                {"tool": "browser.act", "args": {"element": "s1e2"}, "error": "stale ref"},
                {"tool": "browser.act", "args": {"element": "s2e4"}, "result": {"ok": True}}]
     body = {"how": "Hard refresh first, then the login form works.", "actions": actions, "verified": True,
-            "owner_hints": ["hard refresh usually fixes it"], "intent": "Log in to the visa site", "task_id": "t1"}
+            "owner_hints": ["hard refresh usually fixes it"], "intent": "Log in to the permit site", "task_id": "t1"}
     note = how_note(body)
     assert note.startswith("Hard refresh first")
     assert "“hard refresh usually fixes it”" in note
-    assert "browser.navigate(www.usvisascheduling.com/en-US/login) → browser.snapshot ×2 → browser.act" in note
+    assert "browser.navigate(www.bookslots.com/en-US/login) → browser.snapshot ×2 → browser.act" in note
     assert "(1 call failed)" in note and "x=1" not in note
     assert "Recorded steps" in search_text("episode", "t1", body)
     shown = shown_text({"kind": "episode", "key": "t1", "body": body | {"status": "done"}, "recorded_at": "2026-10-30"})
     assert "how it was done: Hard refresh first" in shown
     d = daemon.daemon
     jid = said(daemon, "hard refresh usually fixes it", "s1", "r9")
-    journal(daemon, "task.steered", {"task_id": "t-visa", "session_id": "s1", "request_id": "r9",
+    journal(daemon, "task.steered", {"task_id": "t-permit", "session_id": "s1", "request_id": "r9",
                                      "source_ref": "entry:" + jid})
-    hints, refs = run(daemon, lambda: d.learning._owner_hints("t-visa"))
+    hints, refs = run(daemon, lambda: d.learning._owner_hints("t-permit"))
     assert hints == ["hard refresh usually fixes it"] and refs == {"journal:" + jid}
 
 
@@ -235,22 +235,22 @@ def test_verified_runs_of_one_kind_merge_into_a_playbook_and_the_repeat_measure_
     from ferb.memory.playbooks import candidates, merge
     d = daemon.daemon
     d.learning.embedder = FakeEmbedder()
-    record_run(daemon, "t-visa-1", "Book the visa appointment at the consulate", attempts=3, seconds=600, day=10)
-    record_run(daemon, "t-visa-2", "Book a visa appointment for biometrics", attempts=1, seconds=120, day=20)
-    record_run(daemon, "t-food", "Order dinner on zomato", attempts=1, seconds=60, day=21)
-    answer = {"same_kind": True, "members": ["t-visa-1", "t-visa-2", "t-food"], "title": "Book a visa slot",
+    record_run(daemon, "t-permit-1", "Book the permit appointment at the consulate", attempts=3, seconds=600, day=10)
+    record_run(daemon, "t-permit-2", "Book a permit appointment for biometrics", attempts=1, seconds=120, day=20)
+    record_run(daemon, "t-food", "Order dinner on orderly", attempts=1, seconds=60, day=21)
+    answer = {"same_kind": True, "members": ["t-permit-1", "t-permit-2", "t-food"], "title": "Book a permit slot",
               "text": "Open the OFC page; pick the first slot; confirm."}
     rt = FakeDistillRuntime(answer)
     record = lambda kind, data: d._journal().append(kind, data)    # noqa: E731
     written = daemon.run(merge(d.learning, lambda *a, **k: rt, d.learning.embedder, record=record))
     daemon.run(d._embed_now())
     assert len(written) == 1 and len(rt.contexts) == 1
-    assert "t-visa-1" in str(rt.contexts[0]) and "t-food" not in str(rt.contexts[0])   # code chose who is shown
+    assert "t-permit-1" in str(rt.contexts[0]) and "t-food" not in str(rt.contexts[0])   # code chose who is shown
     book = run(daemon, lambda: d.learning.get(written[0], False))
-    assert book["kind"] == "playbook" and book["body"]["tasks"] == ["t-visa-1", "t-visa-2"]   # never t-food
+    assert book["kind"] == "playbook" and book["body"]["tasks"] == ["t-permit-1", "t-permit-2"]   # never t-food
     assert run(daemon, lambda: candidates(d.learning, d.learning.embedder)) == []             # merged: not asked again
-    found = [c["text"] for c in daemon.run(d._learning_candidates("visa appointment booking"))]
-    assert any("playbook “Book a visa slot”" in t for t in found)
+    found = [c["text"] for c in daemon.run(d._learning_candidates("permit appointment booking"))]
+    assert any("playbook “Book a permit slot”" in t for t in found)
     c = Client(daemon.sock)
     try:
         [measured] = c.call("memory.repeats", {})["playbooks"]
@@ -267,8 +267,8 @@ def test_a_group_the_model_says_is_not_one_kind_is_not_asked_again(daemon: Any) 
     from ferb.memory.playbooks import candidates, merge
     d = daemon.daemon
     d.learning.embedder = FakeEmbedder()
-    record_run(daemon, "t-a", "Book the visa appointment at the consulate", attempts=1, seconds=60, day=10)
-    record_run(daemon, "t-b", "Cancel a visa appointment", attempts=1, seconds=60, day=11)
+    record_run(daemon, "t-a", "Book the permit appointment at the consulate", attempts=1, seconds=60, day=10)
+    record_run(daemon, "t-b", "Cancel a permit appointment", attempts=1, seconds=60, day=11)
     rt = FakeDistillRuntime({"same_kind": False, "members": [], "title": "", "text": ""})
     record = lambda kind, data: d._journal().append(kind, data)    # noqa: E731
     assert daemon.run(merge(d.learning, lambda *a, **k: rt, d.learning.embedder, record=record)) == []

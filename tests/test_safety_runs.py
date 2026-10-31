@@ -52,12 +52,12 @@ def test_an_action_whose_outcome_is_unknown_is_never_repeated_without_the_owner(
     post = FakeCap("probe.post", Kind.POST, {"probe"}, boom=True)
     daemon.daemon.registry.capabilities[post.name] = post
     seen: list[dict[str, Any]] = []
-    install(daemon, [sup("task", "Posting.", task("post the update", sites=("kartikey.xyz",)))],
-            {"worker": _worker(daemon, [("probe.post", {"site": "kartikey.xyz", "text": "the update"}),
-                                        ("probe.post", {"site": "kartikey.xyz", "text": "the update"})], seen)})
+    install(daemon, [sup("task", "Posting.", task("post the update", sites=("mysite.example",)))],
+            {"worker": _worker(daemon, [("probe.post", {"site": "mysite.example", "text": "the update"}),
+                                        ("probe.post", {"site": "mysite.example", "text": "the update"})], seen)})
     owner = Answers(daemon, granted=True, choice=2)                   # Yes to posting; No to repeating it
     try:
-        outcome(chat(daemon, "post the update on kartikey.xyz"))
+        outcome(chat(daemon, "post the update on mysite.example"))
     finally:
         owner.stop()
     assert post.calls == 1                                            # never ran a second time

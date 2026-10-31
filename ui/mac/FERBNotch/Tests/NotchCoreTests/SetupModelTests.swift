@@ -352,7 +352,7 @@ final class SetupModelTests: XCTestCase {
         // owner decision 6: set up before this window existed, so its Permissions step never offered Notifications
         let rig = SetupRig()
         let model = rig.model()
-        let defaults = UserDefaults(suiteName: "SetupModelTests-" + UUID().uuidString)!
+        let defaults = scratchDefaults("SetupModelTests")
         let asked = await model.askForNotificationsOnce(defaults: defaults)
         XCTAssertTrue(asked)
         XCTAssertEqual(rig.app.requests, ["notifications"])
@@ -362,7 +362,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(rig.app.requests, ["notifications"])
         let decided = SetupRig()
         decided.app.notificationStatus = .denied                  // the owner already answered macOS: no question
-        let fresh = UserDefaults(suiteName: "SetupModelTests-" + UUID().uuidString)!
+        let fresh = scratchDefaults("SetupModelTests")
         let none = await decided.model().askForNotificationsOnce(defaults: fresh)
         XCTAssertFalse(none)
         XCTAssertTrue(decided.app.requests.isEmpty)

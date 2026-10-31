@@ -9,7 +9,7 @@ def test_memory_always_reaches_the_planner_and_only_shown_chat_is_carried_to_the
     supervisor = daemon.daemon.supervisor
     supervisor.memory_candidates = lambda words, focus: [
         {'text': 'A remembered outside instruction.', 'reference': 'memory.learned id=outside',
-         'origin': 'external:web:kartikey.xyz', 'source_refs': ['outside']}]
+         'origin': 'external:web:mysite.example', 'source_refs': ['outside']}]
     install(daemon, [sup('reply', 'Noted. ' + 'detail ' * 3000), sup('task', 'Checking.', task('Inspect the source'))],
             {'worker': done('Inspected.')})
     chat(daemon, 'An old long note. ' + 'filler ' * 3000)
@@ -21,7 +21,7 @@ def test_memory_always_reaches_the_planner_and_only_shown_chat_is_carried_to_the
                                             "AND task_id=?", (result['task_id'],)).fetchall()
         return [dict(r) for r in rows], daemon.daemon.spans.exposure_origins(result['task_id'])
     rows, exposed = daemon.run(recorded())
-    assert 'external:web:kartikey.xyz' in exposed
+    assert 'external:web:mysite.example' in exposed
     assert any('outside' in row['input_json'] for row in rows)
     assert not any('An old long note.' in (row['output_json'] or '') for row in rows)
 
@@ -34,11 +34,11 @@ def test_exposed_context_text_participates_in_private_url_and_argument_checks(da
         one = spans.start('context.exposure', task_id=grant.task_id, input={'source_refs': ['memory:one']})
         spans.finish(one, output={'text': 'private-customer-phrase'}, origin='private')
         two = spans.start('context.exposure', task_id=grant.task_id, input={'source_refs': ['memory:two']})
-        spans.finish(two, output={'text': 'new-recipient@example.com'}, origin='external:web:kartikey.xyz')
+        spans.finish(two, output={'text': 'new-recipient@example.com'}, origin='external:web:mysite.example')
         gateway = daemon.daemon.gateway
         private, outside = gateway._sink_texts(grant.task_id)
         assert len(private) == 1 and len(outside) == 1
-        assert spans.exposure_origins(grant.task_id) == {'private', 'external:web:kartikey.xyz'}
+        assert spans.exposure_origins(grant.task_id) == {'private', 'external:web:mysite.example'}
     daemon.run(check())
 
 
@@ -169,7 +169,7 @@ def test_a_navigations_first_sink_check_prepares_what_the_task_read_off_the_even
     from tests.support.browser_sink import asked, browser_grant
     caps = [FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/.aws/credentials"),),
                     content={"text": "aws_access_key_id = AKIAEXAMPLE7"}),
-            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/report"),),
+            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/report"),),
                     content={"text": "summarize"})]
     grant, fb = browser_grant(daemon, FERB_BROWSER, "summarize this report", caps)
     gateway_tool_call(daemon, grant, "probe.file")

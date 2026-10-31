@@ -10,9 +10,9 @@ from ferb.memory.items import query_terms
 CONCEPTS = {
     "piano": "music", "keyboard": "music", "melody": "music", "chords": "music", "sonata": "music",
     "beginner": "novice", "learning": "novice", "newbie": "novice",
-    "visa": "visa", "consulate": "visa", "appointment": "visa", "ofc": "visa", "biometrics": "visa",
+    "permit": "permit", "consulate": "permit", "appointment": "permit", "ofc": "permit", "biometrics": "permit",
     "email": "mail", "mail": "mail", "outreach": "mail", "mailing": "mail", "inbox": "mail",
-    "groceries": "food", "blinkit": "food", "zomato": "food", "dinner": "food",
+    "groceries": "food", "blinkit": "food", "orderly": "food", "dinner": "food",
     "tone": "style", "linkedinish": "style", "buzzwords": "style", "jargon": "style",
 }
 

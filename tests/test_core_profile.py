@@ -13,7 +13,7 @@ from ferb.memory.profile import PROFILE_TOKENS, CoreProfile, entry_line
 from tests.conftest import FakeDistillRuntime, chat, done, install, sup, task
 from tests.support.memory_items import journal, owner_fact, run
 
-NOTIFY = "i want chennai as both the centers. Any date range, just book. BUT notify me before booking"
+NOTIFY = "i want jaipur as both the centers. Any date range, just book. BUT notify me before booking"
 JUST_BOOK = "no need to notify me, just book the first slot you find"
 
 
@@ -24,11 +24,11 @@ def profile_text(d: Any) -> str:
 def test_a_later_instruction_replaces_the_earlier_one_and_the_line_names_it(daemon: Any) -> None:
     """The booking case: the planner sees the earlier fact (its id in retrieved memory) and names it replaced; code
     ends it, the core profile follows at once, and FERB's line names what was replaced."""
-    first = owner_fact(daemon, "appointment_preferences", NOTIFY, kind="project", subject="project:us-b1b2-visa")
+    first = owner_fact(daemon, "appointment_preferences", NOTIFY, kind="project", subject="project:us-work-permit")
     run(daemon, lambda: daemon.daemon.profile.add(first.id, "Current projects"))
     assert "notify me before booking" in profile_text(daemon)
     install(daemon, [json.dumps({"kind": "reply", "text": "Okay, I'll just book.", "remember": [
-        {"kind": "preference", "subject": "project:us-b1b2-visa", "key": "visa_booking", "content": JUST_BOOK,
+        {"kind": "preference", "subject": "project:us-work-permit", "key": "permit_booking", "content": JUST_BOOK,
          "quote": JUST_BOOK, "replaces": [first.id]}]})])
     events = chat(daemon, JUST_BOOK)
     reply = [e["text"] for e in events if e.get("type") == "reply"][-1]
@@ -42,14 +42,14 @@ def test_a_later_instruction_replaces_the_earlier_one_and_the_line_names_it(daem
 
 def test_the_same_key_replaces_and_is_said_too(daemon: Any) -> None:
     """Fix list: same-key replace was silent; now the line names it whatever path saved it."""
-    owner_fact(daemon, "appointment_preferences", NOTIFY, kind="project", subject="project:us-b1b2-visa")
+    owner_fact(daemon, "appointment_preferences", NOTIFY, kind="project", subject="project:us-work-permit")
     install(daemon, [json.dumps({"kind": "reply", "text": "Okay.", "remember": [
-        {"kind": "project", "subject": "Project:US-B1B2 visa", "key": "appointment preferences",
+        {"kind": "project", "subject": "Project:US-WORK permit", "key": "appointment preferences",
          "content": JUST_BOOK, "quote": JUST_BOOK}]})])
     events = chat(daemon, JUST_BOOK)
     assert any("replaces" in e["text"] and "notify me" in e["text"] for e in events if e.get("type") == "reply")
     [now] = run(daemon, lambda: daemon.daemon.memory.items("active"))
-    assert (now.subject, now.content) == ("project:us_b1b2_visa", JUST_BOOK)   # subject normalized like the key
+    assert (now.subject, now.content) == ("project:us_work_permit", JUST_BOOK)   # subject normalized like the key
 
 
 def test_the_profile_is_in_every_roles_instructions(daemon: Any) -> None:
@@ -103,8 +103,8 @@ def test_the_owners_words_about_anything_join_at_once_unless_placed_by_search(da
     d = daemon.daemon
     project = owner_fact(daemon, "thesis_deadline", "my thesis is due on Dec 12", subject="project:thesis")
     person = owner_fact(daemon, "sam_role", "Sam is my landlord", kind="person", subject="person:sam")
-    run(daemon, lambda: d._journal().append(SEARCH_ONLY_KIND, {"keys": [["project:scaler", "scaler_groups"]]}))
-    placed = owner_fact(daemon, "scaler_groups", "check all group names containing SST", subject="project:scaler")
+    run(daemon, lambda: d._journal().append(SEARCH_ONLY_KIND, {"keys": [["project:acme", "acme_groups"]]}))
+    placed = owner_fact(daemon, "acme_groups", "check all group names containing ABC", subject="project:acme")
     src = journal(daemon, "chat.message", {"text": "Sam fixed the sink"})
     guess = run(daemon, lambda: d.memory.propose("person", "person:sam", "sam_handy", "Sam is handy", "inferred",
                                                  [("journal", src)]))
@@ -172,7 +172,7 @@ def test_an_entry_shows_the_owners_words_their_label_and_its_id() -> None:
     from ferb.core.types import MemoryItem
     now = datetime(2026, 10, 31, tzinfo=timezone.utc)
     item = MemoryItem("m1", "preference", "owner", "rating", "ok. score this 1 star - not ordering this again", [],
-                      now, now, None, None, 1.0, "owner_stated", "active", about="Rate the Simplee order on Zomato")
+                      now, now, None, None, 1.0, "owner_stated", "active", about="Rate the Simplee order on Orderly")
     line = entry_line(item)
     assert "ok. score this 1 star - not ordering this again" in line           # word for word (decision 13)
-    assert "your words" in line and "Rate the Simplee order on Zomato" in line and "m1" in line
+    assert "your words" in line and "Rate the Simplee order on Orderly" in line and "m1" in line

@@ -7,10 +7,10 @@ from ferb.sense.daily import DailyActivity
 def test_daily_log_search_is_relevant_bounded_and_rolls_over(tmp_path):
     now = [datetime(2026, 10, 3, 10, tzinfo=timezone(timedelta(hours=5, minutes=30)))]
     log = DailyActivity(tmp_path / 'activity.jsonl', lambda: now[0])
-    log.record({'what': 'browser.read', 'where': 'scaler Gmail FMI assignment 2', 'device_id': 'mac'})
+    log.record({'what': 'browser.read', 'where': 'acme Gmail FMI assignment 2', 'device_id': 'mac'})
     log.record({'what': 'mac.scroll', 'where': 'WhatsApp', 'device_id': 'mac'})
     hits = log.search('FMI assignment', limit=1)
-    assert len(hits) == 1 and hits[0]['where'] == 'scaler Gmail FMI assignment 2'
+    assert len(hits) == 1 and hits[0]['where'] == 'acme Gmail FMI assignment 2'
     assert hits[0]['when'] == now[0].astimezone().isoformat()
     assert log.search('unrelated physics') == []
     now[0] += timedelta(days=1)

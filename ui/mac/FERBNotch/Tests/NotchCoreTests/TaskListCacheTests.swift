@@ -258,7 +258,7 @@ final class TaskListCacheTests: XCTestCase {
     }
 
     private func makeModel() -> NotchModel {
-        NotchModel(rpc: QuietTaskRPC(), preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        NotchModel(rpc: QuietTaskRPC(), preferences: scratchDefaults())
     }
 
     private func loopStatus(_ taskID: String, state: String, rounds: Int,

@@ -80,14 +80,14 @@ def _records(d: RunningDaemon, tree: str) -> list[dict[str, Any]]:
     return run(d, lambda: [e.data for e in d.daemon.journal.of_kind("chat.part", "task_id", tree)])
 
 
-VISA = "any news about the b1b2 visa and also when is trump's term ending"
+PERMIT = "any news about the work permit and also when is trump's term ending"
 
 
-def _visa_and_trump() -> dict[str, Any]:
-    return _spec("Visa news and Trump's term", ["B1/B2 news is reported", "The end of Trump's term is given"],
-                 [_part("p1", "any news about the b1b2 visa", "B1/B2 visa news", step="visa", conds=(0,)),
+def _permit_and_trump() -> dict[str, Any]:
+    return _spec("Permit news and Trump's term", ["Permit news is reported", "The end of Trump's term is given"],
+                 [_part("p1", "any news about the work permit", "work permit news", step="permit", conds=(0,)),
                   _part("p2", "when is trump's term ending", "When Trump's term ends", step="term", conds=(1,))],
-                 [Step(id="visa", kind="do", goal="Check B1/B2 visa news"),
+                 [Step(id="permit", kind="do", goal="Check work permit news"),
                   Step(id="term", kind="do", goal="Find when Trump's term ends")])
 
 
@@ -121,24 +121,24 @@ def test_a_one_ask_plan_answers_with_its_last_step_and_no_summarizing_call(daemo
 
 
 def test_two_parts_fill_in_any_order_each_once_and_code_adds_the_count(daemon: RunningDaemon) -> None:
-    """Scenario 2: one reply opens a card with a row per ask in the owner's order; the Trump row fills first, the visa
+    """Scenario 2: one reply opens a card with a row per ask in the owner's order; the Trump row fills first, the permit
     row later, each once; no model summary afterwards, only "2 of 2 done" and the sites."""
-    script = install(daemon, [sup("task", "I'll check the visa news and Trump's term.", _visa_and_trump())],
-                     {"step.visa": _slow("No new B1/B2 rule changes this week.", 0.6),
+    script = install(daemon, [sup("task", "I'll check the permit news and Trump's term.", _permit_and_trump())],
+                     {"step.permit": _slow("No new permit rule changes this week.", 0.6),
                       "step.term": done("His term ends at noon ET on 20 January 2029.")})
-    events = chat(daemon, VISA)
+    events = chat(daemon, PERMIT)
     plan = next(e for e in events if e["type"] == "plan")
     assert [r["part"] for r in plan["card"]["rows"]] == ["p1", "p2"]
     assert {r["state"] for r in plan["card"]["rows"]} == {"working"}
-    assert plan["plan_line"].startswith("I'll check the visa news")
+    assert plan["plan_line"].startswith("I'll check the permit news")
     posted = [(e["part"], e["state"]) for e in _parts(events)]
     assert posted == [("p2", "done"), ("p1", "done")]                      # out of order, once each
     final = outcome(events)
     assert final["card"]["done"] == 2 and final["card"]["total"] == 2 and final["card"]["line"] == "2 of 2 done"
     assert final["status"] == "done" and final["verified"] is True
-    assert final["answer"].count("No new B1/B2 rule changes this week.") == 1
+    assert final["answer"].count("No new permit rule changes this week.") == 1
     assert final["answer"].count("20 January 2029") == 1
-    assert sorted(script.calls("worker")) == ["step.term", "step.visa"]     # no summarizing call
+    assert sorted(script.calls("worker")) == ["step.permit", "step.term"]     # no summarizing call
     tree = plan["task_id"]
     assert [(r["part"], r["state"]) for r in _records(daemon, tree)] == [("p2", "done"), ("p1", "done")]
 
@@ -168,9 +168,9 @@ def test_a_part_asks_in_its_row_while_another_part_fills(daemon: RunningDaemon) 
     the answer goes back to that row only, which then fills."""
     spec = _spec("Book Toit and order lunch", ["A table at Toit is booked", "Paneer tikka is ordered"],
                  [_part("book", "book a table at Toit for tonight", "Table at Toit tonight", step="book", conds=(0,)),
-                  _part("food", "order paneer tikka from Zomato", "Paneer tikka from Zomato", step="food", conds=(1,))],
+                  _part("food", "order paneer tikka from Orderly", "Paneer tikka from Orderly", step="food", conds=(1,))],
                  [Step(id="book", kind="do", goal="Book a table at Toit tonight"),
-                  Step(id="food", kind="do", goal="Order paneer tikka on Zomato")])
+                  Step(id="food", kind="do", goal="Order paneer tikka on Orderly")])
     install(daemon, [sup("task", "I'll book Toit and order lunch.", spec)],
             {"step.book": [_not_done("Two times are free.", "Which time: 8:00 or 9:30 pm?"), done("Booked 8:00 pm.")],
              "step.food": _slow("Ordered paneer tikka.", 0.3)})
@@ -178,7 +178,7 @@ def test_a_part_asks_in_its_row_while_another_part_fills(daemon: RunningDaemon) 
     sv = daemon.daemon.supervisor
     original = sv.publish
     sv.publish = lambda topic, data: (seen.append((topic, data)), original(topic, data))[1]  # type: ignore[method-assign]
-    turn = Turn(daemon, "book a table at Toit for tonight and order paneer tikka from Zomato for lunch")
+    turn = Turn(daemon, "book a table at Toit for tonight and order paneer tikka from Orderly for lunch")
     asked = answer_question(daemon, text="8:00 pm")
     events = turn.done()
     rows = [(e["part"], e["state"]) for e in _parts(events)]
@@ -195,7 +195,7 @@ def test_a_part_asks_in_its_row_while_another_part_fills(daemon: RunningDaemon) 
 def test_a_failed_part_says_so_in_its_row_and_the_count_is_honest(daemon: RunningDaemon) -> None:
     """Scenario 5: one link can't be read: its row says "Couldn't do: reason"; the others fill; 2 of 3 done."""
     spec = _spec("Summarize three links", ["Link 1 summarized", "Link 2 summarized", "Link 3 summarized"],
-                 [_part("a", "kartikey.xyz/posts/notch-chat", "kartikey.xyz/posts/notch-chat", step="a", conds=(0,)),
+                 [_part("a", "mysite.example/posts/notch-chat", "mysite.example/posts/notch-chat", step="a", conds=(0,)),
                   _part("b", "ft.com/content/ai-agents-india", "ft.com/content/ai-agents-india", step="b", conds=(1,)),
                   _part("c", "simonwillison.net/2026/Oct/22/agent-loops", "agent-loops", step="c", conds=(2,))],
                  [Step(id="a", kind="do", goal="Summarize link 1"), Step(id="b", kind="do", goal="Summarize link 2"),
@@ -203,7 +203,7 @@ def test_a_failed_part_says_so_in_its_row_and_the_count_is_honest(daemon: Runnin
     install(daemon, [sup("task", "I'll read each link and summarize it.", spec)],
             {"step.a": done("The notch chat design."), "step.c": done("Small checkable loops."),
              "step.b": _not_done("The page needs a login FERB doesn't have (FT subscription).")})
-    events = chat(daemon, "summarize these three links\nkartikey.xyz/posts/notch-chat\n"
+    events = chat(daemon, "summarize these three links\nmysite.example/posts/notch-chat\n"
                           "ft.com/content/ai-agents-india\nsimonwillison.net/2026/Oct/22/agent-loops")
     failed = next(e for e in _parts(events) if e["part"] == "b")
     assert failed["state"] == "failed" and failed["text"].startswith("Couldn't do:")
@@ -248,7 +248,7 @@ def test_a_part_that_keeps_failing_pauses_only_its_row_and_checks_in(daemon: Run
     """Scenario 9: after 5 failed attempts of one part's step, only that row is paused with "keep going?" in it; the
     other row is already done. No stops it: the row says it couldn't be done; 1 of 2 done."""
     spec = _spec("Tatkal seats and screenshots", ["Tatkal availability is reported", "The screenshots are renamed"],
-                 [_part("seats", "check Tatkal seats Bangalore to Chennai", "Tatkal seats", step="seats", conds=(0,)),
+                 [_part("seats", "check Tatkal seats Bangalore to Jaipur", "Tatkal seats", step="seats", conds=(0,)),
                   _part("shots", "rename the screenshots on my Desktop", "Rename screenshots", step="shots",
                         conds=(1,))],
                  [Step(id="seats", kind="do", goal="Check Tatkal seats on IRCTC"),
@@ -261,7 +261,7 @@ def test_a_part_that_keeps_failing_pauses_only_its_row_and_checks_in(daemon: Run
     sv = daemon.daemon.supervisor
     original = sv.publish
     sv.publish = lambda topic, data: (seen.append((topic, data)), original(topic, data))[1]  # type: ignore[method-assign]
-    turn = Turn(daemon, "check Tatkal seats Bangalore to Chennai for tomorrow, rename the screenshots on my Desktop")
+    turn = Turn(daemon, "check Tatkal seats Bangalore to Jaipur for tomorrow, rename the screenshots on my Desktop")
     asked = answer_question(daemon, choice="No")
     events = turn.done()
     assert script.calls("worker").count("step.seats") == CHECK_IN_AFTER
@@ -276,12 +276,12 @@ def test_a_part_that_keeps_failing_pauses_only_its_row_and_checks_in(daemon: Run
 def test_a_restart_mid_task_posts_nothing_twice(home: Any, monkeypatch: Any) -> None:
     """Scenario 8: FERB restarts after one row filled: the resumed task's card comes from the record, the filled row is
     never posted again, the working row runs again and fills once."""
-    spec = _visa_and_trump()
+    spec = _permit_and_trump()
     first = own_daemon(home, "a")
     try:
         install(first, [sup("task", "I'll check both.", spec)],
-                {"step.term": done("His term ends on 20 January 2029."), "step.visa": STALL})
-        turn = Turn(first, VISA)
+                {"step.term": done("His term ends on 20 January 2029."), "step.permit": STALL})
+        turn = Turn(first, PERMIT)
         sv = first.daemon.supervisor
         _until(lambda: bool(run(first, sv.running_trees)))
         tree = run(first, sv.running_trees)[0][0]
@@ -303,10 +303,10 @@ def test_a_restart_mid_task_posts_nothing_twice(home: Any, monkeypatch: Any) -> 
         published: list[tuple[str, dict[str, Any]]] = []
         original = sv.publish
         sv.publish = lambda topic, data: (published.append((topic, data)), original(topic, data))[1]  # type: ignore
-        script = install(second, [], {"step.visa": done("No new B1/B2 rule changes this week.")})
+        script = install(second, [], {"step.permit": done("No new permit rule changes this week.")})
         second.loop.call_soon_threadsafe(lambda: second.loop.create_task(sv.resume_plans()))
         _until(lambda: any(t == "task.resumed_event" and d.get("type") == "outcome" for t, d in published))
-        assert script.calls("worker") == ["step.visa"]                      # only the unfinished step ran again
+        assert script.calls("worker") == ["step.permit"]                      # only the unfinished step ran again
         resumed_plan = next(d for t, d in published if t == "task.resumed_event" and d.get("type") == "plan")
         assert resumed_plan["resumed"] is True
         assert {r["part"]: r["state"] for r in resumed_plan["card"]["rows"]} == {"p1": "working", "p2": "done"}
@@ -322,14 +322,14 @@ def test_a_restart_mid_task_posts_nothing_twice(home: Any, monkeypatch: Any) -> 
 def test_parts_are_checked_and_told_back_for_repair(daemon: RunningDaemon) -> None:
     """Code validates the planner's parts (decision 19): a summing-up step, a condition in no part, a quote that isn't
     the owner's words are told back; the repaired plan runs."""
-    bad = _spec("Visa news and Trump's term", ["B1/B2 news is reported", "The end of Trump's term is given"],
-                [_part("p1", "any news about the b1b2 visa", "Visa", step="visa", conds=(0,)),
+    bad = _spec("Permit news and Trump's term", ["Permit news is reported", "The end of Trump's term is given"],
+                [_part("p1", "any news about the work permit", "Permit", step="permit", conds=(0,)),
                  _part("p2", "who won the election", "Term", step="term")],
-                [Step(id="visa", kind="do", goal="Check visa news"), Step(id="term", kind="do", goal="Trump's term"),
-                 Step(id="sum", kind="do", goal="Combine both answers", depends_on=["visa", "term"])])
-    script = install(daemon, [sup("task", "On it.", bad), sup("task", "On it.", _visa_and_trump())],
-                     {"step.visa": done("No news."), "step.term": done("20 January 2029.")})
-    final = outcome(chat(daemon, VISA))
+                [Step(id="permit", kind="do", goal="Check permit news"), Step(id="term", kind="do", goal="Trump's term"),
+                 Step(id="sum", kind="do", goal="Combine both answers", depends_on=["permit", "term"])])
+    script = install(daemon, [sup("task", "On it.", bad), sup("task", "On it.", _permit_and_trump())],
+                     {"step.permit": done("No news."), "step.term": done("20 January 2029.")})
+    final = outcome(chat(daemon, PERMIT))
     repair = run(daemon, lambda: [e.data["problems"] for e in daemon.daemon.journal.of_kind("task.repair")])[0]
     said = " ".join(repair)
     assert "lead to no part's answer" in said and "['sum']" in said
@@ -373,7 +373,7 @@ def test_continuing_a_multi_part_task_never_shows_a_finished_part_again(daemon: 
     card carries only that row, which updates to its answer; the finished parts stay as posted in the first card,
     shown once; the count covers the task's asks."""
     spec = _spec("Summarize three links", ["Link 1 summarized", "Link 2 summarized", "Link 3 summarized"],
-                 [_part("a", "kartikey.xyz/posts/notch-chat", "notch-chat", step="a", conds=(0,)),
+                 [_part("a", "mysite.example/posts/notch-chat", "notch-chat", step="a", conds=(0,)),
                   _part("b", "ft.com/content/ai-agents-india", "ai-agents-india", step="b", conds=(1,)),
                   _part("c", "simonwillison.net/2026/Oct/22/agent-loops", "agent-loops", step="c", conds=(2,))],
                  [Step(id="a", kind="do", goal="Summarize link 1"), Step(id="b", kind="do", goal="Summarize link 2"),
@@ -381,7 +381,7 @@ def test_continuing_a_multi_part_task_never_shows_a_finished_part_again(daemon: 
     install(daemon, [sup("task", "I'll read each link and summarize it.", spec)],
             {"step.a": done("The notch chat design."), "step.c": done("Small checkable loops."),
              "step.b": _not_done("The page needs a login FERB doesn't have.")})
-    first = chat(daemon, "summarize these three links\nkartikey.xyz/posts/notch-chat\n"
+    first = chat(daemon, "summarize these three links\nmysite.example/posts/notch-chat\n"
                          "ft.com/content/ai-agents-india\nsimonwillison.net/2026/Oct/22/agent-loops")
     tree = outcome(first)["task_id"]
     assert outcome(first)["card"]["line"] == "2 of 3 done"

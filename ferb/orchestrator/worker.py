@@ -461,7 +461,7 @@ class WorkerRuns:
                    notify: Callable[[dict[str, Any]], None] | None = None) -> str:
         """A worker's run, once (its tree's orchestrator decides any retry). Any other call (the planner's turn, a
         dispatch, a question, a summary) is watched for silence too, and one that showed no sign of life for stall_s
-        from its very start is tried once more (owner 2026-10-27, after a scheduled visa check's planner call sat silent
+        from its very start is tried once more (owner 2026-10-27, after a scheduled slot check's planner call sat silent
         for 15 minutes); a second silence, or a call that went quiet after answering in part, fails with that reason."""
         once = partial(self._run_once, rt, task, system, ctx, token, parent_span, tree, worker_id, on_delta=on_delta,
                        on_usage=on_usage, images=images, notify=notify)

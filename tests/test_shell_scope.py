@@ -371,10 +371,10 @@ def test_the_retention_pass_purges_shell_logs(daemon: RunningDaemon) -> None:
 def test_action_facts_are_optional_typed_and_recorded_without_empty_fields() -> None:
     assert ActionSpec(Kind.CLICK).facts is None
     facts = ActionFacts(submits_form=True, form_action_host="pay.example.com", form_method="POST",
-                        field_kinds=("card_number", "card_csc"), page_amount="₹137.39",
+                        field_kinds=("card_number", "card_csc"), page_amount="₹248.75",
                         received_by=ReceivedBy(bundle_id="com.google.Chrome", role="button"), secure_field=False)
     assert facts.recorded() == {"submits_form": True, "form_action_host": "pay.example.com", "form_method": "POST",
-                                "field_kinds": ["card_number", "card_csc"], "page_amount": "₹137.39",
+                                "field_kinds": ["card_number", "card_csc"], "page_amount": "₹248.75",
                                 "received_by": {"bundle_id": "com.google.Chrome", "role": "button"},
                                 "secure_field": False}
     assert ActionFacts().recorded() == {}

@@ -17,14 +17,14 @@ from tests.support.learning_fixtures import TickingClock, new_store
 from tests.support.live_steer import StalledWorker
 from tests.support.memory_corpus import USERNAME, fact, goal_like_episodes, owner_like_store
 from tests.support.memory_items import owner_fact, run, understood
-from tests.support.visa_audit import MSG_1217, MSG_1222, RESEARCH_OFFICIAL, VISA_GOAL, VISA_TARGETS
+from tests.support.permit_audit import MSG_1217, MSG_1222, PERMIT_GOAL, PERMIT_TARGETS, RESEARCH_OFFICIAL
 
 # The Learning.search tests below rank nodes against the pre-9b budgets they were measured with (60 / 20 nodes); the
 # roles' limits now are search.PLANNER / search.WORKER (decision 7)
 NODE_PLANNER_LIMIT, NODE_WORKER_LIMIT = 60, 20
-PLANNER_QUERIES = ["log in to usvisascheduling.com",
-                   "Check usvisascheduling.com in Chrome New_Personal for Chennai OFC and interview availability",
-                   "usvisascheduling B1 B2 India OFC consular booking fields New_Personal owner-account"]
+PLANNER_QUERIES = ["log in to bookslots.com",
+                   "Check bookslots.com in Chrome Home_Personal for document check and interview availability",
+                   "bookslots permit document check interview booking fields Home_Personal owner-account"]
 
 
 @pytest.fixture
@@ -50,20 +50,20 @@ def ranked(store: Any, query: str, node_id: str, limit: int, **kw: Any) -> bool:
 
 
 def test_target_and_slug_words_are_the_items_and_tasks_own_words() -> None:
-    assert target_words(TargetsSpec(sites=["https://www.usvisascheduling.com/en-US/login", "usvisascheduling.com"],
-                                    apps=["Chrome New_Personal"], recipients=["Asha"],
+    assert target_words(TargetsSpec(sites=["https://www.bookslots.com/en-US/login", "bookslots.com"],
+                                    apps=["Chrome Home_Personal"], recipients=["Asha"],
                                     paths=["/Users/owner/Desktop/proofOfWork/CV/Resume_2026.pdf"])) == \
-        "www usvisascheduling com usvisascheduling com Chrome New_Personal Asha Resume_2026.pdf"
-    assert slug_words("usvisascheduling_username") == "usvisascheduling username"
-    assert slug_words("project:us-b1b2-visa") == "us b1b2 visa"
+        "www bookslots com bookslots com Chrome Home_Personal Asha Resume_2026.pdf"
+    assert slug_words("bookslots_username") == "bookslots username"
+    assert slug_words("project:us-work-permit") == "us work permit"
 
 
-def test_the_owners_visa_messages_recall_the_username_through_the_task_they_continue(store: Any) -> None:
+def test_the_owners_permit_messages_recall_the_username_through_the_task_they_continue(store: Any) -> None:
     """The audit's reproduction as a fixture: the fact sat at rank 167-201 of 207 unranked lines. The owner's 12:17 and
-    12:22 messages share no word with it; the running visa task they continue names the site (Ruling 12a), so the
+    12:22 messages share no word with it; the running permit task they continue names the site (Ruling 12a), so the
     planner's query (message, then that task's goal and targets) recalls it within the 60."""
-    username = fact(store, "usvisascheduling_username", USERNAME)
-    continued = VISA_GOAL + "\n" + target_words(VISA_TARGETS)
+    username = fact(store, "bookslots_username", USERNAME)
+    continued = PERMIT_GOAL + "\n" + target_words(PERMIT_TARGETS)
     for message in (MSG_1217, MSG_1222):
         assert ranked(store, message + "\n" + continued, username["id"], NODE_PLANNER_LIMIT), message[:20]
         assert not ranked(store, message, username["id"], NODE_PLANNER_LIMIT), message[:20]   # alone: no shared word
@@ -74,19 +74,19 @@ def test_the_owners_visa_messages_recall_the_username_through_the_task_they_cont
 def test_the_research_official_step_recalls_the_username_within_its_20(store: Any) -> None:
     """The step that typed the owner's email (12:34): its query is the request, the parent goal, its step goal and the
     task's targets (Ruling 12)."""
-    username = fact(store, "usvisascheduling_username", USERNAME)
-    query = "\n".join((MSG_1217, VISA_GOAL, RESEARCH_OFFICIAL, target_words(VISA_TARGETS)))
+    username = fact(store, "bookslots_username", USERNAME)
+    query = "\n".join((MSG_1217, PERMIT_GOAL, RESEARCH_OFFICIAL, target_words(PERMIT_TARGETS)))
     assert ranked(store, query, username["id"], NODE_WORKER_LIMIT)
 
 
 def test_long_past_tasks_bury_the_username_unless_the_tasks_targets_are_ranked_alone(busy_store: Any) -> None:
-    """Fix round (measured on a copy of the owner's store, 2026-10-24): long past tasks share the visa goal's ordinary
+    """Fix round (measured on a copy of the owner's store, 2026-10-24): long past tasks share the permit goal's ordinary
     words, so the research step's query ranked the username 94th and the 12:17 planner query 91st. The task's target
     words ranked alone (`focus`) and fused with the main ranking bring it inside the 20 and the 60."""
-    username = fact(busy_store, "usvisascheduling_username", USERNAME)
-    targets = target_words(VISA_TARGETS)
-    step = f"{MSG_1217}\n{VISA_GOAL}\n{RESEARCH_OFFICIAL}\n{targets}"
-    planner = f"{MSG_1217}\n{VISA_GOAL}\n{targets}"
+    username = fact(busy_store, "bookslots_username", USERNAME)
+    targets = target_words(PERMIT_TARGETS)
+    step = f"{MSG_1217}\n{PERMIT_GOAL}\n{RESEARCH_OFFICIAL}\n{targets}"
+    planner = f"{MSG_1217}\n{PERMIT_GOAL}\n{targets}"
     assert not ranked(busy_store, step, username["id"], NODE_WORKER_LIMIT)
     assert not ranked(busy_store, planner, username["id"], NODE_PLANNER_LIMIT)
     assert ranked(busy_store, step, username["id"], NODE_WORKER_LIMIT, focus=targets)
@@ -94,8 +94,8 @@ def test_long_past_tasks_bury_the_username_unless_the_tasks_targets_are_ranked_a
 
 
 def test_focus_words_that_match_nothing_or_carry_no_weight_change_nothing(busy_store: Any) -> None:
-    fact(busy_store, "usvisascheduling_username", USERNAME)
-    query = "\n".join((MSG_1217, VISA_GOAL, RESEARCH_OFFICIAL, target_words(VISA_TARGETS)))
+    fact(busy_store, "bookslots_username", USERNAME)
+    query = "\n".join((MSG_1217, PERMIT_GOAL, RESEARCH_OFFICIAL, target_words(PERMIT_TARGETS)))
     plain = [(n["id"], n["score"]) for n in busy_store.search(query)]
     for focus in ("zqxjv vrrkt", "the is for and owner", ""):
         assert [(n["id"], n["score"]) for n in busy_store.search(query, focus=focus)] == plain, focus
@@ -114,13 +114,13 @@ FLIGHT_NOTES = ("the owner prefers IndiGo flights to Goa over Air India", "for f
 
 def test_a_common_target_word_never_takes_over_the_budget(busy_store: Any) -> None:
     """Fix round 2: many nodes hold a common target word ("Chrome") at one bm25 score. With dense tie ranks that tied
-    group fused at or above the main ranking's second item and filled the budget (the visa step kept 6 of its main
+    group fused at or above the main ranking's second item and filled the budget (the permit step kept 6 of its main
     top 20; a flight task's relevant notes in its 20 fell from 9 to 4). The focus ranking's ties now take competition
     ranks, so the next distinct score takes its position."""
-    username = fact(busy_store, "usvisascheduling_username", USERNAME)
+    username = fact(busy_store, "bookslots_username", USERNAME)
     flights = {fact(busy_store, f"flight_{i}", text)["id"] for i, text in enumerate(FLIGHT_NOTES)}
-    targets = target_words(VISA_TARGETS)
-    step = f"{MSG_1217}\n{VISA_GOAL}\n{RESEARCH_OFFICIAL}\n{targets}"
+    targets = target_words(PERMIT_TARGETS)
+    step = f"{MSG_1217}\n{PERMIT_GOAL}\n{RESEARCH_OFFICIAL}\n{targets}"
     main = [n["id"] for n in busy_store.search(step, limit=NODE_WORKER_LIMIT)]
     fused = [n["id"] for n in busy_store.search(step, limit=NODE_WORKER_LIMIT, focus=targets)]
     assert username["id"] in fused and len(set(main) & set(fused)) >= 12
@@ -140,39 +140,39 @@ def test_tied_ranks_are_dense_or_by_position() -> None:
 
 def test_focus_never_brings_back_what_search_leaves_out(busy_store: Any) -> None:
     """The state filters, the left-out kinds and the budget apply after the fusion, as without focus."""
-    pending = fact(busy_store, "usvisascheduling_hint", "the usvisascheduling hint waits for Keep", owner=False)
+    pending = fact(busy_store, "bookslots_hint", "the bookslots hint waits for Keep", owner=False)
     busy_store.db.conn.execute("UPDATE learning_nodes SET state='proposed' WHERE id=?", (pending["id"],))
-    retired = fact(busy_store, "usvisascheduling_old", "the usvisascheduling old login")
+    retired = fact(busy_store, "bookslots_old", "the bookslots old login")
     busy_store.db.conn.execute("UPDATE learning_nodes SET state='retired' WHERE id=?", (retired["id"],))
-    procedure = busy_store.put("procedure", "usvisascheduling login", {"steps": [], "text": "usvisascheduling login"},
+    procedure = busy_store.put("procedure", "bookslots login", {"steps": [], "text": "bookslots login"},
                                [], origin_label="ferb", made_by="model:test", state="active")
-    found = [n["id"] for n in busy_store.search("usvisascheduling login", focus="usvisascheduling",
+    found = [n["id"] for n in busy_store.search("bookslots login", focus="bookslots",
                                                 leave_out=frozenset({"procedure"}), limit=5)]
     assert len(found) <= 5 and not {pending["id"], retired["id"], procedure["id"]} & set(found)
 
 
 def test_the_planner_recalls_for_the_work_its_message_continues(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """A planner turn's memory query adds the goals and targets of the tasks its task layers show: the owner's 12:17
-    message, sent while the visa task runs in the same chat, brings the username into the planner's memory. The fillers
+    message, sent while the permit task runs in the same chat, brings the username into the planner's memory. The fillers
     hold every word the message shares with the username's fact ("is"), so only the task's words can recall it; the same
     message in a chat with no task (the negative control) leaves it out."""
     for i in range(6):
         owner_fact(daemon, f"hose_{i}", f"the garden hose {i} is a good thing for this and then what")
-    understood(daemon, "usvisascheduling_username", USERNAME, subject="account:usvisascheduling")   # search only (FERB's understanding)
+    understood(daemon, "bookslots_username", USERNAME, subject="account:bookslots")   # search only (FERB's understanding)
     worker = StalledWorker(monkeypatch)
-    script = install(daemon, [sup("task", "Looking.", task(VISA_GOAL, apps=("Chrome New_Personal",),
-                                                           sites=("usvisascheduling.com",)))])
+    script = install(daemon, [sup("task", "Looking.", task(PERMIT_GOAL, apps=("Chrome Home_Personal",),
+                                                           sites=("bookslots.com",)))])
     first: list[dict[str, Any]] = []
-    thread = threading.Thread(target=lambda: first.extend(chat(daemon, "look for visa slots", session="visa")))
+    thread = threading.Thread(target=lambda: first.extend(chat(daemon, "look for permit slots", session="permit")))
     thread.start()
     try:
         assert worker.started.wait(5)
         script.sup.append(sup("reply", "Here is a strategy."))
-        chat(daemon, MSG_1217, session="visa", timeout=5)
+        chat(daemon, MSG_1217, session="permit", timeout=5)
         planner = [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
         assert USERNAME in planner
         script.sup.append(sup("reply", "Here is a strategy."))
-        chat(daemon, MSG_1217, session="elsewhere", timeout=5)       # another chat: its planner sees no visa task
+        chat(daemon, MSG_1217, session="elsewhere", timeout=5)       # another chat: its planner sees no permit task
         planner = [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
         assert MSG_1217 in planner and USERNAME not in planner
     finally:
@@ -183,20 +183,20 @@ def test_the_planner_recalls_for_the_work_its_message_continues(daemon: Any, mon
 def test_the_planners_12_17_turn_recalls_the_username_in_a_busy_store(daemon: Any,
                                                                      monkeypatch: pytest.MonkeyPatch) -> None:
     """Fix round: the planner's focus is the targets of the tasks its task layers show (Ruling 12a). Among long past
-    tasks that share the visa goal's words, the 12:17 message sent while the visa task runs still brings the username
+    tasks that share the permit goal's words, the 12:17 message sent while the permit task runs still brings the username
     into the planner's 60."""
     run(daemon, lambda: (owner_like_store(daemon.daemon.learning), goal_like_episodes(daemon.daemon.learning)))
-    understood(daemon, "usvisascheduling_username", USERNAME, subject="account:usvisascheduling")   # search only (FERB's understanding)
+    understood(daemon, "bookslots_username", USERNAME, subject="account:bookslots")   # search only (FERB's understanding)
     worker = StalledWorker(monkeypatch)
-    script = install(daemon, [sup("task", "Looking.", task(VISA_GOAL, apps=("Chrome New_Personal",),
-                                                           sites=("usvisascheduling.com",)))])
+    script = install(daemon, [sup("task", "Looking.", task(PERMIT_GOAL, apps=("Chrome Home_Personal",),
+                                                           sites=("bookslots.com",)))])
     first: list[dict[str, Any]] = []
-    thread = threading.Thread(target=lambda: first.extend(chat(daemon, "look for visa slots", session="visa")))
+    thread = threading.Thread(target=lambda: first.extend(chat(daemon, "look for permit slots", session="permit")))
     thread.start()
     try:
         assert worker.started.wait(5)
         script.sup.append(sup("reply", "Here is a strategy."))
-        chat(daemon, MSG_1217, session="visa", timeout=5)
+        chat(daemon, MSG_1217, session="permit", timeout=5)
         planner = [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
         assert USERNAME in planner
     finally:
@@ -217,7 +217,7 @@ def test_common_words_find_nothing_with_an_embedding_model_too(store: Any) -> No
     MemorySearch(store.db, store.clock).embed_pending(model)
     store.embedder = model
     assert store.search("is the for and owner") == []
-    assert store.search("kaggle leaderboard") != []
+    assert store.search("contest leaderboard") != []
 
 
 def test_embeddings_embed_what_search_matches_and_never_a_rollup(store: Any) -> None:
@@ -246,12 +246,12 @@ def test_a_budgeted_search_reads_only_the_bodies_it_returns(store: Any, monkeypa
     """On the owner's store a planner query matched 698 nodes; reading every body before the budget applied took 1.4 s
     a turn (review fix 5). Nodes are ranked and filtered by their columns first, then read best first until the budget
     is full, in the same order as reading them all."""
-    everything = store.search("owner is kept in the gmail inbox and the kaggle leaderboard")
+    everything = store.search("owner is kept in the gmail inbox and the contest leaderboard")
     read: list[str] = []
     get = type(store).get
     monkeypatch.setattr(type(store), "get", lambda self, ident, sources=True: (read.append(ident),
                                                                                get(self, ident, sources))[1])
-    top = store.search("owner is kept in the gmail inbox and the kaggle leaderboard", limit=5)
+    top = store.search("owner is kept in the gmail inbox and the contest leaderboard", limit=5)
     assert [n["id"] for n in top] == [n["id"] for n in everything[:5]] and len(everything) > 20
     assert len(read) == 5
     assert "sources" in top[0] and "sources" not in store.search("gmail inbox", limit=1, sources=False)[0]
@@ -266,9 +266,9 @@ def test_json_field_names_and_scaffolding_are_not_searched(store: Any) -> None:
 
 
 def test_an_episode_shows_its_goal_outcome_and_date_and_one_without_a_goal_is_left_out(store: Any) -> None:
-    episode = next(n for n in store.search("kaggle leaderboard") if n["kind"] == "episode")
+    episode = next(n for n in store.search("contest leaderboard") if n["kind"] == "episode")
     line = shown_text(episode)
-    assert line.startswith("past task task") and "Check the kaggle leaderboard for the owner" in line
+    assert line.startswith("past task task") and "Check the contest leaderboard for the owner" in line
     assert "(2026-10-" in line and ("— done, verified" in line or line.endswith("— done"))
     store.put("episode", "nogoal", {"task_id": "nogoal", "intent": "", "narrative": "zebra crossing found",
                                     "status": "done"}, [], origin_label="ferb", made_by="code:evidence-card/4",
@@ -421,18 +421,18 @@ def test_the_planner_gets_at_most_its_limit_best_first(daemon: Any) -> None:
 
 
 def test_a_profile_entry_never_takes_a_slot_of_the_ranked_limit(daemon: Any) -> None:
-    """Final review M1, decision 18: the owner's preference "reply to visa emails in a formal tone" is in every role's
+    """Final review M1, decision 18: the owner's preference "reply to permit emails in a formal tone" is in every role's
     core profile, so the ranked lists leave it out; the memory tools still find it."""
     d = daemon.daemon
     for i in range(4):
         owner_fact(daemon, f"chain_{i}", f"bicycle chain note {i}")
-    tone = owner_fact(daemon, "visa_email_tone", "reply to visa emails in a formal tone", kind="preference")
-    other = understood(daemon, "visa_email_signature", "visa email replies are signed Kartikey",
-                       subject="project:visa")
-    assert "reply to visa emails in a formal tone" in run(daemon, d._core_profile_text)     # Tier 1, every role
-    worker = [c["text"] for c in daemon.run(d._learning_candidates("draft the visa email reply", WORKER))]
-    assert any("signed Kartikey" in t for t in worker) and not any("formal tone" in t for t in worker)
-    found = daemon.run(d._memory_item_search("draft the visa email reply"))
+    tone = owner_fact(daemon, "permit_email_tone", "reply to permit emails in a formal tone", kind="preference")
+    other = understood(daemon, "permit_email_signature", "permit email replies are signed Sam",
+                       subject="project:permit")
+    assert "reply to permit emails in a formal tone" in run(daemon, d._core_profile_text)     # Tier 1, every role
+    worker = [c["text"] for c in daemon.run(d._learning_candidates("draft the permit email reply", WORKER))]
+    assert any("signed Sam" in t for t in worker) and not any("formal tone" in t for t in worker)
+    found = daemon.run(d._memory_item_search("draft the permit email reply"))
     assert tone.id in found and other.id in found                         # memory.read still finds both
 
 
@@ -451,15 +451,15 @@ def test_an_empty_query_lists_newest_first_with_no_recency_or_owner_boost(tmp_pa
 
 
 def test_memory_read_ranks_a_several_word_query(daemon: Any) -> None:
-    """Live 2026-10-24: 14 of 20 memory.read queries came back empty; 9 were phrases like "RSNA knee Kaggle rank
+    """Live 2026-10-24: 14 of 20 memory.read queries came back empty; 9 were phrases like "ORBIT shapes Contest rank
     score", which a literal substring match can never find."""
     from ferb.orchestrator.evidence import MemoryRead
     for i in range(4):
         owner_fact(daemon, f"chain_{i}", f"bicycle chain note {i}")
-    rsna = owner_fact(daemon, "rsna", "I track my RSNA knee competition rank on Kaggle")
+    orbit = owner_fact(daemon, "orbit", "I track my ORBIT shapes competition rank on Contest")
     reader = MemoryRead(lambda: daemon.daemon.memory, search=daemon.daemon._memory_item_search)
-    out = daemon.run(reader.run(MemoryRead.Input(query="RSNA knee Kaggle rank score"), None))
-    assert [i["id"] for i in out.content["items"]][:1] == [rsna.id]
+    out = daemon.run(reader.run(MemoryRead.Input(query="ORBIT shapes Contest rank score"), None))
+    assert [i["id"] for i in out.content["items"]][:1] == [orbit.id]
 
 
 def test_memory_read_without_its_search_refuses_a_query_rather_than_match_substrings(daemon: Any) -> None:
@@ -553,14 +553,14 @@ def test_memory_read_refuses_a_query_with_no_words_and_finds_nothing_for_common_
 
 
 def test_memory_read_without_a_query_shows_an_ended_fact_as_ended(daemon: Any) -> None:
-    """Final review M2 and the step-9a fix list: after "book anywhere" replaced "Chennai, notify first" a worker paging
+    """Final review M2 and the step-9a fix list: after "book anywhere" replaced "Jaipur, notify first" a worker paging
     memory.read saw both as active. The no-query listing now shows current items only (a dated one until its end);
     an ended one is read by its id, with its real status."""
     from datetime import timedelta
 
     from ferb.orchestrator.evidence import MemoryRead
     d = daemon.daemon
-    chennai = owner_fact(daemon, "booking", "book in Chennai, notify me first")
+    jaipur = owner_fact(daemon, "booking", "book in Jaipur, notify me first")
     anywhere = owner_fact(daemon, "booking", "book anywhere")
     gone = owner_fact(daemon, "dentist", "my dentist is Dr. Rao")
     run(daemon, lambda: d.memory.retire(gone.id, "the owner said so"))
@@ -571,7 +571,7 @@ def test_memory_read_without_a_query_shows_an_ended_fact_as_ended(daemon: Any) -
     listed = {i["id"]: (i["status"], i["valid_to"] is not None)
               for i in daemon.run(reader.run(MemoryRead.Input(), None)).content["items"]}
     assert listed == {anywhere.id: ("active", False), dated.id: ("active", True)}   # until its end date it holds
-    by_id = daemon.run(reader.run(MemoryRead.Input(item_id=chennai.id), None))
+    by_id = daemon.run(reader.run(MemoryRead.Input(item_id=jaipur.id), None))
     assert not by_id.is_error and "notify me first" in str(by_id.content)
 
 

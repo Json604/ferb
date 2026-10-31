@@ -28,7 +28,7 @@ from ferb.policy import confirm
 
 PAY_WINDOW_S = 600.0                     # one payment's checkout, bank verification included (owner 2026-10-27/30)
 UNREAD = "an amount FERB couldn't read on the page"
-# Currency signs as the same currency's code, so "₹137.39" on the shop and "INR 137.39" on the bank page are one amount
+# Currency signs as the same currency's code, so "₹248.75" on the shop and "INR 248.75" on the bank page are one amount
 _SIGNS = {"₹": "INR", "rs": "INR", "rs.": "INR", "$": "USD", "us$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY",
           "a$": "AUD", "c$": "CAD", "s$": "SGD", "aed": "AED"}
 _NUMBER = re.compile(r"\d[\d,\s]*(?:\.\d+)?")
@@ -36,7 +36,7 @@ _NUMBER = re.compile(r"\d[\d,\s]*(?:\.\d+)?")
 
 def amount_key(shown: str | None) -> tuple[str, str] | None:
     """An amount as shown, compared: (currency code or "", the number without grouping); None when it holds no number.
-    "₹1,37.39"-style Indian grouping and "INR 137.39" compare equal to "₹137.39"."""
+    "₹2,48.75"-style Indian grouping and "INR 248.75" compare equal to "₹248.75"."""
     if not shown:
         return None
     text = " ".join(str(shown).split())

@@ -33,7 +33,7 @@ final class NotchDockingTests: XCTestCase {
 
     @MainActor
     func testDockedCameraDragTakesPriorityOverTopResizeWithoutCoveringWings() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.expand()
         let backdrop = NotchBackdropView(frame: CGRect(x: 0, y: 0, width: 456, height: 500))
         let resize = PanelResizeOverlay(model: model)
@@ -70,7 +70,7 @@ final class NotchDockingTests: XCTestCase {
     }
 
     func testDockingPreferenceSurvivesReloadAndUndocking() {
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let defaults = scratchDefaults()
         XCTAssertFalse(NotchDocking.isSaved(in: defaults))
         NotchDocking.save(true, in: defaults)
         XCTAssertTrue(NotchDocking.isSaved(in: defaults))
@@ -134,7 +134,7 @@ extension NotchDockingTests {
 
     @MainActor
     func testCameraControlTracksPointerWithoutNeedingAKeyWindow() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         let control = FerbIndicatorControl(model: model)
         control.isDocked = true
         control.frame.size = CGSize(width: 180, height: 42)

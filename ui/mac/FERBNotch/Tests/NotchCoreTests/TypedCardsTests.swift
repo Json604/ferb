@@ -18,9 +18,9 @@ final class TypedCardsTests: XCTestCase {
              "when": "2026-11-01T03:30:00+00:00", "repeat": "every day at 09:00", "line": "🗓 Scheduled: write report.md"],
             ["type": "note", "item_id": "m-1", "text": "my dentist is Dr. Rao", "state": "saved",
              "line": "Remembered: my dentist is Dr. Rao"],
-            ["type": "payment", "amount": "₹137.39", "merchant": "Zomato", "site": "www.zomato.com"],
+            ["type": "payment", "amount": "₹248.75", "merchant": "Orderly", "site": "www.orderly.example"],
             ["type": "send", "kind": "send", "recipient": "alex@work.example", "site": "mail.google.com"],
-            ["type": "link", "host": "www.kartikey.xyz", "line": "Sites contacted: www.kartikey.xyz"],
+            ["type": "link", "host": "www.mysite.example", "line": "Sites contacted: www.mysite.example"],
             ["type": "file", "path": "/Users/me/notes.md", "name": "notes.md"],
             ["type": "hologram", "text": "a newer daemon's card"],          // not drawn by this app
             ["type": "note", "text": "no item id"],                          // nothing to act on: not a card
@@ -30,10 +30,10 @@ final class TypedCardsTests: XCTestCase {
         XCTAssertEqual(cards[0].nextRunDate, LiveProgress.time("2026-10-31T12:00:00+00:00"))
         XCTAssertEqual(cards[1].kind, "schedule")
         XCTAssertEqual(cards[2].itemID, "m-1")
-        XCTAssertEqual(cards[3].amount, "₹137.39")
+        XCTAssertEqual(cards[3].amount, "₹248.75")
         XCTAssertEqual(cards[4].initials, "A")                          // an address: its name part
         XCTAssertEqual(ResultCard.initials("Priya Sharma"), "PS")
-        XCTAssertEqual(cards[5].monogram, "K")
+        XCTAssertEqual(cards[5].monogram, "M")
         XCTAssertEqual(cards[6].fileURL?.path, "/Users/me/notes.md")
         XCTAssertEqual(CardLayout.above(cards).map(\.type), ["reminder"])
         XCTAssertEqual(CardLayout.below(cards).map(\.type), ["event", "note", "payment", "send"])
@@ -81,8 +81,8 @@ final class TypedCardsTests: XCTestCase {
 
     func testAPaymentCardNamesTheSavedCardAndNothingElse() throws {
         let cards = try XCTUnwrap(ResultCard.list([
-            ["type": "payment", "amount": "₹137.39", "merchant": "Zomato", "card": "Personal Visa"],
-            ["type": "payment", "amount": "₹137.39", "merchant": "Zomato"],              // a one-time hidden input
+            ["type": "payment", "amount": "₹248.75", "merchant": "Orderly", "card": "Personal Visa"],
+            ["type": "payment", "amount": "₹248.75", "merchant": "Orderly"],              // a one-time hidden input
         ]))
         XCTAssertEqual(cards.map(\.savedCard), ["Personal Visa", nil])
     }
@@ -205,7 +205,7 @@ final class TypedCardsTests: XCTestCase {
     // ---------- helpers ----------
 
     private func makeModel(_ rpc: DaemonRPCTransport = ScriptedRPC()) -> NotchModel {
-        NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: "TypedCards-" + UUID().uuidString)!)
+        NotchModel(rpc: rpc, preferences: scratchDefaults("TypedCards"))
     }
 
     private func begin(_ request: String, in model: NotchModel) -> UUID {

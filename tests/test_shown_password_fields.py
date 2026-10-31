@@ -47,8 +47,8 @@ def test_a_show_password_checkbox_and_ordinary_fields_stay_readable() -> None:
     r = Redactor()
     assert r({'type': 'checkbox', 'label': 'Show password', 'value': 'checked'})['value'] == 'checked'
     assert r({'role': 'checkbox', 'label': 'Show password', 'value': 'checked'})['value'] == 'checked'
-    assert r({'type': 'email', 'name': 'identifier', 'label': 'Email or phone', 'value': 'owner@kartikey.xyz'}) == \
-        {'type': 'email', 'name': 'identifier', 'label': 'Email or phone', 'value': 'owner@kartikey.xyz'}
+    assert r({'type': 'email', 'name': 'identifier', 'label': 'Email or phone', 'value': 'owner@mysite.example'}) == \
+        {'type': 'email', 'name': 'identifier', 'label': 'Email or phone', 'value': 'owner@mysite.example'}
     assert r.field('hello', role='AXTextField', label='Search') == 'hello'
     assert r.field('checked', role='AXCheckBox', label='Show password') == 'checked'
     assert r({'role': 'menuitem', 'label': 'Passwords', 'text': 'Passwords'})['text'] == 'Passwords'
@@ -75,7 +75,7 @@ def test_a_shown_password_in_a_mac_accessibility_snapshot_is_redacted() -> None:
     assert 'Hunter2!x' not in json.dumps(r({'app': 'Safari', 'elements': [mac, {'id': 's1e4', 'role': 'combobox',
                                                                               'label': 'Password', 'value': 'Hunter2!x'}]}))
     email = {'id': 'e2', 'role': 'textbox', 'input_type': 'email', 'label': 'Email to reset your password',
-             'value': 'owner@kartikey.xyz'}
+             'value': 'owner@mysite.example'}
     assert r(email) == email
 
 

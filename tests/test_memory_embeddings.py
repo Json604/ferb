@@ -13,12 +13,12 @@ import pytest
 from ferb.memory.embeddings import (MODEL, StaticEmbedder, WordPiece, download, manifest_ok, nearest, quantize,
                                     sign_bits, similarity, store, verify)
 
-VOCAB = ["[PAD]", "[UNK]", "piano", "music", "visa", "##s", "play", ",", "!"]
+VOCAB = ["[PAD]", "[UNK]", "piano", "music", "permit", "##s", "play", ",", "!"]
 
 
 def tiny_model(root: Path) -> dict[str, Any]:
-    """A 4-dimension table: piano and music point the same way, visa another."""
-    rows = {"piano": [1, 0, 0, 0], "music": [0.9, 0.1, 0, 0], "visa": [0, 0, 1, 0], "##s": [0, 0, 0, 1],
+    """A 4-dimension table: piano and music point the same way, permit another."""
+    rows = {"piano": [1, 0, 0, 0], "music": [0.9, 0.1, 0, 0], "permit": [0, 0, 1, 0], "##s": [0, 0, 0, 1],
             "play": [0.5, 0.5, 0, 0], ",": [0, 0, 0, 0.1], "!": [0, 0, 0, 0.1]}
     data = b"".join(struct.pack("<4f", *rows.get(t, [0, 0, 0, 0])) for t in VOCAB)
     header = json.dumps({"embeddings": {"dtype": "F32", "shape": [len(VOCAB), 4], "data_offsets": [0, len(data)]}})
@@ -53,9 +53,9 @@ def test_a_text_is_the_normalized_mean_of_its_tokens(tmp_path: Path) -> None:
     root = tmp_path / "tiny"
     model = StaticEmbedder(root, tiny_model(root))
     try:
-        piano, music, visa = (model.encode(t) for t in ("piano", "music", "visa"))
-        assert piano and music and visa
-        assert similarity(piano, music) > 0.9 and similarity(piano, visa) == 0
+        piano, music, permit = (model.encode(t) for t in ("piano", "music", "permit"))
+        assert piano and music and permit
+        assert similarity(piano, music) > 0.9 and similarity(piano, permit) == 0
         assert model.encode("zebra") is None                    # nothing the model knows
         floats = model.floats("play piano")
         assert floats is not None and math.isclose(sum(x * x for x in floats), 1.0, rel_tol=1e-6)

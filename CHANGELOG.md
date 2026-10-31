@@ -1120,7 +1120,7 @@ After the owner's update (2026-10-24):
   fact with a key naming the site, e.g. "usvisascheduling-username"); passwords and other secrets still go only
   through the hidden-input question.
 - Stopping or correcting a task no longer drops the rest of what you said (L11, MP2). Live 2026-10-24: at 05:44 ("take
-  my creds once, don't ask every time") and 12:22 ("book anywhere, don't wait for Chennai") the planner wrote a memory
+  my creds once, don't ask every time") and 12:22 (a change to where to book) the planner wrote a memory
   entry alongside the correction, and FERB dropped both, because a live correction and a stop answered before saving
   memory, forgets, reminders or schedule changes; the visa schedule kept its old scope. Every kind of turn (a reply, a
   new task, a stop, a live correction, a continue or a retry) now applies them once, with the same checks, and the
@@ -1205,7 +1205,7 @@ After the owner's update (2026-10-24):
   visa site) names it from the first sign-in of a task you typed that one site for, saying whose account it is ("For
   atlasauth.b2clogin.com only (usvisascheduling.com account: Asha Rao): …"); so does any other page that shows it
   through a link. Forgetting or retracting the memory removes it from the login record; if that fails, FERB records
-  why. A username given as the answer to the task's own question ("What username?" answered "Kartikey Attri") is
+  why. A username given as the answer to the task's own question ("What username?" answered with a name) is
   saved for the site you typed when starting that task too (final review I1: only the fact was saved); one for a site
   you didn't name is still not saved, and FERB says so: "Not saved as your username for <site>: you didn't name that
   site."
@@ -1419,12 +1419,12 @@ After the owner's update (2026-10-24):
   The Run… label check of a window stops at 2,000 elements or 200 ms and then asks, and a Finder script naming a
   file that doesn't open in a terminal says so plainly.
 - Send to developer (L35; owner, 2026-10-25: "just add a simple send to developer thing tho, whenever ferb says
-  failed", "just send to ktky.attri@gmail.com as of now"). A failed task left its record only on your Mac. Under an
+  failed"). A failed task left its record only on your Mac. Under an
   answer whose task failed or was interrupted, or whose turn failed, the notch now has a **Send to developer** button:
   FERB writes one text file in `~/.ferb/reports` (owner-only, kept 30 days) with a summary, your request and FERB's
   answer, the full trace (`ferb trace TASK --full`'s text) and FERB's recorded problems (its own rows of requests that
   failed inside it or answered slowly, during the task and the latest 20; never the raw error log), every part
-  redacted, then opens a new email in your own Mail app to `[feedback] address` (default ktky.attri@gmail.com) with
+  redacted, then opens a new email in your own Mail app to `[feedback] address` with
   the file attached. You press Send; FERB sends nothing. Without a Mail account the file is shown in Finder with the
   address. A turn that failed before any task started now says so (its reply carries `status: failed`, with the
   attention sound), and `ferb trace <request id>` shows that request's planner turns. Left out for now: the

@@ -304,7 +304,7 @@ def test_a_held_tab_navigated_elsewhere_is_still_the_same_tab() -> None:
 
     async def moved(op: str, args: dict[str, Any], timeout: float = 30, cid: str | None = None) -> Any:
         if op == "list_tabs":                         # the held tab now shows a problem page
-            return {"tabs": [{"tab_id": 11, "host": "www.scaler.com", "url": "https://www.scaler.com/problems/42",
+            return {"tabs": [{"tab_id": 11, "host": "www.course.example", "url": "https://www.course.example/problems/42",
                               "title": "Problem 42", "active": True},
                              {"tab_id": 12, "host": "mail.google.com", "url": "https://mail.google.com/mail/",
                               "title": "Inbox", "active": False}]}
@@ -318,7 +318,7 @@ def test_a_held_tab_navigated_elsewhere_is_still_the_same_tab() -> None:
                                                           "title": "Lesson"}}]
 
 
-TITLE = "123456 is your Instagram code - kartikey@gmail.com - Gmail"
+TITLE = "123456 is your Instagram code - sam@example.com - Gmail"
 
 
 def test_the_page_a_taken_over_tab_held_is_stored_redacted() -> None:

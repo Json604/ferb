@@ -470,8 +470,8 @@ def test_owner_words_are_saved_as_their_whole_sentence_whatever_its_commas(daemo
             ("Never, ever share my links publicly", "share my links publicly", "Never, ever share my links publicly"),
             ("Don't, under any circumstances, share my links publicly", "share my links publicly",
              "Don't, under any circumstances, share my links publicly"),
-            ("If it's a work email, sign it as Kartikey", "sign it as Kartikey",
-             "If it's a work email, sign it as Kartikey"),
+            ("If it's a work email, sign it as Sam", "sign it as Sam",
+             "If it's a work email, sign it as Sam"),
             ("Thanks. Never share my links publicly! Summarize the page.", "share my links publicly",
              "Thanks. Never share my links publicly! Summarize the page"),        # only a line break ends one
             ("my dentist is Dr. Rao, he's great\nalso book me in", "my dentist is Dr. Rao",
@@ -528,10 +528,10 @@ def test_no_mark_inside_the_owners_words_ends_a_saved_sentence(daemon: RunningDa
             ("I love it. Never share my links publicly", "share my links publicly",
              "I love it. Never share my links publicly"),
             ("When it's after 10 pm. Don't call me", "call me", "When it's after 10 pm. Don't call me"),
-            ("If it's a work email... Sign it as Kartikey", "Sign it as Kartikey",
-             "If it's a work email... Sign it as Kartikey"),
-            ("Only on weekdays (not Sat.) Sign as Kartikey", "Sign as Kartikey",
-             "Only on weekdays (not Sat.) Sign as Kartikey"),
+            ("If it's a work email... Sign it as Sam", "Sign it as Sam",
+             "If it's a work email... Sign it as Sam"),
+            ("Only on weekdays (not Sat.) Sign as Sam", "Sign as Sam",
+             "Only on weekdays (not Sat.) Sign as Sam"),
             ("never! Share my links", "Share my links", "never! Share my links"),
             ("don't!! Share my links publicly", "Share my links publicly", "don't!! Share my links publicly"),
             ("Don't share my links! Unless I ask", "Unless I ask", "Don't share my links! Unless I ask"),
@@ -633,19 +633,19 @@ def test_forgetting_a_person_or_site_removes_it_from_known_destinations(daemon: 
     def record() -> None:
         from ferb.policy.destinations import KnownDestinations
         dest = KnownDestinations(d.db, d.clock, d.ids, d.redact)
-        for kind, value in (("name", "Asmit Banik Scaler"), ("host", "www.kaggle.com"), ("email", "ana@example.com"),
-                            ("phone", "+91 82641 96438")):
+        for kind, value in (("name", "Neha Kapoor Acme"), ("host", "www.contest.example"), ("email", "ana@example.com"),
+                            ("phone", "+91 70000 12345")):
             dest.record(kind, value, "confirmed")
     run(daemon, record)
-    asmit = journal(daemon, "memory.added", {"content": "x"})
-    item = run(daemon, lambda: mem(daemon).propose("person", "person:asmit-banik", "role", "Asmit Banik is my mentor",
-                                                   "owner_stated", [("journal", asmit)], 1.0))
-    kaggle = run(daemon, lambda: mem(daemon).propose("preference", "owner", "kaggle_account",
-                                                     "do kaggle on my brave kaggle personal account", "owner_stated",
-                                                     [("journal", asmit)], 1.0))
+    neha = journal(daemon, "memory.added", {"content": "x"})
+    item = run(daemon, lambda: mem(daemon).propose("person", "person:neha-kapoor", "role", "Neha Kapoor is my mentor",
+                                                   "owner_stated", [("journal", neha)], 1.0))
+    contest = run(daemon, lambda: mem(daemon).propose("preference", "owner", "contest_account",
+                                                     "do contest on my brave contest personal account", "owner_stated",
+                                                     [("journal", neha)], 1.0))
     plan = run(daemon, lambda: mem(daemon).plan_forget(item.id))
-    assert plan.destinations == [("name", "asmit banik scaler")]
-    assert any("asmit banik scaler" in line for line in run(daemon, lambda: plan.describe(d.db)))
+    assert plan.destinations == [("name", "neha kapoor acme")]
+    assert any("neha kapoor acme" in line for line in run(daemon, lambda: plan.describe(d.db)))
     run(daemon, lambda: d._forget_memory(item.id))
-    run(daemon, lambda: d._forget_memory(kaggle.id))
-    assert run(daemon, known) == ["918264196438", "ana@example.com"]       # the others stay
+    run(daemon, lambda: d._forget_memory(contest.id))
+    assert run(daemon, known) == ["917000012345", "ana@example.com"]       # the others stay

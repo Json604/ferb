@@ -135,9 +135,9 @@ def test_pairing_a_new_file_reads_only_a_few_like_named_files(tmp_path: Path, mo
     for i in range(200):
         docx(folder / f"invoice-{i:03d}.docx", [f"Invoice {i}", "Amount due"])
     original = docx(folder / "HCI_Assignment1.docx", ["Human Computer Interaction", "Student ID", "ID"])
-    made = folder / "Kartikey_HCI_Assignment1.docx"
+    made = folder / "Sam_HCI_Assignment1.docx"
     store.before("t.step.a", "t", [made])
-    docx(made, ["Human Computer Interaction", "Student ID", "2024eb02238"])
+    docx(made, ["Human Computer Interaction", "Student ID", "2031xy04417"])
     reads: list[Path] = []
     real_read = changes_mod._read
 

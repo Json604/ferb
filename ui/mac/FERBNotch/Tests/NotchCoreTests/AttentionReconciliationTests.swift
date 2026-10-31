@@ -6,7 +6,7 @@ import XCTest
 final class AttentionReconciliationTests: XCTestCase {
     func testNewApprovalRevealsOnceWithoutRequestingFocusAcrossPollingAndRelaunch() async {
         let rpc = AttentionRPC()
-        let preferences = UserDefaults(suiteName: UUID().uuidString)!
+        let preferences = scratchDefaults()
         let model = NotchModel(rpc: rpc, preferences: preferences)
         let approval: [String: Any] = ["approval_id": "new-question", "kind": "owner_question", "reason": "Which app?"]
         var focus = 0
@@ -28,7 +28,7 @@ final class AttentionReconciliationTests: XCTestCase {
     }
 
     func testNewFollowupRevealsButOrdinaryReplyStaysQuiet() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Question"
         let local = model.session.beginWork()!
         model.conversation.begin(id: local, request: "Question", sources: [])
@@ -43,7 +43,7 @@ final class AttentionReconciliationTests: XCTestCase {
 
     func testEndedUnboundStreamRetiresEmptyAndInterruptedRequests() {
         for hasDraft in [false, true] {
-            let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+            let model = NotchModel(preferences: scratchDefaults())
             model.session.draft = "Set volume"
             let local = model.session.beginWork()!
             model.conversation.begin(id: local, request: "Set volume", sources: [])
@@ -58,7 +58,7 @@ final class AttentionReconciliationTests: XCTestCase {
 
     func testMissingBackgroundTasksRecoverAllResultsWithoutChangingDraft() async {
         let rpc = AttentionRPC()
-        let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
         for task in ["first", "second"] {
             model.session = NotchSession()
             model.session.draft = task
@@ -79,7 +79,7 @@ final class AttentionReconciliationTests: XCTestCase {
     }
     func testStatusRefreshDoesNotRetireAnInFlightRequestWithoutBackendIdentity() async {
         let rpc = AttentionRPC()
-        let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
         model.session.draft = "Still submitting"
         let local = model.session.beginWork()!
         model.conversation.begin(id: local, request: "Still submitting", sources: [])
@@ -90,7 +90,7 @@ final class AttentionReconciliationTests: XCTestCase {
 
     func testMissingTaskWithoutRecordedFinalIsRetiredWithoutFabricatingSuccess() async {
         let rpc = AttentionRPC()
-        let preferences = UserDefaults(suiteName: UUID().uuidString)!
+        let preferences = scratchDefaults()
         let model = NotchModel(rpc: rpc, preferences: preferences)
         model.session.draft = "Old Spotify task"
         let local = model.session.beginWork()!
@@ -109,7 +109,7 @@ final class AttentionReconciliationTests: XCTestCase {
     }
 
     func testStartupRepairsAndPersistsAnEmptyUnboundAbandonedTurn() throws {
-        let preferences = UserDefaults(suiteName: UUID().uuidString)!
+        let preferences = scratchDefaults()
         var archive = ConversationArchive()
         archive.begin(id: UUID(), request: "Old empty pending turn", sources: [])
         preferences.set(try JSONEncoder().encode(archive), forKey: "FERBConversationArchive")
@@ -121,7 +121,7 @@ final class AttentionReconciliationTests: XCTestCase {
     }
 
     func testCompletedRootRetiresDuplicateRecoveredLocalSessions() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         for _ in 0..<2 {
             model.session = NotchSession()
             model.session.draft = "Same backend task"
@@ -139,7 +139,7 @@ final class AttentionReconciliationTests: XCTestCase {
 
     func testOlderStatusCannotResurrectCompletedRoot() async {
         let rpc = BlockedStatusRPC()
-        let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
         model.session.draft = "Finish task"
         let local = model.session.beginWork()!
         model.session.bindBackendTask("root", localID: local)
@@ -161,7 +161,7 @@ final class AttentionReconciliationTests: XCTestCase {
 
     func testOlderStatusCannotRestoreResolvedApproval() async {
         let rpc = BlockedStatusRPC()
-        let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
         let approval: [String: Any] = ["approval_id": "resolved", "reason": "Choose"]
         model.receiveBusEvent(["topic": "approval.requested", "data": approval])
         model.collapse()
@@ -178,7 +178,7 @@ final class AttentionReconciliationTests: XCTestCase {
 
     func testOlderStatusCannotEraseNewApproval() async {
         let rpc = BlockedStatusRPC()
-        let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
         let started = expectation(description: "Status requested")
         rpc.onStatus = { started.fulfill() }
         let refresh = Task { await model.refreshDaemonStatus() }
@@ -191,7 +191,7 @@ final class AttentionReconciliationTests: XCTestCase {
     }
 
     func testClarificationLeavesPriorActivityViewSoQuestionIsVisible() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Question"
         let local = model.session.beginWork()!
         model.conversation.begin(id: local, request: "Question", sources: [])

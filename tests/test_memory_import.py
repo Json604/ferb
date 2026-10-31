@@ -166,7 +166,7 @@ def test_newer_words_win_and_the_older_stay_as_history(daemon: RunningDaemon, tm
 
 
 def test_the_owners_own_words_are_never_replaced_by_an_import(daemon: RunningDaemon, tmp_path: Path) -> None:
-    mine = owner_fact(daemon, "home_city", "I live in Chennai")
+    mine = owner_fact(daemon, "home_city", "I live in Jaipur")
     start(daemon, "chatgpt", make_exports(tmp_path / "x").path("chatgpt"), ScriptedImportModel())
     homes = [i for i in run(daemon, lambda: daemon.daemon.memory.items("active")) if i.key == "home_city"]
     assert [i.id for i in homes] == [mine.id] and status(daemon)["counts"]["kept_owner"] >= 1

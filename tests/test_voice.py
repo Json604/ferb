@@ -351,7 +351,7 @@ def test_a_recording_with_sound_refuses_an_excluded_site(tmp_path: Path) -> None
     hearing = SimpleNamespace(excluded_host=lambda host: host == "bank.example",
                               resolve=lambda name: ("com.google.Chrome", 88))
     recordings = SimpleNamespace(hearing=hearing, start=lambda *a, **k: started.append(a))
-    ref = TabRef("device", "chrome", "Profile 22", 1, "t1")
+    ref = TabRef("device", "chrome", "Profile 7", 1, "t1")
     driver = SimpleNamespace(owned_by=lambda tab, owner: ref, tab_url=lambda tab: "https://bank.example/statement",
                              recording_source=lambda tab, owner: ({"kind": "tab"}, None))
     tool = BrowserRecord(driver, FERB_BROWSER, recordings)  # type: ignore[arg-type]

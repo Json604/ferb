@@ -21,7 +21,7 @@ PROVIDER_CORPUS = [
     ("Apple ID Code: 482913. Don't share it with anyone.", "482913"),
     ("Your Amazon code: 482-913", "482-913"),
     ("Enter code 48 29 13 to continue", "48 29 13"),
-    ("Your Zomato login OTP is 4829", "4829"),
+    ("Your Orderly login OTP is 4829", "4829"),
     ("OTP 482913", "482913"),
     ("Your passcode is 7392", "7392"),
     ("PIN 4821 for your card", "4821"),
@@ -156,7 +156,7 @@ def test_a_secret_word_label_on_a_checkbox_never_hides_its_state() -> None:
 
 
 @pytest.mark.parametrize("question,answer", [
-    ("What's the verification code on the Uber screen?", "4829"), ("Please enter the OTP on the Zomato page.", "314159"),
+    ("What's the verification code on the Uber screen?", "4829"), ("Please enter the OTP on the Orderly page.", "314159"),
     ("What's your UPI PIN?", "4821"), ("Which one-time password did the bank send?", "48 29 13"),
     ("What's the login code?", "482913"),
 ])
@@ -181,7 +181,7 @@ def test_an_answer_with_no_code_to_a_code_or_address_question_stays(question, an
     # re-review 3 (R1-a): any question with a password word, however it is phrased
     ("What password do you use for Netflix?", "hunter2!"), ("What's the password you use for Gmail?", "s3cret pass"),
     ("Can you tell me the Netflix password so I can sign in?", "hunter2!"), ("Type your password here", "hunter2!"),
-    ("Password please", "hunter2!"), ("the password and username for Netflix", "kartikey hunter2!"),
+    ("Password please", "hunter2!"), ("the password and username for Netflix", "sam hunter2!"),
     ("Do you have a password I can use for the router?", "sunshine"), ("What's the passphrase?", "correct horse"),
     ("Which password manager do you use?", "Bitwarden"), ("Should I open the password reset page?", "yes please"),
     # re-review 4 (M1): "pwd" and "passwd" are password words, as for the secret-word class
@@ -878,7 +878,7 @@ def test_list_and_password_layouts_with_blank_lines_markers_and_spaces_are_maske
 
 @pytest.mark.parametrize("raw,expected", [
     ("password for gmail:\n  s3cret pass 9\n", "password for gmail:\n  [redacted]\n"),
-    ("Password:\nhunter2!\nUsername: kartikey\n", "Password:\n[redacted]\nUsername: kartikey\n"),
+    ("Password:\nhunter2!\nUsername: sam\n", "Password:\n[redacted]\nUsername: sam\n"),
     ("Backup codes:\n1. a1b2c-3d4e5\n2. f6g7h-8i9j0\n\nKeep them safe.\n",
      "Backup codes:\n1. [redacted]\n2. [redacted]\n\nKeep them safe.\n"),
     ("HTTP status codes:\n\n200, 301\n", "HTTP status codes:\n\n200, 301\n"),

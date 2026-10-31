@@ -27,12 +27,12 @@ def _store(tmp_path: Path) -> Changes:
 def test_named_reads_paths_from_the_live_perl_command(tmp_path: Path) -> None:
     base = tmp_path / "HCI ASSIGNMENT"
     command = (f"set -eu\nbase='{base}'\nsrc=\"$base/Student_Name_ID_HCI_Assignment1.docx\"\n"
-               "out=\"$base/Kartikey_2024eb02238_HCI_Assignment1.docx\"\nwork=$(mktemp -d)\n"
+               "out=\"$base/Sam_2031xy04417_HCI_Assignment1.docx\"\nwork=$(mktemp -d)\n"
                "unzip -qq \"$src\" -d \"$work\"\nperl -0pi -e 's{x}{y}g' \"$work/word/document.xml\"\n")
     paths = named(command, tmp_path / "workspace")
     assert base in paths
     assert base / "Student_Name_ID_HCI_Assignment1.docx" in paths
-    assert base / "Kartikey_2024eb02238_HCI_Assignment1.docx" in paths
+    assert base / "Sam_2031xy04417_HCI_Assignment1.docx" in paths
     assert not any("work" in str(p) and "document.xml" in str(p) for p in paths)   # $(mktemp) is unknown
 
 
@@ -52,7 +52,7 @@ def test_a_shell_perl_replace_that_hits_a_table_header_shows_in_the_diff(tmp_pat
     doc = _assignment(folder)
     store = _store(tmp_path)
     command = (f"set -eu\nf='{doc}'\nw=$(mktemp -d)\ncd \"$w\" && unzip -qq \"$f\"\n"
-               "perl -0pi -e 's{<w:t xml:space=\"preserve\">ID</w:t>}{<w:t xml:space=\"preserve\">2024eb02238</w:t>}g' "
+               "perl -0pi -e 's{<w:t xml:space=\"preserve\">ID</w:t>}{<w:t xml:space=\"preserve\">2031xy04417</w:t>}g' "
                "word/document.xml\nrm \"$f\" && zip -q -X -r \"$f\" .\n")
     counts = store.before("t.step.one", "t", named(command, tmp_path))
     assert counts["copied"] == 1
@@ -61,8 +61,8 @@ def test_a_shell_perl_replace_that_hits_a_table_header_shows_in_the_diff(tmp_pat
     assert [(c.path, c.what) for c in changes] == [(str(doc.resolve()), "modified")]
     text = describe(changes[0])
     assert "changed, named by this step" in text
-    assert "-ID\n+2024eb02238" in text                     # the cover's value cell
-    assert "+2024eb02238\n Requirement" in text           # and Table 10's column header: both visible to the checker
+    assert "-ID\n+2031xy04417" in text                     # the cover's value cell
+    assert "+2031xy04417\n Requirement" in text           # and Table 10's column header: both visible to the checker
 
 
 def test_a_corrected_copy_beside_its_original_shows_as_its_changes_from_it(tmp_path: Path) -> None:
@@ -70,20 +70,20 @@ def test_a_corrected_copy_beside_its_original_shows_as_its_changes_from_it(tmp_p
     folder.mkdir()
     original = _assignment(folder)
     store = _store(tmp_path)
-    made = folder / "Kartikey_2024eb02238_HCI_Assignment1.docx"
+    made = folder / "Sam_2031xy04417_HCI_Assignment1.docx"
     store.before("t.step.one", "t", [folder, original, made])      # the live command named both (src=, out=)
     docx(made,
-         ["Human Computer Interaction", [["Student Name", "Kartikey"], ["Student ID", "2024eb02238"]],
-          "Table 10. Requirements", [["2024eb02238", "Requirement", "Priority"], TABLE_10[1]]], creator="Kartikey")
+         ["Human Computer Interaction", [["Student Name", "Sam"], ["Student ID", "2031xy04417"]],
+          "Table 10. Requirements", [["2031xy04417", "Requirement", "Priority"], TABLE_10[1]]], creator="Sam")
     store.before("t.step.one", "t", [original])          # fs.trash names it: already copied, nothing new
     original.unlink()                                      # (moved to the Trash)
     changes = {Path(c.path).name: c for c in store.changes("t.step.one")}
-    made = changes["Kartikey_2024eb02238_HCI_Assignment1.docx"]
+    made = changes["Sam_2031xy04417_HCI_Assignment1.docx"]
     assert made.what == "created" and made.source == str(original.resolve())
     text = describe(made)
     assert f"compared with {original.resolve()}" in text
-    assert "-ID\n+2024eb02238\n Requirement" in text
-    assert "-[document property] creator: Student Name\n+[document property] creator: Kartikey" in text
+    assert "-ID\n+2031xy04417\n Requirement" in text
+    assert "-[document property] creator: Student Name\n+[document property] creator: Sam" in text
     assert changes[original.name].what == "removed" and changes[original.name].content
 
 
@@ -93,11 +93,11 @@ def test_a_pdf_covered_by_boxes_shows_annotations_added_and_its_text_layer_uncha
     doc = pdf(folder / "StudentID_StudentName_NP_Assignment.pdf", ["Student Name: StudentName", "Student ID: IdNumber"])
     store = _store(tmp_path)
     store.before("t.step.two", "t", [doc])
-    covered = overlay(doc, folder / "covered.pdf", "Kartikey")
+    covered = overlay(doc, folder / "covered.pdf", "Sam")
     os.replace(covered, doc)
     [change] = store.changes("t.step.two")
     text = describe(change)
-    assert "2 annotations added" in text and 'FreeText "Kartikey"' in text and "Square" in text
+    assert "2 annotations added" in text and 'FreeText "Sam"' in text and "Square" in text
     assert "text layer unchanged" in text
     assert text_of(doc) is not None and "StudentName" in text_of(doc)[0]       # the placeholder is still there
 

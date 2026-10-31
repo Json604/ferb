@@ -7,7 +7,7 @@ import XCTest
 @MainActor
 final class LoopStatusTests: XCTestCase {
     func testALoopShowsAsStandingWorkWithItsCounts() {
-        let model = NotchModel(rpc: QuietRPC(), preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: QuietRPC(), preferences: scratchDefaults())
         model.receiveBusEvent(["topic": "task.created", "data": ["task_id": "t1", "goal": "Keep the tab playing"]])
         let end = Date().addingTimeInterval(-120).timeIntervalSince1970
         model.receiveBusEvent(["topic": "loop.status", "data": [
@@ -173,7 +173,7 @@ final class LoopStatusTests: XCTestCase {
     }
 
     private func makeModel(_ rpc: DaemonRPCTransport = QuietRPC()) -> NotchModel {
-        NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        NotchModel(rpc: rpc, preferences: scratchDefaults())
     }
 
     private func loopStatus(_ taskID: String, state: String, rounds: Int, lastRoundEnd: Any, gap: Double) -> [String: Any] {

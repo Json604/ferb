@@ -22,8 +22,8 @@ from ferb.core import origin
 from ferb.core.types import Identity, Task
 
 # Ruling (step 9b, measured on potion-base-8M): the goal-to-goal cosine at which two verified tasks are shown to the
-# model as possibly the same kind of work. Same-kind goal pairs scored 0.54-0.75 (two visa-slot searches, two cold-mail
-# runs), unrelated ones -0.01-0.15; a near miss (checking vs submitting on Kaggle, 0.60) is the model's to turn down
+# model as possibly the same kind of work. Same-kind goal pairs scored 0.54-0.75 (two slot searches, two cold-mail
+# runs), unrelated ones -0.01-0.15; a near miss (checking vs submitting on a site, 0.60) is the model's to turn down
 PLAYBOOK_SIMILARITY = 0.5
 MERGES_PER_PASS = 3                 # Ruling: model calls per hourly pass; the rest wait for the next pass
 GROUP_MOST = 6                      # the most runs one call is shown (the newest)

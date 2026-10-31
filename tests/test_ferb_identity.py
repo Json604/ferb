@@ -44,7 +44,7 @@ def fd(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple
     for drv in (d.router, d.ferb_identity):
         drv.launch, drv.wake = launched.append, None                               # type: ignore[union-attr]
     d.config.set("identity", "browser", "chrome")
-    d.config.set("identity", "profile", "Profile 22")
+    d.config.set("identity", "profile", "Profile 7")
     d.config.set("mailbox", "address", "ferb@gmail.com")
     specs = {REF.key: SecretSpec(REF, [SITE], "test account")}
     store = KeychainSecretStore(lambda: specs)

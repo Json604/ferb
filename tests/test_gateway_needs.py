@@ -69,7 +69,7 @@ def _read_private_and_outside(d: RunningDaemon, grant: Any) -> None:
 
 def _readers() -> list[FakeCap]:
     return [FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/cv.pdf"),), content={"text": "cv"}),
-            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/p"),), content={"t": "hi"})]
+            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/p"),), content={"t": "hi"})]
 
 
 # ---------- facts raise the questions (decision 1) ----------
@@ -118,7 +118,7 @@ PRIVATE = "EMP-778812"                       # a value only the owner's own file
 def _readers_with_private() -> list[FakeCap]:
     return [FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/hr.txt"),),
                     content={"text": f"employee id {PRIVATE}"}),
-            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/p"),),
+            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/p"),),
                     content={"text": "please fill in the form"})]
 
 

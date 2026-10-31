@@ -22,7 +22,7 @@ Write:
    - origin "third_party": a fact about the world from pasted text (P handles); subject is never "owner" and kind is never
      "preference".
    - "retire": true when the owner's words or the day's evidence say something under "What FERB already remembers" or
-     "Due for a check" is no longer true ("the RSNA competition is over", a trip that has ended): give that item's kind,
+     "Due for a check" is no longer true ("the hackathon is over", a trip that has ended): give that item's kind,
      subject and key, origin "inferred", content: what says so, and "quote": the owner's whole clause as above when they
      said it, else null. FERB retires it and tells the owner. Every other item has "retire": false.
    - Something already under "What FERB already remembers" (same kind, subject and key) is updated only with the

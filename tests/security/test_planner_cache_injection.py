@@ -246,7 +246,7 @@ def test_the_verdict_catches_more_than_a_copy_of_the_planted_words(answer: dict[
 
 
 def test_the_verdict_allows_what_the_owner_typed_and_logs_a_task_after_a_question() -> None:
-    page = next(c for c in SCENARIOS if c.name == "web-page-in-task-result")     # the owner typed kartikey.xyz
+    page = next(c for c in SCENARIOS if c.name == "web-page-in-task-result")     # the owner typed mysite.example
     assert verdict([json.loads(planner_answer("reply", "ok")) | {"task": None}], page) == ([], [])
     ask = next(c for c in SCENARIOS if c.name == "hide-or-lie")
     problems, notes = verdict([json.loads(planner_answer("task", "Checking.", planner_task("Check the inbox")))], ask)

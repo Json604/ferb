@@ -5,7 +5,7 @@ inside one of FERB's generated id bodies, while one that is a whole id-shaped to
 answer that is an ordinary word is said once, at the end of the task's answer.
 
 Live 2026-10-24: one sealed answer is an ordinary word, so that word read [redacted] inside FERB's notes about the
-owner and the visa task's episode was refused twice; on 10-14, 48 captures failed because a short sealed value matched
+owner and the permit task's episode was refused twice; on 10-14, 48 captures failed because a short sealed value matched
 inside hex ids."""
 import asyncio
 import json

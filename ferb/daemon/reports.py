@@ -21,9 +21,10 @@ from ferb.store.db import Database
 from ferb.store.spans import SpanStore
 from ferb.trace import lines
 
-# Where reports go (owner, 2026-10-25: "just send to ktky.attri@gmail.com as of now"). Config `[feedback] address`
-# replaces it and an empty one refuses; the app never holds it: the daemon returns it with each report.
-FEEDBACK_ADDRESS = "ktky.attri@gmail.com"
+# Where reports go: config `[feedback] address`, empty by default; with none, Send to developer says it isn't set up
+# yet and writes nothing. The app never holds it: the daemon returns it with each report.
+FEEDBACK_ADDRESS = ""
+NOT_SET_UP = "Sending to the developer isn't set up yet"
 KEEP_DAYS = 30                       # the span retention the L35 design names
 REPORTABLE = ("failed", "interrupted")
 TURN_FAILED = "turn failed"          # a turn whose request has a `chat.failed` row, whatever its task's row says

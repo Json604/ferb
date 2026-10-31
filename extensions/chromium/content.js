@@ -175,7 +175,7 @@
   }
 
   function codeGroup(el) {
-    // Split-code controls often have no names/autocomplete (the owner's Zomato login). Bind a contiguous group
+    // Split-code controls often have no names/autocomplete (a food-delivery site's login). Bind a contiguous group
     // by the nearest containing element whose visible text inputs are all single-character numeric controls.
     const digit = n => n.tagName === "INPUT" && n.maxLength === 1 && visible(n) && !n.disabled && !n.readOnly &&
       (["tel", "number"].includes(n.type) || ["numeric", "decimal"].includes(n.inputMode) ||

@@ -1310,7 +1310,7 @@ class Supervisor(WorkerRuns):
         return tree.id in self._pauses
 
     async def mention_paused(self) -> None:
-        """Decision 13 ("Visa check is still paused. Resume?"): when the owner is back at the Mac, each task they paused
+        """Decision 13 ("Slot check is still paused. Resume?"): when the owner is back at the Mac, each task they paused
         on an earlier day, not mentioned yet today, is mentioned once, from its record: a question in its own chat with
         Resume / Stop, on the pause's one wait, so its answer goes the way any answer to that wait goes (Resume carries
         it on in place, Stop stops it) and a message that corrects the task still resumes it. At most once a day per

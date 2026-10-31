@@ -35,7 +35,7 @@ final class LoginItemControllerTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        defaults = UserDefaults(suiteName: "ferb-login-\(UUID().uuidString)")
+        defaults = scratchDefaults("ferb-login")
     }
 
     private func make(_ app: FakeLoginItem, _ agent: FakeLoginItem, available: Bool = true) -> LoginItemController {

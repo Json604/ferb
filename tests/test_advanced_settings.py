@@ -164,8 +164,11 @@ def test_send_diagnostics_names_the_developer_address_and_shows_setup_events(dae
     _on_loop(daemon, lambda: daemon.daemon._journal().append("browsers.pair_failed", {
         "browser": "chrome", "folder": "Profile 3", "why": "the pairing page wasn't answered"}))
     _on_loop(daemon, lambda: daemon.daemon._journal().append("task.created", {"goal": "not a setup event"}))
+    with pytest.raises(RpcError, match="isn't set up yet"):          # no destination by default
+        _export(daemon, send=True, app_version="0.28.0")
+    daemon.daemon.config.set("feedback", "address", "reports@example.org")
     r = _export(daemon, send=True, app_version="0.28.0")
-    assert r["address"] == "ktky.attri@gmail.com" and r["subject"].startswith("FERB diagnostics (FERB ")
+    assert r["address"] == "reports@example.org" and r["subject"].startswith("FERB diagnostics (FERB ")
     text = Path(r["path"]).read_text()
     events = text[text.index("\n## Recent setup, pairing and watcher events\n"):]
     assert "browsers.pair_failed" in events and "Profile 3" in events and "not a setup event" not in events

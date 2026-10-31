@@ -1,4 +1,4 @@
-"""Live 2026-10-26 (task 7c1eca3a): a worker switched off the owner's "Check US Visa Slots" extension on Chrome's
+"""Live 2026-10-26 (task 7c1eca3a): a worker switched off the owner's "Check Slot Alerts" extension on Chrome's
 chrome://extensions page, unasked. The owner had said Yes to "bring Chrome to the front", which covers Chrome for the
 task, and to typing the page's address; no question said the extension would be turned off. Input on a browser's own
 pages (chrome://, brave://, edge://, arc://), by the address the browser reports for the target, or typing such an
@@ -16,9 +16,9 @@ from tests.support.confirm import FerbAnswers
 from tests.support.terminal_ax import TerminalApps, TerminalAx, terminal_mac
 
 CHROME = "com.google.Chrome"
-WINDOW = [{"role": "AXWindow", "title": "Extensions - Google Chrome - Kartikey (New_Personal)"},
+WINDOW = [{"role": "AXWindow", "title": "Extensions - Google Chrome - Sam (Home_Personal)"},
           {"role": "AXApplication", "title": "Google Chrome"}]
-TOGGLE = [{"role": "AXCheckBox", "description": "Check US Visa Slots - USVisaScheduling"}, {"role": "AXGroup"},
+TOGGLE = [{"role": "AXCheckBox", "description": "Check Slot Alerts - BookSlots"}, {"role": "AXGroup"},
           {"role": "AXWebArea", "title": "Extensions", "url": "chrome://extensions/"}] + WINDOW
 SEARCH = [{"role": "AXButton", "description": "Google Search"},
           {"role": "AXWebArea", "title": "Google", "url": "https://www.google.com/"}] + WINDOW
@@ -27,9 +27,9 @@ ADDRESS = [{"role": "AXTextField", "description": "Address and search bar"}, {"r
 
 def _chrome(d: RunningDaemon, mp: pytest.MonkeyPatch, focus: str | None = None) -> tuple[Any, TerminalAx, dict[str, str]]:
     ax = TerminalAx({"toggle": TOGGLE, "search": SEARCH, "address": ADDRESS}, focused=focus,
-                    labels={"toggle": "Check US Visa Slots", "search": "Google Search", "address": "Address bar"})
+                    labels={"toggle": "Check Slot Alerts", "search": "Google Search", "address": "Address bar"})
     driver = terminal_mac(mp, ax, TerminalApps(RunningApp(CHROME, "Google Chrome", 11522, False)))
-    grant, _ = gateway_setup(d, {"mac:read", "mac:act"}, gateway_request("check the visa portal"),
+    grant, _ = gateway_setup(d, {"mac:read", "mac:act"}, gateway_request("check the permit portal"),
                              [MacSnapshot(driver), MacAct(driver)])
     out = gateway_tool_call(d, grant, "mac.snapshot", app="Google Chrome")
     assert not out["is_error"], out
@@ -43,7 +43,7 @@ def test_a_click_on_chromes_extensions_page_asks_every_time_naming_the_page(
         ferb.expect(confirm.FOREGROUND).expect(confirm.BROWSER_PAGE, 2)
         for _ in range(2):                                    # the task's earlier Yes never covers the next one
             out = gateway_tool_call(daemon, grant, "mac.act", app="Google Chrome", action="press",
-                                    element=ids["Check US Visa Slots"])
+                                    element=ids["Check Slot Alerts"])
             assert not out["is_error"], out
         assert "chrome://extensions/" in ferb.asked[0] and "chrome://extensions/" in ferb.asked[-1]
         ferb.verify()

@@ -131,13 +131,13 @@ def test_history_exposes_owner_and_task_provenance(daemon: RunningDaemon) -> Non
                                                "url": "https://docs.example/", "title": "d"}))
     record(daemon, Observation("browser_tab", {"browser": "brave", "profile": "Default", "host": "docs.example",
                                                "url": "https://docs.example/x", "title": "d"}, {"tab_task": "t-9"}))
-    record(daemon, Observation("browser_tab", {"browser": "chrome", "profile": "Profile 22", "host": "docs.example",
+    record(daemon, Observation("browser_tab", {"browser": "chrome", "profile": "Profile 7", "host": "docs.example",
                                                "url": "https://docs.example/y", "title": "d"}, {"ferb_identity": True}))
     trail = daemon.daemon.trail
     assert trail is not None
     page = daemon.run(_async(lambda: trail.query(since="2000-01-01", host="docs.example")))
     assert len(page["events"]) == 3
-    assert {r["data"]["profile"] for r in page["events"]} == {"Profile 1", "Default", "Profile 22"}
+    assert {r["data"]["profile"] for r in page["events"]} == {"Profile 1", "Default", "Profile 7"}
     assert sum(r["actor"] == "owner" for r in page["events"]) == 1
 
 

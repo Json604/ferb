@@ -69,7 +69,7 @@ def test_ordinary_owner_answer_to_otp_question_is_scrubbed_before_resolution(dae
     from ferb.policy.rules import ActionRequest
     async def answer():
         action = ActionRequest('owner.ask', 'owner_question', Identity.OWNER, frozenset(), 't', 'w', 'r', frozenset())
-        ap = daemon.daemon.state.approvals.question(action, 'Please enter the OTP on the Zomato page.', ['Done', 'Cancel'])
+        ap = daemon.daemon.state.approvals.question(action, 'Please enter the OTP on the Orderly page.', ['Done', 'Cancel'])
         await daemon.daemon._chat_answer(None, {'approval_id': ap.id, 'text': '314159'})
         return ap.answer
     assert daemon.run(answer()) == REDACTED      # hidden for this answer; only sealed input is remembered (L18)

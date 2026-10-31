@@ -128,7 +128,7 @@ class FakeIdentityDriver:
     async def open(self, url: str, background: bool = True) -> TabRef:
         self.running = True
         self._n += 1
-        ref = TabRef("dev", "chrome", "Profile 22", self.generation, f"t{self._n}")
+        ref = TabRef("dev", "chrome", "Profile 7", self.generation, f"t{self._n}")
         t = _Tab(ref, url, [])
         self._load(t, url)
         self._tabs[ref.tab_id] = t
@@ -274,7 +274,7 @@ def fake_driver(keychain: Path, specs: dict[str, Any], scrubbed: list[str]) -> F
 
 
 PROFILES = {"Default": ("Personal", "me@gmail.com"), "Profile 1": ("Work", "me@work.com"),
-            "Profile 22": ("FERB", "ferb@gmail.com")}
+            "Profile 7": ("FERB", "ferb@gmail.com")}
 
 
 def chrome_data(root: Path) -> Path:
@@ -301,7 +301,7 @@ def bd(daemon: RunningDaemon) -> Iterator[tuple[RunningDaemon, list[list[str]]]]
     d.router.wake = None                                                      # type: ignore[union-attr]
     d.router.is_running = lambda browser: False                               # type: ignore[union-attr]
     d.config.set("identity", "browser", "chrome")
-    d.config.set("identity", "profile", "Profile 22")
+    d.config.set("identity", "profile", "Profile 7")
     yield daemon, launched
 
 

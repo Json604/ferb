@@ -328,34 +328,34 @@ S.push({
   ]
 });
 
-const VISA_Q = `any news about the b1b2 visa and also when is trump's term ending`;
+const APPT_Q = `any open slots on the appointment site and also when is trump's term ending`;
 S.push({
   id:'s2', n:2, key:true, name:'Old vs new (10-29)',
-  desc:'<b>The real case from 29 Oct.</b> The reverted version posted an early "part" bubble, then a "combine" bubble, then a final answer, so the visa result reached you three times and the wording changed between copies. The new design shows each answer once, in its row.',
+  desc:'<b>The real case from 29 Oct.</b> The reverted version posted an early "part" bubble, then a "combine" bubble, then a final answer, so the appointment result reached you three times and the wording changed between copies. The new design shows each answer once, in its row.',
   panes:[{k:'a', label:'Before', sub:'reverted 10-29', old:true}, {k:'b', label:'New design', sub:'proposed', isNew:true}],
   steps:[
     {t:0, label:'You send one message with two asks', cap:'Same message on both sides: the one you sent on 29 Oct.',
-     ops:{a:[you('u1', VISA_Q)], b:[you('u1', VISA_Q)]}},
-    {t:5, label:'FERB replies: plan line (+ two rows, new)', cap:'Both reply with a plan line. New: the same reply opens one turn card with a row per ask, in your order: visa first, Trump second. Both rows show working…',
+     ops:{a:[you('u1', APPT_Q)], b:[you('u1', APPT_Q)]}},
+    {t:5, label:'FERB replies: plan line (+ two rows, new)', cap:'Both reply with a plan line. New: the same reply opens one turn card with a row per ask, in your order: appointments first, Trump second. Both rows show working…',
      ops:{
-       a:[ferb('f1', plan(`I'll check the US visa scheduling site for B1/B2 news and find out when Trump's term ends.`)), strip({n:1})],
-       b:[ferb('f1', plan(`I'll check your visa portal for B1/B2 news and look up when Trump's term ends.`)),
-          card('c', [['r1','B1/B2 visa news'],['r2',`When Trump's term ends`]]), strip({n:1})]}},
+       a:[ferb('f1', plan(`I'll check the appointment site for open slots and find out when Trump's term ends.`)), strip({n:1})],
+       b:[ferb('f1', plan(`I'll check the appointment site for open slots and look up when Trump's term ends.`)),
+          card('c', [['r1','Open appointment slots'],['r2',`When Trump's term ends`]]), strip({n:1})]}},
     {t:68, label:'New: the Trump row fills first', cap:'New: the Trump answer passed its check first, so row 2 fills while row 1 keeps working. Rows can fill in any order; their positions never move.',
      ops:{b:[row('c','r2', fill(`His current term ends at noon ET on 20 January 2029, when the next president is sworn in.`))]}},
-    {t:178, label:'Before: early "part" bubble with the visa result', cap:'Before: an early "part" bubble posts the visa result. This is the first time you see it.',
-     ops:{a:[ferb('f2', `<b>Visa (B1/B2):</b> I opened usvisascheduling.com and signed in. The appointment page opened, but <mark class="diff">no appointment time loaded</mark>, so I couldn't see open slots.`), mark('f2','Visa result · 1st time ("part" bubble)')]}},
-    {t:192, label:'New: the visa row fills, once', cap:'New: the visa row fills once. The answer comes first, then at most one short "Couldn\'t confirm" line.',
-     ops:{b:[row('c','r1', fill(`No open B1/B2 slot is visible: on usvisascheduling.com the scheduler reset before the calendar loaded, so no appointment time loaded. No new B1/B2 rule changes in this week's news.`, {note:`your November 18 appointment, because the scheduler reset before it loaded.`}))]}},
+    {t:178, label:'Before: early "part" bubble with the appointment result', cap:'Before: an early "part" bubble posts the appointment result. This is the first time you see it.',
+     ops:{a:[ferb('f2', `<b>Appointment:</b> I opened appointments.example and signed in. The appointment page opened, but <mark class="diff">no appointment time loaded</mark>, so I couldn't see open slots.`), mark('f2','Appointment result · 1st time ("part" bubble)')]}},
+    {t:192, label:'New: the appointment row fills, once', cap:'New: the appointment row fills once. The answer comes first, then at most one short "Couldn\'t confirm" line.',
+     ops:{b:[row('c','r1', fill(`No open slot is visible: on appointments.example the scheduler reset before the calendar loaded, so no appointment time loaded. No new rule changes in this week's news.`, {note:`your November 18 appointment, because the scheduler reset before it loaded.`}))]}},
     {t:193, label:'New: code adds "2 of 2 done" and sites', cap:'New: no model summary afterwards. Code adds only fixed lines: the done count and the sites contacted. Each answer reached you exactly once.',
-     ops:{b:[foot('c','2 of 2 done','Sites contacted: usvisascheduling.com, travel.state.gov, apnews.com'), strip(null),
-             tally('<b>1 reply + 1 card.</b> Visa result shown once, Trump answer shown once.')]}},
-    {t:220, label:'Before: "combine" bubble repeats all three', cap:'Before: a "combine" bubble repeats visa, news and Trump. Second time you see the visa result.',
-     ops:{a:[ferb('f3', p(`Here's what I have so far:`) + `<ul><li><b>Visa:</b> the scheduling page opened but <mark class="diff">no appointment time loaded</mark>.</li><li><b>News:</b> no new B1/B2 rule changes reported this week.</li><li><b>Trump:</b> his term ends on 20 January 2029.</li></ul>`), mark('f3','Visa result · 2nd time ("combine" bubble)')]}},
-    {t:262, label:'Before: final answer repeats everything again', cap:'Before: the final answer repeats all three again, and the visa wording changes ("no appointment time loaded" vs "November 18 could not be verified because the scheduler reset"). Three copies, two versions. That is why it was reverted on 29 Oct.',
-     ops:{a:[ferb('f4', `<p><b>B1/B2 visa:</b> <mark class="diff">The November 18 appointment could not be verified because the scheduler reset</mark> before the calendar loaded.</p><p><b>News:</b> nothing new on B1/B2 rules this week.</p><p><b>Trump's term:</b> ends at noon ET on 20 January 2029, when the next president is sworn in.</p><span class="sites">Sites contacted: usvisascheduling.com, travel.state.gov, apnews.com</span>`),
-             mark('f4','Visa result · 3rd time, worded differently'), strip(null),
-             tally('<b>4 FERB messages.</b> Visa result shown 3 times in 2 different wordings; Trump answer shown twice.')]}}
+     ops:{b:[foot('c','2 of 2 done','Sites contacted: appointments.example, help.example, apnews.com'), strip(null),
+             tally('<b>1 reply + 1 card.</b> Appointment result shown once, Trump answer shown once.')]}},
+    {t:220, label:'Before: "combine" bubble repeats all three', cap:'Before: a "combine" bubble repeats appointment, news and Trump. Second time you see the appointment result.',
+     ops:{a:[ferb('f3', p(`Here's what I have so far:`) + `<ul><li><b>Appointment:</b> the scheduling page opened but <mark class="diff">no appointment time loaded</mark>.</li><li><b>News:</b> no new rule changes reported this week.</li><li><b>Trump:</b> his term ends on 20 January 2029.</li></ul>`), mark('f3','Appointment result · 2nd time ("combine" bubble)')]}},
+    {t:262, label:'Before: final answer repeats everything again', cap:'Before: the final answer repeats all three again, and the appointment wording changes ("no appointment time loaded" vs "November 18 could not be verified because the scheduler reset"). Three copies, two versions. That is why it was reverted on 29 Oct.',
+     ops:{a:[ferb('f4', `<p><b>Appointment:</b> <mark class="diff">The November 18 appointment could not be verified because the scheduler reset</mark> before the calendar loaded.</p><p><b>News:</b> nothing new on the rules this week.</p><p><b>Trump's term:</b> ends at noon ET on 20 January 2029, when the next president is sworn in.</p><span class="sites">Sites contacted: appointments.example, help.example, apnews.com</span>`),
+             mark('f4','Appointment result · 3rd time, worded differently'), strip(null),
+             tally('<b>4 FERB messages.</b> Appointment result shown 3 times in 2 different wordings; Trump answer shown twice.')]}}
   ]
 });
 
@@ -380,19 +380,19 @@ S.push({
 
 S.push({
   id:'s4', n:4, name:'A part needs you',
-  desc:'<b>A question pauses only its row.</b> The booking row asks which time; the Zomato row keeps going and then asks its one payment question. Tap the highlighted buttons, or press Step.',
+  desc:'<b>A question pauses only its row.</b> The booking row asks which time; the food order row keeps going and then asks its one payment question. Tap the highlighted buttons, or press Step.',
   panes:[{k:'m'}],
   steps:[
     {t:0, label:'You send two asks', cap:'Two asks in one message.',
-     ops:[you('u1',`book a table at Toit for tonight and order paneer tikka from Zomato for lunch`)]},
+     ops:[you('u1',`book a table at Toit for tonight and order paneer tikka from order.example for lunch`)]},
     {t:6, label:'First reply: plan line + two rows', cap:'Plan line, then one card with two rows in your order. Both start working.',
-     ops:[ferb('f1', plan(`I'll book a table at Toit, Indiranagar for tonight and order paneer tikka on Zomato for lunch.`)),
-          card('c', [['r1','Table at Toit tonight'],['r2','Paneer tikka from Zomato (lunch)']]), strip({n:1})]},
+     ops:[ferb('f1', plan(`I'll book a table at Toit, Indiranagar for tonight and order paneer tikka on order.example for lunch.`)),
+          card('c', [['r1','Table at Toit tonight'],['r2','Paneer tikka from order.example (lunch)']]), strip({n:1})]},
     {t:52, label:'Row 1 asks which time', cap:'Toit has two times free. Only row 1 pauses, with the question inside it. Row 2 keeps working.',
      ops:[row('c','r1', {state:'asks', q:{text:`Which time: 8:00 or 9:30 pm?`, desc:`Toit, Indiranagar has a table for 2 tonight at both times.`, opts:['8:00 pm','9:30 pm']}}),
           strip({n:1, extra:'1 question for you'})]},
     {t:94, label:'Row 2 asks the one payment question', cap:'The order is ready at checkout, so row 2 asks its one payment question. One Yes covers this ₹349, its checkout and bank verification, for 10 minutes.',
-     ops:[row('c','r2', {state:'asks', q:{text:`Pay ₹349 to Zomato with Kotak RuPay ••0545?`, desc:`Paneer Tikka from Punjabi Tadka (1.8 km) · ₹299 + ₹50 fees and taxes · about 35 min`, opts:['Pay ₹349',`Don't pay`]}}),
+     ops:[row('c','r2', {state:'asks', q:{text:`Pay ₹349 to order.example with your card ••4242?`, desc:`Paneer Tikka from Punjabi Tadka (1.8 km) · ₹299 + ₹50 fees and taxes · about 35 min`, opts:['Pay ₹349',`Don't pay`]}}),
           strip({n:1, extra:'2 questions for you'})]},
     {t:110, label:'You tap 8:00 pm', answer:{c:'c', r:'r1', opt:'8:00 pm'}, cap:'Your answer goes to row 1 only. It goes back to working; row 2 still waits on its own question.',
      ops:[row('c','r1', {state:'working', q:null, sub:'booking 8:00 pm…', chosen:'You chose 8:00 pm'}), strip({n:1, extra:'1 question for you'})]},
@@ -401,9 +401,9 @@ S.push({
     {t:151, label:'Row 1 fills', cap:'The booking passed its check: row 1 fills once.',
      ops:[row('c','r1', fill(`Booked: Toit, Indiranagar, tonight at 8:00 pm, table for 2. The confirmation (ref DO-58217) is in your email.`))]},
     {t:178, label:'Row 2 fills', cap:'The order is placed and checked: row 2 fills once.',
-     ops:[row('c','r2', fill(`Ordered: Paneer Tikka from Punjabi Tadka, paid ₹349 with Kotak RuPay ••0545. Arriving around 1:15 pm.`))]},
+     ops:[row('c','r2', fill(`Ordered: Paneer Tikka from Punjabi Tadka, paid ₹349 with your card ••4242. Arriving around 1:15 pm.`))]},
     {t:179, label:'Code adds "2 of 2 done"', cap:'Code adds the done count and sites. Nothing repeats the two answers.',
-     ops:[foot('c','2 of 2 done','Sites contacted: swiggy.com (Dineout), zomato.com'), strip(null)]}
+     ops:[foot('c','2 of 2 done','Sites contacted: swiggy.com (Dineout), order.example'), strip(null)]}
   ]
 });
 
@@ -413,10 +413,10 @@ S.push({
   panes:[{k:'m'}],
   steps:[
     {t:0, label:'You send three links', cap:'One ask per link: three parts.',
-     ops:[you('u1',`summarize these three links\nkartikey.xyz/posts/notch-chat\nft.com/content/ai-agents-india\nsimonwillison.net/2026/Oct/22/agent-loops`)]},
+     ops:[you('u1',`summarize these three links\nblog.example/posts/notch-chat\nft.com/content/ai-agents-india\nsimonwillison.net/2026/Oct/22/agent-loops`)]},
     {t:4, label:'First reply: plan line + three rows', cap:'One row per link, in the order you pasted them.',
      ops:[ferb('f1', plan(`I'll read each link and summarize it.`)),
-          card('c', [['r1','kartikey.xyz/posts/notch-chat'],['r2','ft.com/content/ai-agents-india'],['r3','simonwillison.net/…/agent-loops']]), strip({n:1})]},
+          card('c', [['r1','blog.example/posts/notch-chat'],['r2','ft.com/content/ai-agents-india'],['r3','simonwillison.net/…/agent-loops']]), strip({n:1})]},
     {t:31, label:'Row 3 fills first', cap:'The third link was fastest, so row 3 fills first. Positions stay put.',
      ops:[row('c','r3', fill(`Argues that agent reliability comes from small, checkable loops: each tool call is verified before the next, and failures are surfaced, not retried silently.`))]},
     {t:47, label:'Row 2 fails', cap:'Row 2 cannot be done. It says so in the row, with the reason, instead of a guess.',
@@ -424,7 +424,7 @@ S.push({
     {t:62, label:'Row 1 fills', cap:'The last row fills.',
      ops:[row('c','r1', fill(`Explains the notch chat design: replies stay inside a small dark panel, tasks run in the background, and questions appear inline so you never switch apps to answer.`))]},
     {t:63, label:'Code adds "2 of 3 done"', cap:'The count is computed: 2 of 3 done. No model summary smooths over the failure.',
-     ops:[foot('c','2 of 3 done','Sites contacted: kartikey.xyz, ft.com, simonwillison.net'), strip(null)]}
+     ops:[foot('c','2 of 3 done','Sites contacted: blog.example, ft.com, simonwillison.net'), strip(null)]}
   ]
 });
 
@@ -471,10 +471,10 @@ S.push({
     {t:10, label:'Today: reply 2', cap:'Today: a separate reply for "who are you?".',
      ops:{a:[rm('th'), ferb('f2', `I'm FERB, your assistant on this Mac. I do tasks in the background while you keep working.`), mark('f2','Reply 2 of 4'), think('th')]}},
     {t:11, label:'New: reply 2 answers both waiting messages', cap:'New: the two waiting messages are read together. One reply answers "who am i??" and "hey". That is the last reply: 4 messages, 2 replies.',
-     ops:{b:[rm('th'), ferb('f2', `You're Kartikey. You set me up on this Mac. And hey! The web task is running; its answer will appear in the row above.`), mark('f2','Reply 2 · answers messages 3 + 4'),
+     ops:{b:[rm('th'), ferb('f2', `You're Sam. You set me up on this Mac. And hey! The web task is running; its answer will appear in the row above.`), mark('f2','Reply 2 · answers messages 3 + 4'),
              tally('<b>2 replies to 4 messages.</b> The web task\'s answer fills its row.')]}},
     {t:13, label:'Today: reply 3', cap:'Today: a third reply, for "who am i??".',
-     ops:{a:[rm('th'), ferb('f3', `You're Kartikey. You set me up on this Mac.`), mark('f3','Reply 3 of 4'), think('th')]}},
+     ops:{a:[rm('th'), ferb('f3', `You're Sam. You set me up on this Mac.`), mark('f3','Reply 3 of 4'), think('th')]}},
     {t:15, label:'Today: reply 4', cap:'Today: a fourth reply, for "hey".',
      ops:{a:[rm('th'), ferb('f4', `Hey! I'm working on the web task. Anything else?`), mark('f4','Reply 4 of 4')]}},
     {t:80, label:'The web task finishes', cap:'Today: the task answer comes as a fifth bubble. New: it fills the row. Once FERB has replied, a running task is unaffected by new messages; they become normal turns.',
@@ -516,10 +516,10 @@ S.push({
   panes:[{k:'m'}],
   steps:[
     {t:0, label:'You send three asks', cap:'Three asks.',
-     ops:[you('u1',`check Tatkal seats Bangalore → Chennai for tomorrow, rename the screenshots on my Desktop by date, and add the Diwali holidays to my calendar`)]},
+     ops:[you('u1',`check Tatkal seats Bangalore → Mysuru for tomorrow, rename the screenshots on my Desktop by date, and add the Diwali holidays to my calendar`)]},
     {t:5, label:'First reply: plan line + three rows', cap:'Three rows in your order.',
      ops:[ferb('f1', plan(`I'll check Tatkal availability on IRCTC, rename your Desktop screenshots by date, and add the Diwali holidays to Calendar.`)),
-          card('c', [['r1','Tatkal seats, Bangalore → Chennai, tomorrow'],['r2','Rename Desktop screenshots by date'],['r3','Diwali holidays in Calendar']]), strip({n:1})]},
+          card('c', [['r1','Tatkal seats, Bangalore → Mysuru, tomorrow'],['r2','Rename Desktop screenshots by date'],['r3','Diwali holidays in Calendar']]), strip({n:1})]},
     {t:30, label:'Row 2 fills', cap:'Row 2 fills.',
      ops:[row('c','r2', fill(`Renamed 37 screenshots on your Desktop to names like "2026-10-29 18.42.png". The old names are listed in Desktop/rename-log.txt.`))]},
     {t:44, label:'Row 3 fills', cap:'Row 3 fills.',

@@ -171,7 +171,7 @@ def test_a_scheduled_run_that_acted_posts_whatever_its_worker_said(daemon: Runni
                   now + timedelta(minutes=1))
 
     def worker(token: str) -> str:
-        tool(daemon.sock, token, "probe.submit", site="kartikey.xyz", text="renew")
+        tool(daemon.sock, token, "probe.submit", site="mysite.example", text="renew")
         return json.dumps(report("done", "Renewed.", nothing_to_tell=True))
     install(daemon, [sup("task", "Renewing.", task("Renew the library loan"))], {"worker": worker})
     published: list[dict[str, Any]] = []

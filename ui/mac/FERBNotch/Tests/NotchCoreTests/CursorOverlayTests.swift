@@ -97,7 +97,7 @@ final class CursorOverlayTests: XCTestCase {
     /// The daemon names a point by its step's root task (`task_id`) and the worker that acted (`worker_id`): the
     /// steps of one task share one pointer and one shade, and the root task's result ends it (L33 review M1).
     func testATasksStepsShareOnePointerThatEndsWithTheTasksResult() {
-        let model = NotchModel(rpc: QuietCursorRPC(), preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: QuietCursorRPC(), preferences: scratchDefaults())
         let c = CursorController(clock: { Date() }, makePanels: false)
         model.cursor = c
         model.receiveBusEvent(["topic": "cursor.point", "data": ["task_id": "t9", "worker_id": "w-step-a",

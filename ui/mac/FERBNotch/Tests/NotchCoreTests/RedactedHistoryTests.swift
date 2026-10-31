@@ -53,7 +53,7 @@ final class RedactedHistoryTests: XCTestCase {
     }
 
     func testRecordAnswerNeverSavesRawRequest() throws {
-        let model = NotchModel(rpc: QuietRPC(), preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: QuietRPC(), preferences: scratchDefaults())
         model.session.draft = raw
         _ = model.session.beginWork()
         _ = model.session.finishBackendWork(taskID: nil, status: "done", answer: "ok", artifacts: [])
@@ -63,7 +63,7 @@ final class RedactedHistoryTests: XCTestCase {
     }
 
     private func sent() -> (NotchModel, UUID) {
-        let model = NotchModel(rpc: QuietRPC(), preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: QuietRPC(), preferences: scratchDefaults())
         model.session.draft = raw
         model.startWork()
         return (model, model.conversation.turns[0].id)

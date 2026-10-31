@@ -44,7 +44,7 @@ final class ChatDetailsTests: XCTestCase {
     }
 
     func testActualArtifactAndComposerViewsInstallPassiveNativeHoverTracking() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         let url = URL(fileURLWithPath: "/tmp/report.md")
         let host = NSHostingView(rootView: VStack {
             ArtifactRow(url: url, model: model)
@@ -69,7 +69,7 @@ final class ChatDetailsTests: XCTestCase {
     }
 
     func testArtifactPrimaryActionUsesQuickLookNotDefaultApp() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         let url = URL(fileURLWithPath: "/tmp/report.md")
         var previewed: URL?
         var opened = false
@@ -81,7 +81,7 @@ final class ChatDetailsTests: XCTestCase {
     }
 
     func testComposerCardsReserveOneStripAndRestoreEmptyHeightOnRemoval() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         let emptyChrome = model.conversationChromeHeight
         let emptyBody = model.bodyHeight
         XCTAssertEqual(model.attachmentStripHeight, 0)
@@ -104,7 +104,7 @@ final class ChatDetailsTests: XCTestCase {
 
     func testFreshRepliesAndErrorsRevealWithoutFocusAndDuplicatesStayClosed() {
         for type in ["reply", "error"] {
-            let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+            let model = NotchModel(preferences: scratchDefaults())
             model.session.draft = "Task"
             let id = model.session.beginWork()!
             model.conversation.begin(id: id, request: "Task", sources: [])
@@ -122,7 +122,7 @@ final class ChatDetailsTests: XCTestCase {
 
     func testFreshExternalOutcomesOpenButHistoryAndRepeatedEventsDoNot() {
         for status in ["done", "failed"] {
-            let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+            let model = NotchModel(preferences: scratchDefaults())
             let event: [String: Any] = ["task_id": "task", "status": status, "answer": "Result"]
             model.receiveOutcome(event)
             XCTAssertTrue(model.bodyVisible)
@@ -136,7 +136,7 @@ final class ChatDetailsTests: XCTestCase {
 
     func testBackgroundBoundCompletionExpandsForegroundWithoutReplacingDraft() {
         for status in ["done", "failed"] {
-            let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+            let model = NotchModel(preferences: scratchDefaults())
             model.session.draft = "Background task"
             let id = model.session.beginWork()!
             model.session.bindBackendTask("background", localID: id)

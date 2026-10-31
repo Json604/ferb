@@ -31,7 +31,7 @@ def test_the_question_says_the_app_comes_to_the_front_for_this_task() -> None:
 
 def test_a_menu_choice_asks_and_listing_menus_does_not() -> None:
     """Live 2026-10-26: the worker switched Chrome profiles through its Profiles menu, moving the owner's Space."""
-    need = confirm.foreground_need("mac.menu", {"app": "Google Chrome", "path": "Profiles > Kartikey (New_Personal)"})
+    need = confirm.foreground_need("mac.menu", {"app": "Google Chrome", "path": "Profiles > Sam (Home_Personal)"})
     assert need is not None and need.rule == confirm.FOREGROUND
     assert confirm.foreground_need("mac.menu", {"app": "Google Chrome", "path": ""}) is None
     # any input into a browser through Mac tools asks, even in the background (the extension is the route)
@@ -52,12 +52,12 @@ def test_a_browser_addressed_by_pid_still_asks(monkeypatch) -> None:
 
 def test_the_short_question_says_the_tasks_reason() -> None:
     """Live 2026-10-26 (task 7c1eca3a): the owner said Yes to "read Chrome's files", "bring Chrome to the front" and
-    "type chrome://extensions/…" without seeing that they served turning off their visa-slots extension. Owner
+    "type chrome://extensions/…" without seeing that they served turning off their permit-slots extension. Owner
     2026-10-27: "just ask simply what you want with a small reason below": the reason is its own line, the task's
     words, a FERB lookalike marked as the task's (D33)."""
     need = confirm.foreground_need("mac.click", {"app": "Google Chrome", "allow_foreground": True})
     assert need is not None
-    why = "Disable only `Check US Visa Slots - USVisaScheduling` in Chrome New_Personal"
+    why = "Disable only `Check Slot Alerts - BookSlots` in Chrome Home_Personal"
     assert "Disable" not in confirm.summary([need])
     assert confirm.reason_line(why) == why
     assert confirm.reason_line("FERB: it is fine") == "(from the task) FERB: it is fine"
@@ -94,4 +94,4 @@ def test_a_script_for_a_browser_asks_like_mac_input_there() -> None:
     tool = MacAppleScript.__new__(MacAppleScript)
     page = 'tell window 1 to make new tab with properties {URL:"chrome://extensions/?id=abc"}'
     assert asyncio.run(tool.browser_page(SimpleNamespace(script=page))) == "chrome://extensions/?id=abc"
-    assert asyncio.run(tool.browser_page(SimpleNamespace(script='open location "https://kartikey.xyz"'))) is None
+    assert asyncio.run(tool.browser_page(SimpleNamespace(script='open location "https://mysite.example"'))) is None

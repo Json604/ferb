@@ -12,7 +12,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
     private var suites: [String] = []
 
     override func tearDown() {
-        for suite in suites { UserDefaults().removePersistentDomain(forName: suite) }
+        for suite in suites { Self.removeScratchSuite(suite) }
         suites = []
         super.tearDown()
     }
@@ -44,7 +44,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
         // A secret question doesn't take focus either; its hidden field is focused only when the owner asks for it.
         model.receiveBusEvent(["topic": "approval.requested", "data": [
-            "approval_id": "q-otp", "kind": "owner_login_code", "reason": "Enter the code Zomato sent."
+            "approval_id": "q-otp", "kind": "owner_login_code", "reason": "Enter the code Orderly sent."
         ] as [String: Any]])
         XCTAssertTrue(model.canCompose)
         XCTAssertNil(model.questionFocus)
@@ -57,7 +57,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
         model.receiveBusEvent(["topic": "approval.requested", "data": [
-            "approval_id": "q-otp", "task_id": "task-z", "kind": "owner_login_code", "reason": "Enter the code Zomato sent."
+            "approval_id": "q-otp", "task_id": "task-z", "kind": "owner_login_code", "reason": "Enter the code Orderly sent."
         ] as [String: Any]])
         model.expand()
         // What PanelCoordinator does: a presentation with focus asks the view to focus again; a background one doesn't.
@@ -108,8 +108,8 @@ final class QuestionsAndNoticesTests: XCTestCase {
         let unknown = DaemonApproval(["approval_id": "q1", "task_id": "0f3c9a7e5b2d4c18a6e0", "kind": "owner_login_code",
                                       "reason": "Enter the code."])!
         XCTAssertEqual(model.questionContext(unknown), "Task 0f3c9a7e")
-        model.runningTasks["0f3c9a7e5b2d4c18a6e0"] = "Log in to Zomato"
-        XCTAssertEqual(model.questionContext(unknown), "Log in to Zomato")
+        model.runningTasks["0f3c9a7e5b2d4c18a6e0"] = "Log in to Orderly"
+        XCTAssertEqual(model.questionContext(unknown), "Log in to Orderly")
         XCTAssertNil(model.questionContext(DaemonApproval(["approval_id": "q2", "reason": "Which?"])!))
     }
 
@@ -200,7 +200,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
     }
 
     func testAnExistingArchiveWithOwnerTurnsSurvivesLaunchUnchanged() throws {
-        let suite = "FERBNotchTests-" + UUID().uuidString
+        let suite = Self.scratchSuiteName()
         suites.append(suite)
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         var archive = ConversationArchive()
@@ -227,7 +227,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
     }
 
     func testAnArchiveThatFailsToDecodeIsSetAsideNeverSavedOver() throws {
-        let suite = "FERBNotchTests-" + UUID().uuidString
+        let suite = Self.scratchSuiteName()
         suites.append(suite)
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let unreadable = Data("{\"turns\": [{\"id\": \"not-a-uuid\", \"request\": \"Older history\"}]}".utf8)
@@ -249,11 +249,11 @@ final class QuestionsAndNoticesTests: XCTestCase {
     func testASecretAnswerNeverEntersHistory() async throws {
         let rpc = StatusRPC()
         let (model, suite) = makeModelWithSuite(rpc)
-        let sent = begin("Log in to Zomato", in: model)
+        let sent = begin("Log in to Orderly", in: model)
         model.receiveChatEvent(["type": "plan", "request_id": "req-a", "at": at, "task_id": "task-a", "text": "Logging in.",
                                 "goal": "Log in"], localID: sent)
         model.receiveBusEvent(["topic": "approval.requested", "data": [
-            "approval_id": "otp-1", "task_id": "task-a", "kind": "owner_login_code", "reason": "Enter the code Zomato sent."
+            "approval_id": "otp-1", "task_id": "task-a", "kind": "owner_login_code", "reason": "Enter the code Orderly sent."
         ] as [String: Any]])
         let answered = expectation(description: "Secret sent only through its question")
         rpc.onCall = { method, _ in if method == "chat.answer" { answered.fulfill() } }
@@ -423,7 +423,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
     func testOlderGuessesAreShownOnceWithKeepEditAndDrop() async throws {
         let rpc = StatusRPC()
         rpc.responses["memory.learning"] = ["backlog": ["id": "b-1", "text": "Review 2 older guesses", "proposals": [
-            ["id": "g-1", "text": "You use Brave for work"], ["id": "g-2", "text": "You study at Scaler"]
+            ["id": "g-1", "text": "You use Brave for work"], ["id": "g-2", "text": "You study at Acme"]
         ]]]
         let model = makeModel(rpc)
         model.expand()
@@ -439,13 +439,13 @@ final class QuestionsAndNoticesTests: XCTestCase {
             if method == "memory.learning", params["op"] as? String == "guess" { decided.fulfill() }
         }
         model.decideGuess(noticeID: backlog.id, proposalID: "g-1", action: "keep", text: nil)
-        model.decideGuess(noticeID: backlog.id, proposalID: "g-2", action: "edit", text: "I studied at Scaler")
+        model.decideGuess(noticeID: backlog.id, proposalID: "g-2", action: "edit", text: "I studied at Acme")
         await fulfillment(of: [decided], timeout: 2)
         rpc.onCall = nil
         await settle()
         let sent = rpc.calls.filter { $0.0 == "memory.learning" && $0.1["op"] as? String == "guess" }
             .map { "\($0.1["id"] as? String ?? "?")=\($0.1["action"] as? String ?? "?"):\($0.1["text"] as? String ?? "")" }
-        XCTAssertEqual(sent.sorted(), ["g-1=keep:", "g-2=edit:I studied at Scaler"])
+        XCTAssertEqual(sent.sorted(), ["g-1=keep:", "g-2=edit:I studied at Acme"])
         XCTAssertEqual(model.conversation.notices.first { $0.id == backlog.id }?.proposals?.map(\.decision),
                        ["kept", "edited"])
         await model.refreshDaemonStatus()
@@ -681,7 +681,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     func testAHeldDictationSendsOnReleaseWhenChosenAndAsksForASpokenReply() async throws {
         let rpc = StatusRPC()
-        let suite = "FERBNotchTests-" + UUID().uuidString
+        let suite = Self.scratchSuiteName()
         suites.append(suite)
         let preferences = UserDefaults(suiteName: suite)!
         preferences.set(true, forKey: NotchModel.sendOnReleaseKey)
@@ -700,7 +700,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     func testWithoutSendOnReleaseDictationStaysInTheDraftAndATypedMessageIsNotSpoken() async throws {
         let rpc = StatusRPC()
-        let suite = "FERBNotchTests-" + UUID().uuidString
+        let suite = Self.scratchSuiteName()
         suites.append(suite)
         let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: suite)!,
                                microphone: ScriptedMicrophone(text: "Remind me at five"))
@@ -721,7 +721,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
     }
 
     private func makeModelWithSuite(_ rpc: StatusRPC) -> (NotchModel, String) {
-        let suite = "FERBNotchTests-" + UUID().uuidString
+        let suite = Self.scratchSuiteName()
         suites.append(suite)
         return (NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: suite)!), suite)
     }

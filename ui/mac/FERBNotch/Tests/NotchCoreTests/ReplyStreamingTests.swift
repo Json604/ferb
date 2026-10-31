@@ -79,7 +79,7 @@ final class ReplyStreamingTests: XCTestCase {
     }
 
     func testRestoringProvisionalDraftDoesNotPretendTheOldStreamIsStillRunning() throws {
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let defaults = scratchDefaults()
         var archive = ConversationArchive()
         let id = UUID()
         archive.begin(id: id, request: "Hello", sources: [])
@@ -106,7 +106,7 @@ final class ReplyStreamingTests: XCTestCase {
     }
 
     private func makeModel() -> NotchModel {
-        NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        NotchModel(preferences: scratchDefaults())
     }
 
     private func begin(_ request: String, in model: NotchModel) -> UUID {

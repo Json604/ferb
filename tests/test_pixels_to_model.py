@@ -988,9 +988,9 @@ def test_the_capture_reads_the_ax_window_with_the_captured_windows_title(monkeyp
 
 def test_an_ax_window_at_a_shared_place_is_told_apart_by_its_title(monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.act.mac import accessibility as axm
-    monkeypatch.setattr(axm, "ax_windows", lambda pid: ["kaggle", "greenhouse"])
+    monkeypatch.setattr(axm, "ax_windows", lambda pid: ["contest", "greenhouse"])
     monkeypatch.setattr(axm, "frame", lambda win: (0.0, 30.0, 1400.0, 900.0))
-    monkeypatch.setattr(axm, "window_title", lambda win: {"kaggle": "Kaggle", "greenhouse": "Job – Panthalassa"}[win])
+    monkeypatch.setattr(axm, "window_title", lambda win: {"contest": "Contest", "greenhouse": "Job – Panthalassa"}[win])
     assert axm.window_with_frame(1, (0.0, 30.0, 1400.0, 900.0)) is None                     # never the first
     assert axm.window_with_frame(1, (0.0, 30.0, 1400.0, 900.0), "Job – Panthalassa") == "greenhouse"
     assert axm.window_with_frame(1, (0.0, 30.0, 1400.0, 900.0), "Something else") is None
@@ -1971,23 +1971,23 @@ def test_the_extension_tells_same_place_windows_apart_by_title_and_names_the_mat
     out = worker('''(async () => {
       chrome.windows = {getAll: async () => [{id: 2, left: 0, top: 0, width: 500, height: 400},
                                              {id: 3, left: 0, top: 0, width: 500, height: 400}]};
-      const tabs = {2: {id: 20, title: 'RSNA Knee  Abnormality | Kaggle', url: 'https://www.kaggle.com/c/rsna'},
+      const tabs = {2: {id: 20, title: 'ORBIT Shapes  Pattern | Contest', url: 'https://www.contest.example/c/orbit'},
                     3: {id: 30, title: 'Job Application – Panthalassa', url: 'https://job-boards.greenhouse.io/p?token=s3cr3t'}};
       chrome.tabs.query = async ({windowId}) => [tabs[windowId]];
       const page = {top: 'd', viewport: [0, 0, 500, 320], items: []};
       maskState = async tab => tab === 30 ? page : {withheld: 'wrong tab'};
       const picked = await commands.window_secrets({bounds: [0, 0, 500, 400], title: ' Job Application –  Panthalassa'});
-      const kaggle = await commands.window_secrets({bounds: [0, 0, 500, 400], title: 'RSNA Knee Abnormality | Kaggle'});
+      const contest = await commands.window_secrets({bounds: [0, 0, 500, 400], title: 'ORBIT Shapes Pattern | Contest'});
       const neither = await commands.window_secrets({bounds: [0, 0, 500, 400], title: 'Something else'});
       const untitled = await commands.window_secrets({bounds: [0, 0, 500, 400], title: ''});
-      return {picked, kaggle, neither, untitled};
+      return {picked, contest, neither, untitled};
     })()''')
     assert out["picked"]["matched"] and out["picked"]["complete"]
     assert out["picked"]["tab"]["title"] == "Job Application – Panthalassa"
     assert out["picked"]["tab"]["url"].startswith("https://job-boards.greenhouse.io/p?token=")
     assert "s3cr3t" not in out["picked"]["tab"]["url"]                     # maskUrl: a secret parameter never leaves
-    assert out["kaggle"]["matched"] and out["kaggle"]["tab"]["title"] == "RSNA Knee  Abnormality | Kaggle"
-    assert out["kaggle"]["complete"] is False                              # that tab's page couldn't be read
+    assert out["contest"]["matched"] and out["contest"]["tab"]["title"] == "ORBIT Shapes  Pattern | Contest"
+    assert out["contest"]["complete"] is False                              # that tab's page couldn't be read
     assert out["neither"] == {"matched": False, "reason": "ambiguous_window"}
     assert out["untitled"] == {"matched": False, "reason": "ambiguous_window"}
 
@@ -2000,7 +2000,7 @@ def test_a_page_of_another_window_is_rejected_by_its_title(monkeypatch: pytest.M
     from ferb.act.evidence.mask import PageState
     from ferb.act.mac.driver import WebSecrets
     other = WebSecrets(PageState.parse(_state((20, 40, 100, 20), viewport=(0, 0, 800, 520))),
-                       tab=("https://www.kaggle.com/c/rsna", "RSNA Knee Abnormality | Kaggle"))
+                       tab=("https://www.contest.example/c/orbit", "ORBIT Shapes Pattern | Contest"))
     d, _, _, _ = _brave(monkeypatch, other, other)
     _, shot, jpeg = asyncio.run(d.screenshot("Brave"))           # FakeShots' captured window is titled "w"
     assert white(pixel(jpeg, 100, 255)) and shot.tab is None

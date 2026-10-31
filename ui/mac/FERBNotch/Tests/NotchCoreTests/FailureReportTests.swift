@@ -189,7 +189,7 @@ final class FailureReportTests: XCTestCase {
     private let at = "2026-10-25T11:40:00+05:30"
 
     private func makeModel(_ rpc: ReportRPC) -> NotchModel {
-        NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: "FERBNotchTests-" + UUID().uuidString)!)
+        NotchModel(rpc: rpc, preferences: scratchDefaults())
     }
 
     private func begin(_ request: String, in model: NotchModel) -> UUID {

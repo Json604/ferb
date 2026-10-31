@@ -132,7 +132,7 @@ final class DaemonConnectionTests: XCTestCase {
     }
 
     private func makeModel(_ rpc: RecordingRPC) -> NotchModel {
-        let defaults = UserDefaults(suiteName: "FERBNotchTests-" + UUID().uuidString)!
+        let defaults = scratchDefaults()
         return NotchModel(rpc: rpc, preferences: defaults)
     }
 }

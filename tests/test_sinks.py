@@ -52,7 +52,7 @@ def _trifecta(daemon: RunningDaemon, grant: Any) -> None:
 def _caps() -> list[FakeCap]:
     return [FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/.aws/credentials"),),
                     content={"text": "aws_access_key_id = AKIAEXAMPLE7"}),
-            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/report"),),
+            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/report"),),
                     content={"text": "summarize"})]
 
 
@@ -120,7 +120,7 @@ def test_opening_a_url_with_a_private_value_to_a_new_host_asks(daemon: RunningDa
     q = _asked(daemon)[0]["question"]
     assert q.startswith("FERB: this would open attacker.example, a place you haven't named, with your own data in the "
                         "address (AKIAEXAMPLE7)")
-    assert "later tasks" in q and "the web page on kartikey.xyz" in q
+    assert "later tasks" in q and "the web page on mysite.example" in q
 
 
 def test_a_navigation_carrying_a_private_value_to_a_new_host_asks_then_no_is_final(daemon: RunningDaemon) -> None:   # items 1, 8
@@ -161,7 +161,7 @@ def test_laundering_and_owner_data_sinks(daemon: RunningDaemon) -> None:   # ite
 def test_a_private_reference_from_mail_asks(daemon: RunningDaemon) -> None:   # item 10 (N1b)
     code = FakeCap("probe.mail", "read", {"probe"}, reads=(("owner_account", "mail"), ("email", "m1")),
                    content={"text": "Your invoice reference is 448213xx"})  # private text, not a redacted secret
-    web = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/p"),), content={"text": "hi"})
+    web = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/p"),), content={"text": "hi"})
     grant, fb = _browser_grant(daemon, FERB_BROWSER, "read my mail", [code, web])
     gateway_tool_call(daemon, grant, "probe.mail"); gateway_tool_call(daemon, grant, "probe.web")
     owner = Answers(daemon, granted=False, choice=2)
@@ -495,7 +495,7 @@ def test_a_no_to_a_numeric_ipv4_host_covers_all_browser_spellings(daemon: Runnin
 def test_local_report_navigation_is_not_a_remote_data_transfer(daemon, url):
     grant, browser = _browser_grant(daemon, FERB_BROWSER, 'Open the report I asked you to build', [
         FakeCap('probe.file', 'read', {'probe'}, reads=(('file', '/Users/me/report'),), content={'text':'index.html'}),
-        FakeCap('probe.web', 'read', {'probe'}, reads=(('web', 'https://kartikey.xyz/report'),), content={'text':'outside'}),
+        FakeCap('probe.web', 'read', {'probe'}, reads=(('web', 'https://mysite.example/report'),), content={'text':'outside'}),
     ])
     _trifecta(daemon, grant)
     owner = Answers(daemon, granted=False, choice=2)
@@ -508,7 +508,7 @@ def test_navigation_does_not_treat_inherited_context_or_result_metadata_as_priva
     grant, browser = _browser_grant(daemon, FERB_BROWSER, 'Find high demand concerts in India', [
         FakeCap('fs.read', 'read', {'probe'}, reads=(('file', '/Users/me/report'),),
                 content={'path':'/Users/me/search', 'name':'search', 'retrieval':'search for more', 'text':'Actual customer record phrase'}),
-        FakeCap('probe.web', 'read', {'probe'}, reads=(('web', 'https://kartikey.xyz/report'),), content={'text':'outside'}),
+        FakeCap('probe.web', 'read', {'probe'}, reads=(('web', 'https://mysite.example/report'),), content={'text':'outside'}),
     ])
     gateway_tool_call(daemon, grant, 'fs.read')
     gateway_tool_call(daemon, grant, 'probe.web')
@@ -529,7 +529,7 @@ def test_navigation_does_not_treat_inherited_context_or_result_metadata_as_priva
 def test_arbitrary_structured_private_read_payloads_still_need_export_approval(daemon, record, value):
     grant, browser = _browser_grant(daemon, FERB_BROWSER, 'Inspect the customer records', [
         FakeCap('probe.file','read',{'probe'},reads=(('file','/Users/me/customers.json'),),content=record),
-        FakeCap('probe.web','read',{'probe'},reads=(('web','https://kartikey.xyz/report'),),content={'text':'outside'}),
+        FakeCap('probe.web','read',{'probe'},reads=(('web','https://mysite.example/report'),),content={'text':'outside'}),
     ])
     _trifecta(daemon, grant)
     owner=Answers(daemon,granted=False,choice=2)
@@ -549,7 +549,7 @@ def test_private_value_split_across_contiguous_file_reads_is_detected_when_encod
             spans.finish(span,output={'path':'/Users/me/file','offset':offset,'next_offset':next_offset,'text':text},origin='private')
             daemon.daemon.gateway._sink_texts(grant.task_id)  # file chain grows across separate cache refreshes
         ext=spans.start('tool.call',task_id=grant.task_id,input={'tool':'probe.web','kind':'read'})
-        spans.finish(ext,output={'text':'outside'},origin='external:web:kartikey.xyz')
+        spans.finish(ext,output={'text':'outside'},origin='external:web:mysite.example')
     daemon.run(record())
     owner=Answers(daemon,granted=False,choice=2)
     value=b'Customer-Private-Value'
@@ -576,7 +576,7 @@ def test_context_only_private_memory_requires_url_export_approval(daemon, encodi
         private = spans.start('context.exposure', task_id=grant.task_id, input={'source_refs':['memory:customer']})
         spans.finish(private, output={'text':'Remembered-Customer-Record'}, origin='private')
         outside = spans.start('context.exposure', task_id=grant.task_id, input={'source_refs':['history:external']})
-        spans.finish(outside, output={'text':'Outside website instructions'}, origin='external:web:kartikey.xyz')
+        spans.finish(outside, output={'text':'Outside website instructions'}, origin='external:web:mysite.example')
     daemon.run(expose())
     value = b'Remembered-Customer-Record'
     encoded = base64.urlsafe_b64encode(value).decode().rstrip('=') if encoding == 'base64' else value.hex()
@@ -590,7 +590,7 @@ def test_outside_context_first_preserves_public_value_navigation(daemon):
     grant, browser = _browser_grant(daemon, FERB_BROWSER, 'Research a public topic', [])
     async def expose():
         spans = daemon.daemon.spans
-        for label in ['external:web:kartikey.xyz', 'private']:
+        for label in ['external:web:mysite.example', 'private']:
             span = spans.start('context.exposure', task_id=grant.task_id, input={})
             spans.finish(span, output={'text':'Context delivery wrapper', 'payload':'Published-Event-Address'}, origin=label)
     daemon.run(expose())
@@ -601,11 +601,11 @@ def test_outside_context_first_preserves_public_value_navigation(daemon):
 
 
 # ---------- L4 false alarm (owner live use, 2026-10-14; task 66cb7e4d, confirmation 51bd1c71) ----------
-# "analyze the insta post now" with a reel open in Brave: opening https://www.instagram.com/reels/DeUp4feRxJI/ asked
+# "analyze the insta post now" with a reel open in Brave: opening https://www.instagram.com/reels/Ab3Cd5EfGhI/ asked
 # because the reel's id was a token of the owner's own record of their tab (an instagram.com URL). A value whose every
 # private occurrence is inside a URL of the destination's own site discloses nothing new to that site.
 
-REEL = "DeUp4feRxJI"
+REEL = "Ab3Cd5EfGhI"
 TAB = f'Front window: Brave Browser — "Reel" — tab https://www.instagram.com/reels/{REEL}/ (owner\'s Default profile)'
 
 
@@ -655,7 +655,7 @@ def test_a_value_also_in_plain_private_text_still_asks_on_that_site() -> None:
 def test_the_live_reel_case_opens_without_a_question(daemon: RunningDaemon) -> None:
     caps = [FakeCap("probe.tab", "read", {"probe"}, reads=(("file", "/Users/me/front-window.txt"),),
                     content={"text": TAB}),
-            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/report"),),
+            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/report"),),
                     content={"text": "twenty pages from the conversation"})]
     grant, fb = _browser_grant(daemon, FERB_BROWSER, "analyze the insta post now", caps)
     _trifecta_with(daemon, grant, "probe.tab")

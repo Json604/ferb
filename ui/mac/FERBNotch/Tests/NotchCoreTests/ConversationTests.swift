@@ -22,7 +22,7 @@ final class ConversationTests: XCTestCase {
     }
 
     @MainActor func testIncrementalReplyKeepsOneTurnAndFinalTextReplacesChunks() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Hello"
         let id = model.session.beginWork()!
         model.conversation.begin(id: id, request: "Hello", sources: [])
@@ -37,7 +37,7 @@ final class ConversationTests: XCTestCase {
     }
 
     @MainActor func testTaskCompletionRevealsTuckedHeaderWithoutRequestingKeyboardFocus() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Find notes"
         let id = model.session.beginWork()!
         model.conversation.begin(id: id, request: "Find notes", sources: [])
@@ -54,7 +54,7 @@ final class ConversationTests: XCTestCase {
     }
 
     @MainActor func testReplyOpensCollapsedPanelAndPersistsOnlyOnce() {
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let defaults = scratchDefaults()
         let model = NotchModel(preferences: defaults)
         model.session.draft = "Hello"
         let id = model.session.beginWork()!

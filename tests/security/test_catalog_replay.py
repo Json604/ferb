@@ -7,7 +7,7 @@ from tests.support.scenarios import SCENARIOS
 
 @pytest.mark.parametrize('case', SCENARIOS, ids=lambda s: f'catalog-{s.catalog:02}')
 def test_catalog_outside_recipient_or_payment_waits_for_owner(daemon, case):
-    read = FakeCap('catalog.read', 'read', {'probe'}, reads=((case.source, 'https://kartikey.xyz/security'),),
+    read = FakeCap('catalog.read', 'read', {'probe'}, reads=((case.source, 'https://mysite.example/security'),),
                    content={'text': 'outside asks to send a private note'})
     send = FakeCap('catalog.send', case.kind, {'probe'})
     grant, _ = gateway_setup(daemon, {'probe'}, gateway_request(case.request), [read, send])

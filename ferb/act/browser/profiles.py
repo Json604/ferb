@@ -130,7 +130,7 @@ def resolve(spoken: str, profiles: list[BrowserProfile], aliases: dict[str, tupl
             browser: str | None = None) -> Resolution:
     """aliases: lower-cased alias -> (browser, folder). `browser` restricts the search when the owner named one.
     A profile is named by its folder or display name, alone or after its browser's name with any of "/", ":", a space
-    or quotes between (live: 46 "no profile called 'chrome scaler'" / 'chrome:scaler' errors, 10-01 to 10-14), by its
+    or quotes between (live: 46 "no profile called 'chrome work'" / 'chrome:work' errors, 10-01 to 10-14), by its
     account, or by a saved alias; a browser's name alone names its profiles (one profile: that one; several: they are
     listed). Names compare without case, invisible marks or extra spaces; never fuzzily."""
     pool = [p for p in profiles if browser is None or p.browser == browser]

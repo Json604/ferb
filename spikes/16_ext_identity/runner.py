@@ -26,7 +26,7 @@ HOSTS = Path.home() / "Library/Application Support/Google/Chrome/NativeMessaging
 MANIFEST = HOSTS / "com.ferb.spike16.json"
 PY = next((Path.home() / ".ferb/python").glob("cpython-3.12*/bin/python3.12"))
 HERE = Path(__file__).parent
-ADDRESS = "ferb.kartikey@gmail.com"
+ADDRESS = "ferb.test@example.com"   # set to the FERB profile's own Google account
 URLS = {"feed": "https://mail.google.com/mail/feed/atom", "myaccount": "https://myaccount.google.com/",
         "inbox": "https://mail.google.com/mail/u/0/#inbox"}
 

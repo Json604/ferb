@@ -5,7 +5,7 @@ from ferb.core import origin
 
 
 def target_words(targets: Any) -> str:
-    """A task's targets as memory query words (L36 §3, §4): each site's host labels ("usvisascheduling com"), the apps
+    """A task's targets as memory query words (L36 §3, §4): each site's host labels ("appointments example"), the apps
     and recipients as named, each path's last part. The task's own words; the common-word filter weighs them, so "com"
     carries nothing (no word list, rule 6)."""
     from pathlib import PurePath

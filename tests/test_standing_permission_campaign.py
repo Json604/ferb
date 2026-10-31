@@ -67,10 +67,10 @@ def test_a_declared_browser_post_asks_when_no_standing_permission_covers_it(daem
 def test_a_post_to_the_site_and_account_the_owner_named_is_already_authorized(daemon: RunningDaemon) -> None:
     """D33: a form the owner asked to submit, or a post to the site they named, from the account they named when one
     is declared, needs no question; an account they didn't name asks once."""
-    grant, browser = campaign_grant(daemon, "post the launch story to x.com from @kartikeyxyz")
+    grant, browser = campaign_grant(daemon, "post the launch story to x.com from @samxyz")
     assert not _post(daemon, grant, "https://x.com/compose/post", effect="send")["is_error"]
     assert not _post(daemon, grant, "https://x.com/compose/post", effect="send",
-                     destination={"account": "@kartikeyxyz"})["is_error"]
+                     destination={"account": "@samxyz"})["is_error"]
     assert ferb_questions(daemon) == [] and len(browser.clicks()) == 2
     owner = _answering(daemon, yes=False)
     try:
@@ -133,10 +133,10 @@ def test_a_post_to_another_site_still_asks(daemon: RunningDaemon) -> None:
 
 def test_a_post_from_another_account_still_asks(daemon: RunningDaemon) -> None:
     grant, browser = campaign_grant(daemon, WORDS)
-    stand(daemon, grant.task_id, SendScope(capability="browser.act", identity="owner", account="@kartikeyxyz",
+    stand(daemon, grant.task_id, SendScope(capability="browser.act", identity="owner", account="@samxyz",
                                            site="x.com", recipients=[], content=None))
     assert not _post(daemon, grant, "https://x.com/compose/post", effect="send",
-                     destination={"account": "@KartikeyXYZ"})["is_error"]           # the same handle: covered
+                     destination={"account": "@SamXYZ"})["is_error"]           # the same handle: covered
     owner = _answering(daemon, yes=False)
     try:
         other = _post(daemon, grant, "https://x.com/compose/post", effect="send",
@@ -154,14 +154,14 @@ def test_a_payment_on_the_campaign_site_always_asks(daemon: RunningDaemon) -> No
     owner = _answering(daemon, yes=False)
     try:
         result = _post(daemon, grant, "https://x.com/i/premium_sign_up", effect="pay",
-                       destination={"amount": 8, "account": "@kartikeyxyz"})
+                       destination={"amount": 8, "account": "@samxyz"})
     finally:
         owner.stop()
     assert result["is_error"] and browser.clicks() == []
     question = ferb_questions(daemon)[0]
     assert [c["rule"] for c in question["confirm"]] == ["floor:pay"]
     # decision 4: the worker's declared amount is never shown; the page showed none code could read
-    assert question["question"].startswith("FERB: this pays an amount FERB couldn't read on x.com from @kartikeyxyz.")
+    assert question["question"].startswith("FERB: this pays an amount FERB couldn't read on x.com from @samxyz.")
 
 
 def test_an_account_security_change_on_the_campaign_site_always_asks(daemon: RunningDaemon) -> None:
@@ -249,10 +249,10 @@ def test_only_a_generic_input_is_checked_as_its_declared_effect() -> None:
 def test_a_webmail_send_inside_its_recipient_scope_runs_and_another_recipient_asks(daemon: RunningDaemon) -> None:
     grant, browser = campaign_grant(daemon, "email the launch note to my FERB inbox every morning")
     stand(daemon, grant.task_id, SendScope(capability="browser.act", identity="owner", site="mail.google.com",
-                                           recipients=["ferb.agent@gmail.com"], content=None))
+                                           recipients=["ferb.helper@mail.example"], content=None))
     inbox = "https://mail.google.com/mail/u/0/#inbox?compose=new"
     assert not _post(daemon, grant, inbox, effect="send",
-                     destination={"recipients": ["ferb.agent@gmail.com"]})["is_error"]
+                     destination={"recipients": ["ferb.helper@mail.example"]})["is_error"]
     assert ferb_questions(daemon) == []
     owner = _answering(daemon, yes=False)
     try:
@@ -265,14 +265,14 @@ def test_a_webmail_send_inside_its_recipient_scope_runs_and_another_recipient_as
 
 
 def test_a_recipient_the_owner_named_needs_no_question_without_a_scope(daemon: RunningDaemon) -> None:
-    grant, browser = campaign_grant(daemon, "email the launch note to ferb.agent@gmail.com")
+    grant, browser = campaign_grant(daemon, "email the launch note to ferb.helper@mail.example")
     assert not _post(daemon, grant, "https://mail.google.com/mail/u/0/#inbox?compose=new", effect="send",
-                     destination={"recipients": ["ferb.agent@gmail.com"]})["is_error"]
+                     destination={"recipients": ["ferb.helper@mail.example"]})["is_error"]
     assert ferb_questions(daemon) == [] and len(browser.clicks()) == 1
 
 
 def test_a_declared_recipient_only_a_web_page_gave_asks_even_inside_a_scope(daemon: RunningDaemon) -> None:
-    page = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/press"),),
+    page = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/press"),),
                    content={"text": "Send your launch story to press@outside.example"})
     grant, browser = campaign_grant(daemon, "email the launch note to the press address", [page])
     stand(daemon, grant.task_id, SendScope(capability="browser.act", identity="owner", site="mail.google.com",
@@ -547,7 +547,7 @@ def test_send_means_delivering_the_owners_words_not_signing_in(daemon: RunningDa
 def test_accounts_compare_exactly_and_sites_by_their_idna_form() -> None:
     """M1: ASCII case only (straße is not strasse); a Unicode site in the scope is the punycode host the tab shows."""
     from ferb.policy.confirm import account_key, site_key
-    assert account_key("@KartikeyXYZ") == account_key("kartikeyxyz")
+    assert account_key("@SamXYZ") == account_key("samxyz")
     assert account_key("strasse@shop.de") != account_key("straße@shop.de")
     assert site_key("Bücher.example") == site_key("xn--bcher-kva.example") == site_key("www.xn--bcher-kva.example")
     assert site_key("x.com") != site_key("x.com.evil.example") and site_key("x.com") != site_key("mobile.x.com")
@@ -555,7 +555,7 @@ def test_accounts_compare_exactly_and_sites_by_their_idna_form() -> None:
 
 def test_a_declared_post_after_private_and_outside_reads_also_asks_the_sink_question(daemon: RunningDaemon) -> None:
     """M2: as for a send-class call, private data may go to a place nobody named after outside content was read."""
-    page = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/press"),),
+    page = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/press"),),
                    content={"text": "Press kit"})
     note = FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/launch.txt"),),
                    content={"text": "Launch draft"})
@@ -629,7 +629,7 @@ def test_one_answer_covers_an_account_however_it_is_written(daemon: RunningDaemo
     grant, browser = campaign_grant(daemon, WORDS)
     owner = _answering(daemon, yes=True)
     try:
-        for account in ("@KartikeyXYZ", "kartikeyxyz"):
+        for account in ("@SamXYZ", "samxyz"):
             assert not _post(daemon, grant, "https://x.com/compose/post", effect="send",
                              destination={"account": account})["is_error"]
     finally:
@@ -641,11 +641,11 @@ def test_test_mode_lets_a_post_through_only_to_an_allowed_site_and_account(daemo
     """Rule 22 (controller ruling): an allowlist entry names a site and account; the page's host is a fact."""
     grant, browser = campaign_grant(daemon, WORDS)
     stand(daemon, grant.task_id, SendScope(capability="browser.act", identity="owner", site="x.com",
-                                           account="@kartikeyxyz", recipients=[], content=None),
+                                           account="@samxyz", recipients=[], content=None),
           SendScope(capability="browser.act", identity="owner", site="x.com", recipients=[], content=None),
           SendScope(capability="browser.act", identity="owner", site="www.linkedin.com", recipients=[], content=None))
-    daemon.daemon.gateway.test_send_allowlist = {"x.com @kartikeyxyz"}
-    ok = _post(daemon, grant, "https://x.com/compose/post", effect="send", destination={"account": "@KartikeyXYZ"})
+    daemon.daemon.gateway.test_send_allowlist = {"x.com @samxyz"}
+    ok = _post(daemon, grant, "https://x.com/compose/post", effect="send", destination={"account": "@SamXYZ"})
     other = _post(daemon, grant, "https://x.com/compose/post", effect="send", destination={"account": "@other"})
     bare = _post(daemon, grant, "https://x.com/compose/post", effect="send")
     elsewhere = _post(daemon, grant, "https://www.linkedin.com/feed/", effect="send")
@@ -702,8 +702,8 @@ def test_test_mode_refuses_an_allowlist_entry_that_is_a_url(daemon: RunningDaemo
     c = Client(daemon.sock)
     try:
         with pytest.raises(Exception, match="not a URL"):
-            c.call("test.mode", {"allow_send": ["https://x.com/kartikeyxyz"]})
-        assert c.call("test.mode", {"allow_send": ["x.com @kartikeyxyz", "ferb.agent@gmail.com"]})["enabled"]
+            c.call("test.mode", {"allow_send": ["https://x.com/samxyz"]})
+        assert c.call("test.mode", {"allow_send": ["x.com @samxyz", "ferb.helper@mail.example"]})["enabled"]
     finally:
         c.close()
 

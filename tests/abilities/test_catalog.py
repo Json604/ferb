@@ -132,9 +132,9 @@ def test_missing_packaged_procedure_reports_unavailable(tmp_path, monkeypatch):
 def test_builtin_trust_cannot_override_observed_or_inferred_sources():
     cap = build().capabilities['abilities.read']
     returned = ToolResult({'observation': 'The check is still visible.', 'decision': 'Inspect again.'},
-                          read_sources=(('web', 'https://kartikey.xyz'), ('origin', origin.INFERRED)))
+                          read_sources=(('web', 'https://mysite.example'), ('origin', origin.INFERRED)))
     assert result_origins(returned.read_sources, cap.origin, 'read') == {
-        origin.external('web', 'kartikey.xyz'), origin.INFERRED}
+        origin.external('web', 'mysite.example'), origin.INFERRED}
     assert result_origins((), cap.origin, 'read') == {origin.FERB}
 
 

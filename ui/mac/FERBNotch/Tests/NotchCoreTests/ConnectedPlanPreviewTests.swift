@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class ConnectedPlanPreviewTests: XCTestCase {
     func testFirstDeltaUsesCompactConnectedSurfaceWithoutExpandingSession() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Check Gmail"
         let id = model.session.beginWork()!
         model.conversation.begin(id: id, request: "Check Gmail", sources: [])
@@ -60,7 +60,7 @@ final class ConnectedPlanPreviewTests: XCTestCase {
         XCTAssertNil(notice.text)
     }
     func testBackgroundStreamUsesRestoredForegroundAndTerminalPromotes() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Check Gmail"
         let id = model.session.beginWork()!
         model.conversation.begin(id: id, request: "Check Gmail", sources: [])
@@ -82,7 +82,7 @@ final class ConnectedPlanPreviewTests: XCTestCase {
     }
 
     func testSameLineChunksDoNotRestartRevealAndUserOpenedChatRemainsOpen() async throws {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.collapse()
         var presentations = 0
         model.onBackgroundChange = { _ in presentations += 1 }
@@ -99,7 +99,7 @@ final class ConnectedPlanPreviewTests: XCTestCase {
     }
 
     func testCompactTextSurvivesClosingSurfaceWithoutExposingTranscript() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.collapse()
         model.acknowledgement.show("Checking Gmail")
         model.acknowledgement.dismiss()
@@ -131,7 +131,7 @@ final class ConnectedPlanPreviewTests: XCTestCase {
     }
 
     func testInterruptedOlderSubmissionDoesNotDismissNewerPlanPreview() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Old task"
         let old = model.session.beginWork()!
         model.conversation.begin(id: old, request: "Old task", sources: [])

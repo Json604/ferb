@@ -7,7 +7,7 @@ import XCTest
 final class ContinuousChatTests: XCTestCase {
     func testTwoMessagesCanRunAndFinishOutOfOrderWithoutErasingNextDraft() {
         let rpc = ChatRPC()
-        let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
         model.session.draft = "First task"
         model.startWork()
         let first = model.conversation.turns[0].id
@@ -37,7 +37,7 @@ final class ContinuousChatTests: XCTestCase {
     }
 
     func testFirstStreamedAnswerReopensFERBAndShowsAttentionWithoutTakingFocus() {
-        let model = NotchModel(rpc: ChatRPC(), preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: ChatRPC(), preferences: scratchDefaults())
         model.session.draft = "First task"
         model.startWork()
         let turnID = model.conversation.turns[0].id
@@ -62,7 +62,7 @@ final class ContinuousChatTests: XCTestCase {
     }
 
     func testTranscriptStartsRoomyAndUsesTheSavedResizableHeight() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         XCTAssertEqual(model.bodyWidth, 440)
         XCTAssertEqual(model.chatTranscriptHeight, 300)
         model.resizePanel(width: 520, transcriptHeight: 380, persist: true)

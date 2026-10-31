@@ -102,7 +102,7 @@ class HiddenInput:
         """The sites a record saved at `target` lists (I14, fix round 1): the task's target sites (as a steer left
         them) whose host the owner typed in this request's words, a leading "www." aside (`typed_site`, rule 8's
         provenance: a site only outside content or the model named never links). None when `target` is an app or
-        itself one of those sites: only a sign-in form on another address needs a link, and a sign-in on the visa
+        itself one of those sites: only a sign-in form on another address needs a link, and a sign-in on the bank
         site itself must not hand its username to the task's other sites. Only the owner-typed sites count for that
         test (Task 6 re-review): the planner may add the sign-in form's host to the targets after a steer."""
         from ferb.identity.owner_secrets import same_site, site_host, typed_site
@@ -118,8 +118,8 @@ class HiddenInput:
         """The task's owner-typed site a question or `secrets.list` at `target` reads as a link before any entry is
         saved there (coordinator ruling), and the one a save there stores (re-review N-1): `_login_sites`, only when
         they are exactly one site ("www." aside; review I-2: with several, a sign-in on any other page could be any of
-        their accounts, and a password saved at Google's form in a task naming the visa site and gmail.com would show
-        the visa username at Google in every later task)."""
+        their accounts, and a password saved at Google's form in a task naming the bank site and gmail.com would show
+        the bank username at Google in every later task)."""
         typed = self._login_sites(ctx, target)
         return typed if len({h.removeprefix("www.") for h in typed}) == 1 else []
 
@@ -262,7 +262,7 @@ def secret_summary(target: str, remember: str | None, app: str | None = None, us
     with the place from the code-derived target (an origin's host, or the app: its name as macOS reports it, else its
     bundle id), so no other text comes before it (re-review R1); then the account, when a username is saved for that
     place (L36 §5, ruling C1: after the place), naming the site it was saved for when it came through a link
-    (`username_place`, review I-2: "usvisascheduling.com account: …"); then what the value is for: the worker's
+    (`username_place`, review I-2: "bank.example account: …"); then what the value is for: the worker's
     proposed name, cleaned by `shown_name`, in quotes, only ever as the name it is saved under; and whether it is
     kept."""
     place = secret_place(target, app)

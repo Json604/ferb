@@ -127,8 +127,8 @@ def _one_line(value: Any) -> str:
 
 
 def slug_words(slug: str) -> str:
-    """A key or subject slug as the words it is made of (L36 §3): `usvisascheduling_username` -> "usvisascheduling
-    username", `project:us-b1b2-visa` -> "us b1b2 visa" (the label before ':' names its kind, not the item)."""
+    """A key or subject slug as the words it is made of (L36 §3): `bookings_username` -> "bookings
+    username", `project:home-move` -> "home move" (the label before ':' names its kind, not the item)."""
     return ' '.join(query_terms(slug.split(':', 1)[1] if ':' in slug else slug))
 
 

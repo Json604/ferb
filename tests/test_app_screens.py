@@ -114,15 +114,15 @@ def test_choosing_ferbs_profile_writes_config_through_the_settings_path(daemon: 
     d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
     _as_app(daemon)
     found = _call(daemon, "identity.find", {"address": "FERB@gmail.com"})
-    assert [(c["folder"], c["only"]) for c in found["candidates"]] == [("Profile 22", True)]
+    assert [(c["folder"], c["only"]) for c in found["candidates"]] == [("Profile 7", True)]
     with pytest.raises(RpcError):                                  # a profile signed into another account
         _call(daemon, "identity.choose", {"address": "ferb@gmail.com", "browser": "chrome", "folder": "Default"})
     assert d.config.get("mailbox", "address") is None
     stored = _call(daemon, "identity.choose", {"address": "ferb@gmail.com", "browser": "chrome",
-                                               "folder": "Profile 22"})
-    assert stored == {"address": "ferb@gmail.com", "browser": "chrome", "profile": "Profile 22"}
+                                               "folder": "Profile 7"})
+    assert stored == {"address": "ferb@gmail.com", "browser": "chrome", "profile": "Profile 7"}
     assert (d.config.get("mailbox", "address"), d.config.get("identity", "browser"),
-            d.config.get("identity", "profile")) == ("ferb@gmail.com", "chrome", "Profile 22")
+            d.config.get("identity", "profile")) == ("ferb@gmail.com", "chrome", "Profile 7")
     assert any(e.data.get("key") == "identity" for e in _kind(daemon, "settings.changed"))
 
     async def paired() -> None:                                    # its profile paired as FERB: its tools attach
@@ -146,7 +146,7 @@ def test_without_its_own_profile_ferb_browses_in_the_profile_the_owner_picked() 
     bindings = [Binding("i1", "chrome", "Default", Identity.OWNER), Binding("i2", "chrome", "Profile 1", Identity.OWNER)]
     picked = Resolver(lambda: profiles, lambda: bindings, lambda: None, owner_default=lambda: ("chrome", "Profile 1"))
     assert (picked.choose(None).browser, picked.choose(None).folder) == ("chrome", "Profile 1")
-    with_own = Resolver(lambda: profiles, lambda: bindings, lambda: ("chrome", "Profile 22"),
+    with_own = Resolver(lambda: profiles, lambda: bindings, lambda: ("chrome", "Profile 7"),
                         owner_default=lambda: ("chrome", "Profile 1"))
     with pytest.raises(NeedsOwner):                                # FERB's own profile exists: nothing is assumed
         with_own.choose(None)
@@ -172,18 +172,18 @@ def test_delete_removes_the_keychain_item_and_never_returns_its_value(daemon: Ru
     values, keychain, delete = _fake_keychain()
     store = OwnerSecrets(d.home, keychain, delete)
     store.remember("password", "https://shop.example", "hunter2-canary")
-    store.remember("visa number", "https://shop.example", "4111111111111111", kind="card_number")
+    store.remember("permit number", "https://shop.example", "4111111111111111", kind="card_number")
     d._owner_secrets = lambda: OwnerSecrets(d.home, keychain, delete)     # type: ignore[method-assign]
     _as_app(daemon)
     listed = _call(daemon, "secrets.saved")
-    assert {(e["name"], e["kind"]) for e in listed["entries"]} == {("password", "secret"), ("visa number", "card_number")}
+    assert {(e["name"], e["kind"]) for e in listed["entries"]} == {("password", "secret"), ("permit number", "card_number")}
     assert "hunter2" not in str(listed) and "4111" not in str(listed)
-    out = _call(daemon, "secrets.delete", {"place": "https://shop.example", "name": "visa number"})
-    assert out == {"place": "https://shop.example", "name": "visa number", "deleted": True}
+    out = _call(daemon, "secrets.delete", {"place": "https://shop.example", "name": "permit number"})
+    assert out == {"place": "https://shop.example", "name": "permit number", "deleted": True}
     assert "4111111111111111" not in values.values() and "hunter2-canary" in values.values()
     assert [e["name"] for e in _call(daemon, "secrets.saved")["entries"]] == ["password"]
     with pytest.raises(RpcError):
-        _call(daemon, "secrets.delete", {"place": "https://shop.example", "name": "visa number"})
+        _call(daemon, "secrets.delete", {"place": "https://shop.example", "name": "permit number"})
     rows = _kind(daemon, "secret.deleted")
     assert rows and "4111" not in str([r.data for r in rows])
 

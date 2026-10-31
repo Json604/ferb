@@ -44,7 +44,7 @@ class MemoryGlue:
         from ferb.memory import summary
         from ferb.memory.distill import Distiller
         from ferb.memory.profile import CoreProfile
-        from ferb.memory.upgrade import clean_before_tier1, close_fact_nodes, seed_owner_items
+        from ferb.memory.upgrade import clean_before_tier1, close_fact_nodes
         assert self.db is not None and self.journal is not None
         from ferb.memory.tools import LearningRead
         self.learning.note = lambda kind, data: self._journal().append(kind, data)
@@ -66,8 +66,6 @@ class MemoryGlue:
         # step 9a upgrade (storage decision 5): memory cleaned once, then the core profile seeded from it, both journaled
         clean_before_tier1(self.memory, lambda kind, data: self._journal().append(kind, data))
         self.profile.seed()
-        # step 10b (prompts decision 4): the owner-confirmed items that replace the prompt patches, stored once
-        seed_owner_items(self.memory, lambda kind, data: self._journal().append(kind, data), self._seed_username)
         # step 9b upgrade: the old fact-node copies close once (search reads memory_items itself)
         close_fact_nodes(self.db, self.clock.now().isoformat(), lambda kind, data: self._journal().append(kind, data))
         self._restore_memory_questions()
@@ -80,14 +78,6 @@ class MemoryGlue:
         if self.run_embeddings:                      # decision 8: the local model, then new text in the background
             self._embed_task = asyncio.get_running_loop().create_task(self._embed_loop())
         self._resume_imports()                       # memory import: a run a restart interrupted goes on
-
-    def _seed_username(self, place: str, name: str, source: str) -> None:
-        """A seeded memory item's username for its site's login record (L36 §5), only when the record has none: an
-        owner-saved username is never replaced by a seed."""
-        from ferb.identity.owner_secrets import OwnerSecrets
-        store = OwnerSecrets(self.home)
-        if not (store.records().get(place) or {}).get("username"):
-            store.set_username(place, name, source)
 
     def _app_versions(self) -> dict[str, str]:
         profile = self._device_profile()

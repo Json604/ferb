@@ -54,9 +54,9 @@ current image illustrates the notch UI.
 
 **Small promo tile:** `promo-440x280.png`
 
-**Official URL / Homepage:** https://ferb.kartikey.xyz
+**Official URL / Homepage:** https://github.com/Json604/ferb
 
-**Support URL:** mailto:kartikey060105@gmail.com until the GitHub repository is public (then its Issues page)
+**Support URL:** https://github.com/Json604/ferb/issues
 
 ## Privacy practices tab
 
@@ -137,7 +137,7 @@ activity in the FERB app's activity history on their Mac):
 - I do not use or transfer user data for purposes that are unrelated to my item's single purpose.
 - I do not use or transfer user data to determine creditworthiness or for lending purposes.
 
-**Privacy policy URL:** https://ferb.kartikey.xyz/privacy (the `site/` folder, deployed on Vercel)
+**Privacy policy URL:** https://github.com/Json604/ferb/blob/main/site/privacy.html (the `site/` folder)
 
 ## Distribution
 

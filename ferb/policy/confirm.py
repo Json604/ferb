@@ -218,7 +218,7 @@ def _host(where: str) -> str:
 
 
 def shown_amount(amount: float | None, currency: str | None = None) -> str:
-    """An amount as the owner reads it, with the currency the page showed: "₹137.39", "INR 137.39", "137.39"."""
+    """An amount as the owner reads it, with the currency the page showed: "₹248.75", "INR 248.75", "248.75"."""
     if amount is None:
         return ""
     number = str(int(amount)) if amount == int(amount) else f"{amount:.2f}"
@@ -227,7 +227,7 @@ def shown_amount(amount: float | None, currency: str | None = None) -> str:
 
 
 def shown_origin(label: str) -> str:
-    """One origin label in the owner's terms, without FERB's internal ids: "the web page on kartikey.xyz", "a message,
+    """One origin label in the owner's terms, without FERB's internal ids: "the web page on example.com", "a message,
     wa:123", "an email", "text you pasted", "something FERB remembered"."""
     head, _, rest = label.partition(":")
     if head != "external":

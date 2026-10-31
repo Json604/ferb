@@ -15,7 +15,7 @@ class SeedError(Exception):
 
 @dataclass(frozen=True)
 class ChromeProfile:
-    folder: str                 # "Profile 22"
+    folder: str                 # "Profile 7"
     name: str                   # what the owner calls it ("FERB")
     accounts: tuple[str, ...]   # Chrome accounts signed into it (lowercased emails)
 

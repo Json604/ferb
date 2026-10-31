@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 final class UpdateWiringTests: XCTestCase {
     private func model() -> NotchModel {
-        NotchModel(rpc: ScriptedRPC(), preferences: UserDefaults(suiteName: "ferb-update-\(UUID().uuidString)")!)
+        NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("ferb-update"))
     }
 
     func testTheNotchSaysUpdatedToOncePerNewBuild() {

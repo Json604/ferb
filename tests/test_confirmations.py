@@ -260,7 +260,7 @@ def test_a_value_from_outside_content_the_owner_also_named_is_fine(daemon: Runni
 
 def test_private_data_to_a_new_destination_after_outside_content_asks(daemon: RunningDaemon) -> None:   # S4 (a)
     mine = FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/cv.pdf"),), content={"text": "cv"})
-    web = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/p"),), content={"text": "hi"})
+    web = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/p"),), content={"text": "hi"})
     post = FakeCap("probe.post", "post", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("read my cv and the page"), [mine, web, post])
     gateway_tool_call(daemon, grant, "probe.file"); gateway_tool_call(daemon, grant, "probe.web")
@@ -271,13 +271,13 @@ def test_private_data_to_a_new_destination_after_outside_content_asks(daemon: Ru
     q = _asked(daemon)[0]["args"]["question"]
     assert "read your own data" in q and "outside content" in q and "paste.example" in q
     assert q.startswith("FERB: this sends to paste.example, a place you haven't named, after this task read your own "
-                        "data and outside content (the web page on kartikey.xyz). The step: probe.post")
+                        "data and outside content (the web page on mysite.example). The step: probe.post")
     # SQ6: the Yes made paste.example a known destination for every later task
     assert _known(daemon, "host", "paste.example")
 
 
 def test_without_both_reads_a_post_to_a_new_place_runs(daemon: RunningDaemon) -> None:        # the benign twin
-    web = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/p"),), content={"text": "hi"})
+    web = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/p"),), content={"text": "hi"})
     post = FakeCap("probe.post", "post", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("summarize the page"), [web, post])
     gateway_tool_call(daemon, grant, "probe.web")                                       # outside content, nothing private
@@ -428,7 +428,7 @@ def test_a_shell_command_runs_when_no_snapshot_can_be_taken(daemon: RunningDaemo
 
 def test_a_typed_address_from_the_owners_words_is_fine(daemon: RunningDaemon) -> None:
     assert destination_shape("a@x.com") == "email" and destination_shape("+91 98765 43210") == "phone"
-    assert destination_shape("https://kartikey.xyz/p") == "url" and destination_shape("hello there") is None
+    assert destination_shape("https://mysite.example/p") == "url" and destination_shape("hello there") is None
     assert destination_shape("a@x") is None and destination_shape("12345") is None
     typed = FakeCap("probe.type", "fill_form", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("put a@x.com in the To field"), [typed])
@@ -512,10 +512,10 @@ def test_decide_the_sink_rule() -> None:
 
 
 def test_line_reads_in_the_owners_terms() -> None:
-    pay = _decide(Kind.PAY, Target(site="shop.example", account="visa:1234", amount=12.5, recipients=("x@y.com",)),
+    pay = _decide(Kind.PAY, Target(site="shop.example", account="permit:1234", amount=12.5, recipients=("x@y.com",)),
                   {"recipient:0": ["owner_words"], "amount": ["owner_words"]})
     assert confirm.line(pay, "probe.pay to=x@y.com", "") == (
-        "FERB: this pays 12.50 to x@y.com on shop.example from visa:1234. The step: probe.pay to=x@y.com. Go ahead?")
+        "FERB: this pays 12.50 to x@y.com on shop.example from permit:1234. The step: probe.pay to=x@y.com. Go ahead?")
     sec = _decide(Kind.ACCOUNT_SECURITY, Target(site="accounts.example"), {})
     assert confirm.line(sec, "s", "the owner asked") == (
         "FERB: this changes account security (a password, two-factor or recovery setting, or deleting the account) on "
@@ -534,12 +534,12 @@ def test_line_reads_in_the_owners_terms() -> None:
 
 
 def test_outside_sources_read_in_the_owners_terms_and_the_list_is_clipped() -> None:
-    assert [confirm.shown_origin(o) for o in ("external:web:kartikey.xyz", "external:message:wa:123", "external:paste",
+    assert [confirm.shown_origin(o) for o in ("external:web:mysite.example", "external:message:wa:123", "external:paste",
                                                "external:unlabeled", "external:email:e1", "external:web:excluded",
                                                "external:download", "external:web", "external:memory",
                                                "external:web:trail", "external:message:net.whatsapp.whatsapp",
                                                "external:feed:x9")] == [
-        "the web page on kartikey.xyz", "a message, wa:123", "text you pasted", "content FERB couldn't label",
+        "the web page on mysite.example", "a message, wa:123", "text you pasted", "content FERB couldn't label",
         "an email", "a site on your exclusion list", "a downloaded file", "a web page", "something FERB remembered",
         "pages you visited", "a message", "content from feed"]                     # no internal ids
     many = [f"external:web:s{i}.example" for i in range(5)]
@@ -622,8 +622,8 @@ def test_typing_an_address_records_it_as_the_recipient() -> None:              #
         assert mac.describe(mac.Input(app="WhatsApp", action=action, text=text)).target.recipients == who, action
     page = SimpleNamespace(tab_url=lambda tab: "https://mail.example/compose", element_info=lambda tab, el: None)
     act = BrowserAct(page, OWNER_BROWSER)                                       # type: ignore[arg-type]
-    typed = act.describe(act.Input(tab="t1", element="s1e2", action="type", text="https://kartikey.xyz/p"))
-    assert typed.kind == Kind.FILL_FORM and typed.target.recipients == ("https://kartikey.xyz/p",)
+    typed = act.describe(act.Input(tab="t1", element="s1e2", action="type", text="https://mysite.example/p"))
+    assert typed.kind == Kind.FILL_FORM and typed.target.recipients == ("https://mysite.example/p",)
     assert typed.target.site == "mail.example"
     assert act.describe(act.Input(tab="t1", element="s1e2", action="type", text="hello")).target.recipients == ()
     for text in ("a@x.com;", "<a@x.com>", "a@x.com,"):
@@ -1180,7 +1180,7 @@ def test_dont_ask_for_30_minutes_covers_routine_questions_only(daemon: RunningDa
             _Typing("probe.type", "mac_input", {"probe"}), FakeCap("probe.shell", "run_shell", {"probe"}),
             FakeCap("probe.post", "post", {"probe"})]
     readers = [FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/cv.pdf"),), content={"t": "cv"}),
-               FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/p"),), content={"t": "x"})]
+               FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/p"),), content={"t": "x"})]
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("tell my friends"), [send, pay, *hard, *readers])
 
     def owner_asked() -> list[str]:                  # the questions that reached the owner, not the window's

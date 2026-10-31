@@ -26,18 +26,18 @@ def chrome_data(tmp_path: Path, accounts: dict[str, tuple[str, list[str]]]) -> P
 
 
 def test_choose_and_verify_accept_only_a_profile_holding_just_ferbs_account(tmp_path: Path) -> None:
-    root = chrome_data(tmp_path, {"Default": ("Me", ["owner@gmail.com"]), "Profile 22": ("FERB", [ADDR]),
+    root = chrome_data(tmp_path, {"Default": ("Me", ["owner@gmail.com"]), "Profile 7": ("FERB", [ADDR]),
                                   "Profile 3": ("Mixed", [ADDR, "owner@work.com"])})
     ps = profiles(root)
-    assert ChromeProfile("Profile 22", "FERB", (ADDR,)) in ps
+    assert ChromeProfile("Profile 7", "FERB", (ADDR,)) in ps
     with pytest.raises(SeedError, match="several"):
         choose(ps, ADDR)
-    assert choose(ps, ADDR, "FERB").folder == "Profile 22"
+    assert choose(ps, ADDR, "FERB").folder == "Profile 7"
     with pytest.raises(SeedError, match="also holds other accounts"):
         choose(ps, ADDR, "Mixed")
     with pytest.raises(SeedError, match="no Chrome profile"):
         choose(ps, "nobody@gmail.com")
-    assert verify(ADDR, "Profile 22", root).name == "FERB"
+    assert verify(ADDR, "Profile 7", root).name == "FERB"
     with pytest.raises(SeedError, match="also holds other accounts"):
         verify(ADDR, "Profile 3", root)                         # doctor flags a profile that gained an account
     with pytest.raises(SeedError, match="isn't signed into"):
@@ -47,7 +47,7 @@ def test_choose_and_verify_accept_only_a_profile_holding_just_ferbs_account(tmp_
 
 
 def test_cookie_and_password_stores_are_never_opened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = chrome_data(tmp_path, {"Profile 22": ("FERB", [ADDR])})
+    root = chrome_data(tmp_path, {"Profile 7": ("FERB", [ADDR])})
     opened: list[str] = []
     real = Path.read_text
 
@@ -55,5 +55,5 @@ def test_cookie_and_password_stores_are_never_opened(tmp_path: Path, monkeypatch
         opened.append(self.name)
         return real(self, *a, **k)
     monkeypatch.setattr(Path, "read_text", spy)
-    verify(ADDR, "Profile 22", root)
+    verify(ADDR, "Profile 7", root)
     assert set(opened) <= {"Local State", "Preferences"}

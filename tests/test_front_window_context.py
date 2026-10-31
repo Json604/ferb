@@ -208,7 +208,7 @@ def test_a_site_found_excluded_only_after_the_shot_is_labelled_excluded() -> Non
 
 GREENHOUSE = Window(7, 20, (0.0, 30.0, 1400.0, 900.0), "Job Application for Software Intern at Panthalassa")
 GREENHOUSE_URL = "https://job-boards.greenhouse.io/panthalassa/jobs/4012"
-KAGGLE_URL = "https://www.kaggle.com/competitions/rsna-knee-abnormality-detection/discussion/748111"
+CONTEST_URL = "https://www.contest.example/competitions/orbit-shapes-pattern-detection/discussion/748111"
 
 
 def scripted(bounds: Any, name: str, url: str, title: str | None = None) -> Any:
@@ -216,32 +216,32 @@ def scripted(bounds: Any, name: str, url: str, title: str | None = None) -> Any:
     return ScriptedWindow(bounds, name, url, name if title is None else title)
 
 
-KAGGLE = scripted((200.0, 80.0, 1200.0, 800.0), "RSNA Knee Abnormality Detection | Kaggle", KAGGLE_URL)
+CONTEST = scripted((200.0, 80.0, 1200.0, 800.0), "ORBIT Shapes Pattern Detection | Contest", CONTEST_URL)
 
 
 def test_the_tab_is_the_active_tab_of_the_window_at_the_captured_windows_place() -> None:
-    """AppleScript's `front window` (first in its list) is the Kaggle window; the captured window is the Greenhouse
+    """AppleScript's `front window` (first in its list) is the Contest window; the captured window is the Greenhouse
     one. The tab read is the captured window's, matched by its bounds."""
     from ferb.sense.watchers.browser_tabs import window_tab
     greenhouse = scripted(GREENHOUSE.bounds, GREENHOUSE.title, GREENHOUSE_URL)
-    assert window_tab([KAGGLE, greenhouse], GREENHOUSE.bounds, GREENHOUSE.title) is greenhouse
+    assert window_tab([CONTEST, greenhouse], GREENHOUSE.bounds, GREENHOUSE.title) is greenhouse
     near = scripted((1.0, 31.0, 1399.0, 901.0), "renamed meanwhile", GREENHOUSE_URL)    # within 2 pt, title changed
-    assert window_tab([KAGGLE, near], GREENHOUSE.bounds, GREENHOUSE.title) is near
+    assert window_tab([CONTEST, near], GREENHOUSE.bounds, GREENHOUSE.title) is near
 
 
 def test_windows_at_the_same_place_are_told_apart_by_the_captured_windows_title() -> None:
     """Two maximized windows share bounds: the captured window's title (the window server's name for it, its active
     tab's title) picks one; when it picks none or several, there is no tab rather than a wrong one."""
     from ferb.sense.watchers.browser_tabs import window_tab
-    kaggle = scripted(GREENHOUSE.bounds, KAGGLE.name, KAGGLE_URL)
+    contest = scripted(GREENHOUSE.bounds, CONTEST.name, CONTEST_URL)
     greenhouse = scripted(GREENHOUSE.bounds, GREENHOUSE.title, GREENHOUSE_URL)
-    assert window_tab([kaggle, greenhouse], GREENHOUSE.bounds, GREENHOUSE.title) is greenhouse
+    assert window_tab([contest, greenhouse], GREENHOUSE.bounds, GREENHOUSE.title) is greenhouse
     by_tab = scripted(GREENHOUSE.bounds, "", GREENHOUSE_URL, GREENHOUSE.title)            # no window name: its tab's
-    assert window_tab([kaggle, by_tab], GREENHOUSE.bounds, GREENHOUSE.title) is by_tab
+    assert window_tab([contest, by_tab], GREENHOUSE.bounds, GREENHOUSE.title) is by_tab
     with pytest.raises(LookupError, match="can't tell which tab"):
-        window_tab([kaggle, greenhouse], GREENHOUSE.bounds, "Some other page")
+        window_tab([contest, greenhouse], GREENHOUSE.bounds, "Some other page")
     with pytest.raises(LookupError, match="can't tell which tab"):
-        window_tab([kaggle, greenhouse], GREENHOUSE.bounds, "")                           # no title to tell by
+        window_tab([contest, greenhouse], GREENHOUSE.bounds, "")                           # no title to tell by
     with pytest.raises(LookupError, match="can't tell which tab"):
         window_tab([greenhouse, greenhouse], GREENHOUSE.bounds, GREENHOUSE.title)         # the same page twice
 
@@ -249,7 +249,7 @@ def test_windows_at_the_same_place_are_told_apart_by_the_captured_windows_title(
 def test_no_window_at_the_captured_place_gives_no_tab() -> None:
     from ferb.sense.watchers.browser_tabs import window_tab
     with pytest.raises(LookupError, match="none of the browser's windows"):
-        window_tab([KAGGLE], GREENHOUSE.bounds, GREENHOUSE.title)
+        window_tab([CONTEST], GREENHOUSE.bounds, GREENHOUSE.title)
     with pytest.raises(LookupError):
         window_tab([], GREENHOUSE.bounds, GREENHOUSE.title)
 
@@ -259,11 +259,11 @@ def test_a_browser_that_wont_give_bounds_is_matched_by_title_alone() -> None:
     and only when no other window could be."""
     from ferb.sense.watchers.browser_tabs import window_tab
     unknown = scripted(None, GREENHOUSE.title, GREENHOUSE_URL)
-    other = scripted(None, KAGGLE.name, KAGGLE_URL)
+    other = scripted(None, CONTEST.name, CONTEST_URL)
     assert window_tab([other, unknown], GREENHOUSE.bounds, GREENHOUSE.title) is unknown
     with pytest.raises(LookupError):
         window_tab([other], GREENHOUSE.bounds, GREENHOUSE.title)
-    at = scripted(GREENHOUSE.bounds, "something else", KAGGLE_URL)      # one at the place, one that could be anywhere
+    at = scripted(GREENHOUSE.bounds, "something else", CONTEST_URL)      # one at the place, one that could be anywhere
     with pytest.raises(LookupError):
         window_tab([at, scripted(None, "untitled", GREENHOUSE_URL)], GREENHOUSE.bounds, GREENHOUSE.title)
 
@@ -274,7 +274,7 @@ def test_the_applescript_read_lists_every_window_with_its_bounds_and_active_tab(
     import ferb.sense.watchers.browser_tabs as bt
     scripts: list[str] = []
     out = "\x1e".join(["0\x1d25\x1d1400\x1d925\x1fJob – Panthalassa\x1f" + GREENHOUSE_URL + "\x1fJob – Panthalassa",
-                       "200\x1d80\x1d1400\x1d880\x1fKaggle\x1f" + KAGGLE_URL + "\x1fKaggle",
+                       "200\x1d80\x1d1400\x1d880\x1fContest\x1f" + CONTEST_URL + "\x1fContest",
                        "\x1fSettings\x1f\x1f"]) + "\x1e\n"
 
     def run(cmd: list[str], **kw: Any) -> Any:
@@ -283,7 +283,7 @@ def test_the_applescript_read_lists_every_window_with_its_bounds_and_active_tab(
     monkeypatch.setattr(bt.subprocess, "run", run)
     got = bt.applescript_windows("com.brave.Browser")
     assert got == [bt.ScriptedWindow((0.0, 25.0, 1400.0, 900.0), "Job – Panthalassa", GREENHOUSE_URL, "Job – Panthalassa"),
-                   bt.ScriptedWindow((200.0, 80.0, 1200.0, 800.0), "Kaggle", KAGGLE_URL, "Kaggle"),
+                   bt.ScriptedWindow((200.0, 80.0, 1200.0, 800.0), "Contest", CONTEST_URL, "Contest"),
                    bt.ScriptedWindow(None, "Settings", "", "")]
     script = scripts[0]
     assert 'tell application id "com.brave.Browser"' in script and "front window" not in script
@@ -598,26 +598,26 @@ def test_a_cold_automation_check_still_gives_the_browser_tab(daemon: RunningDaem
 def test_the_daemon_reads_the_tab_of_the_window_it_captured_not_applescripts_front_window(
         daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     """Live case 2026-10-19 (request abd7fb6f…): the owner looked at a Greenhouse internship page in one Brave window;
-    AppleScript's front window was another Brave window showing a Kaggle discussion, and the planner was told the
-    Kaggle URL. The tab now comes from the window FERB captured (by its bounds, then its title); with two windows at
+    AppleScript's front window was another Brave window showing a Contest discussion, and the planner was told the
+    Contest URL. The tab now comes from the window FERB captured (by its bounds, then its title); with two windows at
     the same place and no title to tell them apart, there is no URL rather than a wrong one."""
     import ferb.sense.watchers.browser_tabs as browser_tabs
     title = GREENHOUSE.title
     fake_screen_mac(daemon, monkeypatch, [Window(121, 12, BOUNDS, title)], {12: ("Brave", "com.brave.Browser")})
     monkeypatch.setattr(daemon.daemon, "_automation_granted", lambda bundle: True)
-    monkeypatch.setattr(browser_tabs, "applescript_front_tab", lambda bundle: (KAGGLE_URL, KAGGLE.name))
-    listed = [scripted((40.0, 40.0, 900.0, 700.0), KAGGLE.name, KAGGLE_URL),          # AppleScript's front window
+    monkeypatch.setattr(browser_tabs, "applescript_front_tab", lambda bundle: (CONTEST_URL, CONTEST.name))
+    listed = [scripted((40.0, 40.0, 900.0, 700.0), CONTEST.name, CONTEST_URL),          # AppleScript's front window
               scripted(BOUNDS, title, GREENHOUSE_URL)]                                 # the one on screen
     monkeypatch.setattr(browser_tabs, "applescript_windows", lambda bundle: list(listed))
     script = install(daemon, [sup("reply", "Probably, on an F-1 with CPT."), sup("reply", "Which page is this?")])
-    chat(daemon, "can I get a visa to work for the duration of this internship?")
-    listed[0] = scripted(BOUNDS, KAGGLE.name, KAGGLE_URL)                              # both maximized now
+    chat(daemon, "can I get a permit to work for the duration of this internship?")
+    listed[0] = scripted(BOUNDS, CONTEST.name, CONTEST_URL)                              # both maximized now
     listed[1] = scripted(BOUNDS, "Panthalassa careers", GREENHOUSE_URL)                # and the title tells neither
     chat(daemon, "and this one?")
     blocks = [next(p for p in r.parts if p.startswith("Layer 2 — the owner's front window"))
               for r in planner_requests(script)]
-    assert GREENHOUSE_URL in blocks[0] and KAGGLE_URL not in blocks[0] and "kaggle" not in blocks[0].lower()
-    assert GREENHOUSE_URL not in blocks[1] and KAGGLE_URL not in blocks[1] and "can't tell which tab" in blocks[1]
+    assert GREENHOUSE_URL in blocks[0] and CONTEST_URL not in blocks[0] and "contest" not in blocks[0].lower()
+    assert GREENHOUSE_URL not in blocks[1] and CONTEST_URL not in blocks[1] and "can't tell which tab" in blocks[1]
     assert title in blocks[1]                                       # the window's own title still reaches the planner
 
 
@@ -636,7 +636,7 @@ def test_a_browser_page_neither_the_extension_nor_accessibility_read_still_reach
                                        empty_web_areas=[area])          # the page area stays empty, no extension
     monkeypatch.setattr(daemon.daemon, "_front_tab", lambda bundle, window, after_shot=False: None)
     script = install(daemon, [sup("reply", "Panthalassa's internship is in the US; on an F-1, CPT covers it.")])
-    chat(daemon, "can I get a visa to work for the duration of this internship?")
+    chat(daemon, "can I get a permit to work for the duration of this internship?")
     request = planner_requests(script)[0]
     block = next(p for p in request.parts if p.startswith("Layer 2 — the owner's front window"))
     assert shots.captured == [121] and seen == [shots.jpeg] and request.images      # pixels, through OCR
@@ -655,7 +655,7 @@ def test_the_daemon_takes_the_tab_the_extension_named_for_the_captured_window(
     title = GREENHOUSE.title
     fake_screen_mac(daemon, monkeypatch, [Window(121, 12, BOUNDS, title)], {12: ("Brave", "com.brave.Browser")})
     monkeypatch.setattr(daemon.daemon, "_automation_granted", lambda bundle: True)
-    monkeypatch.setattr(browser_tabs, "applescript_windows", lambda bundle: [scripted(BOUNDS, title, KAGGLE_URL)])
+    monkeypatch.setattr(browser_tabs, "applescript_windows", lambda bundle: [scripted(BOUNDS, title, CONTEST_URL)])
     page = PageState.parse({"top": "d", "viewport": [0, 0, 800, 520], "items": []})
     seen: list[str] = []
 
@@ -665,9 +665,9 @@ def test_the_daemon_takes_the_tab_the_extension_named_for_the_captured_window(
     daemon.daemon.mac.web_secrets = secrets                                 # type: ignore[union-attr]
     daemon.daemon.mac.shots.window = lambda wid: Window(wid, 12, BOUNDS, title)   # type: ignore[union-attr]
     script = install(daemon, [sup("reply", "It's a US internship.")])
-    chat(daemon, "can I get a visa to work for the duration of this internship?")
+    chat(daemon, "can I get a permit to work for the duration of this internship?")
     block = next(p for p in planner_requests(script)[0].parts if p.startswith("Layer 2 — the owner's front window"))
-    assert GREENHOUSE_URL in block and KAGGLE_URL not in block and seen and set(seen) == {title}
+    assert GREENHOUSE_URL in block and CONTEST_URL not in block and seen and set(seen) == {title}
 
 
 def test_the_terminal_running_ferb_chat_is_skipped(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -813,7 +813,7 @@ def test_a_correction_sent_while_a_task_runs_adds_its_front_window_to_the_tree(d
         pass
     monkeypatch.setattr(FakeRuntime, "events", events)
     monkeypatch.setattr(FakeRuntime, "continue_", steer)
-    whatsapp = fw.FrontWindow("WhatsApp", "net.whatsapp.WhatsApp", "Asmit", None, None, "ev-wa",
+    whatsapp = fw.FrontWindow("WhatsApp", "net.whatsapp.WhatsApp", "Neha", None, None, "ev-wa",
                               "external:message:net.whatsapp.WhatsApp,private", image=JPEG)
     notes = fw.FrontWindow("Notes", "com.apple.Notes", "Groceries", None, None, "ev-n", "private", image=JPEG)
     fronts = [notes, whatsapp]
@@ -860,7 +860,7 @@ def test_a_whatsapp_front_window_counts_as_outside_content_for_the_url_check(dae
     """Fix round 1 (S4): a screenshot of other people's messages is outside content read, though it is also the
     owner's data. After it, a URL carrying a private value to a host nobody named asks."""
     from ferb.act.browser.tools import FERB_BROWSER, BrowserOpen
-    screen_at_send(daemon, fw.FrontWindow("WhatsApp", "net.whatsapp.WhatsApp", "Asmit", None, None, "ev-wa",
+    screen_at_send(daemon, fw.FrontWindow("WhatsApp", "net.whatsapp.WhatsApp", "Neha", None, None, "ev-wa",
                                           "external:message:net.whatsapp.WhatsApp,private", image=JPEG))
     browser = FakeBrowser()
     caps = daemon.daemon.registry.capabilities

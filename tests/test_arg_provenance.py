@@ -19,9 +19,9 @@ from tests.support.confirm import FerbAnswers
 
 def test_target_values_cover_every_consequential_field() -> None:
     t = Target(account="gmail:me@x.com", site="mail.google.com", recipients=("a@x.com", "b@y.com"), path="/tmp/f",
-               amount=12.5, contact="Asmit")
+               amount=12.5, contact="Neha")
     assert provenance.target_values(t) == {"account": "gmail:me@x.com", "site": "mail.google.com", "path": "/tmp/f",
-                                           "contact": "Asmit", "recipient:0": "a@x.com", "recipient:1": "b@y.com",
+                                           "contact": "Neha", "recipient:0": "a@x.com", "recipient:1": "b@y.com",
                                            "amount": "12.5"}
 
 
@@ -52,13 +52,13 @@ def test_paths_sites_and_amounts() -> None:
                               kind="structured") == ["owner_words"]
     assert provenance.sources("~/Desktop", "delete ~/Desktop/old/a.txt", [], kind="structured") == ["unknown"]
     assert provenance.sources("~/Desktop", "clean ~/Desktop/", [], kind="structured") == ["owner_words"]
-    assert provenance.sources("/Users", "rm /Users/kartikey/x.txt", [], kind="structured") == ["unknown"]
+    assert provenance.sources("/Users", "rm /Users/me/x.txt", [], kind="structured") == ["unknown"]
     assert provenance.sources("example.com", "see docs.example.com", [], kind="structured") == ["unknown"]
     assert provenance.sources("example.com", "open https://example.com/x", [], kind="structured") == ["owner_words"]
     for value, text, expected in (("12.5", "pay $12.50", "owner_words"), ("1200", "pay 1,200", "owner_words"),
                                   ("12.5", "pay ₹12.5 now", "owner_words"), ("10", "on 2026-10-08", "unknown"),
                                   ("125", "order A125", "unknown"), ("123", "pay 1,2,3", "unknown"),
-                                  ("12.5", "pay asmit $125", "unknown")):
+                                  ("12.5", "pay neha $125", "unknown")):
         assert provenance.sources(value, text, [], kind="amount") == [expected], (value, text)
 
 
@@ -77,9 +77,9 @@ def test_phone_numbers_handles_and_names() -> None:
     assert provenance.sources(num, "call +91 98765", []) == ["unknown"]                 # a prefix
     for text in ("DM alice.smith", "ask alice_smith"):
         assert provenance.sources("alice", text, []) == ["unknown"], text
-    assert provenance.sources("asmit", "message asmit", []) == ["owner_words"]
-    assert provenance.sources("Asmit Jain", "message asmit jain.", []) == ["owner_words"]
-    assert provenance.sources("Asmit Jain", "message asmit jainson", []) == ["unknown"]
+    assert provenance.sources("neha", "message neha", []) == ["owner_words"]
+    assert provenance.sources("Neha Jain", "message neha jain.", []) == ["owner_words"]
+    assert provenance.sources("Neha Jain", "message neha jainson", []) == ["unknown"]
     assert provenance.sources("strasse.de", "see straße.de", [], kind="structured") == ["unknown"]
 
 

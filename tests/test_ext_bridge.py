@@ -122,7 +122,7 @@ def test_browser_cli_distinguishes_cached_version_and_unpaired_connection():
     import io
     from types import SimpleNamespace
     from ferb.cli.admin import browsers
-    report = {'profiles': [{'browser': 'chrome', 'folder': 'Profile 2', 'name': 'scaler', 'email': '',
+    report = {'profiles': [{'browser': 'chrome', 'folder': 'Profile 2', 'name': 'acme', 'email': '',
                            'ferb_identity': False, 'paired': True, 'connected': False, 'refused': None,
                            'version': '0.9.0'}], 'unpaired_connections': {'chrome': 1}}
     out = io.StringIO()
@@ -314,14 +314,14 @@ def _resolver(bindings: list[Binding]) -> Resolver:
     profiles = [BrowserProfile("chrome", "Default", "Personal", "me@gmail.com"),
                 BrowserProfile("chrome", "Profile 1", "Work", "me@work.com"),
                 BrowserProfile("brave", "Default", "Brave me", ""),
-                BrowserProfile("chrome", "Profile 22", "FERB", "ferb@gmail.com")]
-    return Resolver(lambda: profiles, lambda: bindings, lambda: ("chrome", "Profile 22"))
+                BrowserProfile("chrome", "Profile 7", "FERB", "ferb@gmail.com")]
+    return Resolver(lambda: profiles, lambda: bindings, lambda: ("chrome", "Profile 7"))
 
 
 def test_resolver_rules() -> None:
     O = Identity.OWNER
     paired = [Binding("i1", "chrome", "Default", O), Binding("i2", "chrome", "Profile 1", O),
-              Binding("i3", "brave", "Default", O), Binding("i4", "chrome", "Profile 22", Identity.FERB)]
+              Binding("i3", "brave", "Default", O), Binding("i4", "chrome", "Profile 7", Identity.FERB)]
     r = _resolver(paired)
     with pytest.raises(NeedsOwner, match="select a profile"):
         r.choose(None)
@@ -413,7 +413,7 @@ def test_a_profile_is_woken_with_no_window_first(bd: Any) -> None:
 
 
 def test_listing_a_closed_profiles_tabs_starts_it_in_the_background(bd: Any) -> None:
-    """Live 2026-10-26 (task 7c1eca3a): the worker listed New_Personal's tabs six times while Chrome had no profile
+    """Live 2026-10-26 (task 7c1eca3a): the worker listed Home_Personal's tabs six times while Chrome had no profile
     loaded; the listing never started it, said "reload the FERB extension", and the task ended asking the owner to
     reload it. Listing a named profile's tabs starts it with no window, as browser.open does."""
     d, launched = bd
@@ -655,7 +655,7 @@ def test_browser_wait_preserves_the_owners_new_app(
 
     async def run() -> None:
         bridge = SimpleNamespace(
-            binding=SimpleNamespace(browser="chrome", folder="Profile 22", install_id="test-install"),
+            binding=SimpleNamespace(browser="chrome", folder="Profile 7", install_id="test-install"),
             device_id="test-device", gen=1, wake_url=None, hold=lambda: None, unhold=lambda: None,
             conn=None, connected=asyncio.Event(), name="test Chrome")
 
@@ -736,7 +736,7 @@ def test_an_extension_older_than_the_terminal_fact_is_refused_at_hello() -> None
 
 def test_a_reinstalled_unpaired_extension_says_pair_it_with_browser_pair(
         bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Live 2026-10-26: New_Personal's extension was reinstalled, so it connected with no pairing; the windowless wake
+    """Live 2026-10-26: Home_Personal's extension was reinstalled, so it connected with no pairing; the windowless wake
     waited for the old install and the worker drove the owner's screen instead. The error now names the cause and the
     one fix: the owner opens that profile's window once (FERB pairs it there), never a route around it."""
     import ferb.act.browser.ext_bridge as eb

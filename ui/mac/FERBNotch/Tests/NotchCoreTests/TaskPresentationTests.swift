@@ -148,8 +148,8 @@ final class TaskPresentationTests: XCTestCase {
     }
 
     func testCodeQuestionShowsItsSummaryFirstAndTheExactQuestionUnderDetails() {
-        let reason = "Destination: https://atlasauth.b2clogin.com. Type the password or secret for it here (hidden; Enter cancels)."
-        let summary = "atlasauth.b2clogin.com needs your password or another private answer. FERB fills it only there and doesn't save it."
+        let reason = "Destination: https://appauth.b2clogin.com. Type the password or secret for it here (hidden; Enter cancels)."
+        let summary = "appauth.b2clogin.com needs your password or another private answer. FERB fills it only there and doesn't save it."
         let secret = DaemonApproval(["approval_id": "s", "kind": "owner_secret", "capability": "secret.fill",
                                      "reason": reason, "summary": summary, "display_text": "Model words"])!
         XCTAssertEqual(secret.visibleReason, summary)
@@ -191,7 +191,7 @@ final class TaskPresentationTests: XCTestCase {
     }
 
     private func makeModel(_ rpc: DaemonRPCTransport = TaskListRPC()) -> NotchModel {
-        NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        NotchModel(rpc: rpc, preferences: scratchDefaults())
     }
 }
 

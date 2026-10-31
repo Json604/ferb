@@ -6,7 +6,7 @@ import XCTest
 @MainActor
 final class MenuBarModelTests: XCTestCase {
     private func makeModel(_ rpc: ScriptedRPC) -> NotchModel {
-        NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: "MenuBarModelTests-" + UUID().uuidString)!)
+        NotchModel(rpc: rpc, preferences: scratchDefaults("MenuBarModelTests"))
     }
 
     private func status(running: [[String: Any]] = [], paused: Bool = false, stopped: Bool = false) -> [String: Any] {

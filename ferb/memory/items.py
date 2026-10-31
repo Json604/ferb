@@ -222,8 +222,8 @@ def label(origin: str) -> str:
 
 
 def subject_key(subject: str) -> str:
-    """A subject as memory stores it, normalized like the key (fix list: "project:us-b1b2-visa" and
-    "Project:US b1b2 visa" name one subject): "owner" when empty; a "<kind>:<name>" subject keeps its kind and slugs its
+    """A subject as memory stores it, normalized like the key (fix list: "project:home-move" and
+    "Project:Home move" name one subject): "owner" when empty; a "<kind>:<name>" subject keeps its kind and slugs its
     name."""
     subject = subject.strip()
     if not subject:
@@ -686,7 +686,7 @@ class Memory:
 
     def _named_destinations(self, items: list[str]) -> list[tuple[str, str]]:
         """Decision 14: the known destinations these items name (as stored values: whole words of what they say, their
-        label, or their subject's name; a site by its host or its name, "kaggle" for www.kaggle.com; a phone number by
+        label, or their subject's name; a site by its host or its name, "example" for www.example.com; a phone number by
         its digits). Structural matching of stored values, never a judgment of intent; one matched too eagerly only
         makes the next send ask again."""
         marks = ",".join("?" * len(items))

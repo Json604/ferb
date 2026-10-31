@@ -275,13 +275,13 @@ def test_purge_deletes_every_ferb_keychain_item_without_reading_one(inst: Instal
     r: FakeRunner = inst.run  # type: ignore[assignment]
     inst.install()
     r.keychain = {"ferb": {"api/anthropic": "k1", "jev/api_key": "k2", "ferb/email/password": "p"},
-                  "ferb.owner-secrets": {"card/visa": "4111", "site/bank": "s"},
+                  "ferb.owner-secrets": {"card/permit": "4111", "site/bank": "s"},
                   keychain_service(inst.home): {"Claude Code-credentials": "token"},
-                  "Claude Code-credentials": {"kartikey": "the owner's own Claude login"},
+                  "Claude Code-credentials": {"sam": "the owner's own Claude login"},
                   "com.apple.account": {"x": "y"}}
     removed = inst.uninstall(purge=True)
     assert {s: items for s, items in r.keychain.items() if items} == {
-        "Claude Code-credentials": {"kartikey": "the owner's own Claude login"}, "com.apple.account": {"x": "y"}}
+        "Claude Code-credentials": {"sam": "the owner's own Claude login"}, "com.apple.account": {"x": "y"}}
     assert "Keychain items of ferb: 3" in removed and "Keychain items of ferb.owner-secrets: 2" in removed
     assert not any("find-generic-password" in c or "dump-keychain" in c or "-w" in c for c in r.cmds)
     assert not inst.home.exists()

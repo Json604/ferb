@@ -200,7 +200,7 @@ final class ChatFlowTests: XCTestCase {
             Contract.plan("req-a", task: "task-a", text: "Watching the build."),
             Contract.progress("req-a", task: "task-a", text: "running a command", startedAt: Contract.at)
         ])
-        let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
         model.session.draft = "Watch the build"
         model.startWork()
         let id = try XCTUnwrap(model.conversation.turns.first?.id)
@@ -229,7 +229,7 @@ final class ChatFlowTests: XCTestCase {
     // MARK: - Support
 
     private func makeModel() -> NotchModel {
-        NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        NotchModel(preferences: scratchDefaults())
     }
 
     /// A submitted turn whose stream is the foreground session.

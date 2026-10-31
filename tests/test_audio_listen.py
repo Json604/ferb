@@ -173,7 +173,7 @@ def test_task_end_ends_a_listen_in_progress(tmp_path: Path) -> None:
 def test_a_tab_listen_hears_the_browser_app_showing_that_task_tab(tmp_path: Path) -> None:
     from ferb.act.listen import AudioListen
     hearing, _, capture = _hearing(tmp_path)
-    ref = TabRef("device", "chrome", "Profile 22", 1, "t3")
+    ref = TabRef("device", "chrome", "Profile 7", 1, "t3")
     driver = SimpleNamespace(owned_by=lambda tab, owner: ref, tab_url=lambda tab: "https://www.instagram.com/reel/x")
     tool = AudioListen(hearing, lambda identity: driver if identity is Identity.FERB else None)
     assert "every tab of that browser" in tool.description and "browser_media" in tool.description
@@ -457,7 +457,7 @@ def test_browser_record_with_audio_attaches_a_time_aligned_transcript(tmp_path: 
     hearing, fake, capture = _hearing(tmp_path, text=CARD)
     clock = [0.0]
     m = RecordingManager(now=lambda: clock[0], sanitize=lambda image: image, hearing=hearing)
-    ref = TabRef("device", "chrome", "Profile 22", 1, "t1")
+    ref = TabRef("device", "chrome", "Profile 7", 1, "t1")
 
     async def shot() -> bytes:
         return frames[0]
@@ -494,7 +494,7 @@ def test_browser_record_with_audio_attaches_a_time_aligned_transcript(tmp_path: 
 
 def test_recording_with_audio_needs_the_audio_scope(tmp_path: Path) -> None:
     from ferb.act.browser.tools import FERB_BROWSER, BrowserRecord
-    ref = TabRef("device", "chrome", "Profile 22", 1, "t1")
+    ref = TabRef("device", "chrome", "Profile 7", 1, "t1")
     driver = SimpleNamespace(owned_by=lambda tab, owner: ref, tab_url=lambda tab: "https://x.example/")
     tool = BrowserRecord(driver, FERB_BROWSER, SimpleNamespace(hearing=None))  # type: ignore[arg-type]
     ctx = ToolContext("task", "w", "r", Identity.FERB, frozenset({"identity:browse", "fs:write"}), "device", None,

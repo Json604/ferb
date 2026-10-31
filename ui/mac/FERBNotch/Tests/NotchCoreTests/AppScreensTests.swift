@@ -43,7 +43,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(trash?.what, "Moved to the Trash")
         XCTAssertEqual(RestoreRow(["id": "s1", "kind": "snapshot", "saved_to": "com.apple.TimeMachine.x"])?.restorable, false)
         XCTAssertNil(RestoreRow(["kind": "clone"]))
-        let card = SavedSecretRow(["place": "https://shop.example", "name": "visa number", "kind": "card_number",
+        let card = SavedSecretRow(["place": "https://shop.example", "name": "permit number", "kind": "card_number",
                                    "unusable": false, "value": "4111"])
         XCTAssertEqual(card?.kindLabel, "card number")
         XCTAssertFalse(String(describing: card as Any).contains("4111"))
@@ -81,20 +81,20 @@ final class AppScreensTests: XCTestCase {
         let state = IdentityState(["current": ["address": "", "browser": "", "profile": "", "paired": false,
                                                "owner_profile": "chrome/Default"],
                                    "candidates": [["browser": "chrome", "browser_name": "Google Chrome",
-                                                   "folder": "Profile 22", "name": "FERB", "only": true, "other_accounts": 0],
+                                                   "folder": "Profile 7", "name": "FERB", "only": true, "other_accounts": 0],
                                                   ["browser": "brave", "folder": "Default", "name": "Me", "only": false,
                                                    "other_accounts": 1]]])
         XCTAssertFalse(state.isSetUp)
-        XCTAssertEqual(state.usable.map(\.id), ["chrome/Profile 22"])
+        XCTAssertEqual(state.usable.map(\.id), ["chrome/Profile 7"])
         XCTAssertEqual(state.ownerProfile, "chrome/Default")
     }
 
     func testChoosingFERBsProfileWritesItThroughTheDaemonThenPairs() async {
         let rig = SetupRig()
         rig.rpc.replies["identity.find"] = ["current": ["address": ""], "candidates": [
-            ["browser": "chrome", "folder": "Profile 22", "name": "FERB", "only": true]]]
-        rig.rpc.replies["identity.choose"] = ["address": "ferb@gmail.com", "browser": "chrome", "profile": "Profile 22"]
-        rig.rpc.replies["identity.pair"] = ["paired": true, "profile": "Profile 22"]
+            ["browser": "chrome", "folder": "Profile 7", "name": "FERB", "only": true]]]
+        rig.rpc.replies["identity.choose"] = ["address": "ferb@gmail.com", "browser": "chrome", "profile": "Profile 7"]
+        rig.rpc.replies["identity.pair"] = ["paired": true, "profile": "Profile 7"]
         let model = rig.model()
         model.identityAddress = "FERB@gmail.com"
         await model.refreshIdentity()
@@ -103,7 +103,7 @@ final class AppScreensTests: XCTestCase {
         await model.useIdentity(candidate)
         let chose = rig.rpc.params(of: "identity.choose").last
         XCTAssertEqual(chose?["browser"] as? String, "chrome")
-        XCTAssertEqual(chose?["folder"] as? String, "Profile 22")
+        XCTAssertEqual(chose?["folder"] as? String, "Profile 7")
         XCTAssertTrue(rig.rpc.methods().contains("identity.pair"))
         await model.browseAsOwner(in: "chrome/Default")
         let set = rig.rpc.params(of: "settings.set").last

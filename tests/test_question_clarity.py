@@ -2,7 +2,7 @@
 Owner, 2026-10-24: "the questions it asks are too ambiguous and doesn't simply state what is it and what it wants.
 so here we should have the short version and in details see if you want the raw things".
 
-Live 2026-10-24, visa login: the hidden-input question read "Enter the secret for app:[redacted]": its own words
+Live 2026-10-24, permit login: the hidden-input question read "Enter the secret for app:[redacted]": its own words
 "the secret for <X>" matched the redactor's label rule, so the destination it asked about was hidden from the owner."""
 import asyncio
 import re
@@ -14,12 +14,12 @@ from ferb.core.types import Identity, ToolContext
 from ferb.sanitize.redact import Redactor
 from tests.support.hidden_input import asked as _asked, keychain_helper
 
-VISA = 'https://atlasauth.b2clogin.com'
-SAVED = 'US Visa Scheduling password for ktky.attri@gmail.com'
+PERMIT = 'https://appauth.b2clogin.com'
+SAVED = 'Book Slots password for sam.rivera@mail.example'
 
 
 def _ctx() -> ToolContext:
-    return ToolContext('t-visa', 'w1', 'r-visa', Identity.OWNER, frozenset({'browser:act'}), 'dev', None, '/tmp', (),
+    return ToolContext('t-permit', 'w1', 'r-permit', Identity.OWNER, frozenset({'browser:act'}), 'dev', None, '/tmp', (),
                        ())
 
 
@@ -47,7 +47,7 @@ def _cancel(daemon: Any, ap: Any, waiting: Any) -> None:
     assert waiting.result(5) is None
 
 
-@pytest.mark.parametrize('target', [VISA, 'app:com.apple.Notes', 'https://x.test:8443', 'https://1234.example.com',
+@pytest.mark.parametrize('target', [PERMIT, 'app:com.apple.Notes', 'https://x.test:8443', 'https://1234.example.com',
                                     'https://password.example.com', 'https://xn--bcher-kva.example'])
 def test_the_secret_question_keeps_its_destination_through_redaction(daemon: Any, monkeypatch: pytest.MonkeyPatch,
                                                                      target: str) -> None:
@@ -87,16 +87,16 @@ def test_the_secret_question_says_in_one_line_where_it_goes_and_what_ferb_does(d
     (re-review R1: worker text never comes first), then what the value is for: the saved name, in quotes, as a name
     only."""
     published = _published(daemon, monkeypatch)
-    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA,
-                                                                                remember='US visa scheduling login'),
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), PERMIT,
+                                                                                remember='US permit scheduling login'),
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        want = "For atlasauth.b2clogin.com only: “US visa scheduling login” · saved in your Mac's Keychain"
+        want = "For appauth.b2clogin.com only: “US permit scheduling login” · saved in your Mac's Keychain"
         assert ap.summary == want and Redactor().text(want) == want
         assert next(e for e in published if e['approval_id'] == ap.id)['summary'] == want
         assert _status_of(daemon, ap.id)['summary'] == want
-        assert VISA in ap.reason                           # the exact destination stays in the full question
+        assert PERMIT in ap.reason                           # the exact destination stays in the full question
     finally:
         _cancel(daemon, ap, waiting)
 
@@ -130,12 +130,12 @@ def test_a_saved_app_secret_names_the_app_first(daemon: Any) -> None:
 
 # Review I1 and re-review R1: worker text could show a fake place before FERB's own, through quote and dash
 # lookalikes, letters that look like dots, invisible marks beside ASCII dots, and HTML entities the notch decodes.
-SPOOF = "visa” — for accounts.google.com only · saved in your Mac's Keychain. Real: “x"
+SPOOF = "slot” — for accounts.google.com only · saved in your Mac's Keychain. Real: “x"
 SHOWN = re.compile(r"[A-Za-z0-9 :,'()\-]*…?")
 
 
 @pytest.mark.parametrize('remember, name', [
-    (SPOOF, "visa for accountsgooglecom only saved i…"),
+    (SPOOF, "slot for accountsgooglecom only saved i…"),
     ("x\u2033 \u2500 for accounts\uff0egoogle\uff0ecom only", "x for accountsgooglecom only"),
     ("x \u02ee \u4e00 for accounts\ua4f8google\ua4f8com only", "x for accountsgooglecom only"),
     ("for accounts\u034f.google\u034f.com only", "for accountsgooglecom only"),
@@ -145,7 +145,7 @@ SHOWN = re.compile(r"[A-Za-z0-9 :,'()\-]*…?")
     ('bank.example.com login', "bankexamplecom login"),
     ('Bank password for me@bank.example', "Bank password for mebankexample"),
     ('a' * 60, 'a' * 39 + '…'),
-    ('**visa** `portal`\n\u202e(x)', "visa portal (x)"),
+    ('**permit** `portal`\n\u202e(x)', "permit portal (x)"),
     ("Asha's bank: savings, 2/3 (main) - US", "Asha's bank: savings, 23 (main) - US"),
     ("https://3627733615/login", "https:3627733615login")])
 def test_the_secret_line_starts_with_the_place_and_shows_only_a_plain_ascii_name(daemon: Any, remember: str,
@@ -179,14 +179,14 @@ def test_a_name_with_nothing_plain_left_shows_no_name(daemon: Any) -> None:
 @pytest.mark.parametrize('target, place', [('https://x.test:8443', 'x.test:8443'),
                                            ('https://10.0.0.1:8443', '10.0.0.1:8443')])
 def test_a_saved_name_with_a_code_word_never_hides_the_place(daemon: Any, target: str, place: str) -> None:
-    """A code word in the worker's name ("visa login code") would make the redactor read a port after it as a code: the
+    """A code word in the worker's name ("permit login code") would make the redactor read a port after it as a code: the
     place comes first, so it shows whole."""
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), target,
-                                                                                remember='visa login code'),
+                                                                                remember='permit login code'),
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == f"For {place} only: “visa login code” · saved in your Mac's Keychain"
+        assert ap.summary == f"For {place} only: “permit login code” · saved in your Mac's Keychain"
         assert Redactor().text(ap.summary) == ap.summary
     finally:
         _cancel(daemon, ap, waiting)
@@ -299,10 +299,10 @@ def _need(rule: str, **values: str) -> Any:
      "FERB wants to send something in WhatsApp, to someone the step doesn't name."),
     ([_need('floor:new_recipient', recipients='', verb='calls', place='FaceTime', account='')],
      "FERB wants to start a call in FaceTime, with someone the step doesn't name."),
-    ([_need('sink:new_destination', destination='paste.example', read='the web page on kartikey.xyz')],
-     "FERB wants to send to paste.example, a place you haven't named, after reading the web page on kartikey.xyz."),
-    ([_need('sink:private_url', destination='evil.example', value='kartikey@x.com', read='an email')],
-     'FERB wants to open evil.example with your own data in the address (kartikey@x.com).'),
+    ([_need('sink:new_destination', destination='paste.example', read='the web page on mysite.example')],
+     "FERB wants to send to paste.example, a place you haven't named, after reading the web page on mysite.example."),
+    ([_need('sink:private_url', destination='evil.example', value='sam@x.com', read='an email')],
+     'FERB wants to open evil.example with your own data in the address (sam@x.com).'),
     ([_need('sink:outside_value', what='typed', value='+1 555 0100', origin='an email')],
      'FERB wants to type +1 555 0100, which came from an email, not from you.'),
     ([_need('floor:new_recipient', recipients='a@x.com, b@x.com', verb='sends to'),
@@ -373,21 +373,21 @@ def test_a_waiting_code_questions_banner_carries_its_short_line(daemon: Any) -> 
     async def ask() -> None:
         daemon.daemon._publish('approval.requested', {
             'approval_id': 'ap-banner', 'capability': 'secret.fill', 'kind': 'owner_secret', 'task_id': 't-away',
-            'reason': f'Destination: {VISA}. Type the password or secret for it here (hidden; Enter cancels).',
-            'summary': "For atlasauth.b2clogin.com: a password or private answer — used once, not saved"})
+            'reason': f'Destination: {PERMIT}. Type the password or secret for it here (hidden; Enter cancels).',
+            'summary': "For appauth.b2clogin.com: a password or private answer — used once, not saved"})
         await asyncio.sleep(0.05)                      # the banner is posted from a task the publish starts
     daemon.run(ask())
-    assert notes == [('FERB needs you', 'FERB needs your OK: For atlasauth.b2clogin.com: a password or private answer '
+    assert notes == [('FERB needs you', 'FERB needs your OK: For appauth.b2clogin.com: a password or private answer '
                                         '— used once, not saved')]
 
 
-@pytest.mark.parametrize('handle', [None, 'visa'])
+@pytest.mark.parametrize('handle', [None, 'permit'])
 def test_ask_secret_refuses_a_whole_browser_before_any_question(daemon: Any, handle: str | None) -> None:
     """Defense in depth for any caller: the gateway itself never asks for, saves or fills a secret bound to a whole
     browser app."""
     from ferb.core.errors import Refused
     with pytest.raises(Refused, match='whole web browser'):
-        daemon.run(daemon.daemon.gateway.ask_secret(_ctx(), 'app:com.google.Chrome', handle=handle, remember='visa'))
+        daemon.run(daemon.daemon.gateway.ask_secret(_ctx(), 'app:com.google.Chrome', handle=handle, remember='permit'))
     assert not [ap for ap in daemon.daemon.state.approvals.pending() if ap.kind == 'owner_secret']
 
 
@@ -399,27 +399,27 @@ def test_ask_secret_refuses_a_whole_browser_before_any_question(daemon: Any, han
     ('Asha Rao ' * 40, ('Asha Rao ' * 40)[:63].rstrip() + '…')],   # clipped to 64
     ids=['plain', 'controls', 'format-characters', 'long'])
 def test_the_secret_question_names_the_username_saved_for_the_site(daemon: Any, username: str, shown: str) -> None:
-    """L36 §5 ("Password for Kartikey Attri at usvisascheduling.com", the spec's example), so the owner knows which
+    """L36 §5 ("Password for Sam Rivera at bookslots.com", the spec's example), so the owner knows which
     account. The account comes after FERB's place (re-review R1, ruling C1): the owner's own words, printable, on one
     line, without format or line-separator characters, at most 64 characters, never before the place."""
     from ferb.identity.owner_secrets import OwnerSecrets
     from tests.support.memory_items import owner_fact, run
-    source = 'memory:' + owner_fact(daemon, 'visa_username', 'the username is Asha Rao').id   # an item that holds
-    run(daemon, lambda: OwnerSecrets(daemon.daemon.home, lambda *a: None).set_username(VISA, username, source))
+    source = 'memory:' + owner_fact(daemon, 'permit_username', 'the username is Asha Rao').id   # an item that holds
+    run(daemon, lambda: OwnerSecrets(daemon.daemon.home, lambda *a: None).set_username(PERMIT, username, source))
     for remember, want in (
-            ('US visa scheduling login',
-             f"For atlasauth.b2clogin.com only (account: {shown}): “US visa scheduling login” · saved in your "
+            ('US permit scheduling login',
+             f"For appauth.b2clogin.com only (account: {shown}): “US permit scheduling login” · saved in your "
              "Mac's Keychain"),
-            (None, f"For atlasauth.b2clogin.com (account: {shown}): a password or private answer — used once, "
+            (None, f"For appauth.b2clogin.com (account: {shown}): a password or private answer — used once, "
                    "not saved")):
-        waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember=remember),
+        waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), PERMIT, remember=remember),
                                                    daemon.loop)
         ap = _asked(daemon, 'owner_secret')
         try:
-            assert ap.summary.startswith('For atlasauth.b2clogin.com') and shown in ap.summary
+            assert ap.summary.startswith('For appauth.b2clogin.com') and shown in ap.summary
             assert ap.summary == want and Redactor().text(want) == want
             assert f'Account: {shown}' in ap.reason
-            assert ap.reason.startswith(f'Destination: {VISA}. Account: {shown}. Type the password')
+            assert ap.reason.startswith(f'Destination: {PERMIT}. Account: {shown}. Type the password')
         finally:
             _cancel(daemon, ap, waiting)
 
@@ -431,7 +431,7 @@ def _saved(daemon: Any, monkeypatch: pytest.MonkeyPatch, target: str, words: str
     from ferb.policy.targets import Request, Targets
     from tests.support.memory_items import run
     keychain = keychain_helper(monkeypatch)
-    run(daemon, lambda: daemon.daemon.state.requests.record(Request('r-visa', words, Targets.of(sites=sites))))
+    run(daemon, lambda: daemon.daemon.state.requests.record(Request('r-permit', words, Targets.of(sites=sites))))
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), target, remember='password'),
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
@@ -445,42 +445,42 @@ def _saved(daemon: Any, monkeypatch: pytest.MonkeyPatch, target: str, words: str
 
 def test_a_secret_saved_during_a_task_serves_its_sites_and_the_next_question_names_the_account(
         daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """I14, live 2026-10-24: the visa task named usvisascheduling.com; its sign-in form is on atlasauth.b2clogin.com.
+    """I14, live 2026-10-24: the permit task named bookslots.com; its sign-in form is on appauth.b2clogin.com.
     The entry saved there lists the task's sites the owner typed (by code), so the username the owner gave for
-    usvisascheduling.com names the form's account; the question's place stays the form's origin (D12)."""
+    bookslots.com names the form's account; the question's place stays the form's origin (D12)."""
     from tests.support.memory_items import owner_fact, run
-    store = _saved(daemon, monkeypatch, VISA, 'book my visa slot on usvisascheduling.com',
-                   ['usvisascheduling.com', 'www.usvisascheduling.com'])
-    assert store.records()[VISA]['sites'] == ['usvisascheduling.com', 'www.usvisascheduling.com']
-    source = 'memory:' + owner_fact(daemon, 'visa_username', 'the username is Asha Rao').id   # an item that holds
-    run(daemon, lambda: store.set_username('https://usvisascheduling.com', 'Asha Rao', source))
-    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember='food'),
+    store = _saved(daemon, monkeypatch, PERMIT, 'book my permit slot on bookslots.com',
+                   ['bookslots.com', 'www.bookslots.com'])
+    assert store.records()[PERMIT]['sites'] == ['bookslots.com', 'www.bookslots.com']
+    source = 'memory:' + owner_fact(daemon, 'permit_username', 'the username is Asha Rao').id   # an item that holds
+    run(daemon, lambda: store.set_username('https://bookslots.com', 'Asha Rao', source))
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), PERMIT, remember='food'),
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == ("For atlasauth.b2clogin.com only (usvisascheduling.com account: Asha Rao): “food” · "
+        assert ap.summary == ("For appauth.b2clogin.com only (bookslots.com account: Asha Rao): “food” · "
                               "saved in your Mac's Keychain")             # review I-2: a linked account names its site
     finally:
         _cancel(daemon, ap, waiting)
 
 
-@pytest.mark.parametrize('words', ['book my visa slot', 'book my visa slot; the page says usvisascheduling.net'])
+@pytest.mark.parametrize('words', ['book my permit slot', 'book my permit slot; the page says bookslots.net'])
 def test_a_site_the_owner_never_typed_is_never_linked(daemon: Any, monkeypatch: pytest.MonkeyPatch,
                                                      words: str) -> None:
     """Fix round 1, rule 8's provenance: only a target site whose host is in the owner's own words links a record; one
     only the model or outside content named never does."""
-    store = _saved(daemon, monkeypatch, VISA, words, ['usvisascheduling.com'])
-    assert store.records()[VISA]['sites'] == []
-    assert 'linked' not in store.listing('https://usvisascheduling.com')
+    store = _saved(daemon, monkeypatch, PERMIT, words, ['bookslots.com'])
+    assert store.records()[PERMIT]['sites'] == []
+    assert 'linked' not in store.listing('https://bookslots.com')
 
 
 def test_a_sign_in_on_the_tasks_own_site_links_nothing(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fix round 1: only a sign-in form on another address needs a link. A task naming both usvisascheduling.com and
-    gmail.com that signs in on usvisascheduling.com itself doesn't hand that site's username to gmail.com."""
+    """Fix round 1: only a sign-in form on another address needs a link. A task naming both bookslots.com and
+    gmail.com that signs in on bookslots.com itself doesn't hand that site's username to gmail.com."""
     from tests.support.memory_items import run
-    site = 'https://www.usvisascheduling.com'
-    store = _saved(daemon, monkeypatch, site, 'sign in to usvisascheduling.com, then mail it from gmail.com',
-                   ['usvisascheduling.com', 'gmail.com'])
+    site = 'https://www.bookslots.com'
+    store = _saved(daemon, monkeypatch, site, 'sign in to bookslots.com, then mail it from gmail.com',
+                   ['bookslots.com', 'gmail.com'])
     run(daemon, lambda: store.set_username(site, 'Asha Rao', 'memory:x'))
     assert store.records()[site]['sites'] == []
     assert store.listing('https://gmail.com') == {'place': 'https://gmail.com', 'username': None, 'entries': [],
@@ -490,10 +490,10 @@ def test_a_sign_in_on_the_tasks_own_site_links_nothing(daemon: Any, monkeypatch:
 def test_a_sign_in_host_the_planner_added_to_the_targets_still_links_the_sites_the_owner_typed(
         daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Task 6 re-review: after a steer the planner may add the sign-in form's own host to the task's targets. The
-    own-site rule reads only the sites the owner typed, so the form's record still lists the visa site."""
-    store = _saved(daemon, monkeypatch, VISA, 'book my visa slot on usvisascheduling.com',
-                   ['usvisascheduling.com', 'atlasauth.b2clogin.com'])
-    assert store.records()[VISA]['sites'] == ['usvisascheduling.com']
+    own-site rule reads only the sites the owner typed, so the form's record still lists the permit site."""
+    store = _saved(daemon, monkeypatch, PERMIT, 'book my permit slot on bookslots.com',
+                   ['bookslots.com', 'appauth.b2clogin.com'])
+    assert store.records()[PERMIT]['sites'] == ['bookslots.com']
 
 
 @pytest.mark.parametrize('content', ['{not json',
@@ -505,32 +505,32 @@ def test_an_unreadable_handle_file_never_blocks_a_one_time_hidden_input(daemon: 
     from ferb.core.errors import Refused
     path = daemon.daemon.home / 'owner-secret-handles.json'
     path.write_text(content)
-    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA), daemon.loop)
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), PERMIT), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == 'For atlasauth.b2clogin.com: a password or private answer — used once, not saved'
+        assert ap.summary == 'For appauth.b2clogin.com: a password or private answer — used once, not saved'
     finally:
         _cancel(daemon, ap, waiting)
     with pytest.raises(Refused, match='owner-secret-handles.json'):
-        daemon.run(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember='password'))
+        daemon.run(daemon.daemon.gateway.ask_secret(_ctx(), PERMIT, remember='password'))
     assert not [ap for ap in daemon.daemon.state.approvals.pending() if ap.kind == 'owner_secret']
     assert path.read_text() == content
 
 
 def test_a_hidden_value_question_names_the_pages_field_and_a_payment_its_currency() -> None:
-    """Live 2026-10-27 (task 400d67fb): "For www.zomato.com: a password or private answer" for the card's CVV, and
-    "this pays 137.39 on www.zomato.com". Owner: "how can you tell its cvv, bank otp simply BUT why cant FERB??"."""
+    """Live 2026-10-27 (task 400d67fb): "For www.orderly.example: a password or private answer" for the card's CVV, and
+    "this pays 248.75 on www.orderly.example". Owner: "how can you tell its cvv, bank otp simply BUT why cant FERB??"."""
     from ferb.core.types import Target
     from ferb.daemon.gateway import secret_summary
     from ferb.policy import confirm
     from ferb.policy.rules import Kind
-    assert secret_summary("https://www.zomato.com", None, field="CVV digit 1 of 3") == (
-        "For zomato.com: the page's “CVV digit 1 of 3” field — used once, not saved")
-    assert secret_summary("https://www.zomato.com", None) == (
-        "For zomato.com: a password or private answer — used once, not saved")
-    needs = confirm.decide(Kind.CLICK, "pay", Target(site="www.zomato.com", amount=137.39, currency="₹",
-                                                     account="Kotak RuPay ending 0545"),
-                           {"amount": ["external:web:www.zomato.com"]}, read_private=False, read_external=True,
-                           known=lambda k, v: False, outside_read=["external:web:www.zomato.com"])
+    assert secret_summary("https://www.orderly.example", None, field="CVV digit 1 of 3") == (
+        "For orderly.example: the page's “CVV digit 1 of 3” field — used once, not saved")
+    assert secret_summary("https://www.orderly.example", None) == (
+        "For orderly.example: a password or private answer — used once, not saved")
+    needs = confirm.decide(Kind.CLICK, "pay", Target(site="www.orderly.example", amount=248.75, currency="₹",
+                                                     account="Personal card ending 4242"),
+                           {"amount": ["external:web:www.orderly.example"]}, read_private=False, read_external=True,
+                           known=lambda k, v: False, outside_read=["external:web:www.orderly.example"])
     assert [n.rule for n in needs] == ["floor:pay"]          # the price's origin isn't a second question
-    assert confirm.summary(needs) == "FERB wants to pay ₹137.39 on zomato.com from Kotak RuPay ending 0545."
+    assert confirm.summary(needs) == "FERB wants to pay ₹248.75 on orderly.example from Personal card ending 4242."

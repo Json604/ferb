@@ -189,8 +189,8 @@ def _named_by_words(value: str, words: tuple[Word, ...]) -> bool:
     takes in joined words that are words of the value or capitalized (not a sentence's first word, which any word may
     be); from a word typed in lower case, or in a script without capitals, FERB can't see where the name ends, so the
     run takes in every joined word, and the value is named only when they are all its words. So "message Rahul"
-    names "Rahul Verma"; "message Rahul Verma" doesn't name "Rahul Attacker"; "message asmit jainson" doesn't name
-    "Asmit Jain", and neither does "message asmit" (lower case): that errs toward asking."""
+    names "Rahul Verma"; "message Rahul Verma" doesn't name "Rahul Attacker"; "message neha jainson" doesn't name
+    "Neha Jain", and neither does "message neha" (lower case): that errs toward asking."""
     wanted = {t.casefold() for raw in value.split() if (t := _strip(raw)[1])}
     for i, word in enumerate(words):
         if word.folded not in wanted:

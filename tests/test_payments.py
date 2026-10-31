@@ -3,7 +3,7 @@ the amount and merchant code read on the page (never the worker's number); the Y
 (card choice, the bank page) until the payment completes or 10 minutes pass; another tab or task asks again; a bank
 page showing another amount or merchant stops and asks again, showing both; an OTP question repeats the bank page's
 amount and merchant. Replaces "same amount, any site, 10 minutes" (test_confirmations, before step 6b). Live case:
-Zomato order 400d67fb asked six times in five minutes for one ₹137.39 payment."""
+Orderly order 400d67fb asked six times in five minutes for one ₹248.75 payment."""
 import json
 from datetime import datetime, timedelta
 from typing import Any
@@ -23,7 +23,7 @@ class _Tab(FakeCap):
 
     class Input(BaseModel):
         tab: str = "t1"
-        host: str = "www.zomato.com"
+        host: str = "www.orderly.example"
         amount: str | None = None
         merchant: str | None = None
         frame: str | None = None
@@ -63,34 +63,34 @@ def _pay(d: RunningDaemon, grant: Any, **args: Any) -> dict[str, Any]:
     return gateway_tool_call(d, grant, "probe.tab", effect="pay", **args)
 
 
-# ---------- the Zomato flow, through the gateway ----------
+# ---------- the Orderly flow, through the gateway ----------
 
-def test_the_zomato_flow_asks_once_and_the_otp_question_repeats_the_bank_page(daemon: RunningDaemon) -> None:
+def test_the_orderly_flow_asks_once_and_the_otp_question_repeats_the_bank_page(daemon: RunningDaemon) -> None:
     """Pay click → card choice → card form (in the gateway's frame) → bank page (navigated) with its OTP → its submit:
-    one FERB question showing the page's ₹137.39 and Zomato, one hidden code question repeating the bank page's
+    one FERB question showing the page's ₹248.75 and Orderly, one hidden code question repeating the bank page's
     amount. Then the next payment on the checkout, and another tab, ask again."""
     tab = _Tab(daemon)
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food under 200 rupees on zomato.com"), [tab])
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food under 200 rupees on orderly.example"), [tab])
     owner = Answers(daemon, granted=True, choice=1)
     try:
-        for step in ({"amount": "Pay ₹137.39", "merchant": "Zomato"},                 # one-click Pay
-                     {"amount": "₹137.39", "merchant": "Zomato"},                     # the card choice
+        for step in ({"amount": "Pay ₹248.75", "merchant": "Orderly"},                 # one-click Pay
+                     {"amount": "₹248.75", "merchant": "Orderly"},                     # the card choice
                      {"frame": "api.razorpay.com", "card": True},                     # card form in the gateway's frame
-                     {"host": "rupay-fsb.enstage-sas.com", "amount": "INR 137.39", "merchant": "ZOMATO",
+                     {"host": "secure.bank.example", "amount": "INR 248.75", "merchant": "ORDERLY",
                       "code": True},                                                  # bank page: its OTP
-                     {"host": "rupay-fsb.enstage-sas.com", "amount": "INR 137.39"}):  # bank page: submit
+                     {"host": "secure.bank.example", "amount": "INR 248.75"}):  # bank page: submit
             r = _pay(daemon, grant, **step)
             assert not r["is_error"], r
         confirm_questions = _asked(daemon)
         assert len(confirm_questions) == 1
         question = confirm_questions[0]["args"]["question"]
-        assert "₹137.39" in question and "Zomato" in question
+        assert "₹248.75" in question and "Orderly" in question
         codes = [ap for ap in owner.asked if ap.kind == "owner_login_code"]
-        assert len(codes) == 1 and "INR 137.39" in codes[0].summary and "ZOMATO" in codes[0].summary
+        assert len(codes) == 1 and "INR 248.75" in codes[0].summary and "ORDERLY" in codes[0].summary
         assert len(tab.ran) == 5
-        r = _pay(daemon, grant, amount="Pay ₹137.39", merchant="Zomato")         # back on the checkout: a new payment
+        r = _pay(daemon, grant, amount="Pay ₹248.75", merchant="Orderly")         # back on the checkout: a new payment
         assert not r["is_error"] and len(_asked(daemon)) == 2
-        r = _pay(daemon, grant, tab="t2", amount="Pay ₹137.39", merchant="Zomato")   # another tab: asks again
+        r = _pay(daemon, grant, tab="t2", amount="Pay ₹248.75", merchant="Orderly")   # another tab: asks again
         assert not r["is_error"] and len(_asked(daemon)) == 3
     finally:
         owner.stop()
@@ -101,7 +101,7 @@ def test_a_bank_page_with_another_amount_stops_and_asks_showing_both(daemon: Run
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food"), [tab])
     owner = Answers(daemon, granted=True, choice=1)
     try:
-        assert not _pay(daemon, grant, amount="₹137.39", merchant="Zomato")["is_error"]
+        assert not _pay(daemon, grant, amount="₹248.75", merchant="Orderly")["is_error"]
         owner.stop()
         owner = Answers(daemon, granted=True, choice=2)
         r = _pay(daemon, grant, host="bank.example", amount="INR 999.00", merchant="Evil Ltd")
@@ -109,7 +109,7 @@ def test_a_bank_page_with_another_amount_stops_and_asks_showing_both(daemon: Run
         asked = _asked(daemon)
         assert len(asked) == 2
         second = asked[1]["args"]["question"]
-        assert "INR 999.00" in second and "you approved ₹137.39 to Zomato" in second and "bank.example" in second
+        assert "INR 999.00" in second and "you approved ₹248.75 to Orderly" in second and "bank.example" in second
     finally:
         owner.stop()
 
@@ -135,26 +135,26 @@ def test_the_question_never_shows_the_workers_number(daemon: RunningDaemon) -> N
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food"), [tab])
     owner = Answers(daemon, granted=True, choice=1)
     try:
-        r = gateway_tool_call(daemon, grant, "probe.tab", effect="pay", amount="₹137.39",
+        r = gateway_tool_call(daemon, grant, "probe.tab", effect="pay", amount="₹248.75",
                               destination={"amount": 1.0, "currency": "INR"})
     finally:
         owner.stop()
     assert not r["is_error"]
     question = _asked(daemon)[0]["args"]["question"]
-    assert "₹137.39" in question and "INR 1" not in question
+    assert "₹248.75" in question and "INR 1" not in question
 
 
 def test_a_payment_yes_lapses_after_ten_minutes_and_a_no_is_final(daemon: RunningDaemon) -> None:
     tab = _Tab()
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food on www.zomato.com"), [tab])
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food on www.orderly.example"), [tab])
     owner = Answers(daemon, granted=True, choice=1)
     try:
-        assert not _pay(daemon, grant, amount="₹137.39")["is_error"]
-        assert not _pay(daemon, grant, amount="₹137.39")["is_error"] and len(_asked(daemon)) == 1
+        assert not _pay(daemon, grant, amount="₹248.75")["is_error"]
+        assert not _pay(daemon, grant, amount="₹248.75")["is_error"] and len(_asked(daemon)) == 1
         daemon.call_soon(daemon.daemon.clock.advance, 11 * 60)
         import time
         time.sleep(0.05)
-        assert not _pay(daemon, grant, amount="₹137.39")["is_error"] and len(_asked(daemon)) == 2
+        assert not _pay(daemon, grant, amount="₹248.75")["is_error"] and len(_asked(daemon)) == 2
         owner.stop()
         owner = Answers(daemon, granted=True, choice=2)
         r = _pay(daemon, grant, tab="t9", amount="₹50")
@@ -182,11 +182,11 @@ def test_a_card_form_submitted_is_a_payment_without_any_declaration(daemon: Runn
 # ---------- the rule on its own ----------
 
 def test_amounts_compare_by_currency_and_number() -> None:
-    assert payments.amount_key("₹137.39") == payments.amount_key("INR 137.39") == ("INR", "137.39")
+    assert payments.amount_key("₹248.75") == payments.amount_key("INR 248.75") == ("INR", "248.75")
     assert payments.amount_key("Pay $1,020.50 now") == ("USD", "1020.5")
     assert payments.amount_key("Total") is None and payments.amount_key(None) is None
-    assert payments._same("137.39", "₹137.39", payments.amount_key) is True     # one side shows no currency
-    assert payments._same("₹137.39", "$137.39", payments.amount_key) is False
+    assert payments._same("248.75", "₹248.75", payments.amount_key) is True     # one side shows no currency
+    assert payments._same("₹248.75", "$248.75", payments.amount_key) is False
 
 
 def test_the_rule_covers_a_tab_chain_and_completes_after_the_bank_page() -> None:
@@ -216,11 +216,11 @@ def test_the_rule_covers_a_tab_chain_and_completes_after_the_bank_page() -> None
 
 
 def test_an_otp_line_repeats_the_bank_page_or_says_it_couldnt_read_it() -> None:
-    a = payments.Approval("c", "t1", "shop.example", "₹137.39", "Zomato", datetime(2026, 10, 30))
-    assert "couldn't read the amount on this page" in payments.otp_line(a) and "₹137.39 to Zomato" in \
+    a = payments.Approval("c", "t1", "shop.example", "₹248.75", "Orderly", datetime(2026, 10, 30))
+    assert "couldn't read the amount on this page" in payments.otp_line(a) and "₹248.75 to Orderly" in \
         payments.otp_line(a)
-    a.bank_amount, a.bank_merchant = "INR 137.39", "ZOMATO"
-    assert payments.otp_line(a) == "This page shows INR 137.39 to ZOMATO."
+    a.bank_amount, a.bank_merchant = "INR 248.75", "ORDERLY"
+    assert payments.otp_line(a) == "This page shows INR 248.75 to ORDERLY."
     assert payments.otp_line(None) == ""
 
 
@@ -244,10 +244,10 @@ def test_a_one_click_checkout_yes_covers_that_one_paying_submit(daemon: RunningD
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("reorder my usual"), [tab])
     owner = Answers(daemon, granted=True, choice=1)
     try:
-        assert not _pay(daemon, grant, submit=True, amount="₹137.39", merchant="Zomato")["is_error"]
-        assert not _pay(daemon, grant, host="bank.example", amount="INR 137.39")["is_error"]
+        assert not _pay(daemon, grant, submit=True, amount="₹248.75", merchant="Orderly")["is_error"]
+        assert not _pay(daemon, grant, host="bank.example", amount="INR 248.75")["is_error"]
         assert len(_asked(daemon)) == 1                                   # its verification page: covered
-        assert not _pay(daemon, grant, submit=True, amount="₹137.39", merchant="Zomato")["is_error"]
+        assert not _pay(daemon, grant, submit=True, amount="₹248.75", merchant="Orderly")["is_error"]
         assert len(_asked(daemon)) == 2                                   # a second order: asked again
     finally:
         owner.stop()

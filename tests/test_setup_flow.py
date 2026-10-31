@@ -70,11 +70,11 @@ class FakeClient:
             return {"profiles": [{"browser": "chrome", "name": "Work", "folder": "Profile 1", "email": "",
                                   "ferb_identity": False, "paired": True, "identity": "owner",
                                   "connected": True, "version": "0.6.0", "refused": None},
-                                 {"browser": "chrome", "name": "FERB", "folder": "Profile 22", "email": "",
+                                 {"browser": "chrome", "name": "FERB", "folder": "Profile 7", "email": "",
                                   "ferb_identity": True, "paired": True, "identity": "ferb",
                                   "connected": False, "version": None, "refused": None}], "extension_ids": []}
         if method == "identity.check":
-            return {"address": "ferb@test.example", "profile": "Profile 22", "profile_ok": True,
+            return {"address": "ferb@test.example", "profile": "Profile 7", "profile_ok": True,
                     "profile_name": "FERB", "error": None, "session": None if params and params.get("session") is False else True, "paired": True,
                     "secrets": [{"key": "ferb/email/password", "in_keychain": True}]}
         if method == "automation.request":
@@ -126,7 +126,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     make_app(apps, "Brave Browser", "com.brave.Browser", NSAppleScriptEnabled=True)
     monkeypatch.setattr(S, "scan", lambda did: __import__("ferb.device.scan", fromlist=["scan"]).scan(did, [apps]))
     home = tmp_path / ".ferb"
-    Config(home).set("identity", "profile", "Profile 22")              # FERB's identity profile already chosen
+    Config(home).set("identity", "profile", "Profile 7")              # FERB's identity profile already chosen
     runner = FakeRunner(home)
     inst = Installer(home, label="com.ferb.test", run=runner, launch_agents=tmp_path / "LA")
     daemon = FakeDaemon()

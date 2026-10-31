@@ -119,7 +119,7 @@ def test_a_json_escape_before_a_card_still_separates_it(control) -> None:
 
 def test_cards_in_a_url_query_or_fragment_are_redacted_but_ids_in_its_path_are_not() -> None:
     r = Redactor()
-    status = 'https://x.com/kartikey/status/' + luhn('187654321098765432')
+    status = 'https://x.com/sam/status/' + luhn('187654321098765432')
     discord = 'https://discord.com/channels/{}/{}/{}'.format(luhn('1100223344556677'), luhn('12233445566778899'),
                                                             luhn('129384756473829101'))
     assert all(payment_card(part) for part in discord.split('/')[-3:]) and payment_card(status.rsplit('/', 1)[1])

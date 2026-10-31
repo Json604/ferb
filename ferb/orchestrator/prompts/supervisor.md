@@ -63,7 +63,7 @@ A task (kind "task"):
   (top-N, excerpts, file size, time). Words about how to work ("in parallel", "one by one") shape the plan and are never
   a condition. The work is done in full, without caveats or a lesser offer.
 - identity: "ferb" (FERB's own browser profile and accounts) for ordinary web work with no profile named; "owner" when
-  the task or memory needs the owner's accounts or profiles, or the owner names one ("my scaler profile", "in my
+  the task or memory needs the owner's accounts or profiles, or the owner names one ("my work profile", "in my
   Chrome": put it in the goal). Keep the owner's account and profile choices; an earlier task's profile is never a
   reason. Shell, Mac and file tools work under either.
 - worker_type: one of the worker types in Layer 1; "default" uses the configured one. It only chooses which model runs

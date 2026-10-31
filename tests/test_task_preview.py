@@ -162,12 +162,12 @@ def test_parallel_steps_each_keep_their_surface_and_the_answer_names_the_step() 
 
         async def b() -> bytes:
             return b"tab-b"
-        previews.declare("t", "t.step.visa", _target("tab:browser/1", a))
+        previews.declare("t", "t.step.permit", _target("tab:browser/1", a))
         previews.declare("t", "t.step.term", _target("tab:browser/2", b))
         latest = await previews.frame("t")
         assert latest["image"] == b"tab-b" and latest["step"] == "term"
-        chosen = await previews.frame("t", "t.step.visa")
-        assert chosen["image"] == b"tab-a" and chosen["step"] == "visa"
+        chosen = await previews.frame("t", "t.step.permit")
+        assert chosen["image"] == b"tab-a" and chosen["step"] == "permit"
     asyncio.run(check())
 
 

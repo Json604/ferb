@@ -56,7 +56,7 @@ def _old_store(home: Path) -> None:
     item("preference", "owner", "parallel_task_execution",
                 "For independent work, the owner prefers multiple agents in parallel.", "inferred")   # their Keep
     item("preference", "owner", "setup_persona", PERSONA_DUMP, "owner_stated")
-    item("project", "project:us-b1b2-visa", "appointment_preferences",
+    item("project", "project:us-work-permit", "appointment_preferences",
          "Any date range man, just book. BUT notify me befire booking", "owner_stated")
     guess = item("fact", "owner", "piano_skill_level", "The owner is a beginner piano player.", "inferred", "proposed")
     c.execute("INSERT INTO memory_questions VALUES ('ap1', 'confirm', ?, 'Keep this?', 'memory-confirm', ?)",
@@ -90,8 +90,8 @@ def test_the_first_start_cleans_memory_once_and_seeds_the_core_profile(home: Pat
         [persona] = by_key["setup_persona"]
         assert persona.origin == "observed" and persona.id not in got["profile"]   # never in Tier 1
         assert PERSONA_DUMP not in got["text"]
-        [visa] = by_key["appointment_preferences"]
-        assert visa.subject == "project:us_b1b2_visa"                 # normalized like the key
+        [permit] = by_key["appointment_preferences"]
+        assert permit.subject == "project:us_work_permit"                 # normalized like the key
         [piano] = by_key["piano_skill_level"]
         assert (piano.origin, piano.status) == ("inferred", "active")   # FERB's understanding, no Keep
         assert got["questions"] == 0 and got["approvals"] == [] and got["identity"] == 0

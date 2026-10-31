@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class NotchUIPreferencesTests: XCTestCase {
     func testHoverPreferenceCanBeChangedWithoutAutomaticSuggestionState() {
-        let preferences = UserDefaults(suiteName: UUID().uuidString)!
+        let preferences = scratchDefaults()
         let model = NotchModel(preferences: preferences)
         XCTAssertTrue(model.hoverEnabled)
         model.setHoverEnabled(false)
@@ -15,7 +15,7 @@ final class NotchUIPreferencesTests: XCTestCase {
     }
 
     func testExpandedPanelSizePersistsAcrossModelRestarts() {
-        let preferences = UserDefaults(suiteName: UUID().uuidString)!
+        let preferences = scratchDefaults()
         let model = NotchModel(preferences: preferences)
         model.resizePanel(width: 520, transcriptHeight: 380, persist: true)
 
@@ -25,7 +25,7 @@ final class NotchUIPreferencesTests: XCTestCase {
     }
 
     func testExplicitFERBRequestChangesHoverOpeningLocally() {
-        let preferences = UserDefaults(suiteName: UUID().uuidString)!
+        let preferences = scratchDefaults()
         let model = NotchModel(preferences: preferences)
 
         XCTAssertTrue(model.handleLocalNotchCommand("Ferb, could you turn hover back on?"))
@@ -39,7 +39,7 @@ final class NotchUIPreferencesTests: XCTestCase {
     }
 
     func testPastedPhraseCannotChangeHoverPreference() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.pasteProvenance.paste("turn hover off", over: NSRange(location: 0, length: 0), in: "")
 
         XCTAssertFalse(model.handleLocalNotchCommand("turn hover off"))
@@ -47,7 +47,7 @@ final class NotchUIPreferencesTests: XCTestCase {
     }
 
     func testNewTaskResetsIndicatorFromAnOlderFailureToWorking() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Earlier task"
         _ = model.session.beginWork()
         model.session.requireAttention("Earlier task failed")
@@ -58,7 +58,7 @@ final class NotchUIPreferencesTests: XCTestCase {
         XCTAssertEqual(model.indicatorPhase, .attention)
     }
     func testOpeningChatAcknowledgesIndicatorUntilANewTaskArrives() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Earlier task"
         _ = model.session.beginWork()
         model.session.requireAttention("Failed earlier")
@@ -72,7 +72,7 @@ final class NotchUIPreferencesTests: XCTestCase {
     }
 
     func testStatusChangingWhileChatIsOpenStaysAcknowledgedAfterClosing() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Visible task"
         _ = model.session.beginWork()
         model.expand()

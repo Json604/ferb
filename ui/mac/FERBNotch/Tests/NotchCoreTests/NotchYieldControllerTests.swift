@@ -11,7 +11,7 @@ final class NotchYieldControllerTests: XCTestCase {
     private var controller: NotchYieldController!
 
     override func setUp() async throws {
-        model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        model = NotchModel(preferences: scratchDefaults())
         windows = []
         controller = NotchYieldController(model: model, ownPIDs: [F.ferb], windows: { [unowned self] in self.windows },
                                           layout: { [unowned self] in self.layout() })

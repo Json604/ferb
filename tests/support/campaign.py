@@ -13,7 +13,7 @@ from ferb.policy.rules import Kind
 from tests.conftest import FakeCap, RunningDaemon, gateway_request, gateway_setup, tool
 from tests.support.browser_sink import FakeBrowser
 
-STORY = "FERB is live: a personal assistant that works across your Mac. https://ferb.kartikey.xyz"
+STORY = "FERB is live: a personal assistant that works across your Mac. https://ferb.mysite.example"
 X_SCOPE = SendScope(capability="browser.act", identity="owner", site="x.com", recipients=[], content=None)
 
 

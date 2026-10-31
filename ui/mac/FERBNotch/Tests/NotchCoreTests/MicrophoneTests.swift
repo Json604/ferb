@@ -5,7 +5,7 @@ import XCTest
 final class MicrophoneTests: XCTestCase {
     func testHeldVoiceReturnsRealTranscriptToDraftWithoutSubmitting() {
         let mic = FakeMicrophone()
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!, microphone: mic)
+        let model = NotchModel(preferences: scratchDefaults(), microphone: mic)
         model.session.draft = "Please"
         model.beginHeldVoice()
         XCTAssertEqual(model.session.phase, .listening)
@@ -21,7 +21,7 @@ final class MicrophoneTests: XCTestCase {
 
     func testCancelStopsRecorderAndRestoresSnapshot() {
         let mic = FakeMicrophone()
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!, microphone: mic)
+        let model = NotchModel(preferences: scratchDefaults(), microphone: mic)
         model.session.draft = "Keep me"
         model.beginHeldVoice()
         mic.update?("discard this")
@@ -33,7 +33,7 @@ final class MicrophoneTests: XCTestCase {
 
     func testPermissionFailurePreservesDraftAndExplainsRecovery() {
         let mic = FakeMicrophone()
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!, microphone: mic)
+        let model = NotchModel(preferences: scratchDefaults(), microphone: mic)
         model.session.draft = "Keep me"
         model.startDictation()
         mic.completion?(.failure(NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Allow microphone in Settings"])))

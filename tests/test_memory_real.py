@@ -56,7 +56,7 @@ def _seed(d: RunningDaemon, day: str) -> None:
         rows.append((f"{h:02d}:40", "owner", "app_focus", {"app": "Slack", "bundle_id": "com.tinyspeck.slackmacgap"}))
     rows.append(("13:00", "owner", "idle", {"state": "idle"}))
     rows.append(("13:45", "owner", "idle", {"state": "active"}))
-    rows.append(("15:00", "ferb", "browser_tab", {"browser": "chrome", "profile": "Profile 22", "host": "mail.google.com",
+    rows.append(("15:00", "ferb", "browser_tab", {"browser": "chrome", "profile": "Profile 7", "host": "mail.google.com",
                                                    "url": "https://mail.google.com/", "title": "Inbox"}))
     rows.append(("16:00", "owner", "file", {"path": "/Users/o/notes/standup.md", "change": "modified", "is_dir": False}))
 

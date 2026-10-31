@@ -94,16 +94,16 @@ def test_a_one_ask_task_carries_its_receipt_cards_in_the_outcome(daemon: Running
 
 
 def test_a_multi_part_first_reply_carries_its_receipt_cards_once(daemon: RunningDaemon) -> None:
-    spec = _spec("Visa news and Trump's term", ["B1/B2 news is reported", "The end of Trump's term is given"],
-                 [_part("p1", "any news about the b1b2 visa", "B1/B2 visa news", step="visa", conds=(0,)),
+    spec = _spec("Permit news and Trump's term", ["Permit news is reported", "The end of Trump's term is given"],
+                 [_part("p1", "any news about the work permit", "work permit news", step="permit", conds=(0,)),
                   _part("p2", "when is trump's term ending", "When Trump's term ends", step="term", conds=(1,))],
-                 [Step(id="visa", kind="do", goal="Check B1/B2 visa news"),
+                 [Step(id="permit", kind="do", goal="Check work permit news"),
                   Step(id="term", kind="do", goal="Find when Trump's term ends")])
     plan = json.loads(sup("task", "I'll check both.", spec))
     plan["timers"] = [{"when": mins(timedelta(minutes=10)), "message": "stretch",
                        "quote": "remind me in 10 minutes to stretch"}]
-    install(daemon, [json.dumps(plan)], {"step.visa": done("No new rules."), "step.term": done("January 2029.")})
-    events = chat(daemon, "any news about the b1b2 visa and when is trump's term ending, "
+    install(daemon, [json.dumps(plan)], {"step.permit": done("No new rules."), "step.term": done("January 2029.")})
+    events = chat(daemon, "any news about the work permit and when is trump's term ending, "
                           "remind me in 10 minutes to stretch")
     first = next(e for e in events if e["type"] == "plan")
     [event] = _cards(first, "event")
@@ -170,15 +170,15 @@ class _Checkout(FakeCap):
     generic_input = True
 
     class Input(BaseModel):
-        amount: str = "₹137.39"
-        merchant: str = "Zomato"
+        amount: str = "₹248.75"
+        merchant: str = "Orderly"
 
     def __init__(self) -> None:
         super().__init__("probe.checkout", Kind.CLICK, {"probe"})
 
     def describe(self, args: Any) -> ActionSpec:
-        return ActionSpec(Kind.CLICK, Target(site="www.zomato.com"), content=f"pay:{args.amount}",
-                          facts=ActionFacts(page_url="https://www.zomato.com/checkout", page_amount=args.amount,
+        return ActionSpec(Kind.CLICK, Target(site="www.orderly.example"), content=f"pay:{args.amount}",
+                          facts=ActionFacts(page_url="https://www.orderly.example/checkout", page_amount=args.amount,
                                             page_merchant=args.merchant, tab_chain="t1"))
 
     async def run(self, args: Any, ctx: Any) -> ToolResult:
@@ -194,10 +194,10 @@ def test_a_payment_is_an_expense_row_from_the_page_facts_never_the_report(ferb_y
         r = tool(daemon.sock, token, "probe.checkout", effect="pay")
         assert not r["is_error"], r
         return done("Ordered paneer tikka for ₹999 from Domino's, paid with card 4111 1111 1111 1111.")
-    install(daemon, [sup("task", "Ordering.", task("order paneer tikka on zomato"))], {"worker": pays})
-    final = outcome(chat(daemon, "order paneer tikka on zomato"))
-    assert _cards(final, "payment") == [{"type": "payment", "amount": "₹137.39", "merchant": "Zomato",
-                                         "site": "www.zomato.com"}]
+    install(daemon, [sup("task", "Ordering.", task("order paneer tikka on orderly"))], {"worker": pays})
+    final = outcome(chat(daemon, "order paneer tikka on orderly"))
+    assert _cards(final, "payment") == [{"type": "payment", "amount": "₹248.75", "merchant": "Orderly",
+                                         "site": "www.orderly.example"}]
     assert "4111" not in json.dumps(final["cards"])
 
 
@@ -214,8 +214,8 @@ class _CardFill(FakeCap):
         super().__init__("browser.secret", Kind.FILL_FORM, {"probe"})
 
     def describe(self, args: Any) -> ActionSpec:
-        return ActionSpec(Kind.FILL_FORM, Target(site="www.zomato.com"),
-                          facts=ActionFacts(field_kinds=("card_number",), page_url="https://www.zomato.com/checkout",
+        return ActionSpec(Kind.FILL_FORM, Target(site="www.orderly.example"),
+                          facts=ActionFacts(field_kinds=("card_number",), page_url="https://www.orderly.example/checkout",
                                             tab_chain="t1"))
 
     async def run(self, args: Any, ctx: Any) -> ToolResult:
@@ -238,11 +238,11 @@ def test_a_payment_names_the_saved_card_that_filled_it_and_never_a_digit(ferb_ye
         assert not filled["is_error"], filled
         r = tool(daemon.sock, token, "probe.checkout", effect="pay")
         assert not r["is_error"], r
-        return done("Paid ₹137.39 with card 4111 1111 1111 1111.")
-    install(daemon, [sup("task", "Ordering.", task("order paneer tikka on zomato"))], {"worker": pays})
-    final = outcome(chat(daemon, "order paneer tikka on zomato"))
+        return done("Paid ₹248.75 with card 4111 1111 1111 1111.")
+    install(daemon, [sup("task", "Ordering.", task("order paneer tikka on orderly"))], {"worker": pays})
+    final = outcome(chat(daemon, "order paneer tikka on orderly"))
     [card] = _cards(final, "payment")
-    assert card == {"type": "payment", "amount": "₹137.39", "merchant": "Zomato", "site": "www.zomato.com",
+    assert card == {"type": "payment", "amount": "₹248.75", "merchant": "Orderly", "site": "www.orderly.example",
                     **({"card": entry} if entry else {})}
     recorded = run(daemon, lambda: [r[0] for r in daemon.daemon.db.conn.execute(
         "SELECT input_json FROM spans WHERE kind = 'tool.call' AND json_extract(input_json, '$.tool') = "
@@ -256,10 +256,10 @@ def test_a_payment_the_owner_refused_has_no_card(daemon: RunningDaemon) -> None:
 
     def pays(token: str) -> str:
         tool(daemon.sock, token, "probe.checkout", effect="pay")
-        return done("Paid ₹137.39 to Zomato.")
-    install(daemon, [sup("task", "Ordering.", task("order paneer tikka on zomato"))], {"worker": pays})
+        return done("Paid ₹248.75 to Orderly.")
+    install(daemon, [sup("task", "Ordering.", task("order paneer tikka on orderly"))], {"worker": pays})
     with FerbAnswers(daemon, yes=False):
-        final = outcome(chat(daemon, "order paneer tikka on zomato"))
+        final = outcome(chat(daemon, "order paneer tikka on orderly"))
     assert not _cards(final, "payment")
 
 
@@ -290,13 +290,13 @@ def test_sites_and_files_are_link_cards_and_file_chips_from_the_records(daemon: 
     def works(token: str) -> str:
         task_id = run(daemon, lambda: daemon.daemon.tokens.validate(token).task_id)
         daemon.call_soon(lambda: daemon.daemon.journal.append(
-            "shell.network", {"task_id": task_id, "destinations": [{"host": "kartikey.xyz"}]}))
-        return json.dumps(report("done", "Saved notes from kartikey.xyz and also see https://elsewhere.example.",
+            "shell.network", {"task_id": task_id, "destinations": [{"host": "mysite.example"}]}))
+        return json.dumps(report("done", "Saved notes from mysite.example and also see https://elsewhere.example.",
                                  artifacts=(str(path),)))
-    install(daemon, [sup("task", "Reading.", task("save notes from kartikey.xyz"))], {"worker": works})
-    final = outcome(chat(daemon, "save notes from kartikey.xyz"))
+    install(daemon, [sup("task", "Reading.", task("save notes from mysite.example"))], {"worker": works})
+    final = outcome(chat(daemon, "save notes from mysite.example"))
     links = _cards(final, "link")
-    assert links == [{"type": "link", "host": "kartikey.xyz", "line": "Sites contacted: kartikey.xyz"}]
+    assert links == [{"type": "link", "host": "mysite.example", "line": "Sites contacted: mysite.example"}]
     assert links[0]["line"] in final["lines"] and links[0]["line"] in final["answer"]
     assert _cards(final, "file") == [{"type": "file", "path": str(path), "name": "notes.md"}]
     stored = _chat_status(daemon)["results"]
@@ -310,14 +310,14 @@ def test_chat_status_questions_carry_the_asking_task_and_part(daemon: RunningDae
     (a step's task id) and the part."""
     spec = _spec("Book Toit and order lunch", ["A table at Toit is booked", "Paneer tikka is ordered"],
                  [_part("book", "book a table at Toit for tonight", "Table at Toit tonight", step="book", conds=(0,)),
-                  _part("food", "order paneer tikka from Zomato", "Paneer tikka from Zomato", step="food", conds=(1,))],
+                  _part("food", "order paneer tikka from Orderly", "Paneer tikka from Orderly", step="food", conds=(1,))],
                  [Step(id="book", kind="do", goal="Book a table at Toit tonight"),
-                  Step(id="food", kind="do", goal="Order paneer tikka on Zomato")])
+                  Step(id="food", kind="do", goal="Order paneer tikka on Orderly")])
     install(daemon, [sup("task", "I'll book Toit and order lunch.", spec)],
             {"step.book": [json.dumps(report("not_done", reason="Two times are free.",
                                              question="Which time: 8:00 or 9:30 pm?")), done("Booked 8:00 pm.")],
              "step.food": done("Ordered paneer tikka.")})
-    turn = Turn(daemon, "book a table at Toit for tonight and order paneer tikka from Zomato for lunch")
+    turn = Turn(daemon, "book a table at Toit for tonight and order paneer tikka from Orderly for lunch")
     _until(lambda: any(a.capability != CONFIRM_ASK for a in run(daemon, daemon.daemon.state.approvals.pending)))
     [listed] = _chat_status(daemon)["approvals"]
     assert listed["part"] == "book" and listed["source_task_id"].endswith(".step.book")

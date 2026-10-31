@@ -133,7 +133,7 @@ final class AnswersInStepsTests: XCTestCase {
         model.receiveChatEvent(plan(), localID: id)
         model.receiveBusEvent(["topic": "approval.requested", "data": [
             "approval_id": "G1", "task_id": "T.step.kb.verify", "capability": "ferb.confirm", "reason": "Pay ₹349?",
-            "summary": "Pay ₹349 to Zomato?", "options": ["Pay ₹349", "Don't pay"]]])
+            "summary": "Pay ₹349 to Orderly?", "options": ["Pay ₹349", "Don't pay"]]])
         model.receiveBusEvent(["topic": "approval.requested", "data": [
             "approval_id": "F1", "task_id": "T", "part": "kb", "capability": "owner.ask", "reason": "Which one?",
             "options": ["K2", "RK84"]]])
@@ -275,16 +275,16 @@ final class AnswersInStepsTests: XCTestCase {
     }
 
     func testARowClaimsOnlyItsOwnQuestions() throws {
-        let row = try XCTUnwrap(CardRow(["part": "visa", "label": "Visa", "state": "working",
-                                         "step_task_id": "T.step.visa"], taskID: "T"))
+        let row = try XCTUnwrap(CardRow(["part": "permit", "label": "Permit", "state": "working",
+                                         "step_task_id": "T.step.permit"], taskID: "T"))
         func approval(_ fields: [String: Any]) -> DaemonApproval {
             DaemonApproval(["approval_id": UUID().uuidString, "task_id": "T"].merging(fields) { $1 })!
         }
-        XCTAssertTrue(row.asks(approval(["source_task_id": "T.step.visa"])))
-        XCTAssertTrue(row.asks(approval(["source_task_id": "T.step.visa.verify"])))
-        XCTAssertFalse(row.asks(approval(["source_task_id": "T.step.visa2"])))
-        XCTAssertTrue(row.asks(approval(["part": "visa"])))
-        XCTAssertFalse(row.asks(approval(["part": "visa", "task_id": "U"])))
+        XCTAssertTrue(row.asks(approval(["source_task_id": "T.step.permit"])))
+        XCTAssertTrue(row.asks(approval(["source_task_id": "T.step.permit.verify"])))
+        XCTAssertFalse(row.asks(approval(["source_task_id": "T.step.permit2"])))
+        XCTAssertTrue(row.asks(approval(["part": "permit"])))
+        XCTAssertFalse(row.asks(approval(["part": "permit", "task_id": "U"])))
         XCTAssertFalse(row.asks(approval([:])))
     }
 
@@ -309,7 +309,7 @@ final class AnswersInStepsTests: XCTestCase {
     }
 
     private func makeModel(_ rpc: DaemonRPCTransport = ScriptedRPC()) -> NotchModel {
-        NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: "AnswersInSteps-" + UUID().uuidString)!)
+        NotchModel(rpc: rpc, preferences: scratchDefaults("AnswersInSteps"))
     }
 
     private func begin(_ request: String, in model: NotchModel) -> UUID {

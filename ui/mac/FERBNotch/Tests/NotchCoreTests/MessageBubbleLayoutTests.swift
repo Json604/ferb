@@ -6,15 +6,15 @@ import XCTest
 @MainActor
 final class MessageBubbleLayoutTests: XCTestCase {
     func testShortGreetingPaintsAContentSizedBubbleAtBothPanelWidths() {
-        let narrow = measuredBubble("Hi Kartikey 👋", rowWidth: 380)
-        let wide = measuredBubble("Hi Kartikey 👋", rowWidth: 700)
+        let narrow = measuredBubble("Hi Sam 👋", rowWidth: 380)
+        let wide = measuredBubble("Hi Sam 👋", rowWidth: 700)
         XCTAssertGreaterThan(narrow.width, 22)
         XCTAssertLessThan(narrow.width, 200)
         XCTAssertEqual(narrow.width, wide.width, accuracy: 1)
     }
 
     func testLongReplyWrapsWithinAvailableWidthWithoutChangingPanelSize() {
-        let reply = "Your very bottom WhatsApp chat is Group 1 - SST Class. "
+        let reply = "Your very bottom WhatsApp chat is Group 1 - ABC Class. "
             + "I scrolled through the chat list and checked the final conversation."
         let narrow = measuredBubble(reply, rowWidth: 230)
         let wide = measuredBubble(reply, rowWidth: 600)

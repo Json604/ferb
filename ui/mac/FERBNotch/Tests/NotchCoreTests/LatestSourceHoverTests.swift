@@ -56,7 +56,7 @@ final class LatestSourceHoverTests: XCTestCase {
         turn.answer = String(repeating: "A long answer paragraph.\n\n", count: 35) + "Sites contacted: in.usembassy.gov, travel.state.gov"
         turn.status = "done"
         let entries = Entries([.turn(turn, answeredBelow: false)])
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         let host = NSHostingView(rootView: Chat(entries: entries, model: model))
         host.frame = CGRect(x:0,y:0,width:440,height:model.chatTranscriptHeight+44)
         let window = NSWindow(contentRect:host.frame,styleMask:.borderless,backing:.buffered,defer:false)
@@ -85,7 +85,7 @@ final class LatestSourceHoverTests: XCTestCase {
     }
 
     func testTranscriptOffsetStaysFixedWhileCardTranslatesWithinDragCanvas() async throws {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         let id = UUID()
         model.conversation.begin(id: id, request: "Explain", sources: [])
         model.conversation.finish(id: id, answer: String(repeating: "Long answer paragraph here. More words make a sentence.\n\n", count: 35) + "Sites contacted: constitution.congress.gov, congress.gov", status: "done", artifacts: [])
@@ -130,7 +130,7 @@ final class LatestSourceHoverTests: XCTestCase {
     }
 
     func testFullNotchSourceUsesNativeAutomaticClippingAcrossScrollAndReopen() async throws {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         let id = UUID()
         model.conversation.begin(id: id, request: "Explain", sources: [])
         model.conversation.finish(id: id, answer: String(repeating: "Long answer paragraph here.\n\n", count: 35) + "Sites contacted: constitution.congress.gov, congress.gov", status: "done", artifacts: [])
@@ -213,7 +213,7 @@ final class LatestSourceHoverTests: XCTestCase {
         turn.answer = String(repeating: "This is a paragraph about the answer.\n\n", count: 18) + "Sites contacted: constitution.congress.gov, congress.gov"
         turn.status = "done"
         let entries = Entries([.turn(turn, answeredBelow: false)])
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         let host = NSHostingView(rootView: Chat(entries: entries, model: model))
         host.frame = CGRect(x: 0, y: 0, width: 440, height: model.chatTranscriptHeight + 44)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)

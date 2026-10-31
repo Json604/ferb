@@ -44,7 +44,7 @@ def test_a_typed_answer_is_never_remembered_as_a_secret(daemon) -> None:
 def test_values_entered_through_the_sealed_input_stay_redacted_in_later_text(daemon) -> None:
     """(d) The sealed paths still hide what the owner entered: a login code and a short secret, before and after the
     fill hands the secret back (gateway.release_secret), and a later choice answer leaves them hidden."""
-    code = ask(daemon, 'Enter the login code for https://www.zomato.com (hidden; Enter cancels).', [],
+    code = ask(daemon, 'Enter the login code for https://www.orderly.example (hidden; Enter cancels).', [],
                kind='owner_login_code')
     answer(daemon, code, '482913')
     secret = ask(daemon, 'Enter the secret for https://x.test (hidden; Enter cancels).', [], kind='owner_secret')

@@ -3,7 +3,7 @@ from tests.conftest import gateway_request, gateway_setup
 
 
 def test_daily_security_digest_is_structured_and_redacted(daemon):
-    grant, _ = gateway_setup(daemon, set(), gateway_request('Open https://kartikey.xyz.'), [])
+    grant, _ = gateway_setup(daemon, set(), gateway_request('Open https://mysite.example.'), [])
     async def check():
         day = daemon.daemon.clock.now().date().isoformat()
         return build(daemon.daemon.db, day)

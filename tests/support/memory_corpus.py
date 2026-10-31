@@ -5,10 +5,10 @@ from typing import Any
 
 from ferb.memory.learning import Learning
 
-TOPICS = ("gmail inbox", "kaggle leaderboard", "zomato order", "github pull request", "whatsapp group",
-          "spotify playlist", "instagram reel", "scaler assignment", "resume pdf", "discord server", "brave profile",
+TOPICS = ("gmail inbox", "contest leaderboard", "orderly order", "github pull request", "whatsapp group",
+          "spotify playlist", "instagram reel", "acme assignment", "resume pdf", "discord server", "brave profile",
           "chrome tab", "calendar invite", "flight booking", "notes folder", "desktop files", "terminal command",
-          "youtube video", "linkedin post", "rsna competition")
+          "youtube video", "linkedin post", "orbit competition")
 USERNAME = "the username is Asha Rao"
 
 

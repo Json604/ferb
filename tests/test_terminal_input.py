@@ -602,7 +602,7 @@ def test_a_terminal_apps_menu_commands_ask_even_without_the_paste_shortcut(monke
     """Terminal's "Paste Escaped Text" or "Paste Selection" carry no ⌘V: in a terminal app any menu press (its menu bar
     or a context menu) asks while its focus is the terminal, naming the item. Another app's menus don't."""
     shell = [{"role": "AXTextArea", "description": "shell"}, {"role": "AXScrollArea"},
-             {"role": "AXWindow", "title": "kartikey — -zsh — 80×24"}, {"role": "AXApplication", "title": "Terminal"}]
+             {"role": "AXWindow", "title": "me — -zsh — 80×24"}, {"role": "AXApplication", "title": "Terminal"}]
     ax = TerminalAx({"shell": shell, "item": [{"role": "AXMenuItem", "title": "Paste Selection"}]}, focused="shell",
                     labels={"shell": "shell", "item": "Paste Selection"})
     apps = TerminalApps(RunningApp("com.apple.Terminal", "Terminal", 601, False),
@@ -788,7 +788,7 @@ def _run_ax() -> TerminalAx:
     ax.chains |= {"run": RUN_BUTTON, "explorer": EXPLORER_BUTTON}
     ax.labels |= {"run": "Run Python File", "explorer": "Explorer (⇧⌘E)"}
     ax.selections = {"editor": "import os; os.system('id')"}
-    ax.documents = {"editor": "/Users/kartikey/Desktop/FERB/scratch.py"}
+    ax.documents = {"editor": "/Users/me/Desktop/FERB/scratch.py"}
     return ax
 
 
@@ -799,12 +799,12 @@ def test_a_run_command_in_the_terminal_menu_asks_showing_the_selection_and_file(
     d = terminal_mac(monkeypatch, ax)
     inp = d.menu_terminal_input("Code", ["Terminal", "Run Selected Text"])
     assert inp is not None and inp.menu == "Terminal > Run Selected Text"
-    assert inp.selection == "import os; os.system('id')" and inp.file == "/Users/kartikey/Desktop/FERB/scratch.py"
+    assert inp.selection == "import os; os.system('id')" and inp.file == "/Users/me/Desktop/FERB/scratch.py"
     assert confirm.summary([terminal.need(inp)]) == (
         'FERB wants to press "Terminal > Run Selected Text" in Code (this menu runs code in Code\'s terminal, and a '
         "terminal it opens may run its profile's startup command; the editor's selection is \"import os; "
         'os.system(\'id\')" (26 characters on 1 line, as FERB read it), the active file is '
-        '"/Users/kartikey/Desktop/FERB/scratch.py").')
+        '"/Users/me/Desktop/FERB/scratch.py").')
     with pytest.raises(Refused, match=UNASKED):
         asyncio.run(d.press_menu("Code", ["Terminal", "Run Selected Text"]))
     assert ax.menus_pressed == []
@@ -1328,7 +1328,7 @@ def test_a_finder_script_that_copies_ferbs_own_files_asks_showing_it(daemon: Run
     """Careful-edits re-review: a script for Finder runs with Finder's access, not the sandbox's, so it could copy
     FERB's own files or a protected store somewhere the shell can read. Every Finder script asks, showing it."""
     grant, ran = _script_setup(daemon, monkeypatch, RunningApp("com.apple.finder", "Finder", 300, False))
-    script = 'duplicate POSIX file "/Users/kartikey/.ferb/codex-home/auth.json" to desktop'
+    script = 'duplicate POSIX file "/Users/me/.ferb/codex-home/auth.json" to desktop'
     owner = Owner(daemon, [False])
     try:
         out = gateway_tool_call(daemon, grant, "mac.applescript", app="Finder", script=script)

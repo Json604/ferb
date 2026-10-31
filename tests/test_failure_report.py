@@ -20,7 +20,7 @@ import pytest
 
 from ferb.cli.client import Client, RpcError
 from ferb.daemon import auth
-from ferb.daemon.reports import FEEDBACK_ADDRESS, KEEP_DAYS, PROBLEMS_LAST, SECTIONS, TURN_FAILED
+from ferb.daemon.reports import FEEDBACK_ADDRESS, KEEP_DAYS, NOT_SET_UP, PROBLEMS_LAST, SECTIONS, TURN_FAILED
 from ferb.daemon.server import INTERNAL_ERROR, SLOW_CALL
 from ferb.sanitize.redact import Redactor, SealedWord, escaped_forms, sealed_spans
 from tests.conftest import RunningDaemon, chat, install, sup
@@ -30,6 +30,13 @@ QUOTED = 'Tr0ub"dor\\x9!\tQ'                          # one holding a quote, a b
 API_KEY = "sk-ant-api03-" + "Zq7" * 12                 # an Anthropic key shape (a secret class)
 REQUEST = "Rename the invoices in Downloads by month"
 ANSWER = "I couldn't finish that: the Downloads folder was protected."
+ADDRESS = "reports@example.org"                       # a configured destination (none is set by default)
+
+
+@pytest.fixture(autouse=True)
+def _destination(request: pytest.FixtureRequest) -> None:
+    if "daemon" in request.fixturenames:
+        request.getfixturevalue("daemon").daemon.config.set("feedback", "address", ADDRESS)
 
 
 def _forms(value: str, nested: bool = False) -> set[str]:
@@ -129,7 +136,7 @@ def test_the_file_has_the_four_sections_in_order(daemon: RunningDaemon) -> None:
     assert "tool.call  fs.list" in steps and "denied: ~/Downloads is protected" in steps
     assert "find the invoices" in steps
     assert r["subject"] == f"FERB report: {ANSWER}"
-    assert ANSWER in r["summary"] and r["address"] == FEEDBACK_ADDRESS
+    assert ANSWER in r["summary"] and r["address"] == ADDRESS
     assert Path(r["path"]).name == "FERB-report-2026-01-01-t-fail.txt"
 
 
@@ -237,16 +244,16 @@ def test_an_unknown_task_is_refused(daemon: RunningDaemon) -> None:
 def test_an_empty_address_is_refused(daemon: RunningDaemon) -> None:
     _failed_task(daemon)
     daemon.daemon.config.set("feedback", "address", "")
-    with pytest.raises(RpcError, match="No feedback address set"):
+    with pytest.raises(RpcError, match=NOT_SET_UP):
         _build(daemon, "t-fail")
     assert not (daemon.daemon.home / "reports").exists()
 
 
 def test_the_address_comes_from_config(daemon: RunningDaemon) -> None:
     _failed_task(daemon)
-    assert _build(daemon, "t-fail")["address"] == "ktky.attri@gmail.com"     # the owner's default, 2026-10-25
-    daemon.daemon.config.set("feedback", "address", "reports@example.org")
-    assert _build(daemon, "t-fail")["address"] == "reports@example.org"
+    assert FEEDBACK_ADDRESS == ""                                  # none by default: not set up yet
+    daemon.daemon.config.set("feedback", "address", "dev@example.org")
+    assert _build(daemon, "t-fail")["address"] == "dev@example.org"
 
 
 def test_a_redactor_without_a_text_path_writes_nothing(daemon: RunningDaemon) -> None:
@@ -356,11 +363,11 @@ def test_a_scheduled_run_that_failed_before_its_task_is_reportable(daemon: Runni
         d = daemon.daemon
         d.journal.append("chat.failed", {"request_id": "r-sched", "why": "ServiceError", "detail": "usage limit"})
         d.db.conn.execute("INSERT INTO task_results (task_id, at, status, goal, answer, shown) VALUES (?, ?, 'failed', "
-                          "?, ?, 0)", ("r-sched", d.clock.now().isoformat(), "Check the visa slots",
+                          "?, ?, 0)", ("r-sched", d.clock.now().isoformat(), "Check the permit slots",
                                        "You've hit your usage limit."))
     _on_loop(daemon, seed)
     text = Path(_build(daemon, "r-sched")["path"]).read_text()
-    assert "Check the visa slots" in text and "Failure reason: You've hit your usage limit." in text
+    assert "Check the permit slots" in text and "Failure reason: You've hit your usage limit." in text
 
 
 def test_a_30_mb_trace_leaves_the_event_loop_responsive(daemon: RunningDaemon) -> None:

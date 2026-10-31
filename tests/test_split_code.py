@@ -1,4 +1,4 @@
-"""Sanitized Zomato trace shape: six unnamed textboxes. DOM attributes are explicit regression assumptions,
+"""Sanitized Orderly trace shape: six unnamed textboxes. DOM attributes are explicit regression assumptions,
 not verified live facts; the owner trace did not retain maxlength/inputmode. No browser is launched here.
 """
 import json
@@ -25,7 +25,7 @@ class HTMLTextAreaElement {};
 let nodes=Array.from({length:6},()=>Object.assign(new HTMLInputElement(), {tagName:'INPUT',type:'text',maxLength:1,
  inputMode:'numeric',pattern:'',name:'',id:'',autocomplete:'',isConnected:true,ownerDocument:1,value:''}));
 let parent={querySelectorAll:()=>nodes, parentElement:null}; nodes.forEach(n=>n.parentElement=parent);
-let location={origin:'https://www.zomato.com'}, element=()=>({el:nodes[0]}), setValue=(n,v)=>n.value=v;
+let location={origin:'https://www.orderly.example'}, element=()=>({el:nodes[0]}), setValue=(n,v)=>n.value=v;
 const addEventListener=()=>{}, top={}, window={}, chrome={runtime:{}},
  getComputedStyle=()=>({getPropertyValue:()=>'none'});
 let ids=0; const randomId=()=>'id'+(++ids);
@@ -71,7 +71,7 @@ def test_partial_secret_fill_is_recorded_unknown_and_duplicate_is_not_replayed()
       install = async () => ({key:'paired'}); unseal = async () => 'synthetic-secret';
       inFrame = async () => {calls++; return {ok:false, unknown:true, detail:'code_group_changed_after_partial_fill'};};
       const command = {gen:1, id:'partial', op:'fill', args:{tab_id:1, frame_id:0, snap:1, el:0,
-        sealed:{}, origin:'https://www.zomato.com', code_only:true}};
+        sealed:{}, origin:'https://www.orderly.example', code_only:true}};
       await onCommand(command); await onCommand(command);
       return {calls, seen:(await session()).seen, events};
     })()''')
@@ -208,7 +208,7 @@ def test_explicit_split_fill_requires_loaded_content_helper_feature(supported):
       install=async()=>({key:'paired'});unseal=async()=> 'synthetic-secret';
       inFrame=async(tab,frame,fn,args)=>fn(...args);
       const result=await commands.fill({tab_id:1,frame_id:0,snap:1,el:0,sealed:{},
-        origin:'https://www.zomato.com',split_els:[0,1,2,3,4,5]},'sealed-command');
+        origin:'https://www.orderly.example',split_els:[0,1,2,3,4,5]},'sealed-command');
       return {result,calls,targets};
     })()'''.replace('SUPPORTED', json.dumps(supported)))
     assert result['result']['ok'] is (supported is True)

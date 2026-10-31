@@ -225,8 +225,8 @@ def test_free_text_in_chat_answers_the_check_in_only_as_one_of_its_options(daemo
 
 def _scheduled(daemon: RunningDaemon, workers: dict[str, Any]) -> dict[str, Any]:
     first = daemon.daemon.clock.now() + timedelta(minutes=5)
-    sched = make_schedule(daemon, "check the visa page", "check the visa page every day", Targets.of(), first)
-    install(daemon, [sup("task", "Checking.", task("Check the visa page"))], workers)
+    sched = make_schedule(daemon, "check the permit page", "check the permit page every day", Targets.of(), first)
+    install(daemon, [sup("task", "Checking.", task("Check the permit page"))], workers)
     return daemon.run(daemon.daemon.supervisor.run_scheduled(sched, late=False), timeout=60)
 
 
@@ -386,8 +386,8 @@ def test_a_resumed_scheduled_run_stays_unattended_and_reports_to_its_schedule(da
     its result skipped the schedule's bookkeeping (its failure count, retry and watch)."""
     sv = daemon.daemon.supervisor
     first = daemon.daemon.clock.now() + timedelta(minutes=5)
-    sched = make_schedule(daemon, "check the visa page", "check the visa page every day", Targets.of(), first)
-    install(daemon, [sup("task", "Checking.", task("Check the visa page"))],
+    sched = make_schedule(daemon, "check the permit page", "check the permit page every day", Targets.of(), first)
+    install(daemon, [sup("task", "Checking.", task("Check the permit page"))],
             {"worker": [STALL, _report("needs_user", "Which account?")]})
     daemon.loop.call_soon_threadsafe(lambda: daemon.loop.create_task(sv.run_scheduled(sched, late=False)))
     tree = _tree(daemon)
@@ -430,9 +430,9 @@ def test_a_paused_task_is_mentioned_once_a_day_when_the_owner_is_back_and_resume
     """Decision 13: FERB mentions a paused task once a day, from its record, in its chat, with a Resume that goes the
     pause's own way; only when the owner is back at the Mac (never while away), never twice a day, and yesterday's
     unanswered mention is replaced, not stacked."""
-    script = install(daemon, [sup("task", "On it.", task("Check the visa page"))],
+    script = install(daemon, [sup("task", "On it.", task("Check the permit page"))],
                      {"worker": [STALL, done("Checked: no new slots.")]})
-    turn = Turn(daemon, "check the visa page")
+    turn = Turn(daemon, "check the permit page")
     tree = _tree(daemon)
     _until(daemon, lambda: _row(daemon, tree + ".worker") == "running")
     _pause_through_chat(daemon, script, tree)
@@ -496,13 +496,13 @@ def test_pausing_a_scheduled_run_pauses_its_schedule_and_resuming_it_resumes_the
         daemon: RunningDaemon) -> None:
     sv = daemon.daemon.supervisor
     first = daemon.daemon.clock.now() + timedelta(minutes=5)
-    sched = make_schedule(daemon, "check the visa page", "check the visa page every day", Targets.of(), first)
-    script = install(daemon, [sup("task", "Checking.", task("Check the visa page"))],
+    sched = make_schedule(daemon, "check the permit page", "check the permit page every day", Targets.of(), first)
+    script = install(daemon, [sup("task", "Checking.", task("Check the permit page"))],
                      {"worker": [STALL, done("Checked.")]})
     daemon.loop.call_soon_threadsafe(lambda: daemon.loop.create_task(sv.run_scheduled(sched, late=False)))
     tree = _tree(daemon)
     _until(daemon, lambda: _row(daemon, tree + ".worker") == "running")
-    _pause_through_chat(daemon, script, tree, "hold on, pause the visa check")
+    _pause_through_chat(daemon, script, tree, "hold on, pause the permit check")
     _until(daemon, lambda: run(daemon, lambda: daemon.daemon.schedules.get(sched.id)).state == "paused")
     script.sup.append(json.dumps({"kind": "reply", "text": "Carrying on.", "task": None,
                                   "control": {"task_id": tree, "action": "continue", "standing_sends": "unchanged",

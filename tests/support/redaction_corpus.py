@@ -72,7 +72,7 @@ _CLICKS = ['Pin message', 'Pin chat', 'Unpin', 'Token usage', 'Show password', '
 _REQUESTS = ['pin the newest message in the FERB test group', "what's my API token usage this month",
              'reset my netflix password', 'check if 2FA is on for my google account', 'reply to Alex on WhatsApp',
              'find the invoice INV-2026-0042 in Gmail', 'open the secret santa sheet', 'show my API keys page',
-             'log into kartikey.xyz admin', 'my UPI PIN changed, update the note']
+             'log into mysite.example admin', 'my UPI PIN changed, update the note']
 _NARRATIVES = ['Pinned the newest message.', 'Read the usage page: 1,284,551 tokens this month.',
                'Opened the security page; the password was last changed Mar 2, 2025.',
                'The page asked for a code; I stopped and asked you.', 'Clicked "Pin message" in the menu.',

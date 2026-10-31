@@ -34,7 +34,7 @@ final class TaskRecordTests: XCTestCase {
     @MainActor
     func testHiddenInspectionDoesNotPublishLateTrace() async throws {
         let rpc = DelayedTraceRPC()
-        let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
         model.runningTasks = ["first": "First"]
         let started = expectation(description: "Inspection started")
         rpc.onRequest = { _ in started.fulfill() }
@@ -52,7 +52,7 @@ final class TaskRecordTests: XCTestCase {
     @MainActor
     func testSwitchingTasksRejectsLateTraceAndKeepsCurrentFile() async throws {
         let rpc = DelayedTraceRPC()
-        let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
         model.runningTasks = ["first": "First", "second": "Second"]
         let firstStarted = expectation(description: "First inspection started")
         rpc.onRequest = { _ in firstStarted.fulfill() }

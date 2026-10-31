@@ -42,4 +42,4 @@ Open while the local study server is running:
   http://127.0.0.1:8793/notch/index.html
 
 Restart if needed:
-  python3 -m http.server 8793 --bind 127.0.0.1 --directory /Users/kartikey/Desktop/ferb-UI/mac/design-study
+  python3 -m http.server 8793 --bind 127.0.0.1 --directory ui/mac/design-study   # from the repository root

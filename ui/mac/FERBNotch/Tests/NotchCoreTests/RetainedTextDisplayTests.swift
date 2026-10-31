@@ -7,7 +7,7 @@ import XCTest
 final class RetainedTextDisplayTests: XCTestCase {
     func testRefreshKeepsTextKit2RendererIntact() async throws {
         let text = RecordingTextView(usingTextLayoutManager: true)
-        text.string = "Hi Kartikey 👋"
+        text.string = "Hi Sam 👋"
         let renderer = try XCTUnwrap(text.textLayoutManager)
         let host = TrackingHostingView(rootView: RetainedText(view: text))
         host.frame = CGRect(x: 0, y: 0, width: 440, height: 400)
@@ -16,13 +16,13 @@ final class RetainedTextDisplayTests: XCTestCase {
         host.scheduleTextDisplayRefresh()
         await drainMainQueue()
         XCTAssertTrue(text.textLayoutManager === renderer)
-        XCTAssertEqual(text.string, "Hi Kartikey 👋")
+        XCTAssertEqual(text.string, "Hi Sam 👋")
         XCTAssertGreaterThan(text.displayInvalidations, 0)
     }
 
     func testRefreshInvalidatesRetainedTextWithoutReplacingContentOrSelection() async {
         let text = RecordingTextView(frame: CGRect(x: 0, y: 0, width: 300, height: 100))
-        text.string = "Your very bottom WhatsApp chat is Group 1 - SST Class."
+        text.string = "Your very bottom WhatsApp chat is Group 1 - ABC Class."
         text.isEditable = false
         text.isSelectable = true
         let selection = NSRange(location: 33, length: 19)
@@ -42,7 +42,7 @@ final class RetainedTextDisplayTests: XCTestCase {
         await drainMainQueue()
         XCTAssertGreaterThan(text.displayInvalidations, 0)
         XCTAssertTrue(text.textStorage === storage)
-        XCTAssertEqual(text.string, "Your very bottom WhatsApp chat is Group 1 - SST Class.")
+        XCTAssertEqual(text.string, "Your very bottom WhatsApp chat is Group 1 - ABC Class.")
         XCTAssertEqual(text.selectedRange(), selection)
         XCTAssertTrue(text.isSelectable)
     }

@@ -7,7 +7,7 @@ import XCTest
 @MainActor
 final class AcknowledgementHoverTests: XCTestCase {
     func testFreshPlanIsImmediateWithoutExpandingAndDoesNotReplay() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Check my task"
         let id = model.session.beginWork()!
         model.conversation.begin(id: id, request: "Check my task", sources: [])
@@ -33,7 +33,7 @@ final class AcknowledgementHoverTests: XCTestCase {
     }
 
     func testBackgroundPlanUsesForegroundVisibilityAndHistoryNeverReplays() {
-        let preferences = UserDefaults(suiteName: UUID().uuidString)!
+        let preferences = scratchDefaults()
         let model = NotchModel(preferences: preferences)
         model.session.draft = "Background task"
         let id = model.session.beginWork()!
@@ -83,7 +83,7 @@ final class AcknowledgementHoverTests: XCTestCase {
 
     func testInterruptedOrStoppedRequestDismissesAcknowledgement() {
         for ending in ["abort", "disconnect", "stop"] {
-            let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+            let model = NotchModel(preferences: scratchDefaults())
             model.session.draft = "Check task"
             let id = model.session.beginWork()!
             model.conversation.begin(id: id, request: "Check task", sources: [])
@@ -116,7 +116,7 @@ final class AcknowledgementHoverTests: XCTestCase {
     }
 
     func testAllAttentionPathsDismissSmallAck() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         for action in [{ model.expand() }, { model.presentIncomingAnswer() },
                        { model.presentTerminalAnswer() }, { model.announceAttention(UUID().uuidString) }] {
             model.acknowledgement.show("Checking")
@@ -178,7 +178,7 @@ final class AcknowledgementHoverTests: XCTestCase {
     }
 
     func testWrongRequestPlanCannotPresentCaption() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Check task"
         let id = model.session.beginWork()!
         model.conversation.begin(id: id, request: "Check task", sources: [])
@@ -190,7 +190,7 @@ final class AcknowledgementHoverTests: XCTestCase {
     }
 
     func testCompactPreviewFitsAvailableSurfaceForEveryEdge() {
-        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let model = NotchModel(preferences: scratchDefaults())
         model.availableSurfaceSize = CGSize(width: 300, height: 100)
         model.collapse()
         for edge in ["top", "bottom", "left", "right"] {

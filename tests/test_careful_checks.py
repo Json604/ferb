@@ -17,8 +17,8 @@ from tests.support.documents import docx
 
 COVER = [["Student Name", "Student Name"], ["Student ID", "ID"]]
 TABLE_10 = [["ID", "Requirement", "Priority"], ["R1", "Show the queue position", "Must"]]
-IDENTITY = task("put Kartikey and 2024eb02238 in the HCI assignment",
-                conds=(cond("The assignment uses full name Kartikey and student ID 2024eb02238"),))
+IDENTITY = task("put Sam and 2031xy04417 in the HCI assignment",
+                conds=(cond("The assignment uses full name Sam and student ID 2031xy04417"),))
 RECORD = re.compile(r"change record: task\.evidence span_id=([0-9A-Za-z-]+)")
 
 
@@ -49,7 +49,7 @@ def _assignment(tmp_path: Path) -> Path:
 def _perl(doc: Path) -> str:
     """The live case's replace (span 780bd068): every `<w:t ...>ID</w:t>` becomes the student id."""
     return (f"set -eu\nf='{doc}'\nw=$(mktemp -d)\ncd \"$w\" && unzip -qq \"$f\"\n"
-            "perl -0pi -e 's{<w:t xml:space=\"preserve\">ID</w:t>}{<w:t xml:space=\"preserve\">2024eb02238</w:t>}g' "
+            "perl -0pi -e 's{<w:t xml:space=\"preserve\">ID</w:t>}{<w:t xml:space=\"preserve\">2031xy04417</w:t>}g' "
             "word/document.xml\nrm \"$f\" && zip -q -X -r \"$f\" .\n")
 
 
@@ -60,19 +60,19 @@ def test_a_shell_replace_that_hits_a_table_header_reaches_the_checker_and_a_cite
     def worker(token: str) -> str:
         r = tool(daemon.sock, token, "shell.run", command=_perl(doc), effect="edit")
         assert not r["is_error"], r
-        return done("Replaced the ID placeholder with 2024eb02238; matching identity values.")
+        return done("Replaced the ID placeholder with 2031xy04417; matching identity values.")
 
     def checker(token: str) -> str:
         context = checker_context(script)
         [record] = RECORD.findall(context)
         page = tool(daemon.sock, token, "task.evidence", span_id=record)
         assert not page["is_error"], page
-        assert "+2024eb02238\\n Requirement" in page["content"]["text"]
-        assert "-ID\n+2024eb02238\n Requirement" in context          # the diff is in the check's context, as data
-        return verdict(False, "Table 10's column header 'ID' became '2024eb02238' (diff line '+2024eb02238', "
+        assert "+2031xy04417\\n Requirement" in page["content"]["text"]
+        assert "-ID\n+2031xy04417\n Requirement" in context          # the diff is in the check's context, as data
+        return verdict(False, "Table 10's column header 'ID' became '2031xy04417' (diff line '+2031xy04417', "
                               "beside 'Requirement'): an unrequested change.")
     script, _ = install(daemon, {"worker": worker, "worker.verify": checker})
-    out = outcome(chat(daemon, "unzip the HCI assignment, fullname=Kartikey, studentid=2024eb02238"))
+    out = outcome(chat(daemon, "unzip the HCI assignment, fullname=Sam, studentid=2031xy04417"))
     assert not out["verified"] and out["status"] == "failed"
     assert "Table 10's column header" in out["answer"]
     context = checks(script)[0]
@@ -85,12 +85,12 @@ def test_a_pass_with_no_look_at_a_changed_file_is_refused_rerun_once_then_unclea
     notes.write_text("Student ID: ID\n")
 
     def worker(token: str) -> str:
-        r = tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2024eb02238\n",
+        r = tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2031xy04417\n",
                  overwrite=True, effect="edit")
         assert not r["is_error"], r
         return done("Set the student id.")
     script, _ = install(daemon, {"worker": worker, "worker.verify": verdict(True, "The report says so.")})
-    out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
+    out = outcome(chat(daemon, "set my student id to 2031xy04417 in notes.txt"))
     contexts = checks(script)
     assert len(contexts) == 2                                       # refused once, run once more with the reason
     assert "FERB refused this check's pass" in contexts[1] and str(notes.resolve()) in contexts[1]
@@ -105,16 +105,16 @@ def test_a_pass_that_read_the_changed_file_stands(daemon: Any, tmp_path: Path) -
     notes.write_text("Student ID: ID\n")
 
     def worker(token: str) -> str:
-        assert not tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2024eb02238\n",
+        assert not tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2031xy04417\n",
                         overwrite=True, effect="edit")["is_error"]
         return done("Set the student id.")
 
     def checker(token: str) -> str:
         r = tool(daemon.sock, token, "fs.read", path=str(notes))
-        assert "2024eb02238" in r["content"]["text"]
-        return verdict(True, "notes.txt now reads 'Student ID: 2024eb02238'.")
+        assert "2031xy04417" in r["content"]["text"]
+        return verdict(True, "notes.txt now reads 'Student ID: 2031xy04417'.")
     script, efforts = install(daemon, {"worker": worker, "worker.verify": checker})
-    out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
+    out = outcome(chat(daemon, "set my student id to 2031xy04417 in notes.txt"))
     assert out["verified"] and len(checks(script)) == 1
     assert ("checker", "high") in efforts                           # a file-changing step's checker: high effort
 
@@ -130,7 +130,7 @@ def test_a_check_of_a_step_that_changed_no_file_is_unchanged(daemon: Any) -> Non
 
 def _writes_notes(daemon: Any, notes: Any) -> Any:
     def worker(token: str) -> str:
-        assert not tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2024eb02238\n",
+        assert not tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2031xy04417\n",
                         overwrite=True, effect="edit")["is_error"]
         return done("Set the student id.")
     return worker
@@ -144,7 +144,7 @@ def test_a_check_that_never_looks_leaves_the_work_unconfirmed_without_a_worker_r
     notes.write_text("Student ID: ID\n")
     blind = verdict(True, "The report says so.")
     script, _ = install(daemon, {"worker": [_writes_notes(daemon, notes)], "worker.verify": [blind, blind]})
-    out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
+    out = outcome(chat(daemon, "set my student id to 2031xy04417 in notes.txt"))
     assert out["status"] == "done_unverified" and not out["verified"]
     assert [k for _, k, _, _ in script.contexts].count("worker") == 1        # the worker ran once
     assert len(checks(script)) == 2                                          # refused once, then unknown
@@ -161,7 +161,7 @@ def test_a_listing_or_metadata_call_is_no_look(daemon: Any, tmp_path: Path) -> N
         assert not tool(daemon.sock, token, "fs.disk_usage", path=str(notes))["is_error"]
         return verdict(True, "The folder lists notes.txt.")
     script, _ = install(daemon, {"worker": _writes_notes(daemon, notes), "worker.verify": peeks})
-    out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
+    out = outcome(chat(daemon, "set my student id to 2031xy04417 in notes.txt"))
     assert not out["verified"] and len(checks(script)) == 2
 
 
@@ -173,7 +173,7 @@ def test_one_evidence_read_can_cover_several_change_records(daemon: Any, tmp_pat
 
     def worker(token: str) -> str:
         for f in files:
-            assert not tool(daemon.sock, token, "fs.write", path=str(f), content="2024eb02238\n", overwrite=True,
+            assert not tool(daemon.sock, token, "fs.write", path=str(f), content="2031xy04417\n", overwrite=True,
                             effect="edit")["is_error"]
         return done("Set the id in all three parts.")
 
@@ -181,7 +181,7 @@ def test_one_evidence_read_can_cover_several_change_records(daemon: Any, tmp_pat
         records = RECORD.findall(checker_context(script))
         assert len(records) == 3
         assert not tool(daemon.sock, token, "task.evidence", span_ids=records)["is_error"]
-        return verdict(True, "All three change records show ID replaced by 2024eb02238.")
+        return verdict(True, "All three change records show ID replaced by 2031xy04417.")
     script, _ = install(daemon, {"worker": worker, "worker.verify": bulk})
     assert outcome(chat(daemon, "set my student id in the three parts"))["verified"] and len(checks(script)) == 1
 
@@ -192,7 +192,7 @@ def test_a_file_name_from_outside_content_is_quoted_in_ferbs_lines(daemon: Any, 
     odd.write_text("ID\n")
 
     def worker(token: str) -> str:
-        assert not tool(daemon.sock, token, "fs.write", path=str(odd), content="2024eb02238\n", overwrite=True,
+        assert not tool(daemon.sock, token, "fs.write", path=str(odd), content="2031xy04417\n", overwrite=True,
                         effect="edit")["is_error"]
         return done("Done.")
     script, _ = install(daemon, {"worker": worker, "worker.verify": verdict(True, "Fine.")})
@@ -209,7 +209,7 @@ def test_other_changes_in_a_listed_folder_are_facts_that_need_no_look(daemon: An
     (tmp_path / "owner.txt").write_text("the owner's draft\n")
 
     def worker(token: str) -> str:
-        assert not tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2024eb02238\n",
+        assert not tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2031xy04417\n",
                         overwrite=True, effect="edit")["is_error"]
         (tmp_path / "owner.txt").write_text("the owner's draft, edited meanwhile\n")   # the owner, not the worker
         return done("Set the student id.")
@@ -219,7 +219,7 @@ def test_other_changes_in_a_listed_folder_are_facts_that_need_no_look(daemon: An
         assert not tool(daemon.sock, token, "task.evidence", span_id=record)["is_error"]
         return verdict(True, "notes.txt shows the id.")
     script, _ = install(daemon, {"worker": worker, "worker.verify": reads})
-    out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
+    out = outcome(chat(daemon, "set my student id to 2031xy04417 in notes.txt"))
     context = checks(script)[0]
     assert out["verified"] and "Also changed during this step" in context
     assert "owner.txt: changed during this step" in context and "edited meanwhile" not in context
@@ -254,7 +254,7 @@ def test_a_named_file_replaced_by_a_link_is_listed_as_named_not_as_someone_elses
     report.write_text("the owner's report\n")
 
     def worker(token: str) -> str:
-        assert not tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2024eb02238\n",
+        assert not tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2031xy04417\n",
                         overwrite=True, effect="edit")["is_error"]
         assert not tool(daemon.sock, token, "fs.trash", path=str(report))["is_error"]
         report.symlink_to(notes)                                       # the step put a link where the report was
@@ -273,7 +273,7 @@ def test_a_named_file_replaced_by_a_link_is_listed_as_named_not_as_someone_elses
     use_trash(mp, bin_)
     try:
         script, _ = install(daemon, {"worker": worker, "worker.verify": reads})
-        out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
+        out = outcome(chat(daemon, "set my student id to 2031xy04417 in notes.txt"))
     finally:
         mp.undo()
     context = checks(script)[0]
@@ -297,7 +297,7 @@ def test_only_records_a_read_returned_count_as_looked_at(daemon: Any, tmp_path: 
         assert both["is_error"]
         return verdict(True, "Looked.")
     script, _ = install(daemon, {"worker": _writes_notes(daemon, notes), "worker.verify": sly})
-    out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
+    out = outcome(chat(daemon, "set my student id to 2031xy04417 in notes.txt"))
     assert not out["verified"] and len(checks(script)) == 2
 
 
@@ -309,7 +309,7 @@ def test_nothing_in_a_named_files_diff_is_unreadable(daemon: Any, tmp_path: Path
 
     def worker(token: str) -> str:
         assert not tool(daemon.sock, token, "fs.write", path=str(big), effect="edit", overwrite=True,
-                        content="".join(f"line {i}: 2024eb02238\n" for i in range(3000)))["is_error"]
+                        content="".join(f"line {i}: 2031xy04417\n" for i in range(3000)))["is_error"]
         return done("Replaced every ID.")
 
     def pages(token: str) -> str:
@@ -324,7 +324,7 @@ def test_nothing_in_a_named_files_diff_is_unreadable(daemon: Any, tmp_path: Path
     seen: list[str] = []
     script, _ = install(daemon, {"worker": worker, "worker.verify": pages})
     assert outcome(chat(daemon, "replace ID in long.txt"))["verified"]
-    assert "+line 2999: 2024eb02238" in seen[0].replace("\\n", "\n")
+    assert "+line 2999: 2031xy04417" in seen[0].replace("\\n", "\n")
 
 
 def test_a_renamed_named_file_is_listed_as_renamed_with_a_change_record(daemon: Any, tmp_path: Path) -> None:
@@ -334,7 +334,7 @@ def test_a_renamed_named_file_is_listed_as_renamed_with_a_change_record(daemon: 
     folder.mkdir()
     (folder / "notes.txt").write_text("Student ID: ID\nline two\n")
     command = (f"cd '{folder}' && mv notes.txt notes-final.txt && "
-               "printf 'Student ID: 2024eb02238\\nline two\\n' > notes-final.txt")
+               "printf 'Student ID: 2031xy04417\\nline two\\n' > notes-final.txt")
 
     def worker(token: str) -> str:
         r = tool(daemon.sock, token, "shell.run", command=command, effect="edit")
@@ -344,13 +344,13 @@ def test_a_renamed_named_file_is_listed_as_renamed_with_a_change_record(daemon: 
     def checker(token: str) -> str:
         [record] = RECORD.findall(checker_context(script))
         seen.append(tool(daemon.sock, token, "task.evidence", span_id=record)["content"]["text"])
-        return verdict(True, "notes-final.txt reads 'Student ID: 2024eb02238'.")
+        return verdict(True, "notes-final.txt reads 'Student ID: 2031xy04417'.")
     seen: list[str] = []
     script, _ = install(daemon, {"worker": worker, "worker.verify": checker})
-    out = outcome(chat(daemon, "rename notes.txt to notes-final.txt and put 2024eb02238 in it"))
+    out = outcome(chat(daemon, "rename notes.txt to notes-final.txt and put 2031xy04417 in it"))
     old, new = folder.resolve() / "notes.txt", folder.resolve() / "notes-final.txt"
     assert f"{json.dumps(str(new))} (renamed from {json.dumps(str(old))}) — change record" in checks(script)[0]
-    assert "-Student ID: ID\n+Student ID: 2024eb02238" in seen[0].replace("\\n", "\n")
+    assert "-Student ID: ID\n+Student ID: 2031xy04417" in seen[0].replace("\\n", "\n")
     assert out["verified"]
 
 
@@ -361,18 +361,18 @@ def test_an_edit_that_keeps_a_backup_still_needs_a_look_at_the_edited_file(daemo
     folder = tmp_path / "w"
     folder.mkdir()
     (folder / "notes.txt").write_text("Student ID: ID\nline two\n")
-    command = f"cd '{folder}' && perl -pi.bak -e 's/ID$/2024eb02238/' notes.txt"
+    command = f"cd '{folder}' && perl -pi.bak -e 's/ID$/2031xy04417/' notes.txt"
 
     def worker(token: str) -> str:
         r = tool(daemon.sock, token, "shell.run", command=command, effect="edit")
         assert not r["is_error"], r
         return done("Set the id; the original is in notes.txt.bak.")
     script, _ = install(daemon, {"worker": worker, "worker.verify": verdict(True, "The report says so.")})
-    out = outcome(chat(daemon, "put 2024eb02238 in notes.txt, keep a backup"))
+    out = outcome(chat(daemon, "put 2031xy04417 in notes.txt, keep a backup"))
     notes, backup = folder.resolve() / "notes.txt", folder.resolve() / "notes.txt.bak"
     first = checks(script)[0]
     assert f"{json.dumps(str(notes))} (changed) — change record" in first
-    assert "-Student ID: ID\n+Student ID: 2024eb02238" in first
+    assert "-Student ID: ID\n+Student ID: 2031xy04417" in first
     assert f"{json.dumps(str(backup))} (named by the call; a fact, nothing to read)" in first
     assert "holds the original of" in first
     assert len(checks(script)) == 2 and not out["verified"]          # refused, run once more, never a pass

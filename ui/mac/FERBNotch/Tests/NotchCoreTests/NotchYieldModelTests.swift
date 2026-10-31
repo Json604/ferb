@@ -5,7 +5,7 @@ import NotchCore
 @MainActor
 final class NotchYieldModelTests: XCTestCase {
     private func makeModel(microphone: VoiceCapturing? = nil) -> NotchModel {
-        NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!, microphone: microphone)
+        NotchModel(preferences: scratchDefaults(), microphone: microphone)
     }
 
     func testReasonsOverlapAndOnlyTheLastOneEndingBringsFERBBack() {
