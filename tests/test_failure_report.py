@@ -27,7 +27,8 @@ import pytest
 from ferb.cli.client import Client, RpcError
 from ferb.daemon import auth
 from ferb.daemon import reports as reports_module
-from ferb.daemon.reports import (KEEP_DAYS, NOT_SET_UP, PROBLEMS_LAST, RELAY_URL, SECTIONS, TURN_FAILED, relay_url,
+from ferb.daemon.reports import RELAY_URL
+from ferb.daemon.reports import (KEEP_DAYS, NOT_SET_UP, PROBLEMS_LAST, SECTIONS, TURN_FAILED, relay_url,
                                   shorten, summarize)
 from ferb.daemon.server import INTERNAL_ERROR, SLOW_CALL
 from ferb.sanitize.redact import Redactor, SealedWord, escaped_forms, sealed_spans
@@ -432,7 +433,6 @@ def test_an_unreachable_relay_keeps_the_file_and_says_so(daemon: RunningDaemon, 
 
 
 def test_without_a_relay_address_the_report_is_written_and_send_says_it_isnt_set_up(daemon: RunningDaemon) -> None:
-    assert RELAY_URL == ""                       # filled in once the owner's relay is deployed
     _failed_task(daemon)
     built = _build(daemon, "t-fail")
     assert Path(built["path"]).exists()
@@ -452,6 +452,7 @@ def test_a_relay_address_that_isnt_https_is_refused(daemon: RunningDaemon, url: 
 
 
 def test_the_relay_address_is_its_base_and_the_first_relays_report_address_still_works() -> None:
+    assert RELAY_URL.startswith("https://")              # the deployed relay, built in (tests never reach it)
     assert relay_url("https://ferb-reports.example.workers.dev") == "https://ferb-reports.example.workers.dev"
     assert relay_url("https://ferb-reports.example.workers.dev/report") == "https://ferb-reports.example.workers.dev"
     assert relay_url("https://ferb-reports.example.workers.dev/") == "https://ferb-reports.example.workers.dev"

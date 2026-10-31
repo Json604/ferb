@@ -193,6 +193,14 @@ def offline_trash(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
         no_real_trash(monkeypatch)
 
 
+@pytest.fixture(autouse=True)
+def no_report_relay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test sends a report to the owner's deployed relay (ferb/daemon/reports.py RELAY_URL): tests that send set
+    `[feedback] relay_url` to a local fake server."""
+    import ferb.daemon.reports as reports
+    monkeypatch.setattr(reports, "RELAY_URL", "")
+
+
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     """Claude-runtime real tests run only when the owner asks for them by name (-m real_claude); -m real is Codex only."""
     # Unmarked real-surface files are still live-only; keep explicit Claude/API selections separate.

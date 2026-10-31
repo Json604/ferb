@@ -31,7 +31,7 @@ from ferb.trace import lines
 # private repo and files an issue linking it. Built in once it is deployed; config `[feedback] relay_url` overrides it.
 # With neither, the report is still written and kept, and Send says sending isn't set up yet. The app never holds the
 # address. It is the relay's own address (an address ending in /report, as the first relay took, works too).
-RELAY_URL = ""
+RELAY_URL = "https://ferb-reports.ferb-reports.workers.dev"
 NOT_SET_UP = "Sending reports to the developer isn't set up yet"
 MAX_REPORT_BYTES = 25_000_000        # one sent report file at most (owner, 2026-11-01; relay/worker.mjs MAX_REPORT)
 UPLOAD_MAX_BYTES = -(-MAX_REPORT_BYTES // 3) * 4 + 4096   # its base64 in GitHub's JSON (relay/worker.mjs MAX_UPLOAD)

@@ -163,7 +163,7 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       FERB: `reports.build` / `reports.diagnostic` only write the file (no address, nothing sent); the app shows View
       and Send; `reports.send {path, title, app_version}` posts that file. The Mail compose path, `FEEDBACK_ADDRESS`
       and `[feedback] address` are gone (config upgrade `feedback-relay-2026-11-01` drops the key once, journaled
-      without its value). Waiting: the owner deploys the relay and sends its address for `reports.RELAY_URL`.
+      without its value). Deployed by the owner 2026-11-01 (`https://ferb-reports.ferb-reports.workers.dev`, built into `reports.RELAY_URL`); a two-request test through it filed one issue with its file. Tests never reach it (conftest `no_report_relay`).
       (2026-11-01, decision 10 detail: one issue with a summary + the full report as one linked file, 25 MB cap, shorten
       to fit; two requests per Send, `/file` streamed through to GitHub's Contents API, then `/report` with a signed
       ticket. Waiting: the owner adds Contents: Read and write to the token and redeploys `relay/`.)
@@ -351,7 +351,7 @@ Rulings (technical):
   Why the Contents API and not the Git Data API (blobs/trees/commits/refs): one call, works on an empty repo (it makes
   the first commit; the Git Data API refuses an empty repo), and its documented file limit is 100 MB. Its JSON-only
   base64 body is why FERB builds the exact body and the Worker passes it through.
-- **Where**: `reports.RELAY_URL` (empty until the owner's relay is deployed), overridden by config `[feedback]
+- **Where**: `reports.RELAY_URL` (the owner's deployed relay), overridden by config `[feedback]
   relay_url`: the relay's own address (an address ending in `/report`, the first relay's endpoint, works too); https
   only (plain http only to 127.0.0.1/localhost, for tests); none → "Sending reports to the developer isn't set up
   yet" and the file is kept. The address never reaches the app.
