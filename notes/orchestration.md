@@ -233,6 +233,39 @@ to commit c6621c3. S = supervisor.py, M = main.py.
   it belongs to that row (the app ties `approval.requested` by `task_id` prefix); FERB's own questions in a step also
   carry `part` on `approval.requested`.
 
+## Rulings (step 8e, technical)
+- Cards come only from rows FERB itself wrote (`ferb/orchestrator/cards.py`): a timer and a schedule row (event), a memory
+  item (note), a tool call's recorded kinds, target and page facts with the owner's Yes (payment, send), the sites list
+  (link), the artifacts (file), a schedule row after its run (reminder). No text is read to choose a card or fill one.
+  The text is unchanged; a card standing for one of code's lines names it (`line`, exactly as the text carries it) and
+  the notch leaves that whole line out (`CardLayout.strip`/`remaining`); a turn saved before cards draws as before.
+- Where they ride: `reply`/`clarify` events (`cards`: the turn's memory, reminders, schedules); the `plan` event of a
+  multi-part turn (`cards` for its `receipts`); the `outcome` of one-ask and multi-part tasks (`cards`: side cards not
+  said in a first reply, then payments, sends, links, files); a scheduled run's `task.result` (its reminder card first,
+  then the outcome's). `task_result_cards` (migration 0051, beside `task_results`) keeps them for `chat.status` results.
+- Reminder card = every scheduled run's result, not a guess at which schedules are "reminders" (a run of schedule X is a
+  fact). Countdown = the schedule's recorded `next_run` (a repeating, still-active schedule); a one-time schedule has
+  none. Schedules record no deadline: "window open until Nov 3" stays prose and gets no countdown (owner question).
+  Timer reminders (⏰) still fire as banners only (the notch chat never showed `timer.fired`); not changed here.
+- Event card: a reminder set (timer id, fire time, message) and a schedule set (`_schedule_create` now returns its line
+  and card: id, recorded request, first run, `Rule.describe()` when it repeats, the watch words). Changes/cancels stay
+  lines.
+- Note card: saved items (`state: saved`) and FERB-worded proposals (`proposed`). Correct = `memory.edit` with the
+  owner's words (an edit RPC exists, so no composer prefill); Forget = `memory.forget` without `confirm` to show exactly
+  what goes, then `confirm: true` on the owner's second tap (permanent deletion asks, rule 5). The card then says
+  corrected/forgotten, in History too.
+- Payment card: payment-class calls (`pay` in the call's kind, declared kinds or fact kinds) that ran without an error
+  and were covered by a granted `floor:pay` confirmation, one card per Yes; `amount`/`merchant` are the first
+  `ActionFacts.page_amount`/`page_merchant` those calls recorded (the checkout's), `site` the page's host. No card
+  ••last4: FERB records none (owner question). A refused payment has no card.
+- Send card: calls of kind send, reply, post, mailbox_send or call (own or declared; a plain form submit is not a send)
+  that ran; recipient = the call's recorded, gateway-checked target (recipients or the app's contact), `app` = a Mac
+  tool's bundle id (the notch shows the app's name from this Mac), else `site`; one per recipient and channel.
+- Protocol gaps from 8d: `chat.status` questions carry `source_task_id` (the asking task), `part` and `runtime_switch`
+  (kept on the Approval when asked); RPC errors reach the app with their code (`DaemonRPCError.remote(_, code:)`), a
+  FERB.app-only refusal has its own code -32005 and the preview decides by code (-32001/-32601: daemon too old); part
+  events carry the card's `done`/`total` after the change and the app takes them (an older daemon's are counted).
+
 ## Fix list
 - [x] The plan line states resolved `folders` whenever there are any ("I'll work in …"), not only for big jobs or
       standing sends (supervisor.py ~2499, 2733), so a wrong folder guess can be corrected.
@@ -363,6 +396,12 @@ to commit c6621c3. S = supervisor.py, M = main.py.
       `done_unverified`; a banner the notch would show itself waits 1 s and posts only if the notch still isn't
       showing (the daemon sends a task's banner before its result). Tests: AnswersInStepsTests,
       NotificationPosterTests.)
+
+### Typed cards (step 8e)
+- [x] Cards from FERB's records next to the text (reminder, event, note, payment, send, link, file); notch draws them
+      in place of their lines; History keeps them. (Step 8e: `ferb/orchestrator/cards.py`, migration 0051, notch
+      `ResultCard`/`CardLayout`, ResultCards.swift; tests/test_typed_cards.py, TypedCardsTests.)
+- [x] 8d protocol gaps: `chat.status` question fields, RPC error codes in the app, part counts.
 
 ### Planner context
 - [x] Recent conversation + summary instead of filling the window (S:1709-1710; core/context.py:185, 284).

@@ -359,10 +359,11 @@ final class PreviewStateTests: XCTestCase {
     }
 
     func testARefusalStopsAskingAndNobodyCapturesWhileNobodyCanSee() {
-        XCTAssertEqual(PreviewRefusal(message: "tasks.preview is for FERB.app only"), .notThisApp)
-        XCTAssertEqual(PreviewRefusal(message: "tasks.preview not allowed for cli"), .daemonTooOld)
-        XCTAssertEqual(PreviewRefusal(message: "no method tasks.preview"), .daemonTooOld)
-        XCTAssertNil(PreviewRefusal(message: "task T isn't running"))
+        // Decided by the daemon's error code (step 8e), never its words.
+        XCTAssertEqual(PreviewRefusal(code: DaemonRPCError.remote("anything", code: -32005).code ?? 0), .notThisApp)
+        XCTAssertEqual(PreviewRefusal(code: -32001), .daemonTooOld)
+        XCTAssertEqual(PreviewRefusal(code: -32601), .daemonTooOld)
+        XCTAssertNil(PreviewRefusal(code: -32004))                          // a refusal for this task: keep asking
         var gate = PreviewGate()
         XCTAssertTrue(gate.mayCapture)
         gate.screenLocked = true

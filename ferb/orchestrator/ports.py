@@ -31,8 +31,9 @@ class MemoryPort:
 class SchedulePort:
     """Durable timers and schedules."""
     timers: Any                                         # ferb.clock.timers.Timers
-    # (spec, owner's words, request id, what the turn saw, what the request itself carried) -> a line
-    on_schedule: Callable[[Any, str, str, set[str], set[str]], str]
+    # (spec, owner's words, request id, what the turn saw, what the request itself carried) -> a line, and the event
+    # card of a schedule set (step 8e)
+    on_schedule: Callable[[Any, str, str, set[str], set[str]], tuple[str, dict[str, Any] | None]]
     on_schedule_change: Callable[[Any, str], str]
     on_reminder_cancel: Callable[[Any, str], str]
     schedule_live: Callable[[str], bool]                # whether a schedule's runs may still hold its scope (D30)

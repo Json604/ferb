@@ -124,16 +124,17 @@ class Schedules:
             self.timers.cancel(t.id)
 
     def _schedule_create(self, spec: Any, own_words: str, request_id: str, origins: set[str],
-                         request_origins: set[str] | None = None) -> str:
+                         request_origins: set[str] | None = None) -> tuple[str, dict[str, Any] | None]:
         """From chat: the owner's words (quote-checked), the targets recorded now, the first run in the future.
         `origins`: what the turn that wrote the scheduled request was given; its runs inherit them (S3, MP2).
-        `request_origins`: what that request itself carried, its runs' request origins for the sink rule (S4, L4)."""
+        `request_origins`: what that request itself carried, its runs' request origins for the sink rule (S4, L4).
+        Returns the owner's line and, for a schedule set, its event card from the stored row (step 8e)."""
         from ferb.orchestrator.schedules import WATCH_SAID, Rule, ScheduleError
         from ferb.policy.targets import Targets
         from ferb.memory.items import quoted
         if not quoted(own_words, spec.quote):
             self._journal().append("schedule.refused", {"why": "quote not in the owner's words"})
-            return "I couldn't set that up — could you ask me again in your own words?"
+            return "I couldn't set that up — could you ask me again in your own words?", None
         try:
             from ferb.clock.when import resolve
             first = resolve(spec.when, self.clock.now())                        # code computes the date, not the model
@@ -149,7 +150,7 @@ class Schedules:
                                    recorded.to_json() | ({"standing_sends": scopes} if scopes else {}), rule, first,
                                    spec.watch)
         except (ScheduleError, ValueError) as e:
-            return f"I couldn't schedule that: {e}."
+            return f"I couldn't schedule that: {e}.", None
         t = self.timers.add("schedule", first, s.id)
         self.schedules.set_timer(s.id, t.id, first)
         # the statement the owner is shown: each run's grant (`schedule:<id>`) links back to these recorded scopes
@@ -162,6 +163,9 @@ class Schedules:
         at = f"{first.astimezone():%a %d %b %H:%M}"
         when = f"on {at}" if rule.repeat == "none" else f"{rule.describe()}, first on {at}"
         said = ", ".join(part for part in (f"🗓 Scheduled: {s.request} — {when}", WATCH_SAID[s.watch]) if part)
+        from ferb.orchestrator import cards
+        card = cards.event("schedule", s.id, s.request, first.isoformat(), said,
+                           repeat=rule.describe() if rule.repeat != "none" else None, watch=WATCH_SAID[s.watch] or None)
         from ferb.orchestrator.plans import SendScope
         from ferb.policy import confirm
         if scopes:
@@ -172,7 +176,7 @@ class Schedules:
                 "These weren't recorded, because their destination isn't in words you typed (now, or when you told me "
                 "to remember it). In each run they get FERB's usual checks, and a send that asks can't be answered "
                 "with nobody there, so it's reported not done:\n" + "\n".join("- " + line for line in unnamed))
-        return said
+        return said, card
 
     def _schedule_scopes(self, stated: list[Any], own_words: str,
                          request_id: str) -> tuple[list[dict[str, Any]], list[str]]:
@@ -408,6 +412,7 @@ class Schedules:
         # new to tell is recorded but reaches no client (review I3), and so does a check of a one-shot watch that
         # another check ended meanwhile (M1).
         told_before = s.last_reported_met is True            # as this run's planner was shown it
+        due = now - timedelta(seconds=overdue_s)             # when this run was due (its timer's time)
         reported = final.get("watch_met")                    # recorded only by a watch's check, which judged it
         if s.watch != "none" and status in FINISHED and reported is not None:
             self.schedules.reported(sid, bool(reported))
@@ -425,7 +430,19 @@ class Schedules:
             superseded or status in FINISHED and reported is not None and not alert)
         if overdue_s > 60:              # code's last line, after the answer's other code lines (fixed order)
             answer = f"{answer}\n(ran late)"
-        await self._task_result(result | {"answer": answer}, shown=quiet, alert=alert, publish=not quiet)
+        cards = [self._run_card(sid, due)] + [c for c in final.get("cards") or [] if isinstance(c, dict)]
+        await self._task_result(result | {"answer": answer, "cards": cards}, shown=quiet, alert=alert,
+                                publish=not quiet)
+
+    def _run_card(self, sid: str, due: datetime) -> dict[str, Any]:
+        """A scheduled run's reminder card (step 8e), from the schedule's row as it stands after the run: its recorded
+        request, when this run was due, its rule and its next run (the countdown). A deadline FERB didn't record as a
+        time (one only in the request's words) gets no countdown: nothing here reads the words."""
+        s = self.schedules.get(sid)
+        assert s is not None
+        return {"type": "reminder", "schedule_id": sid, "title": s.request, "due": due.isoformat(),
+                **({"repeat": s.rule.describe()} if s.rule.repeat != "none" else {}),
+                **({"next_run": s.next_run.isoformat()} if s.next_run is not None and s.state == "active" else {})}
 
     def _watch_ended(self, sid: str) -> bool:
         """A one-shot watch already ended by one of its checks (`schedule.met`)."""

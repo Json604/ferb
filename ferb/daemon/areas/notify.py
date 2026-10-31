@@ -40,7 +40,9 @@ class Notify:
         shown = shown or ev.get("status") == "cancelled"          # stopped by the owner: they know
         at = str(ev.get("at") or self.clock.now().isoformat())    # the outcome's own time when a chat turn sent it
         assert self.task_results is not None
-        self.task_results.record(ev["task_id"], at, ev.get("status", ""), str(ev.get("goal", "")), answer, shown)
+        cards = [c for c in ev.get("cards") or [] if isinstance(c, dict)]
+        self.task_results.record(ev["task_id"], at, ev.get("status", ""), str(ev.get("goal", "")), answer, shown,
+                                 cards)
         if not publish:
             return
         task = {"kind": "task", "task_id": str(ev["task_id"])}

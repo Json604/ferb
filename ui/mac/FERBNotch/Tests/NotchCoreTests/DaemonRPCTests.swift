@@ -71,8 +71,9 @@ final class DaemonRPCTests: XCTestCase {
         do {
             _ = try await DaemonRPC(socketPath: refusal.path).call("chat.answer", params: ["approval_id": "a", "text": "x"])
             XCTFail("Expected failure")
-        } catch DaemonRPCError.remote(let message) {
+        } catch DaemonRPCError.remote(let message, let code) {
             XCTAssertEqual(message, "Pick Keep, Edit or Drop.")
+            XCTAssertEqual(code, -32004)                    // the code reaches the app (step 8e)
         } catch { XCTFail("Expected FERB's refusal, got \(error)") }
     }
 }

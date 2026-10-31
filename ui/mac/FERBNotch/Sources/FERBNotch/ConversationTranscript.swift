@@ -146,7 +146,12 @@ private struct TurnView: View {
             }
             if turn.showsTyping { TypingDots() }
             FirstReplyView(turn: turn)
-            if let card = turn.card { TurnCardView(card: card, turn: turn, model: model) }
+            if let cards = turn.receiptCards { ResultCardsView(cards: cards, turnID: turn.id, model: model) }
+            if let card = turn.card {
+                TurnCardView(card: card, turn: turn, model: model)
+                // Step 8e: the task's cards (payments, sends, links, files) under its card's footer.
+                if let cards = turn.cards { ResultCardsView(cards: cards, turnID: turn.id, model: model) }
+            }
             ForEach(Array((turn.parts ?? []).enumerated()), id: \.offset) { _, part in    // parts saved before cards
                 FerbBubble { MarkdownContent(part).equatable() }
             }
@@ -354,15 +359,23 @@ private struct AnswerView: View {
     private var fullParts: SitesContactedParts { SitesContactedParts(turn.answer) }
     private var displayedSites: String { codeSites ?? (visibleParts.sites.isEmpty ? fullParts.sites : visibleParts.sites) }
 
+    /// Typed cards (step 8e): each drawn in place of the line it stands for; a turn saved before cards has none.
+    private var cards: [ResultCard] { turn.cards ?? [] }
+    private var cardFiles: Set<String> { Set(CardLayout.files(cards).compactMap(\.path)) }
+
     var body: some View {
         // A card's rows and footer are the answer; its text is kept for history, voice and older clients.
         if !turn.answer.isEmpty && turn.card == nil {
             VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(CardLayout.above(cards).enumerated()), id: \.offset) { _, card in
+                    ReminderCard(card: card).padding(.trailing, 28)       // a reminder: FERB's text under it
+                }
                 FerbBubble {
                     VStack(alignment: .leading, spacing: 6) {
-                        MarkdownContent(visibleParts.answer).equatable()
+                        MarkdownContent(CardLayout.strip(visibleParts.answer, cards)).equatable()
                         AnswerLinesView(note: split.note, correction: split.correction,
-                                        lines: split.lines.filter { !$0.hasPrefix("Sites contacted:") })
+                                        lines: CardLayout.remaining(split.lines.filter { !$0.hasPrefix("Sites contacted:") },
+                                                                    cards))
                         if turn.displayText != nil && turn.visibleAnswer != turn.answer {
                             DisclosureGroup("Details") {
                                 MarkdownContent(fullParts.answer).equatable()
@@ -371,7 +384,8 @@ private struct AnswerView: View {
                         }
                     }
                 }
-                if !displayedSites.isEmpty {
+                ResultCardsView(cards: cards, turnID: turn.id, model: model)
+                if !displayedSites.isEmpty && CardLayout.links(cards).isEmpty {     // a turn from before link cards
                     VisitedSitesView(sites: VisitedSites(displayedSites), model: model)
                 }
             }
@@ -390,7 +404,7 @@ private struct AnswerView: View {
         }
         if turn.offersReport { ReportRow(turn: turn, model: model) }
         if turn.status == "failed", let offer = turn.runtimeSwitch { RuntimeSwitchRow(turn: turn, offer: offer, model: model) }
-        ForEach(turn.artifacts, id: \.self) { url in
+        ForEach(turn.artifacts.filter { !cardFiles.contains($0.path) }, id: \.self) { url in   // not drawn as a chip
             ArtifactRow(url: url, model: model)
         }
     }

@@ -90,7 +90,7 @@ final class TaskPreview: ObservableObject {
                     if delay == .zero { await Task.yield() } else { try await Task.sleep(for: delay) }
                 } catch {
                     guard !Task.isCancelled else { return }
-                    if case DaemonRPCError.remote(let message) = error, let refusal = PreviewRefusal(message: message) {
+                    if let code = (error as? DaemonRPCError)?.code, let refusal = PreviewRefusal(code: code) {
                         self.access.refused(refusal)
                         self.status = refusal.text
                         continue

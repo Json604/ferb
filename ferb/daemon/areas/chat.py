@@ -65,12 +65,18 @@ class Chat:
         request_trees: dict[str, set[str]] = {}
         for request_id in {ap.request_id for ap in approvals}:
             request_trees[request_id] = self.tasks.trees_of_request(request_id)
+        # Each with what `approval.requested` said (step 8e): the task id that asked (`source_task_id`: a step's, or a
+        # task under it, ties a confirmation to its row after an app restart), the part FERB's question is about, and
+        # the runtime switch it offers.
         pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason,
                     "task_id": next(iter(request_trees[ap.request_id]))
                         if len(request_trees.get(ap.request_id, ())) == 1 else None,
                     "options": list(ap.options), **({"display_text": ap.display_text} if ap.display_text else {}),
                     **({"summary": ap.summary} if ap.summary else {}),
-                    **({"why": ap.why} if getattr(ap, "why", "") else {})} for ap in approvals]
+                    **({"why": ap.why} if getattr(ap, "why", "") else {}),
+                    **({"source_task_id": ap.task_id} if ap.task_id else {}),
+                    **({"part": ap.part} if ap.part else {}),
+                    **({"runtime_switch": ap.runtime_switch} if ap.runtime_switch else {})} for ap in approvals]
         if persona.get('approval'):
             pending = [persona['approval'] if p['approval_id'] == persona['approval']['approval_id'] else p
                        for p in pending]
@@ -92,7 +98,9 @@ class Chat:
                             'verification': recorded.get('verification', [])} |
                            # the answer's own fields (a multi-part task's card and footer; its lines; decision 19)
                            {key: recorded[key] for key in ('card', 'note', 'correction', 'lines', 'runtime_switch')
-                            if recorded.get(key)})
+                            if recorded.get(key)} |
+                           # its typed cards as told (step 8e)
+                           ({'cards': json.loads(row['cards_json'])} if row['cards_json'] else {}))
         return {"results": results, "running": running, "approvals": self.redact(pending),
                 "persona": {'state': persona['state'], **({'error': persona['error']} if persona.get('error') else {})},
                 "notices": self.attention_notices.unseen() if self.attention_notices else [],

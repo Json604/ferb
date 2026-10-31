@@ -146,20 +146,34 @@ public struct TurnCard: Codable, Equatable {
     public func row(_ part: String) -> CardRow? { rows.first { $0.part == part } }
 
     /// Applies a part event to its row. A part this card doesn't list is added when the event names this card's turn.
-    /// Returns whether anything changed.
+    /// The count is the daemon's (`done`, `total` on the event, step 8e); an older daemon's event without them is
+    /// counted here as before. Returns whether anything changed.
     @discardableResult
     public mutating func apply(part event: [String: Any]) -> Bool {
         guard let part = event["part"] as? String else { return false }
         if let index = rows.firstIndex(where: { $0.part == part }) {
             let wasDone = rows[index].isDone
             guard rows[index].apply(event) else { return false }
-            done = max(0, min(total, done + (rows[index].isDone ? 1 : 0) - (wasDone ? 1 : 0)))
+            if !takeCount(event) {
+                done = max(0, min(total, done + (rows[index].isDone ? 1 : 0) - (wasDone ? 1 : 0)))
+            }
             return true
         }
         guard event["request_id"] as? String == requestID, let row = CardRow(event, taskID: taskID) else { return false }
         rows.append(row)
-        total = max(total, rows.count)
-        if row.isDone { done = min(total, done + 1) }
+        if !takeCount(event) {
+            total = max(total, rows.count)
+            if row.isDone { done = min(total, done + 1) }
+        }
+        return true
+    }
+
+    /// The daemon's count after this change, when the event carries it.
+    private mutating func takeCount(_ event: [String: Any]) -> Bool {
+        guard let done = (event["done"] as? NSNumber)?.intValue, let total = (event["total"] as? NSNumber)?.intValue
+        else { return false }
+        self.total = max(total, rows.count)
+        self.done = max(0, min(self.total, done))
         return true
     }
 

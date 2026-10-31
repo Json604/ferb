@@ -71,7 +71,9 @@ private final class StreamCancellation: @unchecked Sendable {
 }
 
 public enum DaemonRPCError: LocalizedError {
-    case unavailable, disconnected, invalidResponse, pathTooLong, internalFault, remote(String)
+    /// `remote`: FERB's own words and its error code (server.py: -32004 a refusal, -32005 a FERB.app-only method called
+    /// by another program, -32001 not allowed, -32601 no such method), so the app decides by the code (step 8e).
+    case unavailable, disconnected, invalidResponse, pathTooLong, internalFault, remote(String, code: Int = -32004)
     public var errorDescription: String? {
         switch self {
         case .unavailable: return "FERB isn't running. Choose Restart FERB in FERB's menu bar."
@@ -79,8 +81,14 @@ public enum DaemonRPCError: LocalizedError {
         case .invalidResponse: return "FERB returned an invalid response."
         case .pathTooLong: return "The FERB socket path is too long."
         case .internalFault: return "FERB hit an internal error."
-        case .remote(let message): return message
+        case .remote(let message, _): return message
         }
+    }
+
+    /// The daemon's error code of a remote refusal.
+    public var code: Int? {
+        if case .remote(_, let code) = self { return code }
+        return nil
     }
 }
 
@@ -181,7 +189,8 @@ private final class UnixRPCConnection: @unchecked Sendable {
             // -32603: a fault inside FERB, whose message is only an exception's type name; every other error is
             // FERB's own words (a refusal, -32004, says why)
             if error["code"] as? Int == -32603 { throw DaemonRPCError.internalFault }
-            throw DaemonRPCError.remote(error["message"] as? String ?? "FERB could not complete this request.")
+            throw DaemonRPCError.remote(error["message"] as? String ?? "FERB could not complete this request.",
+                                        code: (error["code"] as? NSNumber)?.intValue ?? -32004)
         }
         guard let result = response["result"] as? [String: Any] else { throw DaemonRPCError.invalidResponse }
         return result

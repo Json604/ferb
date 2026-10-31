@@ -357,6 +357,8 @@ extension NotchModel {
             recordAnswer(announce: true, displayText: event["display_text"] as? String)
             // A planner turn that ended on a usage limit or a sign-in problem offers another AI service (decision 16).
             conversation.offerRuntimeSwitch(id: localID, RuntimeSwitch(event["runtime_switch"]))
+            // Step 8e: the cards of what code did with the turn's memory, reminders and schedules.
+            conversation.showCards(id: localID, event["cards"])
             saveConversation()
         case "merged":
             // Read together with another message (decision 18): that message's reply answers this one too.
@@ -681,7 +683,7 @@ extension NotchModel {
             } catch {
                 // FERB's own reason for refusing an answer (L36) is shown. A fault or a lost reply may still have
                 // recorded it: a guess FERB says is settled shows that (live 2026-10-25); otherwise the generic line.
-                if case DaemonRPCError.remote(let reason) = error {
+                if case DaemonRPCError.remote(let reason, _) = error {
                     promptError = reason
                 } else if guess, let reply = try? await rpc.call("memory.learning", params: ["op": "guess_state", "id": proposalID]),
                           let state = settledGuess(reply) {
@@ -772,7 +774,7 @@ extension NotchModel {
                 taskStateRevision += 1
                 resolveApproval(approval.id)
             } catch {
-                if case DaemonRPCError.remote(let reason) = error {
+                if case DaemonRPCError.remote(let reason, _) = error {
                     promptError = reason        // FERB refused this answer and says why (L36); the question waits
                 } else {
                     // Do not replay an answer after disconnect: it may already have been consumed.

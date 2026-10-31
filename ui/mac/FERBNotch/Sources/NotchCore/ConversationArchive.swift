@@ -54,6 +54,11 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var codeLines: [String]?
     /// The offer of another AI service when an account problem ended the work (owner decision 16).
     public var runtimeSwitch: RuntimeSwitch?
+    /// Typed cards (step 8e) of the reply or the outcome: drawn in place of the lines they stand for. Nil for a turn
+    /// saved before cards, which draws its text as before.
+    public var cards: [ResultCard]?
+    /// The first reply's cards (a multi-part request's receipts), drawn in place of those receipts.
+    public var receiptCards: [ResultCard]?
     /// The request this message was read together with (`merged`, decision 18): it has no reply of its own.
     public var mergedInto: String?
     /// The plan line as it streams (`plan_delta`), until the plan event replaces it. Live state only: never saved.
@@ -89,6 +94,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
         case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
         case requestID, ack, plan, parts, verified, question, taskGoal, statusInferred
         case planLine, planLines, direct, receipts, card, note, correction, codeLines, runtimeSwitch, mergedInto
+        case cards, receiptCards
     }
 }
 
@@ -384,6 +390,7 @@ public struct ConversationArchive: Codable, Equatable {
                 .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         }
         if let receipts = details["receipts"] as? [String] { turns[index].receipts = receipts.filter { !$0.isEmpty } }
+        if let cards = ResultCard.list(details["cards"]) { turns[index].receiptCards = cards }
         if let taskID = details["task_id"] as? String, let card = TurnCard(details["card"], taskID: taskID) {
             place(card, at: index)
         }
@@ -467,7 +474,41 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].codeLines = (event["lines"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
         turns[index].runtimeSwitch = RuntimeSwitch(event["runtime_switch"])
         if let card = TurnCard(event["card"], taskID: taskID) { place(card, at: index) }
+        if let cards = ResultCard.list(event["cards"]) { turns[index].cards = keepingSettled(cards, turns[index].cards) }
         return turns[index] != before
+    }
+
+    /// A reply's cards (step 8e: a remembered fact, a reminder or schedule just set).
+    public mutating func showCards(id: UUID, _ value: Any?) {
+        guard let cards = ResultCard.list(value), let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        turns[index].cards = keepingSettled(cards, turns[index].cards)
+    }
+
+    /// A note card the owner corrected or forgot here keeps saying so when the same cards arrive again.
+    private func keepingSettled(_ cards: [ResultCard], _ shown: [ResultCard]?) -> [ResultCard] {
+        cards.map { card in
+            guard card.type == "note", let settled = shown?.first(where: {
+                $0.type == "note" && $0.itemID == card.itemID && ["corrected", "forgotten"].contains($0.state ?? "")
+            }) else { return card }
+            return settled
+        }
+    }
+
+    /// The owner corrected (`text`) or forgot (`forgotten`) a remembered item from its note card: every card of that
+    /// item says so, in History too.
+    public mutating func settleNote(itemID: String, text: String? = nil, forgotten: Bool = false) {
+        for index in turns.indices {
+            for list in [\ConversationTurn.cards, \ConversationTurn.receiptCards] {
+                guard var cards = turns[index][keyPath: list] else { continue }
+                var changed = false
+                for i in cards.indices where cards[i].type == "note" && cards[i].itemID == itemID {
+                    if let text { cards[i].text = text }
+                    cards[i].state = forgotten ? "forgotten" : "corrected"
+                    changed = true
+                }
+                if changed { turns[index][keyPath: list] = cards }
+            }
+        }
     }
 
     /// A failed reply's offer of another AI service (owner decision 16).

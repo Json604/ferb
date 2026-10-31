@@ -63,14 +63,19 @@ public struct PreviewAnswer: Equatable {
 
 /// The daemon refused `tasks.preview` for this app: it isn't FERB.app (an app-only method), or the daemon predates
 /// previews. Asking again every second changes nothing, so the preview hides until the daemon connects again. Read
-/// from the daemon's error words (its error codes don't reach the app: DaemonRPCError.remote carries the message).
+/// from the daemon's error code (DaemonRPCError.remote carries it with the message, step 8e).
 public enum PreviewRefusal: Equatable {
     case notThisApp, daemonTooOld
 
-    public init?(message: String) {
-        if message.hasSuffix("is for FERB.app only") { self = .notThisApp }
-        else if message.hasPrefix("no method ") || message.contains(" not allowed for ") { self = .daemonTooOld }
-        else { return nil }
+    /// From the daemon's error code (step 8e): -32005, a FERB.app-only method called by another program; -32601 (no
+    /// such method) or -32001 (not allowed for this connection: a daemon from before the app-only code, or before the
+    /// method), a daemon older than this app.
+    public init?(code: Int) {
+        switch code {
+        case -32005: self = .notThisApp
+        case -32601, -32001: self = .daemonTooOld
+        default: return nil
+        }
     }
 
     public var text: String {

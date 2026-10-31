@@ -27,6 +27,8 @@ MAX_MESSAGE = 1024 * 1024
 
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INTERNAL = -32700, -32600, -32601, -32603
 UNAUTHORIZED, TOO_LARGE, UNSUPPORTED, FAILED = -32001, -32002, -32003, -32004
+APP_ONLY_REFUSED = -32005            # a FERB.app-only method called by another program (auth.APP_ONLY; step 8e: its own
+                                     # code, so the app tells it from a daemon too old to know the method)
 
 SOL_LOCAL, LOCAL_PEERCRED = 0, 1   # <sys/un.h>
 
@@ -268,7 +270,7 @@ class Server:
             await self._send(writer, _error(req.id, UNAUTHORIZED, f"{req.method} not allowed for {session.role.value}"))
             return True
         if req.method in APP_ONLY and not self._app(session):
-            await self._send(writer, _error(req.id, UNAUTHORIZED, f"{req.method} is for FERB.app only"))
+            await self._send(writer, _error(req.id, APP_ONLY_REFUSED, f"{req.method} is for FERB.app only"))
             return True
         if req.method in self.unary:
             started = time.monotonic()

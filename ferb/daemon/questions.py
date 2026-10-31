@@ -7,7 +7,7 @@ answer is `taken` once it reached a waiting call; until then a retry of the same
 
 import secrets
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from ferb.policy.rules import ActionRequest
 
@@ -30,6 +30,8 @@ class Approval:
     key: str = ""                             # what a retry of the same call matches (the asker's own words)
     task_id: str = ""                         # the task that asked: only its own retry may wait on it (rule 5)
     about: tuple[str, ...] = ()               # P19: the attempts this retry question named, as asked
+    part: str = ""                            # the part of a multi-part request FERB's own question is about (8d)
+    runtime_switch: dict[str, Any] | None = None   # the offer of another AI service it carries (decision 16)
 
     def option_for(self, text: str) -> int | None:
         """The option (1-based) a typed answer picks: its exact words in any case, else its number."""

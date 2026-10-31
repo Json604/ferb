@@ -801,7 +801,7 @@ class MemoryGlue:
 
     async def _remember(self, items: list[Any], own_words: str, source_id: str,
                         sites: frozenset[str] = frozenset(),
-                        elsewhere: frozenset[str] = frozenset()) -> list[dict[str, str]]:
+                        elsewhere: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
         """Chat capture (memory review I1, MP2; the check is `items.capture`, shared with distillation's quotes, L36).
         `own_words`: what the owner typed (pasted parts left out). The quote must be whole words of it. Saved as
         owner_stated is only the owner's own text: the whole sentence(s) of their words that hold the planner's content
@@ -815,7 +815,8 @@ class MemoryGlue:
         thread; `sites`: the sites the turn's task names, L36 §5; `elsewhere`: those the owner typed only for a task of
         another chat, which a refusal names)."""
         from ferb.memory.items import CAPTURE_TOLD, capture
-        saved: list[dict[str, str]] = []
+        from ferb.orchestrator import cards
+        saved: list[dict[str, Any]] = []
         for it in items:
             got = capture(own_words, str(it.content), str(it.quote))
             if got.refused:
@@ -833,14 +834,17 @@ class MemoryGlue:
             ends = (" " + self._until(it.until, m.id, own_words)) if getattr(it, "until", None) is not None else ""
             told = (await self._save_login_name(it, m.id, own_words, sites, m.origin, elsewhere)
                     if getattr(it, "login_origin", None) else "")
+            # step 8e: each saved item's note card, from the stored item (its id is what Correct / Forget act on)
             if m.origin == "owner_stated" or m.status == "active":      # active: FERB's wording the owner kept before
+                line = f"Remembered: {text}{ends}"
                 saved.append({"receipt": f"remembered ({m.id}): {m.content}",
-                              "line": f"Remembered: {text}{ends}" + (f"\n{told}" if told else "")})
+                              "line": line + (f"\n{told}" if told else ""),
+                              "card": cards.note(m.id, text, "saved", line)})
             else:
                 self._ask_keep(m, KEEP_WORDING.format(text=text))
+                line = f"Saved in my words, not yours, so I won't use it until you answer Keep: “{text}”.{ends}"
                 saved.append({"receipt": f"proposed ({m.id}): {m.content} (FERB's wording; waits for the owner's Keep)",
-                              "line": "Saved in my words, not yours, so I won't use it until you answer Keep: "
-                                      f"“{text}”.{ends}"})
+                              "line": line, "card": cards.note(m.id, text, "proposed", line)})
         return saved
 
     def _until(self, until: Any, item_id: str, own_words: str) -> str:

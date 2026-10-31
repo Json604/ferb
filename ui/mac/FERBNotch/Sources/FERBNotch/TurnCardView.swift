@@ -12,7 +12,9 @@ struct FirstReplyView: View {
 
     var body: some View {
         if let line = turn.planLine {
-            let direct = turn.direct ?? [], receipts = turn.receipts ?? [], lines = turn.planLines ?? []
+            // a receipt drawn as its card (step 8e) isn't said again here
+            let direct = turn.direct ?? [], lines = turn.planLines ?? []
+            let receipts = CardLayout.remaining(turn.receipts ?? [], turn.receiptCards ?? [])
             FerbBubble {
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(Array(direct.enumerated()), id: \.offset) { _, text in MarkdownContent(text).equatable() }
@@ -113,12 +115,14 @@ struct TurnCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// "2 of 3 done" and code's lines ("Sites contacted: …"); a stop's headline above them.
+    /// "2 of 3 done" and code's lines ("Sites contacted: …"); a stop's headline above them. A line a typed card stands
+    /// for (step 8e: the sites, drawn as link cards under the card) isn't said again.
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let lines = CardLayout.remaining(card.lines, turn.cards ?? [])
+        return VStack(alignment: .leading, spacing: 4) {
             if let headline = card.headline { Text(headline).font(.system(size: 12)).foregroundStyle(Palette.ink) }
             (Text(card.line ?? "").fontWeight(.semibold).foregroundStyle(Palette.ink)
-                + Text(card.lines.isEmpty ? "" : "   " + card.lines.joined(separator: "   ")).foregroundStyle(Palette.secondary))
+                + Text(lines.isEmpty ? "" : "   " + lines.joined(separator: "   ")).foregroundStyle(Palette.secondary))
                 .font(.system(size: 11.5))
                 .textSelection(.enabled)
         }

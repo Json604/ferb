@@ -33,6 +33,11 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     (note card, tap to correct/forget); payments and sends (expense row: amount, merchant, card ••last4; contact card:
     recipient, channel); results with links/files (link cards and file chips replacing "Sites contacted"/artifact
     lines). Text stays in the payload for the history, voice and older apps.
+    (Step 8e: `ferb/orchestrator/cards.py`; `cards` on replies, plan events, outcomes and scheduled runs' results
+    (stored in `task_result_cards`, migration 0051); notch `ResultCard`/`CardLayout` and ResultCards.swift;
+    Shapeshift credited. Also the 8d protocol gaps: `chat.status` questions carry `source_task_id`, `part`,
+    `runtime_switch`; error codes reach the app (FERB.app-only refusal -32005); part events carry `done`/`total`.
+    Rulings in notes/orchestration.md. Live checks with step 13.)
 9. **Memory**: Tier 1-3, local embeddings, how-notes, simple forget, perception fixes.
 10. **Prompts**: rewrite to contracts; patch mapping table reviewed by the owner; owner-confirmed memory items.
 11. **Voice**: speaker factory (macOS voice first), replies from structured events.

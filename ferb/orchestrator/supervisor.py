@@ -49,6 +49,7 @@ from ferb.sanitize.terminal import printable
 from ferb.orchestrator.plans import (DONE, SINGLE, Part, Plan, SendScope, Step, answer_steps, inventory, part_problems,
                                      problems as plan_problems)
 from ferb.orchestrator.parts import Card, composed, done_line
+from ferb.orchestrator import cards as cards_
 from ferb.orchestrator.attempts import (KEEP_GOING, STOP_HERE, Attempts, check_in_question,
                                         stopped_after)
 from ferb.orchestrator.plan_store import EARLIER, PlanStore
@@ -305,6 +306,7 @@ class _Side:
     events: list[dict[str, Any]]
     lines: list[str]
     refused: list[tuple[str, str]]
+    cards: list[dict[str, Any]] = field(default_factory=list)   # step 8e: typed cards from the rows code just wrote
 
 
 def _nothing() -> None:
@@ -375,6 +377,7 @@ class _Turn:
     inventory: Any = None
     intake_receipts: list[str] = field(default_factory=list)
     side_lines: list[str] = field(default_factory=list)
+    side_cards: list[dict[str, Any]] = field(default_factory=list)   # step 8e: the cards of those lines
     acknowledged: str = ''           # FERB's word on an answer, said with the planner's reply
     reopened: set[str] = field(default_factory=set)              # trees whose Noes this turn reopened
     answered_tree: str | None = None  # the task whose question this turn answered
@@ -597,6 +600,7 @@ class _Tree:
     accepting_updates: bool = True
     work_done: bool = False              # the checker accepted the task's own work; it is tidying up (stop refused)
     side_lines: list[str] = field(default_factory=list)   # what code did with the turn's reminders/memory (L11)
+    side_cards: list[dict[str, Any]] = field(default_factory=list)   # step 8e: their cards
     finished: asyncio.Event = field(default_factory=asyncio.Event)
     start_block: ContextBlock | None = None          # L12: the owner's front window at send, for this tree's worker
     start_image: ModelImage | None = None            # and its redacted screenshot, the worker's start-of-task image
@@ -801,7 +805,8 @@ class Supervisor(WorkerRuns):
         self.signals: Callable[[], tuple[datetime | None, datetime | None]] = environment.signals
         # Durable timers and schedules (SchedulePort)
         self.timers: Any = schedules.timers                  # clock.timers.Timers
-        self.on_schedule: Callable[[Any, str, str, set[str], set[str]], str] = schedules.on_schedule
+        self.on_schedule: Callable[[Any, str, str, set[str], set[str]], tuple[str, dict[str, Any] | None]] = \
+            schedules.on_schedule
         self.on_schedule_change: Callable[[Any, str], str] = schedules.on_schedule_change
         self.on_reminder_cancel: Callable[[Any, str], str] = schedules.on_reminder_cancel
         self.schedule_live: Callable[[str], bool] = schedules.schedule_live
@@ -818,7 +823,7 @@ class Supervisor(WorkerRuns):
         # chat capture (I1): per saved item, {"receipt": ..., "line": ...}, and per refused one {"refused": code's
         # reason in plain words} (a coroutine function: a login name is written in a worker thread). `sites`: the sites
         # the turn's task names (L36 §5); `elsewhere`: those the owner typed only for a task of another chat
-        self.remember: Callable[..., list[dict[str, str]] | Awaitable[list[dict[str, str]]]] = memory.remember
+        self.remember: Callable[..., list[dict[str, Any]] | Awaitable[list[dict[str, Any]]]] = memory.remember
         self.forget_request: Callable[[str, str], str] = memory.forget_request
         self.question_answered: Callable[[Any], str] = memory.question_answered
         self.settle: Callable[[], Awaitable[None]] = memory.settle
@@ -1268,11 +1273,14 @@ class Supervisor(WorkerRuns):
             action = ActionRequest(wait.capability, 'owner_question', task.identity, frozenset(), task.id, task.id,
                                    task.request_id, frozenset(task.scopes), content=question)
             wait.approval = ap = self.state.approvals.question(action, question, options)
+            row = self._part_of(tree, step_id)
+            # kept on the question, so `chat.status` lists it with its row and its offer after an app restart (8e)
+            ap.part = row[1].id if row is not None else ""
+            ap.runtime_switch = wait.extra.get("runtime_switch")
             self._questions[tree.id] = question
             self.journal.append('loop.question' if loop else 'plan.question',
                                 {'task_id': tree.id, 'step': step_id, 'approval_id': ap.id, 'question': question,
                                  'options': options}, origin=wait.origin)
-            row = self._part_of(tree, step_id)
             self.publish('approval.requested', {'approval_id': ap.id, 'capability': wait.capability,
                                                 'kind': 'owner_question', 'reason': question, 'options': options,
                                                 'task_id': task.id, 'request_id': task.request_id}
@@ -1908,6 +1916,8 @@ class Supervisor(WorkerRuns):
             turn.acknowledged = ""
         if effects.lines:
             said = said.rstrip() + "\n" + confirm.from_task_lines(self.gateway.redact("\n".join(effects.lines)))
+        if effects.cards:                              # step 8e: the app draws these in place of their lines
+            extra = {**(extra or {}), "cards": self._said_cards(effects.cards)}
         written = made or ({origins_.FERB} if by == origins_.FERB and not effects.lines else
                            {origins_.INFERRED} | turn.turn_origins)
         self._record_reply(turn, kind, said, written)
@@ -1944,6 +1954,7 @@ class Supervisor(WorkerRuns):
         for event in effects.events:
             yield event
         turn.side_lines = effects.lines
+        turn.side_cards = effects.cards
         for kind, text in effects.refused:
             yield {"type": kind, "text": text}
         turn.session.payload = ""
@@ -2312,6 +2323,7 @@ class Supervisor(WorkerRuns):
                 events.append({'type': 'reply', 'text': str(exc)})
         receipts: list[str] = []
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
+        cards: list[dict[str, Any]] = []     # step 8e: each from the row code wrote (memory item, timer, schedule)
         unsaved: list[tuple[str, str]] = []
         sites = self._turn_sites(out, turn, named) if out.remember else frozenset()
         elsewhere = (self._sites_named_elsewhere(out, turn) - sites) if out.remember else frozenset()
@@ -2321,6 +2333,7 @@ class Supervisor(WorkerRuns):
             saved_now = [r for r in answers if "receipt" in r]
             receipts += [r["receipt"] for r in saved_now]
             saved += [r["line"] for r in saved_now]
+            cards += [r["card"] for r in saved_now if isinstance(r.get("card"), dict)]
             if not saved_now:
                 unsaved.append((item.content, next((r["refused"] for r in answers if r.get("refused")),
                                                    "FERB's memory store gave no reason")))
@@ -2342,14 +2355,19 @@ class Supervisor(WorkerRuns):
         set_timers, unset, existing = self._set_timers(out.timers, said, request_id, chain=typed)
         for t in set_timers:              # plain words (the notch shows them); the id is a field of its own
             events.append({"type": "timer", "text": _reminder_line(t), "timer_id": t.id})
+            cards.append(cards_.event("reminder", t.id, t.message, t.fire_at.isoformat(), _reminder_line(t)))
         # L11: what happened to each side output is said by code, never by the planner (which wrote its reply before
         # code set or refused anything): a refusal never replaces the reply. A reply or question gets the lines (so
         # they reach the conversation's history too); a task's turn sends refusals as events, and its outcome carries
         # every line (clients may show those events only in passing).
         if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
-            changed.append(self.on_schedule(out.schedule, typed, request_id, {origins_.INFERRED} | turn.turn_origins,
-                                            self._sink_origins_for_new_schedule(turn)))
+            line, schedule_card = self.on_schedule(out.schedule, typed, request_id,
+                                                   {origins_.INFERRED} | turn.turn_origins,
+                                                   self._sink_origins_for_new_schedule(turn))
+            changed.append(line)
             events.append({"type": "timer", "text": changed[-1]})
+            if schedule_card is not None:
+                cards.append(schedule_card)
         for ch in out.schedule_changes:
             changed.append(self.on_schedule_change(ch, typed))
             events.append({"type": "timer", "text": changed[-1]})
@@ -2358,7 +2376,7 @@ class Supervisor(WorkerRuns):
         side_lines = (saved + changed
                       + [_reminder_line(t) for t in set_timers]
                       + [line for _, line in refused])
-        return _Side(events, side_lines, refused)
+        return _Side(events, side_lines, refused, cards)
 
     async def _supervise(self, turn: _Turn, repair: list[str] | None = None, *,
                          emit: Callable[[dict[str, Any]], None] | None = None,
@@ -2875,6 +2893,7 @@ class Supervisor(WorkerRuns):
             tree.start_block = front_window_block(front, tree.start_image, START_SCREENSHOT,
                                                   (turn.screen or {}).get("image_withheld"))[0]
         tree.side_lines = list(turn.side_lines) if turn is not None else []
+        tree.side_cards = list(turn.side_cards) if turn is not None else []
         request = self.state.requests.get(request_id)
         if not request.payload:
             request = dataclasses.replace(request, payload=message or request.words)
@@ -3024,11 +3043,36 @@ class Supervisor(WorkerRuns):
         said = [] if restored else card.say_direct()
         direct = [{**d, "text": confirm.from_task_lines(self.gateway.redact(d["text"]))} for d in said]
         receipts = [] if restored else [confirm.from_task_lines(self.gateway.redact(l)) for l in tree.side_lines]
-        tree.side_lines = []                 # said in the first reply; the last part's footer doesn't repeat them
+        said_cards = [] if restored else self._said_cards(tree.side_cards)
+        tree.side_lines, tree.side_cards = [], []   # said in the first reply; the last part's footer doesn't repeat them
         top = "\n\n".join(d["text"] for d in direct if d["text"].strip())
         event["text"] = "\n\n".join(piece for piece in (top, "\n".join(receipts), event["text"]) if piece.strip())
         event |= {"direct": direct, "receipts": receipts, "card": self._card_payload(tree)}
+        if said_cards:                       # step 8e: the receipts' cards (the app draws them in their lines' place)
+            event["cards"] = said_cards
         return event
+
+    def _said_cards(self, cards: list[dict[str, Any]], marked: bool = True) -> list[dict[str, Any]]:
+        """Cards as the owner is shown them (step 8e): redacted like the text they stand beside, each card's `line`
+        exactly as that text carries it (so the app can leave that line out without reading it). `marked`: the text
+        marks its lines as the task's (`confirm.from_task_lines`: a reply, a first reply), as an answer's code lines
+        aren't."""
+        out = []
+        for card in cards:
+            shown: dict[str, Any] = self.gateway.redact(dict(card))
+            if marked and isinstance(shown.get("line"), str):
+                shown["line"] = confirm.from_task_lines(shown["line"]).split("\n")[0]
+            out.append(shown)
+        return out
+
+    def _result_cards(self, tree: _Tree, artifacts: list[str], sites: list[str]) -> list[dict[str, Any]]:
+        """The cards of a task's end (step 8e), all from FERB's records: what code did with the turn's memory and
+        schedules (not said in a first reply), each payment the owner said Yes to that ran, each send, the sites the
+        task contacted (in place of the "Sites contacted" line) and the files it made."""
+        said = self._said_cards(tree.side_cards, marked=False)
+        ran = cards_.payments(self.spans, tree.id) + cards_.sends(self.spans, tree.id)
+        reached = cards_.links(sites, SITES_LINE + ", ".join(sites)) if sites else []
+        return said + ran + reached + cards_.files(artifacts)
 
     def _card_payload(self, tree: _Tree) -> dict[str, Any]:
         """A multi-part task's card as the app draws it (decision 20): its rows in the owner's order, each with its
@@ -3047,9 +3091,14 @@ class Supervisor(WorkerRuns):
 
     def _part_event(self, tree_id: str, event: dict[str, Any]) -> None:
         """A row's change (decision 19): on the task's line (the turn's stream) and on the bus (`task.part`), for a chat
-        that reconnected and for a task resumed after a restart. The app applies each once, by its `seq`."""
+        that reconnected and for a task resumed after a restart. The app applies each once, by its `seq`. It carries the
+        card's count after the change (`done`, `total`), so the app never counts itself."""
         if event.get("step"):
             event = {**event, "step_task_id": self._step_task(tree_id, str(event["step"]))}
+        card = getattr(self._tree_of.get(tree_id), "card", None)
+        if card is not None:
+            done, total = card.tally()
+            event = {**event, "done": done, "total": total}
         self._tell_tree(tree_id, event)
         self.publish("task.part", event)
 
@@ -5122,9 +5171,11 @@ class Supervisor(WorkerRuns):
         # D33: the answer and summary carry model-written lines (reports, the checker's question and reason); one that
         # reads like FERB's own check is marked as the task's. Code's own lines here never start with "FERB".
         summary, answer = confirm.from_task_lines(summary), confirm.from_task_lines(answer)
-        lines = self._code_lines(tree)
+        sites = sites_contacted(self.spans, tree.id)
+        lines = self._code_lines(tree, sites)
         answer = answer + ("\n\n" + "\n".join(lines) if lines else "")
         switch = src.runtime_switch or tree.runtime_switch
+        cards = self._result_cards(tree, sorted(out.artifacts), sites)
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary,
                 "answer": answer, "verified": verified, "verification": [r.as_dict() for r in results],
                 "subtasks": {WORKER: {"status": out.status, "summary": out.summary}},
@@ -5136,7 +5187,8 @@ class Supervisor(WorkerRuns):
                 {"lines": lines} if lines else {}) | (
                 {"how": src.how} if status in ("done", "done_unverified") and src.how.strip() else {}) | (
                 {"runtime_switch": switch} if switch and status == "failed" else {}) | (
-                {"watch_met": tree.watch_met} if tree.watch and tree.watch_met is not None else {})
+                {"watch_met": tree.watch_met} if tree.watch and tree.watch_met is not None else {}) | (
+                {"cards": cards} if cards else {})
 
     def _final_card(self, tree: _Tree) -> dict[str, Any]:
         """A multi-part task's end (decision 19): no model writes anything after the last part. Code adds the done count
@@ -5148,7 +5200,9 @@ class Supervisor(WorkerRuns):
         card = tree.card
         assert card is not None
         out = tree.outcome or Outcome(tree.worker.id, "failed", "No report was received.", [], [])
-        lines = self._code_lines(tree)
+        sites = sites_contacted(self.spans, tree.id)
+        lines = self._code_lines(tree, sites)
+        cards = self._result_cards(tree, sorted(out.artifacts), sites)
         done, total = card.tally()
         rows = [p for p in card.parts if p.direct is None]
         records = card.records()
@@ -5174,17 +5228,18 @@ class Supervisor(WorkerRuns):
                 "artifacts": sorted(out.artifacts), "resources": tree.resources, "stop_reason": tree.stop_reason,
                 "card": self._card_payload(tree) | {"line": done_line(done, total), "lines": lines,
                                                     **({"headline": headline} if headline else {})}} | (
-                {"runtime_switch": tree.runtime_switch} if tree.runtime_switch and status == "failed" else {})
+                {"runtime_switch": tree.runtime_switch} if tree.runtime_switch and status == "failed" else {}) | (
+                {"cards": cards} if cards else {})
 
-    def _code_lines(self, tree: _Tree) -> list[str]:
+    def _code_lines(self, tree: _Tree, sites: list[str]) -> list[str]:
         """Code's own lines after the answer, in one fixed order (fix list): what code did with the turn's memory,
         reminders and schedules ("Remembered:", "🗓 Scheduled:", L11; a multi-part turn said them in its first reply),
         the sites the task reached ("Sites contacted:", L2), a saved answer FERB hides as a word (L36 §7), each app FERB
         opened and left running (L39), and what the task's clean-up couldn't release. A scheduled run that ran late
         gets "(ran late)" last (the daemon adds it)."""
         lines = list(tree.side_lines)
-        if sites := sites_contacted(self.spans, tree.id):
-            lines.append("Sites contacted: " + ", ".join(sites))
+        if sites:
+            lines.append(SITES_LINE + ", ".join(sites))
         lines += self._secret_lines(tree.id) + self._apps_left_running(tree.id)
         if tree.cleanup_errors:          # each without the task id `_release_task` names it by
             said = [e.split(": ", 1)[1] if e.startswith(tree.id) and ": " in e else e for e in tree.cleanup_errors]
@@ -5193,6 +5248,7 @@ class Supervisor(WorkerRuns):
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
+SITES_LINE = "Sites contacted: "          # code's line naming the sites a task reached (L2); link cards stand for it
 # L39: a check of a step that changed files
 CHANGED_FILES = ("Files this step's calls named that changed (FERB compared each with its copy from before the step; "
                  "each diff's first page follows as data, and its change record holds all of it). Read each one that "
