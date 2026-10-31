@@ -1,13 +1,15 @@
 """Send to developer (L35; relay owner decision 2026-11-01): `reports.build` writes one readable text file for a turn
 FERB recorded as ending badly (its root task failed or was interrupted, or its request has a `chat.failed` row) and
-returns its subject; the owner previews it in FERB.app and presses Send, and `reports.send` posts that same text to
-the developer's report relay. Every part of the file is redacted (rule 14): each span structurally before it is
+returns its subject; the owner previews it in FERB.app and presses Send, and `reports.send` sends that same text to
+the developer's report relay as one file plus one issue with a short summary linking it (a report over 25 MB goes
+shortened; the saved file stays whole). Every part of the file is redacted (rule 14): each span structurally before it is
 rendered, then each block as text, with sealed values matched in their escaped forms too, and once more at Send. It
 lives in an owner-only folder, and reports older than 30 days go when the next one is built. A failed send keeps the
 file and says why; nothing retries by itself. FERB's raw stderr never goes in: its last section is FERB's recorded
 problems."""
 
 import asyncio
+import base64
 import json
 import os
 import stat
@@ -15,6 +17,7 @@ import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -23,8 +26,9 @@ import pytest
 
 from ferb.cli.client import Client, RpcError
 from ferb.daemon import auth
-from ferb.daemon.reports import (KEEP_DAYS, NOT_SET_UP, PROBLEMS_LAST, RELAY_MAX_BYTES, RELAY_URL, SECTIONS,
-                                  TURN_FAILED)
+from ferb.daemon import reports as reports_module
+from ferb.daemon.reports import (KEEP_DAYS, NOT_SET_UP, PROBLEMS_LAST, RELAY_URL, SECTIONS, TURN_FAILED, relay_url,
+                                  shorten, summarize)
 from ferb.daemon.server import INTERNAL_ERROR, SLOW_CALL
 from ferb.sanitize.redact import Redactor, SealedWord, escaped_forms, sealed_spans
 from tests.conftest import RunningDaemon, chat, install, sup
@@ -37,22 +41,29 @@ ANSWER = "I couldn't finish that: the Downloads folder was protected."
 
 
 class Relay:
-    """The developer's report relay, faked on this Mac: what each POST carried, and the answer it gives."""
+    """The developer's report relay, faked on this Mac: what each request carried, and the answers it gives. `/file`
+    takes GitHub's "create a file" JSON and answers a ticket; `/report` takes the issue's fields with that ticket."""
 
     def __init__(self) -> None:
-        self.received: list[tuple[dict[str, str], bytes]] = []
-        self.status, self.answer = 200, {"ok": True, "report_id": ""}
+        self.received: list[tuple[str, dict[str, str], bytes]] = []
+        self.file_answers: list[tuple[int, dict[str, Any]]] = []     # queued answers to /file, else a ticket
+        self.status, self.answer = 200, {"ok": True, "report_id": ""}     # the answer to /report
         relay = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self) -> None:
                 body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-                relay.received.append((dict(self.headers), body))
-                answer = dict(relay.answer)
-                if answer.get("report_id") == "":
-                    answer["report_id"] = json.loads(body).get("report_id")
+                relay.received.append((self.path, dict(self.headers), body))
+                url = urlsplit(self.path)
+                if url.path == "/file":
+                    status, answer = (relay.file_answers.pop(0) if relay.file_answers else
+                                      (200, {"ok": True, "ticket": f"ticket-{len(relay.received)}"}))
+                else:
+                    status, answer = relay.status, dict(relay.answer)
+                    if answer.get("report_id") == "":
+                        answer["report_id"] = "from-relay"
                 out = json.dumps(answer).encode()
-                self.send_response(relay.status)
+                self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(out)))
                 self.end_headers()
@@ -61,11 +72,20 @@ class Relay:
             def log_message(self, *args: Any) -> None:
                 pass
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/report"
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
-    def reports(self) -> list[dict[str, Any]]:
-        return [json.loads(body) for _, body in self.received]
+    def files(self) -> list[tuple[dict[str, list[str]], dict[str, Any], str]]:
+        """Each /file request: its query, its JSON and the file's text."""
+        out = []
+        for path, _, body in self.received:
+            if urlsplit(path).path == "/file":
+                data = json.loads(body)
+                out.append((parse_qs(urlsplit(path).query), data, base64.b64decode(data["content"]).decode()))
+        return out
+
+    def issues(self) -> list[dict[str, Any]]:
+        return [json.loads(body) for path, _, body in self.received if urlsplit(path).path == "/report"]
 
 
 @pytest.fixture
@@ -146,7 +166,7 @@ def _build(daemon: RunningDaemon, task_id: str = "", timeout: float = 10, **para
 
 
 def _send(daemon: RunningDaemon, path: str, **params: Any) -> dict[str, Any]:
-    c = Client(daemon.sock, timeout=30)
+    c = Client(daemon.sock, timeout=120)
     try:
         return c.call("reports.send", {"path": path} | params)
     finally:
@@ -290,27 +310,36 @@ def test_an_unknown_task_is_refused(daemon: RunningDaemon) -> None:
 
 
 def test_send_posts_the_previewed_text_and_no_secret_reaches_the_relay(daemon: RunningDaemon, relay: Relay) -> None:
-    """The owner's Send: the relay gets exactly the file they previewed, as the relay's JSON shape; the secrets planted
-    in a span (a sealed value in its escaped forms, an API key) never reach it, nor the title."""
+    """The owner's Send: the relay gets exactly the file they previewed, as GitHub's "create a file" JSON, then the
+    issue's short summary built from the same text, with the relay's ticket; the secrets planted in a span (a sealed
+    value in its escaped forms, an API key) reach neither, nor the title."""
     _failed_task(daemon)
     built = _build(daemon, "t-fail", app_version="0.28.0 (7)")
     previewed = Path(built["path"]).read_text()
     r = _send(daemon, built["path"], title=built["subject"], app_version="0.28.0 (7)")
-    assert r == {"sent": True, "path": built["path"], "report_id": Path(built["path"]).stem}
-    [(headers, raw)] = relay.received
-    assert headers["Content-Type"] == "application/json" and headers["User-Agent"].startswith("FERB/")
-    [sent] = relay.reports()
-    assert set(sent) == {"version", "kind", "title", "body", "app_version", "report_id"}
-    assert (sent["version"], sent["kind"], sent["app_version"]) == (1, "failure", "0.28.0 (7)")
-    assert sent["title"] == built["subject"] and sent["report_id"] == "FERB-report-2026-01-01-t-fail"
-    assert sent["body"] == previewed and Path(built["path"]).read_text() == previewed      # unchanged, still saved
-    text = raw.decode()
-    for value in (SEALED, QUOTED):
-        for form in _forms(value, nested=True):
-            assert form not in text, form
-    assert API_KEY not in text and "sk-ant" not in text and "[redacted]" in sent["body"]
+    assert r == {"sent": True, "path": built["path"], "report_id": "from-relay", "shortened": False}
+    assert [urlsplit(path).path for path, _, _ in relay.received] == ["/file", "/report"]     # file first, one issue
+    for _, headers, _ in relay.received:
+        assert headers["Content-Type"] == "application/json" and headers["User-Agent"].startswith("FERB/")
+    [(query, data, sent)] = relay.files()
+    assert query == {"kind": ["failure"], "report_id": ["FERB-report-2026-01-01-t-fail"]}
+    assert set(data) == {"message", "content"} and sent == previewed
+    assert Path(built["path"]).read_text() == previewed                     # unchanged, still saved
+    [issue] = relay.issues()
+    assert set(issue) == {"version", "ticket", "title", "summary", "app_version"}
+    assert (issue["version"], issue["ticket"], issue["app_version"]) == (2, "ticket-1", "0.28.0 (7)")
+    assert issue["title"] == built["subject"]
+    for fact in ("Status: failed", f"Failure reason: {ANSWER}", "Errors (1)", "denied: ~/Downloads is protected",
+                 "Questions (0)"):
+        assert fact in issue["summary"], fact
+    for text in (sent, relay.received[1][2].decode()):
+        for value in (SEALED, QUOTED):
+            for form in _forms(value, nested=True):
+                assert form not in text, form
+        assert API_KEY not in text and "sk-ant" not in text
+    assert "[redacted]" in sent
     sent_rows = _on_loop(daemon, lambda: [e.data for e in daemon.daemon.journal.of_kind("report.sent")])
-    assert sent_rows == [{"file": built["path"], "kind": "failure", "report_id": sent["report_id"]}]
+    assert sent_rows == [{"file": built["path"], "kind": "failure", "report_id": "from-relay", "shortened": False}]
 
 
 def test_a_value_sealed_after_the_build_is_hidden_at_send_and_in_the_kept_file(daemon: RunningDaemon,
@@ -321,8 +350,10 @@ def test_a_value_sealed_after_the_build_is_hidden_at_send_and_in_the_kept_file(d
     Path(built["path"]).write_text(Path(built["path"]).read_text() + f"\nlearned later: {late}\n")
     _on_loop(daemon, lambda: daemon.daemon.redact.remember_hidden_secret(late))     # type: ignore[attr-defined]
     assert _send(daemon, built["path"], title=built["subject"])["sent"] is True
-    assert late not in relay.received[0][1].decode() and late not in Path(built["path"]).read_text()
-    assert relay.reports()[0]["body"] == Path(built["path"]).read_text()     # what is kept is what was sent
+    [(_, _, sent)] = relay.files()
+    assert late not in sent and late not in Path(built["path"]).read_text()
+    assert late not in relay.issues()[0]["summary"]
+    assert sent == Path(built["path"]).read_text()                             # what is kept is what was sent
 
 
 def test_a_diagnostic_file_is_sent_the_same_way(daemon: RunningDaemon, relay: Relay) -> None:
@@ -341,28 +372,53 @@ def test_a_diagnostic_file_is_sent_the_same_way(daemon: RunningDaemon, relay: Re
         c.close()
     assert built["subject"].startswith("FERB diagnostics (FERB ")
     assert _send(daemon, built["path"], title=built["subject"], app_version="0.28.0")["sent"] is True
-    [sent] = relay.reports()
-    assert sent["kind"] == "diagnostic" and sent["body"] == Path(built["path"]).read_text()
-    assert SEALED not in relay.received[0][1].decode()
+    [(query, _, sent)] = relay.files()
+    assert query["kind"] == ["diagnostic"] and sent == Path(built["path"]).read_text()
+    [issue] = relay.issues()
+    assert "FERB version: " in issue["summary"] and "FERB's recorded problems (0)" in issue["summary"]
+    assert all(SEALED not in body.decode() for _, _, body in relay.received)
 
 
-@pytest.mark.parametrize("status,answer,why", [
-    (502, {"ok": False, "error": "GitHub refused the report (HTTP 401)"}, "HTTP 502: GitHub refused the report"),
-    (200, {"ok": False, "error": "odd"}, "HTTP 200: odd"),
-    (429, {"ok": False, "error": "too many"}, "try again in a few minutes"),
+@pytest.mark.parametrize("step,status,answer,why", [
+    ("file", 502, {"ok": False, "error": "GitHub refused the file (HTTP 401)"}, "HTTP 502: GitHub refused the file"),
+    ("file", 200, {"ok": False, "error": "odd"}, "HTTP 200: odd"),
+    ("file", 429, {"ok": False, "error": "too many"}, "try again in a few minutes"),
+    ("report", 502, {"ok": False, "error": "GitHub refused the report (HTTP 403)"}, "HTTP 502: GitHub refused the rep"),
+    ("report", 403, {"ok": False, "error": "the ticket isn't valid"}, "HTTP 403: the ticket isn't valid"),
 ])
-def test_a_refused_send_keeps_the_file_and_says_why(daemon: RunningDaemon, relay: Relay, status: int,
+def test_a_refused_send_keeps_the_file_and_says_why(daemon: RunningDaemon, relay: Relay, step: str, status: int,
                                                     answer: dict[str, Any], why: str) -> None:
     _failed_task(daemon)
     built = _build(daemon, "t-fail")
-    relay.status, relay.answer = status, answer
+    if step == "file":
+        relay.file_answers = [(status, answer)]
+    else:
+        relay.status, relay.answer = status, answer
     r = _send(daemon, built["path"], title=built["subject"])
     assert r["sent"] is False and why in r["error"] and Path(built["path"]).exists()
-    assert len(relay.received) == 1                                         # tried once; never by itself again
+    assert len(relay.received) == (1 if step == "file" else 2)              # tried once; never by itself again
     relay.status, relay.answer = 200, {"ok": True, "report_id": ""}
     assert _send(daemon, built["path"], title=built["subject"])["sent"] is True       # Send again
     failed = _on_loop(daemon, lambda: [e.data for e in daemon.daemon.journal.of_kind("report.send_failed")])
     assert len(failed) == 1 and failed[0]["file"] == built["path"] and why in failed[0]["why"]
+
+
+def test_a_commit_conflict_sends_the_file_again_and_files_one_issue(daemon: RunningDaemon, relay: Relay,
+                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two reports committed at the same moment: GitHub's Contents API answers 409 to one, the relay passes that on
+    with `retry`, and FERB sends the file again (the relay can't: it streamed the body), up to three times."""
+    monkeypatch.setattr(reports_module, "CONFLICT_TRIES", 3)
+    _failed_task(daemon)
+    built = _build(daemon, "t-fail")
+    conflict = (409, {"ok": False, "retry": True, "error": "another report was being saved at the same time"})
+    relay.file_answers = [conflict, conflict]
+    assert _send(daemon, built["path"], title=built["subject"])["sent"] is True
+    assert [urlsplit(p).path for p, _, _ in relay.received] == ["/file", "/file", "/file", "/report"]
+    assert relay.issues()[0]["ticket"] == "ticket-3"
+    relay.received.clear()
+    relay.file_answers = [conflict, conflict, conflict]
+    r = _send(daemon, built["path"], title=built["subject"])
+    assert r["sent"] is False and "another report was being saved" in r["error"] and len(relay.received) == 3
 
 
 def test_an_unreachable_relay_keeps_the_file_and_says_so(daemon: RunningDaemon, relay: Relay) -> None:
@@ -395,6 +451,12 @@ def test_a_relay_address_that_isnt_https_is_refused(daemon: RunningDaemon, url: 
     assert r["sent"] is False and "isn't a valid https address" in r["error"]
 
 
+def test_the_relay_address_is_its_base_and_the_first_relays_report_address_still_works() -> None:
+    assert relay_url("https://ferb-reports.example.workers.dev") == "https://ferb-reports.example.workers.dev"
+    assert relay_url("https://ferb-reports.example.workers.dev/report") == "https://ferb-reports.example.workers.dev"
+    assert relay_url("https://ferb-reports.example.workers.dev/") == "https://ferb-reports.example.workers.dev"
+
+
 def test_send_takes_only_a_file_ferb_wrote_in_its_reports_folder(daemon: RunningDaemon, relay: Relay,
                                                                 tmp_path: Path) -> None:
     _failed_task(daemon)
@@ -413,13 +475,74 @@ def test_send_takes_only_a_file_ferb_wrote_in_its_reports_folder(daemon: Running
     assert relay.received == []
 
 
-def test_a_report_larger_than_the_relay_takes_is_kept_and_not_sent(daemon: RunningDaemon, relay: Relay) -> None:
+def _steps_seed(daemon: RunningDaemon, count: int) -> None:
+    """`count` bulky steps after `_failed_task`'s failed call, a question to the owner among them, the last marked."""
+    d = daemon.daemon
+
+    def seed() -> None:
+        root = d.db.conn.execute("SELECT id FROM spans WHERE kind = 'task'").fetchone()[0]   # type: ignore[union-attr]
+        rows = []
+        for i in range(count):
+            at = (d.clock.now() + timedelta(seconds=i + 1)).isoformat()
+            if i == count // 2:
+                inp = {"tool": "owner.ask", "args": {"question": "Which folder holds the invoices?"}}
+                out = {"answer": "Documents/Invoices"}
+            else:
+                inp = {"tool": "browser.read", "args": {"tab": i}}
+                out = {"output": ("the last step " if i == count - 1 else "") + "filler text " * 80}
+            rows.append((f"bulk-{i:04d}", root, at, at, json.dumps(inp), json.dumps(out)))
+        d.db.conn.executemany(                                               # type: ignore[union-attr]
+            "INSERT INTO spans (id, parent_id, task_id, kind, started_at, ended_at, input_json, output_json) VALUES "
+            "(?, ?, 't-fail', 'tool.call', ?, ?, ?, ?)", rows)
+    _on_loop(daemon, seed)
+
+
+def test_a_report_over_the_cap_is_sent_shortened_and_kept_whole(daemon: RunningDaemon, relay: Relay,
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owner, 2026-11-01: a report over 25 MB goes shortened to fit (here the cap is lowered to 40 KB): the note at the
+    top says what was cut; the summary, every error and question and the last steps are kept; the file on the Mac
+    stays whole."""
+    monkeypatch.setattr(reports_module, "MAX_REPORT_BYTES", 40_000)
     _failed_task(daemon)
+    _steps_seed(daemon, 200)
     built = _build(daemon, "t-fail")
-    Path(built["path"]).write_text("x" * (RELAY_MAX_BYTES + 1))
-    r = _send(daemon, built["path"])
-    assert r["sent"] is False and "at most 512 KB" in r["error"] and built["path"] in r["error"]
-    assert relay.received == [] and Path(built["path"]).exists()
+    whole = Path(built["path"]).read_text()
+    assert len(whole.encode()) > 200_000
+    r = _send(daemon, built["path"], title=built["subject"])
+    assert r["sent"] is True and r["shortened"] is True
+    [(_, _, sent)] = relay.files()
+    assert len(sent.encode()) <= 40_000
+    assert sent.startswith("[Shortened to fit ")
+    assert "steps" in sent.split("\n", 1)[0] and Path(built["path"]).name in sent.split("\n", 1)[0]
+    for kept in ("## Summary", f"Failure reason: {ANSWER}", "## Request", REQUEST, "denied: ~/Downloads is protected",
+                 "Which folder holds the invoices?", "the last step", "## FERB's recorded problems"):
+        assert kept in sent, kept
+    assert "[FERB cut " in sent
+    assert Path(built["path"]).read_text() == whole                           # the full report stays on the Mac
+    summary = relay.issues()[0]["summary"]
+    assert summary.startswith("[Shortened to fit ") and "Which folder holds the invoices? → Documents/Invoices" in summary
+
+
+def test_shortening_keeps_errors_questions_and_the_last_steps_and_respects_the_byte_cap() -> None:
+    def block(i: int, extra: str = "") -> str:
+        return f"12:00:{i % 60:02d}  tool.call  browser.read  [0.1s]\n    {{\n      \"error\": null,{extra}\n" \
+               f"      \"output\": \"{'é' * 300} step {i}\"\n    }}"
+    steps = [block(i) for i in range(100)]
+    steps[10] = steps[10].replace('"error": null', '"error": "boom at ten"')
+    steps[20] = steps[20].replace("browser.read", "owner.ask")
+    body = ("FERB report for t\n\n## Summary\nStatus: failed\n\n## Request\nYour request:\nx\n\n## Steps\ntask t\n"
+            + "\n".join(steps) + "\n\n## FERB's recorded problems\nFERB's own records.\n(none recorded)\n")
+    assert shorten(body, len(body.encode())) == (body, "")
+    text, note = shorten(body, 20_000, "FERB-report-x.txt")
+    assert len(text.encode()) <= 20_000 and text.startswith(note) and "FERB-report-x.txt" in note
+    assert "boom at ten" in text and "owner.ask" in text and "step 99" in text and "## Summary" in text
+    assert "step 50" not in text and "[FERB cut " in text and "## FERB's recorded problems" in text
+    plain = "é" * 30_000                                                      # no Steps: the middle goes
+    cut, note = shorten(plain, 20_000)
+    assert len(cut.encode()) <= 20_000 and cut.startswith(note) and cut.endswith("é")
+    long = summarize(body.replace("## Steps\ntask t\n", "## Steps\ntask t\n" + "\n".join(
+        block(i).replace('"error": null', f'"error": "fail {i}"') for i in range(400)) + "\n"), limit=5_000)
+    assert len(long) <= 5_000 and "more in the full report" in long and "Status: failed" in long
 
 
 def test_a_redactor_without_a_text_path_sends_nothing(daemon: RunningDaemon, relay: Relay) -> None:
@@ -549,23 +672,8 @@ def test_a_scheduled_run_that_failed_before_its_task_is_reportable(daemon: Runni
     assert "Check the permit slots" in text and "Failure reason: You've hit your usage limit." in text
 
 
-def test_a_30_mb_trace_leaves_the_event_loop_responsive(daemon: RunningDaemon) -> None:
-    """Review 1, M1: redaction ran as one pass over the whole multi-MB text, holding the GIL in long regex calls (a
-    35.9 MB build stalled the loop up to 2.77 s). It now runs per span and per section, off the loop."""
-    d = daemon.daemon
-    _failed_task(daemon)
-    word = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor "
-    body = json.dumps({"output": (word * 130)[:10_000]})
-
-    def seed() -> None:
-        root = d.db.conn.execute("SELECT id FROM spans WHERE kind = 'task'").fetchone()[0]   # type: ignore[union-attr]
-        at = d.clock.now().isoformat()
-        d.db.conn.executemany(                                               # type: ignore[union-attr]
-            "INSERT INTO spans (id, parent_id, task_id, kind, started_at, ended_at, input_json, output_json) VALUES "
-            "(?, ?, 't-fail', 'tool.call', ?, ?, ?, ?)",
-            [(f"bulk-{i}", root, at, at, json.dumps({"tool": "browser.read", "args": {"tab": i}}), body)
-             for i in range(3000)])
-    _on_loop(daemon, seed)
+def _loop_gaps(daemon: RunningDaemon, fn: Any) -> tuple[Any, float]:
+    """`fn()`'s result and the longest the daemon's event loop went without running meanwhile (seconds)."""
     gaps: list[float] = []
     stop = threading.Event()
 
@@ -580,12 +688,39 @@ def test_a_30_mb_trace_leaves_the_event_loop_responsive(daemon: RunningDaemon) -
     ticker = asyncio.run_coroutine_threadsafe(tick(), daemon.loop)
     time.sleep(0.2)
     try:
-        r = _build(daemon, "t-fail", timeout=120)
+        result = fn()
     finally:
         stop.set()
         ticker.result(5)
+    return result, max(gaps)
+
+
+def test_a_30_mb_trace_leaves_the_event_loop_responsive(daemon: RunningDaemon, relay: Relay) -> None:
+    """Review 1, M1: redaction ran as one pass over the whole multi-MB text, holding the GIL in long regex calls (a
+    35.9 MB build stalled the loop up to 2.77 s). It now runs per span and per section, off the loop; Send's second
+    pass, the shortening to 25 MB and the base64 run off the loop in pieces too."""
+    d = daemon.daemon
+    _failed_task(daemon)
+    word = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor "
+    body = json.dumps({"output": (word * 130)[:10_000]})
+
+    def seed() -> None:
+        root = d.db.conn.execute("SELECT id FROM spans WHERE kind = 'task'").fetchone()[0]   # type: ignore[union-attr]
+        at = d.clock.now().isoformat()
+        d.db.conn.executemany(                                               # type: ignore[union-attr]
+            "INSERT INTO spans (id, parent_id, task_id, kind, started_at, ended_at, input_json, output_json) VALUES "
+            "(?, ?, 't-fail', 'tool.call', ?, ?, ?, ?)",
+            [(f"bulk-{i}", root, at, at, json.dumps({"tool": "browser.read", "args": {"tab": i}}), body)
+             for i in range(3000)])
+    _on_loop(daemon, seed)
+    r, stalled = _loop_gaps(daemon, lambda: _build(daemon, "t-fail", timeout=120))
     assert Path(r["path"]).stat().st_size > 30_000_000
-    assert max(gaps) < 0.2, f"the loop stalled {max(gaps):.2f} s"
+    assert stalled < 0.2, f"the loop stalled {stalled:.2f} s"
+    sent, stalled = _loop_gaps(daemon, lambda: _send(daemon, r["path"], title=r["subject"]))
+    assert sent["sent"] is True and sent["shortened"] is True
+    assert stalled < 0.2, f"the loop stalled {stalled:.2f} s while sending"
+    [(_, _, text)] = relay.files()
+    assert 24_000_000 < len(text.encode()) <= 25_000_000 and "denied: ~/Downloads is protected" in text
 
 
 def test_the_notch_waits_longer_for_a_report_so_a_slow_one_is_no_slow_call(daemon: RunningDaemon,

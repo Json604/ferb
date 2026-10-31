@@ -58,8 +58,9 @@ enum ReportState: Equatable {
 /// Send and Send again: the daemon posts the file the owner viewed (`reports.send`); it never retries by itself.
 @MainActor
 enum ReportSender {
-    /// Seconds the app waits for the relay's answer (the daemon's own limit is 60 s).
-    static let sendWait = 90
+    /// Seconds the app waits for the relay's answer: a report of up to 25 MB goes up on the owner's connection (the
+    /// daemon gives up on its own after 540 s and says so).
+    static let sendWait = 600
 
     static func send(_ report: FailureReport, appVersion: String?, rpc: DaemonRPCTransport) async -> ReportState {
         var params: [String: Any] = ["path": report.file.path, "title": report.subject]

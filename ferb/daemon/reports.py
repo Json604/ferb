@@ -1,9 +1,12 @@
-"""Own the failure report the owner can send the developer (L35; relay owner decision 2026-11-01): one plain-text file
+"""Own the failure report the owner can send the developer (L35; relay owner decisions 2026-11-01): one plain-text file
 per turn FERB recorded as ending badly, under ~/.ferb/reports, every part of it redacted. Must not judge why a task
 failed or send anything the owner didn't preview: FERB writes the file, the owner reads it in FERB.app and presses Send,
-and only then the daemon posts that same text to the developer's report relay (relay/), which files it as an issue in a
-private repo. Raw stderr (logs/daemon.err.log, never redacted at capture) never goes in."""
+and only then the daemon sends that same text to the developer's report relay (relay/), which saves it as one file in a
+private repo and files one issue holding a short summary and a link to it. Raw stderr (logs/daemon.err.log, never
+redacted at capture) never goes in."""
 
+import asyncio
+import base64
 import json
 import os
 import platform
@@ -14,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 import ferb
 from ferb.core.errors import FerbError
@@ -24,13 +27,18 @@ from ferb.store.db import Database
 from ferb.store.spans import SpanStore
 from ferb.trace import lines
 
-# Where Send posts a report (owner, 2026-11-01): the developer's relay (relay/worker.mjs), which files it as an issue in
-# a private repo. Built in once it is deployed; config `[feedback] relay_url` overrides it. With neither, the report is
-# still written and kept, and Send says sending isn't set up yet. The app never holds the address.
+# Where Send sends a report (owner, 2026-11-01): the developer's relay (relay/worker.mjs), which saves the file in a
+# private repo and files an issue linking it. Built in once it is deployed; config `[feedback] relay_url` overrides it.
+# With neither, the report is still written and kept, and Send says sending isn't set up yet. The app never holds the
+# address. It is the relay's own address (an address ending in /report, as the first relay took, works too).
 RELAY_URL = ""
 NOT_SET_UP = "Sending reports to the developer isn't set up yet"
-RELAY_MAX_BYTES = 512 * 1024         # the relay's body cap (relay/worker.mjs MAX_BODY): what one Send can carry
-SEND_TIMEOUT_S = 60.0
+MAX_REPORT_BYTES = 25_000_000        # one sent report file at most (owner, 2026-11-01; relay/worker.mjs MAX_REPORT)
+UPLOAD_MAX_BYTES = -(-MAX_REPORT_BYTES // 3) * 4 + 4096   # its base64 in GitHub's JSON (relay/worker.mjs MAX_UPLOAD)
+SUMMARY_CHARS = 30_000               # the issue's summary at most (relay/worker.mjs MAX_SUMMARY)
+SEND_TIMEOUT_S = 60.0                # each connect, read or write step of a request to the relay
+SEND_DEADLINE_S = 540.0              # one whole Send, inside the app's wait (FailureReport.swift sendWait, 600 s)
+CONFLICT_TRIES = 3                   # the file again when another report's commit landed at the same moment
 TITLE_CHARS = 200                    # the relay's limits on a title and on the version label (relay/worker.mjs)
 VERSION_CHARS = 50
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")   # the only hosts a plain-http relay address may name (tests)
@@ -312,8 +320,9 @@ class Unsent(FerbError):
 
 
 def relay_url(configured: Any) -> str:
-    """Where Send posts: config `[feedback] relay_url`, else RELAY_URL. An https address, or plain http to this Mac
-    only; anything else is refused (code checks the destination, rule 3)."""
+    """Where Send sends: config `[feedback] relay_url`, else RELAY_URL; the relay's own address, without a trailing
+    `/report` (the first relay's single endpoint). An https address, or plain http to this Mac only; anything else is
+    refused (code checks the destination, rule 3)."""
     url = str(configured or RELAY_URL or "").strip()
     if not url:
         raise Unsent(NOT_SET_UP)
@@ -325,7 +334,9 @@ def relay_url(configured: Any) -> str:
     if parts is None or not host or parts.username or parts.password or not (
             parts.scheme == "https" or (parts.scheme == "http" and host in LOCAL_HOSTS)):
         raise Unsent("The report relay address in config.toml ([feedback] relay_url) isn't a valid https address")
-    return url
+    path = parts.path.rstrip("/")
+    path = path[:-len("/report")] if path.endswith("/report") else path
+    return f"{parts.scheme}://{parts.netloc}{path}"
 
 
 def saved(home: Path, path: str) -> tuple[Path, str]:
@@ -345,51 +356,254 @@ def saved(home: Path, path: str) -> tuple[Path, str]:
     return p, kind
 
 
-def payload(path: Path, kind: str, title: str, app_version: str, *, text: Callable[[str], str]) -> bytes:
-    """The relay's JSON for one saved file, off the event loop. The file is what the owner previewed; it goes through
+# Reading a report's Steps (the blocks `build` writes from `render_trace(..., full=True)`): structural facts only, the
+# span's kind and tool and whether its recorded details hold an error, never a judgment of what a step meant
+STEPS = "\n## Steps\n"
+PROBLEMS = "\n## FERB's recorded problems\n"
+LABEL = re.compile(r" *(\d{2}:\d{2}:\d{2})  (\S+)(?:  (.*?))?  \[[^\]]*\]$")
+HAS_ERROR = re.compile(r'"error": (?!null\b)')
+FIRST_ERROR = re.compile(r'"error": ("(?:[^"\\]|\\.)*")')
+QUESTION = re.compile(r'"question": ("(?:[^"\\]|\\.)*")')
+ANSWER = re.compile(r'"answer": ("(?:[^"\\]|\\.)*")')
+QUESTION_KINDS = ("model.question",)         # a worker's question to the orchestrator
+QUESTION_TOOLS = ("owner.ask",)              # a question to the owner, FERB's own confirmations included
+CUT = "[FERB cut {n} steps here to fit {mb} MB]"
+
+
+def _steps(body: str) -> tuple[int, int, list[str]] | None:
+    """Where the Steps section's blocks start and end in a report, and its blocks (the first is the `task` line)."""
+    at = body.find(STEPS)
+    if at < 0:
+        return None
+    start = at + len(STEPS)
+    end = body.find("\n## ", start)
+    end = len(body) if end < 0 else end
+    while end > start and body[end - 1] == "\n":
+        end -= 1
+    return start, end, ["\n".join(b) for b in _blocks(body[start:end].split("\n"))]
+
+
+def _label(block: str) -> tuple[str, str, str]:
+    """(time, span kind, tool or goal) of a Steps block's first line."""
+    m = LABEL.match(block.split("\n", 1)[0])
+    return (m.group(1), m.group(2), m.group(3) or "") if m else ("", "", "")
+
+
+def _is_question(block: str) -> bool:
+    _, kind, name = _label(block)
+    return kind in QUESTION_KINDS or (kind == "tool.call" and name in QUESTION_TOOLS)
+
+
+def _string(pattern: re.Pattern[str], block: str) -> str:
+    m = pattern.search(block)
+    if not m:
+        return ""
+    try:
+        return str(json.loads(m.group(1)))
+    except ValueError:
+        return m.group(1)
+
+
+def shorten(body: str, limit: int = MAX_REPORT_BYTES, name: str = "") -> tuple[str, str]:
+    """A report cut to at most `limit` bytes (owner, 2026-11-01), and the note at its top saying what was cut ("" when
+    it fits whole). Kept: everything outside Steps (the summary, the request, FERB's recorded problems), every step
+    with an error and every question, and as many of the last steps as fit; each run of cut steps leaves a line saying
+    so. When even that is too big (or there are no Steps), the middle is cut and the beginning and the end kept."""
+    size = len(body.encode())
+    if size <= limit:
+        return body, ""
+    mb = limit // 1_000_000
+    kept_as = f" The full report is saved on the sender's Mac as {name}." if name else ""
+    found = _steps(body)
+    if found is not None:
+        start, end, blocks = found
+        keep = [i == 0 or bool(HAS_ERROR.search(b)) or _is_question(b) for i, b in enumerate(blocks)]
+        sizes = [len(b.encode()) + 1 for b in blocks]
+        budget = limit - len(body[:start].encode()) - len(body[end:].encode()) - 4096 - 80 * (sum(keep) + 2)
+        budget -= sum(n for n, k in zip(sizes, keep) if k)
+        if budget >= 0:
+            for i in range(len(blocks) - 1, 0, -1):          # the last steps, back to the first that doesn't fit
+                if keep[i]:
+                    continue
+                if sizes[i] > budget:
+                    break
+                keep[i] = True
+                budget -= sizes[i]
+            out: list[str] = []
+            run = cut = cut_bytes = 0
+            for block, k, n in zip(blocks, keep, sizes):
+                if k:
+                    if run:
+                        out.append(CUT.format(n=run, mb=mb))
+                    out.append(block)
+                    run = 0
+                else:
+                    run, cut, cut_bytes = run + 1, cut + 1, cut_bytes + n
+            if run:
+                out.append(CUT.format(n=run, mb=mb))
+            note = (f"[Shortened to fit {mb} MB: {cut} of {len(blocks) - 1} steps ({cut_bytes / 1_000_000:.1f} MB) "
+                    f"were cut from Steps. The summary, the request, every error and question, FERB's recorded "
+                    f"problems and the last steps are kept.{kept_as}]")
+            text = note + "\n\n" + body[:start] + "\n".join(out) + body[end:]
+            if len(text.encode()) <= limit:
+                return text, note
+    data = body.encode()
+    room = limit - 2048
+    head = room // 5
+    note = (f"[Shortened to fit {mb} MB: {(size - room) / 1_000_000:.1f} MB were cut from the middle; the beginning "
+            f"(the summary) and the end are kept.{kept_as}]")
+    cut_line = f"\n[FERB cut {(size - room) / 1_000_000:.1f} MB here to fit {mb} MB]\n"
+    return (note + "\n\n" + data[:head].decode(errors="ignore") + cut_line
+            + data[size - (room - head):].decode(errors="ignore")), note
+
+
+def summarize(body: str, note: str = "", limit: int = SUMMARY_CHARS) -> str:
+    """The issue's short summary, from the report's own redacted text: what was cut (when it was), the Summary section
+    (what failed, the versions), each step's error and each question, and FERB's recorded problems, one line each,
+    within `limit` characters ("… n more in the full report" for the rest)."""
+    out: list[str] = [note, ""] if note else []
+    at = body.find("\n## Summary\n")
+    if at >= 0:
+        start = at + len("\n## Summary\n")
+        end = body.find("\n\n", start)
+        out += body[start:end if end >= 0 else len(body)].split("\n")
+    groups: list[tuple[str, list[str]]] = []
+    found = _steps(body)
+    if found is not None:
+        blocks = found[2][1:]
+        errors, questions = [], []
+        for block in blocks:
+            when, kind, name = _label(block)
+            what = f"{when}  {kind}  {name}".rstrip()
+            if HAS_ERROR.search(block):
+                errors.append(f"- {what}: {lines.clip(_string(FIRST_ERROR, block) or '(error recorded)', 300)}")
+            if _is_question(block):
+                asked = lines.clip(_string(QUESTION, block) or "(question not recorded)", 300)
+                answer = _string(ANSWER, block)
+                questions.append(f"- {what}: {asked}" + (f" → {lines.clip(answer, 200)}" if answer else ""))
+        groups += [(f"Errors ({len(errors)})", errors), (f"Questions ({len(questions)})", questions)]
+    at = body.find(PROBLEMS)
+    if at >= 0:
+        start = at + len(PROBLEMS)
+        end = body.find("\n## ", start)
+        section = body[start:end if end >= 0 else len(body)]
+        rows = [r for r in section.split("\n")[1:] if r.strip() and r != "(none recorded)"]
+        groups.append((f"FERB's recorded problems ({len(rows)})", [f"- {lines.clip(r, 300)}" for r in rows]))
+    size = sum(len(line) + 1 for line in out)
+    for title, items in groups:
+        out += ["", title]
+        size += len(title) + 2
+        for n, item in enumerate(items):
+            if size + len(item) + 1 > limit - 200:
+                out.append(f"… {len(items) - n} more in the full report")
+                size += 40
+                break
+            out.append(item)
+            size += len(item) + 1
+    return "\n".join(out).strip()[:limit]
+
+
+PIECE_CHARS = 256 * 1024
+
+
+def _redacted_text(written: str, text: Callable[[str], str]) -> str:
+    """A saved file through the text pass in pieces cut only where `build` started a new piece (a step's block or a
+    section), so a multi-MB report never holds the interpreter in one long pass (review 1, M1) and no piece `build`
+    redacted whole is split."""
+    pieces: list[str] = []
+    piece: list[str] = []
+    size = 0
+    for line in written.split("\n"):
+        if size > PIECE_CHARS and (SPAN_LABEL.match(line) or line.startswith("## ")):
+            pieces.append(text("\n".join(piece)))
+            piece, size = [], 0
+        piece.append(line)
+        size += len(line) + 1
+    pieces.append(text("\n".join(piece)))
+    return "\n".join(pieces)
+
+
+@dataclass(frozen=True)
+class Outgoing:
+    """One Send, ready: the file as GitHub's "create a file" JSON (the relay streams it on untouched) and the issue's
+    fields but the relay's ticket."""
+    kind: str
+    report_id: str
+    file: bytes
+    issue: dict[str, Any]
+    shortened: bool
+
+
+def prepare(path: Path, kind: str, title: str, app_version: str, *, text: Callable[[str], str]) -> Outgoing:
+    """What Send sends for one saved file, off the event loop. The file is what the owner previewed; it goes through
     the redaction once more (a value sealed since the build is hidden too, and the saved file is rewritten to match,
-    so what is kept is what was sent). Refused, unread, when it can't fit the relay's cap."""
-    size = path.lstat().st_size
-    if size > RELAY_MAX_BYTES:
-        raise Unsent(f"This report is {size / 1_000_000:.1f} MB; FERB can send at most {RELAY_MAX_BYTES // 1024} KB "
-                     f"at once. It stays saved at {path}.")
+    so what is kept is what was sent). A report over MAX_REPORT_BYTES is sent shortened (`shorten`); the saved file
+    stays whole. The summary comes from the same redacted text."""
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, encoding="utf-8") as f:
         written = f.read()
-    body = text(written)
+    body = _redacted_text(written, text)
     if body != written:
         write(path.parent, path.name, body)
+    report_id = path.stem[:128]
+    sent, note = shorten(body, MAX_REPORT_BYTES, path.name)
     default = "FERB report" if kind == "failure" else "FERB diagnostics"
     version = " ".join("".join(c for c in app_version if c.isprintable()).split()) or ferb.__version__
-    data = json.dumps({"version": 1, "kind": kind, "title": lines.clip(text(title), TITLE_CHARS) or default,
-                       "body": body, "app_version": version[:VERSION_CHARS],
-                       "report_id": path.stem[:128]}, ensure_ascii=False).encode()
-    if len(data) > RELAY_MAX_BYTES:
-        raise Unsent(f"This report is {len(data) / 1_000_000:.1f} MB; FERB can send at most "
-                     f"{RELAY_MAX_BYTES // 1024} KB at once. It stays saved at {path}.")
-    return data
+    summary = text(summarize(body, note))[:SUMMARY_CHARS] or default
+    file = json.dumps({"message": f"FERB {kind} report {report_id}",
+                       "content": base64.b64encode(sent.encode()).decode("ascii")}).encode()
+    if len(file) > UPLOAD_MAX_BYTES:                # never: `shorten` keeps it within; the relay refuses it anyway
+        raise Unsent(f"FERB couldn't fit this report into {MAX_REPORT_BYTES // 1_000_000} MB. It stays saved at {path}.")
+    return Outgoing(kind, report_id, file, {"version": 2, "title": lines.clip(text(title), TITLE_CHARS) or default,
+                                            "summary": summary, "app_version": version[:VERSION_CHARS]}, bool(note))
 
 
-async def post(url: str, data: bytes, timeout: float = SEND_TIMEOUT_S) -> str:
-    """POST one report to the relay, as other daemon-side calls reach their services (httpx, no FERB proxy: that one
-    is for FERB's shell); the relay's report_id. Any failure is Unsent with a reason the owner can read."""
+async def send(base: str, out: Outgoing, timeout: float = SEND_TIMEOUT_S, deadline: float = SEND_DEADLINE_S,
+               pause: float = 1.0) -> str:
+    """One Send to the relay, as other daemon-side calls reach their services (httpx, no FERB proxy: that one is for
+    FERB's shell): the file (again when the relay says another report's commit landed at that moment, up to
+    CONFLICT_TRIES), then the issue with the relay's ticket; the relay's report_id. Any failure is Unsent with a
+    reason the owner can read."""
     import httpx
-    try:
+    headers = {"Content-Type": "application/json", "User-Agent": f"FERB/{ferb.__version__}"}
+
+    async def call(client: httpx.AsyncClient, url: str, content: bytes) -> tuple[int, dict[str, Any]]:
+        try:
+            r = await client.post(url, content=content, headers=headers)
+        except httpx.TimeoutException:
+            raise Unsent("FERB couldn't send the report: the report service didn't answer in time") from None
+        except httpx.HTTPError as e:
+            raise Unsent(f"FERB couldn't reach the report service ({type(e).__name__})") from None
+        try:
+            answer = r.json()
+        except ValueError:
+            answer = None
+        answer = answer if isinstance(answer, dict) else {}
+        if r.status_code == 429:
+            raise Unsent("Too many reports were sent from this network just now; try again in a few minutes")
+        return r.status_code, answer
+
+    def refused(status: int, answer: dict[str, Any]) -> Unsent:
+        why = lines.clip(str(answer.get("error") or "no reason given"), 200)
+        return Unsent(f"The report service didn't take the report (HTTP {status}: {why})")
+
+    async def go() -> str:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(url, content=data, headers={"Content-Type": "application/json",
-                                                               "User-Agent": f"FERB/{ferb.__version__}"})
-    except httpx.TimeoutException:
-        raise Unsent("FERB couldn't send the report: the report service didn't answer in time") from None
-    except httpx.HTTPError as e:
-        raise Unsent(f"FERB couldn't reach the report service ({type(e).__name__})") from None
+            query = urlencode({"kind": out.kind, "report_id": out.report_id})
+            for attempt in range(CONFLICT_TRIES):
+                status, answer = await call(client, f"{base}/file?{query}", out.file)
+                if not (status == 409 and answer.get("retry") is True and attempt + 1 < CONFLICT_TRIES):
+                    break
+                await asyncio.sleep(pause * (attempt + 1))
+            ticket = answer.get("ticket")
+            if status != 200 or answer.get("ok") is not True or not isinstance(ticket, str):
+                raise refused(status, answer)
+            status, answer = await call(client, f"{base}/report",
+                                        json.dumps(out.issue | {"ticket": ticket}, ensure_ascii=False).encode())
+            if status != 200 or answer.get("ok") is not True:
+                raise refused(status, answer)
+            return str(answer.get("report_id") or out.report_id)
     try:
-        answer = r.json()
-    except ValueError:
-        answer = None
-    answer = answer if isinstance(answer, dict) else {}
-    if r.status_code == 429:
-        raise Unsent("Too many reports were sent from this network just now; try again in a few minutes")
-    if r.status_code != 200 or answer.get("ok") is not True:
-        why = lines.clip(answer.get("error") or "no reason given", 200)
-        raise Unsent(f"The report service didn't take the report (HTTP {r.status_code}: {why})")
-    return str(answer.get("report_id") or "")
+        return await asyncio.wait_for(go(), deadline)
+    except asyncio.TimeoutError:
+        raise Unsent("FERB couldn't send the report: it didn't finish in time") from None

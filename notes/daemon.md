@@ -61,6 +61,13 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
     and the token, and deploys the relay. **The user only presses Send in FERB**: no GitHub account, browser, Mail app or
     extra step; the user still previews the cleaned report before sending. The repo stays general (no personal data;
     the repo name and the relay's public URL are fine).
+    Detail (owner, 2026-11-01, later the same day): **each Send is exactly one issue** holding a short summary (what
+    failed, the errors and questions, FERB's version, the report id); **the full redacted report is one file in that
+    repo** (`reports/YYYY/MM/<report id>….txt`), linked from the issue; no reply-comment threads. **Cap 25 MB**: a
+    report over it is shortened by FERB to fit (the summary, every error and question and the last part of the trace
+    kept; what was cut stated at the top); the full report always stays on the Mac. The token gains Contents: Read and
+    write on ferb-reports only, beside Issues: Read and write; nothing else. The user still only previews and presses
+    Send.
 
 ## What exists today (verified)
 
@@ -157,6 +164,9 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       and Send; `reports.send {path, title, app_version}` posts that file. The Mail compose path, `FEEDBACK_ADDRESS`
       and `[feedback] address` are gone (config upgrade `feedback-relay-2026-11-01` drops the key once, journaled
       without its value). Waiting: the owner deploys the relay and sends its address for `reports.RELAY_URL`.
+      (2026-11-01, decision 10 detail: one issue with a summary + the full report as one linked file, 25 MB cap, shorten
+      to fit; two requests per Send, `/file` streamed through to GitHub's Contents API, then `/report` with a signed
+      ticket. Waiting: the owner adds Contents: Read and write to the token and redeploys `relay/`.)
       (Tests: tests/test_failure_report.py, test_advanced_settings.py, test_config.py, test_upgrade.py;
       FailureReportTests, FERBWindowStoreTests.)
 - [x] "What FERB saw" (owner, 2026-10-31, step 12e): a button on each message in the notch opens the screenshot taken
@@ -303,32 +313,68 @@ Rulings (technical):
 - **Flow**: Send to developer → `reports.build` writes the redacted file as before (the 2026-10-24 design) → the notch
   row shows "View report" (opens the file) and "Send" → `reports.send` → "Sent", or "Couldn't send: <why>. The report
   is saved; you can send it again." with **Send again**. Settings → Advanced → Send diagnostics to developer works the
-  same way (`reports.diagnostic` now returns a `subject`). One try per press; nothing retries by itself.
+  same way (`reports.diagnostic` now returns a `subject`). One try per press; nothing retries by itself, except the
+  file again on a commit conflict (below). The app's flow is unchanged; it waits up to 600 s (`ReportSender.sendWait`)
+  since a 25 MB report goes up on the owner's connection; the daemon gives up by itself at 540 s and says so.
 - **What is sent** is the saved file the owner viewed, through the Redactor's text pass once more (a value sealed
   since the build is hidden too; the saved file is rewritten to match, so what is kept is what was sent). `send` takes
   only a regular file named like a report or diagnostic file directly in `~/.ferb/reports` (no symlink), read with
-  `O_NOFOLLOW`. Body: `{"version": 1, "kind": "failure"|"diagnostic", "title", "body", "app_version", "report_id"}`;
-  `report_id` is the file's name without `.txt`.
+  `O_NOFOLLOW`. `report_id` is the file's name without `.txt`.
+- **Shorten to fit** (`reports.shorten`): over `MAX_REPORT_BYTES` (25,000,000 bytes of UTF-8) the sent copy keeps
+  everything outside Steps (Summary, Request, FERB's recorded problems), every step whose recorded details hold an
+  error, every question (an `owner.ask` call, FERB's own confirmations included, and `model.question`), and as many of
+  the last steps as fit; each run of cut steps leaves "[FERB cut N steps here to fit 25 MB]" and a note at the top
+  says how many steps (and MB) were cut and that the full report stays on the sender's Mac. If even that is too big
+  (or a file has no Steps), the middle is cut and the beginning and end kept. Structural facts only (span kind, tool
+  name, an `"error"` that isn't null), never a judgment of content. The saved file stays whole.
+- **Summary** (`reports.summarize`, from the same redacted text, through the text pass again, ≤ 30,000 characters):
+  the shortening note when there is one, the report's Summary section (versions, task, status, failure reason, times),
+  "Errors (n)" (one line per step with an error: time, kind, tool, the error), "Questions (n)" (the question and its
+  answer) and "FERB's recorded problems (n)", one line each; "… n more in the full report" past the cap.
+- **Protocol** (two requests per Send, so the Worker never parses or re-encodes the big file: the Workers free plan
+  allows 10 ms CPU per request, and waiting on fetch doesn't count):
+  1. `POST <relay>/file?kind=…&report_id=…`, body = exactly GitHub's "create a file" JSON
+     `{"message", "content": base64}` built by FERB (`reports.prepare`), `Content-Length` ≤ 33,337,432. The Worker
+     checks only the headers, the query and the rate limit, picks `reports/YYYY/MM/<report_id>-<8 random>.txt` (UTC
+     month; the random part because ids repeat across Macs, and a path that never existed can't be overwritten by a
+     body naming a `sha`) and streams the request body to `PUT /repos/{repo}/contents/{path}` untouched. 201 →
+     `{"ok": true, "ticket"}`: path, kind, report id and expiry (1 h), HMAC-SHA-256 signed with a key derived from
+     the token. GitHub 409 (another commit landed at that moment; the Contents API conflicts on concurrent commits) →
+     relay 409 `retry: true`: the relay can't replay a streamed body, so FERB sends the file again, up to
+     `CONFLICT_TRIES` = 3, 1 s then 2 s apart.
+  2. `POST <relay>/report` `{"version": 2, "ticket", "title", "summary", "app_version"}` ≤ 64 KB: shape and ticket
+     checked (forged, changed or expired → 403; a ticket already filed in that instance → 409), then one issue: a
+     "Full report: [path](https://github.com/{repo}/blob/HEAD/{path})" line (built only from the Worker's own path),
+     then a code block with "FERB <kind> report <id> · app <version>" and the summary. Kind and report id come from
+     the ticket, not the request. Fixed on the way: the old head line showed `app_version` outside the code block, so
+     an `@name` in it could notify; now every sender-supplied text is inside the block.
+  Why the Contents API and not the Git Data API (blobs/trees/commits/refs): one call, works on an empty repo (it makes
+  the first commit; the Git Data API refuses an empty repo), and its documented file limit is 100 MB. Its JSON-only
+  base64 body is why FERB builds the exact body and the Worker passes it through.
 - **Where**: `reports.RELAY_URL` (empty until the owner's relay is deployed), overridden by config `[feedback]
-  relay_url`; https only (plain http only to 127.0.0.1/localhost, for tests); none → "Sending reports to the developer
-  isn't set up yet" and the file is kept. The address never reaches the app.
-- **How**: the daemon posts asynchronously with httpx (the file read and redaction run in a thread), 60 s timeout
-  (the app waits 90 s), like its other outbound calls (model APIs, Jev): direct, not through FERB's egress proxy, which is for
-  FERB's shell commands. Journaled `report.sent` (file, kind, report_id) or `report.send_failed` (file, kind, why);
-  never the text.
-- **Relay**: only `POST /report`, `application/json`, body ≤ 512 KB (413), exact shape (400), wrong method 405, other
-  paths 404; per sender address 2 a minute per Cloudflare location (the binding allows only 10 or 60 s windows) plus
-  5 per 10 minutes per running instance (best effort); never logs a body; answers `{"ok": true, "report_id"}` only,
-  never the issue URL or number. A report over GitHub's 65,536-character body limit continues as comments on that
-  issue, in order; each part is a code block so nothing renders, links an issue or @mentions anyone. Labels: the kind
-  and the app version.
+  relay_url`: the relay's own address (an address ending in `/report`, the first relay's endpoint, works too); https
+  only (plain http only to 127.0.0.1/localhost, for tests); none → "Sending reports to the developer isn't set up
+  yet" and the file is kept. The address never reaches the app.
+- **How**: the daemon sends asynchronously with httpx (the file read, redaction, shortening, summary and base64 run
+  in a thread), 60 s per connect/read/write step, 540 s for the whole Send, like its other outbound calls (model APIs,
+  Jev): direct, not through FERB's egress proxy, which is for FERB's shell commands. Journaled `report.sent` (file,
+  kind, report_id, shortened) or `report.send_failed` (file, kind, why); never the text. The reply adds `shortened`.
+- **Relay limits kept**: only `POST /file` and `POST /report`, `application/json` (415), wrong method 405, other
+  paths 404, no token 503; per sender address, files and issues counted apart, 2 a minute per Cloudflare location
+  (the binding allows only 10 or 60 s windows) plus 5 per 10 minutes per running instance (best effort); never logs a
+  body; never answers with the issue URL or number (the ticket names the file's path in the private repo, useless
+  without access). Labels: the kind and the app version.
+- **Limits verified (2026-11-01)**: Cloudflare Workers free plan: 10 ms CPU per HTTP request, waiting on `fetch()`
+  not counted; request body 100 MB on a Free/Pro account plan; 128 MB memory; 50 subrequests (one Send uses one per
+  request); no duration limit while the client stays connected
+  (developers.cloudflare.com/workers/platform/limits/). GitHub: create-or-update-file-contents limit 100 MB
+  (github.blog changelog 2022-05-03); a request over 10 s of GitHub's processing is cut off
+  (docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api). Not documented, to confirm live: that
+  streaming a body straight into `fetch()` costs no CPU per byte, and that GitHub takes a ~33 MB Contents request
+  within its limits (a 2025 community report saw 422 "too large" at 50 MB and success at 10 MB).
 
 Added UI pieces (functional only, for the owner to polish): the notch's report row (View report, Send / Send again,
 the status line); Settings → Advanced → Diagnostic file (View diagnostic file, Send / Send again, the status line).
-
-Open owner question: a report over 512 KB (the relay's cap, from the 2026-11-01 brief) can't be sent; FERB says so and
-keeps it. Large failed tasks produce multi-MB reports (the largest on record held 41.6 MB of trace). Keep the cap and
-send only what fits, raise it, or shorten what a report holds (e.g. the Steps section) when it is too big?
 
 Live checks for step 13: notes/test-tasks.md sitting 3 ("Send a failure report from FERB").
 

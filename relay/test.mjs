@@ -1,160 +1,243 @@
 // The relay's handler with a fake GitHub (fetch) and a fake env. Run: node relay/test.mjs (no packages).
 import assert from "node:assert/strict";
-import { handle, MAX_BODY, PART_CHARS, ISSUE_CHARS, PER_WINDOW, resetLimits, split } from "./worker.mjs";
+import {
+  handle, MAX_BODY, MAX_REPORT, MAX_SUMMARY, MAX_UPLOAD, PER_WINDOW, TICKET_MS, resetLimits, sign, verify,
+} from "./worker.mjs";
 
 const env = { GITHUB_TOKEN: "test-token", GITHUB_REPO: "owner/reports" };
+const NOW = 1_793_500_000_000;                      // 2026-11-01 UTC
+const ORIGIN = "https://ferb-reports.example.workers.dev";
 
-function fakeGitHub({ issueStatus = 201, commentStatus = 201, fail = false } = {}) {
+function fakeGitHub({ putStatus = 201, issueStatus = 201, fail = false } = {}) {
   const calls = [];
   const fetcher = async (url, init) => {
-    calls.push({ url, init, body: JSON.parse(init.body) });
+    // the file's body is read here as GitHub would; the Worker passed it on without reading it
+    const body = typeof init.body === "string" ? init.body : await new Response(init.body).text();
+    calls.push({ url, init, body, json: JSON.parse(body) });
     if (fail) throw new Error("network down");
-    if (url.endsWith("/issues")) {
-      return new Response(JSON.stringify({ number: 41, html_url: "https://github.com/owner/reports/issues/41" }),
-        { status: issueStatus });
-    }
-    return new Response("{}", { status: commentStatus });
+    if (init.method === "PUT") return new Response(JSON.stringify({ content: { path: "x" } }), { status: putStatus });
+    return new Response(JSON.stringify({ number: 41, html_url: "https://github.com/owner/reports/issues/41" }),
+      { status: issueStatus });
   };
   return { calls, fetcher };
 }
 
-function report(extra = {}) {
-  return { version: 1, kind: "failure", title: "FERB report: the folder was protected",
-    body: "FERB report for t-1\n\n## Summary\nStatus: failed\n", app_version: "0.28.0 (1)",
-    report_id: "FERB-report-2026-11-01-t-1", ...extra };
+const FILE = JSON.stringify({ message: "FERB failure report r-1", content: btoa("FERB report for t-1\n") });
+
+function upload(body = FILE, { query = "kind=failure&report_id=FERB-report-2026-11-01-t-1", type = "application/json",
+  ip = "203.0.113.9", length, method = "POST", path = "/file" } = {}) {
+  const headers = { "Content-Type": type, "CF-Connecting-IP": ip };
+  const size = length ?? (body === null ? undefined : String(new TextEncoder().encode(body).byteLength));
+  if (size !== undefined) headers["Content-Length"] = size;
+  const init = { method, headers, duplex: "half" };
+  if (body !== null && method !== "GET") init.body = body;
+  return new Request(`${ORIGIN}${path}?${query}`, init);
 }
 
-function post(body, { method = "POST", type = "application/json", path = "/report", ip = "203.0.113.9" } = {}) {
+function summary(extra = {}) {
+  return { version: 2, title: "FERB report: the folder was protected", summary: "Status: failed\nErrors (1): denied",
+    app_version: "0.28.0 (1)", ...extra };
+}
+
+function post(body, { ip = "203.0.113.9", method = "POST", type = "application/json" } = {}) {
   const init = { method, headers: { "Content-Type": type, "CF-Connecting-IP": ip } };
-  if (method !== "GET" && method !== "HEAD") init.body = typeof body === "string" ? body : JSON.stringify(body);
-  return new Request(`https://ferb-reports.example.workers.dev${path}`, init);
+  if (method !== "GET") init.body = typeof body === "string" ? body : JSON.stringify(body);
+  return new Request(`${ORIGIN}/report`, init);
+}
+
+async function ticketFor(gh, opts = {}) {
+  const r = await handle(upload(FILE, opts), env, gh.fetcher, NOW);
+  assert.equal(r.status, 200);
+  return (await r.json()).ticket;
 }
 
 const tests = {
-  async "a valid report becomes one issue with its kind and version as labels"() {
+  async "a file is streamed to GitHub's Contents API untouched, under a path the relay picks"() {
     const gh = fakeGitHub();
-    const r = await handle(post(report()), env, gh.fetcher);
+    const r = await handle(upload(), env, gh.fetcher, NOW);
     assert.equal(r.status, 200);
     const out = await r.json();
-    assert.deepEqual(out, { ok: true, report_id: "FERB-report-2026-11-01-t-1" });   // no issue URL or number
+    assert.deepEqual(Object.keys(out).sort(), ["ok", "ticket"]);
     assert.equal(gh.calls.length, 1);
     const [call] = gh.calls;
-    assert.equal(call.url, "https://api.github.com/repos/owner/reports/issues");
-    assert.equal(call.init.method, "POST");
+    assert.equal(call.init.method, "PUT");
+    assert.match(call.url, /^https:\/\/api\.github\.com\/repos\/owner\/reports\/contents\/reports\/2026\/11\/FERB-report-2026-11-01-t-1-[A-Za-z0-9]{8}\.txt$/);
+    assert.equal(typeof call.init.body, "object");                       // the request's stream, not a copy
+    assert.equal(call.body, FILE);                                       // byte for byte
     assert.equal(call.init.headers.Authorization, "Bearer test-token");
     assert.ok(call.init.headers["User-Agent"]);
-    assert.equal(call.body.title, "FERB report: the folder was protected");
-    assert.deepEqual(call.body.labels, ["failure", "0.28.0 (1)"]);
-    assert.ok(call.body.body.includes("## Summary\nStatus: failed"));
-    assert.ok(call.body.body.includes("```text\n"));                           // inert: a code block
+    const again = fakeGitHub();
+    await handle(upload(), env, again.fetcher, NOW);
+    assert.notEqual(again.calls[0].url, call.url);                       // a repeated report id never collides
   },
 
-  async "a report over the body cap is refused with 413 and never reaches GitHub"() {
+  async "one Send files exactly one issue: a link to the file, then the summary as a code block"() {
     const gh = fakeGitHub();
-    const r = await handle(post(report({ body: "x".repeat(MAX_BODY + 1) })), env, gh.fetcher);
-    assert.equal(r.status, 413);
-    assert.equal((await r.json()).ok, false);
+    const ticket = await ticketFor(gh);
+    const r = await handle(post(summary({ ticket })), env, gh.fetcher, NOW + 1000);
+    assert.equal(r.status, 200);
+    assert.deepEqual(await r.json(), { ok: true, report_id: "FERB-report-2026-11-01-t-1" });   // no issue URL or number
+    assert.equal(gh.calls.length, 2);
+    const [put, made] = gh.calls;
+    const path = put.url.split("/contents/")[1];
+    assert.equal(made.url, "https://api.github.com/repos/owner/reports/issues");
+    assert.equal(made.init.method, "POST");
+    assert.equal(made.json.title, "FERB report: the folder was protected");
+    assert.deepEqual(made.json.labels, ["failure", "0.28.0 (1)"]);
+    const body = made.json.body;
+    assert.ok(body.startsWith(`Full report: [${path}](https://github.com/owner/reports/blob/HEAD/${path})\n\n`));
+    assert.ok(body.includes("```text\nFERB failure report FERB-report-2026-11-01-t-1 · app 0.28.0 (1)\n\n"));
+    assert.ok(body.includes("Status: failed\nErrors (1): denied\n```"));
+  },
+
+  async "nothing in the summary, title or version renders: no mention, link or heading"() {
+    const gh = fakeGitHub();
+    const ticket = await ticketFor(gh);
+    const sneaky = "@owner see #1 ```\n# Heading\n[x](https://evil.example)";
+    const r = await handle(post(summary({ ticket, summary: sneaky, app_version: "@owner" })), env, gh.fetcher, NOW);
+    assert.equal(r.status, 200);
+    const body = gh.calls[1].json.body;
+    const [linkLine, rest] = [body.slice(0, body.indexOf("\n")), body.slice(body.indexOf("\n\n") + 2)];
+    assert.ok(!linkLine.includes("@") && !linkLine.includes("evil"));
+    assert.ok(rest.startsWith("````text\n") && rest.endsWith("\n````"));    // fenced longer than any run inside
+    assert.ok(!rest.slice(9, -5).includes("````"));
+  },
+
+  async "a file's size is judged by its Content-Length alone: over the cap, missing or empty"() {
+    const gh = fakeGitHub();
+    assert.equal((await handle(upload(FILE, { length: String(MAX_UPLOAD + 1) }), env, gh.fetcher, NOW)).status, 413);
+    const missing = new Request(`${ORIGIN}/file?kind=failure&report_id=r-1`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, duplex: "half",
+      body: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(FILE)); c.close(); } }),
+    });
+    assert.equal((await handle(missing, env, gh.fetcher, NOW)).status, 411);
+    assert.equal((await handle(upload("", { length: "0" }), env, gh.fetcher, NOW)).status, 400);
+    assert.equal(gh.calls.length, 0);
+    assert.ok(MAX_UPLOAD >= Math.ceil(MAX_REPORT / 3) * 4);              // a full 25 MB report's base64 fits
+  },
+
+  async "a wrong method, path, content type or query is refused"() {
+    const gh = fakeGitHub();
+    assert.equal((await handle(upload(null, { method: "GET" }), env, gh.fetcher, NOW)).status, 405);
+    assert.equal((await handle(upload(FILE, { method: "PUT" }), env, gh.fetcher, NOW)).status, 405);
+    assert.equal((await handle(upload(FILE, { path: "/" }), env, gh.fetcher, NOW)).status, 404);
+    assert.equal((await handle(upload(FILE, { type: "text/plain" }), env, gh.fetcher, NOW)).status, 415);
+    for (const query of ["kind=spam&report_id=r-1", "kind=failure&report_id=../x", "kind=failure", "report_id=r-1"]) {
+      assert.equal((await handle(upload(FILE, { query }), env, gh.fetcher, NOW)).status, 400, query);
+    }
+    assert.equal((await handle(post(summary(), { method: "PUT" }), env, gh.fetcher, NOW)).status, 405);
+    assert.equal((await handle(post(summary(), { type: "text/plain" }), env, gh.fetcher, NOW)).status, 415);
     assert.equal(gh.calls.length, 0);
   },
 
-  async "a wrong method, path or content type is refused"() {
+  async "a wrong summary shape is refused with 400"() {
     const gh = fakeGitHub();
-    assert.equal((await handle(post(null, { method: "GET" }), env, gh.fetcher)).status, 405);
-    assert.equal((await handle(post(report(), { method: "PUT" }), env, gh.fetcher)).status, 405);
-    assert.equal((await handle(post(report(), { path: "/" }), env, gh.fetcher)).status, 404);
-    assert.equal((await handle(post(report(), { type: "text/plain" }), env, gh.fetcher)).status, 415);
-    assert.equal(gh.calls.length, 0);
-  },
-
-  async "a wrong shape is refused with 400"() {
-    const gh = fakeGitHub();
+    const ticket = await sign(env, { p: "reports/x.txt", k: "failure", r: "r-1", e: NOW + 1000 });
     const bad = [
       "not json", "[]", JSON.stringify(null),
-      report({ version: 2 }), report({ kind: "spam" }), report({ title: "" }), report({ title: "t".repeat(201) }),
-      report({ body: "" }), report({ body: 5 }), report({ app_version: "" }), report({ app_version: "v".repeat(51) }),
-      report({ report_id: "../x" }), report({ extra: 1 }),
+      summary({ ticket, version: 1 }), summary({ ticket, title: "" }), summary({ ticket, title: "t".repeat(201) }),
+      summary({ ticket, summary: "" }), summary({ ticket, summary: "s".repeat(MAX_SUMMARY + 1) }),
+      summary({ ticket, summary: 5 }), summary({ ticket, app_version: "" }),
+      summary({ ticket, app_version: "v".repeat(51) }), summary({ ticket, app_version: "a\nb" }),
+      summary({ ticket, extra: 1 }), summary({ ticket, body: "the old shape" }), summary(),
     ];
-    const { title, ...noTitle } = report();
-    bad.push(noTitle);
     for (const body of bad) {
-      const r = await handle(post(body), env, gh.fetcher);
+      const r = await handle(post(body), env, gh.fetcher, NOW);
       assert.equal(r.status, 400, JSON.stringify(body).slice(0, 80));
       const out = await r.json();
       assert.equal(out.ok, false);
       assert.ok(out.error);
     }
+    const huge = await handle(post(summary({ ticket, summary: "s".repeat(MAX_BODY) })), env, gh.fetcher, NOW);
+    assert.equal(huge.status, 413);
     assert.equal(gh.calls.length, 0);
   },
 
-  async "a long report is split into the issue and comments in order"() {
+  async "an issue needs a ticket the relay signed, unexpired, used once"() {
     const gh = fakeGitHub();
-    const lines = [];
-    for (let i = 0; lines.join("\n").length < 3 * PART_CHARS; i++) lines.push(`line ${i} ` + "y".repeat(90));
-    const body = lines.join("\n");
-    const r = await handle(post(report({ body })), env, gh.fetcher);
-    assert.equal(r.status, 200);
-    assert.ok(gh.calls.length >= 4);
-    assert.ok(gh.calls[0].url.endsWith("/issues"));
-    for (const c of gh.calls.slice(1)) assert.ok(c.url.endsWith("/issues/41/comments"));
-    const texts = gh.calls.map((c) => {
-      const b = c.body.body;
-      assert.ok(b.length <= ISSUE_CHARS);
-      return b.slice(b.indexOf("```text\n") + 8, b.lastIndexOf("```"));
-    });
-    assert.equal(texts.join(""), body + "\n");                                 // the fence closes on its own line
-    assert.ok(gh.calls[1].body.body.includes(`part 2 of ${gh.calls.length}`));
+    const forged = await sign({ ...env, GITHUB_TOKEN: "other" }, { p: "reports/x.txt", k: "failure", r: "r-1",
+      e: NOW + 1000 });
+    const expired = await sign(env, { p: "reports/x.txt", k: "failure", r: "r-1", e: NOW - 1 });
+    const good = await sign(env, { p: "reports/x.txt", k: "failure", r: "r-1", e: NOW + 1000 });
+    const tampered = good.replace(/^[^.]+/, btoa(JSON.stringify({ p: "x", k: "failure", r: "r-2", e: NOW + 1000 })));
+    for (const ticket of [forged, expired, tampered, "junk", "a.b.c"]) {
+      assert.equal((await handle(post(summary({ ticket })), env, gh.fetcher, NOW)).status, 403, ticket);
+    }
+    assert.equal(gh.calls.length, 0);
+    assert.equal((await handle(post(summary({ ticket: good })), env, gh.fetcher, NOW)).status, 200);
+    assert.equal((await handle(post(summary({ ticket: good })), env, gh.fetcher, NOW)).status, 409);
+    assert.equal(gh.calls.length, 1);
+    assert.ok(await verify(env, good, NOW + 999));
+    assert.equal(await verify(env, good, NOW + 1000), null);
+    const fresh = await ticketFor(fakeGitHub());
+    assert.ok(await verify(env, fresh, NOW + TICKET_MS - 1));
+    assert.equal(await verify(env, fresh, NOW + TICKET_MS), null);
   },
 
-  async "split never cuts a surrogate pair and rejoins exactly"() {
-    const text = "a" + "😀".repeat(50);
-    const parts = split(text, 10);
-    assert.equal(parts.join(""), text);
-    for (const p of parts) assert.ok(!/[\ud800-\udbff]$/.test(p));
+  async "a commit conflict asks FERB to send the file again"() {
+    const gh = fakeGitHub({ putStatus: 409 });
+    const r = await handle(upload(), env, gh.fetcher, NOW);
+    assert.equal(r.status, 409);
+    const out = await r.json();
+    assert.equal(out.ok, false);
+    assert.equal(out.retry, true);
+    assert.equal(out.ticket, undefined);
   },
 
-  async "a GitHub failure is an error, not a success"() {
-    for (const [opts, status] of [[{ issueStatus: 401 }, 502], [{ fail: true }, 502]]) {
+  async "a GitHub failure is an error, not a success, and never shows the token"() {
+    for (const [opts, status] of [[{ putStatus: 401 }, 502], [{ putStatus: 422 }, 502], [{ putStatus: 413 }, 413],
+      [{ fail: true }, 502]]) {
       const gh = fakeGitHub(opts);
-      const r = await handle(post(report()), env, gh.fetcher);
-      assert.equal(r.status, status);
+      const r = await handle(upload(), env, gh.fetcher, NOW);
+      assert.equal(r.status, status, JSON.stringify(opts));
       const out = await r.json();
       assert.equal(out.ok, false);
       assert.ok(!JSON.stringify(out).includes("test-token"));
     }
-    const gh = fakeGitHub({ commentStatus: 403 });
-    const r = await handle(post(report({ body: "z\n".repeat(PART_CHARS) })), env, gh.fetcher);
-    assert.equal(r.status, 502);
-    assert.match((await r.json()).error, /part 2 of/);
-  },
-
-  async "one address is limited to a few reports per window"() {
-    resetLimits();
-    const gh = fakeGitHub();
-    const now = 1_000_000;
-    for (let i = 0; i < PER_WINDOW; i++) {
-      assert.equal((await handle(post(report(), { ip: "198.51.100.7" }), env, gh.fetcher, now)).status, 200);
+    for (const [i, opts] of [{ issueStatus: 403 }, { fail: true }].entries()) {
+      const ticket = await ticketFor(fakeGitHub(), { ip: `198.51.100.${20 + i}` });
+      const r = await handle(post(summary({ ticket })), env, fakeGitHub(opts).fetcher, NOW);
+      assert.equal(r.status, 502);
+      const out = await r.json();
+      assert.equal(out.ok, false);
+      assert.ok(!JSON.stringify(out).includes("test-token"));
     }
-    assert.equal((await handle(post(report(), { ip: "198.51.100.7" }), env, gh.fetcher, now)).status, 429);
-    assert.equal((await handle(post(report(), { ip: "198.51.100.8" }), env, gh.fetcher, now)).status, 200);
-    const later = now + 11 * 60 * 1000;
-    assert.equal((await handle(post(report(), { ip: "198.51.100.7" }), env, gh.fetcher, later)).status, 200);
   },
 
-  async "the rate-limit binding is asked by sender address"() {
-    resetLimits();
+  async "one address is limited to a few files per window, issues counted apart"() {
+    const gh = fakeGitHub();
+    const ip = "198.51.100.7";
+    const tickets = [];
+    for (let i = 0; i < PER_WINDOW; i++) {
+      const r = await handle(upload(FILE, { ip }), env, gh.fetcher, NOW);
+      assert.equal(r.status, 200);
+      tickets.push((await r.json()).ticket);
+    }
+    assert.equal((await handle(upload(FILE, { ip }), env, gh.fetcher, NOW)).status, 429);
+    assert.equal((await handle(upload(FILE, { ip: "198.51.100.8" }), env, gh.fetcher, NOW)).status, 200);
+    for (const ticket of tickets) {
+      assert.equal((await handle(post(summary({ ticket }), { ip }), env, gh.fetcher, NOW)).status, 200);
+    }
+    const later = NOW + 11 * 60 * 1000;
+    assert.equal((await handle(upload(FILE, { ip }), env, gh.fetcher, later)).status, 200);
+  },
+
+  async "the rate-limit binding is asked by sender address before GitHub is reached"() {
     const asked = [];
     const limited = { ...env, REPORT_LIMIT: { limit: async ({ key }) => (asked.push(key), { success: false }) } };
     const gh = fakeGitHub();
-    const r = await handle(post(report(), { ip: "192.0.2.4" }), limited, gh.fetcher);
-    assert.equal(r.status, 429);
-    assert.deepEqual(asked, ["192.0.2.4"]);
+    assert.equal((await handle(upload(FILE, { ip: "192.0.2.4" }), limited, gh.fetcher, NOW)).status, 429);
+    const ticket = await sign(env, { p: "reports/x.txt", k: "failure", r: "r-1", e: NOW + 1000 });
+    assert.equal((await handle(post(summary({ ticket }), { ip: "192.0.2.4" }), limited, gh.fetcher, NOW)).status, 429);
+    assert.deepEqual(asked, ["file:192.0.2.4", "issue:192.0.2.4"]);
     assert.equal(gh.calls.length, 0);
   },
 
   async "without its token the relay says it isn't set up"() {
     const gh = fakeGitHub();
-    const r = await handle(post(report()), { GITHUB_REPO: "owner/reports" }, gh.fetcher);
-    assert.equal(r.status, 503);
+    const bare = { GITHUB_REPO: "owner/reports" };
+    assert.equal((await handle(upload(), bare, gh.fetcher, NOW)).status, 503);
+    assert.equal((await handle(post(summary({ ticket: "x.y" })), bare, gh.fetcher, NOW)).status, 503);
     assert.equal(gh.calls.length, 0);
   },
 };

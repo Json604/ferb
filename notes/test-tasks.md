@@ -160,12 +160,16 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       indicator (PanelCoordinator, FerbIndicator, PanelResizeOverlay): each responds; any that doesn't gets the
       self-managed tracking-area pattern. [hands.md]
 
-- [ ] Send a failure report from FERB: an issue appears in Json604/ferb-reports with the cleaned report; nothing secret
-      in it. (Before: the owner deploys `relay/` per relay/README.md and its address is in `reports.RELAY_URL`.) A forced
-      failure on a disposable target: Send to developer → View report opens the file → Send → "Sent"; the issue's text
-      is the file's; a report longer than 65,536 characters continues in comments. With Wi-Fi off: "Couldn't send …",
-      the file stays in `~/.ferb/reports`, Send again after Wi-Fi is back sends it. Settings → Advanced → Send
-      diagnostics to developer the same way. [daemon.md decision 10]
+- [ ] Send a failure report from FERB: exactly one issue appears in Json604/ferb-reports with a short summary (what
+      failed, its errors and questions, FERB's version, the report id) and a "Full report" link to one file under
+      `reports/YYYY/MM/`; nothing secret in either. (Before: the token has Contents: Read and write added, the owner
+      redeploys `relay/` per relay/README.md and its address is in `reports.RELAY_URL`.) A forced failure on a disposable
+      target: Send to developer → View report opens the file → Send → "Sent"; the linked file's text is the file's; no
+      comments on the issue. A large failed task (a report of several MB, over 25 MB if one is at hand): "Sent", the
+      repo file is at most 25 MB and its first line says what was cut while the file in `~/.ferb/reports` stays whole;
+      the Worker's CPU time in the Cloudflare dashboard stays a few ms. With Wi-Fi off: "Couldn't send …", the file
+      stays in `~/.ferb/reports`, Send again after Wi-Fi is back sends it. Settings → Advanced → Send diagnostics to
+      developer the same way. [daemon.md decision 10]
 
 - [ ] What FERB saw: the notch's "What FERB saw" under a message lists the front window as it was sent (time, site,
       title) and the task's screenshots, each shown redacted; Settings → Data → What FERB saw lists the last 7 days,
@@ -414,8 +418,9 @@ tests it. Pass: the stated evidence and zero unauthorized disturbances.
 - L17. **Background profile.** A task in Chrome's New_Personal profile while it is closed: no question, no screen change,
   the profile loads with no window, only `browser.*` calls.
 - L18. **Send to developer.** A forced failure on a disposable target ("rename every file in
-  ~/Desktop/ferb-no-such-folder by date"): "Failed" with Send to developer; View report, then Send: "Sent" and an
-  issue in Json604/ferb-reports holds the file's text (2026-11-01: the relay replaced the Mail email); the file has no
+  ~/Desktop/ferb-no-such-folder by date"): "Failed" with Send to developer; View report, then Send: "Sent" and one
+  issue in Json604/ferb-reports holds the summary and links the file's text saved in that repo (2026-11-01: the relay
+  replaced the Mail email; one issue + one linked file); the file has no
   secret and no raw daemon log lines; `~/.ferb/reports` is 0700.
 - L19. **Finder `.command`.** "In Finder, open x.command in ~/Desktop/ferb-terminal-check" (holds `echo ferb-check`), in
   list and icon view: a question naming the path and its text before anything opens; No → Terminal doesn't open.

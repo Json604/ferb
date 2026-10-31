@@ -318,11 +318,12 @@ class Rpc:
         return built
 
     async def _reports_send(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """The owner's Send under a report or diagnostic file they previewed (owner decision 2026-11-01): the daemon
-        posts that file's text, through the redaction once more, to the developer's report relay. Never retried by
-        itself: on any failure the file stays saved, the reply says why (`sent: false`) and the owner can press Send
-        again. Params: `path` (as `reports.build`/`reports.diagnostic` returned it), `title` (their subject),
-        `app_version`."""
+        """The owner's Send under a report or diagnostic file they previewed (owner decisions 2026-11-01): the daemon
+        sends that file's text, through the redaction once more, to the developer's report relay, which saves it as
+        one file in the private repo and files one issue with its summary and a link to it. A report over 25 MB goes
+        shortened; the saved file stays whole. Never retried by itself (only the file again on a commit conflict): on
+        any failure the file stays saved, the reply says why (`sent: false`) and the owner can press Send again.
+        Params: `path` (as `reports.build`/`reports.diagnostic` returned it), `title` (their subject), `app_version`."""
         from ferb.daemon import reports
         text = getattr(self.redact, "text", None)
         if not callable(text):                # never sent unredacted
@@ -330,14 +331,15 @@ class Rpc:
         path, kind = reports.saved(self.home, str(params.get("path") or ""))
         try:
             url = reports.relay_url(self.config.get("feedback", "relay_url", ""))
-            data = await asyncio.to_thread(reports.payload, path, kind, str(params.get("title") or ""),
-                                           str(params.get("app_version") or ""), text=text)
-            report_id = await reports.post(url, data)
+            out = await asyncio.to_thread(reports.prepare, path, kind, str(params.get("title") or ""),
+                                          str(params.get("app_version") or ""), text=text)
+            report_id = await reports.send(url, out)
         except reports.Unsent as e:
             self._journal().append("report.send_failed", {"file": str(path), "kind": kind, "why": str(e)})
             return {"sent": False, "path": str(path), "error": str(e)}
-        self._journal().append("report.sent", {"file": str(path), "kind": kind, "report_id": report_id})
-        return {"sent": True, "path": str(path), "report_id": report_id}
+        self._journal().append("report.sent", {"file": str(path), "kind": kind, "report_id": report_id,
+                                               "shortened": out.shortened})
+        return {"sent": True, "path": str(path), "report_id": report_id, "shortened": out.shortened}
 
     async def _stop_engage(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         summary = self.stop_control.engage()

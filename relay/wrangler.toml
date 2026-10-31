@@ -7,9 +7,10 @@ workers_dev = true
 [vars]
 GITHUB_REPO = "Json604/ferb-reports"
 
-# Per sender address: at most 2 reports a minute in each Cloudflare location (the binding allows a 10 or 60 second
-# window only). worker.mjs also keeps 5 per 10 minutes per address in each running instance. Needs Wrangler 4.36.0 or
-# later. GITHUB_TOKEN is a secret (`npx wrangler secret put GITHUB_TOKEN`), never written here.
+# Per sender address, files and issues counted apart: at most 2 a minute in each Cloudflare location (the binding
+# allows a 10 or 60 second window only). worker.mjs also keeps 5 per 10 minutes per address in each running instance.
+# Needs Wrangler 4.36.0 or later. GITHUB_TOKEN is a secret (`npx wrangler secret put GITHUB_TOKEN`; Issues and
+# Contents read and write on GITHUB_REPO only), never written here.
 [[ratelimits]]
 name = "REPORT_LIMIT"
 namespace_id = "60401"
