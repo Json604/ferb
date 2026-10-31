@@ -478,7 +478,7 @@ struct AboutSettingsPage: View {
 }
 
 /// Settings → Data (decision 8, storage decision 4): put back what FERB changed or trashed, delete a saved secret or
-/// card, and the one-time clean-up of data FERB no longer uses.
+/// card, every screenshot FERB kept (step 12e: What FERB saw), and the one-time clean-up of data FERB no longer uses.
 struct DataSettingsPage: View {
     @ObservedObject var store: FERBWindowStore
     let actions: FERBAppActions
@@ -522,6 +522,7 @@ struct DataSettingsPage: View {
                     }
                 }
             }
+            Section("What FERB saw") { SeenSection(rpc: store.rpc) }
             Section("Clean up") { CleanupSection(store: store, actions: actions, cleanup: cleanup) }
         }
         .formStyle(.grouped)

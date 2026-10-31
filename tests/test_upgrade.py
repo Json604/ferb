@@ -173,14 +173,16 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     finally:
         d.stop()
     assert got["schema"] == NEWEST
-    [upgraded] = got["upgraded"]
-    assert {c["key"] for c in upgraded["changes"]} >= {"browser.download_max_mb", "browser.task_max_tabs",
-                                                        "retention.download_days"}
+    first, second = got["upgraded"]                                  # 2026-10-09's limits, then hands decision 7
+    assert {c["key"] for c in first["changes"]} >= {"browser.download_max_mb", "browser.task_max_tabs",
+                                                     "retention.download_days"}
+    assert {"key": "browser.download_max_mb", "from": 512, "to": None} in second["changes"]
     assert got["memory"] == ["memory.cleanup", "memory.profile_seeded"]
     assert got["pending"]["summary"] == "Uses a browser and an editor."  # moved to persona.json when read
     config = Config(home)
     assert config.get("retention", "operational_days") == 90 and config.get("retention", "download_days") is None
-    assert config.get("browser", "download_max_mb") == 512 and config.get("setup", "persona_pending") is None
+    assert config.get("browser", "download_max_mb") is None and config.get("setup", "persona_pending") is None
+    assert config.get("browser", "download_task_max_gb") == 32 and config.get("browser", "download_task_max_files") == 300
     assert config.get("gates", "owner_profiles") == ["Default"]          # a key no longer read is left alone
     assert (home / "persona.json").exists()
     shown = cleanup.preview(home / "ferb.db")

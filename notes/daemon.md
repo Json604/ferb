@@ -140,6 +140,10 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
 - The crash "interrupted + auto-resume" fix is owned by notes/orchestration.md.
 
 ## Fix list
+- [x] "What FERB saw" (owner, 2026-10-31, step 12e): a button on each message in the notch opens the screenshot taken
+      when it was sent and the images its task captured, each exactly as the model got it, with time and app or site;
+      Settings → Data lists every saved screenshot of the last 7 days, newest first. FERB.app-only RPCs over the stored
+      redacted copies. (12e: see Rulings (step 12e); tests/test_what_ferb_saw.py, AppScreensTests.)
 - [x] **The live daemon must never import code from a checkout** (found 2026-10-31): the installed
       `~/Library/LaunchAgents/com.ferb.daemon.plist` has `WorkingDirectory = /Users/kartikey/Desktop/FERB` and runs
       `python -m ferb.daemon`, which puts the working directory first on `sys.path`, so the owner's running FERB loaded
@@ -438,6 +442,41 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
   and `assemble_parts`, `learning.prompt_json` and `line_safe`, `setup._voice_name`, `profile.methods_for`,
   `eval.memory.paired_results`, `supervisor._env_text`, `tls._commands`, `proxy.parse_sni`, `profiles.has_extension`,
   `recovery.mark_written` (the async one stays), and five unused imports.
+
+## Rulings (step 12e, technical: "What FERB saw")
+- The owner wants to see the screenshots FERB kept. Two RPCs, both in auth.APP_ONLY (FERB.app's own process, checked by
+  code signature; any other program as the owner gets "FERB.app only"), in ferb/daemon/areas/about.py beside the saved
+  secrets: `seen.list {request_id? | task_id?, limit?}` lists stored images, newest first, with their facts (time,
+  kind, app, site = the URL's host, page/window title, tool), and `seen.image {id}` returns one stored image's bytes.
+  The list is app-only too: its titles and sites are the owner's own screen.
+- Only the evidence store's stored copies are served: exactly the image the model got (front windows are kept after
+  F5 redaction, tool images after masking and the sanitizer, call_hooks.keep_image). Nothing is captured for this.
+  Only images (`mime image/*`: never a recording's video, never a data-only row whose image was withheld) of the
+  evidence window (`retention.evidence_days`, 7). An image of an app or site on the exclusion list *now* is never
+  listed or served (the owner may add one after it was kept): its app/bundle id, its URL's host, the redactor's
+  excluded label or an excluded origin label.
+- One message's screenshots: its front window (evidence keyed by the request id) and every image the tasks of its
+  request captured (`tasks.request_id`/`tree_id`). A task this chat didn't send: by its tree. Settings → Data: all.
+- `EvidenceStore.stored_file` is the one way the RPC reaches a file (inside the store only; the read runs off the loop).
+
+## Added UI pieces (step 12e; functional only, for the owner to polish)
+- Notch: a small "What FERB saw" text button under each of the owner's messages (and under a task this chat didn't
+  send), opening the "What FERB saw" window.
+- "What FERB saw" window (SeenViewer.swift `SeenWindowController`, hidden from screen sharing): a list of that
+  message's screenshots, newest first, each row the time, the site or app (and page title) and which capture it was;
+  clicking a row opens the image inline, as the model got it.
+- Settings → Data → "What FERB saw": the same list for every screenshot of the last 7 days, newest first, with
+  "Showing the newest N of M" when long, and Refresh.
+- The app guide (`AppGuide.howtos`) names both places.
+
+## Live checks for step 13 (step 12e: "What FERB saw")
+- Send a message with a browser window in front, then one that makes a task take a screenshot: the notch's "What FERB
+  saw" under each opens its window; the first lists your front window (time, site, page title) and opening it shows
+  the redacted picture (a password field painted over); the second also lists the task's screenshot.
+- Settings → Data → What FERB saw lists both, newest first; nothing older than 7 days.
+- Add the app in one picture to Settings → Privacy → excluded apps: it disappears from both lists.
+- `ferb trace`/the journal show no new capture from opening the viewer; calling `seen.list` from a terminal
+  (`ferb` developer toolbox or a socket client) gets "FERB.app only".
 
 ## Live checks for step 13 (step 12b)
 - Moving from the hand-edited LaunchAgent to SMAppService: build FERB.app (`scripts/build-app.sh`), install it in

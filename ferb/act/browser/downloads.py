@@ -3,13 +3,21 @@
 The extension catches a download only in a tab FERB drives for a task and holds it there; nothing reaches the browser's
 own download flow, so no Save dialog. This side takes it only while that tab is a live task tab: otherwise the response
 goes back to the browser untouched (the owner's own download, never cancelled or read). It pulls the bytes in parts
-(`download_part`), one transfer per tab, within a per-file, per-task and time budget; hashes what it received; writes
-`~/.ferb/workspace/downloads/<id>-<safe name>` (never elsewhere) and records facts, never content. The file is FERB's
-working copy, outside content (MP2: `external:download`, the folder is always an untrusted fs root). It stays until the
-owner deletes it; only when the folder passes `browser.download_total_mb` do the oldest move to the Trash (owner,
-2026-10-09: no time-based clearing). A download that would leave less than `browser.download_min_free_gb` free on the
-disk is refused: by its declared size before any byte moves, and before each part is written while it streams. A
-download the extension couldn't intercept, or one it could not take, is a fact for the worker."""
+(`download_part`), one transfer per tab, within the task tree's budget (hands decision 7, owner 2026-10-31: no size cap
+per file; 300 files and 32 GB per request), failed only when it stops moving (no bytes for STALL_S), never for how long
+it takes; hashes what it received; writes `~/.ferb/workspace/downloads/<id>-<safe name>` (never elsewhere) and records
+facts, never content. The file is FERB's working copy, outside content (MP2: `external:download`, the folder is always
+an untrusted fs root). It stays until the owner deletes it; only when the folder passes `browser.download_total_gb` do
+the oldest move to the Trash (owner, 2026-10-09: no time-based clearing; the Trash frees no space until it is emptied, a
+known limitation). A download that would leave less than `browser.download_min_free_gb` free on the disk is refused: by
+its declared size before any byte moves, and before each part is written while it streams. A download the extension
+couldn't intercept, or one it could not take, is a fact for the worker.
+
+The task tree's byte budget is one counter shared with FERB's shell (one path): what a tree's shell commands received
+through the egress proxy (`shell_received`, kept in `shell_downloads` so a restart doesn't reset it) counts beside the
+files its tabs took, and `shell_stop` says when a command receiving bytes must stop (past the budget, or the disk under
+the floor). Shell downloads have no file count (a package manager fetches many parts per install). All sizes are
+decimal (1 GB = 1000^3 bytes), as Finder and the owner count them."""
 
 import asyncio
 import base64
@@ -18,6 +26,7 @@ import os
 import secrets
 import shutil
 import stat
+import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
@@ -30,21 +39,22 @@ from ferb.core import origin
 ORIGIN = origin.external("download")
 FOLDER = "downloads"                    # under FERB's workspace
 NAME_MAX_BYTES = 150                    # the safe name; the id prefix adds 16 (APFS allows 255 bytes)
-PART_TIMEOUT_S = 30.0
-TRANSFER_DEADLINE_S = 600.0             # a slow drip under the per-part timeout still ends
+# A transfer fails only when it stops moving: no byte for this long (a part that doesn't answer within it, or parts that
+# keep coming back empty). Never a total time (ruling, step 12e: the old 10-minute ceiling capped a download at a few GB).
+STALL_S = 60.0
 TAB_WAIT_S = 20.0                       # a second download in a tab waits this long for the first (the extension's
                                         # hold lasts 30 s), then is refused
 SETTLE_S = 60.0                         # a navigation/open waits this long for a download its tab started
-# [browser] limits, the owner's decision of 2026-10-09 (F4 live fixes): one download, per task tree, FERB's folder, and
-# the free disk a download must leave. No time-based clearing (retention.download_days is gone).
-DEFAULTS = {"download_max_mb": 512, "download_task_max_files": 50, "download_task_max_mb": 4096,
-            "download_total_mb": 20480, "download_min_free_gb": 10}
+# [browser] limits: per task tree (hands decision 7, owner 2026-10-31: 300 files and 32 GB, replacing 2026-10-09's 50
+# files and 4 GB; no per-file cap, replacing 512 MB), FERB's folder (20 GB, 2026-10-09) and the free disk a download must
+# leave (10 GB, 2026-10-09). No time-based clearing (retention.download_days is gone). Decimal GB throughout.
+DEFAULTS = {"download_task_max_files": 300, "download_task_max_gb": 32, "download_total_gb": 20,
+            "download_min_free_gb": 10}
 OUTSIDE = "skipped: not in FERB's downloads folder, so retention leaves it where it is"
-DROPPED = ("the page started more saves at once than FERB holds (20 in a tab, 100 in all): this one, and any others "
-           "it started within the minute, were dropped, neither taken nor given to the browser; not taken")
+DROPPED = ("the page started more saves at once than FERB holds (20 in a tab, 100 in all): {n}, neither taken nor "
+           "given to the browser; not taken")
 _DROP = {"Cc", "Cf", "Cs", "Zl", "Zp"}  # controls, format (bidi overrides, zero-width), surrogates, line separators
-_MB = 1024 * 1024
-_GB = 1000 ** 3                         # decimal GB, as Finder and macOS show it
+_GB = 1000 ** 3                         # decimal GB, as Finder and macOS show it (every limit here)
 
 Publish = Callable[[str, dict[str, Any]], None]
 Setting = Callable[[str, str, Any], Any]
@@ -59,7 +69,6 @@ class TaskTab:
 
 
 class Limits(NamedTuple):
-    file_bytes: int
     task_files: int
     task_bytes: int
     total_bytes: int
@@ -103,11 +112,9 @@ def untrusted_roots(configured: Iterable[str], workspace: Path) -> tuple[str, ..
     return tuple(out)
 
 
-def _mb(n: int) -> str:
-    return f"{n / _MB:g} MB"
-
-
 def _gb(n: int) -> str:
+    if 0 < n < _GB // 10:                               # under 0.1 GB: in MB, so a small budget never reads "0 GB"
+        return f"{n / 1000 ** 2:.2f}".rstrip("0").rstrip(".") + " MB"
     return f"{n / _GB:.2f}".rstrip("0").rstrip(".") + " GB"
 
 
@@ -138,13 +145,16 @@ class Downloads:
         self._running: dict[str, int] = {}                  # tree -> transfers still running
         self._unreported: dict[tuple[str, int], list[dict[str, Any]]] = {}
         self._tab_task: dict[tuple[str, int], str] = {}     # tab -> the task whose downloads it holds (pruning)
+        self._shell: dict[str, int] = {}                    # tree -> bytes its shell commands received (cache of the
+        #                                                     shell_downloads row; the row survives a restart)
         self.free_bytes: Callable[[], int] = self._disk_free   # tests replace it
+        self.monotonic: Callable[[], float] = time.monotonic   # the stall clock (tests replace it)
 
     def limits(self) -> Limits:
+        """The owner's limits; an old config's per-file key (`download_max_mb`) or MB keys are not read."""
         b = {k: _number(self.setting("browser", k, v), v) for k, v in DEFAULTS.items()}
-        return Limits(int(b["download_max_mb"] * _MB), int(b["download_task_max_files"]),
-                      int(b["download_task_max_mb"] * _MB), int(b["download_total_mb"] * _MB),
-                      int(b["download_min_free_gb"] * _GB))
+        return Limits(int(b["download_task_max_files"]), int(b["download_task_max_gb"] * _GB),
+                      int(b["download_total_gb"] * _GB), int(b["download_min_free_gb"] * _GB))
 
     def _disk_free(self) -> int:
         """Free bytes on the disk that holds FERB's downloads folder (its nearest existing folder)."""
@@ -196,7 +206,9 @@ class Downloads:
                                                "reason": "not a live task tab: left to the browser"})
             return
         if ev.uncaptured and ev.detail == "dropped":    # over the extension's hold caps: neither FERB's nor the browser's
-            self._insert(br, owner, ev, "refused", reason=DROPPED, final=True)
+            n = int(getattr(ev, "count", None) or 1)
+            self._insert(br, owner, ev, "refused", final=True,
+                         reason=DROPPED.format(n="this save was dropped" if n == 1 else f"{n} saves were dropped"))
             return
         if ev.uncaptured:
             self._insert(br, owner, ev, "not_taken", reason=_not_taken(ev.detail), final=True)
@@ -245,17 +257,14 @@ class Downloads:
             lim = self.limits()
             tree = self.task_root(owner.task)
             files, taken = self._tree_usage(tree)
-            used = taken + self._inflight.get(tree, 0)
+            used = taken + self._inflight.get(tree, 0) + self._shell_bytes(tree)
             if files >= lim.task_files:
                 raise _Refused(f"this task already took {files} downloads, its limit "
                                "(browser.download_task_max_files, per request); not taken", size)
-            if size is not None and size > lim.file_bytes:
-                raise _Refused(f"larger than the {_mb(lim.file_bytes)} limit (browser.download_max_mb): {size} bytes; "
-                               "not taken", size)
             if size is not None and used + size > lim.task_bytes:
-                raise _Refused(f"would pass this task's {_mb(lim.task_bytes)} download budget "
-                               f"(browser.download_task_max_mb, per request; {used} bytes taken or arriving): {size} "
-                               "bytes; not taken", size)
+                raise _Refused(f"would pass this task's {_gb(lim.task_bytes)} download budget "
+                               f"(browser.download_task_max_gb, per request, browser and shell together; {used} bytes "
+                               f"taken or arriving): {size} bytes; not taken", size)
             what = f"this download is {size} bytes" if size is not None else "its size isn't declared; nothing was read"
             free = self._free(what, size)
             if free - (size or 0) < lim.min_free_bytes:
@@ -272,8 +281,7 @@ class Downloads:
     async def _take(self, br: Any, owner: TaskTab, ev: Any, lim: Limits, tree: str) -> None:
         name = safe_name(self.redact_text(ev.name or ""))
         fid = ""
-        loop = asyncio.get_running_loop()
-        started, received, digest = loop.time(), 0, hashlib.sha256()
+        moved_at, received, digest = self.monotonic(), 0, hashlib.sha256()
         folder = fd = -1
         moved = False
         self._running[tree] = self._running.get(tree, 0) + 1     # the tree's entries live while any transfer runs
@@ -284,25 +292,32 @@ class Downloads:
             folder = self._open_folder()
             fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
             while True:
-                left = TRANSFER_DEADLINE_S - (loop.time() - started)
+                left = STALL_S - (self.monotonic() - moved_at)
                 if left <= 0:
-                    raise _Refused(f"still arriving after {TRANSFER_DEADLINE_S / 60:g} minutes ({received} bytes); "
-                                   "not taken", received)
-                part = await br.call("download_part", {"download_id": ev.download_id, "offset": received},
-                                     timeout=min(PART_TIMEOUT_S, max(left, 1.0)))
+                    raise _Refused(f"stalled: no bytes arrived for {STALL_S:g} seconds (stopped after {received} "
+                                   "bytes); not taken", received)
+                asked = time.monotonic()
+                try:
+                    part = await br.call("download_part", {"download_id": ev.download_id, "offset": received},
+                                         timeout=max(left, 1.0))
+                except Exception:
+                    if time.monotonic() - asked < max(left, 1.0):
+                        raise                            # it broke (not a wait that ran out): "didn't finish"
+                    raise _Refused(f"stalled: no bytes arrived for {STALL_S:g} seconds (stopped after {received} "
+                                   "bytes); not taken", received) from None
                 if not isinstance(part, dict) or part.get("offset") != received:
                     raise ValueError("the browser sent download parts out of order")
                 data = base64.b64decode(str(part.get("data") or ""), validate=True)
+                if data:
+                    moved_at = self.monotonic()          # progress: the stall clock starts again
                 received += len(data)
                 self._inflight[tree] += len(data)
-                if received > lim.file_bytes:
-                    raise _Refused(f"larger than the {_mb(lim.file_bytes)} limit (browser.download_max_mb): stopped "
-                                   f"after {received} bytes; not taken", received)
-                # what the tree took (other transfers' bytes committed since this one started included) + what arrives
-                if self._tree_usage(tree)[1] + self._inflight[tree] > lim.task_bytes:
-                    raise _Refused(f"passed this task's {_mb(lim.task_bytes)} download budget "
-                                   f"(browser.download_task_max_mb, per request) after {received} bytes; not taken",
-                                   received)
+                # what the tree took (other transfers' bytes committed since this one started included), what arrives,
+                # and what its shell commands received
+                if self._used(tree) > lim.task_bytes:
+                    raise _Refused(f"passed this task's {_gb(lim.task_bytes)} download budget "
+                                   "(browser.download_task_max_gb, per request, browser and shell together) after "
+                                   f"{received} bytes; not taken", received)
                 written = received - len(data)
                 free = self._free(f"stopped after {written} bytes", written)
                 if free - len(data) < lim.min_free_bytes:
@@ -376,6 +391,54 @@ class Downloads:
             "WHERE (task_id = ? OR (task_id >= ? || '.' AND task_id < ? || '/')) AND state IN ('taken', 'in_progress')",
             (tree, tree, tree)).fetchone()
         return int(r["n"]), int(r["b"])
+
+    def _used(self, tree: str) -> int:
+        """Bytes counted against the tree's budget: files its tabs took, transfers still arriving, and what its shell
+        commands received through the egress proxy."""
+        return self._tree_usage(tree)[1] + self._inflight.get(tree, 0) + self._shell_bytes(tree)
+
+    # ---------- the shell's downloads: the same per-tree budget and free-disk floor (one path) ----------
+
+    def _shell_bytes(self, tree: str) -> int:
+        if tree not in self._shell:
+            r = self.db.conn.execute("SELECT bytes FROM shell_downloads WHERE tree_id = ?", (tree,)).fetchone()
+            self._shell[tree] = int(r["bytes"]) if r is not None else 0
+        return self._shell[tree]
+
+    def shell_received(self, task: str, n: int) -> None:
+        """A shell command of this task received `n` more bytes through FERB's egress proxy: counted against its tree's
+        budget, beside its browser downloads (kept, so a daemon restart doesn't start the tree afresh)."""
+        if n <= 0:
+            return
+        tree = self.task_root(task)
+        total = self._shell_bytes(tree) + int(n)
+        self._shell[tree] = total
+        self.db.conn.execute(
+            "INSERT INTO shell_downloads (tree_id, bytes, at) VALUES (?, ?, ?) "
+            "ON CONFLICT(tree_id) DO UPDATE SET bytes = excluded.bytes, at = excluded.at",
+            (tree, total, self.now().isoformat()))
+
+    def shell_stop(self, task: str) -> str | None:
+        """Why a shell command of this task that is receiving bytes must stop now, as a fact for the worker; None: it
+        may go on. Past the tree's byte budget (browser and shell together), or the disk under the free-disk floor.
+        A floor that can't be checked (free space unreadable) stops it too, as for a browser download."""
+        lim = self.limits()
+        tree = self.task_root(task)
+        used = self._used(tree)
+        if used > lim.task_bytes:
+            return (f"FERB stopped this command: this task has received {_gb(used)} in downloads, past its "
+                    f"{_gb(lim.task_bytes)} budget (browser.download_task_max_gb, per request, browser and shell "
+                    "together). Don't start another download in this task; say what was and wasn't fetched.")
+        try:
+            free = self.free_bytes()
+        except OSError as e:
+            return self.redact_text(f"FERB stopped this command: it couldn't read the free disk space to check "
+                                    f"browser.download_min_free_gb ({e}) while the command was downloading.")
+        if free < lim.min_free_bytes:
+            return (f"FERB stopped this command: only {_gb(free)} free on the disk now; FERB keeps at least "
+                    f"{_gb(lim.min_free_bytes)} free (browser.download_min_free_gb) and the command was downloading. "
+                    "Tell the owner the disk is nearly full; don't retry the download.")
+        return None
 
     def forget_task(self, task: str) -> None:
         """Task end: its tabs' locks (when idle) and unreported facts go (the records stay)."""
@@ -451,7 +514,7 @@ class Downloads:
     # ---------- the folder's total: the oldest working copies go to the Trash, never unlinked ----------
 
     def purge(self) -> int:
-        """While the folder is over browser.download_total_mb, the oldest files move to the Trash (owner, 2026-10-09: no
+        """While the folder is over browser.download_total_gb, the oldest files move to the Trash (owner, 2026-10-09: no
         time-based clearing; a file stays until the owner deletes it). Their rows stay, with the path cleared and where
         the Trash put them. A file already gone is recorded so; one that won't move is skipped and recorded (the next
         pass tries again) and stops counting toward the total, so it never makes a newer file go in its place. A row

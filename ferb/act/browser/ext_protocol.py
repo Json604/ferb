@@ -92,7 +92,19 @@ Protocol 19 (step 14b, extension 0.17.0, the minimum; hands decision 5, "sound i
 - A `sound` tab event: a tab's sound started or stopped, or it was muted or unmuted (`changed`: audible / muted), with
   its `audible`, `muted` and whether it is FERB's (`ferb`, as `list_tabs` says it); no URL or title. The daemon records
   one in a tab that isn't FERB's, near a FERB call, as a disturbance fact.
-An older extension would open loud tabs and send no sound events, so the minimum moves with the protocol."""
+An older extension would open loud tabs and send no sound events, so the minimum moves with the protocol.
+
+Protocol 20 (step 12e, extension 0.18.0, the minimum; hands decision 7, download limits, and the bugs the research
+found):
+- `download_part` reads parts of DOWNLOAD_PART = 512 KiB (was 72,000 bytes): its reply (about 700,000 base64
+  characters) goes whole, never split into result parts. The host relays at most 1 MiB a message (MAX_MESSAGE; Chrome
+  itself takes up to 64 MiB from the extension to the host, 1 MB the other way, which download data never travels).
+- `popup_refused {tab_id}`: a popup the daemon won't make the task's (past browser.task_max_tabs) is closed by the
+  extension while it is still blank (the page's hook never loads its URL), so it never becomes an ordinary tab whose
+  downloads skip every limit. A link past the cap is simply not opened (no `open_plain`).
+- A page's saves dropped past the hold caps are all reported: the first at once, then those that follow within the
+  minute in one event, each `download` event with detail "dropped" carrying `count`.
+An older extension would hand a capped popup to the browser and report drops once a minute at most."""
 
 import base64
 import hashlib
@@ -102,8 +114,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 19
-MIN_EXTENSION_VERSION = "0.17.0"
+PROTOCOL_VERSION = 20
+MIN_EXTENSION_VERSION = "0.18.0"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
@@ -112,7 +124,7 @@ Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
-             "adopt_tab", "mute_tab"]
+             "adopt_tab", "mute_tab", "popup_refused"]
 # Commands that never change the page (protocol.js READ_OPS): one that fails or times out is a known failure.
 READS: frozenset[str] = frozenset({"list_tabs", "snapshot", "wait", "screenshot", "screenshot_part", "record_frame",
                                    "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping",
@@ -204,6 +216,7 @@ class Event(BaseModel):
     source: str | None = None                  # download: attachment | type | link | page
     uncaptured: bool | None = None             # download: nothing is held (the browser started it itself, or detail
                                                # "dropped": a page's save past the hold caps, neither taken nor given)
+    count: int | None = Field(default=None, ge=1)  # download "dropped" (protocol 20): how many saves this event reports
     url: str | None = Field(default=None, max_length=8192)         # open: the link a task tab asked for; popup: masked
     opener_tab_id: int | None = None           # popup: the task tab that opened it
     window_id: int | None = None               # open: the window of the task tab (its new tab opens there, inactive)

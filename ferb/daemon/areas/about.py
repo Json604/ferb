@@ -1,6 +1,8 @@
 """Own the daemon's side of FERB's self-description (decision 6: `about.get`, `about.guide`, the always-on summary, the
-`about.read` tool's document) and of FERB.app's Settings → Data saved secrets (decision 8: `secrets.saved`,
-`secrets.delete`). Must not change a setting, show a secret's value, or let anything but FERB.app delete one."""
+`about.read` tool's document), of FERB.app's Settings → Data saved secrets (decision 8: `secrets.saved`,
+`secrets.delete`) and of "What FERB saw" (step 12e: `seen.list`, `seen.image`, the stored redacted screenshots). Must
+not change a setting, show a secret's value, let anything but FERB.app delete one or see a screenshot, take a capture
+anew, or show an image of an app or site on the owner's exclusion list."""
 
 import asyncio
 import sqlite3
@@ -129,6 +131,72 @@ class About:
         except Refused as e:
             raise FerbError(str(e)) from None
 
+    # ---------- What FERB saw (step 12e): the stored redacted screenshots, FERB.app only ----------
+
+    def _seen_rows(self, where: str, args: tuple[Any, ...], limit: int) -> tuple[list[dict[str, Any]], int]:
+        """Stored images (never a video, never a data-only row) of the evidence window, newest first, that the owner's
+        exclusion list allows today: (rows, how many in all)."""
+        from ferb.store import retention
+        cutoff = (self.clock.now() - timedelta(days=retention.days(
+            self.config.get("retention", "evidence_days", 7)))).isoformat()
+        rows = self.db.conn.execute(
+            "SELECT * FROM evidence WHERE path IS NOT NULL AND mime LIKE 'image/%' AND captured_at >= ? "
+            f"AND ({where}) ORDER BY captured_at DESC, rowid DESC", (cutoff, *args)).fetchall()
+        shown = [r for r in (_seen_item(row) for row in rows) if not self._seen_excluded(r)]
+        return shown[:limit], len(shown)
+
+    def _seen_excluded(self, item: dict[str, Any]) -> bool:
+        """An image of an app or site the owner excludes (now: the list may have changed since it was kept)."""
+        from ferb.sanitize.redact import EXCLUDED
+        ex = self._exclusions()
+        url = item.get("url") or ""
+        return (ex.app(item.get("bundle_id"), item.get("app")) or ex.url(url) or url == EXCLUDED
+                or "excluded" in str(item.get("origin") or ""))
+
+    async def _seen_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`seen.list {request_id? | task_id?, limit?}` (FERB.app only, auth.APP_ONLY): the redacted screenshots FERB
+        kept, newest first, exactly as the model got them: of one message (`request_id`: the owner's front window when
+        it was sent, and every image its tasks captured), of one task tree (`task_id`), or all of the evidence window
+        (retention.evidence_days, 7). Facts only (time, kind, app, site, title); the bytes come from `seen.image`."""
+        if self.db is None:
+            raise FerbError("daemon not started")
+        limit = max(1, min(int(params.get("limit") or 300), 2000))
+        request, task = str(params.get("request_id") or ""), str(params.get("task_id") or "")
+        if request:
+            where = ("task_id = ? OR task_id IN (SELECT id FROM tasks WHERE tree_id IN "
+                     "(SELECT tree_id FROM tasks WHERE request_id = ?) OR request_id = ?)")
+            args: tuple[Any, ...] = (request, request, request)
+        elif task:
+            tree = self.tasks.tree_of(task) or task.split(".", 1)[0]
+            where = ("task_id = ? OR (task_id >= ? || '.' AND task_id < ? || '/') OR "
+                     "task_id IN (SELECT id FROM tasks WHERE tree_id = ?)")
+            args = (tree, tree, tree, tree)
+        else:
+            where, args = "1", ()
+        items, total = self._seen_rows(where, args, limit)
+        return {"captures": items, "total": total,
+                "days": int(self.config.get("retention", "evidence_days", 7) or 7)}
+
+    async def _seen_image(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`seen.image {id}` (FERB.app only, auth.APP_ONLY): one stored redacted screenshot's bytes (base64), as the
+        model got it. Only a stored image of the evidence window; never a capture anew; never an excluded app's."""
+        import base64
+        if self.db is None or self.evidence is None:
+            raise FerbError("daemon not started")
+        eid = str(params.get("id") or "")
+        items, _ = self._seen_rows("id = ?", (eid,), 1)
+        if not items:
+            raise FerbError("that screenshot isn't kept any more, or it shows something you exclude")
+        row = self.db.conn.execute("SELECT path, mime FROM evidence WHERE id = ?", (eid,)).fetchone()
+        path = self.evidence.stored_file(row["path"]) if row is not None else None   # only inside the store
+        try:
+            image = await asyncio.to_thread(path.read_bytes) if path is not None else None
+        except OSError:
+            image = None
+        if image is None:
+            raise FerbError("that screenshot isn't kept any more")
+        return {**items[0], "mime": row["mime"] or "image/jpeg", "image": base64.b64encode(image).decode("ascii")}
+
     async def _secrets_delete(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """The owner's Delete on one saved entry, after FERB.app asked them once (auth.APP_ONLY; permanent): its
         Keychain item and its name go. Journaled by place and name only."""
@@ -141,3 +209,26 @@ class About:
             raise FerbError(str(e)) from None
         self._journal().append("secret.deleted", {"place": place, "name": name}, origin="owner")
         return dict(out)
+
+
+def _seen_item(row: Any) -> dict[str, Any]:
+    """One stored screenshot as "What FERB saw" lists it: when, which capture, and the app or site (redacted facts)."""
+    import json
+    from urllib.parse import urlsplit
+    try:
+        data = json.loads(row["data_json"]) if row["data_json"] else {}
+    except ValueError:
+        data = {}
+    data = data if isinstance(data, dict) else {}
+    url = str(data.get("url") or "")
+    site = ""
+    if url.startswith(("http://", "https://")):
+        try:
+            site = urlsplit(url).hostname or ""
+        except ValueError:
+            site = ""
+    title = data.get("tab_title") or data.get("title") or data.get("window") or ""
+    return {"id": row["id"], "at": row["captured_at"], "kind": row["kind"], "task_id": row["task_id"],
+            "app": str(data.get("app") or ""), "bundle_id": str(data.get("bundle_id") or ""), "site": site, "url": url,
+            "title": str(title) if isinstance(title, str) else "", "tool": str(data.get("tool") or ""),
+            "origin": row["origin"]}

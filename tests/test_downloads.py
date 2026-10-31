@@ -133,25 +133,29 @@ def test_safe_name_keeps_ordinary_names_and_their_extension() -> None:
     assert safe_name("") == safe_name("...") == safe_name("\x00") == "download"
 
 
-def test_a_download_over_the_size_ceiling_is_refused_before_any_byte_moves(bd: Any) -> None:
+def test_a_large_download_is_never_refused_for_its_size(bd: Any) -> None:
+    """Hands decision 7 (owner, 2026-10-31): no size cap per file. A download announcing 20 GB is taken (the old cap was
+    512 MB), and an old config's per-file key is never read."""
     d, launched = bd
-    d.daemon.config.set("browser", "download_max_mb", 1)
+    d.daemon.config.set("browser", "download_max_mb", 1)              # an old config's key: ignored
+    d.daemon.downloads.free_bytes = lambda: 10 ** 15
     ext, g, tab, chrome_id = _task_tab(d, launched)
-    big = os.urandom(2 * 1024 * 1024)
-    rec = _deliver(d, ext, chrome_id, name="big.iso", data=big, source_url="https://x.example/big.iso")
-    assert rec["state"] == "refused" and rec["size"] == len(big) and "path" not in rec
-    assert "1 MB" in rec["reason"] and "browser.download_max_mb" in rec["reason"]
-    assert ext.download_parts and all(p.get("abort") for p in ext.download_parts)   # cancelled, nothing read
-    assert _kept(d) == []
+    data = os.urandom(3 * DOWNLOAD_PART)
+    declared = _deliver(d, ext, chrome_id, name="big.iso", data=data, source_url="https://x.example/big.iso",
+                        size=20 * 1000 ** 3)
+    streamed = _deliver(d, ext, chrome_id, name="stream.bin", data=os.urandom(2 * 1024 * 1024 + 7),
+                        source_url="https://x.example/s", size=None)
+    assert declared["state"] == streamed["state"] == "taken"
+    assert Path(declared["path"]).read_bytes() == data and streamed["bytes"] == 2 * 1024 * 1024 + 7
 
 
 def test_an_undeclared_size_is_checked_on_what_arrives_and_the_partial_file_is_removed(bd: Any) -> None:
     d, launched = bd
-    d.daemon.config.set("browser", "download_max_mb", 1)
+    d.daemon.config.set("browser", "download_task_max_gb", 0.001)       # 1,000,000 bytes (decimal)
     ext, g, tab, chrome_id = _task_tab(d, launched)
-    big = os.urandom(1024 * 1024 + 2 * DOWNLOAD_PART)
+    big = os.urandom(1_000_000 + 2 * DOWNLOAD_PART)
     rec = _deliver(d, ext, chrome_id, name="stream.bin", data=big, source_url="https://x.example/s", size=None)
-    assert rec["state"] == "refused" and "browser.download_max_mb" in rec["reason"]
+    assert rec["state"] == "refused" and "browser.download_task_max_gb" in rec["reason"]
     assert ext.download_parts[-1].get("abort") is True                  # the extension let the response go
     assert _kept(d) == []                                               # the partial file is gone
 
@@ -292,9 +296,9 @@ def test_protocol_and_extension_versions_move_together() -> None:
     manifest = json.loads((EXT / "manifest.json").read_text())
     js = subprocess.run([_node(), "-e", f"console.log(require({json.dumps(str(EXT / 'protocol.js'))}).FERB_PROTOCOL)"],
                         capture_output=True, text=True, timeout=20).stdout.strip()
-    # Protocol 19 (step 14b: muted FERB tabs, sound events) moves with the minimum and the shipped bundle at 0.17.0;
-    # protocol 18's tabGroups permission stays
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (19, 19, "0.17.0", "0.17.0")
+    # Protocol 20 (step 12e: 512 KiB download parts, popup_refused, every dropped save reported) moves with the minimum
+    # and the shipped bundle at 0.18.0; protocol 18's tabGroups permission stays
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (20, 20, "0.18.0", "0.18.0")
     assert "tabGroups" in manifest["permissions"]
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 
@@ -388,25 +392,60 @@ def test_a_task_can_take_only_so_many_downloads(bd: Any) -> None:
 
 def test_a_task_has_a_byte_budget_checked_before_and_while_bytes_arrive(bd: Any) -> None:
     d, launched = bd
-    d.daemon.config.set("browser", "download_task_max_mb", 1)
+    d.daemon.config.set("browser", "download_task_max_gb", 0.001)       # 1,000,000 bytes (decimal)
     ext, g, tab, chrome_id = _task_tab(d, launched)
     first = _deliver(d, ext, chrome_id, name="a.bin", data=os.urandom(700_000), source_url="https://x.example/a")
     declared = _deliver(d, ext, chrome_id, name="b.bin", data=os.urandom(400_000), source_url="https://x.example/b")
     streamed = _deliver(d, ext, chrome_id, name="c.bin", data=os.urandom(400_000), source_url="https://x.example/c",
                         size=None)
     assert first["state"] == "taken" and declared["state"] == streamed["state"] == "refused"
-    assert all("browser.download_task_max_mb" in f["reason"] for f in (declared, streamed))
+    assert all("browser.download_task_max_gb" in f["reason"] for f in (declared, streamed))
     assert len(_kept(d)) == 1                                         # the partial one is gone
 
 
-def test_a_transfer_that_drips_past_its_deadline_ends(bd: Any, monkeypatch: Any) -> None:
-    import ferb.act.browser.downloads as downloads
-    monkeypatch.setattr(downloads, "TRANSFER_DEADLINE_S", 0.3)
+def _fake_clock(d: RunningDaemon, ext: FakeExtension, step_s: float) -> list[float]:
+    """The downloads' stall clock, moved on by `step_s` before each part is read (so an hour passes in a test)."""
+    now = [0.0]
+    d.daemon.downloads.monotonic = lambda: now[0]
+
+    def tick() -> None:
+        now[0] += step_s
+    ext.download_part_hook = tick
+    return now
+
+
+def test_what_the_tasks_shell_received_counts_against_its_browser_downloads(bd: Any) -> None:
+    """Hands decision 7: one budget per task tree for the browser and the shell (32 GB by default)."""
+    d, launched = bd
+    d.daemon.config.set("browser", "download_task_max_gb", 0.001)       # 1,000,000 bytes
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+
+    async def shell() -> None:
+        d.daemon.downloads.shell_received(g.task_id, 900_000)
+    d.run(shell())
+    rec = _deliver(d, ext, chrome_id, name="a.bin", data=os.urandom(200_000), source_url="https://x.example/a")
+    assert rec["state"] == "refused" and "browser and shell together" in rec["reason"]
+
+
+def test_a_slow_download_that_keeps_moving_is_never_cut_for_time(bd: Any) -> None:
+    """Ruling (step 12e): no total time limit (the old one was 10 minutes). Parts 50 s apart, under the 60 s stall
+    window, for more than 10 minutes in all: taken."""
     d, launched = bd
     ext, g, tab, chrome_id = _task_tab(d, launched)
-    ext.download_part_delay = 0.2
-    rec = _deliver(d, ext, chrome_id, name="drip.bin", data=os.urandom(5 * DOWNLOAD_PART), source_url="https://x/d")
-    assert rec["state"] == "refused" and "minutes" in rec["reason"] and _kept(d) == []
+    now = _fake_clock(d, ext, 50.0)
+    data = os.urandom(14 * DOWNLOAD_PART)
+    rec = _deliver(d, ext, chrome_id, name="slow.bin", data=data, source_url="https://x/slow")
+    assert now[0] > 600 and rec["state"] == "taken" and Path(rec["path"]).read_bytes() == data
+
+
+def test_a_download_that_stops_moving_is_failed_as_stalled(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    _fake_clock(d, ext, 25.0)
+    ext.download_empty_parts = 10                                     # parts keep coming back with nothing in them
+    rec = _deliver(d, ext, chrome_id, name="stuck.bin", data=os.urandom(2 * DOWNLOAD_PART), source_url="https://x/s")
+    assert rec["state"] == "refused" and "stalled" in rec["reason"] and _kept(d) == []
+    assert ext.download_parts[-1].get("abort") is True
 
 
 def test_a_running_transfer_shows_as_in_progress(bd: Any) -> None:
@@ -525,7 +564,7 @@ def test_downloads_stay_until_the_owner_deletes_them_however_old(bd: Any, monkey
 def test_the_folder_keeps_to_its_total_budget_oldest_first(bd: Any, monkeypatch: Any) -> None:
     d, launched = bd
     trash = _fake_trash(monkeypatch, d.daemon.home)
-    d.daemon.config.set("browser", "download_total_mb", 1)
+    d.daemon.config.set("browser", "download_total_gb", 0.001)
     ext, g, tab, chrome_id = _task_tab(d, launched)
     names = []
     for i in range(3):
@@ -562,7 +601,7 @@ def _second_tab(d: RunningDaemon, ext: FakeExtension, g: Any, path: str = "/othe
 def test_two_concurrent_transfers_in_one_task_share_its_budget_without_breaking(bd: Any) -> None:
     """Regression (round 2, A): the first transfer to finish dropped the task's running count under the second."""
     d, launched = bd
-    d.daemon.config.set("browser", "download_task_max_mb", 0.8)
+    d.daemon.config.set("browser", "download_task_max_gb", 0.0008)      # 800,000 bytes
     ext, g, tab, chrome_id = _task_tab(d, launched)
     tab2, chrome2 = _second_tab(d, ext, g)
     ext.download_part_delay = 0.05
@@ -570,7 +609,7 @@ def test_two_concurrent_transfers_in_one_task_share_its_budget_without_breaking(
     ext.start_download(chrome2, "b.bin", os.urandom(450_000), "https://x.example/b", size=None)
     rows = sorted([_wait_record(d, 1), _wait_record(d, 2)], key=lambda r: r["state"])
     assert [r["state"] for r in rows] == ["refused", "taken"]          # together they pass the budget: one is refused
-    assert "browser.download_task_max_mb" in rows[0]["reason"]
+    assert "browser.download_task_max_gb" in rows[0]["reason"]
     assert len(_kept(d)) == 1
     assert d.daemon.downloads._inflight == {} and d.daemon.downloads._running == {}
 
@@ -586,20 +625,29 @@ def test_the_budget_is_per_task_tree_not_per_step(bd: Any) -> None:
     assert first["state"] == "taken" and second["state"] == "refused" and "per request" in second["reason"]
 
 
-def test_tabs_a_task_opens_from_its_pages_are_capped(bd: Any) -> None:
+def test_the_tab_cap_counts_every_open_ferb_tab_and_refuses_past_it(bd: Any) -> None:
+    """Ruling (step 12e): the cap counts every tab FERB opened for the task that is still open (the worker's, links',
+    popups'), frees a place when one closes, and past it refuses with a fact: no link is handed to the browser as an
+    ordinary tab (its downloads would skip every limit) and a popup is closed while still blank."""
     d, launched = bd
-    d.daemon.config.set("browser", "task_max_tabs", 1)
-    ext, g, tab, chrome_id = _task_tab(d, launched)
+    d.daemon.config.set("browser", "task_max_tabs", 2)
+    ext, g, tab, chrome_id = _task_tab(d, launched)                   # the worker's own tab counts: 1 of 2
     ext.link_to_new_tab(chrome_id, f"{SITE}/first")
-    ext.wait_for(lambda: f"{SITE}/first" in ext.tabs.values())
+    ext.wait_for(lambda: f"{SITE}/first" in ext.tabs.values())         # 2 of 2
+    refused = call(d, g, "browser.open", url=f"{SITE}/third")
+    assert refused["is_error"] and "browser.task_max_tabs" in json.dumps(refused["content"])
     ext.link_to_new_tab(chrome_id, f"{SITE}/second")
-    ext.wait_for(lambda: ext.plain_opens)                              # past the cap: an ordinary browser tab
-    assert ext.plain_opens[0]["url"] == f"{SITE}/second" and ext.plain_opens[0]["active"] is False
     pop = ext.popup(chrome_id, f"{SITE}/popup")
-    ext.wait_for(lambda: pop in ext.disarmed)                         # adopted popups count too
+    ext.wait_for(lambda: pop in ext.popups_refused)                    # closed blank, never the browser's
+    time.sleep(0.3)
+    assert ext.plain_opens == [] and f"{SITE}/second" not in ext.tabs.values()
     opened = call(d, g, "browser.snapshot", tab=tab)["content"]["opened_tabs"]
     assert [o.get("tab") is not None for o in opened] == [True, False, False]
     assert all("browser.task_max_tabs" in o["error"] for o in opened[1:])
+    first = opened[0]["tab"]
+    assert not call(d, g, "browser.close", tab=first)["is_error"]     # a place frees up when a FERB tab closes
+    again = call(d, g, "browser.open", url=f"{SITE}/third")
+    assert not again["is_error"], again
 
 
 def test_a_new_tab_from_the_owners_borrowed_tab_is_released_never_closed(bd: Any) -> None:
@@ -698,7 +746,7 @@ def test_retention_records_a_gone_file_and_never_evicts_a_newer_one_for_one_that
     from ferb.act.fs import files
     d, launched = bd
     ext, g, tab, chrome_id = _task_tab(d, launched)
-    d.daemon.config.set("browser", "download_total_mb", 1)
+    d.daemon.config.set("browser", "download_total_gb", 0.001)
     a = _deliver(d, ext, chrome_id, name="a.bin", data=os.urandom(300_000), source_url="https://x.example/a")
     d.call_soon(d.daemon.clock.advance, 1)
     b = _deliver(d, ext, chrome_id, name="b.bin", data=os.urandom(300_000), source_url="https://x.example/b")
@@ -719,10 +767,10 @@ def test_retention_records_a_gone_file_and_never_evicts_a_newer_one_for_one_that
 
 def test_the_downloads_description_says_files_stay_until_the_folder_passes_its_total(bd: Any) -> None:
     d, launched = bd
-    d.daemon.config.set("browser", "download_total_mb", 1000)
+    d.daemon.config.set("browser", "download_total_gb", 7)
     ext, g, tab, chrome_id = _task_tab(d, launched)
     desc = next(t["description"] for t in d.daemon.gateway.tools_for(g) if t["name"] == "browser.downloads")
-    assert "stays until the owner deletes it" in desc and "passes 1000 MB" in desc and " days" not in desc
+    assert "stays until the owner deletes it" in desc and "passes 7 GB" in desc and " days" not in desc
 
 
 # ---------- fix round 3 ----------
@@ -742,7 +790,7 @@ def test_a_stuck_old_file_stops_counting_so_newer_ones_stay(bd: Any, monkeypatch
     ext, g, tab, chrome_id = _task_tab(d, launched)
     old = _deliver(d, ext, chrome_id, name="old.bin", data=os.urandom(600_000), source_url="https://x.example/o")
     d.call_soon(d.daemon.clock.advance, 31 * 86400)
-    d.daemon.config.set("browser", "download_total_mb", 1)
+    d.daemon.config.set("browser", "download_total_gb", 0.001)
 
     trash = _fake_trash(monkeypatch, d.daemon.home)
     moved = files.move_excl
@@ -771,7 +819,7 @@ def test_released_tasks_and_tab_counts_stay_bounded(bd: Any) -> None:
     d.run(end())
     other = task(d, "tb", OWNER, sites=frozenset({"shop.example"}))
     d.run(router.release(other.task_id))
-    assert router._released == {"tb"} and "ta" not in router._tabs_opened
+    assert router._released == {"tb"} and router._open_tabs("ta") == 0 and router._opening == {}
 
 
 def test_a_startup_step_that_fails_doesnt_skip_the_other(monkeypatch: Any) -> None:
@@ -851,7 +899,7 @@ def test_a_row_outside_the_downloads_folder_is_left_as_it_is_recorded_once_and_n
                         "VALUES (?,?,?,?,?,?,?,?,?,?)", (fid, "t", "chrome/Work", "owner", "taken", str(path),
                                                          path.name, size, "external:download",
                                                          (now - timedelta(days=age)).isoformat()))
-    settings = {("browser", "download_total_mb"): 1}
+    settings = {("browser", "download_total_gb"): 0.001}
     trash = tmp_path / ".Trash"
     trash.mkdir()
     use_trash(monkeypatch, trash)
@@ -889,15 +937,18 @@ def test_a_page_save_dropped_over_the_hold_caps_is_a_refused_download_fact(bd: A
                        "source": "page", "name": "report.csv"})
     row = _wait_record(d)
     assert row["state"] == "refused" and "dropped" in row["reason"] and "browser" in row["reason"]
+    ext.send("event", {"event": "download", "tab_id": chrome_id, "uncaptured": True, "detail": "dropped",
+                       "source": "page", "name": "report.csv", "count": 7})   # the rest of the minute, together
+    assert "7 saves were dropped" in _wait_record(d, 2)["reason"]
 
 
-# ---------- the owner's limits (2026-10-09) ----------
+# ---------- the owner's limits (2026-10-09, hands decision 7 of 2026-10-31) ----------
 
 def test_the_limits_default_to_the_owners_decision(tmp_path: Path) -> None:
     from ferb.act.browser.downloads import Downloads, Limits
     dl = Downloads(tmp_path / "downloads", None, lambda: None, lambda s, k, v: v, lambda t: t, lambda *a: None)
-    mb = 1024 * 1024
-    assert dl.limits() == Limits(512 * mb, 50, 4096 * mb, 20480 * mb, 10 * 1000 ** 3)
+    gb = 1000 ** 3                                              # decimal, as Finder counts (ruling, step 12e)
+    assert dl.limits() == Limits(300, 32 * gb, 20 * gb, 10 * gb)  # hands decision 7 (2026-10-31): no per-file cap
 
 
 def test_a_task_tree_may_open_fifty_tabs_by_default(bd: Any) -> None:
@@ -924,7 +975,7 @@ def test_an_undeclared_size_stops_before_it_would_pass_the_free_disk_floor(bd: A
     d, launched = bd
     floor = 10 * 1000 ** 3
     root = _root(d)
-    d.daemon.downloads.free_bytes = lambda: floor + 100_000 - sum(p.stat().st_size for p in root.glob(".dl-*.part"))
+    d.daemon.downloads.free_bytes = lambda: floor + 600_000 - sum(p.stat().st_size for p in root.glob(".dl-*.part"))
     ext, g, tab, chrome_id = _task_tab(d, launched)
     rec = _deliver(d, ext, chrome_id, name="stream.bin", data=os.urandom(3 * DOWNLOAD_PART),
                    source_url="https://x.example/s", size=None)

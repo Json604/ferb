@@ -15,7 +15,13 @@ it reached is a recorded fact (`network`); when the task ends, each finished pro
 An owner-pinned local port whose listener runs its pinned executable when the command starts is reachable directly
 (L24, local.py); the live `network` view lists each such port under `local_direct` (`local: true`) with the
 connections the kernel reported for this command (`DirectReports`), and the record keeps the ones it connected to, or
-all of them when the kernel's reports couldn't be read."""
+all of them when the kernel's reports couldn't be read.
+
+Downloads (hands decision 7): while any FERB command runs, every WATCH_S the bytes each one received through the proxy
+since the last look go to `on_received` (the daemon counts them against the task tree's download budget, shared with
+the browser, and checks the free-disk floor); when it answers why, that command's whole group is stopped and the
+command's results say so (`stopped`, FERB's words), a fact, never a judgment of the command. Only a command receiving
+bytes is ever stopped; one that isn't downloading never is."""
 
 import asyncio
 import dataclasses
@@ -38,6 +44,9 @@ from ferb.core.errors import Refused
 
 CLEAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "SHELL", "TMPDIR")
 SEND_WAIT_S = 2.0                         # how long shell.send keeps typing into a command that reads slowly
+# Ruling (step 12e): how often the download budget and the free-disk floor are checked while a FERB command runs. At a
+# fast 1 GB/s link a command can pass either by about this much before it is stopped (the floor is 10 GB).
+WATCH_S = 1.0
 
 
 def clean_env(sandbox: Sandbox | None = None) -> dict[str, str]:
@@ -77,6 +86,7 @@ class ProcInfo:
     sandbox_ms: float | None = None
     # owner-pinned local ports it may reach directly, as checked when it started: ({"port", "executable"}, ...) (L24)
     direct: tuple[dict[str, Any], ...] = ()
+    stopped: str | None = None                # FERB stopped it: why (the download budget or the free-disk floor)
 
 
 class ShellManager:
@@ -100,6 +110,13 @@ class ShellManager:
         self._owner_input: dict[str, str] = {}
         self._report_on_exit: set[str] = set()   # running when their task ended: retired when they exit
         self._retiring: set[str] = set()         # finished, task ended: dropped once the proxy reports their record
+        # Downloads (hands decision 7, daemon supplied): (task, bytes received since the last look) -> why the command
+        # must stop now, or None. Called on the event loop only.
+        self.on_received: Callable[[str, int], str | None] | None = None
+        self._received: dict[str, int] = {}      # process -> bytes received through the proxy, as last counted
+        self._stopped: dict[str, str] = {}       # process -> why FERB stopped it
+        self._watcher: asyncio.Task[None] | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         if proxy is not None:
             proxy.on_report = self._report
 
@@ -168,7 +185,48 @@ class ShellManager:
             raise
         if escape is not None and self.on_escape is not None:
             self.on_escape(owner_task, escape)
+        self._watch_downloads()
         return ProcHandle(pid, owner_task)
+
+    # ---------- downloads: the task tree's budget and the free-disk floor (hands decision 7) ----------
+
+    def _watch_downloads(self) -> None:
+        """Start the download watch while commands run (it ends by itself when none is left)."""
+        if self.on_received is None or self.proxy is None or (self._watcher is not None and not self._watcher.done()):
+            return
+        self._loop = asyncio.get_running_loop()
+        self._watcher = self._loop.create_task(self._watch())
+
+    async def _watch(self) -> None:
+        while self._procs:
+            await asyncio.sleep(WATCH_S)
+            for pid, (p, info) in list(self._procs.items()):
+                why = self._count_received(pid, info.owner_task)
+                if why is not None and pid not in self._stopped and p.exit_code is None:
+                    self._stopped[pid] = why
+                    try:
+                        await p.kill(self._ours(pid))
+                    except Exception:
+                        pass                      # it ended meanwhile; `stopped` still says why FERB acted
+
+    def _count_received(self, pid: str, task: str, facts: dict[str, Any] | None = None) -> str | None:
+        """The bytes this process received through the proxy since the last look go to `on_received`; its answer (why
+        it must stop) only when it received some. Never raises: a broken count stops nothing."""
+        if self.on_received is None or self.proxy is None:
+            return None
+        got = sum(int(d.get("bytes_in") or 0) for d in (facts or self.proxy.facts(pid))["destinations"])
+        new = got - self._received.get(pid, 0)
+        if new <= 0:
+            return None
+        self._received[pid] = got
+        try:
+            return self.on_received(task, new)
+        except Exception:
+            return None
+
+    def stopped(self, proc_id: str) -> str | None:
+        """Why FERB stopped this command (the download budget or the free-disk floor); None: it didn't."""
+        return self._stopped.get(proc_id)
 
     def _get(self, h: ProcHandle) -> PtyProc:
         hit = self._procs.get(h.id)
@@ -285,7 +343,8 @@ class ShellManager:
         for p, info in self._procs.values():
             out.append(dataclasses.replace(info, running=p.exit_code is None, exit_code=p.exit_code,
                                            capture_error=p.capture_error, sandbox_ms=p.ready_ms if info.sandboxed else None,
-                                           network=bool(self._facts(info.id)["destinations"])))
+                                           network=bool(self._facts(info.id)["destinations"]),
+                                           stopped=self._stopped.get(info.id)))
         return out
 
     def info(self, h: ProcHandle) -> ProcInfo:
@@ -337,6 +396,8 @@ class ShellManager:
         return n
 
     async def kill_all(self) -> int:
+        if self._watcher is not None:
+            self._watcher.cancel()
         n = 0
         for pid, (p, _) in list(self._procs.items()):
             n += p.exit_code is None
@@ -366,6 +427,8 @@ class ShellManager:
 
     def _drop(self, proc_id: str) -> None:
         self._retiring.discard(proc_id)
+        self._received.pop(proc_id, None)
+        self._stopped.pop(proc_id, None)
         self._owner_input.pop(proc_id, None)
         self._procs.pop(proc_id, None)
 
@@ -389,6 +452,32 @@ class ShellManager:
                 continue
         return n
 
+    def _count_final(self, proc_id: str, task: str, facts: dict[str, Any]) -> None:
+        """A process's final record: the bytes it received since the watch last looked still count (on the loop: the
+        proxy may report from a tunnel's thread)."""
+        loop, count = self._loop, self.on_received
+        if count is None or loop is None or loop.is_closed():
+            return
+        got = sum(int(d.get("bytes_in") or 0) for d in facts["destinations"])
+        new = got - self._received.get(proc_id, 0)
+        if new <= 0:
+            return
+        self._received[proc_id] = got
+
+        def counted() -> None:
+            try:
+                count(task, new)
+            except Exception:
+                pass
+        try:
+            on_loop = asyncio.get_running_loop() is loop
+        except RuntimeError:
+            on_loop = False
+        if on_loop:
+            counted()
+        else:
+            loop.call_soon_threadsafe(counted)
+
     def _report(self, proc_id: str, facts: dict[str, Any]) -> None:
         """The proxy's final record for a forgotten process (from the daemon loop, or a tunnel's thread at close)."""
         hit = self._procs.get(proc_id)
@@ -397,6 +486,7 @@ class ShellManager:
                 self._drop(proc_id)
             return
         info = hit[1]
+        self._count_final(proc_id, info.owner_task, facts)
         try:
             # The direct local ports it connected to, as the kernel reported them, or all of them when unknown (L24)
             used = [d for d in self._direct(info) if d["reported_connections"] is None or d["reported_connections"] > 0]

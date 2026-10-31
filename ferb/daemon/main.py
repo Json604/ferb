@@ -31,7 +31,7 @@ from ferb.act.shell.proxy import EgressProxy
 from ferb.act.shell.sandbox import Sandbox
 from ferb.bus import Bus
 from ferb.clock.clock import SystemClock
-from ferb.config import Config, LIMITS_DECIDED
+from ferb.config import UPGRADES, Config
 from ferb.core.errors import FerbError
 from ferb.core.ids import RandomIds
 from ferb.core.interfaces import Clock, IdSource
@@ -347,9 +347,9 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
                     preview=lambda: self.gateway.hooks.previews.snapshot() if self.gateway is not None else {})
             except Exception as e:              # FERB runs without it; the next start tries again
                 self.journal.append("resources.failed", {"error": f"{type(e).__name__}: {e}"})
-        if not self.journal.of_kind("config.upgraded", "upgrade", LIMITS_DECIDED):   # once, and journaled: never silent
-            self.journal.append("config.upgraded", {"upgrade": LIMITS_DECIDED,
-                                                    "changes": self.config.upgrade_ferb_written()})
+        for decided in UPGRADES:                        # each once, in order, and journaled: never silent
+            if not self.journal.of_kind("config.upgraded", "upgrade", decided):
+                self.journal.append("config.upgraded", {"upgrade": decided, "changes": self.config.upgrade(decided)})
         from ferb.orchestrator.continuity import LEGACY_UPGRADE, upgrade_legacy
         if not self.journal.of_kind("store.upgraded", "upgrade", LEGACY_UPGRADE):   # once, and journaled (step 8c)
             self.journal.append("store.upgraded", {"upgrade": LEGACY_UPGRADE,

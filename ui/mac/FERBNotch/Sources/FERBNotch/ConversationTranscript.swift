@@ -138,6 +138,9 @@ private struct TurnView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             RequestView(turn: turn)
+            if let scope = SeenScope(requestID: turn.requestID, taskID: turn.backendTaskID) {
+                SeenButton(scope: scope, model: model)
+            }
             if let lead = turn.mergedInto {
                 let turns = model.conversation.turns
                 let leadIndex = turns.firstIndex { $0.requestID == lead }

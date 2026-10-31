@@ -41,7 +41,7 @@ METHODS: dict[Role, frozenset[str]] = {
                          "reports.build", "ui.click_through", "tasks.preview",
                          "setup.browsers", "setup.browser_open", "setup.browser_pair", "setup.browsers_pair_all", "browser.show_handoff", "reports.diagnostic", "update.prepare", "tasks.list", "notices.list", "settings.get", "settings.set", "notifications.subscribe", "notifications.categories", "runtimes.sign_in", "runtimes.status", "runtimes.use", "runtimes.switch_task", "setup.permissions", "setup.permission_request", "setup.finish",
                          "about.get", "about.guide", "secrets.saved", "secrets.delete", "identity.find",
-                         "identity.choose"}),
+                         "identity.choose", "seen.list", "seen.image"}),
     Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),
 }
@@ -51,9 +51,10 @@ METHODS: dict[Role, frozenset[str]] = {
 # pictures borrow FERB's Screen Recording permission; any other program running as the owner gets "unauthorized").
 # Step 12c: what lists or deletes the owner's saved secrets, writes FERB's own account into config or pairs its
 # profile, and FERB.app's guide that becomes FERB's self-description (daemon decisions 6-8).
+# Step 12e: "What FERB saw", the stored redacted screenshots and their facts.
 # The server checks the peer's code signature (app_peer.py) once per connection.
 APP_ONLY: frozenset[str] = frozenset({"tasks.preview", "secrets.saved", "secrets.delete", "identity.find",
-                                      "identity.choose", "identity.pair", "about.guide"})
+                                      "identity.choose", "identity.pair", "about.guide", "seen.list", "seen.image"})
 
 
 def allowed(role: Role, method: str) -> bool:

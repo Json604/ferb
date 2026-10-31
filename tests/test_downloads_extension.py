@@ -811,25 +811,48 @@ def test_a_popup_whose_opener_does_not_match_is_let_go_even_when_focus_emulation
     assert out["detached"] == [31] and out["kept"] is False
 
 
-def test_page_saves_dropped_over_the_hold_caps_send_one_refused_fact_per_document_per_minute() -> None:
+def test_every_page_save_dropped_over_the_hold_caps_is_reported_never_silently() -> None:
+    """Step 12e (protocol 20): the first drop of a document is reported at once, the rest of that minute together at
+    its end with their count; the counts add up to every save dropped."""
     out = worker('''(async () => {
-      const sent = []; let now = 1000000;
+      const sent = [], timers = []; let now = 1000000;
       Date.now = () => now;
+      setTimeout = (fn, ms) => { if (ms !== DOWNLOAD_IDLE_MS) timers.push(fn); return timers.length + 1; };   // drop facts
+      clearTimeout = () => {};
       port = {postMessage() {}}; send = async (type, body) => { sent.push(body); };
       tabState(3).armed = true;
-      for (let i = 0; i < 25; i++) pageDownload(3, 0, {id: 'h' + i, name: 'x.csv', size: 1}, 'doc-A');
-      pageDropped(3, 0, 'doc-A', 'from-content.csv');            // content.js's own cap, the same document
-      const inMinute = sent.filter(b => b.uncaptured).length;
+      for (let i = 0; i < 25; i++) pageDownload(3, 0, {id: 'h' + i, name: 'x.csv', size: 1}, 'doc-A');   // 5 dropped
+      pageDropped(3, 0, 'doc-A', 'from-content.csv', 3);         // content.js's own cap: 3 more, the same document
+      const atOnce = sent.filter(b => b.uncaptured).length;
       pageDropped(3, 0, 'doc-B', 'y.csv');                      // another document in the tab: its own fact
-      now += 61000;
-      pageDownload(3, 0, {id: 'late', name: 'x.csv', size: 1}, 'doc-A');   // a minute later: one more
-      tabState(4);                                              // a tab FERB doesn't drive: nothing
+      now += 60000;
+      for (const fn of timers.splice(0)) fn();                  // the minute ends: doc-A's waiting count is told
+      now += 1000;
+      pageDownload(3, 0, {id: 'late', name: 'x.csv', size: 1}, 'doc-A');   // within a minute of that fact: waits
+      now += 60000;
+      for (const fn of timers.splice(0)) fn();
+      tabState(4);                                              // a tab FERB doesn't drive: nobody to tell
       pageDropped(4, 0, 'doc-C', 'z.csv');
-      return {inMinute, facts: sent.filter(b => b.uncaptured).map(b => [b.tab_id, b.detail, b.source, b.name])};
+      return {atOnce, facts: sent.filter(b => b.uncaptured).map(b => [b.tab_id, b.detail, b.name, b.count])};
     })()''')
-    assert out["inMinute"] == 1
-    assert out["facts"] == [[3, "dropped", "page", "x.csv"], [3, "dropped", "page", "y.csv"],
-                            [3, "dropped", "page", "x.csv"]]
+    assert out["atOnce"] == 1
+    assert out["facts"] == [[3, "dropped", "x.csv", 1], [3, "dropped", "y.csv", 1], [3, "dropped", "x.csv", 7],
+                            [3, "dropped", "x.csv", 1]]
+    assert sum(f[3] for f in out["facts"] if f[0] == 3 and f[2] != "y.csv") == 5 + 3 + 1
+
+
+def test_a_popup_past_the_tab_cap_is_closed_while_blank_and_only_a_claimed_one() -> None:
+    out = worker('''(async () => {
+      const removed = [];
+      chrome.tabs.remove = async (id) => { removed.push(id); };
+      const t = tabState(31); t.popupFor = {opener: 5, frameId: 0, token: 'x'};
+      tabState(32);                                             // not a popup this worker claimed
+      const refused = await commands.popup_refused({tab_id: 31});
+      const other = await commands.popup_refused({tab_id: 32});
+      return {refused, other, removed, gone: !TABS.has(31)};
+    })()''')
+    assert out["refused"] == {"closed": True, "tab_id": 31} and out["removed"] == [31] and out["gone"] is True
+    assert out["other"]["closed"] is False
 
 
 def test_a_detach_during_a_claim_the_daemon_never_heard_of_sends_nothing() -> None:

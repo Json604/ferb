@@ -234,7 +234,7 @@ class Retention:
             return 0
 
     def _purge_downloads(self) -> int:
-        """D35: when FERB's downloads folder passes browser.download_total_mb, its oldest working copies go to the
+        """D35: when FERB's downloads folder passes browser.download_total_gb, its oldest working copies go to the
         Trash (no time-based clearing, owner 2026-10-09); their records stay. Journaled when any moved."""
         if self.downloads is None:
             return 0

@@ -33,6 +33,8 @@ public enum AppGuide {
         HowTo(title: "Stop everything FERB is doing", steps: "FERB window → Tasks → Stop everything (Resume FERB undoes it)"),
         HowTo(title: "Stop one task", steps: "FERB window → Tasks → the task → Stop"),
         HowTo(title: "See or change what FERB remembers", steps: "FERB window → Memory: Always on, Not right, Forget…"),
+        HowTo(title: "See the screenshots FERB kept",
+              steps: "In the notch, What FERB saw under a reply; or Settings → Data → What FERB saw (the last 7 days)"),
         HowTo(title: "Import memory from ChatGPT, Claude, Gemini, Claude Code or Codex",
               steps: "FERB window → Memory → Import from other assistants"),
         HowTo(title: "Change schedules and reminders", steps: "FERB window → Schedules & Reminders"),
@@ -208,6 +210,96 @@ public struct SavedSecretRow: Identifiable, Equatable {
         case "card_expiry": return "card expiry"
         default: return "secret"
         }
+    }
+}
+
+// MARK: - What FERB saw (step 12e)
+
+/// One screenshot FERB kept (`seen.list`): the owner's front window as a message was sent, or an image a task captured,
+/// stored redacted exactly as the model got it. Its bytes come from `seen.image` (FERB.app only).
+public struct SeenCapture: Identifiable, Equatable {
+    public let id: String
+    public let at: Date?
+    public let kind: String
+    public let taskID: String
+    public let app: String
+    public let site: String
+    public let title: String
+    public let tool: String
+
+    public init?(_ row: [String: Any]) {
+        guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+        self.id = id
+        at = WindowTime.parse(row["at"])
+        kind = text(row["kind"])
+        taskID = text(row["task_id"])
+        app = text(row["app"])
+        site = text(row["site"])
+        title = text(row["title"])
+        tool = text(row["tool"])
+    }
+
+    /// What it shows, in a few words: the site, else the app, and the page or window title when there is one.
+    public var label: String {
+        let place = !site.isEmpty ? site : (!app.isEmpty ? app : what)
+        return title.isEmpty || title == place ? place : "\(place) — \(title)"
+    }
+
+    /// Which capture it was.
+    public var what: String {
+        switch kind {
+        case "front_window": return "Your front window when you sent it"
+        case "app_window": return "An app window FERB looked at"
+        case "snapshot": return "A page FERB read"
+        default: return "A screenshot FERB took"
+        }
+    }
+}
+
+/// Which screenshots "What FERB saw" shows: one message's (its front window and its tasks' images), one task's (a task
+/// this chat didn't send), or every one FERB keeps (Settings → Data).
+public enum SeenScope: Equatable {
+    case request(String), task(String), all
+
+    /// A conversation turn's: by its message, else by its task; nil when it has neither yet.
+    public init?(requestID: String?, taskID: String?) {
+        if let requestID, !requestID.isEmpty { self = .request(requestID) }
+        else if let taskID, !taskID.isEmpty { self = .task(taskID) }
+        else { return nil }
+    }
+
+    /// `seen.list`'s parameters.
+    public var params: [String: Any] {
+        switch self {
+        case .request(let id): return ["request_id": id]
+        case .task(let id): return ["task_id": id]
+        case .all: return [:]
+        }
+    }
+
+    public var emptyText: String {
+        switch self {
+        case .all: return "No screenshots kept."
+        default: return "FERB kept no screenshot for this."
+        }
+    }
+}
+
+/// A `seen.list` answer: the captures (newest first), how many in all, and how many days FERB keeps them.
+public struct SeenList: Equatable {
+    public let captures: [SeenCapture]
+    public let total: Int
+    public let days: Int
+
+    public init(_ reply: [String: Any]) {
+        captures = (reply["captures"] as? [[String: Any]] ?? []).compactMap(SeenCapture.init)
+        total = max(number(reply["total"]), captures.count)
+        days = number(reply["days"]) > 0 ? number(reply["days"]) : 7
+    }
+
+    /// Under the list when it doesn't show them all.
+    public var moreLine: String? {
+        total > captures.count ? "Showing the newest \(captures.count) of \(total)." : nil
     }
 }
 

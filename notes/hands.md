@@ -56,6 +56,17 @@ from installed apps, terminal detection fails closed)*
    10-30 runs with the same task text read it and got through; nothing made the ability reach the worker. Owner:
    code states the fact and names the ability; no extra prompt wording about what counts as a bypass.
 
+7. **Download limits** (owner, 2026-10-31; replaces the owner's 2026-10-09 values of 512 MB per download and 50 files /
+   4 GB per task, recorded until now only in the old plan, notes/docs-cleanup.md item 3):
+   - **No per-file size cap.** A download isn't hard to undo, so FERB doesn't ask either.
+   - **Per task: 300 files and 32 GB.**
+   - **The 10 GB free-disk floor stays.**
+   - **Shell downloads count against the same per-task budget and the free-disk floor** (one shared path): curl, brew,
+     pip, git clone, huggingface-cli, docker pull. When a shell command would push free space under the floor, or take
+     the task over its byte budget, it is stopped and the worker is told plainly why. It is a fact, not a judgment.
+   - Unchanged from 2026-10-09: FERB's downloads folder keeps to 20 GB (its oldest files to the Trash past it), 50 tabs
+     per task, no time-based clearing, a browser download never opens a Save dialog.
+
 ## What exists today (verified)
 
 ### Reliability (live tool calls, 2026-09-29 → 10-30)
@@ -294,6 +305,56 @@ from installed apps, terminal detection fails closed)*
   paused: dropped like every owner-tab event.
 - Not built (decision 5 says later): keeping a tab playing while the owner switches away.
 
+## Rulings (step 12e, technical: decision 7, download limits, and the research's bugs)
+- **One budget per task tree, browser and shell together.** `Downloads` (ferb/act/browser/downloads.py) owns it: the
+  bytes of files the tree's tabs took (`downloads` rows) + transfers still arriving + what its shell commands received
+  through the egress proxy (`shell_downloads`, migration 0059, one row per tree, aged with the operational records,
+  so a daemon restart mid-task doesn't start the tree afresh). Only received bytes (`bytes_in`) count; what a command
+  sends doesn't. Browser admission and streaming see the shell's bytes, and the shell sees the browser's.
+- **The 300-file count is the browser's only.** A shell command has no file count: a `brew install` or `pip install`
+  fetches many parts, and the proxy sees connections, not files. The byte budget and the floor cover the shell.
+- **How a shell download is stopped (the floor during long commands):** while any FERB command runs, every
+  `WATCH_S` = 1 s (ferb/act/shell/manager.py) the bytes each command received since the last look go to the daemon
+  (`_shell_received`): counted, then `Downloads.shell_stop` answers why it must stop: past the tree's budget, or free
+  disk under the floor (or free space unreadable, as for the browser). Then that command's whole group is stopped, its
+  results carry `stopped_by_ferb` (FERB's words; `is_error`), and the journal gets `shell.download_stopped`. Only a
+  command that received bytes in that second is ever stopped: a command that isn't downloading never is, even under
+  the floor (unzipping or building isn't a download; decision 7 covers downloads). At a 1 GB/s link a command can
+  pass either limit by about one second of traffic. A process's last bytes (after the final look) still count, from
+  its final proxy record.
+- **No total time for a browser download, only a stall:** a transfer fails when no byte arrives for `STALL_S` = 60 s
+  (a part that doesn't answer within it, or parts that keep coming back empty), reason "stalled"; a slow download that
+  keeps moving is never cut. The old 10-minute ceiling (with 72,000-byte parts) capped a download at a few GB.
+- **Download parts of 512 KiB, sent whole** (protocol.js DOWNLOAD_PART, was 72,000 bytes): about 7× fewer round
+  trips. The reply (~700,000 base64 characters) is never split into 100,000-character result parts. Direction checked:
+  Chrome's 1 MB native-messaging cap is for messages from the host to Chrome; from the extension to the host Chrome
+  allows 64 MiB, and download data only travels that way (extension → native host → daemon). FERB's own host
+  (`MAX_MESSAGE`) and the daemon's socket take 1 MiB per message, so 512 KiB keeps a margin.
+- **The tab cap counts every open FERB tab.** `browser.task_max_tabs` (50) now counts the tabs FERB opened for the task
+  tree that are still open, in every browser driver: the worker's, a link's, a page's popup, and new tabs opened from
+  the owner's borrowed tab, plus opens in flight; never the owner's borrowed tab itself, a tab handed over (kept
+  open) or a closed one. A close frees a place. Past the cap FERB refuses with a fact: the worker's open is refused, a
+  link isn't opened (no `open_plain` hand-off to the browser, whose download would skip every limit and land in
+  ~/Downloads), and a page's popup is closed while still blank (`popup_refused`, protocol 20); the opener's next
+  result says so.
+- **Nothing dropped silently.** A page's saves past the hold caps (20 per tab, 100 in all) are still dropped (never the
+  browser's), but every one is reported: the first of a document at once, then those that follow within the minute in
+  one event at its end with `count` (content.js and background.js both), so a flood is a few facts, not one per
+  save. Still unreported, because nobody can be told: a tab no task drives, or no daemon connected.
+- **Decimal GB everywhere** (as the owner and Finder count): `browser.download_task_max_gb` (32),
+  `browser.download_total_gb` (20), `browser.download_min_free_gb` (10, unchanged). The binary MB keys are gone: a
+  one-time journaled config upgrade (`download-limits-2026-10-31`, ferb/config.py) removes `download_max_mb`, moves
+  `download_task_max_files` 50 → 300, and drops `download_task_max_mb` / `download_total_mb`; an owner's own MB value
+  (anything but 2026-10-09's) carries over to its GB key, converted. An old config that still sets a removed key is
+  never read.
+- **The copy to ~/Downloads becomes a move.** `browser_downloads` tells the worker to move the file (mv, not cp)
+  where the owner asked, else ~/Downloads, and name that path: same destination as before, no second copy on disk.
+  FERB's working copy is then gone from its folder (its record reads "already gone" after the next retention pass).
+  The shell's scope rule (decision 4) still applies to the destination folder.
+- **Known limitation:** past 20 GB the downloads folder moves its oldest files to the Trash, which frees no space until
+  the Trash is emptied. Left as it is: permanent deletion is the owner's call.
+- Extension protocol 20, extension and minimum 0.18.0 (one bump): download parts, `popup_refused`, drop counts.
+
 ## Measurements (step 0, 2026-10-30)
 - **Sandbox semantics, measured with `sandbox-exec` on scratch folders:**
   - `deny file-write-unlink` blocks unlink, rmdir, renaming a file out of or within the folder, and renaming onto an
@@ -411,5 +472,16 @@ from installed apps, terminal detection fails closed)*
 - [x] Files: preserve mode/xattrs/newlines on write and edit; catch decode/OS errors as plain errors; trash acts on the
       link; restore honours protection lists; fs I/O in a thread. (5a: APFS clone then rewrite, else mode+xattrs
       copied; a hard-linked file is rewritten in place; `ferb restore` checks only the never-lifted rules.)
+- [x] Download limits (decision 7): no per-file cap; 300 files / 32 GB per task tree; the 10 GB floor; shell downloads
+      under the same budget and floor. (12e: see Rulings (step 12e); tests/test_download_limits.py,
+      tests/test_downloads.py.)
+- [x] Browser downloads end on a stall (60 s without a byte), never on total time; 512 KiB parts sent whole. (12e)
+- [x] Tab cap counts every open FERB tab of the tree and refuses past 50 (worker open, link, popup), never a silent
+      hand-off to the browser. (12e)
+- [x] Dropped page saves are all reported, with a count. (12e)
+- [x] One unit for download limits: decimal GB; MB keys upgraded once, journaled. (12e)
+- [x] The worker moves a download to where the owner wants it instead of copying it. (12e)
+- [ ] Known limitation, owner's call: the 20 GB folder cap moves files to the Trash, which frees no space until it is
+      emptied.
 - [x] One protection check shared by shell and file tools, with the lift rule of gateway decision 2 and decision 1 here.
       (5a: `Protection.fs_rules`; `fs_reads_never_read` gone.)

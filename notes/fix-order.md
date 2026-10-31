@@ -99,6 +99,13 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     diagnosis; then a review in 5 grouped read-only agents (safety; planner and memory; daemon and app; storage and
     upgrade; every owner decision against the code and the owner's own words), findings verified, real bugs fixed,
     contradictions to the owner.
+    (Step 12e part 1, 2026-10-31: hands decision 7 built: no per-file cap, 300 files / 32 GB per task tree shared by
+    the browser and the shell (proxy bytes, migration 0059), the 10 GB floor for both; stall-based browser transfers
+    with 512 KiB parts; the tab cap counts open FERB tabs and refuses past 50; every dropped save reported; decimal GB
+    keys (one journaled config upgrade); downloads moved, not copied, to the owner's folder; extension protocol 20 /
+    0.18.0. "What FERB saw": FERB.app-only `seen.list` / `seen.image` over the stored redacted screenshots, a notch
+    button per message and Settings → Data's list. Rulings in notes/hands.md and notes/daemon.md; live checks in
+    notes/test-tasks.md. Still to do in 12e: the Mac focus fixes and the 5-agent review.)
 13. **Live checks**: per-adapter live tests, the owner's P20 injection eval, the patch re-test list, the safety suite.
     The one ordered checklist, in sittings, is notes/test-tasks.md "Step-13 checklist".
 14. **Docs cleanup** last: extract `notes/test-tasks.md`, settle CLAUDE.md/AGENTS.md, delete the old docs, rewrite

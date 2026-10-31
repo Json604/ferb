@@ -56,6 +56,12 @@ def _scope_note(out: dict[str, Any], failed: bool) -> None:
         out["sandbox_note"] = SCOPE_REFUSED
 
 
+def _stopped_note(out: dict[str, Any], stopped: str | None) -> None:
+    """FERB stopped the command (hands decision 7: the task's download budget or the free-disk floor): why, as a fact."""
+    if stopped:
+        out["stopped_by_ferb"] = stopped
+
+
 class _Base:
     identities = {Identity.OWNER, Identity.FERB}
     scopes = {"shell"}
@@ -135,7 +141,8 @@ async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> Too
     if (nxt := _refused_next(network)) is not None:      # S4: only for a refused destination, never a bare null
         out["next"] = nxt
     _scope_note(out, info.exit_code not in (None, 0))
-    return ToolResult(out, is_error=info.exit_code not in (None, 0) or bool(info.capture_error),
+    _stopped_note(out, info.stopped)
+    return ToolResult(out, is_error=info.exit_code not in (None, 0) or bool(info.capture_error) or bool(info.stopped),
                       read_sources=(_sources(network) or (("origin", OUTPUT_ORIGIN),)) + (("file", info.read_path),)
                       if info.read_path else _sources(network))
 
@@ -169,7 +176,8 @@ class ShellRun(ShellStart):
         if (nxt := _refused_next(network)) is not None:      # S4: a refused destination needs the owner, not a retry
             out["next"] = nxt
         _scope_note(out, code not in (None, 0))
-        return ToolResult(out, is_error=code not in (None, 0) or bool(info.capture_error),
+        _stopped_note(out, info.stopped)
+        return ToolResult(out, is_error=code not in (None, 0) or bool(info.capture_error) or bool(info.stopped),
                           read_sources=(_sources(network) or (("origin", OUTPUT_ORIGIN),)) + (("file", info.read_path),)
                           if info.read_path else _sources(network))
 

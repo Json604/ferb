@@ -996,6 +996,8 @@
   const HELD_MAX = 20;                             // caught links held or being read; a flood past it is dropped
   let saving = 0;                                  // caught links whose bytes are still being read
   let droppedAt = -Infinity;                       // when this document last told the worker it dropped a save
+  let droppedSince = 0;                            // saves dropped since then, told at the end of that minute
+  let dropTimer = null;
   const linkOf = (e) => (e.composedPath ? e.composedPath() : [])
     .find((n) => n instanceof HTMLAnchorElement || (typeof HTMLAreaElement !== "undefined" && n instanceof HTMLAreaElement));
   function opensNewTab(a, e) {
@@ -1030,10 +1032,19 @@
     if (!a || !a.hasAttribute("download") || !/^(blob|data):/i.test(href) || !live()) return;
     e.preventDefault();
     if (heldDownloads.size + saving >= HELD_MAX) {   // a page's flood of saves: dropped, never the browser's; the
-      const now = Date.now();                        // worker hears of it (at most once a minute from this document)
+      const now = Date.now(), name = a.getAttribute("download") || "";   // worker hears of every one (protocol 20):
+      const tell = (count) => {                      // the first at once, the rest of the minute together at its end
+        try { chrome.runtime.sendMessage({ ferbDropped: { name, count } }); } catch (_) { /* no worker */ }
+      };
       if (now - droppedAt >= 60000) {
         droppedAt = now;
-        try { chrome.runtime.sendMessage({ ferbDropped: { name: a.getAttribute("download") || "" } }); } catch (_) { /* no worker */ }
+        tell(1);
+      } else {
+        droppedSince++;
+        if (!dropTimer) dropTimer = setTimeout(() => {
+          dropTimer = null;
+          if (droppedSince > 0) { tell(droppedSince); droppedSince = 0; droppedAt = Date.now(); }
+        }, 60000 - (now - droppedAt));
       }
       return;
     }

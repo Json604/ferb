@@ -70,6 +70,19 @@ class Egress:
         tunnel's own thread when a setsid child closes it, so the write is scheduled on the daemon loop."""
         self._journal_from_any_thread("shell.network", {"task_id": info.owner_task, "process": info.id, **facts})
 
+    def _shell_received(self, task: str, n: int) -> str | None:
+        """Hands decision 7 (on the loop): a shell command of `task` received `n` more bytes through the proxy. They
+        count against the task tree's download budget, the one the browser's downloads use; the answer is why the
+        command must stop (past that budget, or the disk under the free-disk floor), journaled, or None."""
+        downloads = getattr(self, "downloads", None)
+        if downloads is None:
+            return None
+        downloads.shell_received(task, n)
+        why: str | None = downloads.shell_stop(task)
+        if why is not None:
+            self._journal().append("shell.download_stopped", {"task_id": task, "why": why})
+        return why
+
     def _shell_destination(self, proc: str, host: str, port: int) -> None:
         """A shell process's first connection to a host and port, journaled as it happens (from a proxy thread), so a
         crash before the final record (`_shell_network`) still leaves where the command went."""

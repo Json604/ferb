@@ -120,6 +120,10 @@ class EvidenceStore:
             pass
         return len(gone)
 
+    def stored_file(self, rel: str | None) -> Path | None:
+        """A row's file, only when it resolves inside the store (FERB.app's "What FERB saw" reads it from there)."""
+        return self._inside(rel)
+
     def _inside(self, rel: str | None) -> Path | None:
         """The row's file, only when it resolves inside the store (symlinks followed); else None."""
         if not rel:

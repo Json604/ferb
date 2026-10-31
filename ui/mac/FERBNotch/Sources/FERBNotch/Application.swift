@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: PanelCoordinator?
     private let appSetup = AppSetupController()
     private var ferbWindow: FERBWindowController?
+    private var seenWindow: SeenWindowController?
     private var loginItems: LoginItemController?
     private var updates: UpdateCoordinator?
     private var sparkle: SparkleUpdater?
@@ -90,6 +91,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             coordinator.onOpenWindow = { [window] in window.show(.tasks) }
             coordinator.onOpenSettings = { [window] in window.show(.settings) }
             coordinator.model.onOpenMemory = { [window] source in window.showMemory(importedFrom: source) }
+            let seen = SeenWindowController(rpc: coordinator.model.rpc)       // step 12e: What FERB saw
+            coordinator.model.onShowSeen = { [seen] scope in seen.show(scope) }
+            seenWindow = seen
             ferbWindow = window
         }
         coordinator?.start()

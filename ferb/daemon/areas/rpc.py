@@ -166,7 +166,7 @@ class Rpc:
             "ui.click_through": self._ui_click_through, "ps.send": self._ps_send,
             "about.get": self._about_get, "about.guide": self._about_guide, "secrets.saved": self._secrets_saved,
             "secrets.delete": self._secrets_delete, "identity.find": self._identity_find,
-            "identity.choose": self._identity_choose
+            "identity.choose": self._identity_choose, "seen.list": self._seen_list, "seen.image": self._seen_image
         }
         streams: dict[str, Any] = {
             "notifications.subscribe": self._notifications_subscribe, "logs.subscribe": self._logs,

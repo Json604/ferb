@@ -39,12 +39,13 @@ Keychain items.
   without moving your cursor or bringing the app forward. If a task really needs the foreground, FERB asks first.
 - **Browse** in Chromium browsers (Chrome, Brave, Edge, Chromium and their channels) through the FERB extension. It
   works in background tabs, grouped per task, in your paired profiles or in FERB's own. Downloads go to FERB's
-  workspace, never through a Save dialog.
+  workspace, never through a Save dialog. A task may download up to 300 files and 32 GB in all (browser and terminal
+  together), and FERB always leaves 10 GB free on the disk.
 - **Run terminal commands and change files** inside a sandbox. FERB keeps a copy of a file before it changes it, moves
   files to the Trash instead of deleting them, and can take a disk snapshot before bulk work. Settings → Data →
   Restore undoes these.
 - **See what you see**: with each message, FERB looks at your front window (a redacted screenshot), so "what does this
-  mean?" works.
+  mean?" works. "What FERB saw" under a message (and Settings → Data) shows those screenshots as FERB's AI got them.
 - **Hear an app** during a task (a video, a call recording): the sound is transcribed on your Mac and deleted once
   transcribed.
 - **Keep going over time**: reminders, schedules (with an end date if you give one), timers, watches ("tell me when

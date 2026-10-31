@@ -65,6 +65,10 @@ to commit c6621c3. S = supervisor.py, M = main.py.
     becomes active at the Mac (idle → active / wake), instead of polling; a scheduled run that did nothing posts nothing
     (as watches already do). (Evidence: "remind me everyday whenever I'm on my mac" became a run every 15 minutes, 14
     runs and "nothing to report" messages on 10-30.)
+    Clarified by the owner, 2026-10-31: "on my Mac" means the Mac coming back into use: lid opened / wake from
+    sleep, screen unlocked, login or restart. Not input idleness: watching a film without touching anything is
+    still being at the Mac, and no keyboard/mouse quiet time counts as away. (Step 14b used 2 min without input;
+    to be changed to these signals; the paused-task mention of decision 13 uses the same signal.)
 18. **Restart rule kept, narrow** (decision 10 clarified, 2026-10-30): it applies only to messages sent before FERB's
     first reply to the previous one; FERB restarts once and reads both (related → folded in, unrelated → both answered);
     later messages wait their turn. Once FERB has replied, a running task is unaffected and new messages are normal

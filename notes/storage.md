@@ -202,6 +202,10 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
   Mac), a table beside `timers`, re-runnable, rows going with their timer (ON DELETE CASCADE, so retention's timer purge
   takes them); no owner data moved or deleted. A schedule's `when_active` rides in its existing `rule_json` (older rules
   read as false).
+- (Step 12e) Migration 0059 adds `shell_downloads` (notes/hands.md decision 7: a task tree's bytes received by its
+  shell commands through the egress proxy, one row per tree, counted beside its browser downloads against the 32 GB
+  budget). A new table; no owner data moved or deleted; its rows go with their task as operational records
+  (retention `_BY_TASK`).
 
 ## Rulings (step 12a, technical)
 - Retention lives in ferb/store/retention.py; the daemon's area only runs it hourly. Reads that scan (the intake

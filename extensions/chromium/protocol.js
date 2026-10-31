@@ -5,7 +5,9 @@
 // records (adopt_tab, hello `tabs`, `taken`), card fields secret, read errors known failures (READ_OPS).
 // Protocol 19 (extension 0.17.0, hands decision 5): FERB's tabs muted (`open`/`adopt_tab` `muted`, `mute_tab`), sound
 // back when a tab becomes the owner's, and `sound` tab events.
-const FERB_PROTOCOL = 19;
+// Protocol 20 (extension 0.18.0, hands decision 7): download parts of 512 KiB sent whole, `popup_refused` (a popup past
+// the task's tab cap is closed while blank), and every dropped page save reported (`count`).
+const FERB_PROTOCOL = 20;
 const FERB_HOST = "com.ferb.native_host";
 
 // Reads: commands that never change the page. One failing (a timeout, a frame gone, a page the browser won't let FERB
@@ -41,8 +43,10 @@ const EDIT_COMMANDS = new Set(["selectAll", "copy", "cut", "paste", "undo", "red
 
 // Downloads (D35): document responses in a tab FERB drives pause at the response stage, so one that is a download is
 // held (never handed to the browser's download flow, so no Save dialog) and read in parts of DOWNLOAD_PART bytes:
-// at most 96000 base64 characters, under the 100000-character single-result line (result_parts).
-const DOWNLOAD_PART = 72000;
+// 512 KiB, about 700,000 base64 characters, sent whole (background.js never splits a download_part reply into result
+// parts), under the native host's 1 MiB message (Chrome takes up to 64 MiB from the extension to the host). Ruling (step
+// 12e): 72,000-byte parts, one round trip each, held a browser download to a few GB under the old 10-minute ceiling.
+const DOWNLOAD_PART = 512 * 1024;
 const DOWNLOAD_PATTERNS = [{ urlPattern: "*", resourceType: "Document", requestStage: "Response" }];
 const _only = (p, keys) => Object.keys(p).length === keys.length && keys.every((k) => k in p);
 
@@ -329,7 +333,7 @@ const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
-             "adopt_tab", "mute_tab"];
+             "adopt_tab", "mute_tab", "popup_refused"];
 
 // Whether a key press puts text into the focused field (a character without ⌘/⌃/⌥, Space, or a paste): such a press
 // into a secret field is refused, as typing is; Return, Tab, Escape, arrows and other shortcuts still go (notes/hands.md

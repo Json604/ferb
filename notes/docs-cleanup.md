@@ -78,8 +78,9 @@ moved into the area notes.
    source stays supported.
 3. **Download limits** (0.27_PLAN.md D35, 2026-10-09): 512 MB per download, 50 files and 4 GB per task, 50 new tabs per
    task, a 20 GB downloads folder whose oldest files go to the Trash only past it, a 10 GB free-disk floor, no
-   time-based clearing; a browser download never opens a Save dialog. In code (`ferb/act/browser/downloads.py`,
-   `ferb/config.py`), not in notes (CLAUDE.md rule 18: caps are owner decisions).
+   time-based clearing; a browser download never opens a Save dialog. Settled 2026-10-31: notes/hands.md decision 7
+   (no per-file cap, 300 files / 32 GB per task, shell downloads under the same budget and floor) replaces the
+   per-download and per-task values and records the rest as unchanged.
 4. **Clipboard and other agents** (0.27_PLAN.md D36, 2026-10-07: "no, let it do this"): FERB may write the clipboard and
    may approve another agent's prompts.
 5. **Desktop changes are stated as facts, never blame** (0.27_PLAN.md D35/P26, 2026-10-09: "i dont want this hardcoded

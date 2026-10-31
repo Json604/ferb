@@ -32,7 +32,7 @@ from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID, PROTOCOL_VERSION
 ORIGIN = f"chrome-extension://{FERB_EXTENSION_ID}/"
 EXTENSION_VERSION = json.loads((Path(__file__).parents[1] / "extensions" / "chromium" / "manifest.json").read_text())["version"]
 SHOT_PART = 600000
-DOWNLOAD_PART = 72000                                     # raw bytes per download_part, as protocol.js DOWNLOAD_PART
+DOWNLOAD_PART = 512 * 1024                                # raw bytes per download_part, as protocol.js DOWNLOAD_PART
 
 
 def page(url: str) -> dict[str, Any]:
@@ -141,6 +141,9 @@ class FakeExtension:
         self.plain_opens: list[dict[str, Any]] = []        # links given back to the browser as ordinary tabs
         self.popup_targets: dict[int, str] = {}            # claimed popup -> the URL its page will load
         self.popups_ready: list[int] = []                  # popup_ready commands received
+        self.popups_refused: list[int] = []                # popup_refused: closed while blank (past the tab cap)
+        self.download_empty_parts = 0                      # this many parts come back empty first (a stalled stream)
+        self.download_part_hook: Any = None                # called before each part is read (tests: a fake clock)
         self.open_seen: list[str] = []                     # open_seen answers received (open ids)
         self.expire_opens = False                          # True: the ~1 s wait ran out before the daemon answered
         self.nav_refuse: set[str] = set()                  # navigating here: the tab couldn't be armed (D35)
@@ -490,6 +493,14 @@ class FakeExtension:
             self.tabs[a["tab_id"]] = self.popup_targets.pop(a["tab_id"])
         return {"ready": True}
 
+    def op_popup_refused(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """Past the task's tab cap: the claimed popup is closed while still blank (protocol 20)."""
+        self.popups_refused.append(a["tab_id"])
+        self.popup_targets.pop(a["tab_id"], None)
+        self.armed.discard(a["tab_id"])
+        self.tabs.pop(a["tab_id"], None)
+        return {"closed": True, "tab_id": a["tab_id"]}
+
     def op_disarm(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self.disarmed.append(a["tab_id"])
         self.armed.discard(a["tab_id"])
@@ -511,7 +522,12 @@ class FakeExtension:
             return {"aborted": True}
         if self.download_part_delay:
             time.sleep(self.download_part_delay)
+        if self.download_part_hook is not None:
+            self.download_part_hook()
         data, offset = self.held_downloads[did], int(a["offset"])
+        if self.download_empty_parts > 0:                  # nothing arrived for this part (the stream stalled)
+            self.download_empty_parts -= 1
+            return {"data": "", "offset": offset, "eof": False}
         if self.download_fail_at is not None and offset >= self.download_fail_at:
             self.held_downloads.pop(did)
             raise RuntimeError("the response stream broke")

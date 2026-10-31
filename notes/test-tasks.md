@@ -40,13 +40,16 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       FERB is under Login Items → Allow in the Background; `launchctl print gui/$UID/com.ferb.daemon` shows the app's
       plist path; `ps` shows `-m ferb.daemon`; `~/.ferb/service.json` names the build; the daemon's cwd is `~/.ferb`;
       `logs/daemon.err.log` receives output. [daemon.md 12b]
-- [ ] First start on the new build: migrations 0049–0058 applied, `store.upgraded` and memory upgrade records once, no
+- [ ] First start on the new build: migrations 0049–0059 applied, `store.upgraded` and memory upgrade records once, no
       `retention.failed`; the first hourly pass journals `retention.purged` and `trail.purged`. [storage.md]
 - [ ] Daemon start journals no `runtime.codex_problem`; a run starts without a `codex --version` process. [runtimes.md]
 - [ ] Jev stays off after the upgrade even with a key present. [daemon.md decision 9]
-- [ ] Reload the browser extension once in each paired profile (protocol 19, extension 0.17.0: tab groups, card fields,
-      signing, muted FERB tabs and sound events); `ferb doctor` / `ferb browsers` show the version and "connected".
-      [hands.md 5c, 14b]
+- [ ] Reload the browser extension once in each paired profile (protocol 20, extension 0.18.0: tab groups, card fields,
+      signing, muted FERB tabs and sound events, 512 KiB download parts, capped popups closed, dropped saves counted);
+      `ferb doctor` / `ferb browsers` show the version and "connected". [hands.md 5c, 14b, 12e]
+- [ ] Config upgrade: the journal has one `config.upgraded` for `download-limits-2026-10-31`; config.toml has no
+      `download_max_mb` / `*_mb` download keys, and has `download_task_max_files = 300`, `download_task_max_gb = 32`,
+      `download_total_gb = 20`, `download_min_free_gb = 10`. [hands.md 12e]
 - [ ] One-time clean-up: the owner runs `ferb setup --cleanup`, reads the list, then `ferb setup --cleanup --ok
       <digest>` (or Settings → Data → Clean up). The daemon stops and comes back (`launchctl kill`, registration kept),
       `store.cleaned` and `store.compacted` are journaled, the file is near 1.7 GB, `ferb doctor` ✓ database, Health's
@@ -136,6 +139,11 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       indicator (PanelCoordinator, FerbIndicator, PanelResizeOverlay): each responds; any that doesn't gets the
       self-managed tracking-area pattern. [hands.md]
 
+- [ ] What FERB saw: the notch's "What FERB saw" under a message lists the front window as it was sent (time, site,
+      title) and the task's screenshots, each shown redacted; Settings → Data → What FERB saw lists the last 7 days,
+      newest first; an app added to the exclusion list disappears from both; a terminal client calling `seen.list` gets
+      "FERB.app only". [daemon.md 12e]
+
 ### Sitting 4: live preview
 - [ ] Preview A/B: the same browser task with the preview open vs closed: daemon CPU and call durations from
       `resource_samples.work_json.preview`; no `daemon.slow_call` for previews. [preview.md]
@@ -161,6 +169,18 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
 - [ ] Shell scope + snapshots: a task on `~/Downloads` ("Downlods") states the folder in the plan line and changes
       only there; a change outside asks; FERB's snapshot covers it. [hands.md decision 4]
 - [ ] One read question per protected folder per task ("Let FERB read your Chrome …"). [hands.md decision 1]
+- [ ] Downloads (hands decision 7) on kartikey.xyz with the request-logging server: a disposable 2 GB file over a
+      throttled link (slower than the old 10 minutes) is taken whole into FERB's downloads folder, no question, no
+      size refusal; a link that stalls (the server stops sending) fails as "stalled" after about a minute. "Put it in my
+      Downloads": the file is moved there (FERB's folder no longer holds a second copy). [hands.md 12e]
+- [ ] Shell downloads: with `browser.download_task_max_gb` set low for the test (e.g. 0.5), "download <disposable
+      1 GB file> with curl": the command is stopped near 0.5 GB, the reply says FERB stopped it at the task's download
+      budget, the journal has `shell.download_stopped`; a browser download in the same task is then refused for the
+      budget. Reset the setting after. [hands.md 12e]
+- [ ] Tab cap: with `browser.task_max_tabs` set to 3 for the test, a kartikey.xyz page with several target=_blank links
+      and a window.open button: past 3 open FERB tabs nothing new opens (no plain tab, nothing in ~/Downloads), the
+      result says so; closing one lets the next open. A page that saves 30 blobs at once: the facts add up to 10 dropped.
+      Reset the setting after. [hands.md 12e]
 - [ ] Bot check: a page behind "Verify you are human": the worker reads `browser_verification` (`abilities.read`) and
       tries the visible check; if it still blocks, one notification and the exact tab comes forward; after the owner
       passes it FERB carries on. [hands.md decision 6]

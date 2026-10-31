@@ -8,7 +8,7 @@ Aged out:
 - spans: a task tree's 30 days (`retention.trace_days`) after it ended, and only once its permanent episode exists
   (the daemon builds a missing one first); spans tied to no task 30 days after they started;
 - operational records (`retention.operational_days`, 90) after their task or timer ended: the action ledger,
-  confirmations, plans and their steps, loop state, delivered or cancelled timers and their deliveries, and the
+  confirmations, plans and their steps, loop state, a tree's shell download count, delivered or cancelled timers and their deliveries, and the
   journal's operational kinds (`OPERATIONAL_KINDS`). A record whose task isn't in the task list counts from its own
   last write; a journal row a memory fact cites is kept;
 - Jev decisions after `retention.decision_days` (30);
@@ -57,7 +57,7 @@ _LIVE = ("SELECT id FROM tasks WHERE parent_id IS NULL AND (status IN ('running'
          "OR updated_at >= :cutoff)")
 # (table, the column naming its task or tree, its own last-write column or None): records that go with their task
 _BY_TASK = (("action_ledger", "task_id", "updated_at"), ("confirmations", "tree_id", "at"),
-            ("loop_state", "task_id", "updated_at"))
+            ("loop_state", "task_id", "updated_at"), ("shell_downloads", "tree_id", "at"))
 # What goes with a deleted row: (dependent table, its column, the parent's column it names)
 DEPENDENTS: dict[str, tuple[tuple[str, str, str], ...]] = {
     "task_plans": (("plan_steps", "task_id", "task_id"),),

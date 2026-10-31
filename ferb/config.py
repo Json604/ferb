@@ -32,6 +32,17 @@ FERB_WRITTEN = {("browser", "download_max_mb"): (100, 512), ("browser", "downloa
                 ("browser", "download_task_max_mb"): (500, 4096), ("browser", "download_total_mb"): (2048, 20480),
                 ("browser", "task_max_tabs"): (20, 50)}
 RETIRED = (("retention", "download_days"),)
+# Hands decision 7 (owner, 2026-10-31) replaces 2026-10-09's download limits: no size cap per file (the key goes: an old
+# config still setting it is never read), 300 files and 32 GB per task tree (50 files and 4 GB before), and every
+# limit in decimal GB, as Finder shows it (ruling, step 12e: the MB keys were binary, the free-disk floor decimal). A
+# key holding the 2026-10-09 value takes the new one; an owner's own MB value is kept, converted to GB.
+DOWNLOADS_DECIDED = "download-limits-2026-10-31"
+DOWNLOAD_FILES = (("browser", "download_task_max_files"), 50, 300)
+DOWNLOAD_MB_TO_GB = {("browser", "download_task_max_mb"): ("download_task_max_gb", 4096),
+                     ("browser", "download_total_mb"): ("download_total_gb", 20480)}
+DOWNLOAD_RETIRED = (("browser", "download_max_mb"),)
+# The owner's decisions applied to config.toml once each, in this order, each journaled (`config.upgraded`).
+UPGRADES = (LIMITS_DECIDED, DOWNLOADS_DECIDED)
 
 
 class InsecureConfig(FerbError):
@@ -166,6 +177,44 @@ class Config:
             self.save(doc)
         return changed
 
+    def upgrade(self, name: str) -> list[dict[str, Any]]:
+        """One of UPGRADES, by name (the daemon applies each once and journals what it changed)."""
+        return self.upgrade_ferb_written() if name == LIMITS_DECIDED else self.upgrade_downloads()
+
+    def upgrade_downloads(self) -> list[dict[str, Any]]:
+        """Hands decision 7 (DOWNLOADS_DECIDED), all or nothing in one atomic write: the per-file key goes; the files
+        limit still at 2026-10-09's 50 becomes 300; each MB key goes, and an owner's own value (anything but
+        2026-10-09's) carries over to its GB key, converted (MiB to decimal GB). Returns what changed."""
+        doc = self.load()
+        changed: list[dict[str, Any]] = []
+        tbl = doc.get("browser")
+        if tbl is None:
+            return changed
+        (_, key), old, new = DOWNLOAD_FILES
+        if tbl.get(key) == old:
+            tbl[key] = new
+            changed.append({"key": f"browser.{key}", "from": old, "to": new})
+        for (_, key), (gb_key, decided) in DOWNLOAD_MB_TO_GB.items():
+            value = tbl.get(key)
+            if value is None:
+                continue
+            value = getattr(value, "unwrap", lambda: value)()
+            del tbl[key]
+            changed.append({"key": f"browser.{key}", "from": value, "to": None})
+            if value != decided and isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                gb = round(value * 1024 * 1024 / 1000 ** 3, 3)
+                changed.append({"key": f"browser.{gb_key}", "from": tbl.get(gb_key), "to": gb})
+                tbl[gb_key] = gb
+        for _, key in DOWNLOAD_RETIRED:
+            value = tbl.get(key)
+            if value is not None:
+                del tbl[key]
+                changed.append({"key": f"browser.{key}", "from": getattr(value, "unwrap", lambda: value)(),
+                                "to": None})
+        if changed:
+            self.save(doc)
+        return changed
+
     def exclude_apps(self) -> frozenset[str]:
         return frozenset(self.get("privacy", "exclude_apps", DEFAULT_EXCLUDE_APPS))
 
@@ -182,8 +231,8 @@ class Config:
                                     ("retention", "trace_days", 30), ("retention", "decision_days", 30),
                                     ("retention", "evidence_days", 7), ("retention", "recovery_days", 7),
                                     ("retention", "resource_days", 30), ("retention", "operational_days", 90),
-                                    ("browser", "download_max_mb", 512), ("browser", "download_task_max_files", 50),
-                                    ("browser", "download_task_max_mb", 4096), ("browser", "download_total_mb", 20480),
+                                    ("browser", "download_task_max_files", 300),
+                                    ("browser", "download_task_max_gb", 32), ("browser", "download_total_gb", 20),
                                     ("browser", "download_min_free_gb", 10), ("browser", "task_max_tabs", 50),
                                     ("protection", "never_read", list(DEFAULT_NEVER_READ)),
                                     ("protection", "never_write", list(DEFAULT_NEVER_WRITE)),

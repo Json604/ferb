@@ -471,7 +471,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
   else if (m && m.ferbDownload && sender && sender.tab)
     reply(pageDownload(sender.tab.id, sender.frameId || 0, m.ferbDownload, sender.documentId));
   else if (m && m.ferbDropped && sender && sender.tab)
-    pageDropped(sender.tab.id, sender.frameId || 0, sender.documentId, m.ferbDropped.name);
+    pageDropped(sender.tab.id, sender.frameId || 0, sender.documentId, m.ferbDropped.name, m.ferbDropped.count);
   else if (m && m.ferbOpen && sender && sender.tab) {           // answered once the daemon has (or after ~1 s)
     pageOpen(sender.tab.id, m.ferbOpen).then(reply, () => reply(false));
     return true;
@@ -545,7 +545,8 @@ async function executeCommand(m) {
     : nothingSent || read ? "failed" : "unknown";
   body.outcome = outcome;
   await mutateSession(s => {if (Object.hasOwn(s.seen, m.id)) s.seen[m.id] = outcome;});
-  if (body.status === "ok" && m.op !== "result_part") {
+  // download_part's data (DOWNLOAD_PART bytes, base64) goes whole: well under the host's 1 MiB message (protocol 20)
+  if (body.status === "ok" && m.op !== "result_part" && m.op !== "download_part") {
     // ASCII JSON avoids splitting a Unicode scalar across native-message chunks.
     const serialized = JSON.stringify(body.value ?? null).replace(/[\u0080-\uffff]/g,c=>"\\u"+c.charCodeAt(0).toString(16).padStart(4,"0"));
     if (serialized.length > 100000) {
@@ -1072,20 +1073,43 @@ function pageDownload(tabId, frameId, d, documentId) {
   return true;
 }
 
-// Saves a page made past the hold caps (here or content.js's own) are dropped: neither taken nor the browser's. The
-// worker hears of it as a refused download: one fact per document per minute, not one per dropped save.
+// Saves a page made past the hold caps (here or content.js's own) are dropped: neither taken nor the browser's. Every
+// one is reported, never silently (protocol 20): the first of a document's at once, then those that follow within the
+// minute together in one event at its end (`count`), so a flood is a few facts, not one per save. content.js may
+// report several at once (`count`). A tab no task drives any more (its document was let go of) has no one to tell.
 const DROP_FACT_MS = 60000, DROP_DOCS_MAX = 200;
-const dropFacts = new Map();         // document (tab/documentId, else tab/frame) -> when its last fact was sent
-function pageDropped(tabId, frameId, documentId, name) {
+const dropFacts = new Map();         // document (tab/documentId, else tab/frame) -> {at, pending, name, timer}
+function dropEvent(tabId, name, count) {
+  send("event", { event: "download", tab_id: tabId, uncaptured: true, detail: "dropped", source: "page",
+                  name: String(name || "").slice(0, 1024), count });
+}
+function pageDropped(tabId, frameId, documentId, name, count = 1) {
   const t = TABS.get(tabId);
+  const n = Number.isSafeInteger(count) && count > 0 ? count : 1;
   if (!t || !t.armed || !port) return;
   const key = `${tabId}/${documentId || "frame-" + frameId}`, now = Date.now(), last = dropFacts.get(key);
-  if (last !== undefined && now - last < DROP_FACT_MS) return;
+  if (last && now - last.at < DROP_FACT_MS) {          // within the minute: told together at its end
+    last.pending += n;
+    last.name = last.name || name;
+    if (!last.timer) last.timer = setTimeout(() => {
+      const entry = dropFacts.get(key);
+      if (!entry) return;
+      entry.timer = null;
+      if (entry.pending > 0) { dropEvent(tabId, entry.name, entry.pending); entry.pending = 0; entry.at = Date.now(); }
+    }, DROP_FACT_MS - (now - last.at));
+    return;
+  }
+  if (last && last.timer) clearTimeout(last.timer);
+  if (last && last.pending > 0) dropEvent(tabId, last.name, last.pending);
   dropFacts.delete(key);
-  dropFacts.set(key, now);
-  if (dropFacts.size > DROP_DOCS_MAX) dropFacts.delete(dropFacts.keys().next().value);
-  send("event", { event: "download", tab_id: tabId, uncaptured: true, detail: "dropped", source: "page",
-                  name: String(name || "").slice(0, 1024) });
+  dropFacts.set(key, { at: now, pending: 0, name: null, timer: null });
+  if (dropFacts.size > DROP_DOCS_MAX) {                 // the oldest document's waiting count is told now, not lost
+    const [oldKey, old] = dropFacts.entries().next().value;
+    if (old.timer) clearTimeout(old.timer);
+    if (old.pending > 0) dropEvent(Number(oldKey.split("/")[0]), old.name, old.pending);
+    dropFacts.delete(oldKey);
+  }
+  dropEvent(tabId, name, n);
 }
 
 // A task tab's link to a new tab (target=_blank, a modifier or middle click): FERB's daemon opens it itself, blank and
@@ -1520,6 +1544,19 @@ const commands = {
     t.popupFor = null;
     const told = await chrome.tabs.sendMessage(f.opener, { ferbPopupReady: f.token }, { frameId: f.frameId });
     return { ready: true, told: told === true };
+  },
+  // Past the task's tab cap (protocol 20): the daemon won't make this claimed popup the task's, so it is closed while
+  // still blank (about:blank#ferb-<token>, nothing loaded), never left to load as an ordinary tab whose downloads would
+  // skip every limit. Only a popup this worker claimed for a task tab (popupFor) is ever closed here.
+  async popup_refused({ tab_id }) {
+    const t = TABS.get(tab_id);
+    if (!t || !t.popupFor) return { closed: false, reason: "not_a_claimed_popup" };
+    t.popupFor = null;
+    await dropDownloads(tab_id);
+    TABS.delete(tab_id);
+    try { await chrome.debugger.detach({ tabId: tab_id }); } catch (_) { /* already gone */ }
+    try { await chrome.tabs.remove(tab_id); } catch (_) { return { closed: false, reason: "gone" }; }
+    return { closed: true, tab_id };
   },
   // The daemon holds no live task tab here (a failed release, a restart): stop holding its downloads, never close it.
   async disarm({ tab_id }) {

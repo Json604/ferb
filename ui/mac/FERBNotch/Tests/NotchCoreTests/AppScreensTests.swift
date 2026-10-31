@@ -144,4 +144,53 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(lines.first?.name, "Database")
         XCTAssertEqual(lines.first?.ok, false)
     }
+
+    // MARK: What FERB saw (step 12e)
+
+    func testWhatFerbSawReadsTheDaemonsCapturesNewestFirst() {
+        let list = SeenList(["captures": [
+            ["id": "e2", "at": "2026-10-31T10:00:05.123456+00:00", "kind": "screenshot", "task_id": "t1",
+             "app": "Notes", "site": "", "title": "", "tool": "mac.screenshot"],
+            ["id": "e1", "at": "2026-10-31T10:00:00+00:00", "kind": "front_window", "task_id": "r1",
+             "app": "Google Chrome", "site": "docs.example", "title": "Quarterly plan"],
+            ["kind": "screenshot"]],                                         // no id: skipped
+            "total": 5, "days": 7])
+        XCTAssertEqual(list.captures.map(\.id), ["e2", "e1"])
+        XCTAssertEqual(list.captures[1].label, "docs.example — Quarterly plan")    // the site, then the page
+        XCTAssertEqual(list.captures[0].label, "Notes")                            // no site: the app
+        XCTAssertEqual(list.captures[1].what, "Your front window when you sent it")
+        XCTAssertNotNil(list.captures[0].at)
+        XCTAssertNotNil(list.captures[1].at)
+        XCTAssertEqual(list.moreLine, "Showing the newest 2 of 5.")
+        XCTAssertNil(SeenList(["captures": [], "total": 0]).moreLine)
+        XCTAssertEqual(SeenList([:]).days, 7)
+    }
+
+    func testWhatFerbSawAsksForAMessagesOrATasksScreenshots() {
+        XCTAssertEqual(SeenScope(requestID: "r1", taskID: "t1"), .request("r1"))   // a message: by its request
+        XCTAssertEqual(SeenScope(requestID: nil, taskID: "t1"), .task("t1"))       // a task this chat didn't send
+        XCTAssertNil(SeenScope(requestID: "", taskID: nil))
+        XCTAssertEqual(SeenScope.request("r1").params["request_id"] as? String, "r1")
+        XCTAssertEqual(SeenScope.task("t1").params["task_id"] as? String, "t1")
+        XCTAssertTrue(SeenScope.all.params.isEmpty)
+    }
+
+    func testWhatFerbSawLoadsTheListThenEachImageOnce() async {
+        let rpc = ScriptedRPC()
+        rpc.replies["seen.list"] = ["captures": [["id": "e1", "kind": "front_window", "app": "Mail"]], "total": 1]
+        let pixel = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8,
+                                     samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                     bytesPerRow: 0, bitsPerPixel: 0)
+        let png = pixel?.representation(using: .png, properties: [:]) ?? Data()
+        rpc.replies["seen.image"] = ["id": "e1", "image": png.base64EncodedString()]
+        let model = SeenModel(rpc: rpc, scope: .request("r1"))
+        await model.load()
+        XCTAssertEqual(model.list?.captures.map(\.id), ["e1"])
+        XCTAssertEqual(rpc.params(of: "seen.list").first?["request_id"] as? String, "r1")
+        let capture = model.list!.captures[0]
+        await model.image(capture)
+        await model.image(capture)
+        XCTAssertEqual(rpc.params(of: "seen.image").count, 1)
+        XCTAssertEqual(rpc.params(of: "seen.image").first?["id"] as? String, "e1")
+    }
 }

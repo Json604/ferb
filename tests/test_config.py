@@ -69,12 +69,33 @@ def test_missing_config_is_empty_and_first_write_creates_it_0600(tmp_path: Path)
 
 
 def test_fresh_defaults_are_the_owners_limits_with_no_time_based_download_clearing(home: Path) -> None:
+    """Hands decision 7 (2026-10-31): no per-file cap, 300 files and 32 GB per task; decimal GB throughout."""
     c = Config(home)
     c.ensure_privacy_defaults()
-    keys = ("download_max_mb", "download_task_max_files", "download_task_max_mb", "download_total_mb",
-            "download_min_free_gb", "task_max_tabs")
-    assert [c.get("browser", k) for k in keys] == [512, 50, 4096, 20480, 10, 50]
+    keys = ("download_task_max_files", "download_task_max_gb", "download_total_gb", "download_min_free_gb",
+            "task_max_tabs")
+    assert [c.get("browser", k) for k in keys] == [300, 32, 20, 10, 50]
+    assert c.get("browser", "download_max_mb") is None and c.get("browser", "download_task_max_mb") is None
     assert c.get("retention", "download_days") is None
+
+
+def test_the_2026_10_31_download_decision_replaces_the_old_values_and_keeps_an_owners_own(home: Path) -> None:
+    """An older config (the 2026-10-09 values FERB wrote): the per-file key goes, 50 files becomes 300, the MB keys go;
+    an owner's own MB value carries over in decimal GB. All journaled as changes."""
+    c = Config(home)
+    for key, value in (("download_max_mb", 512), ("download_task_max_files", 50), ("download_task_max_mb", 4096),
+                       ("download_total_mb", 8192)):                  # 8192 MB: the owner's own folder budget
+        c.set("browser", key, value)
+    c.ensure_privacy_defaults()
+    changes = c.upgrade_downloads()
+    assert c.get("browser", "download_max_mb") is None and c.get("browser", "download_task_max_files") == 300
+    assert c.get("browser", "download_task_max_mb") is None and c.get("browser", "download_task_max_gb") == 32
+    assert c.get("browser", "download_total_mb") is None and c.get("browser", "download_total_gb") == 8.59
+    assert {"key": "browser.download_max_mb", "from": 512, "to": None} in changes
+    assert {"key": "browser.download_task_max_files", "from": 50, "to": 300} in changes
+    assert c.upgrade_downloads() == []                              # nothing left to change
+    c.set("browser", "download_task_max_files", 80)                  # the owner's own value afterwards stays
+    assert c.upgrade_downloads() == [] and c.get("browser", "download_task_max_files") == 80
 
 
 def test_the_limits_ferb_wrote_take_the_decided_values_and_an_owner_value_stays(home: Path) -> None:
@@ -102,18 +123,18 @@ def test_the_daemon_applies_the_limits_decision_once_and_journals_it() -> None:
     async def upgraded(d: Any) -> list[dict[str, Any]]:
         return [e.data for e in d.daemon.journal.of_kind("config.upgraded", "upgrade", LIMITS_DECIDED)]
     try:
-        Config(base / "home").set("browser", "download_max_mb", 100)          # what F4's daemon wrote
+        Config(base / "home").set("browser", "task_max_tabs", 20)             # what F4's daemon wrote
         d = RunningDaemon(base / "home")
         try:
-            assert d.daemon.config.get("browser", "download_max_mb") == 512
+            assert d.daemon.config.get("browser", "task_max_tabs") == 50
             [row] = d.run(upgraded(d))
-            assert {"key": "browser.download_max_mb", "from": 100, "to": 512} in row["changes"]
-            d.daemon.config.set("browser", "download_max_mb", 100)            # now the owner's own choice
+            assert {"key": "browser.task_max_tabs", "from": 20, "to": 50} in row["changes"]
+            d.daemon.config.set("browser", "task_max_tabs", 20)               # now the owner's own choice
         finally:
             d.stop()
         d = RunningDaemon(base / "home")
         try:
-            assert d.daemon.config.get("browser", "download_max_mb") == 100    # never replaced again
+            assert d.daemon.config.get("browser", "task_max_tabs") == 20       # never replaced again
             assert len(d.run(upgraded(d))) == 1
         finally:
             d.stop()

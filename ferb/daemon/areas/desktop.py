@@ -318,6 +318,7 @@ class Desktop:
                                        "task_id": task, "rule": grant.rule, "command": grant.command,
                                        "cwd": grant.cwd, "confirmation": grant.confirmation_id}),
                                    reports=self.direct_reports, local_refused=self._local_refused)
+        self.shells.on_received = self._shell_received   # hands decision 7: the tree's download budget and the floor
         if contained is not None:
             add_shell(self.registry, self.shells, self.protection)
         else:
