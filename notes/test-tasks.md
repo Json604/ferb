@@ -32,6 +32,27 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       (and `tests/test_packaging.py`) fail on HEAD. FERB.app must build before sitting 1. [step 14a finding]
 - [ ] Checkout validation on the final commit: `nice -n 10 uv run pytest -q`, `uv run mypy ferb/core`,
       `git diff --check` (the safety suite). [tests.md]
+- [ ] Fresh start (owner, 2026-11-01: "every old ferb build removed … except its data … i wanna start fresh"), done
+      once the new FERB.app is built, right before installing it (the running 10-28 build stays until then). Inventory
+      taken 2026-11-01, read-only. Delete:
+      - `/Applications/FERB.app` (quit the notch app; boot out `com.ferb.daemon`), `~/Library/LaunchAgents/com.ferb.daemon.plist`,
+        `~/.local/bin/ferb`;
+      - in `~/.ferb`: `venv`, `python`, `node`, `bin`, `FERB.app`, `extensions`, `run`, `cache`, `logs`, `device`,
+        `.ferb-home`, `com.ferb.daemon.plist.bak-20261031`, `extension-requests.json`, and (owner: "delete both")
+        `config.toml`, `codex-home`, `codex-user`, `claude-home`;
+      - FERB's native-host files `com.ferb.native_host.json` in Chrome, Brave and Arc (the owner then removes the broken
+        extension entry in each browser);
+      - `~/Library`: `Caches/com.ferb.FERB`, `HTTPStorages/com.ferb.FERB*`, `Preferences/com.ferb.FERB.plist`,
+        `Preferences/dev.ferb.notch.plist`, `Application Support/FERB Notch`, CrashReporter `FERB*`, the old Safari spike's
+        `Containers/com.ferb.spike5*` and `Application Scripts/com.ferb.spike5*`, and the test-run leftovers
+        `Preferences/FERBNotchTests-*`, `ferb-login-*`, `ferb-update-*` (~11,000 files);
+      - macOS permissions: `tccutil reset All com.ferb.FERB` (owner: reset);
+      - old builds in the checkout: `ui/mac/FERBNotch/build`, `ui/mac/FERBNotch/.build`, `macapp/FERB/build`,
+        `spikes/17_voice_audio/build`, `build/store/*.zip`.
+      Keep (the owner's data): `~/.ferb/ferb.db` (+ `-wal`, `-shm`), `memory`, `workspace`, `evidence`, `exports`,
+      `recovery`, `reports`, `activity`, `changes`, `watch`, `baselines`, `regression`, `owner-secret-handles.json`, the
+      saved secrets in the Keychain, and the September database `~/Library/Application Support/ferb/ferb.db` (+
+      `identity.json`). Before deleting, list again (anything new since 2026-11-01 is shown to the owner first).
 
 ### Sitting 1: build, install, upgrade
 - [ ] Build FERB.app (`source scripts/swiftpm-anonymous.sh; SIGN_IDENTITY=release scripts/build-app.sh --arch arm64
