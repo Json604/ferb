@@ -11,24 +11,26 @@ public struct IntroNeeds: Equatable {
     public var signedIn: Bool
     public var missingPermissions: [String]
     public var unpairedBrowsers: Bool
+    /// This is the install's first run (set by the launch wiring), not inferred from the other needs.
+    public var firstRun: Bool
 
-    public init(setupDone: Bool, signedIn: Bool, missingPermissions: [String], unpairedBrowsers: Bool) {
+    public init(setupDone: Bool, signedIn: Bool, missingPermissions: [String], unpairedBrowsers: Bool, firstRun: Bool) {
         self.setupDone = setupDone
         self.signedIn = signedIn
         self.missingPermissions = missingPermissions
         self.unpairedBrowsers = unpairedBrowsers
+        self.firstRun = firstRun
     }
 }
 
 public enum IntroPlan {
-    /// The beats this install gets. A finished setup gets none unless replayed (replay is the whole tour). A new install
-    /// (nothing open is done yet) gets every beat; an upgrade gets only the beats for what is missing, then home.
+    /// The beats this install gets. A finished setup gets none unless replayed (replay is the whole tour). A first run gets
+    /// every beat; an upgrade gets only the beats for what is missing, then home.
     /// FERB's own email (identity) is offered whenever browsers are.
     public static func beats(_ needs: IntroNeeds, replay: Bool) -> [IntroBeat] {
         if replay { return IntroBeat.allCases }
+        if needs.firstRun { return IntroBeat.allCases }
         if needs.setupDone { return [] }
-        let fresh = !needs.signedIn && !needs.missingPermissions.isEmpty && needs.unpairedBrowsers
-        if fresh { return IntroBeat.allCases }
         var plan: [IntroBeat] = []
         if !needs.signedIn { plan.append(.signIn) }
         if !needs.missingPermissions.isEmpty { plan.append(.permissions) }
@@ -37,6 +39,7 @@ public enum IntroPlan {
         return plan
     }
 
+    /// Plans are in beat order.
     public static func next(after beat: IntroBeat, in plan: [IntroBeat]) -> IntroBeat? {
         plan.first { $0.rawValue > beat.rawValue }
     }

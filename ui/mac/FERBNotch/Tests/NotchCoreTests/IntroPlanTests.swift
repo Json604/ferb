@@ -6,20 +6,38 @@ final class IntroPlanTests: XCTestCase {
                         "notifications", "microphone", "hearing", "clipboard"]
 
     func testNewInstallGetsEveryBeatInOrder() {
-        let needs = IntroNeeds(setupDone: false, signedIn: false, missingPermissions: all8, unpairedBrowsers: true)
+        let needs = IntroNeeds(setupDone: false, signedIn: false, missingPermissions: all8, unpairedBrowsers: true, firstRun: true)
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), IntroBeat.allCases)
     }
 
     func testFinishedSetupGetsNoTourUnlessReplayed() {
-        let needs = IntroNeeds(setupDone: true, signedIn: true, missingPermissions: [], unpairedBrowsers: false)
+        let needs = IntroNeeds(setupDone: true, signedIn: true, missingPermissions: [], unpairedBrowsers: false, firstRun: false)
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), [])
         XCTAssertEqual(IntroPlan.beats(needs, replay: true), IntroBeat.allCases)
     }
 
     func testMissingGrantsOnlyGetsThePermissionsBeatAndHome() {
         let needs = IntroNeeds(setupDone: false, signedIn: true, missingPermissions: ["screen_recording"],
-                               unpairedBrowsers: false)
+                               unpairedBrowsers: false, firstRun: false)
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), [.permissions, .home])
+    }
+
+    func testFirstRunGetsEveryBeatEvenIfAlreadySignedIn() {
+        let needs = IntroNeeds(setupDone: false, signedIn: true, missingPermissions: [], unpairedBrowsers: false,
+                               firstRun: true)
+        XCTAssertEqual(IntroPlan.beats(needs, replay: false), IntroBeat.allCases)
+    }
+
+    func testSignedOutOnlyGetsSignInAndHome() {
+        let needs = IntroNeeds(setupDone: false, signedIn: false, missingPermissions: [], unpairedBrowsers: false,
+                               firstRun: false)
+        XCTAssertEqual(IntroPlan.beats(needs, replay: false), [.signIn, .home])
+    }
+
+    func testNothingMissingAndNotFirstRunGetsNoBeats() {
+        let needs = IntroNeeds(setupDone: false, signedIn: true, missingPermissions: [], unpairedBrowsers: false,
+                               firstRun: false)
+        XCTAssertEqual(IntroPlan.beats(needs, replay: false), [])
     }
 
     func testNextSkipsToTheFollowingBeatOfThePlan() {
@@ -33,9 +51,15 @@ final class IntroPlanTests: XCTestCase {
         addTeardownBlock { Self.removeScratchSuite(suite) }
         var first = IntroProgress(defaults: UserDefaults(suiteName: suite)!)
         first.resumeBeat = .permissions
+        first.done = true
         var second = IntroProgress(defaults: UserDefaults(suiteName: suite)!)
         XCTAssertEqual(second.resumeBeat, .permissions)
+        XCTAssertTrue(second.done)
         second.clear()
         XCTAssertNil(second.resumeBeat)
+        XCTAssertFalse(second.done)
+        let third = IntroProgress(defaults: UserDefaults(suiteName: suite)!)
+        XCTAssertNil(third.resumeBeat)
+        XCTAssertFalse(third.done)
     }
 }
