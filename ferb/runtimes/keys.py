@@ -1,6 +1,6 @@
 """Owns the provider API keys FERB keeps in the Keychain (D32). Must not log, store or return them anywhere else.
 
-Service "ferb", account "api/<provider>". `ferb setup --key <provider>` stores one (the `security` tool prompts for it, so
+Service "ferb", account "api/<provider>". FERB.app's Settings → AI stores one (the `security` tool prompts for it, so
 it is never an argument); runtimes read it at call time and the daemon adds it to its redactor."""
 
 import asyncio

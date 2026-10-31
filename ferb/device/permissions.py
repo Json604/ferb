@@ -183,8 +183,10 @@ def check_all() -> dict[str, str]:
 
 # ---------- L34 C: the setup window's rows (also `ferb setup`) ----------
 
-REQUIRED = ("accessibility", "screen_recording", "full_disk_access")      # FERB can't act on the Mac without these
-DAEMON_PERMISSIONS = (*REQUIRED, "input_monitoring")
+# Every FERB permission is needed and none is ever labelled optional (owner, 2026-10-26): setup lists them all with
+# one Allow all; Automation is asked per app at first use. `required` stays on the rows for older apps (always true).
+DAEMON_PERMISSIONS = ("accessibility", "screen_recording", "full_disk_access", "input_monitoring")
+SETUP_VERSION = 27                      # `[setup] permissions_version` once every permission was granted
 REQUESTABLE = frozenset({"accessibility", "screen_recording", "input_monitoring", "clipboard", "hearing"})
 # a new grant of these reaches a running process only after it restarts (Screen Recording: CGPreflight… stays false;
 # Input Monitoring likewise on a friend's Macs, 2026-10-27; Full Disk Access may need it too): the window restarts the
@@ -223,27 +225,47 @@ def rows(grants: dict[str, str], containment: dict[str, Any],
     "voice" is FERB Voice, included only when its hearing probe was asked for."""
     ready = fda_ready(containment)
     out: list[dict[str, Any]] = [
-        {"id": p, "status": grants.get(p, Status.UNKNOWN.value), "process": "daemon", "required": p in REQUIRED,
+        {"id": p, "status": grants.get(p, Status.UNKNOWN.value), "process": "daemon", "required": True,
          "pane": pane_url(p), "requestable": p in REQUESTABLE, "restart_to_check": p in RESTART_TO_CHECK,
          "blocked": "" if p != "full_disk_access" or ready else FDA_WAITS}
         for p in DAEMON_PERMISSIONS]
     if hearing is not None:
         status, blocked = hearing_row_status(hearing)
-        out.append({"id": "hearing", "status": status, "process": "voice", "required": False,
+        out.append({"id": "hearing", "status": status, "process": "voice", "required": True,
                     "pane": pane_url("hearing"), "requestable": True, "restart_to_check": False, "blocked": blocked})
     return out
 
 
 def clipboard_row(state: str | None) -> dict[str, Any]:
-    """I3 as an optional setup row (owner decision 2, 2026-10-25): whether macOS lets the daemon read the clipboard
+    """I3 as a setup row (owner decision 2, 2026-10-25; needed like every other): whether macOS lets the daemon read the clipboard
     without asking, from the pasteboard's accessBehavior (never its contents). "default": macOS hasn't asked yet, so
     Grant lets it ask once (`setup.permission_request {permission: "clipboard"}`); "ask" and "deny" need FERB set to
     Allow in Paste from Other Apps; "unrestricted" is macOS before 15.4."""
     status = {"allow": Status.GRANTED.value, "unrestricted": Status.GRANTED.value,
               "default": Status.NOT_DETERMINED.value, "ask": Status.DENIED.value,
               "deny": Status.DENIED.value}.get(state or "", Status.UNKNOWN.value)
-    return {"id": "clipboard", "status": status, "process": "daemon", "required": False, "pane": pane_url("clipboard"),
+    return {"id": "clipboard", "status": status, "process": "daemon", "required": True, "pane": pane_url("clipboard"),
             "requestable": state == "default", "restart_to_check": False, "blocked": ""}
+
+
+def missing(rows: Iterable[dict[str, Any]]) -> list[tuple[str, str]]:
+    """(id, status) of every row not granted: setup is done only when this is empty (the setup window's Done and
+    `ferb setup` both use it; `[setup] permissions_version` is never written otherwise)."""
+    return [(str(r["id"]), str(r["status"])) for r in rows if r["status"] != Status.GRANTED.value]
+
+
+def report_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """The daemon's own rows from a `doctor.check` reply asked with `hearing: true`: its four grants, FERB Voice's
+    Speech Recognition and the clipboard (FERB.app's own Notifications and Microphone are the app's to check)."""
+    grants = {p: str(report.get("permissions", {}).get(p, Status.UNKNOWN.value)) for p in DAEMON_PERMISSIONS}
+    return rows(grants, report.get("containment") or {}, report.get("hearing") or {}) + [
+        clipboard_row(report.get("clipboard"))]
+
+
+def record_done(config: Any) -> None:
+    """Setup recorded as done (only once `missing` is empty); a later version is never lowered."""
+    current = int(config.get("setup", "permissions_version", 0) or 0)
+    config.set("setup", "permissions_version", max(SETUP_VERSION, current))
 
 
 def _request_screen_capture() -> None:

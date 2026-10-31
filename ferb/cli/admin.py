@@ -131,34 +131,6 @@ def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False, 
     return 0
 
 
-def stop(client: Client, out: TextIO) -> int:
-    r = client.call("stop.engage")
-    print(f"FERB stopped: {r['tokens_revoked']} run token(s) revoked. "
-          "`ferb resume-tasks` lifts it.", file=out)
-    for name, err in r.get("hook_errors", {}).items():
-        print(f"  warning: stop hook {name} failed ({err})", file=out)
-    return 0
-
-
-def resume(client: Client, out: TextIO) -> int:
-    client.call("stop.lift")
-    print("FERB resumed: actions are allowed again.", file=out)
-    return 0
-
-
-def pause(client: Client, out: TextIO) -> int:
-    client.call("sense.pause")
-    print("FERB paused: every watcher is stopped and nothing is recorded; FERB won't use the real mouse / keyboard "
-          "until `ferb resume`.", file=out)
-    return 0
-
-
-def sense_resume(client: Client, out: TextIO) -> int:
-    r = client.call("sense.resume")
-    print(f"FERB is watching again ({', '.join(r['watchers']) or 'no watchers running'}).", file=out)
-    return 0
-
-
 INSTALL_WAIT_S = 300
 
 
@@ -213,7 +185,7 @@ def browsers(client: Client, cmd: str | None, profile: str | None, browser: str 
     for p in r["profiles"]:
         if p["ferb_identity"]:                            # FERB opens its own profile when a task needs it
             if not p["paired"]:
-                state = "FERB's own profile, not paired yet (`ferb setup --identity`)"
+                state = "FERB's own profile, not paired yet"
             elif p["connected"]:
                 state = "FERB's own profile, connected" + (f", extension {p['version']}" if p["version"] else "")
             else:
@@ -247,14 +219,6 @@ def ps(client: Client, out: TextIO) -> int:
         print(f"{p['id']}  {state}{bg}  task {p['owner_task']}  {p['command'][:80]}", file=out)
     return 0
 
-
-def kill(client: Client, proc_id: str, out: TextIO) -> int:
-    ok = client.call("ps.kill", {"id": proc_id})["killed"]
-    print("Stopped." if ok else f"No process {proc_id}.", file=out)
-    return 0 if ok else 1
-
-
-# ---------- memory ----------
 
 from ferb.memory.items import LABELS as ORIGIN
 
@@ -338,116 +302,6 @@ def memory(client: Client, args: Any, ask: Any, out: TextIO) -> int:
     return 0
 
 
-def timeline(client: Client, since: str | None, out: TextIO) -> int:
-    for e in client.call("timeline.get", {"since": since} if since else {})["entries"]:
-        d = e["data"]
-        if e["kind"] == "trail.day_summary":
-            text = (f"day {d.get('day')}: {d.get('events', 0)} events; apps "
-                    + ", ".join(f"{k} {v}m" for k, v in list(d.get("apps_min", {}).items())[:5]))
-        elif e["kind"] == "trail.day_narrative":
-            text = f"day {d.get('day')}: {d.get('text', '')}"
-        elif e["kind"] in ("chat.message", "chat.reply"):
-            text = str(d.get("text", ""))[:160]
-        elif e["kind"] == "task.outcome":
-            text = f"{status_label(d.get('status'))}: {str(d.get('summary', ''))[:160]}"
-        elif e["kind"] == "config.upgraded":            # every change in full: the owner audits what FERB rewrote
-            changes = "; ".join(f"{c.get('key')} {c.get('from')} → {'removed' if c.get('to') is None else c.get('to')}"
-                                for c in d.get("changes") or [])
-            text = f"{d.get('upgrade')}: {changes or 'settings already current'}"
-        else:
-            text = ", ".join(f"{k}={v}" for k, v in d.items())[:160]
-        print(f"{e['at'][:16].replace('T', ' ')}  {e['kind']:<22} {text}", file=out)
-    return 0
-
-
-# ---------- Jev ----------
-
-def reminders(client: Client, action: str, rid: str | None, out: TextIO) -> int:
-    if action == "cancel":
-        if not rid:
-            print("usage: ferb reminders cancel <id>", file=out)
-            return 2
-        client.call("reminders.cancel", {"id": rid})
-        print(f"Cancelled {rid}.", file=out)
-        return 0
-    from datetime import datetime
-    pending = client.call("reminders.list")["pending"]
-    for t in pending:
-        at = datetime.fromisoformat(t["at"]).astimezone()
-        print(f"  {t['id']}  {at:%a %d %b %H:%M}  {t['kind']:<8} {t['message']}", file=out)
-    if not pending:
-        print("  (no pending reminders)", file=out)
-    return 0
-
-
-def device(home: Any, action: str, connect: Any, out: TextIO) -> int:
-    """The device profile (read locally), with live browser status from the daemon when it runs."""
-    from ferb.config import Config
-    from ferb.device.profile import ProfileStore, diff
-    from ferb.device.scan import scan
-    did = Config(home).get("device", "id")
-    if not did:
-        print("No device profile yet: run `ferb setup`.", file=out)
-        return 1
-    store = ProfileStore(home)
-    if action == "scan":
-        changed = store.save(scan(str(did)), "ferb device scan")
-        print("Rescanned: " + ("the profile changed (committed)." if changed else "no changes."), file=out)
-    p = store.load(str(did))
-    if p is None:
-        print("No device profile yet: run `ferb setup`.", file=out)
-        return 1
-    print(f"{p.os} {p.os_version} · scanned {p.scanned_at} · {len(p.apps)} apps, "
-          f"{sum(a.scriptable for a in p.apps)} scriptable", file=out)
-    d = diff(p, scan(p.device_id)) if action != "scan" else None
-    if d is not None and not d.empty:
-        print(f"  since then: {len(d.added)} added, {len(d.removed)} removed, {len(d.changed)} changed "
-              "(`ferb device scan`)", file=out)
-    live: dict[str, list[str]] = {}
-    try:
-        c = connect()
-        for pr in c.call("browsers.list")["profiles"]:
-            if pr["paired"]:
-                state = "connected" if pr["connected"] else "paired, not connected"
-                who = "FERB's identity" if pr.get("ferb_identity") else "owner"
-                live.setdefault(pr["browser"], []).append(f"{pr['name']} ({who}, {state})")
-        c.close()
-    except Exception:
-        pass
-    print("Browsers:", file=out)
-    for b in p.browsers:
-        print(f"  {b.name}: " + "; ".join(f"{k} — {v}" for k, v in b.drivers.items()), file=out)
-        for line in live.get(b.name, []):
-            print(f"      {line}", file=out)
-    return 0
-
-
-# ---------- schedules ----------
-
-def schedules(client: Client, action: str, sid: str | None, out: TextIO) -> int:
-    if action != "list":
-        if not sid:
-            print(f"usage: ferb schedules {action} <id>", file=out)
-            return 2
-        print(client.call("schedules.change", {"id": sid, "action": action})["text"], file=out)
-        return 0
-    from datetime import datetime
-    from ferb.orchestrator.schedules import WATCH_SAID, until_said
-    rows = client.call("schedules.list")["schedules"]
-    for r in rows:
-        nxt = datetime.fromisoformat(r["next_run"]).astimezone().strftime("%a %d %b %H:%M") if r["next_run"] else "-"
-        watch = WATCH_SAID.get(r.get("watch") or "none", "")          # a watch says which kind it is
-        ends = until_said(datetime.fromisoformat(r["until"])) if r.get("until") else ""   # decision 22
-        extra = (f", {ends}" if ends else "") + (f" ({watch})" if watch else "") + \
-            (f", failed {r['failures']}x in a row" if r["failures"] else "")
-        print(f"  {r['id']}  {r['state']:<7} {r['rule']:<28} next {nxt}  {r['request']}{extra}", file=out)
-    if not rows:
-        print("  (no schedules)", file=out)
-    return 0
-
-
-# ---------- restore (S1) ----------
-
 REASONS = {"overwrite": "overwrote", "edit": "edited", "trash": "moved to Trash",
            "trash-unverified": "moved to Trash", "trash copy": "Trash copy"}   # L39: the copy kept beside a trash
 
@@ -497,115 +351,6 @@ def restore(client: Client, rid: str | None, out: TextIO) -> int:
         print(f"  {shown_id}  {at}  {what:<14}  {_shown(row['original'])}{gone}", file=out)
     print("Put one back: ferb restore <id>", file=out)
     return 0
-
-
-def baseline(home: Any, out: TextIO) -> int:
-    """Capture the numbers every milestone is compared against into ~/.ferb/baselines/<ISO8601>.json. Read-only
-    against the database, so it works whether or not the daemon runs."""
-    import sqlite3
-    from datetime import timezone
-    from pathlib import Path as _P
-    root = _P(str(home))
-    db = root / "ferb.db"
-    if not db.exists():
-        print(f"no database at {db}", file=out)
-        return 1
-
-    def pct(num: int, den: int) -> int:
-        return (100 * num // den) if den else 0
-
-    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    try:
-        # V4: done (every condition verified), done but not confirmed (done_unverified) and failed are counted apart;
-        # done % counts only done. The JSON keys (`unverified`, `unverified_pct`) stay for data compatibility.
-        requests, done, unverified, failed, verified = c.execute(
-            "SELECT COUNT(*), COALESCE(SUM(status = 'done'), 0), COALESCE(SUM(status = 'done_unverified'), 0), "
-            "COALESCE(SUM(status = 'failed'), 0), COALESCE(SUM(json_extract(outcome_json, '$.verified') = 1), 0) "
-            "FROM tasks WHERE parent_id IS NULL").fetchone()
-        owner_verdicts, owner_pass = c.execute(
-            "SELECT COUNT(*), COALESCE(SUM(verdict = 'pass'), 0) FROM ("
-            "SELECT v.verdict FROM owner_verdicts v JOIN tasks t ON t.id = v.task_id AND t.parent_id IS NULL "
-            "WHERE v.seq = (SELECT MAX(seq) FROM owner_verdicts WHERE task_id = v.task_id))").fetchone()
-        calls, errors = c.execute("SELECT COUNT(*), COALESCE(SUM(error IS NOT NULL), 0) FROM spans "
-                                  "WHERE kind = 'tool.call'").fetchone()
-        runs = {kind: {"n": n, "avg_s": avg or 0} for kind, n, avg in c.execute(
-            "SELECT kind, COUNT(*), ROUND(AVG((julianday(ended_at) - julianday(started_at)) * 86400), 1) "
-            "FROM spans WHERE kind IN ('model.turn', 'worker') GROUP BY kind")}
-        cached, total_in = c.execute(
-            "SELECT COALESCE(SUM(json_extract(output_json, '$.cached_input_tokens')), 0), "
-            "COALESCE(SUM(json_extract(output_json, '$.input_tokens')), 0) "
-            "FROM spans WHERE kind = 'model.usage'").fetchone()
-        avg_bytes = c.execute("SELECT AVG(LENGTH(input_json) + LENGTH(COALESCE(output_json, ''))) "
-                              "FROM spans").fetchone()[0]
-        avg_task = c.execute(
-            "SELECT AVG((julianday(updated_at) - julianday(created_at)) * 86400) FROM tasks WHERE parent_id IS NULL "
-            "AND status IN ('done', 'done_unverified', 'failed', 'needs_user', 'cancelled', 'interrupted', 'unknown', "
-            "'skipped')"
-        ).fetchone()[0]
-        questions = c.execute("SELECT COUNT(*) FROM journal WHERE kind IN ('approval.resolved', 'chat.clarify')"
-                              ).fetchone()[0]
-        latency = _latency(c)
-    except sqlite3.OperationalError as e:
-        if "no such table" not in str(e):
-            raise
-        print("ferb: this database is older than FERB 0.27 F0; start the daemon once to migrate it, then retry",
-              file=out)
-        return 1
-    finally:
-        c.close()
-    captured = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    data = {"captured_at": captured, "days": "all", "requests": requests, "done": done,
-            "done_pct": pct(done, requests), "unverified": unverified, "unverified_pct": pct(unverified, requests),
-            "failed": failed, "failed_pct": pct(failed, requests),
-            "verified": verified, "verified_pct": pct(verified, requests),
-            "owner_verdicts": owner_verdicts, "owner_pass": owner_pass, "tool_calls": calls,
-            "tool_errors": errors, "model_runs": runs, "avg_task_s": round(avg_task or 0, 1),
-            "owner_questions": questions, "cache_pct": pct(cached, total_in),
-            "avg_trace_bytes": int(avg_bytes or 0), "latency_s": latency}
-    target = root / "baselines" / f"{captured}.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(data, indent=2) + "\n")
-    print(str(target), file=out)
-    return 0
-
-
-# What each journal row is for a message's timeline (L8). An answer is the first reply, question or task answer.
-TIMELINE = {"chat.ack": "ack", "chat.message": "message", "chat.plan": "plan", "chat.reply": "answer",
-            "chat.clarify": "answer", "task.answer": "answer"}
-
-
-def _latency(c: Any) -> dict[str, dict[str, Any]]:
-    """L8: seconds from a message's arrival (its ack's `received_at`; its `chat.message` row when it has no ack) to
-    its ack, its plan line and its first answer, and the context building from `chat.message` to its first planner
-    turn. Only requests with a chat message count, so scheduled runs are left out."""
-    import statistics
-    seen: dict[str, dict[str, datetime]] = {}
-    rows = c.execute("SELECT kind, at, json_extract(data_json, '$.request_id'), json_extract(data_json, "
-                     "'$.received_at') FROM journal WHERE kind IN (" + ",".join("?" * len(TIMELINE)) + ") ORDER BY seq",
-                     tuple(TIMELINE))
-    for kind, at, request_id, received in rows:
-        if request_id:
-            times = seen.setdefault(str(request_id), {})
-            times.setdefault(TIMELINE[kind], datetime.fromisoformat(at))
-            if received:
-                times.setdefault("received", datetime.fromisoformat(received))
-    for request_id, started in c.execute(
-            "SELECT json_extract(input_json, '$.request_id'), MIN(started_at) FROM spans WHERE kind = 'model.turn' "
-            "AND json_extract(input_json, '$.role') = 'supervisor' GROUP BY 1"):
-        if request_id in seen:
-            seen[request_id]["planner"] = datetime.fromisoformat(started)
-    spans: dict[str, list[float]] = {"ack": [], "plan": [], "answer": [], "context": []}
-    for times in seen.values():
-        if "message" not in times:
-            continue
-        arrived = times.get("received", times["message"])
-        for name in ("ack", "plan", "answer"):
-            if name in times:
-                spans[name].append((times[name] - arrived).total_seconds())
-        if "planner" in times:
-            spans["context"].append((times["planner"] - times["message"]).total_seconds())
-    return {name: {"n": len(values), "avg_s": round(statistics.fmean(values), 3) if values else 0,
-                   "median_s": round(statistics.median(values), 3) if values else 0} for name, values in spans.items()}
 
 
 def stats(home: Any, out: TextIO, days: int = 7) -> int:

@@ -9,9 +9,10 @@
 # The app holds: the notch UI as its main executable; FERB's own Python (uv's relocatable standalone CPython, pinned
 # below) with the ferb package and its locked dependencies; the agent app FERB (Helpers/FERB.app: a native stub that
 # embeds that Python and runs the daemon, so macOS names FERB in permission prompts); the `ferb` launcher; the pinned
-# Codex; the secret helper; and the voice helper built from macapp/FERB (nested until it merges into the main app).
-# First launch installs the daemon from inside the app (ferb/device/install.py). Env: SIGN_IDENTITY (default "-",
-# ad-hoc) and, for a Developer ID, the notary credentials described in signing.sh.
+# Codex; the secret helper; the local embedding model; the background service's definition (Contents/Library/
+# LaunchAgents, registered by the app with SMAppService); and the voice helper built from macapp/FERB (nested until it
+# merges into the main app). First launch sets the daemon up from inside the app (ferb/device/install.py).
+# Env: SIGN_IDENTITY (default "-", ad-hoc) and, for a Developer ID, the notary credentials described in signing.sh.
 set -euo pipefail
 ROOT="${0:A:h:h}"
 source "$ROOT/scripts/swiftpm-anonymous.sh"      # SwiftPM fetches anonymously: never the owner's keychain
@@ -160,6 +161,20 @@ xcrun clang -O2 -arch "$ARCH" -mmacosx-version-min=14.2 -ffile-prefix-map="$ROOT
   -I"$PY_SRC/include/python$PY_MINOR" "$ROOT/ui/mac/FERBAgent/main.c" "$PYHOME/lib/libpython$PY_MINOR.dylib" \
   -Wl,-rpath,@executable_path/../../../../Resources/python/lib -o "$AGENT/Contents/MacOS/FERB"
 strip -S "$AGENT/Contents/MacOS/FERB"
+
+print "==> Background service definition (FERB.app registers it with SMAppService; notes/daemon.md decision 2)"
+SERVICE="$CONTENTS/Library/LaunchAgents/com.ferb.daemon.plist"     # ferb/device/install.py BUNDLE_SERVICE
+mkdir -p "${SERVICE:h}"
+cp "$ROOT/ui/mac/FERBAgent/com.ferb.daemon.plist" "$SERVICE"
+plist "Set :EnvironmentVariables:FERB_APP_BUILD $BUILD" "$SERVICE"
+plutil -lint "$SERVICE" >/dev/null || die "the service definition isn't a valid plist"
+
+print "==> Local embedding model (potion-base-8M, MIT; pinned revision and SHA-256s: ferb/memory/embeddings.py)"
+# Fetched once into the build cache with its hashes checked, then copied in, so a new install needs no download
+"$PY" -I -B -c 'import sys; from pathlib import Path; from ferb.memory.embeddings import default_root, download
+download(default_root(Path(sys.argv[1])))' "$WORK" || die "the embedding model couldn't be fetched"
+mkdir -p "$CONTENTS/Resources/models"                               # ferb/device/install.py BUNDLE_MODELS
+ditto "$WORK/models/embeddings" "$CONTENTS/Resources/models/embeddings"
 
 print "==> ferb command"
 cat > "$CONTENTS/Resources/bin/ferb" <<'EOF'

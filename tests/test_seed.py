@@ -1,15 +1,12 @@
 """FERB's identity profile (section 8 step 3, safety test 20) against a fake Chrome data folder: only a profile
 holding exactly FERB's account is accepted, the owner confirms it, nothing is copied, cookies are never read."""
 
-import io
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from ferb.cli.setup import Env, identity_setup
-from ferb.config import Config
 from ferb.identity.seed import ChromeProfile, SeedError, choose, profiles, verify
 
 ADDR = "ferb.test@gmail.com"
@@ -60,40 +57,3 @@ def test_cookie_and_password_stores_are_never_opened(tmp_path: Path, monkeypatch
     monkeypatch.setattr(Path, "read_text", spy)
     verify(ADDR, "Profile 22", root)
     assert set(opened) <= {"Local State", "Preferences"}
-
-
-class FakeInst:
-    def __init__(self, home: Path) -> None:
-        self.home = home
-
-
-class FakeClient:
-    def call(self, method: str, params: Any = None) -> dict[str, Any]:
-        if method == "identity.pair":
-            return {"paired": True, "profile": "Profile 22"}
-        assert method == "identity.check"
-        return {"address": ADDR, "profile": "Profile 22", "profile_ok": True, "profile_name": "FERB",
-                "error": None, "session": True, "paired": True, "secrets": []}
-
-    def close(self) -> None:
-        pass
-
-
-def env(tmp_path: Path, answers: list[str]) -> tuple[Env, io.StringIO]:
-    home = tmp_path / "home"
-    out = io.StringIO()
-    return Env(FakeInst(home), lambda: FakeClient(), lambda _q: answers.pop(0), out), out  # type: ignore[arg-type]
-
-
-def test_identity_setup_confirms_and_records_the_profile_copying_nothing(tmp_path: Path) -> None:
-    root = chrome_data(tmp_path, {"Default": ("Me", ["owner@gmail.com"]), "Profile 22": ("FERB", [ADDR])})
-    e, out = env(tmp_path, [ADDR, "y", ""])                              # "" = Enter after loading the extension
-    assert identity_setup(e, chrome_data=root) == 0
-    assert "“FERB” (folder Profile 22)" in out.getvalue() and "Paired “FERB” as FERB's identity" in out.getvalue()
-    cfg = Config(tmp_path / "home")
-    assert cfg.get("identity", "profile") == "Profile 22" and cfg.get("mailbox", "address") == ADDR
-    assert not (tmp_path / "home" / "chrome").exists()          # nothing copied
-    e2, out2 = env(tmp_path, ["n"])
-    cfg.set("identity", "profile", "")
-    assert identity_setup(e2, chrome_data=root) == 1 and "Not recorded" in out2.getvalue()
-    assert not cfg.get("identity", "profile")

@@ -237,18 +237,16 @@ def limits_for(ferb_home: Path, model: str) -> ModelLimits:
     from ferb.runtimes.openai_api import LIMITS, LIMITS_SOURCE
     found = _catalog(ferb_home)
     if found is None:
-        raise ModelLimitsUnknown("Codex's model catalog isn't available: the pinned Codex didn't print one; run "
-                                 "`ferb setup --update`")
+        raise ModelLimitsUnknown("Codex's model catalog isn't available: the pinned Codex didn't print one")
     data, label = found
     entry = next((m for m in _models(data) or [] if isinstance(m, dict) and m.get("slug") == model), None)
     window = entry.get("context_window") if entry else None
     percent = entry.get("effective_context_window_percent") if entry else None
     if not isinstance(window, int) or window <= 0 or not isinstance(percent, (int, float)) or not 0 < percent <= 100:
-        raise ModelLimitsUnknown(f"Codex's model catalog ({label}) reports no context window for {model!r}; choose a "
-                                 "model Codex lists in config.toml [models] codex")
+        raise ModelLimitsUnknown(f"Codex's model catalog ({label}) reports no context window for {model!r}")
     if model not in LIMITS:
-        raise ModelLimitsUnknown(f"OpenAI documents no max output FERB knows for {model!r}; choose one of "
-                                 f"{sorted(LIMITS)} in config.toml [models] codex")
+        raise ModelLimitsUnknown(f"OpenAI documents no max output FERB knows for {model!r}; the ones it knows: "
+                                 f"{', '.join(sorted(LIMITS))}")
     return ModelLimits(model, int(window * percent / 100), LIMITS[model][1],
                        f"Codex {CODEX_VERSION} model catalog ({label}): context_window {window} x "
                        f"effective_context_window_percent {percent}; max output: {LIMITS_SOURCE}; max input "
@@ -270,7 +268,7 @@ def codex_binary(ferb_home: Path, repo: Path | None = None) -> Path:
         p = root / _NATIVE_BIN
         if p.exists():
             return p
-    raise Unsupported("pinned Codex not installed: run `ferb setup --update` (or `npm install` in the repo)")
+    raise Unsupported("FERB's pinned Codex isn't installed: set FERB up again")
 
 
 async def check_version(binary: Path) -> None:

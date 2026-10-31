@@ -144,7 +144,7 @@ def test_rows_name_whose_grant_and_the_exact_pane() -> None:
     assert rows["screen_recording"]["pane"] == PANE + "Privacy_ScreenCapture"
     assert rows["full_disk_access"]["pane"] == PANE + "Privacy_AllFiles"
     assert rows["input_monitoring"]["pane"] == PANE + "Privacy_ListenEvent"
-    assert [i for i, r in rows.items() if r["required"]] == ["accessibility", "screen_recording", "full_disk_access"]
+    assert all(r["required"] for r in rows.values())                 # every permission is needed, none optional
     assert [i for i, r in rows.items() if r["requestable"]] == ["accessibility", "screen_recording", "input_monitoring"]
     # Input Monitoring too (2026-10-27): a friend's switch never ticked until the service restarted
     assert [i for i, r in rows.items() if r["restart_to_check"]] == ["screen_recording", "full_disk_access",
@@ -174,7 +174,7 @@ def test_hearing_row_is_ferb_voices_and_only_when_probed() -> None:
     assert "FERB Voice" in str(hearing(installed=False)["blocked"])
     row = hearing(installed=True, signed=True, speech="denied")
     assert row["process"] == "voice" and row["pane"] == PANE + "Privacy_SpeechRecognition"
-    assert row["requestable"] and not row["required"]
+    assert row["requestable"] and row["required"]
     assert all(r["id"] != "hearing" for r in P.rows({}, {}))
 
 
@@ -186,7 +186,7 @@ def test_clipboard_row_says_whether_macos_lets_ferb_read_what_you_copy() -> None
     assert row("ask")["status"] == row("deny")["status"] == "denied"                  # the owner sets Allow in the pane
     assert not row("ask")["requestable"] and row(None)["status"] == "unknown"
     assert row("default")["pane"] == PANE + "Privacy_Pasteboard"
-    assert row("default")["process"] == "daemon" and not row("default")["required"] and row("default")["blocked"] == ""
+    assert row("default")["process"] == "daemon" and row("default")["required"] and row("default")["blocked"] == ""
 
 
 def test_app_panes_name_ferb_app_itself() -> None:

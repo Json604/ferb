@@ -58,7 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.loginItems = loginItems
             actions.loginItems = loginItems
             // Uninstall unregisters macOS's login item first; `ferb uninstall` then removes the fallback file
-            actions.beforeUninstall = { [loginItems] in loginItems.removeForUninstall() }
+            actions.beforeUninstall = { [loginItems, appSetup] in
+                loginItems.removeForUninstall()
+                appSetup.unregisterService()              // macOS stops listing FERB's background service
+            }
             appSetup.onSettled = { [loginItems, weak coordinator] in
                 loginItems.applyDefaultAfterSetup()
                 coordinator?.model.noteUpdate()               // "Updated to <version>", once per new build

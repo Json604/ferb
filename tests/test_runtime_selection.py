@@ -71,7 +71,7 @@ def test_use_warns_when_the_runtime_is_not_usable_yet(tmp_path: Path, monkeypatc
     out = io.StringIO()
     assert runtimes_cli.use(tmp_path / "home", "orchestrator", "openai", None, out) == 0      # configuring ahead is allowed
     assert Config(tmp_path / "home").get("runtimes", "orchestrator") == "openai"
-    assert "openai isn't usable on this Mac yet: run `ferb setup --key openai`. The orchestrator will fail" in out.getvalue()
+    assert "openai isn't usable on this Mac yet: FERB has no openai API key: add one in Settings → AI. The orchestrator will fail" in out.getvalue()
     monkeypatch.setattr(keys, "has_api_key", lambda provider: True)
     out = io.StringIO()
     runtimes_cli.use(tmp_path / "home", "orchestrator", "openai", None, out)
@@ -112,18 +112,18 @@ def test_status_lists_each_runtime_and_what_each_role_uses(tmp_path: Path, monke
     rows = {r["name"]: r for r in out["runtimes"]}
     assert out["roles"] == {"orchestrator": "codex", "worker": "codex", "checker": "codex"}
     assert set(rows) == set(CATALOG)
-    assert rows["codex"]["usable"] is False and "codex-login" in rows["codex"]["fix"]   # FERB's own Codex not signed in
+    assert rows["codex"]["usable"] is False and "sign in to ChatGPT" in rows["codex"]["fix"]   # FERB's own Codex not signed in
     assert rows["openai"]["usable"] is True and rows["anthropic"]["usable"] is False
     assert rows["codex"]["model"] == CATALOG["codex"].default_model
     # Claude: only with FERB's own sign-in AND a model (no default, no fallback to the owner's ~/.claude)
-    assert rows["claude"]["usable"] is False and "claude-login" in rows["claude"]["fix"]
+    assert rows["claude"]["usable"] is False and "sign in to Claude in Settings" in rows["claude"]["fix"]
     (tmp_path / "codex-home").mkdir()
     (tmp_path / "codex-home" / "auth.json").write_text("{}")
     from ferb.runtimes.claude_login import mark
     mark(tmp_path)
     rows = {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}
     assert rows["codex"]["usable"] is True
-    assert rows["claude"]["usable"] is False and rows["claude"]["signed_in"] is True and "--model" in rows["claude"]["fix"]
+    assert rows["claude"]["usable"] is False and rows["claude"]["signed_in"] is True and "no model is chosen" in rows["claude"]["fix"]
     Config(tmp_path).set("models", "claude", "opus")
     assert {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}["claude"]["usable"] is True
 
@@ -162,7 +162,7 @@ def test_choose_your_ai_switches_every_role_and_journals_it(daemon: RunningDaemo
     finally:
         client.close()
     assert reply == {"roles": {"orchestrator": "anthropic", "worker": "anthropic", "checker": "anthropic"},
-                     "usable": False, "fix": "run `ferb setup --key anthropic`"}
+                     "usable": False, "fix": "FERB has no anthropic API key: add one in Settings → AI"}
     assert status["roles"]["worker"] == "anthropic"
     assert daemon.daemon._runtime_for("orchestrator") == "anthropic"
 

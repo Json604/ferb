@@ -90,6 +90,32 @@ class Journal:
             params += ["$." + field, missing, equals]
         return [_entry(r) for r in self._db.conn.execute(sql + " ORDER BY seq", params)]
 
+    def recent_values(self, kind: str, field: str, limit: int) -> list[Any]:
+        """One field of a kind's newest `limit` rows, newest first (e.g. the last acks said)."""
+        return [row[0] for row in self._db.conn.execute(
+            "SELECT json_extract(data_json, ?) FROM journal WHERE kind = ? ORDER BY seq DESC LIMIT ?",
+            ("$." + field, kind, limit))]
+
+    def by_ids(self, ids: list[str]) -> list[JournalEntry]:
+        """These rows, oldest first (ids that aren't there are skipped)."""
+        if not ids:
+            return []
+        return [_entry(r) for r in self._db.conn.execute(
+            f"SELECT * FROM journal WHERE id IN ({','.join('?' * len(ids))}) ORDER BY seq", ids)]
+
+    def latest_kind(self, kinds: tuple[str, ...], field: str, equals: str) -> str | None:
+        """The kind of the newest row among `kinds` whose data holds `equals` at `field`; None when there is none."""
+        row = self._db.conn.execute(
+            f"SELECT kind FROM journal WHERE kind IN ({','.join('?' * len(kinds))}) AND json_extract(data_json, ?) = ? "
+            "ORDER BY seq DESC LIMIT 1", (*kinds, "$." + field, equals)).fetchone()
+        return str(row[0]) if row is not None else None
+
+    def of_running_tasks(self, kind: str) -> list[JournalEntry]:
+        """A kind's rows, oldest first, whose `task_id` names a task running now."""
+        return [_entry(r) for r in self._db.conn.execute(
+            "SELECT * FROM journal WHERE kind = ? AND json_extract(data_json, '$.task_id') IN "
+            "(SELECT id FROM tasks WHERE status = 'running') ORDER BY seq", (kind,))]
+
 
 def _entry(r: Any) -> JournalEntry:
     data = json.loads(r["data_json"])

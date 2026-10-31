@@ -219,7 +219,7 @@ class Browsers:
         assert self.pairings
         prof, address = self._identity_profile(), str(self.config.get("mailbox", "address", "") or "")
         if not prof or not address:
-            raise FerbError("choose FERB's identity profile first: `ferb setup --identity`")
+            raise FerbError("FERB's identity profile isn't chosen yet")
         data = (self.browser_data_dirs or {}).get(prof[0])
         try:
             await asyncio.to_thread(seed.verify, address, prof[1], *([data] if data else []))
@@ -298,7 +298,7 @@ class Browsers:
         assert self.pairings
         p = self._exact_profile(params) or self._named_profile(params)
         if (p.browser, p.folder) == self._identity_profile():
-            raise FerbError(f"{p.display_name} is FERB's own profile; it's paired as FERB (`ferb setup --identity`)")
+            raise FerbError(f"{p.display_name} is FERB's own profile; it's paired as FERB, not as yours")
         if self._profile_state(p) == "missing":                 # the extension first (owner's report 2026-10-01)
             from ferb.device.extensions import extension_path
             browser_profiles.open_known_profile(p.browser, p.folder, "chrome://extensions", self._profiles(),

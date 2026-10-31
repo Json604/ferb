@@ -57,12 +57,8 @@ class Rpc:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= TASK_PAGE_MAX:
             raise FerbError(f"limit must be a whole number from 1 to {TASK_PAGE_MAX}")
         before = str(params.get("before") or "9999")           # sorts after every ISO time
-        rows = self.db.conn.execute(
-            "SELECT t.id, t.goal, t.status, t.created_at, t.updated_at, t.outcome_json, r.answer, "
-            "(SELECT v.verdict FROM owner_verdicts v WHERE v.task_id = t.id ORDER BY v.seq DESC LIMIT 1) AS verdict "
-            "FROM tasks t LEFT JOIN task_results r ON r.task_id = t.id "
-            "WHERE t.parent_id IS NULL AND t.created_at < ? ORDER BY t.created_at DESC, t.rowid DESC LIMIT ?",
-            (before, limit + 1)).fetchall()
+        assert self.task_results is not None
+        rows = self.task_results.page(before, limit + 1)
         out = []
         for r in rows[:limit]:
             outcome = json.loads(r["outcome_json"] or "{}")
@@ -136,7 +132,7 @@ class Rpc:
             "schedules.change": self._schedules_change, "chat.status": self._chat_status,
             "results.ack": self._results_ack, "chat.attach": self._chat_attach, "setup.persona": self._setup_persona,
             "task.stop": self._task_stop, "reminders.list": self._reminders_list,
-            "reminders.cancel": self._reminders_cancel, "reminders.unseen": self._reminders_unseen,
+            "reminders.cancel": self._reminders_cancel,
             "memory.learning": self._memory_learning, "memory.list": self._memory_list,
             "memory.show": self._memory_show, "memory.add": self._memory_add, "memory.profile": self._memory_profile,
             "memory.edit": self._memory_edit, "memory.retract": self._memory_retract,
@@ -185,16 +181,13 @@ class Rpc:
         if self.db is None:
             raise FerbError("daemon not started")
         if task_id == "last" and allow_last:  # Explicit CLI request for the latest task, never an action target.
-            row = self.db.conn.execute("SELECT id FROM tasks WHERE parent_id IS NULL "
-                                       "ORDER BY created_at DESC, rowid DESC LIMIT 1").fetchone()
-            return str(row['id']) if row else task_id
-        if len(task_id) >= 6 and not self.db.conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone():
-            matches = self.db.conn.execute("SELECT id FROM tasks WHERE substr(id, 1, ?) = ? "
-                                           "AND parent_id IS NULL ORDER BY id", (len(task_id), task_id)).fetchall()
+            return self.tasks.latest_root() or task_id
+        if len(task_id) >= 6 and not self.tasks.recorded(task_id):
+            matches = self.tasks.roots_with_prefix(task_id)
             if len(matches) > 1:
-                raise FerbError('ambiguous task prefix: ' + ', '.join(r['id'] for r in matches))
+                raise FerbError('ambiguous task prefix: ' + ', '.join(matches))
             if matches:
-                return str(matches[0]['id'])
+                return matches[0]
         return task_id
 
     async def _task_preview(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -230,9 +223,9 @@ class Rpc:
         spans = self.spans.tree_json(task_id)
         outcome = self.spans.outcome(task_id)
         if not outcome.get('result'):
-            row = self.db.conn.execute('SELECT outcome_json FROM tasks WHERE id=?', (task_id,)).fetchone()
-            if row is not None and row[0] != '{}':
-                outcome['result'] = json.loads(row[0])
+            recorded = self.tasks.column(task_id, "outcome_json")
+            if recorded is not None and recorded != '{}':
+                outcome['result'] = json.loads(recorded)
         episode = episodes.get(self.db, task_id)
         # running, or written before F3: compose it live; a learning model call is no task and has no story
         if episode is None and spans and not all(s["kind"] == "model.learning" for s in spans):
@@ -276,16 +269,15 @@ class Rpc:
             raise FerbError("verdict must be 'pass' or 'fail'")
         given = str(params.get("task_id") or "")
         task_id = self._resolve_root_task(given)
-        row = self.db.conn.execute("SELECT parent_id, tree_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        if row is None:
+        if not self.tasks.recorded(task_id):
             raise FerbError(f"unknown task {given!r}")
-        if row["parent_id"] is not None:
-            raise FerbError(f"task {task_id} is part of {row['tree_id']}; give the verdict for {row['tree_id']}")
-        self.db.conn.execute(
-            "INSERT INTO owner_verdicts (id, task_id, verdict, note, at) VALUES (?,?,?,?,?)",
-            (self.ids.new_id(), task_id, verdict, self.redact({"note": str(params.get("note") or "")})["note"],
-             self.clock.now().isoformat()))
-        self.db.conn.commit()
+        if self.tasks.column(task_id, "parent_id") is not None:
+            tree = self.tasks.column(task_id, "tree_id")
+            raise FerbError(f"task {task_id} is part of {tree}; give the verdict for {tree}")
+        assert self.task_results is not None
+        self.task_results.record_verdict(self.ids.new_id(), task_id, verdict,
+                                         self.redact({"note": str(params.get("note") or "")})["note"],
+                                         self.clock.now().isoformat())
         self._journal().append("owner.verdict", {"task_id": task_id, "verdict": verdict})
         if self.learning is not None:
             self.learning.inputs_changed()            # a card read before this verdict is read again (L28)
@@ -477,12 +469,22 @@ class Rpc:
         return {"permission": permission, "status": status}
 
     async def _setup_finish(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """L34 C: the setup window's Done, recorded as `ferb setup` records the end of its permission step, so launch
-        stops showing the window."""
-        current = int(self.config.get("setup", "permissions_version", 0) or 0)
-        self.config.set("setup", "permissions_version", max(27, current))
-        self._journal().append("setup.finished", {"by": "app"})
-        return {"setup_done": True}
+        """L34 C: the setup window's Done. Setup is recorded as done (`permissions_version`, so launch stops showing the
+        window) only when every permission is granted: this daemon's own (its four grants, FERB Voice's Speech
+        Recognition, the clipboard) and the ones FERB.app reports for itself (`app`: Notifications, Microphone); else
+        `missing` names what isn't, and the window comes back at the next launch. Journaled either way."""
+        from ferb.device import permissions
+        grants = await asyncio.to_thread(self.permission_check)
+        rows = permissions.rows(grants, self._setup_containment(), await self._hearing_status(True)) + [
+            permissions.clipboard_row(await asyncio.to_thread(self._clipboard_access))]
+        app = params.get("app") if isinstance(params.get("app"), dict) else {}
+        rows += [{"id": str(name), "status": str(status)} for name, status in app.items()]
+        missing = permissions.missing(rows)
+        if not missing:
+            permissions.record_done(self.config)
+        self._journal().append("setup.finished", {"by": "app", "done": not missing,
+                                                  "missing": [name for name, _ in missing]})
+        return {"setup_done": not missing, "missing": [{"id": name, "status": status} for name, status in missing]}
 
     async def _automation_request(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Ask macOS for Apple Events permission to each app (shows the system prompt; must run in the daemon so

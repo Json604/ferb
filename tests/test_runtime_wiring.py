@@ -111,7 +111,7 @@ def test_runtimes_check_fails_for_a_model_without_documented_limits(daemon: Runn
     started = []
     monkeypatch.setattr("ferb.runtimes.claude_sdk.ClaudeRuntime.start", lambda *a, **k: started.append(a))
     out = daemon.run(d._runtimes_check(None, {"runtime": "claude"}))
-    assert out["ok"] is False and "no model set" in out["detail"] and not started
+    assert out["ok"] is False and "no model is chosen" in out["detail"] and not started
     d.config.set("models", "claude", "claude-sonnet-9")
     out = daemon.run(d._runtimes_check(None, {"runtime": "claude"}))
     assert out["ok"] is False and "context window" in out["detail"] and not started
@@ -128,7 +128,7 @@ def test_codex_without_ferbs_own_login_is_refused_with_the_fix(daemon: RunningDa
     d = daemon.daemon
     assert not (d.home / "codex-home" / "auth.json").exists()
     d.config.set("runtimes", "orchestrator", "codex")
-    with pytest.raises(Unsupported, match="ferb setup --codex-login"):
+    with pytest.raises(Unsupported, match="sign in to ChatGPT in Settings → AI"):
         d._make_runtime("orchestrator", mode="supervisor", tool_names=[], schema={"type": "object"})
 
 

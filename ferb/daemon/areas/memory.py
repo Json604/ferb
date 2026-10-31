@@ -426,26 +426,31 @@ class MemoryGlue:
     EMBED_PAUSE_S = 0.05
 
     def _embedding_root(self) -> tuple[Path, bool]:
-        """Where the model's files are: `[memory] embedding_model` (the app bundle may point there), else FERB's own
-        copy under ~/.ferb/models; and whether FERB may fetch them there itself."""
-        from ferb.memory.embeddings import default_root
+        """Where the model's files are: `[memory] embedding_model` when set, else the copy FERB.app ships
+        (Contents/Resources/models, read in place, never fetched), else a checkout's copy under ~/.ferb/models (setup
+        fetches it at install); and whether FERB may fetch them there itself (a checkout whose setup couldn't)."""
+        from ferb.device import install
+        from ferb.memory import embeddings
         configured = str(self.config.get("memory", "embedding_model", "") or "").strip()
         if configured:
             return Path(configured).expanduser(), False
-        return default_root(self.home), True
+        bundle = install.app_bundle()
+        if bundle is not None:
+            return embeddings.default_root(bundle / install.BUNDLE_MODELS.parent, embeddings.MODEL), False
+        return embeddings.default_root(self.home, embeddings.MODEL), True
 
     async def _load_embedder(self) -> None:
         """Load the pinned model, fetching it once when FERB keeps its own copy (journaled). Search runs on keywords
         and recency until it is there; a failure is journaled and tried again by the next start."""
-        from ferb.memory.embeddings import StaticEmbedder, download
+        from ferb.memory import embeddings
         if self.learning is None or self.learning.embedder is not None:
             return
         root, fetch = self._embedding_root()
         try:
-            if fetch and not root.exists():
-                await asyncio.to_thread(download, root)
+            if fetch and not root.exists():         # a checkout whose setup couldn't fetch it (FERB.app ships it)
+                await asyncio.to_thread(embeddings.download, root, embeddings.MODEL)
                 self._journal().append("memory.embedding_model", {"state": "fetched", "path": str(root)})
-            self.learning.embedder = await asyncio.to_thread(StaticEmbedder, root)
+            self.learning.embedder = await asyncio.to_thread(embeddings.StaticEmbedder, root, embeddings.MODEL)
         except Exception as e:
             self._journal().append("memory.embedding_model", {
                 "state": "unavailable", "error": self._redact_text(f"{type(e).__name__}: {e}")[:300]})
@@ -616,11 +621,15 @@ class MemoryGlue:
         action = ActionRequest(capability, "owner_question", Identity.OWNER, frozenset(), "", "", request_id,
                                frozenset())
         ap = self.state.approvals.question(action, reason, list(options), approval_id)
-        self.db.conn.execute("INSERT OR IGNORE INTO memory_questions VALUES (?,?,?,?,?,?)",
-                             (ap.id, kind, ident, reason, request_id, self.clock.now().isoformat()))
+        self._memory_questions().keep(ap.id, kind, ident, reason, request_id, self.clock.now().isoformat())
         self._owner_followups[ap.id] = (kind, ident)
         self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
                                              "reason": ap.reason, "task_id": None, "options": list(ap.options)})
+
+    def _memory_questions(self) -> Any:
+        from ferb.memory.questions import MemoryQuestions
+        assert self.db is not None
+        return MemoryQuestions(self.db)
 
     def _close_memory_questions(self, targets: Any, kinds: tuple[str, ...] | None = None) -> None:
         """FERB's questions about memory that stopped waiting (re-review NEW-1): of `kinds` (None: every kind) about
@@ -635,24 +644,21 @@ class MemoryGlue:
                 self._owner_followups.pop(approval_id, None)
                 if self.state.approvals.supersede(approval_id) is not None:
                     self._publish("approval.resolved", {"approval_id": approval_id, "state": "superseded"})
-        marks = ",".join("?" * len(gone))
-        which = f" AND kind IN ({','.join('?' * len(kinds))})" if kinds is not None else ""
-        self.db.conn.execute(f"DELETE FROM memory_questions WHERE target IN ({marks}){which}",
-                             [*sorted(gone), *(kinds or ())])
+        self._memory_questions().drop_about(gone, kinds)
 
     def _restore_memory_questions(self) -> None:
         """At start: a forget's Yes / No still waiting is asked again, with its id, words and options; one whose memory
         has gone meanwhile is dropped. Keep / Edit / Drop and Retire / Keep questions an older build left waiting are
         dropped (decision 15: FERB asks none; the guess they were about is already saved as FERB's understanding)."""
-        marks = ",".join("?" * len(GONE_QUESTIONS))
-        self.db.conn.execute(f"DELETE FROM memory_questions WHERE kind IN ({marks})", GONE_QUESTIONS)
-        for row in self.db.conn.execute("SELECT * FROM memory_questions ORDER BY at").fetchall():
+        questions = self._memory_questions()
+        questions.drop_kinds(GONE_QUESTIONS)
+        for row in questions.waiting():
             if row["kind"] == "forget:learning":
                 gone = self.learning is None or self.learning.get(row["target"]) is None
             else:
                 gone = self.memory is None or self.memory.get(row["target"]) is None
             if gone:
-                self.db.conn.execute("DELETE FROM memory_questions WHERE approval_id = ?", (row["approval_id"],))
+                questions.answered(row["approval_id"])
             elif self.state.approvals.get(row["approval_id"]) is None:
                 self._ask_owner(row["kind"], row["target"], row["reason"], row["request_id"], row["approval_id"])
 
@@ -661,7 +667,7 @@ class MemoryGlue:
         followup = self._owner_followups.pop(ap.id, None)
         if followup is None:
             return ""
-        self.db.conn.execute("DELETE FROM memory_questions WHERE approval_id = ?", (ap.id,))
+        self._memory_questions().answered(ap.id)
         what, ident = followup
         from ferb.memory.items import MemoryRefused
         if not (ap.state == "granted" and ap.choice == "Yes"):

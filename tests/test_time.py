@@ -5,7 +5,6 @@ the task), sending from FERB's mailbox under owner intent, and
 """
 
 import asyncio
-import io
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -58,13 +57,6 @@ def test_a_reminder_fires_once_when_due_everywhere_it_should(daemon: RunningDaem
     assert daemon.run(t.tick()) == 1 and daemon.run(t.tick()) == 0     # once
     assert notes.shown == [("FERB reminder", "call Mom")]
     assert [x["timer_id"] for x in deliveries(daemon)] == [tm.id]
-    from ferb.cli.client import Client
-    c = Client(daemon.sock)
-    try:
-        assert [r["message"] for r in c.call("reminders.unseen")["reminders"]] == ["call Mom"]
-        assert c.call("reminders.unseen")["reminders"] == []           # shown once in chat
-    finally:
-        c.close()
 
 
 def test_timers_survive_a_restart_and_fire_late_with_overdue(tmp_path: Path) -> None:
@@ -237,25 +229,6 @@ def test_an_unconfirmed_send_is_unknown_and_never_retried_blindly(daemon: Runnin
     states = run(daemon, lambda: [r[0] for r in daemon.daemon.db.conn.execute(
         "SELECT state FROM action_ledger WHERE task_id = ?", ("m3",))])
     assert states == ["unknown"]
-
-
-# ---------- ferb device ----------
-
-def test_ferb_device_shows_the_profile_with_current_driver_status(tmp_path: Path) -> None:
-    from ferb.cli.admin import device
-    from ferb.config import Config
-    from ferb.device.profile import ProfileStore
-    from ferb.device.scan import scan
-    home = tmp_path / "h"
-    Config(home).set("device", "id", "dev1")
-    ProfileStore(home).save(scan("dev1"), "test")
-    out = io.StringIO()
-
-    def no_daemon() -> Any:
-        raise ConnectionError
-    assert device(home, "show", no_daemon, out) == 0
-    text = out.getvalue()
-    assert "apps" in text and "not built yet" not in text
 
 
 # ---------- when: the model says what the owner said, code computes the time ----------

@@ -1,6 +1,7 @@
 """Own explicit installation, permission setup and update workflows. Must not run app interactions as task recovery.
 
-`ferb setup [--update]`, `ferb doctor`, `ferb uninstall [--purge]`.
+`ferb setup [--update]` (a checkout), `ferb setup --service [--update]` (FERB.app's setup window), `ferb doctor`,
+`ferb uninstall [--purge]`.
 
 Interactive but injectable (installer, daemon connection, prompts, System Settings opener, browser folders) so the
 flows are testable without touching the real Mac. Permissions are always checked by the daemon, never by this process.
@@ -26,20 +27,17 @@ from ferb.cli import tokenizer
 from ferb.cli.admin import shown_bytes
 from ferb.cli.client import Client
 from ferb.config import Config, InsecureConfig
-from ferb.core.errors import FerbError, NotRunning
+from ferb.core.errors import FerbError, NotRunning, Unsupported
 from ferb.device import permissions
 from ferb.device.install import (BUNDLE_CLI, MARKER, NATIVE_HOST_MANIFEST, InstallError, Installer, app_bundle, code_hash,
                                  designated_requirement, repo_root, trusted_requirement, voice_app)
 from ferb.device.profile import ProfileStore, diff, summarize
 from ferb.device.scan import scan
 from ferb.device.persona import app_usage
-from ferb.identity import seed
 
 Connect = Callable[[], Client]
 Ask = Callable[[str], str]
-REQUIRED_PERMISSIONS = permissions.REQUIRED
 SETUP_PERMISSIONS = permissions.DAEMON_PERMISSIONS
-IDENTITY_CHECK_S = 90.0
 
 
 @dataclass
@@ -83,6 +81,9 @@ def installer(home: Path, support: Path, every_browser: bool = False, **kwargs: 
     """The installer with FERB's native host going to each installed browser (every known one when removing it),
     accepting both the pinned unpacked id and the Web Store id. Run from FERB.app, it installs from that app."""
     kwargs.setdefault("bundle", app_bundle())
+    if kwargs["bundle"] is None:                  # a checkout fetches the embedding model at install (FERB.app ships it)
+        from ferb.memory.embeddings import download
+        kwargs.setdefault("fetch_model", download)
     browsers = list(profiles.BROWSERS) if every_browser else profiles.installed(support)
     try:
         ids = autoinstall.accepted_extension_ids(Config(home))
@@ -151,7 +152,7 @@ def _finish_install() -> Iterator[list[int]]:
 
 
 def _install(env: Env, update: bool) -> None:
-    """Install, then say where FERB now runs when that changed (FERB.app and a checkout share one LaunchAgent). The
+    """Install, then say where FERB now runs when that changed (FERB.app and a checkout share one service label). The
     store's one-time clean-up is not part of an install: it waits for the owner's OK (`cleanup`)."""
     inst = env.inst
     before = inst.active_program()
@@ -160,7 +161,17 @@ def _install(env: Env, update: bool) -> None:
     now = inst.active_program()
     if before and now and before != now:
         env.say(f"     The background service now runs from {now} (it ran from {before}).")
+    for note in inst.notes:
+        env.say(f"     {note}")
     _app_installed(env)
+
+
+def _started(env: Env) -> Client | None:
+    """The daemon on what was just installed, once it answers; None when FERB.app's service isn't registered yet (the
+    app registers it with macOS right after this command, and macOS starts it)."""
+    if env.inst.app_service and not env.inst.loaded():
+        return None
+    return wait_for_daemon(env)
 
 
 def _foreign_daemon(env: Env) -> str | None:
@@ -190,33 +201,39 @@ def service_setup(env: Env, update: bool = False) -> int:
     env.say("Updating FERB's background service…" if update else "Setting up FERB's background service…")
     env.say(env.tokenizer(inst.home))             # before the daemon starts: it counts tokens with it
     _install(env, update=update)
-    wait_for_daemon(env).close()
     if not update:                                # the app list behind the Permissions step's Automation rows
         ProfileStore(inst.home).save(scan(device_id(Config(inst.home))), "setup scan")
     if inst.bundle is not None or (inst.home / "FERB.app").exists():
         _voice_helper(env)                        # pins FERB Voice for hearing; never a prompt
+    client = _started(env)
+    if client is not None:
+        client.close()
     extension_setup(env)
-    env.say("FERB's background service is running.")
+    env.say("FERB's background service is running." if client is not None else
+            "FERB's background service is ready for FERB.app to turn on.")
     return 0
 
 
 def setup(env: Env, update: bool = False) -> int:
+    """`ferb setup [--update]`: a checkout's install (FERB.app runs `--service`). Run from FERB.app's `ferb` link, the
+    daemon is waited for only once the app's service is registered; until then FERB.app turns it on."""
     inst = env.inst
     if update:
         env.say(f"Updating FERB from {inst.bundle} and restarting the daemon…" if inst.bundle else
-                "Updating FERB in its venv and restarting the daemon…")
+                "Updating FERB in a new venv and restarting the daemon…")
         env.say(env.tokenizer(inst.home))          # before the restart: the new daemon counts tokens with it
         _install(env, update=True)
-        client = wait_for_daemon(env)
-        config = Config(inst.home)
-        health = client.call("doctor.check", {"selftest": False})
-        _permissions_state(env, config, health.get("permissions", {}))
-        _review_persona(env, client)
-        client.close()
-        if codex_needed(inst.home):           # C2: an update never asks; it says how
-            env.say(f"FERB's own Codex isn't signed in, so FERB can't answer yet: {CODEX_LOGIN_HOW}.")
         if inst.bundle is not None or (inst.home / "FERB.app").exists():
             _voice_helper(env)        # L26: hearing's helper; L27: the new app's own helper; no permission dialog
+        client = _started(env)
+        if client is not None:
+            _permissions_state(env, Config(inst.home), client)
+            _review_persona(env, client)
+            client.close()
+        else:
+            env.say("Installed. Open FERB.app to turn its background service on.")
+        if codex_needed(inst.home):           # C2: an update never asks; it says how
+            env.say(f"FERB's own Codex isn't signed in, so FERB can't answer yet: {CODEX_LOGIN_HOW}.")
         extension_setup(env)
         env.say("Done.")
         return 0
@@ -231,10 +248,13 @@ def setup(env: Env, update: bool = False) -> int:
         env.say("1/4  Installing FERB's dedicated Python, its venv and the LaunchAgent…")
     env.say("     " + env.tokenizer(inst.home))
     _install(env, update=False)
-    client = wait_for_daemon(env)
+    client = _started(env)
     binary = inst.grant_target()
-    env.say(f"     Daemon running. Permissions go to FERB ({binary}); macOS lists it as FERB." if inst.bundle else
-            f"     Daemon running. Permissions must be granted to: {binary}")
+    if client is None:
+        env.say("     Installed. Open FERB.app to turn its background service on.")
+    else:
+        env.say(f"     Daemon running. Permissions go to FERB ({binary}); macOS lists it as FERB." if inst.bundle else
+                f"     Daemon running. Permissions must be granted to: {binary}")
     extension_setup(env)
 
     env.say("2/4  Scanning this Mac's apps (Info.plist only)…")
@@ -248,7 +268,10 @@ def setup(env: Env, update: bool = False) -> int:
     env.say("3/4  Permissions (checked by the daemon itself)")
     if _voice_helper(env) is None:            # hearing's helper (L26): built or pinned, never a permission dialog
         env.say("     Hearing isn't set up; `ferb doctor` will remind you.")
-    _permissions_state(env, config, client.call("doctor.check", {"selftest": False}).get("permissions", {}))
+    if client is None:
+        env.say("     FERB's setup window asks for them once its background service runs.")
+        return 0
+    _permissions_state(env, config, client)
 
     env.say("4/4  Self-test through the daemon")
     ok = _print_selftest(env, client.call("doctor.check"))
@@ -262,15 +285,17 @@ def setup(env: Env, update: bool = False) -> int:
     return 0 if ok else 1
 
 
-def _permissions_state(env: Env, config: Config, grants: dict[str, Any]) -> None:
-    """The macOS permissions as the running daemon reports them. FERB's setup window asks for them (the CLI has no
-    permission walkthrough); setup is recorded as done (`permissions_version`) only once every one is granted."""
-    missing = [f"{name}={grants.get(name, 'unknown')}" for name in SETUP_PERMISSIONS if grants.get(name) != "granted"]
+def _permissions_state(env: Env, config: Config, client: Any) -> None:
+    """The macOS permissions as the running daemon reports them, hearing (FERB Voice) and the clipboard included. FERB's
+    setup window asks for them (the CLI has no permission walkthrough); setup is recorded as done
+    (`permissions_version`) only once every one is granted (`permissions.missing`, the rule the window's Done uses)."""
+    report = client.call("doctor.check", {"selftest": False, "hearing": True})
+    missing = permissions.missing(permissions.report_rows(report))
     if missing:
-        env.say(f"     Not granted yet: {', '.join(missing)}. Grant them in FERB's setup window (Set Up FERB… in "
-                "FERB's menu bar); `ferb doctor` lists them.")
+        env.say(f"     Not granted yet: {', '.join(f'{row}={status}' for row, status in missing)}. Grant them in "
+                "FERB's setup window (Set Up FERB… in FERB's menu bar); `ferb doctor` lists them.")
         return
-    config.set('setup', 'permissions_version', max(27, config.get('setup', 'permissions_version', 0)))
+    permissions.record_done(config)
     env.say("     All macOS permissions are granted (checked by the running daemon).")
 
 
@@ -315,9 +340,9 @@ def cleanup_apply(env: Env, ok: str) -> int:
     def work(stop: Callable[[], bool]) -> None:
         result.update(_run_cleanup(env, ok, stop))
     with _finish_install() as stops:               # a stop waits until the daemon is loaded again, then ends setup
-        if inst.plist_path.exists():
+        if inst.loaded() or (not inst.app_service and inst.legacy_plist()):
             inst.while_stopped(lambda: work(lambda: bool(stops)))
-        else:                                        # no service installed (a checkout): nothing to stop
+        else:                                        # no service installed or registered: nothing to stop
             work(lambda: bool(stops))
         env.say(json.dumps(result))
     return 2 if result.get("refused") else 1 if result.get("error") or result.get("not_run") else 0
@@ -334,7 +359,7 @@ def _run_cleanup(env: Env, ok: str, stop: Callable[[], bool]) -> dict[str, Any]:
     from ferb.store import cleanup
     from ferb.store.db import Database
     inst = env.inst
-    loaded = inst.plist_path.exists() and inst.loaded()
+    loaded = inst.running() if inst.app_service else (inst.legacy_plist() and inst.loaded())
     exiting = None if loaded else inst.exiting()
     running = ("launchd hasn't stopped FERB's daemon yet" if loaded else
                f"FERB's daemon (process {exiting}) hasn't exited since launchd stopped it" if exiting is not None else
@@ -382,15 +407,6 @@ def _app_installed(env: Env) -> None:
         env.say(f"     {status}")
 
 
-def persona_setup(env: Env) -> int:
-    """Review local app-use evidence without installing, restarting or opening permissions."""
-    client = env.connect()
-    try:
-        return _review_persona(env, client, refresh=True)
-    finally:
-        client.close()
-
-
 def _review_persona(env: Env, client: Any, *, refresh: bool = False) -> int:
     """What FERB saw on this Mac (decision 16): started, waited for, and shown once; nothing to answer (decision 15)."""
     from ferb.sanitize.terminal import printable
@@ -402,7 +418,7 @@ def _review_persona(env: Env, client: Any, *, refresh: bool = False) -> int:
         result = client.call('setup.persona', {'status': True})
     if result['state'] == 'failed':
         env.say('App-use scan failed: ' + printable(result.get('error', 'unknown error')))
-        env.say('Retry with `ferb setup --persona`.')
+        env.say("FERB's setup window can look again (Set Up FERB… in FERB's menu bar).")
         return 1
     if result['state'] == 'seen' and result.get('summary'):
         env.say(printable(result['summary']))
@@ -462,29 +478,6 @@ def _offer_codex_login(env: Env) -> bool:
         return True
     env.say(f"     FERB can't answer until its Codex is signed in: {CODEX_LOGIN_HOW}.")
     return False
-
-
-def claude_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
-    """FERB's own Claude sign-in from a terminal (owner 2026-10-25: "Build a Claude sign-in like Codex's"): the pinned
-    Claude Code the SDK bundles runs `auth login` with FERB's Claude home (~/.ferb/claude-home). Its browser page and any
-    pasted code go to Claude Code directly (this terminal), which keeps the credential in the login Keychain; FERB records
-    only that it finished."""
-    from ferb.runtimes import claude_login as cl
-    try:
-        cli = cl.cli_binary()
-    except Exception as e:
-        env.say(f"FERB's pinned Claude Code isn't installed: {e}")
-        return 1
-    cl.prepare(env.inst.home)
-    env.say("Signing in FERB's own Claude (a browser window opens)…")
-    run(cl.login_argv(cli), env=cl.env(env.inst.home))
-    status = run(cl.status_argv(cli), env=cl.env(env.inst.home), capture_output=True, text=True)
-    if not cl.signed_in(status.stdout or ""):
-        env.say("Not signed in; nothing changed.")
-        return 1
-    cl.mark(env.inst.home)
-    env.say("Done: FERB now uses its own Claude sign-in.")
-    return 0
 
 
 def claude_logout(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
@@ -556,9 +549,13 @@ def codex_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     home.mkdir(parents=True, exist_ok=True)
     os.chmod(home, 0o700)
     try:
-        binary = codex_binary(env.inst.home)
-    except Exception as e:
-        env.say(f"FERB's pinned Codex isn't installed: {e}")
+        try:
+            binary = codex_binary(env.inst.home)
+        except Unsupported:                       # no role used Codex until now: installed when the owner signs in
+            env.inst.ensure_codex()
+            binary = codex_binary(env.inst.home)
+    except (Unsupported, InstallError) as e:
+        env.say(f"FERB's pinned Codex couldn't be installed: {e}")
         return 1
     env.say("Signing in FERB's own Codex (a browser window opens)…")
     rc = run([str(binary), "login"], env={**os.environ, "CODEX_HOME": str(home)}).returncode
@@ -566,7 +563,7 @@ def codex_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     if ok:          # L28: Codex's own model catalog, so FERB knows each model's window before the first run
         from ferb.runtimes.codex_exec import bundled_catalog
         if bundled_catalog(env.inst.home) is None:
-            env.say("Codex didn't print its model catalog; run `ferb setup --update`.")
+            env.say("Codex didn't print its model catalog; FERB reads it again when its background service restarts.")
     env.say("Done: FERB now uses its own Codex home." if rc == 0 and ok else "Not signed in; nothing changed.")
     return 0 if ok else 1
 
@@ -696,6 +693,30 @@ def add_hearing_check(add: Callable[[Check], None], hearing: dict[str, Any] | No
         add(Check("hearing", "ok", f"FERB.app may use on-device Speech Recognition ({hearing.get('locale')})"))
 
 
+def service_check(inst: Installer) -> Check:
+    """The background service's definition: FERB.app's own (inside the app, registered by the app) and the build
+    setup last installed from it; or the checkout's LaunchAgent as setup writes it."""
+    import plistlib
+    if inst.app_service:
+        if not inst.service_definition.is_file():
+            return Check("service definition", "fail", f"missing from {inst.bundle}", "download FERB again")
+        if inst.legacy_plist():
+            return Check("service definition", "fail", f"an old {inst.plist_path} is still there",
+                         "open FERB.app: it removes it when it turns its service on")
+        built = str(inst.bundle_info().get("CFBundleVersion", ""))
+        if inst.recorded().get("build") != built:
+            return Check("service definition", "warn", f"FERB.app build {built} isn't the one set up",
+                         "open FERB.app: it updates its background service")
+        return Check("service definition", "ok", f"inside FERB.app ({inst.service_definition})")
+    try:
+        current = plistlib.loads(inst.plist_path.read_bytes()) if inst.plist_path.exists() else None
+    except (OSError, plistlib.InvalidFileException):
+        current = None
+    return Check("LaunchAgent", "ok" if current == inst.plist() else "fail",
+                 "installed" if current == inst.plist() else ("differs from expected" if current else "missing"),
+                 "run `ferb setup --update`")
+
+
 def doctor(env: Env) -> int:
     inst = env.inst
     checks: list[Check] = []
@@ -725,12 +746,10 @@ def doctor(env: Env) -> int:
         add(Check("interpreter", "ok" if inst.interpreter() else "fail", str(inst.interpreter() or "missing"),
                   "run `ferb setup`"))
         add(Check("venv", "ok" if inst.venv_python.exists() else "fail", str(inst.venv), "run `ferb setup`"))
-    import plistlib
-    current = plistlib.loads(inst.plist_path.read_bytes()) if inst.plist_path.exists() else None
-    add(Check("LaunchAgent", "ok" if current == inst.plist() else "fail",
-              "installed" if current == inst.plist() else ("differs from expected" if current else "missing"),
-              "run `ferb setup`"))
-    add(Check("agent loaded", "ok" if inst.loaded() else "fail", inst.label, "run `ferb setup`"))
+    add(service_check(inst))
+    add(Check("background service", "ok" if inst.loaded() else "fail", inst.label,
+              "open FERB.app (macOS may need your OK: System Settings → General → Login Items)" if inst.app_service
+              else "run `ferb setup`"))
     try:
         c = env.connect()
         report = c.call("doctor.check")
@@ -745,14 +764,16 @@ def doctor(env: Env) -> int:
                   "this is a dev daemon (`ferb daemon run`), not the installed one" if report["executable"] != str(
                       dedicated) else ""))
         here = code_hash(Path(ferb.__file__).parent)
-        if (repo_root() / "pyproject.toml").exists() and report["code_hash"] != here:
+        # only a checkout's own installed daemon is compared with the checkout (FERB.app's code is the app's build)
+        if (repo_root() / "pyproject.toml").exists() and not inst.app_service and report["code_hash"] != here:
             add(Check("installed code", "warn", "differs from this checkout", "run `ferb setup --update`"))
-        for perm, status in report["permissions"].items():
-            level = "fail" if perm in REQUIRED_PERMISSIONS and status != "granted" else (
-                "ok" if status == "granted" else "warn")
-            optional = ""
-            add(Check(f"permission {perm}{optional}", level, status,
-                      f"grant it to {dedicated} (System Settings → Privacy & Security)" if level != "ok" else ""))
+        ready = permissions.fda_ready(report.get("containment") or {})
+        for perm, status in report["permissions"].items():     # every permission is needed (none optional)
+            waits = perm == "full_disk_access" and status != "granted" and not ready
+            add(Check(f"permission {perm}", "ok" if status == "granted" else "fail",
+                      f"{status} ({permissions.FDA_WAITS})" if waits else status,
+                      "" if status == "granted" else "fix containment first, then grant it" if waits else
+                      f"grant it to {dedicated} (System Settings → Privacy & Security)"))
         for r in report["selftest"]:
             add(Check(f"self-test {r['name']}", "ok" if r["ok"] else "fail", r["detail"]))
         add(containment_check(report.get("containment")))
@@ -795,19 +816,18 @@ def doctor(env: Env) -> int:
             add(Check("identity session", "warn", f"couldn't check: {e}", "run `ferb doctor` again"))
         if ident:
             if not ident["profile"]:
-                add(Check("identity profile", "warn", "not set up", "run `ferb setup --identity`"))
+                add(Check("identity profile", "warn", "not set up", "FERB's identity profile is chosen in FERB.app"))
             else:
                 add(Check("identity profile", "ok" if ident["profile_ok"] else "fail",
                           f"{ident.get('profile_name')} ({ident['profile']}) holds only {ident['address']}"
                           if ident["profile_ok"] else str(ident["error"]),
-                          "FERB's Chrome profile must hold only FERB's account; fix it in Chrome, or run "
-                          "`ferb setup --identity`"))
+                          "FERB's Chrome profile must hold only FERB's account; fix it in Chrome"))
                 if ident["profile_ok"]:
                     paired = bool(ident.get("paired"))
                     add(Check("identity session", "warn",
                               "session not checked (observational doctor; no browser opened)" if paired else
                               "not paired; session not checked",
-                              "" if paired else "run `ferb setup --identity`"))
+                              "" if paired else "pair it from FERB.app"))
             for s in ident["secrets"]:
                 add(Check(f"secret {s['key']}", "ok" if s["in_keychain"] else "warn",
                           "in Keychain" if s["in_keychain"] else "missing from Keychain",
@@ -834,7 +854,7 @@ def doctor(env: Env) -> int:
                           f"connected, extension {p['version']}" if p["connected"] else "paired, not connected",
                           "open that profile; FERB reconnects within 30 s"))
         if report["stopped"]:
-            add(Check("emergency stop", "warn", "engaged", "`ferb resume-tasks` lifts it"))
+            add(Check("emergency stop", "warn", "engaged", "FERB.app's menu lifts it"))
         try:
             c = env.connect()
             sense = c.call("sense.status")
@@ -844,7 +864,7 @@ def doctor(env: Env) -> int:
         if sense is not None:
             if sense["paused"]:
                 add(Check("watchers", "warn", "paused: nothing is recorded, no real mouse / keyboard input",
-                          "`ferb resume`"))
+                          "FERB.app's menu resumes them"))
             else:
                 add(Check("watchers", "ok", ", ".join(sense["watchers"]) or "none running"))
             try:
@@ -856,14 +876,14 @@ def doctor(env: Env) -> int:
             if jev is not None and jev.get("configured"):
                 if jev["recent_total"] and jev["recent_answered"] == 0:
                     add(Check("jev", "warn", f"not answering ({jev['last_error']}); FERB uses its own decisions",
-                              "check the key: `ferb setup --jev`"))
+                              "check the Jev key in the Keychain"))
                 else:
                     on = [s["question"] for s in jev["stats"] if s["enabled"]]
                     add(Check("jev", "ok", f"shadow mode{'; enabled: ' + ', '.join(on) if on else ''}"))
             elif jev is not None:
                 from ferb.decide.decider import JEV_KEYS_URL
-                add(Check("jev", "ok", f"not set (optional): activity notices are off; a key comes from {JEV_KEYS_URL}, "
-                                       "then `ferb setup --jev`"))
+                add(Check("jev", "ok", "off: activity notices are paused (notes/memory.md decision 4); a key comes "
+                                       f"from {JEV_KEYS_URL}"))
             for source, why in sense.get("failed", {}).items():
                 add(Check(f"watcher {source}", "warn", f"failing, trying again: {why}",
                           "FERB retries it by itself; if it keeps failing, check its permission in Settings"))
@@ -884,110 +904,22 @@ def doctor(env: Env) -> int:
     return 1 if any(ch.status == "fail" for ch in checks) else 0
 
 
-# ---------- FERB's identity browser ----------
-
-def identity_setup(env: Env, name: str | None = None, chrome_data: Path = seed.CHROME_DATA) -> int:
-    """Find the Chrome profile holding exactly FERB's account, confirm it with the owner, record it. Nothing is
-    copied and Chrome is never quit; extension pairing is a separate setup action."""
-    config = Config(env.inst.home)
-    address = str(config.get("mailbox", "address", "") or "")
-    if not address:
-        address = env.ask("     FERB's own Google address (the account in its Chrome profile): ").strip().lower()
-        if "@" not in address:
-            env.say("     That isn't an email address; nothing changed.")
-            return 1
-        config.set("mailbox", "provider", "gmail")
-        config.set("mailbox", "address", address)
-    try:
-        p = seed.choose(seed.profiles(chrome_data), address, name)
-    except seed.SeedError as e:
-        env.say(f"     {e}")
-        return 1
-    env.say(f"     Chrome profile “{p.name}” (folder {p.folder}); Chrome accounts: {', '.join(p.accounts)}")
-    if env.ask("     Use it as FERB's identity profile? [y/N] ").strip().lower() not in ("y", "yes"):
-        env.say("     Not recorded.")
-        return 1
-    config.set("identity", "browser", "chrome")
-    config.set("identity", "profile", p.folder)
-    return 0 if _identity_pair(env, p.name) and _identity_status(env) else 1
-
-
-def _identity_pair(env: Env, name: str) -> bool:
-    """Pair the extension in FERB's profile as identity FERB. Re-pairing asks the owner first."""
-    from ferb.device.extensions import extension_path
-    store = autoinstall.store_extension_id(Config(env.inst.home))
-    if autoinstall.valid_id(store):             # setup asked Chrome to install the Web Store copy (L25)
-        env.ask(f"     Turn FERB on in the “{name}” profile when Chrome offers it (or add it from "
-                f"https://chromewebstore.google.com/detail/{store}), then press Enter ")
-    else:
-        env.ask(f"     Load the FERB extension in the “{name}” profile (chrome://extensions → Developer mode → Load "
-                f"unpacked → {extension_path(env.inst.home)}), then press Enter ")
-    confirm = False
-    for _ in range(2):
-        try:
-            c = env.connect()
-            r = c.call("identity.pair", {"confirm": confirm})
-            c.close()
-        except (NotRunning, FerbError) as e:
-            if "needs your confirmation" in str(e) and not confirm:
-                confirm = env.ask("     FERB's profile is already paired. Pair it again? [y/N] ").strip().lower() in ("y", "yes")
-                if confirm:
-                    continue
-                env.say("     Kept the existing pairing.")
-                return True
-            env.say(f"     Couldn't pair: {e}")
-            return False
-        if r["paired"]:
-            env.say(f"     Paired “{name}” as FERB's identity.")
-            return True
-        env.say(f"     Not paired: {r.get('hint', 'no answer from the extension')}")
-        return False
-    return False
-
-
-def _identity_status(env: Env) -> bool:
-    try:
-        c = env.connect()
-        if hasattr(c, "set_timeout"):
-            c.set_timeout(IDENTITY_CHECK_S)
-        r = c.call("identity.check")
-        c.close()
-    except (NotRunning, FerbError) as e:
-        env.say(f"     Couldn't check: {e}")
-        return False
-    if not r["profile_ok"]:
-        env.say(f"     FERB's identity profile isn't usable: {r['error']}")
-        return False
-    if not r.get("paired"):
-        env.say(f"     Profile “{r.get('profile_name')}” holds only {r['address']}, but isn't paired yet: "
-                "`ferb setup --identity`.")
-        return False
-    if r.get("session"):
-        env.say(f"     Paired; signed in as {r['address']}.")
-        return True
-    env.say(f"     Paired, but not signed in as {r['address']}{' (' + r['error'] + ')' if r.get('error') else ''}: "
-            "sign FERB's account back into its Chrome profile.")
-    return False
-
-
 # ---------- uninstall ----------
 
 def uninstall(env: Env, purge: bool) -> int:
+    """Remove FERB's background service, browser connection and `ferb` link; `purge` (after the owner types
+    'delete') also deletes FERB's home and every FERB Keychain item (API keys, the Jev key, FERB's own secrets, the
+    owner's saved secrets and cards, FERB's Claude sign-in). FERB.app unregisters its own service itself."""
     inst = env.inst
-    secret_keys: list[str] = []
     if purge:
         if not (inst.home / MARKER).exists():
             env.say(f"Refusing to purge {inst.home}: it has no {MARKER} marker.")
             return 1
-        if env.ask(f"This deletes {inst.home} entirely (database, journal, config, FERB's Chrome profile). "
+        if env.ask(f"This deletes {inst.home} entirely (database, journal, config, FERB's Chrome profile) and every "
+                   "FERB item in your Keychain (API keys, saved secrets and cards, FERB's sign-ins). "
                    "Type 'delete' to confirm: ").strip() != "delete":
             env.say("Not purged.")
             purge = False
-        else:
-            try:
-                secret_keys = list((Config(inst.home).load().get("secrets") or {}).keys())
-            except InsecureConfig:
-                secret_keys = []
     binary = inst.granted_binary()
     store = ""
     if env.browser_support is not None:
@@ -1008,10 +940,6 @@ def uninstall(env: Env, purge: bool) -> int:
         env.say(f"removed {r}")
     if not removed and not requests:
         env.say("Nothing to remove.")
-    for key in secret_keys:
-        if env.ask(f"Also delete FERB's Keychain item '{key}'? [y/N] ").strip().lower() == "y":
-            r = subprocess.run(["security", "delete-generic-password", "-s", "ferb", "-a", key], capture_output=True)
-            env.say(f"Keychain '{key}': {'deleted' if r.returncode == 0 else 'not found'}")
     if binary:
         what = f"FERB ({inst.grant_target()})" if inst.bundle else str(binary)
         env.say(f"macOS can't remove permissions for you: in System Settings → Privacy & Security, remove "
@@ -1079,53 +1007,3 @@ def _voice_helper(env: Env, run: Callable[..., Any] | None = None) -> str | None
 def _voice_name(env: Env) -> str:
     """The name macOS shows for the voice/speech app in permission prompts."""
     return "FERB Voice" if env.inst.bundle is not None else "FERB"
-
-
-def key_setup(env: Env, provider: str) -> int:
-    """The key goes straight into the Keychain (`security` asks for it; never an argument, never in chat or config),
-    then the daemon makes one tiny typed call with it."""
-    import subprocess
-    from ferb.identity.secrets import SERVICE
-    from ferb.runtimes.keys import account
-    env.say(f"Paste your {provider} API key when `security` asks (twice; nothing is shown):")
-    if subprocess.run(["security", "add-generic-password", "-U", "-s", SERVICE, "-a", account(provider), "-w"]).returncode:
-        env.say("The key wasn't stored.")
-        return 1
-    try:
-        c = env.connect()
-        out = c.call("runtimes.check", {"runtime": provider})
-        c.close()
-    except (NotRunning, FerbError) as e:
-        env.say(f"Stored. The daemon couldn't check it yet: {e}")
-        return 1
-    env.say(f"{provider} answered; use it with `ferb runtimes use ROLE {provider}`." if out.get("ok")
-            else f"Stored, but the check failed: {out.get('detail')}")
-    return 0 if out.get("ok") else 1
-
-
-def jev_setup(env: Env) -> int:
-    """The Jev key goes straight into the Keychain (`security` asks for it; it's never an argument, never in chat or
-    config), then the daemon picks it up and makes one test call."""
-    import subprocess
-    from ferb.decide.decider import KEY_ACCOUNT
-    from ferb.identity.secrets import SERVICE
-    from ferb.decide.decider import JEV_KEYS_URL
-    env.say(f"No Jev key yet? Create one at {JEV_KEYS_URL} (Typesafe's console), then come back.")
-    env.say("Paste your Jev API key when `security` asks (twice; nothing is shown):")
-    r = subprocess.run(["security", "add-generic-password", "-U", "-s", SERVICE, "-a", KEY_ACCOUNT, "-w"])
-    if r.returncode != 0:
-        env.say("The key wasn't stored.")
-        return 1
-    try:
-        c = env.connect()
-        out = c.call("jev.reload", {"ping": True})
-        c.close()
-    except (NotRunning, FerbError) as e:
-        env.say(f"Stored. The daemon couldn't check it yet: {e}")
-        return 1
-    if not out.get("configured"):
-        env.say("Stored, but the daemon can't read it from the Keychain.")
-        return 1
-    env.say("Jev answered: shadow mode is on for every question." if out.get("ping") == "ok"
-            else f"Stored, but Jev didn't answer the test call: {out.get('ping')}")
-    return 0 if out.get("ping") == "ok" else 1

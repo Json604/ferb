@@ -100,9 +100,9 @@ class AccountError(ProtocolError, RuntimeUnavailable):
         self.account = 'signed_out' if self.reason == 'auth_required' else ''
         self.code = code if type(code) is int else None
         detail = self.reason + (f', code {self.code}' if self.code is not None else '')
-        recovery = ('FERB needs its Codex subscription login. Run `ferb setup --codex-login`.'
+        recovery = ("Codex isn't signed in to a ChatGPT subscription for FERB: sign in to ChatGPT in Settings → AI."
                     if self.reason == 'auth_required' else
-                    'Codex could not check the account. Try again shortly; if it persists, run `ferb doctor`.')
+                    "Codex could not check the account. Try again shortly.")
         super().__init__(f'{recovery} ({detail})')
 
 

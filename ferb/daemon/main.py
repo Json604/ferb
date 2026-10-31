@@ -81,7 +81,7 @@ from ferb.store.db import Database
 from ferb.store.spans import SpanStore
 from ferb.store.task_results import TaskResults
 
-__all__ = ["Daemon", "main", "LOG_FILTERS", "mcp_shim_command", "redacting_hooks"]
+__all__ = ["Daemon", "main", "LOG_FILTERS", "mcp_shim_command", "redacting_hooks", "service_streams"]
 
 LOOP_RESTART_S, LOOP_RESTART_MAX_S = 1.0, 60.0    # a background loop that raised starts again after this (`_supervise`)
 
@@ -625,7 +625,29 @@ def redacting_hooks(redact: Callable[[str], str], err: Any = None) -> None:
                                          u.exc_traceback, str(redact(str(u.err_msg or "unraisable exception"))))
 
 
+def service_streams(home: Path) -> None:
+    """The daemon's working folder is FERB's home, however it was started (FERB.app's service definition is fixed
+    inside the signed app and can't name the owner's home; a checkout's LaunchAgent names it too), and its output goes
+    to FERB's logs when launchd gave it none (logs/daemon.out.log, daemon.err.log, as the checkout's LaunchAgent
+    sets). The working folder is never on sys.path (`-P`, or FERB.app's isolated agent)."""
+    import stat
+    logs = home / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    os.chdir(home)
+    null = os.stat(os.devnull).st_rdev
+    for fd, name in ((1, "daemon.out.log"), (2, "daemon.err.log")):
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            st = None
+        if st is None or (stat.S_ISCHR(st.st_mode) and st.st_rdev == null):
+            target = os.open(logs / name, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            os.dup2(target, fd)
+            os.close(target)
+
+
 def main() -> None:
+    service_streams(ferb_home())
     daemon = Daemon()
     redacting_hooks(daemon._redact_text)
     asyncio.run(daemon.run())

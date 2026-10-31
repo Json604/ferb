@@ -98,6 +98,15 @@ async def test_errors_name_the_status_never_the_key() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_provider_refusal_says_its_plain_cause_before_the_providers_words() -> None:
+    """notes/runtimes.md: owner-facing errors in app words, plain cause first (live: "anthropic HTTP 400:
+    output_config…"); the provider's own words stay after it."""
+    script = Scripted([(400, {"error": {"message": "output_config.format: unsupported schema"}})])
+    message = (await run_all(runtime(script)))[-1].data["message"]
+    assert message.startswith("it refused the request FERB sent (HTTP 400: output_config.format")
+
+
+@pytest.mark.anyio
 async def test_cut_off_reply_is_an_error() -> None:
     events = await run_all(runtime(Scripted([(200, {"cut": True})])))
     assert events[-1].kind == "error" and "cut off" in events[-1].data["message"]
@@ -105,7 +114,7 @@ async def test_cut_off_reply_is_an_error() -> None:
 
 @pytest.mark.anyio
 async def test_missing_key_names_the_fix() -> None:
-    with pytest.raises(Unsupported, match="ferb setup --key fake"):
+    with pytest.raises(Unsupported, match="no fake API key: add one in Settings → AI"):
         await runtime(Scripted([]), key=None).start(TASK, REQ, "tok")
 
 

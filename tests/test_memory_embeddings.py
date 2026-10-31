@@ -103,3 +103,43 @@ def test_quantized_vectors_rank_by_cosine_with_a_sign_bit_prefilter(tmp_path: Pa
     db.conn.execute("DELETE FROM recall_vectors WHERE doc = 'best'")
     assert nearest(db, "m", [3] * 8, ["chat"], 1)[0][0] != "best"            # the cached copy reloads on a change
     db.close()
+
+
+def test_the_model_ferb_app_ships_loads_from_the_bundle_with_no_network(tmp_path: Path,
+                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    """Step 12b: FERB.app ships the model (Contents/Resources/models), so a new install needs no download: the daemon
+    running from the app reads it there, never fetches it and writes nothing under ~/.ferb/models."""
+    import asyncio
+    import shutil
+    from types import SimpleNamespace
+    from ferb.config import Config
+    from ferb.daemon.areas.memory import MemoryGlue
+    from ferb.device import install
+    from ferb.memory import embeddings
+    app = tmp_path / "Applications" / "FERB.app"
+    data = tiny_model(tmp_path / "built")
+    shutil.copytree(tmp_path / "built", embeddings.default_root(app / install.BUNDLE_MODELS.parent, data))
+    monkeypatch.setattr(embeddings, "MODEL", data)
+    monkeypatch.setattr(install, "app_bundle", lambda prefix=None: app)
+
+    def no_network(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the model was fetched")
+    monkeypatch.setattr(embeddings, "download", no_network)
+    monkeypatch.setattr(embeddings, "urlopen", no_network)
+    journaled: list[tuple[str, Any]] = []
+
+    class Daemon(MemoryGlue):
+        def __init__(self) -> None:
+            self.home = tmp_path / ".ferb"
+            self.config = Config(self.home)
+            self.learning = SimpleNamespace(embedder=None)
+
+        def _journal(self) -> Any:
+            return SimpleNamespace(append=lambda kind, row: journaled.append((kind, row)))
+
+        def _redact_text(self, text: str) -> str:
+            return text
+    daemon = Daemon()
+    asyncio.run(daemon._load_embedder())
+    assert daemon.learning.embedder is not None and daemon.learning.embedder.dimensions == 4
+    assert journaled == [] and not (tmp_path / ".ferb" / "models").exists()

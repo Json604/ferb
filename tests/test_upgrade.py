@@ -206,3 +206,31 @@ def test_the_memory_upgrade_on_an_older_store_runs_once(home: Path) -> None:
         finally:
             d.stop()
         assert seeded == 1 and profile
+
+
+def test_jev_stays_off_after_an_upgrade_even_with_a_key(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """notes/daemon.md decision 9: an older config that had Jev questions enabled, with a Jev key in the Keychain (faked:
+    the Keychain is never touched), starts with Jev off: no decider, no Keychain read, no request to Jev, also after a
+    reload; the switch is the only thing that turns it on."""
+    from ferb.daemon.areas.jev import JevGlue
+    from tests.test_planner_context import _own_daemon
+    asked: list[str] = []
+
+    async def key(self: Any) -> str:
+        asked.append("keychain")
+        return "jev-test-key"
+    monkeypatch.setattr(JevGlue, "_jev_key", key)
+    home.mkdir(parents=True)
+    home.chmod(0o700)
+    _older_build(home / "ferb.db", 48, with_0040=True)
+    (home / "config.toml").write_text(OLD_CONFIG + '\n[jev]\nenabled = ["action.destructive", "trail.attention"]\n')
+    (home / "config.toml").chmod(0o600)
+    d = _own_daemon(home)
+    try:
+        async def state() -> tuple[Any, bool, dict[str, Any]]:
+            reloaded = await d.daemon._jev_reload(None, {"ping": True})        # type: ignore[arg-type]
+            return d.daemon.jev, d.daemon._jev_on(), reloaded
+        jev, on, reloaded = d.run(state())
+    finally:
+        d.stop()
+    assert jev is None and on is False and reloaded == {"configured": False} and asked == []

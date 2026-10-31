@@ -134,11 +134,36 @@ def test_hearing_grant_runs_ferb_voices_own_request(daemon: RunningDaemon, grant
     assert ran == [d.voice_bundle]
 
 
-def test_setup_finish_and_cli_setup_both_mark_setup_done(daemon: RunningDaemon, grants: dict[str, str]) -> None:
+def test_setup_is_recorded_done_only_when_every_permission_is_granted(daemon: RunningDaemon,
+                                                                      grants: dict[str, str]) -> None:
+    """Every FERB permission is needed (owner, 2026-10-26): Done records `permissions_version` only when the daemon's
+    own rows, FERB Voice's and FERB.app's are all granted; otherwise it says what's missing and records nothing."""
+    d = daemon.daemon
+
+    async def probe(asked: bool) -> dict[str, Any]:
+        return {"installed": True, "signed": True, "speech": "granted"}
+    d._hearing_status = probe                                  # type: ignore[method-assign]
     assert call(daemon, "setup.permissions")["setup_done"] is False
-    assert call(daemon, "setup.finish") == {"setup_done": True}
-    assert daemon.daemon.config.get("setup", "permissions_version") == 27
+    reply = call(daemon, "setup.finish", {"app": {"notifications": "granted", "microphone": "granted"}})
+    assert reply["setup_done"] is False
+    assert {m["id"] for m in reply["missing"]} == {"accessibility", "input_monitoring", "full_disk_access", "clipboard"}
+    assert d.config.get("setup", "permissions_version", 0) == 0
+    grants.update(accessibility="granted", input_monitoring="granted", full_disk_access="granted")
+    d._clipboard_access = lambda: "allow"                      # type: ignore[method-assign]
+    reply = call(daemon, "setup.finish", {"app": {"notifications": "denied", "microphone": "granted"}})
+    assert reply["setup_done"] is False and [m["id"] for m in reply["missing"]] == ["notifications"]
+    assert d.config.get("setup", "permissions_version", 0) == 0
+    assert call(daemon, "setup.finish", {"app": {"notifications": "granted", "microphone": "granted"}})["setup_done"]
+    assert d.config.get("setup", "permissions_version") == 27
     assert call(daemon, "setup.permissions")["setup_done"] is True
-    daemon.daemon.config.set("setup", "permissions_version", 31)          # a later `ferb setup` never goes backwards
-    call(daemon, "setup.finish")
-    assert daemon.daemon.config.get("setup", "permissions_version") == 31
+    d.config.set("setup", "permissions_version", 31)          # a later setup never goes backwards
+    call(daemon, "setup.finish", {"app": {"notifications": "granted", "microphone": "granted"}})
+    assert d.config.get("setup", "permissions_version") == 31
+
+
+def test_every_permission_row_is_needed_none_optional(daemon: RunningDaemon, grants: dict[str, str]) -> None:
+    async def probe(asked: bool) -> dict[str, Any]:
+        return {"installed": True, "signed": True, "speech": "not_determined"}
+    daemon.daemon._hearing_status = probe                      # type: ignore[method-assign]
+    rows = call(daemon, "setup.permissions", {"hearing": True})["rows"]
+    assert {r["id"] for r in rows} >= {"hearing", "clipboard"} and all(r["required"] for r in rows)

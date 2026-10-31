@@ -431,7 +431,8 @@ async def test_account_failure_is_actionable_without_provider_secrets_or_startin
         await begin(tmp_path, monkeypatch, proc)
     assert caught.value.reason == reason and caught.value.code == -32000
     assert 'secret-provider-payload' not in str(caught.value)
-    assert ('ferb setup --codex-login' in str(caught.value)) == (reason == 'auth_required')
+    assert ('sign in to ChatGPT in Settings → AI' in str(caught.value)) == (reason == 'auth_required')
+    assert '`ferb' not in str(caught.value)                       # app words: no command
     assert not any(m['method'] in {'thread/start', 'turn/start'} for m in proc.requests)
     assert proc.returncode is not None
 
@@ -503,7 +504,7 @@ async def test_missing_or_wrong_account_explains_subscription_login(tmp_path, mo
             else:
                 super().write(data)
     proc = MissingAccount()
-    with pytest.raises(stream.AccountError, match='ferb setup --codex-login') as caught:
+    with pytest.raises(stream.AccountError, match='sign in to ChatGPT in Settings') as caught:
         await begin(tmp_path, monkeypatch, proc)
     assert caught.value.reason == 'auth_required'
     assert not any(m['method'] in {'thread/start', 'turn/start'} for m in proc.requests)

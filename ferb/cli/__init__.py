@@ -1,22 +1,37 @@
 """Register CLI commands and common connection helpers. Must not implement task orchestration.
 
 `ferb` is plumbing and a developer toolbox, never a user interface (the FERB app is; notes/daemon.md decisions 3, 4):
-setup --service/--update/--cleanup/--codex-login/--codex-logout/--cli, mcp and daemon run for the app and the models;
-trace, logs, stats, doctor, memory, restore, ps, verdict, runtimes and browsers for debugging."""
+setup --service/--update/--cleanup/--codex-login/--codex-logout/--claude-logout/--cli, uninstall, mcp and daemon run
+for the app and the models (`APP_COMMANDS`); a checkout's `setup [--update]`; trace, logs, stats, doctor, memory,
+restore, ps, verdict, runtimes and browsers for debugging. Errors are one plain line (`plain_error`), never a
+traceback."""
 
 import argparse
-import json
 import sys
 
 from ferb.cli import admin, logs
 from ferb.cli.client import Client, RpcError
-from ferb.core.errors import NotRunning
+from ferb.core.errors import FerbError, NotRunning
 from ferb.paths import ferb_home, socket_path
 
 LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions", "timers")
+# What FERB.app runs (ui/mac/FERBNotch: AppSetup.swift, SetupModel.swift, SettingsPages.swift; `--cleanup` is for its
+# clean-up screen, notes/storage.md decision 4); tests keep them working
+APP_COMMANDS = (("setup", "--service"), ("setup", "--service", "--update"), ("setup", "--codex-login"),
+                ("setup", "--codex-logout"), ("setup", "--claude-logout"), ("setup", "--cli"), ("setup", "--cleanup"),
+                ("uninstall",), ("mcp",))
 
 
-def main(argv: list[str] | None = None) -> int:
+def plain_error(e: BaseException) -> str:
+    """One line for an error, plain cause first: a daemon failure that names only its exception type says it failed
+    inside FERB (`ferb stats` lists it)."""
+    if isinstance(e, RpcError) and e.code == -32603:              # server.INTERNAL: the message is the type only
+        return f"ferb: that failed inside FERB ({e}); `ferb stats` lists it"
+    text = str(e).strip() or type(e).__name__
+    return f"ferb: {text}"
+
+
+def build_parser() -> argparse.ArgumentParser:
     import ferb
     p = argparse.ArgumentParser(prog="ferb")
     p.add_argument("--version", action="version", version=f"ferb {ferb.__version__}")
@@ -40,8 +55,6 @@ def main(argv: list[str] | None = None) -> int:
     dp = sub.add_parser("daemon", help="run the daemon")
     dp.add_argument("action", choices=["run"])
 
-    sub.add_parser("stop", help="emergency stop: revoke tokens, cancel active tasks")
-    sub.add_parser("resume-tasks", help="lift the emergency stop")
     mp = sub.add_parser("memory", help="what FERB remembers: list, show, profile, add, edit, retract, forget")
     msub = mp.add_subparsers(dest="mcmd", required=True)
     ml = msub.add_parser("list", help="active items (--proposed: observed patterns still gathering days; --all: everything)")
@@ -75,12 +88,6 @@ def main(argv: list[str] | None = None) -> int:
     msr.add_argument("--person")
     mrb = msub.add_parser("rollback", help="invalidate a sleep-learning batch while preserving history")
     mrb.add_argument("batch")
-    scp = sub.add_parser("schedules", help="scheduled and recurring tasks: list, cancel / pause / resume <id>")
-    scp.add_argument("action", nargs="?", choices=["list", "cancel", "pause", "resume"], default="list")
-    scp.add_argument("id", nargs="?")
-    rp = sub.add_parser("reminders", help="pending reminders and timers (cancel <id> to cancel one)")
-    rp.add_argument("action", nargs="?", choices=["list", "cancel"], default="list")
-    rp.add_argument("id", nargs="?")
     rp = sub.add_parser("runtimes", help="model runtimes: the runtime table, what each role uses; `use` switches a role")
     rsub = rp.add_subparsers(dest="rcmd")
     ru = rsub.add_parser("use", help="make a role (orchestrator, worker, checker) use a runtime, from its next call")
@@ -88,14 +95,8 @@ def main(argv: list[str] | None = None) -> int:
     ru.add_argument("runtime")
     ru.add_argument("--model", default=None)
 
-    dvp = sub.add_parser("device", help="this Mac's device profile (apps, scriptable apps, browsers); scan rescans")
-    dvp.add_argument("action", nargs="?", choices=["show", "scan"], default="show")
     rsp = sub.add_parser("restore", help="files FERB changed or moved to the Trash lately; restore <id> puts one back")
     rsp.add_argument("id", nargs="?", help="the record to put back (its first characters are enough)")
-    tl = sub.add_parser("timeline", help="the journal: chats, task outcomes, daily summaries")
-    tl.add_argument("--since", help="YYYY-MM-DD")
-    sub.add_parser("pause", help="stop every watcher: nothing is recorded until `ferb resume`")
-    sub.add_parser("resume", help="start the watchers again after `ferb pause`")
     bp = sub.add_parser("browsers", help="browser profiles, pairing and connection status")
     bsub = bp.add_subparsers(dest="bcmd")
     extension = bsub.add_parser("extension", help="prepare, locate or package FERB's browser extension")
@@ -111,31 +112,16 @@ def main(argv: list[str] | None = None) -> int:
         x.add_argument("--browser", choices=list(BROWSERS))
 
     sub.add_parser("ps", help="background processes FERB started")
-    kp = sub.add_parser("kill", help="stop one of FERB's background processes")
-    kp.add_argument("id")
-    ap = sub.add_parser('attach', help='watch an existing FERB process; optionally take over its input')
-    ap.add_argument('id')
-    ap.add_argument('--take', action='store_true', help='pause worker input until you detach with Ctrl-]')
-
     sub.add_parser("mcp", help="(used by runtimes) the stdio MCP shim; needs FERB_RUN_TOKEN")
-    sp = sub.add_parser("setup", help="install FERB's interpreter, venv and LaunchAgent; permissions; self-test")
-    sp.add_argument("--update", action="store_true", help="only reinstall FERB into its venv and restart the agent")
-    sp.add_argument("--persona", action="store_true", help="review local app-use evidence without reinstalling or permission dialogs")
-    sp.add_argument("--identity", action="store_true",
-                    help="choose FERB's identity profile in your Chrome (it must hold only FERB's account)")
-    sp.add_argument("--profile", help="with --identity: the Chrome profile's name, if several hold FERB's account")
-    from ferb.runtimes.catalog import api_providers
-    sp.add_argument("--key", choices=list(api_providers()),
-                    help="store a provider's API key in the Keychain and check it answers (direct-API runtimes)")
-    sp.add_argument("--jev", action="store_true", help="store the Jev API key in the Keychain and check it answers")
+    sp = sub.add_parser("setup", help="a checkout: install FERB's interpreter, venv and development LaunchAgent; "
+                                      "FERB.app: its setup steps")
+    sp.add_argument("--update", action="store_true", help="only reinstall FERB into a new venv and restart the daemon")
     sp.add_argument("--codex-login", action="store_true",
                     help="sign in FERB's own Codex (its own home: your personal Codex settings and skills stay out)")
     sp.add_argument("--codex-logout", action="store_true",
                     help="sign out FERB's own Codex (your personal Codex login is never touched)")
     sp.add_argument("--cli", action="store_true",
                     help="link the `ferb` command at ~/.local/bin to this FERB.app (Settings → Advanced)")
-    sp.add_argument("--claude-login", action="store_true",
-                    help="sign in FERB's own Claude (its own home: your personal Claude Code settings stay out)")
     sp.add_argument("--claude-logout", action="store_true",
                     help="sign out FERB's own Claude (your personal Claude Code login is never touched)")
     sp.add_argument("--cleanup", action="store_true",
@@ -149,13 +135,14 @@ def main(argv: list[str] | None = None) -> int:
     stp = sub.add_parser("stats", help="how FERB is doing: task outcomes, tool errors, model runs, and its own CPU and "
                                        "memory per day (from the database)")
     stp.add_argument("--days", type=int, default=7)
-    bp = sub.add_parser("baseline", help="capture metrics or compare two saved baseline JSON files")
-    bp.add_argument('--compare', nargs=2, metavar=('BEFORE', 'AFTER'), help='read-only saved-snapshot comparison')
-    sub.add_parser("release-checklist", help="print owner-supervised release checks as JSON; never runs them")
-    xp = sub.add_parser("uninstall", help="remove the LaunchAgent; --purge also deletes ~/.ferb")
+    xp = sub.add_parser("uninstall", help="stop the background service and remove its files; --purge also deletes "
+                                          "~/.ferb and every FERB Keychain item")
     xp.add_argument("--purge", action="store_true")
+    return p
 
-    args = p.parse_args(argv)
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     if args.cmd == "daemon":
         from ferb.daemon.main import main as daemon_main
         daemon_main()
@@ -163,22 +150,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "stats":
         return admin.stats(ferb_home(), sys.stdout, args.days)
-    if args.cmd == "release-checklist":
-        from ferb.eval.release import checklist
-        print(json.dumps(checklist(), ensure_ascii=False, indent=2))
-        return 0
-    if args.cmd == "baseline":
-        if args.compare:
-            from pathlib import Path
-            from ferb.eval.comparison import compare_baselines
-            try:
-                before, after = (json.loads(Path(p).read_text()) for p in args.compare)
-                print(json.dumps(compare_baselines(before, after), indent=2))
-                return 0
-            except (OSError, ValueError, TypeError, KeyError) as exc:
-                print(f"ferb: cannot compare baselines: {exc}", file=sys.stderr)
-                return 1
-        return admin.baseline(ferb_home(), sys.stdout)
     if args.cmd == "mcp":
         from ferb.cli.mcp import main as mcp_main
         mcp_main()
@@ -229,38 +200,24 @@ def main(argv: list[str] | None = None) -> int:
                 return setup_cmd.cleanup_apply(env, args.ok) if args.ok else setup_cmd.cleanup_preview(env)
             if args.cmd == "setup" and args.service:
                 return setup_cmd.service_setup(env, update=args.update)
-            if args.cmd == "setup" and args.key:
-                return setup_cmd.key_setup(env, args.key)
-            if args.cmd == "setup" and args.jev:
-                return setup_cmd.jev_setup(env)
             if args.cmd == "setup" and args.codex_logout:
                 return setup_cmd.codex_logout(env)
             if args.cmd == "setup" and args.cli:
                 return setup_cmd.cli_setup(env)
             if args.cmd == "setup" and args.codex_login:
                 return setup_cmd.codex_login(env)
-            if args.cmd == "setup" and args.claude_login:
-                return setup_cmd.claude_login(env)
             if args.cmd == "setup" and args.claude_logout:
                 return setup_cmd.claude_logout(env)
-            if args.cmd == "setup" and args.identity:
-                return setup_cmd.identity_setup(env, args.profile)
-            if args.cmd == "setup" and args.persona:
-                return setup_cmd.persona_setup(env)
             if args.cmd == "setup":
                 return setup_cmd.setup(env, update=args.update)
             if args.cmd == "doctor":
                 return setup_cmd.doctor(env)
             return setup_cmd.uninstall(env, purge=args.purge)
-        except (InstallError, NotRunning) as e:
-            print(f"ferb: {e}", file=sys.stderr)
+        except (InstallError, FerbError, OSError) as e:
+            print(plain_error(e), file=sys.stderr)
             return 1
         except KeyboardInterrupt:
             return 130
-
-    if args.cmd == "device":
-        from ferb.cli.admin import device
-        return device(ferb_home(), args.action, lambda: Client(socket_path()), sys.stdout)
 
     if args.cmd == "memory" and args.mcmd == "dashboard":
         from ferb.memory.dashboard import Dashboard
@@ -288,31 +245,12 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.trace(client, args.task_id, sys.stdout, args.full, args.json)
             if args.cmd == "verdict":
                 return admin.verdict(client, args.task_id, args.verdict, args.note, sys.stdout)
-            if args.cmd == "stop":
-                return admin.stop(client, sys.stdout)
-            if args.cmd == "resume-tasks":
-                return admin.resume(client, sys.stdout)
             if args.cmd == "memory":
                 return admin.memory(client, args, input, sys.stdout)
-            if args.cmd == "schedules":
-                return admin.schedules(client, args.action, args.id, sys.stdout)
-            if args.cmd == "reminders":
-                return admin.reminders(client, args.action, args.id, sys.stdout)
-            if args.cmd == "timeline":
-                return admin.timeline(client, args.since, sys.stdout)
             if args.cmd == "restore":
                 return admin.restore(client, args.id, sys.stdout)
-            if args.cmd == "pause":
-                return admin.pause(client, sys.stdout)
-            if args.cmd == "resume":
-                return admin.sense_resume(client, sys.stdout)
             if args.cmd == "ps":
                 return admin.ps(client, sys.stdout)
-            if args.cmd == "kill":
-                return admin.kill(client, args.id, sys.stdout)
-            if args.cmd == 'attach':
-                from ferb.cli.attach import attach
-                return attach(lambda: Client(socket_path()), args.id, args.take)
             if args.cmd == "browsers":
                 return admin.browsers(client, args.bcmd, getattr(args, "profile", None), getattr(args, "browser", None),
                                       sys.stdout)
@@ -320,10 +258,10 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             client.close()
     except NotRunning as e:
-        print(f"ferb: {e}", file=sys.stderr)
+        print(plain_error(e), file=sys.stderr)
         return 2
-    except RpcError as e:
-        print(f"ferb: {e}", file=sys.stderr)
+    except (FerbError, OSError) as e:
+        print(plain_error(e), file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 130

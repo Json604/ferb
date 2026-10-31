@@ -19,25 +19,113 @@ def inst(tmp_path: Path) -> Installer:
     return Installer(home, label="com.ferb.test", run=FakeRunner(home), launch_agents=tmp_path / "LaunchAgents")
 
 
-def test_plist_points_into_ferb_home_and_restarts_only_after_crashes(inst: Installer) -> None:
+def test_launch_definitions_never_import_from_a_working_folder_and_run_in_ferbs_home(tmp_path: Path) -> None:
+    """notes/daemon.md (2026-10-31): `python -m` put the checkout (the old WorkingDirectory) first on sys.path, so the
+    live daemon ran the checkout's code. A checkout's LaunchAgent and native host run the venv's python with `-P` and
+    FERB's home as the working folder; FERB.app's definition (inside the app) runs its isolated agent with exactly
+    `-m ferb.daemon`, and the daemon makes FERB's home its working folder itself."""
+    import plistlib
+    from ferb.device.install import BUNDLE_AGENT, BUNDLE_SERVICE, LABEL
+    home = tmp_path / ".ferb"
+    inst = Installer(home, run=FakeRunner(home), launch_agents=tmp_path / "LaunchAgents",
+                     native_hosts_dirs=(tmp_path / "NativeMessagingHosts",))
     p = inst.plist()
-    assert p["ProgramArguments"] == [str(inst.home / "venv" / "bin" / "python"), "-m", "ferb.daemon"]
-    assert p["EnvironmentVariables"] == {"FERB_HOME": str(inst.home)}
-    assert p["KeepAlive"] == {"SuccessfulExit": False}
-    assert p["LimitLoadToSessionType"] == "Aqua"
-    assert str(p["StandardErrorPath"]).startswith(str(inst.home / "logs"))
+    assert p["Label"] == LABEL and p["WorkingDirectory"] == str(home)
+    assert p["ProgramArguments"] == [str(home / "venv" / "bin" / "python"), "-P", "-m", "ferb.daemon"]
+    assert p["EnvironmentVariables"] == {"FERB_HOME": str(home)}
+    assert p["KeepAlive"] == {"SuccessfulExit": False} and p["LimitLoadToSessionType"] == "Aqua"
+    assert str(p["StandardErrorPath"]).startswith(str(home / "logs"))
     assert "Desktop" not in str(p["ProgramArguments"])          # never runs code from the repo
+    inst.write_native_host()
+    assert f"{home}/venv/bin/python -P -m ferb.native_host.main" in inst.native_host_launcher.read_text()
+    app = make_ferb_app(tmp_path / "Applications")
+    bundled_inst = Installer(home, run=FakeRunner(home), launch_agents=tmp_path / "LaunchAgents", bundle=app)
+    assert bundled_inst.service_definition == app / BUNDLE_SERVICE
+    definition = plistlib.loads((app / BUNDLE_SERVICE).read_bytes())
+    assert definition["Label"] == LABEL and definition["BundleProgram"] == str(BUNDLE_AGENT)
+    assert definition["ProgramArguments"][1:] == ["-m", "ferb.daemon"] == bundled_inst.daemon_command()[1:]
+    assert definition["KeepAlive"] == {"SuccessfulExit": False} and "WorkingDirectory" not in definition
 
 
-def test_install_is_idempotent(inst: Installer) -> None:
+def test_the_daemon_runs_in_ferbs_home_and_writes_to_its_logs_when_launchd_gave_it_nothing(tmp_path: Path) -> None:
+    """FERB.app's fixed definition can't name the owner's home: `service_streams` makes it the working folder and sends
+    output launchd left at /dev/null to FERB's logs."""
+    import subprocess
+    import sys
+    home = tmp_path / ".ferb"
+    code = ("import os, sys; from pathlib import Path; from ferb.daemon.main import service_streams; "
+            "service_streams(Path(sys.argv[1])); print(os.getcwd()); print('to stderr', file=sys.stderr)")
+    r = subprocess.run([sys.executable, "-c", code, str(home)], cwd=tmp_path, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=60)
+    assert r.returncode == 0
+    assert (home / "logs" / "daemon.out.log").read_text().strip() == str(home.resolve())
+    assert (home / "logs" / "daemon.err.log").read_text().strip() == "to stderr"
+
+
+def test_install_builds_a_new_venv_from_the_lockfile_each_time(inst: Installer) -> None:
     r: FakeRunner = inst.run  # type: ignore[assignment]
     inst.install()
-    assert (r.ran("uv", "python", "install"), r.ran("uv", "venv"), r.ran("uv", "pip", "install")) == (1, 1, 1)
+    assert (r.ran("uv", "python", "install"), r.ran("uv", "venv"), r.ran("uv", "pip", "install")) == (1, 1, 2)
+    export = next(c for c in r.cmds if c[:2] == ["uv", "export"])
+    assert "--frozen" in export and "--no-dev" in export                            # uv.lock, exactly
+    assert any("--require-hashes" in c for c in r.cmds if c[:3] == ["uv", "pip", "install"])
+    assert any(c[:2] == ["npm", "ci"] for c in r.cmds) and not r.ran("npm", "install")   # package-lock.json, exactly
     assert r.ran("launchctl", "bootstrap") == 1 and inst.plist_path.exists() and (inst.home / MARKER).exists()
     assert inst.granted_binary() == inst.interpreter().resolve()
-    inst.install()                                               # rerun: no new Python, no new venv, restart
-    assert (r.ran("uv", "python", "install"), r.ran("uv", "venv")) == (1, 1)
-    assert r.ran("uv", "pip", "install") == 2 and r.ran("launchctl", "kickstart", "-k") == 1
+    assert not inst.staged_venv.exists() and not inst.retired_venv.exists()
+    inst.install()                                               # rerun: no new Python; a new venv, swapped while stopped
+    assert (r.ran("uv", "python", "install"), r.ran("uv", "venv")) == (1, 2)
+    assert r.ran("launchctl", "bootout") >= 1 and r.ran("launchctl", "bootstrap") == 2 and r.loaded
+
+
+@pytest.mark.parametrize("step", [("uv", "pip", "install"), ("npm", "ci"), ("xcrun", "swiftc")])
+def test_a_failed_install_leaves_the_old_venv_and_the_running_daemon_as_they_were(inst: Installer,
+                                                                                  step: tuple[str, ...]) -> None:
+    """notes/daemon.md: an update overwrote the venv under the running daemon, so a failed Codex install left it
+    running mixed code. Now nothing the daemon runs from changes until every step succeeded."""
+    r: FakeRunner = inst.run  # type: ignore[assignment]
+    inst.install()
+    (inst.venv / "old-code").write_text("the running daemon's")
+    (inst.home / "node").rename(inst.home / "node.gone")         # Codex needs installing again (npm ci runs)
+    plist = inst.plist_path.read_bytes()
+    before = len(r.cmds)
+    r.fail = step
+    with pytest.raises(InstallError):
+        inst.install(update_only=True)
+    assert (inst.venv / "old-code").read_text() == "the running daemon's" and not inst.staged_venv.exists()
+    assert not any(c[:2] in (["launchctl", "bootout"], ["launchctl", "bootstrap"], ["launchctl", "kickstart"])
+                   for c in r.cmds[before:])                     # the daemon was never stopped or restarted
+    assert r.loaded and inst.plist_path.read_bytes() == plist
+    assert not (inst.home / "node.new").exists() and not (inst.home / "bin" / ".ferb-secrets.new").exists()
+    r.fail = None
+    inst.install(update_only=True)
+    assert not (inst.venv / "old-code").exists()                 # the new venv replaced it once everything installed
+
+
+def test_codex_is_installed_only_when_a_role_uses_it(inst: Installer) -> None:
+    from ferb.config import Config
+    r: FakeRunner = inst.run  # type: ignore[assignment]
+    for role in ("orchestrator", "worker", "checker"):
+        Config(inst.home).set("runtimes", role, "claude")
+    inst.install()
+    assert not r.ran("npm") and not (inst.home / "node").exists()
+    Config(inst.home).set("runtimes", "checker", "codex")
+    inst.install(update_only=True)
+    assert r.ran("npm", "ci") == 1
+
+
+def test_a_checkout_fetches_the_embedding_model_at_install_and_a_failure_only_notes_it(inst: Installer) -> None:
+    from ferb.memory.embeddings import default_root
+    fetched: list[Path] = []
+    inst.fetch_model = fetched.append
+    inst.install()
+    assert fetched == [default_root(inst.home)] and inst.notes == []
+
+    def offline(root: Path) -> None:
+        raise OSError("network unreachable")
+    inst.fetch_model = offline
+    inst.install(update_only=True)                               # the install still lands; search uses keywords
+    assert len(inst.notes) == 1 and "embedding model" in inst.notes[0]
 
 
 def test_installed_secret_helper_requires_stable_certificate_identity(inst: Installer) -> None:
@@ -56,7 +144,7 @@ def test_installed_secret_helper_requires_stable_certificate_identity(inst: Inst
         inst.install_secret_helper()
 
 
-def test_venv_on_another_interpreter_is_rebuilt_on_ferbs_own(inst: Installer, tmp_path: Path) -> None:
+def test_venv_on_another_interpreter_is_replaced_by_one_on_ferbs_own(inst: Installer, tmp_path: Path) -> None:
     other = tmp_path / "other-python"
     other.write_text("")
     (inst.venv / "bin").mkdir(parents=True)
@@ -65,7 +153,7 @@ def test_venv_on_another_interpreter_is_rebuilt_on_ferbs_own(inst: Installer, tm
     assert inst.venv_python.resolve() == inst.interpreter().resolve()
 
 
-def test_update_only_reinstalls_ferb_and_restarts(inst: Installer) -> None:
+def test_update_only_reinstalls_ferb_into_a_new_venv_and_restarts(inst: Installer) -> None:
     r: FakeRunner = inst.run  # type: ignore[assignment]
     with pytest.raises(InstallError, match="run `ferb setup` first"):
         inst.install(update_only=True)
@@ -73,8 +161,15 @@ def test_update_only_reinstalls_ferb_and_restarts(inst: Installer) -> None:
     before = len(r.cmds)
     inst.install(update_only=True)
     new = r.cmds[before:]
-    assert [c[:3] for c in new if c[0] == "uv"] == [["uv", "pip", "install"]]
-    assert any(c[:3] == ["launchctl", "kickstart", "-k"] for c in new)
+    assert [c[:2] for c in new if c[0] == "uv"] == [["uv", "venv"], ["uv", "export"], ["uv", "pip"], ["uv", "pip"]]
+    assert ["launchctl", "bootout"] in [c[:2] for c in new] and ["launchctl", "bootstrap"] in [c[:2] for c in new]
+
+
+def test_a_swap_cut_off_between_its_renames_is_finished_by_the_next_install(inst: Installer) -> None:
+    inst.install()
+    inst.venv.rename(inst.retired_venv)                          # the old venv moved aside, the new one never landed
+    inst.install(update_only=True)
+    assert inst.venv_python.exists() and not inst.retired_venv.exists()
 
 
 def test_work_that_needs_the_daemon_stopped_runs_after_the_install_and_before_the_new_start(inst: Installer) -> None:
@@ -132,6 +227,26 @@ def test_uninstall_removes_agent_and_plist_but_keeps_home(inst: Installer) -> No
     removed = inst.uninstall()
     assert not inst.plist_path.exists() and not inst.loaded()
     assert inst.home.exists() and len(removed) == 2
+
+
+def test_purge_deletes_every_ferb_keychain_item_without_reading_one(inst: Installer) -> None:
+    """notes/daemon.md: `uninstall --purge` left API keys, the Jev key and owner-secret items. Every item of FERB's
+    services goes (FERB's own, the owner's saved secrets and cards, Claude Code's item for FERB's Claude home), deleted
+    by service one at a time: no value is ever read or listed. Others' items stay. The Keychain is a fake."""
+    from ferb.runtimes.claude_login import keychain_service
+    r: FakeRunner = inst.run  # type: ignore[assignment]
+    inst.install()
+    r.keychain = {"ferb": {"api/anthropic": "k1", "jev/api_key": "k2", "ferb/email/password": "p"},
+                  "ferb.owner-secrets": {"card/visa": "4111", "site/bank": "s"},
+                  keychain_service(inst.home): {"Claude Code-credentials": "token"},
+                  "Claude Code-credentials": {"kartikey": "the owner's own Claude login"},
+                  "com.apple.account": {"x": "y"}}
+    removed = inst.uninstall(purge=True)
+    assert {s: items for s, items in r.keychain.items() if items} == {
+        "Claude Code-credentials": {"kartikey": "the owner's own Claude login"}, "com.apple.account": {"x": "y"}}
+    assert "Keychain items of ferb: 3" in removed and "Keychain items of ferb.owner-secrets: 2" in removed
+    assert not any("find-generic-password" in c or "dump-keychain" in c or "-w" in c for c in r.cmds)
+    assert not inst.home.exists()
 
 
 def test_purge_deletes_home_only_with_marker(inst: Installer) -> None:
@@ -227,18 +342,19 @@ def test_app_bundle_is_found_only_from_the_interpreter_inside_ferb_app(tmp_path:
     assert app_bundle() is None                                                 # this checkout's own venv
 
 
-def test_bundle_plist_runs_the_daemon_as_the_nested_ferb_agent_app(tmp_path: Path) -> None:
+def test_the_apps_service_runs_the_daemon_as_the_nested_ferb_agent_app(tmp_path: Path) -> None:
     """launchd starts FERB's agent app (a native stub that embeds the app's Python, isolated, never writing bytecode),
-    so macOS names FERB, not python3.12, in permission prompts, Privacy & Security and Login Items."""
+    so macOS names FERB, not python3.12, in permission prompts, Privacy & Security and Login Items; its definition is
+    inside the app, which registers it (notes/daemon.md decision 2), so setup writes no user LaunchAgent."""
+    import plistlib
     inst = bundled(tmp_path)
-    p = inst.plist()
     agent = inst.bundle / AGENT  # type: ignore[operator]
-    assert p["ProgramArguments"] == [str(agent), "-m", "ferb.daemon"]
-    assert p["EnvironmentVariables"] == {"FERB_HOME": str(inst.home), "FERB_APP_BUILD": "202610140201"}
-    assert p["AssociatedBundleIdentifiers"] == ["com.ferb.FERB"]          # Login Items shows it under FERB
+    assert inst.app_service and inst.daemon_command() == [str(agent), "-m", "ferb.daemon"]
+    definition = plistlib.loads(inst.service_definition.read_bytes())
+    assert definition["EnvironmentVariables"] == {"FERB_APP_BUILD": "202610140201"}
+    assert definition["AssociatedBundleIdentifiers"] == ["com.ferb.FERB"]   # Login Items shows it under FERB
     assert inst.granted_binary() == agent.resolve()                         # what the daemon reports as its executable
     assert inst.grant_target() == inst.bundle / "Contents" / "Helpers" / "FERB.app"  # type: ignore[operator]
-    assert str(p["StandardErrorPath"]).startswith(str(inst.home / "logs"))   # the same ~/.ferb home and logs
 
 
 def test_bundle_install_needs_no_uv_swiftc_or_npm_and_installs_from_the_bundle(tmp_path: Path) -> None:
@@ -248,7 +364,8 @@ def test_bundle_install_needs_no_uv_swiftc_or_npm_and_installs_from_the_bundle(t
     ran = [c[0] for c in r.cmds]
     assert not {"uv", "xcrun", "npm"} & set(ran), r.cmds
     assert r.ran("/usr/bin/codesign", "--verify", "--deep", "--strict", str(inst.bundle)) == 1
-    assert r.ran("launchctl", "bootstrap") == 1 and inst.plist_path.exists() and (inst.home / MARKER).exists()
+    assert not r.ran("launchctl", "bootstrap") and not inst.plist_path.exists() and (inst.home / MARKER).exists()
+    assert inst.recorded() == {"build": "202610140201", "app": str(inst.bundle), "label": "com.ferb.test"}
     helper = inst.home / "bin" / "ferb-secrets"                               # copied, signature intact
     assert helper.read_bytes() == (inst.bundle / "Contents" / "Helpers" / "ferb-secrets").read_bytes()  # type: ignore[operator]
     assert helper.stat().st_mode & 0o777 == 0o700
@@ -281,22 +398,66 @@ def test_bundle_install_refuses_a_temporary_read_only_or_damaged_copy(tmp_path: 
     assert not inst.home.exists()                                             # nothing written before the checks
 
 
-def test_bundle_update_reloads_the_agent_when_the_app_build_changes(tmp_path: Path) -> None:
+def test_bundle_update_records_the_new_build_and_restarts_the_registered_service(tmp_path: Path) -> None:
     import plistlib
     from ferb.device.install import InstallError
     inst = bundled(tmp_path)
     r: BundleRunner = inst.run  # type: ignore[assignment]
-    with pytest.raises(InstallError, match="run `ferb setup` first"):
+    with pytest.raises(InstallError, match="open FERB.app"):
         inst.install(update_only=True)
     inst.install()
+    assert not r.ran("launchctl", "kickstart")                   # not registered yet: FERB.app registers it next
+    r.loaded = True                                              # FERB.app registered it; macOS loaded it
     info = inst.bundle / "Contents" / "Info.plist"  # type: ignore[operator]
     data = plistlib.loads(info.read_bytes())
     info.write_bytes(plistlib.dumps({**data, "CFBundleVersion": "202610150900"}))   # the owner replaced FERB.app
     inst.install(update_only=True)
-    assert plistlib.loads(inst.plist_path.read_bytes())["EnvironmentVariables"]["FERB_APP_BUILD"] == "202610150900"
-    assert r.ran("launchctl", "bootstrap") == 2
-    inst.install(update_only=True)                                            # nothing changed: a restart only
-    assert r.ran("launchctl", "bootstrap") == 2 and r.ran("launchctl", "kickstart", "-k") == 1
+    assert inst.recorded()["build"] == "202610150900"
+    assert r.ran("launchctl", "kickstart", "-k") == 1 and not r.ran("launchctl", "bootstrap")
+
+
+def test_setup_from_the_app_retires_the_old_launch_agent(tmp_path: Path) -> None:
+    """Storage decision 5: an install from before FERB.app registered its own service has
+    ~/Library/LaunchAgents/com.ferb.daemon.plist; setup from the app stops it and removes it (the same label can't be
+    loaded twice), before the app registers its own. A plist that isn't FERB's is left alone."""
+    import plistlib
+    inst = bundled(tmp_path)
+    r: BundleRunner = inst.run  # type: ignore[assignment]
+    inst.launch_agents.mkdir(parents=True)
+    inst.plist_path.write_bytes(plistlib.dumps({"Label": "com.ferb.test", "ProgramArguments": [
+        str(inst.bundle / AGENT), "-m", "ferb.daemon"]}))  # type: ignore[operator]
+    other = inst.launch_agents / "com.owner.thing.plist"
+    other.write_bytes(plistlib.dumps({"Label": "com.owner.thing"}))
+    r.loaded = True
+    inst.install(update_only=True)
+    assert not inst.plist_path.exists() and other.exists()
+    assert r.ran("launchctl", "bootout") == 1 and not r.loaded
+    assert not r.ran("launchctl", "bootstrap")                   # FERB.app's registration loads its own definition
+    inst.plist_path.write_bytes(plistlib.dumps({"Label": "com.owner.elses"}))   # same file name, not FERB's label
+    inst.install(update_only=True)
+    assert inst.plist_path.exists()
+
+
+def test_the_apps_service_is_stopped_and_started_around_work_that_needs_it_stopped(tmp_path: Path) -> None:
+    """The clean-up runs with the daemon stopped; FERB.app's service stays registered: its daemon is asked to end
+    (clean exit, so launchd doesn't restart it) and is started again afterwards, whatever the work does."""
+    inst = bundled(tmp_path)
+    r: BundleRunner = inst.run  # type: ignore[assignment]
+    inst.install()
+    r.loaded = True
+    before = len(r.cmds)
+    seen: list[int] = []
+
+    def work() -> None:
+        assert r.loaded and not inst.running()                   # its process ended cleanly; still registered
+        seen.append(len(r.cmds))
+        raise RuntimeError("disk I/O error")
+    with pytest.raises(RuntimeError):
+        inst.while_stopped(work)
+    [at] = seen
+    assert ["launchctl", "kill", "SIGTERM", f"gui/{__import__('os').getuid()}/com.ferb.test"] in r.cmds[before:at]
+    assert r.cmds[-1][:2] == ["launchctl", "kickstart"] and "-k" not in r.cmds[-1] and inst.running()
+    assert not r.ran("launchctl", "bootout") and not r.ran("launchctl", "bootstrap")
 
 
 def test_bundle_secret_helper_must_be_exactly_the_code_ferb_apps_signature_seals(tmp_path: Path) -> None:
@@ -416,16 +577,22 @@ def test_source_codex_install_replaces_a_link_into_ferb_app(tmp_path: Path, inst
     inst.run = pinned  # type: ignore[assignment]
     inst.ensure_codex()                                                       # source mode: npm into its own folder
     assert not (inst.home / "node").is_symlink()
-    assert real.ran("npm", "install") == 1  # type: ignore[attr-defined]
+    assert real.ran("npm", "ci") == 1  # type: ignore[attr-defined]
     assert (app / "Contents" / "Resources" / "node" / CODEX_BIN).read_bytes().startswith(b"fake")   # untouched
 
 
-def test_a_checkout_update_after_an_app_install_moves_launchd_back_to_the_checkout(tmp_path: Path) -> None:
+def test_a_checkout_update_after_an_old_app_install_moves_launchd_back_to_the_checkout(tmp_path: Path) -> None:
     import plistlib
     app_inst = bundled(tmp_path)
     app_inst.install()
+    app_inst.launch_agents.mkdir(parents=True, exist_ok=True)      # an app install from before SMAppService
+    app_inst.plist_path.write_bytes(plistlib.dumps({"Label": "com.ferb.test", "ProgramArguments": [
+        str(app_inst.bundle / AGENT), "-m", "ferb.daemon"]}))  # type: ignore[operator]
+    app_inst.run.loaded = True  # type: ignore[attr-defined]
     source = Installer(app_inst.home, label="com.ferb.test", run=app_inst.run, launch_agents=tmp_path / "LaunchAgents")
     app_inst.run.requirement = 'identifier "com.ferb.secrets" and certificate leaf = H"local"'  # type: ignore[attr-defined]
+    from ferb.runtimes.codex_exec import CODEX_VERSION
+    app_inst.run.codex_version = f"codex-cli {CODEX_VERSION}\n"  # type: ignore[attr-defined]
     (source.venv / "bin").mkdir(parents=True)
     (source.venv / "bin" / "python").write_text("")
     before = app_inst.run.ran("launchctl", "bootstrap")  # type: ignore[attr-defined]
@@ -434,6 +601,27 @@ def test_a_checkout_update_after_an_app_install_moves_launchd_back_to_the_checko
     agent = plistlib.loads(source.plist_path.read_bytes())
     assert agent["ProgramArguments"][0] == str(source.venv_python) and source.active_program() == str(source.venv_python)
     assert app_inst.run.ran("launchctl", "bootstrap") == before + 1  # type: ignore[attr-defined]   # reloaded
+
+
+def test_a_checkout_never_takes_over_the_apps_registered_service(tmp_path: Path) -> None:
+    """Only FERB.app can unregister its own service: a checkout's setup refuses while launchd runs FERB's label from the
+    app's definition, and changes nothing."""
+    from ferb.device.install import BUNDLE_SERVICE
+    app = make_ferb_app(tmp_path / "Applications")
+    home = tmp_path / ".ferb"
+
+    class Registered(FakeRunner):
+        def __call__(self, cmd: list[str]) -> "subprocess.CompletedProcess[str]":
+            if cmd[:2] == ["launchctl", "print"]:
+                self.cmds.append(cmd)
+                return subprocess.CompletedProcess(cmd, 0, f"path = {app / BUNDLE_SERVICE}\npid = 4242\n", "")
+            return super().__call__(cmd)
+    import subprocess
+    runner = Registered(home)
+    source = Installer(home, label="com.ferb.test", run=runner, launch_agents=tmp_path / "LaunchAgents")
+    with pytest.raises(InstallError, match="FERB.app's background service is registered"):
+        source.install()
+    assert not runner.ran("uv") and not source.plist_path.exists()
 
 
 def test_uninstall_removes_the_cli_link_ferb_app_made(tmp_path: Path) -> None:

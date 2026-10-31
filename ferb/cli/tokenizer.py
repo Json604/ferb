@@ -40,4 +40,4 @@ def ensure(home: Path, fetch: Callable[[str], Any] | None = None) -> str:
         return f"Tokenizer: FERB's pinned copy {how} and verified."
     except Exception as exc:
         return (f"Tokenizer: not available ({type(exc).__name__}: {exc}); token counts use a byte ceiling until "
-                "`ferb setup --update` can fetch it.")
+                "FERB's next update can fetch it.")

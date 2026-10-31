@@ -1,7 +1,7 @@
 """Owns the one table of model runtimes FERB can run (D32): each runtime's name, how it is built, its model's documented
 limits, how it bills, and how to tell it can run here. Must not choose a runtime for a task.
 
-Every list of runtime names (the daemon's builder, the planner's worker types, `ferb runtimes`, `ferb setup --key`, the
+Every list of runtime names (the daemon's builder, the planner's worker types, `ferb runtimes`, the app's API keys, the
 Keychain accounts, the doctor) reads this table. A runtime is available when its model is set (the owner's
 `[models] <name>` or the runtime's default; Claude has none) and FERB's own sign-in (Codex, Claude) or the provider's
 key (the direct APIs) is present. Prices are per model (ferb/runtimes/prices.py, shared by Codex and the OpenAI API) and
@@ -93,8 +93,7 @@ class Runtime:
         from ferb.core.errors import ModelLimitsUnknown
         chosen = model or self.default_model
         if not chosen:
-            raise ModelLimitsUnknown(f"the {self.name} runtime has no model set: run `ferb runtimes use ROLE "
-                                     f"{self.name} --model MODEL` or set [models] {self.name} in config.toml")
+            raise ModelLimitsUnknown(f"no model is chosen for {self.name}, so FERB doesn't know its context window")
         return self.limits_of(chosen, home)
 
     def signed_in(self, home: Path) -> tuple[bool, str]:
@@ -106,14 +105,16 @@ class Runtime:
             try:
                 codex_binary(home, repo_root())
             except Unsupported:
-                return False, "run `ferb setup --update`"
-            return (True, "") if codex_home(home) is not None else (False, "run `ferb setup --codex-login`")
+                return False, "FERB's pinned Codex isn't installed: set FERB up again"
+            return (True, "") if codex_home(home) is not None else (
+                False, "Codex isn't signed in for FERB: sign in to ChatGPT in Settings → AI")
         if self.sign_in == "claude":
             from ferb.runtimes.claude_login import claude_home
             return ((True, "") if claude_home(home) is not None else
-                    (False, "sign in to Claude for FERB (Settings → AI), or run `ferb setup --claude-login`"))
+                    (False, "Claude isn't signed in for FERB: sign in to Claude in Settings → AI"))
         from ferb.runtimes.keys import has_api_key
-        return (True, "") if has_api_key(self.name) else (False, f"run `ferb setup --key {self.name}`")
+        return (True, "") if has_api_key(self.name) else (
+            False, f"FERB has no {self.name} API key: add one in Settings → AI")
 
     def available(self, home: Path, model: str | None = None) -> tuple[bool, str]:
         """Whether this runtime can run here: signed in (or its key present) and a model set; the fix when not.
@@ -123,7 +124,7 @@ class Runtime:
             return False, fix
         chosen = model if model is not None else model_for(_config(home), self.name)
         if not chosen:
-            return False, f"choose a model: run `ferb runtimes use ROLE {self.name} --model MODEL`"
+            return False, f"no model is chosen for {self.name}"
         return True, ""
 
 
@@ -155,8 +156,7 @@ def _build_codex(b: Build) -> Any:
     from ferb.device.install import repo_root
     from ferb.runtimes.codex_exec import CodexRuntime, codex_binary, codex_home
     if codex_home(b.home) is None:
-        raise SignedOut("Codex isn't signed in for FERB: choose Sign in to Codex… in FERB's menu bar, "
-                        "or run `ferb setup --codex-login`", "codex")
+        raise SignedOut("Codex isn't signed in for FERB: sign in to ChatGPT in Settings → AI", "codex")
     # P20 (owner, 2026-10-25): the planner's chat turn holds its stable context in Codex's developer role under a fixed
     # cache key only when `[runtimes] codex_planner_cache = true`; off until the owner passes the live injection eval
     # (tests/security/test_planner_injection_real.py). Only the boolean true turns it on.
@@ -173,10 +173,9 @@ def _build_claude(b: Build) -> Any:
     from ferb.runtimes.claude_login import claude_home
     from ferb.runtimes.claude_sdk import ClaudeRuntime
     if claude_home(b.home) is None:          # never the owner's own ~/.claude login and billing
-        raise SignedOut("Claude isn't signed in for FERB: sign in to Claude in FERB's settings, or run "
-                        "`ferb setup --claude-login`", "claude")
+        raise SignedOut("Claude isn't signed in for FERB: sign in to Claude in Settings → AI", "claude")
     if not b.model:
-        raise Unsupported("the Claude runtime has no model set: run `ferb runtimes use ROLE claude --model MODEL`")
+        raise Unsupported("no model is chosen for Claude")
     return ClaudeRuntime(b.mode, b.deps.proxy(), str(b.home), shim_cmd=b.deps.shim_cmd, tool_names=b.tool_names,
                          output_schema=b.schema, model=b.model, effort=b.effort if b.mode == "worker" else None,
                          limit_s=b.limit_s)

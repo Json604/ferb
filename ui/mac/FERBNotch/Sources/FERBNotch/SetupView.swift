@@ -68,6 +68,9 @@ struct WelcomeStep: View {
                 Text("FERB couldn't set up its background service:").bold()
                 ScrollView { Text(error).font(.system(.callout, design: .monospaced)).textSelection(.enabled) }
                     .frame(maxHeight: 140)
+                if model.serviceNeedsApproval {
+                    Button("Open Login Items Settings") { model.openLoginItems() }
+                }
             }
         }
     }

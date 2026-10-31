@@ -366,7 +366,7 @@ def test_a_fresh_codex_login_reads_its_window_from_codexs_own_catalog(tmp_path, 
     monkeypatch.setattr(cx, "codex_binary", missing)
     for dumped in (home / "run").glob("codex-bundled-*.json"):
         dumped.unlink()
-    with pytest.raises(ModelLimitsUnknown, match="ferb setup --update"):  # the error names the real fix
+    with pytest.raises(ModelLimitsUnknown, match="didn.t print one"):  # the error names the cause
         cx.CodexRuntime(fake, "supervisor", home).limits
 
 
@@ -381,7 +381,7 @@ def test_reading_a_window_never_runs_codex(tmp_path, monkeypatch):
     fake = _fake_codex(tmp_path, monkeypatch, {"models": [
         {"slug": "gpt-5.6-sol", "context_window": 272000, "effective_context_window_percent": 95}]})
     monkeypatch.setattr(cx, "codex_binary", lambda ferb_home, repo=None: (ran.append("codex"), fake)[1])
-    with pytest.raises(ModelLimitsUnknown, match="ferb setup --update"):
+    with pytest.raises(ModelLimitsUnknown, match="didn.t print one"):
         cx.limits_for(home, "gpt-5.6-sol")
     assert cx.locked_catalog(home) is None and ran == []
     assert cx.bundled_catalog(home) is not None and ran == ["codex"]     # the dump: at startup or setup only

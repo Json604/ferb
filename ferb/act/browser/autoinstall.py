@@ -240,8 +240,8 @@ def describe(states: list[BrowserState], store_id: str, extension_dir: Path,
     valid = valid_id(store_id)
     removed = [f"  Removed FERB's earlier install request {p}" for p in withdrawn]
     if not states:
-        return ["Browser extension: no Chromium-family browser has been started on this Mac yet; run "
-                "`ferb setup --update` after starting one.", *removed]
+        return ["Browser extension: no Chromium-family browser has been started on this Mac yet; FERB sets it up "
+                "the next time it updates after you start one.", *removed]
     asked = [profiles.BROWSERS[s.browser].label for s in states if s.request is not None]
     if valid and asked:
         lines = [f"Browser extension: FERB asked {', '.join(asked)} to install it from the Chrome Web Store. Each "

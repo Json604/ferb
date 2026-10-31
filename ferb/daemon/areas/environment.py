@@ -24,9 +24,7 @@ class Environment:
         from ferb.policy import services as svc
         ferb = self._identity_profile()
         bindings = self.pairings.all() if self.pairings else []
-        alignment = self.db.conn.execute("SELECT data_json FROM journal WHERE kind='security.alignment' "
-            "AND json_extract(data_json, '$.task_id') IN (SELECT id FROM tasks WHERE status='running') ORDER BY seq"
-            ).fetchall() if self.db is not None else []
+        alignment = self.journal.of_running_tasks("security.alignment") if self.journal is not None else []
         found, apps, running, macos, extension = await asyncio.to_thread(
             self._environment_files, {(b.browser, b.folder) for b in bindings})
         names = {(p.browser, p.folder): p.display_name for p in found} if self.pairings else {}
@@ -39,7 +37,7 @@ class Environment:
         connections = [{'browser': p.browser, 'profile': p.folder,
                         'connection': self._profile_state(p, extension.get((p.browser, p.folder)))} for p in found]
         if alignment:
-            live += "\nNon-enforcing alignment advice for active tasks: " + json.dumps([json.loads(r[0]) for r in alignment])
+            live += "\nNon-enforcing alignment advice for active tasks: " + json.dumps([e.data for e in alignment])
         if connections:
             live += '\nBrowser profile connections now: ' + json.dumps(connections)
         stable += '\nBrowser/profile inventory (facts, not a selected route): ' + json.dumps(profiles)
@@ -168,7 +166,7 @@ class Environment:
                 profiles = (f"{profiles}; " if profiles else "none; ") + f"can wake paired profiles: {wakeable}"
         prof = self._identity_profile()
         if prof is not None and self.identity_browser is None:   # FERB's own browser is part of this FERB
-            problems["ferb_browser"] = "not paired — run `ferb setup --identity`"
+            problems["ferb_browser"] = "not paired yet"
         # Not open right now is fine: FERB opens its own profile when a task needs it (the owner's report, 2026-09-30)
         perms = self._fresh.get(self._permissions)      # TCC checks: kept fresh off the loop, not asked per call
         if registered & {"mac:read", "mac:act"} and not perms.get("accessibility", True):

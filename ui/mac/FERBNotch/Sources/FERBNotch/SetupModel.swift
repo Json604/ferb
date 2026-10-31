@@ -10,6 +10,8 @@ final class SetupModel: ObservableObject {
     @Published private(set) var serviceRunning = false
     @Published private(set) var serviceLine = ""
     @Published private(set) var serviceError: String?
+    /// macOS waits for the owner's OK in System Settings → General → Login Items before it runs the service.
+    @Published private(set) var serviceNeedsApproval = false
     @Published private(set) var ai: AISnapshot?
     @Published private(set) var aiMessage: String?
     @Published private(set) var signingIn = false
@@ -39,19 +41,24 @@ final class SetupModel: ObservableObject {
     let system: SystemOpening
     let keys: APIKeyStoring
     let service: DaemonServicing
+    /// The app's registered background service; nil where there is none to register (a development build, tests).
+    let background: BackgroundServiceRegistering?
+    /// How long the window waits for the service to answer after macOS turned it on.
+    var serviceStartWait: Duration = .seconds(30)
     var onFinish: (() -> Void)?
     private var poll: Task<Void, Never>?
 
     static let notAnswering = "FERB isn't answering right now; this step updates when it's back."
 
     init(rpc: DaemonRPCTransport, runner: SetupCommandRunning, app: AppPermissionsProviding, system: SystemOpening,
-         keys: APIKeyStoring, service: DaemonServicing) {
+         keys: APIKeyStoring, service: DaemonServicing, background: BackgroundServiceRegistering? = nil) {
         self.rpc = rpc
         self.runner = runner
         self.app = app
         self.system = system
         self.keys = keys
         self.service = service
+        self.background = background
     }
 
     /// What the setup window asks for: what every task needs. The rest are asked when first needed (owner 2026-10-26:
@@ -149,11 +156,12 @@ final class SetupModel: ObservableObject {
         runService { [weak self] ok in if ok { self?.go(.ai) } }
     }
 
-    /// `ferb setup --service [--update]`: the background service from this app, no questions. On failure its last lines
-    /// (the reason and its fix) stay on Welcome.
+    /// `ferb setup --service [--update]`: the background service's files from this app, no questions; then the app turns
+    /// the service on with macOS (`registerService`). On failure its last lines (the reason and its fix) stay on Welcome.
     func runService(completion: @escaping (Bool) -> Void) {
         guard let arguments = AppSetupPlan.serviceArguments(for: serviceAction) else { completion(true); return }
         serviceError = nil
+        serviceNeedsApproval = false
         serviceLine = "Starting…"
         serviceRunning = true
         var tail: [String] = []
@@ -162,11 +170,19 @@ final class SetupModel: ObservableObject {
             tail = Array((tail + [text]).suffix(6))
         }, done: { [weak self] status in
             guard let self else { return }
-            self.serviceRunning = false
-            if status == 0 {
+            if status == 0 && self.background == nil {      // nothing to register (a development build, tests)
+                self.serviceRunning = false
                 self.serviceAction = .none
                 completion(true)
+            } else if status == 0 {
+                Task { @MainActor in
+                    let on = await self.registerService()
+                    self.serviceRunning = false
+                    if on { self.serviceAction = .none }
+                    completion(on)
+                }
             } else {
+                self.serviceRunning = false
                 self.serviceError = tail.isEmpty ? "FERB's setup command stopped (exit status \(status))." :
                     tail.joined(separator: "\n")
                 completion(false)
@@ -178,6 +194,36 @@ final class SetupModel: ObservableObject {
             completion(false)
         }
     }
+
+    /// The app's background service turned on with macOS (registering again is harmless), then a wait until FERB
+    /// answers. macOS's "needs your OK", a missing definition or a refusal stays on Welcome in the app's words.
+    func registerService() async -> Bool {
+        guard let background else { return true }
+        serviceLine = "Turning on FERB's background service…"
+        do {
+            try background.register()
+        } catch {
+            if background.status != .enabled && background.status != .requiresApproval {
+                serviceError = ServicePlan.failed(error.localizedDescription)
+                return false
+            }
+        }
+        if let problem = ServicePlan.problem(background.status) {
+            serviceNeedsApproval = background.status == .requiresApproval
+            serviceError = problem
+            return false
+        }
+        let end = ContinuousClock.now + serviceStartWait
+        while ContinuousClock.now < end {
+            if (try? await rpc.call("ping", params: [:])) != nil { return true }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        serviceError = ServicePlan.notStarted
+        return false
+    }
+
+    /// System Settings → General → Login Items, where the owner allows FERB's background service.
+    func openLoginItems() { background?.openLoginItems() }
 
     // MARK: Polling
 
@@ -324,9 +370,9 @@ final class SetupModel: ObservableObject {
         let notifications = await app.notifications()
         let microphone = app.microphone()
         appRows = [
-            PermissionRow(id: "notifications", status: notifications, process: "app", required: false,
+            PermissionRow(id: "notifications", status: notifications, process: "app", required: true,
                           pane: permissions?.appPanes["notifications"], requestable: notifications == .notDetermined),
-            PermissionRow(id: "microphone", status: microphone, process: "app", required: false,
+            PermissionRow(id: "microphone", status: microphone, process: "app", required: true,
                           pane: permissions?.appPanes[app.microphoneDeniedPane], requestable: microphone == .notDetermined)]
     }
 
@@ -498,8 +544,11 @@ final class SetupModel: ObservableObject {
 
     // MARK: Done
 
+    /// Done: the daemon records setup as done only when every permission is granted, FERB.app's own included (it
+    /// reads its own; FERB.app reports these); Done still opens the notch, and launch shows the window again otherwise.
     func finish() async {
-        _ = try? await rpc.call("setup.finish", params: [:])       // only records it; Done still opens the notch
+        let own = Dictionary(uniqueKeysWithValues: appRows.map { ($0.id, $0.status.rawValue) })
+        _ = try? await rpc.call("setup.finish", params: ["app": own])
         stopPolling()
         onFinish?()
     }

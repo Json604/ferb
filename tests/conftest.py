@@ -304,17 +304,41 @@ def make_app(root: Path, name: str, bundle_id: str | None, version: str = "1.0",
 
 
 class FakeRunner:
-    """Records commands; simulates uv installing Python/venv, launchctl load state and the agent's process (pid 4242):
-    it runs while loaded and for `tail` more `kill -0` probes after a bootout (a slow exit; math.inf: never exits)."""
+    """Records commands; simulates uv installing Python/venv, `npm ci` installing the pinned Codex, launchctl load state
+    and the agent's process (pid 4242): it runs while loaded and for `tail` more `kill -0` probes after a bootout (a
+    slow exit; math.inf: never exits). `fail`: a command prefix that fails (an install step that breaks)."""
 
     def __init__(self, home: Path) -> None:
         self.home, self.cmds, self.loaded = home, [], False
         self.tail: float = 0
+        self.fail: tuple[str, ...] | None = None
+        # A fake login Keychain: service -> account -> value. Nothing here touches the real one.
+        self.keychain: dict[str, dict[str, str]] = {}
+        self.stopped = False             # loaded, its process ended cleanly (`launchctl kill`), until a kickstart
 
     def __call__(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         self.cmds.append(cmd)
         out = ""
-        if cmd[:3] == ["uv", "python", "install"]:
+        if self.fail is not None and tuple(cmd[:len(self.fail)]) == self.fail:
+            return subprocess.CompletedProcess(cmd, 1, "", "network unreachable")
+        if cmd[:2] == ["/usr/bin/security", "delete-generic-password"]:
+            service = cmd[cmd.index("-s") + 1]
+            items = self.keychain.get(service, {})
+            if not items or "-w" in cmd:
+                return subprocess.CompletedProcess(cmd, 44, "", "The specified item could not be found in the keychain.")
+            items.pop(next(iter(items)))                             # the first match goes; its value is never shown
+            return subprocess.CompletedProcess(cmd, 0, "password has been deleted.\n", "")
+        if cmd[:2] == ["uv", "export"]:
+            Path(cmd[cmd.index("-o") + 1]).write_text("pyobjc==12.0 --hash=sha256:00\n")
+        elif cmd[:2] == ["npm", "ci"]:
+            from ferb.runtimes.codex_exec import _NATIVE_BIN
+            binary = Path(cmd[cmd.index("--prefix") + 1]) / _NATIVE_BIN
+            binary.parent.mkdir(parents=True, exist_ok=True)
+            binary.write_text("fake codex")
+        elif cmd[1:] == ["--version"] and cmd[0].endswith("/codex"):
+            from ferb.runtimes.codex_exec import CODEX_VERSION
+            return subprocess.CompletedProcess(cmd, 0, f"codex-cli {CODEX_VERSION}\n" if Path(cmd[0]).exists() else "", "")
+        elif cmd[:3] == ["uv", "python", "install"]:
             py = self.home / "python" / "cpython-3.12.99-macos-aarch64-none" / "bin" / "python3.12"
             py.parent.mkdir(parents=True, exist_ok=True)
             py.write_text("#!/bin/sh\n")
@@ -328,14 +352,20 @@ class FakeRunner:
         elif cmd[:3] == ['/usr/bin/codesign', '-d', '-r-']:
             out = 'designated => identifier "com.ferb.secrets" and certificate leaf = H"fake-test-certificate"\n'
         elif cmd[:2] == ["launchctl", "bootstrap"]:
-            self.loaded = True
+            self.loaded, self.stopped = True, False
+        elif cmd[:3] == ["launchctl", "kill", "SIGTERM"]:
+            self.stopped = True
+        elif cmd[:2] == ["launchctl", "kickstart"]:
+            self.stopped = not self.loaded
         elif cmd[:2] == ["launchctl", "bootout"]:
             self.loaded = False
         elif cmd[:2] == ["launchctl", "print"]:
-            return subprocess.CompletedProcess(cmd, 0 if self.loaded else 113, "pid = 4242\n" if self.loaded else "")
+            return subprocess.CompletedProcess(cmd, 0 if self.loaded else 113,
+                                               "pid = 4242\n" if self.loaded and not self.stopped else "")
         elif cmd[:2] == ["/bin/kill", "-0"]:                      # no other pid runs
-            running = cmd[2:] == ["4242"] and (self.loaded or self.tail > 0)
-            self.tail -= 0 if self.loaded else 1
+            up = self.loaded and not self.stopped
+            running = cmd[2:] == ["4242"] and (up or self.tail > 0)
+            self.tail -= 0 if up else 1
             return subprocess.CompletedProcess(cmd, 0 if running else 1, "", "" if running else "No such process")
         return subprocess.CompletedProcess(cmd, 0, out, "")
 

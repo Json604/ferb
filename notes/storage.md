@@ -144,6 +144,9 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
       the newer-DB refusal holds; the first start upgrades config once, adds `operational_days`, moves the persona and
       seeds Tier 1 once. Measured on a copy of the owner's store (Measurements, step 12a). The plist, native-host,
       extension-minimum, Codex and permissions parts of decision 5 belong to notes/daemon.md, hands.md, runtimes.md.)
+      (Step 12b: the plist part is built: FERB.app's setup retires ~/Library/LaunchAgents/com.ferb.daemon.plist before
+      the app registers its own service; Codex re-pinned only when a role uses it; `permissions_version` re-checked
+      against every permission; notes/daemon.md.)
       (Step 9c: migration 0055 (`memory_import_runs`, `memory_import_done` part hashes, `memory_import_items` with a
       trigger that drops a deleted fact's rows): ids, counts, hashes and dates only, never conversation text.)
       (Step 9b: migration 0054 (`recall_vectors`, `recall_state`, `chat_fts`, `memory_set_aside`, triggers that drop a

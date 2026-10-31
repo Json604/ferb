@@ -2,9 +2,7 @@
 signs in with FERB's Claude home and keeps the credential itself; FERB records only that it finished. A fake Claude Code
 stands in for the real one: nothing here opens a browser or touches the Keychain."""
 import asyncio
-import io
 import json
-import subprocess
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -12,10 +10,8 @@ from typing import Any, Callable
 import pytest
 
 from ferb.cli import runtimes as runtimes_cli
-from ferb.cli import setup as S
 from ferb.cli.client import Client, RpcError
 from ferb.core.errors import FerbError, Unsupported
-from ferb.device.install import Installer
 from ferb.runtimes import claude_login as CL
 from ferb.runtimes.claude_sdk import ClaudeRuntime
 from tests.conftest import RunningDaemon
@@ -65,7 +61,7 @@ def test_a_pasted_code_finishes_the_sign_in_and_only_a_marker_is_left(tmp_path: 
     assert home.stat().st_mode & 0o777 == 0o700
 
 
-def test_a_wrong_code_fails_with_the_steps_to_sign_in_by_hand(tmp_path: Path) -> None:
+def test_a_wrong_code_fails_and_says_so_in_the_apps_words(tmp_path: Path) -> None:
     cli = fake_claude(tmp_path / "bin")
     finished: list[bool] = []
 
@@ -77,7 +73,7 @@ def test_a_wrong_code_fails_with_the_steps_to_sign_in_by_hand(tmp_path: Path) ->
         await until_async(lambda: sign_in.state != "waiting")
         return sign_in.status()
     status = asyncio.run(asyncio.wait_for(run(), 10))
-    assert status["state"] == "failed" and "setup --claude-login" in status["why"]
+    assert status["state"] == "failed" and "Try again" in status["why"] and "ferb" not in status["why"]
     assert finished == [False] and CL.claude_home(tmp_path / "home") is None
 
 
@@ -110,11 +106,12 @@ def test_a_code_needs_a_waiting_sign_in_and_is_one_word(tmp_path: Path) -> None:
     asyncio.run(asyncio.wait_for(run(), 10))
 
 
-def test_a_missing_bundled_claude_code_says_how_to_sign_in_by_hand(tmp_path: Path) -> None:
+def test_a_missing_bundled_claude_code_says_so_plainly(tmp_path: Path) -> None:
     def missing() -> Path:
         raise Unsupported("the Claude Agent SDK's bundled Claude Code is missing")
     status = asyncio.run(CL.ClaudeSignIn(tmp_path, missing, lambda code: None, lambda ok: None).start())
-    assert status["state"] == "failed" and "setup --claude-login" in status["why"]
+    assert status["state"] == "failed" and "Download FERB again" in status["why"]
+    assert "ferb " not in status["why"] and "SDK" not in status["why"]          # no command, no internals
 
 
 def test_only_a_saved_subscription_login_counts_and_no_key_takes_over(tmp_path: Path) -> None:
@@ -153,25 +150,11 @@ def test_status_says_which_runtimes_ferb_is_signed_in_to(tmp_path: Path, monkeyp
     assert {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}["claude"]["signed_in"] is True
 
 
-def test_ferb_setup_claude_login_signs_in_from_a_terminal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(CL, "cli_binary", lambda: Path("/fake/claude"))
-    ran: list[tuple[list[str], str]] = []
-    answer = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty"}
-
-    def run(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
-        ran.append((argv, kw["env"]["CLAUDE_CONFIG_DIR"]))
-        out = json.dumps(answer) if argv[1:3] == ["auth", "status"] else ""
-        return subprocess.CompletedProcess(argv, 0, out, "")
-    out = io.StringIO()
-    env = S.Env(Installer(tmp_path / "home"), lambda: None, input, out)   # type: ignore[arg-type]
-    assert S.claude_login(env, run=run) == 0, out.getvalue()
-    home = str(tmp_path / "home" / "claude-home")
-    assert ran == [(["/fake/claude", "auth", "login", "--claudeai"], home),
-                   (["/fake/claude", "auth", "status", "--json"], home)]
-    assert CL.claude_home(tmp_path / "home") is not None and "Done" in out.getvalue()
-    answer["loggedIn"] = False
-    (tmp_path / "home" / "claude-home" / CL.SIGNED_IN).unlink()
-    assert S.claude_login(env, run=run) == 1 and CL.claude_home(tmp_path / "home") is None
+def test_the_keychain_service_of_ferbs_claude_sign_in_is_named_from_its_home(tmp_path: Path) -> None:
+    """`ferb uninstall --purge` deletes Claude Code's item for FERB's Claude home by its service name (never read)."""
+    import hashlib
+    digest = hashlib.sha256(str(tmp_path / "claude-home").encode()).hexdigest()[:8]
+    assert CL.keychain_service(tmp_path) == f"Claude Code-credentials-{digest}"
 
 
 # ---------- through the daemon ----------

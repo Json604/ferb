@@ -132,7 +132,7 @@ class JevGlue:
             if not self._jev_on():
                 raise FerbError("Jev is switched off ([jev] on = false in config.toml)")
             if self.jev is None:
-                raise FerbError("Jev isn't set up: `ferb setup --jev`")
+                raise FerbError("Jev isn't set up: there's no Jev key in the Keychain")
             enabled.add(q)
         else:
             enabled.discard(q)

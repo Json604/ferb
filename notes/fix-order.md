@@ -67,6 +67,14 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     drops the four tables no code reads), the
     continued-tree/non-ASCII/exposure-origin/timer-kind fixes, upgrade tests from older schemas and configs. Measured on
     a copy of the owner's store: notes/storage.md. The app's clean-up screen is step 12b.)
+    (Step 12b: the daemon never imports from a checkout (`-P`, FERB's home as its working folder); FERB.app's service
+    definition inside the app, registered with SMAppService by the app, the old user LaunchAgent retired, the
+    definition protected (FERB_SERVICE); a checkout keeps a dev LaunchAgent; setup fixes (permissions recorded only
+    when all granted, new-venv swap, lockfile installs, Codex only when used, doctor, Keychain purge, plain errors);
+    every permission needed; Jev off after an upgrade checked; the user CLI commands removed (`--claude-logout` kept for
+    the app's new Sign out of Claude); the embedding model shipped in FERB.app; app-word runtime errors; more raw SQL
+    into the stores; the footprint read. Rulings, footprint and live checks in notes/daemon.md. Not done: the app's
+    clean-up screen (notes/storage.md decision 4).)
 13. **Live checks**: per-adapter live tests, the owner's P20 injection eval, the patch re-test list, the safety suite.
 14. **Docs cleanup** last: extract `notes/test-tasks.md`, settle CLAUDE.md/AGENTS.md, delete the old docs, rewrite
     the README.

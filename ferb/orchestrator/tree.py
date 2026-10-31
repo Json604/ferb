@@ -37,7 +37,8 @@ class TaskRecord:
     tree_id: str | None = None     # the request's root task (None: the task is its own tree)
 
 
-TASK_COLUMNS = frozenset({"request_id", "created_at", "updated_at", "goal", "status", "tree_id", "outcome_json"})
+TASK_COLUMNS = frozenset({"request_id", "created_at", "updated_at", "goal", "status", "tree_id", "outcome_json",
+                          "parent_id"})
 
 
 # What a task row's status can be (migration 0049). `paused`: the task waits for the owner in place (owner decision 8);
@@ -112,6 +113,26 @@ class TaskTree:
             return None
         row = self.db.conn.execute(f"SELECT {name} FROM tasks WHERE id = ?", (task_id,)).fetchone()
         return row[0] if row is not None else None
+
+    def latest_root(self) -> str | None:
+        """The newest root task's id."""
+        if self.db is None:
+            return None
+        row = self.db.conn.execute("SELECT id FROM tasks WHERE parent_id IS NULL "
+                                   "ORDER BY created_at DESC, rowid DESC LIMIT 1").fetchone()
+        return str(row["id"]) if row else None
+
+    def recorded(self, task_id: str) -> bool:
+        return self.db is not None and self.db.conn.execute(
+            "SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone() is not None
+
+    def roots_with_prefix(self, prefix: str) -> list[str]:
+        """Root task ids that start with `prefix`, in id order."""
+        if self.db is None:
+            return []
+        return [str(r["id"]) for r in self.db.conn.execute(
+            "SELECT id FROM tasks WHERE substr(id, 1, ?) = ? AND parent_id IS NULL ORDER BY id",
+            (len(prefix), prefix))]
 
     def trees_of_request(self, request_id: str) -> set[str]:
         """The task trees a request started."""

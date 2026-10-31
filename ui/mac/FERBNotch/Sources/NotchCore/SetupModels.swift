@@ -228,7 +228,7 @@ public enum APIProvider: String, CaseIterable, Identifiable {
     }
 }
 
-/// The Keychain item `ferb setup --key` writes (service "ferb", account "api/<provider>"), written by FERB.app on
+/// The Keychain item the daemon's API runtimes read (service "ferb", account "api/<provider>"), written by FERB.app on
 /// `security -i`'s stdin (rule 14: never an argument).
 public enum APIKeyEntry {
     public static func account(_ provider: APIProvider) -> String { "api/" + provider.rawValue }

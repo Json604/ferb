@@ -37,6 +37,16 @@ class ProviderError(Exception):
 # HTTP statuses that are account facts no model can change (step 8b, owner decision 16): a key the provider refused,
 # or a quota or rate limit still in force after the retries
 ACCOUNT_STATUS = {401: 'signed_out', 403: 'signed_out', 402: 'usage_limit', 429: 'usage_limit'}
+# The plain cause of a provider's HTTP refusal, from its status code alone (a fact), said before the provider's own
+# technical words (notes/runtimes.md: owner-facing errors in app words, plain cause first)
+HTTP_CAUSES = {400: "it refused the request FERB sent", 401: "it didn't accept FERB's API key",
+               403: "it didn't accept FERB's API key", 402: "the account's usage limit is reached",
+               404: "it doesn't know the model FERB asked for", 408: "it timed out",
+               413: "the request was too large for it", 429: "the account's usage or rate limit is reached"}
+
+
+def http_cause(status: int) -> str:
+    return HTTP_CAUSES.get(status, "it had a problem on its side" if status >= 500 else "it refused the request")
 
 
 
@@ -170,7 +180,7 @@ class ApiRuntime:
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         key = await self.key(self.name)
         if not key:
-            raise Unsupported(f"no {self.name} API key in the Keychain: run `ferb setup --key {self.name}`")
+            raise Unsupported(f"FERB has no {self.name} API key: add one in Settings → AI")
         tools: list[ToolSpec] = []
         names: dict[str, str] = {}
         if self.mode == "worker" and self.bridge is not None and self.tool_names:
@@ -352,7 +362,8 @@ class ApiRuntime:
         detail = str(detail)
         if key:
             detail = detail.replace(key, "[key]")      # before truncating: a key at the cut would keep its prefix
-        return f"{self.name} HTTP {resp.status_code}" + (f": {detail[:300]}" if detail else "")
+        technical = f"HTTP {resp.status_code}" + (f": {detail[:300]}" if detail else "")
+        return f"{http_cause(resp.status_code)} ({technical})"
 
     def _apply_updates(self, r: _Run) -> None:
         for message in r.updates:

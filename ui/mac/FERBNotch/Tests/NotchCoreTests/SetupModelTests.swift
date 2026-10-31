@@ -23,6 +23,51 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.serviceAction, .none)              // going back to Welcome never reinstalls
     }
 
+    /// notes/daemon.md decision 2: after `ferb setup --service` FERB.app turns its own background service on with macOS
+    /// (SMAppService), waits until FERB answers, then goes on.
+    func testWelcomeTurnsTheAppsBackgroundServiceOnAfterTheSetupCommand() async {
+        let rig = SetupRig()
+        let background = FakeBackgroundService()
+        let model = rig.model(.install, background: background)
+        await model.primary()
+        rig.runner.finish(0)
+        await eventually { model.step == .ai }
+        XCTAssertEqual(background.registrations, 1)
+        XCTAssertEqual(background.status, .enabled)
+        XCTAssertTrue(rig.rpc.methods().contains("ping"))
+        XCTAssertNil(model.serviceError)
+        XCTAssertEqual(model.serviceAction, .none)
+    }
+
+    func testAServiceWaitingForTheOwnersOKSaysWhereAndStaysOnWelcome() async {
+        let rig = SetupRig()
+        let background = FakeBackgroundService()
+        background.after = .requiresApproval
+        let model = rig.model(.update, background: background)
+        await model.primary()
+        rig.runner.finish(0)
+        await eventually { !model.serviceRunning }
+        XCTAssertEqual(model.step, .welcome)
+        XCTAssertEqual(model.serviceError, ServicePlan.approval)
+        XCTAssertTrue(model.serviceNeedsApproval)
+        model.openLoginItems()
+        XCTAssertEqual(background.openedSettings, 1)
+        XCTAssertEqual(model.serviceAction, .update)                // Try Again turns it on once the owner allowed it
+    }
+
+    func testAServiceMacOSRefusesSaysWhyPlainly() async {
+        let rig = SetupRig()
+        let background = FakeBackgroundService()
+        background.refusal = NSError(domain: "SMAppServiceErrorDomain", code: 1,
+                                     userInfo: [NSLocalizedDescriptionKey: "Operation not permitted"])
+        let model = rig.model(.install, background: background)
+        await model.primary()
+        rig.runner.finish(0)
+        await eventually { !model.serviceRunning }
+        XCTAssertEqual(model.serviceError, ServicePlan.failed("Operation not permitted"))
+        XCTAssertFalse(model.serviceNeedsApproval)
+    }
+
     func testAFailedServiceRunShowsItsLastLinesAndStaysOnWelcome() async {
         let rig = SetupRig()
         let model = rig.model(.install)
@@ -366,10 +411,9 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.aiMessage, "Claude answered. FERB uses it now.")
     }
 
-    func testAFailedClaudeSignInShowsTheStepsToDoItByHand() async {
+    func testAFailedClaudeSignInSaysWhy() async {
         let rig = SetupRig()
-        let why = "Claude didn't confirm the sign-in. Try again. To sign in by hand, run this in Terminal yourself: " +
-            "\"/Applications/FERB.app/Contents/Resources/bin/ferb\" setup --claude-login"
+        let why = "Claude didn't confirm the sign-in. Try again."
         rig.rpc.replies["runtimes.sign_in"] = ["state": "waiting", "url": "", "why": ""]
         let model = rig.model()
         await model.signInWithClaude()

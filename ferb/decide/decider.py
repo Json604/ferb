@@ -58,7 +58,7 @@ class JevClient:
         self.key, self.url, self.model, self.retries, self.backoff_s, self.sleep = key, url, model, retries, backoff_s, sleep
         self._post = post
         # A key Jev refused for payment or authorization (live 2026-10-25: HTTP 402 to 10,366 asks once the free
-        # credits ran out) isn't asked again by this client; a new key (`ferb setup --jev`) or a restart builds another.
+        # credits ran out) isn't asked again by this client; a new key (`jev.reload`) or a restart builds another.
         self.refused: str | None = None
 
     async def _http(self, headers: dict[str, str], body: dict[str, Any], timeout: float) -> tuple[int, Any]:
@@ -74,10 +74,10 @@ class JevClient:
 
     async def ask(self, state: Any, questions: dict[str, dict[str, Any]], timeout: float = 20.0) -> dict[str, Any]:
         if self.refused is not None:
-            raise JevUnavailable(f"{self.refused} earlier: not asked again until the key changes (`ferb setup --jev`)")
+            raise JevUnavailable(f"{self.refused} earlier: not asked again until the key changes")
         key = await self.key()
         if not key:
-            raise JevUnavailable("no Jev API key in the Keychain (`ferb setup --jev`)")
+            raise JevUnavailable("no Jev API key in the Keychain")
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
         body = {"model": self.model, "state": state, "questions": questions}
         delay = self.backoff_s

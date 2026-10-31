@@ -83,6 +83,28 @@ final class FakeService: DaemonServicing {
     }
 }
 
+/// macOS's SMAppService for FERB's background service, faked: `register()` moves it to `after`.
+@MainActor
+final class FakeBackgroundService: BackgroundServiceRegistering {
+    var status: ServiceStatus = .notRegistered
+    var after: ServiceStatus = .enabled
+    var refusal: Error?
+    private(set) var registrations = 0
+    private(set) var unregistrations = 0
+    private(set) var openedSettings = 0
+
+    func register() throws {
+        registrations += 1
+        if let refusal { throw refusal }
+        status = after
+    }
+    func unregister() async throws {
+        unregistrations += 1
+        status = .notRegistered
+    }
+    func openLoginItems() { openedSettings += 1 }
+}
+
 /// One setup window's collaborators, all faked.
 @MainActor
 struct SetupRig {
@@ -93,8 +115,10 @@ struct SetupRig {
     let keys = FakeKeys()
     let service = FakeService()
 
-    func model(_ action: AppSetupAction = .none) -> SetupModel {
-        let model = SetupModel(rpc: rpc, runner: runner, app: app, system: opener, keys: keys, service: service)
+    func model(_ action: AppSetupAction = .none, background: BackgroundServiceRegistering? = nil) -> SetupModel {
+        let model = SetupModel(rpc: rpc, runner: runner, app: app, system: opener, keys: keys, service: service,
+                               background: background)
+        model.serviceStartWait = .milliseconds(200)
         model.serviceAction = action
         model.requestSettle = .zero
         return model

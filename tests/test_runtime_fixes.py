@@ -350,7 +350,7 @@ def test_claude_is_built_only_with_ferbs_sign_in_and_a_model(daemon) -> None:
     with pytest.raises(Unsupported, match="isn't signed in for FERB"):
         build()
     mark(d.home)
-    with pytest.raises(Unsupported, match="no model set"):
+    with pytest.raises(Unsupported, match="no model is chosen"):
         build()
     d.config.set("models", "claude", "sonnet")
     rt = build()

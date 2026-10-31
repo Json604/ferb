@@ -39,7 +39,7 @@ LIMITS_SOURCE = "https://developers.openai.com/api/docs/models (checked 2026-10-
 def limits_for(model: str) -> ModelLimits:
     if model not in LIMITS:
         raise ModelLimitsUnknown(f"OpenAI documents no context window FERB knows for model {model!r}; "
-                                 f"choose one of {sorted(LIMITS)} in config.toml [models]")
+                                 f"the ones it knows: {', '.join(sorted(LIMITS))}")
     window, output = LIMITS[model]
     return ModelLimits(model, window, output, LIMITS_SOURCE)
 

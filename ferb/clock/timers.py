@@ -76,6 +76,10 @@ class Timers:
         r = self.db.conn.execute("SELECT * FROM timers WHERE id = ?", (tid,)).fetchone()
         return _row(r) if r else None
 
+    def delivered(self, tid: str) -> bool:
+        """A delivery of this timer is recorded (its consumer handled it)."""
+        return self.db.conn.execute("SELECT 1 FROM timer_deliveries WHERE timer_id = ?", (tid,)).fetchone() is not None
+
     def cancel(self, tid: str) -> bool:
         return self.db.conn.execute("UPDATE timers SET state = 'cancelled' WHERE id = ? AND state IN ('pending', "
                                     "'claimed')", (tid,)).rowcount > 0

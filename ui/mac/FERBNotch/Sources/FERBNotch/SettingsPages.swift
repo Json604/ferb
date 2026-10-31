@@ -153,7 +153,7 @@ private struct OnlyInTheApp: View {
 }
 
 /// Settings → AI: plan C's Choose your AI (sign in with ChatGPT, use Claude, an API key into the Keychain), whether the
-/// service answers, and signing FERB's own Codex out. This page never shows or sends a key (rule 14).
+/// service answers, and signing FERB's own Codex or Claude out. This page never shows or sends a key (rule 14).
 struct AISettingsPage: View {
     @ObservedObject var store: FERBWindowStore
     let actions: FERBAppActions
@@ -173,6 +173,10 @@ struct AISettingsPage: View {
                     Button("Check connection") { Task { await store.checkRuntime(setup.ai?.current ?? "codex") } }
                     Button("Sign out of ChatGPT") {
                         output.run(["setup", "--codex-logout"], with: actions) { Task { await setup.refreshAI() } }
+                    }
+                    .disabled(output.running)
+                    Button("Sign out of Claude") {          // FERB's own Claude sign-in only (`ferb setup --claude-logout`)
+                        output.run(["setup", "--claude-logout"], with: actions) { Task { await setup.refreshAI() } }
                     }
                     .disabled(output.running)
                     OutputLines(output: output)

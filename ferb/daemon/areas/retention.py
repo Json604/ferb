@@ -144,8 +144,7 @@ class Retention:
                 episodes.record(self.spans, self._journal(), root, plan.now.isoformat())
             if episodes.get(self.db, root) is None:
                 return                                       # no episode: keep the spans
-            row = self.db.conn.execute("SELECT status FROM tasks WHERE id = ?", (root,)).fetchone()
-            if row is not None and row["status"] in ("running", "planned", "paused"):
+            if self.tasks.column(root, "status") in ("running", "planned", "paused"):
                 return                                       # resumed since the pass read it
             yield from retention.delete_rows(self.db, "spans", "id", plan.rows.trees.get(root, []))
         except Exception as e:

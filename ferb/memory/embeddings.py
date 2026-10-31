@@ -6,10 +6,11 @@ token of a WordPiece vocabulary has one 256-number vector; a text's embedding is
 normalized. No neural network runs at query time, so the cost is a table lookup per token (pure Python, no new
 framework), the files are ~31 MB, and the table is memory-mapped (only the rows a text touches are read in).
 
-The files are fetched once from a pinned revision with pinned SHA-256s (`download`) into
-`~/.ferb/models/embeddings/<name>` at first use, or read from wherever `[memory] embedding_model` points (the app
-bundle can ship them there, step 12). Nothing else is ever downloaded and only these data files are read
-(`.json` and `.safetensors`: never code).
+The files ship inside FERB.app (Contents/Resources/models/embeddings/<name>, fetched once by scripts/build-app.sh
+from a pinned revision with pinned SHA-256s, `download`) and are read there; a checkout's setup fetches the same files
+into `~/.ferb/models/embeddings/<name>` at install, and its daemon fetches them only if setup couldn't; `[memory]
+embedding_model` points elsewhere when set. Every load checks the hashes. Nothing else is ever downloaded and only
+these data files are read (`.json` and `.safetensors`: never code).
 
 Vectors are stored as normalized int8 (`quantize`) with their sign bits (`sign_bits`) in `recall_vectors` (migration
 0054). `nearest` ranks by the sign bits' Hamming distance first when there are many, then by the int8 cosine of the

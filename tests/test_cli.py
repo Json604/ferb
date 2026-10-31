@@ -9,7 +9,6 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -17,7 +16,7 @@ from ferb.cli import main as cli_main
 import json
 
 from ferb.cli.admin import render_trace
-from ferb.cli.client import Client
+from ferb.cli.client import Client, RpcError
 from ferb.cli.logs import run as logs_run
 from tests.conftest import RunningDaemon
 
@@ -139,7 +138,7 @@ def test_ferbs_own_profile_is_described_plainly() -> None:
         return out.getvalue()
     assert "FERB's own profile, paired; not open right now (FERB opens it when a task needs it)" in listing(False)
     assert "FERB's own profile, connected, extension 0.6.5" in listing(True)
-    assert "not paired yet (`ferb setup --identity`)" in listing(False, paired=False)
+    assert "FERB's own profile, not paired yet" in listing(False, paired=False)
     assert "build step" not in listing(False) + listing(True)
 
 
@@ -196,26 +195,26 @@ def test_a_slow_tool_call_isnt_reported_as_the_daemon_going_away(tmp_path: Path)
     srv.close()
 
 
-def test_the_timeline_shows_each_upgraded_setting_in_full_and_an_empty_upgrade_plainly() -> None:
-    from ferb.cli.admin import timeline
-    changes = [{"key": "browser.download_max_mb", "from": 100, "to": 512},
-               {"key": "browser.download_task_max_files", "from": 20, "to": 50},
-               {"key": "browser.download_task_max_mb", "from": 500, "to": 4096},
-               {"key": "browser.download_total_mb", "from": 2048, "to": 20480},
-               {"key": "browser.task_max_tabs", "from": 20, "to": 50},
-               {"key": "retention.download_days", "from": 30, "to": None}]
+def test_the_cli_keeps_only_plumbing_the_app_runs_and_the_developer_toolbox() -> None:
+    """notes/daemon.md decisions 3, 4: no user-facing CLI. The commands FERB.app runs and the toolbox parse; the user
+    commands step 12b removed don't exist any more."""
+    from ferb.cli import APP_COMMANDS, build_parser
+    parser = build_parser()
+    for command in APP_COMMANDS:
+        parser.parse_args(list(command))
+    for command in (["setup"], ["setup", "--update"], ["setup", "--cleanup", "--ok", "x"], ["daemon", "run"],
+                    ["trace"], ["logs"], ["stats"], ["doctor"], ["memory", "list"], ["restore"], ["ps"],
+                    ["verdict", "t", "pass"], ["runtimes"], ["browsers"], ["uninstall", "--purge"]):
+        parser.parse_args(command)
+    for removed in (["schedules"], ["reminders"], ["timeline"], ["pause"], ["resume"], ["stop"], ["resume-tasks"],
+                    ["kill", "p-1"], ["attach", "p-1"], ["device"], ["baseline"], ["release-checklist"],
+                    ["setup", "--key", "anthropic"], ["setup", "--jev"], ["setup", "--identity"],
+                    ["setup", "--persona"], ["setup", "--claude-login"]):
+        with pytest.raises(SystemExit):
+            parser.parse_args(removed)
 
-    class C:
-        def call(self, method: str, params: Any = None) -> Any:
-            return {"entries": [
-                {"at": "2026-10-09T10:00:00", "kind": "config.upgraded",
-                 "data": {"upgrade": "download-limits-2026-10-09", "changes": changes}},
-                {"at": "2026-10-09T10:01:00", "kind": "config.upgraded",
-                 "data": {"upgrade": "download-limits-2026-10-09", "changes": []}}]}
-    out = io.StringIO()
-    assert timeline(C(), None, out) == 0                                   # type: ignore[arg-type]
-    first, second = out.getvalue().splitlines()
-    for ch in changes[:-1]:
-        assert f"{ch['key']} {ch['from']} → {ch['to']}" in first
-    assert "retention.download_days 30 → removed" in first             # the last one too: nothing cut off
-    assert "download-limits-2026-10-09" in second and "settings already current" in second
+
+def test_errors_are_one_plain_line() -> None:
+    from ferb.cli import plain_error
+    assert plain_error(RpcError(-32603, "ValueError")) == "ferb: that failed inside FERB (ValueError); `ferb stats` lists it"
+    assert plain_error(RpcError(-32004, "No such task")) == "ferb: No such task"

@@ -45,7 +45,7 @@ WINDOW_EXCEEDED = ("prompt is too long", "input length and `max_tokens` exceed c
 def limits_for(model: str) -> ModelLimits:
     if model not in LIMITS:
         raise ModelLimitsUnknown(f"Anthropic documents no context window FERB knows for model {model!r}; "
-                                 f"choose one of {sorted(LIMITS)} in config.toml [models]")
+                                 f"the ones it knows: {', '.join(sorted(LIMITS))}")
     window, output = LIMITS[model]
     return ModelLimits(model, window, output, LIMITS_SOURCE)
 

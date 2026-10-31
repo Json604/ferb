@@ -260,9 +260,7 @@ class Chat:
         """TQ3/P25: a neutral phrase said on receipt, never one of the last eight said; journaled into chat history,
         with when the message arrived (`ferb baseline` times the ack, plan line and answer from it, L8). `message`:
         the owner's message as the daemon redacted it, as `chat.message` records it, for clients to keep (L7)."""
-        said = [str(row[0]) for row in self._journal().db.conn.execute(
-            "SELECT json_extract(data_json, '$.text') FROM journal WHERE kind = 'chat.ack' ORDER BY seq DESC LIMIT ?",
-            (acks.RECENT,))]
+        said = [str(text) for text in self._journal().recent_values("chat.ack", "text", acks.RECENT)]
         text = acks.pick(said[::-1])
         entry = self._journal().append("chat.ack", {"session_id": session_id, "request_id": request_id, "text": text,
                                                     "received_at": (received or self.clock.now()).isoformat()})

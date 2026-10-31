@@ -12,8 +12,9 @@ store is closed to their reads, writes and removals, a never-write place to thei
 needs one asks the owner (the gateway): a read once per protected folder per task, a change per action (hands decision
 1). The old `protection.fs_reads_never_read` switch is gone; an old config.toml that still has it is read harmlessly.
 
-FERB's own service definitions (its launchd LaunchAgents, `SERVICE_LABELS`) are FERB's own like its state: never
-written or removed by its tools or its shell, and no lift reopens them (rule 10). Reading them stays open.
+FERB's own service definitions (its launchd LaunchAgents, `SERVICE_LABELS`, and the background service's definition
+inside FERB.app, `BUNDLE_SERVICE`, which the app registers with macOS) are FERB's own like its state: never written or
+removed by its tools or its shell, and no lift reopens them (rule 10). Reading them stays open.
 
 FERB.app (L27), when FERB runs from one, holds the daemon's own code, its interpreter and its secret helper: it is
 closed to writes and removal by FERB's tools and its shell, wherever the app sits, and no escape hatch lifts that
@@ -77,8 +78,11 @@ FERB_STATE, NETWORK, ADMIN, TRUSTD = "ferb_state", "network", "admin", "trustd"
 FERB_APP = "ferb_app"                                   # the FERB.app the daemon runs from: never written, never lifted
 FERB_SERVICE = "ferb_service"                           # FERB's own launchd definitions: never written, never lifted
 # FERB's LaunchAgents (ferb/device/install.py LABEL and APP_LOGIN_LABEL; a test keeps them equal), as plists in
-# ~/Library/LaunchAgents: the daemon's own and FERB.app's login fallback
+# ~/Library/LaunchAgents: the daemon's own (a checkout's, or one from before FERB.app registered its service) and
+# FERB.app's login fallback
 SERVICE_LABELS = ("com.ferb.daemon", "com.ferb.FERB.login")
+# The background service's definition inside FERB.app (ferb/device/install.py BUNDLE_SERVICE; a test keeps them equal)
+BUNDLE_SERVICE = Path("Contents/Library/LaunchAgents/com.ferb.daemon.plist")
 NEVER_LIFTED = frozenset({FERB_STATE, NETWORK, FERB_APP, FERB_SERVICE})
 WORKSPACE, UPLOADS = "workspace", "uploads"
 READ, WRITE, REMOVE = "read", "write", "remove"         # FileAccess (ferb/core/types.py): what a call does to a file
@@ -318,7 +322,8 @@ class Protection:
         self.writes = self._entries("write", _strings(never_write, "never_write", "paths"))
         self.terminal_apps = frozenset(a.lower() for a in _strings(terminal_apps, "terminal_apps", "app bundle ids"))
         # FERB's own launchd definitions, as written and resolved (a link there is followed by the check)
-        self.service_files = tuple(home / "Library" / "LaunchAgents" / f"{label}.plist" for label in SERVICE_LABELS)
+        self.service_files = tuple(home / "Library" / "LaunchAgents" / f"{label}.plist" for label in SERVICE_LABELS) + (
+            (app_bundle / BUNDLE_SERVICE,) if app_bundle is not None else ())
         # (never opened, like an entry: as written, resolved and firmlinked)
         self._service_roots = tuple(dict.fromkeys(f for s in self.service_files
                                                   for f in (_typed(s), _real(s), _firmlinked(_real(s)))
@@ -389,10 +394,12 @@ class Protection:
             return [FERB_STATE]
         if access in (READ, "metadata"):
             return [] if access == "metadata" else self._hits(self.reads, forms)
+        if self._service(forms):
+            return [FERB_SERVICE]                   # a service definition itself, FERB.app's included (rule 10)
         if self._app(forms, removes):
             return [FERB_APP]                       # the daemon's own code (L27, rule 10): read, never changed
         if self._service(forms, removes):
-            return [FERB_SERVICE]
+            return [FERB_SERVICE]                   # a folder holding one
         return list(dict.fromkeys(self._hits(self.reads, forms, removes) + self._hits(self.writes, forms, removes)))
 
     def fs_denied(self, path: Path, access: str) -> str | None:

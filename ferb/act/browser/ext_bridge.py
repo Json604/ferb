@@ -2458,7 +2458,7 @@ class FerbIdentity(_TabDriver):
         prof = self.profile()
         br = self.hub.bridge(*prof) if prof else None
         if br is None or br.binding.identity is not Identity.FERB:
-            raise Refused("FERB's identity profile isn't paired: run `ferb setup --identity`")
+            raise Refused("FERB's identity profile isn't paired yet")
         return await self._connected(br)
 
     async def open_for(self, url: str, owner: str, profile: str | None = None, *,

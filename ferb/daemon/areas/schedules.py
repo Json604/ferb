@@ -38,8 +38,7 @@ class Schedules:
         assert self.db is not None
         for s in self.schedules.all(("active",)):
             timer = self.timers.get(s.timer_id) if s.timer_id else None
-            handled = timer is not None and self.db.conn.execute(
-                "SELECT 1 FROM timer_deliveries WHERE timer_id = ?", (timer.id,)).fetchone() is not None
+            handled = timer is not None and self.timers.delivered(timer.id)
             if timer is not None and timer.state in ("pending", "claimed") and not handled:
                 continue
             try:
@@ -226,9 +225,8 @@ class Schedules:
             return []
         assert self.db is not None
         typed = []
-        for kind, data_json in self.db.conn.execute(
-                f"SELECT kind, data_json FROM journal WHERE id IN ({','.join('?' * len(ids))}) ORDER BY seq", ids):
-            data = json.loads(data_json)
+        for entry in self._journal().by_ids(sorted(ids)):
+            kind, data = entry.kind, entry.data
             if kind in ("memory.added", "memory.edited"):
                 typed.append(str(data.get("content", "")))
             elif kind == "chat.message" and data.get("request_id") != request_id:
@@ -378,10 +376,8 @@ class Schedules:
     def _last_run_withdrawn(self, sid: str) -> bool:
         """A `schedule.pause` or `schedule.met` journaled after the schedule's latest run started."""
         assert self.db is not None
-        row = self.db.conn.execute(
-            "SELECT kind FROM journal WHERE kind IN ('schedule.run', 'schedule.pause', 'schedule.met') "
-            "AND json_extract(data_json, '$.schedule_id') = ? ORDER BY seq DESC LIMIT 1", (sid,)).fetchone()
-        return row is not None and row[0] in ("schedule.pause", "schedule.met")
+        kind = self._journal().latest_kind(("schedule.run", "schedule.pause", "schedule.met"), "schedule_id", sid)
+        return kind in ("schedule.pause", "schedule.met")
 
     async def _run_schedule(self, sid: str, overdue_s: float, retry: bool = False) -> None:
         """Schedule the next occurrence and let the orchestrator assess this run from current timing/failure facts. A
@@ -525,12 +521,12 @@ class Schedules:
         """The stop line in the ending task's recorded outcome as well, so a client restoring the answer from the
         task's record shows it too (review M3)."""
         assert self.db is not None
-        row = self.db.conn.execute("SELECT status, outcome_json FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        if row is None:
+        status = self.tasks.column(task_id, "status")
+        if status is None:
             return
-        outcome, line = json.loads(row["outcome_json"] or "{}"), self._redact_text(line)
+        outcome, line = json.loads(self.tasks.column(task_id, "outcome_json") or "{}"), self._redact_text(line)
         outcome["answer"] = f"{outcome.get('answer', '')}\n\n{line}"
-        self.tasks.set_status(task_id, row["status"], outcome)
+        self.tasks.set_status(task_id, status, outcome)
 
     def _end_watch(self, sid: str, task_id: str) -> bool:
         """A one-shot watch's confirmed run found its condition met: it ends (done, its next check cleared, journaled
@@ -559,11 +555,8 @@ class Schedules:
         """A schedule's latest finished run as the owner was told it (L34 Phase E): the result of the root task a
         `schedule.run` request made; None before any run finished."""
         assert self.db is not None
-        row = self.db.conn.execute(
-            "SELECT r.at, r.status, r.answer FROM task_results r JOIN tasks t ON t.id = r.task_id "
-            "WHERE t.parent_id IS NULL AND t.request_id IN (SELECT json_extract(data_json, '$.request_id') FROM journal "
-            "WHERE kind = 'schedule.run' AND json_extract(data_json, '$.schedule_id') = ?) ORDER BY r.at DESC LIMIT 1",
-            (sid,)).fetchone()
+        assert self.task_results is not None
+        row = self.task_results.latest_of_schedule(sid)
         return {"at": row["at"], "status": row["status"], "answer": self._redact_text(row["answer"])} if row else None
 
     async def _schedules_change(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -580,13 +573,3 @@ class Schedules:
         if t is None or t.kind == "sleep" or not self.timers.cancel(t.id):
             raise FerbError(f"no pending reminder {params['id']}")
         return {"cancelled": t.id}
-
-    async def _reminders_unseen(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """For `ferb chat`: reminders delivered but not shown in chat yet (then marked shown)."""
-        assert self.db is not None
-        rows = self.db.conn.execute("SELECT id, message, overdue_s, delivered_at FROM timers WHERE state = 'delivered' "
-                                    "AND kind != 'sleep' AND chat_shown = 0 ORDER BY fire_at").fetchall()
-        for r in rows:
-            self.db.conn.execute("UPDATE timers SET chat_shown = 1 WHERE id = ?", (r["id"],))
-        return {"reminders": [{"id": r["id"], "message": self._redact_text(r["message"]),
-                               "overdue_s": r["overdue_s"]} for r in rows]}

@@ -94,17 +94,12 @@ def unmark(ferb_home: Path) -> None:
     (home_dir(ferb_home) / SIGNED_IN).unlink(missing_ok=True)
 
 
-def ferb_command() -> str:
-    """The `ferb` command the owner can run: FERB.app's own launcher, or `ferb` from a checkout."""
-    from ferb.device.install import BUNDLE_CLI
-    from ferb.paths import app_bundle
-    bundle = app_bundle()
-    return f'"{bundle / BUNDLE_CLI}"' if bundle is not None else "ferb"
-
-
-def by_hand() -> str:
-    """The exact steps to sign in without FERB.app. The owner runs them; FERB never types into a terminal (rule 10)."""
-    return f"To sign in by hand, run this in Terminal yourself: {ferb_command()} setup --claude-login"
+def keychain_service(ferb_home: Path) -> str:
+    """The Keychain service of the credential Claude Code saves for FERB's own Claude home (its name, never its value;
+    `ferb uninstall --purge` deletes it)."""
+    import hashlib
+    digest = hashlib.sha256(str(home_dir(ferb_home)).encode()).hexdigest()[:8]
+    return f"Claude Code-credentials-{digest}"
 
 
 def sign_in_url(line: str) -> str | None:
@@ -133,8 +128,9 @@ class ClaudeSignIn:
             return self.status()
         try:
             cli = self.cli()
-        except Unsupported as e:
-            self.state, self.url, self.why = "failed", "", f"FERB can't sign in to Claude here ({e}). {by_hand()}"
+        except Unsupported:
+            self.state, self.url, self.why = ("failed", "", "FERB's copy of Claude Code is missing, so it can't sign "
+                                              "in to Claude. Download FERB again.")
             return self.status()
         prepare(self.ferb_home)
         self.state, self.url, self.why, self._cancelled = "waiting", "", "", False
@@ -158,7 +154,7 @@ class ClaudeSignIn:
         if ok:
             mark(self.ferb_home)
         self.state, self.url = ("signed_in" if ok else "failed"), ""
-        self.why = "" if ok else f"Claude didn't confirm the sign-in. Try again. {by_hand()}"
+        self.why = "" if ok else "Claude didn't confirm the sign-in. Try again."
         self.done(ok)
 
     async def _confirmed(self, cli: Path) -> bool:

@@ -213,22 +213,20 @@ def test_a_met_watch_reaches_the_owner_like_a_reminder_with_the_app_open_or_the_
         d.owner_input.running = False
 
 
-def test_ferb_schedules_says_which_kind_of_watch_each_one_is(daemon: RunningDaemon) -> None:
-    import io
-    from ferb.cli import admin
+def test_the_schedule_list_says_which_kind_of_watch_each_one_is(daemon: RunningDaemon) -> None:
+    from ferb.orchestrator.schedules import WATCH_SAID
     _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
     _watch(daemon, BATTERY_WATCH, BATTERY_WORDS, "standing")
     make_schedule(daemon, "write report.md", "every day at 9 write report.md", Targets.of(),
                   daemon.daemon.clock.now() + timedelta(minutes=30))
-    out = io.StringIO()
     c = Client(daemon.sock)
     try:
-        assert admin.schedules(c, "list", None, out) == 0
+        rows = c.call("schedules.list")["schedules"]
     finally:
         c.close()
-    ends = {line.rsplit("  ", 1)[-1] for line in out.getvalue().splitlines()}
-    assert ends == {f"{FILE_WATCH} (until it happens, then it stops)", f"{BATTERY_WATCH} (each time it happens)",
-                    "write report.md"}
+    kinds = {r["request"]: WATCH_SAID.get(r.get("watch") or "none", "") for r in rows}
+    assert kinds == {FILE_WATCH: "until it happens, then it stops", BATTERY_WATCH: "each time it happens",
+                     "write report.md": ""}
 
 
 # ---------- once per crossing: judged against the last check that reported the condition (review I1) ----------

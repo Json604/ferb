@@ -499,7 +499,7 @@ summary = "Instant acknowledgement from the daemon (TQ3/P25) and the plan line a
 
 [L8]
 milestone = "L"
-tests = ["tests/test_progress_line.py", "tests/test_baseline.py", "ui/mac/FERBNotch/Tests/NotchCoreTests/ChatFlowTests.swift"]
+tests = ["tests/test_progress_line.py", "ui/mac/FERBNotch/Tests/NotchCoreTests/ChatFlowTests.swift"]
 summary = "One live line under the plan line shows the current step (built by code, never model text) and elapsed time until the answer"
 
 [L9]

@@ -29,7 +29,7 @@ from ferb.trace import lines
 NO_ON_SCREEN_KEPT = 10   # the newest plain statements an agent's context carries; every change stays in the records
 # What FERB could change on the owner's screen, and all that is compared (daemon decision 5): never the cursor
 FERB_KEYS = ("frontmost_app", "key_window", "fullscreen", "active_space_epoch")
-PAUSED = "sensing paused by the owner (ferb pause): nothing about the desktop is read or recorded until ferb resume"
+PAUSED = "sensing paused by the owner (Pause FERB): nothing about the desktop is read or recorded until Resume"
 
 
 class DesktopProbe:

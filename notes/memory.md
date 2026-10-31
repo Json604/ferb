@@ -398,7 +398,9 @@ to commit c6621c3.
   English-only vocabulary (Hindi/Hinglish fall back to keywords). Not chosen (estimates, not measured here): MiniLM/bge
   through onnxruntime (a ~30 MB native runtime plus a 23–130 MB model, a transformer pass per text: more CPU and heat);
   the old MLX path (mlx plus transformers); Apple's NLEmbedding (a new PyObjC binding; its quality not evaluated).
-- Model files: `[memory] embedding_model` (a folder; the app bundle can point there, step 12) else fetched once into
+- Model files (step 12b: shipped in FERB.app at Contents/Resources/models/embeddings/<name>@<rev12>, read there and never
+  fetched; a checkout's setup fetches them at install; notes/daemon.md Rulings (step 12b)): `[memory] embedding_model`
+  (a folder) else fetched once into
   `~/.ferb/models/embeddings/potion-base-8M@bf8b056651a2` (temporary folder, hashes checked, then renamed). Until it
   is there, search runs on keywords and recency. Tests never download (`embeddings=False`, `FakeEmbedder`).
 - Vectors: normalized int8 + sign bits in `recall_vectors`; `nearest` takes the 256 closest by sign-bit Hamming distance

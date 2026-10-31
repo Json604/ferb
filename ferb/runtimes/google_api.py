@@ -37,7 +37,7 @@ LIMITS_SOURCE = "https://ai.google.dev/gemini-api/docs/models (checked 2026-10-1
 def limits_for(model: str) -> ModelLimits:
     if model not in LIMITS:
         raise ModelLimitsUnknown(f"Google documents no token limits FERB knows for model {model!r}; "
-                                 f"choose one of {sorted(LIMITS)} in config.toml [models]")
+                                 f"the ones it knows: {', '.join(sorted(LIMITS))}")
     window, output = LIMITS[model]
     return ModelLimits(model, window, output, LIMITS_SOURCE, window_includes_output=False)
 

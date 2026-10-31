@@ -57,8 +57,31 @@ SOFTWARE.
 potion-base-8M — https://huggingface.co/minishlab/potion-base-8M (revision bf8b056651a2c21b8d2565580b8569da283cab23)
 By MinishLab, MIT License (as its model card states). A static embedding table distilled by
 model2vec (https://github.com/MinishLab/model2vec, MIT) from BAAI/bge-base-en-v1.5 (MIT), with its WordPiece
-tokenizer. FERB fetches its three data files once, checks their pinned SHA-256s and reads them with its own code
-(ferb/memory/embeddings.py); no model2vec or tokenizer code is copied or installed. The MIT License text above applies.
+tokenizer. Its three data files (config.json, model.safetensors, tokenizer.json) ship unmodified inside FERB.app
+(Contents/Resources/models); a checkout's setup fetches the same files. FERB checks their pinned SHA-256s and reads
+them with its own code (ferb/memory/embeddings.py); no model2vec or tokenizer code is copied or installed.
+
+MIT License
+
+Copyright (c) MinishLab (the authors of potion-base-8M and model2vec)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 Sparkle — https://github.com/sparkle-project/Sparkle (version from ui/mac/FERBNotch/Package.swift)
 Embedded in FERB.app as Sparkle.framework for automatic updates (L34 Phase G).

@@ -246,32 +246,6 @@ def test_stats_counts_unverified_apart_from_done_and_failed(tmp_path: Path) -> N
     assert "  not confirmed   1" in text and "  failed          2" in text
 
 
-def test_the_timeline_labels_a_not_confirmed_outcome_in_the_owners_words() -> None:
-    from ferb.cli.admin import timeline
-
-    class C:
-        def call(self, method: str, params: Any = None) -> Any:
-            return {"entries": [{"at": "2026-10-09T10:00:00", "kind": "task.outcome",
-                                 "data": {"status": "done_unverified", "summary": "Done, but not confirmed: x"}},
-                                {"at": "2026-10-09T10:01:00", "kind": "task.outcome",
-                                 "data": {"status": "failed", "summary": "couldn't"}}]}
-    out = io.StringIO()
-    assert timeline(C(), None, out) == 0                                   # type: ignore[arg-type]
-    text = out.getvalue()
-    assert "not confirmed: Done, but not confirmed: x" in text and "done_unverified" not in text
-    assert "failed: couldn't" in text
-
-
-def test_baseline_counts_unverified_apart_from_done_and_failed(tmp_path: Path) -> None:
-    from ferb.cli.admin import baseline
-    _seed(tmp_path, ("done", "done_unverified", "failed", "failed"))
-    assert baseline(tmp_path, io.StringIO()) == 0
-    data = json.loads(next((tmp_path / "baselines").glob("*.json")).read_text())
-    assert (data["done"], data["done_pct"]) == (1, 25)
-    assert (data["unverified"], data["unverified_pct"]) == (1, 25)
-    assert (data["failed"], data["failed_pct"]) == (2, 50)
-    assert data["avg_task_s"] == 60.0                       # done_unverified is a finished task
-
 
 def test_trace_story_names_each_status() -> None:
     from ferb.trace import compose, render

@@ -138,13 +138,19 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
 - The crash "interrupted + auto-resume" fix is owned by notes/orchestration.md.
 
 ## Fix list
-- [ ] **The live daemon must never import code from a checkout** (found 2026-10-31): the installed
+- [x] **The live daemon must never import code from a checkout** (found 2026-10-31): the installed
       `~/Library/LaunchAgents/com.ferb.daemon.plist` has `WorkingDirectory = /Users/kartikey/Desktop/FERB` and runs
       `python -m ferb.daemon`, which puts the working directory first on `sys.path`, so the owner's running FERB loaded
       the checkout's code instead of its installed copy (`~/.ferb/venv/.../site-packages/ferb`). The rebuild deleting
       `resources.md` made the scheduled visa run fail at 00:27 on 10-31. Fix: run with `python -P` (never prepend the
       working directory) and keep WorkingDirectory at FERB's home (install.py already writes `self.home`; the live
       plist predates that); SMAppService (decision 2) covers it too.
+      (Step 12b: a checkout's LaunchAgent runs `~/.ferb/venv/bin/python -P -m ferb.daemon` with `WorkingDirectory` =
+      FERB's home, and its native host `python -P`; FERB.app's definition (inside the app, below) runs the isolated
+      agent with exactly `-m ferb.daemon`; the daemon itself makes FERB's home its working folder and sends output
+      launchd left at /dev/null to logs/daemon.{out,err}.log (`main.service_streams`). Live check 2026-10-31: the
+      running service was FERB.app's agent (build 0dd5185, `/Applications/FERB.app/.../FERB -m ferb.daemon`), not the
+      hand-edited venv plist. Tests: tests/test_install.py.)
 - [x] Composition function + typed ports; remove the 42 supervisor hooks and 17 gateway injections. (Step 2: stores
       first (`_build_stores`), gateway gets one `GatewayDeps`, supervisor gets `ports.py` Memory/Schedule/Environment/
       Desktop/Browser/Notify ports + a `QuestionRouter`; all fields required. Gateway refuses to start without recovery,
@@ -171,9 +177,23 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
 - [x] `ps.list` redacted; `memory.learning retire` through Learning; search off the loop.
 - [x] Privacy settings applied live to the Redactor, proxy and hearing.
 - [x] Remove `questions.answer` code, `memory.distill`, dead hooks, unread config keys.
-- [ ] Setup: `permissions_version` only when granted; install into a new venv and swap after success (no mixed code);
+- [x] Setup: `permissions_version` only when granted; install into a new venv and swap after success (no mixed code);
       pinned checkout installs (lockfiles); Codex installed only if a role uses it; doctor fixes; uninstall removes
       every FERB Keychain item; CLI errors shown plainly.
+      (Step 12b: `permissions.missing` over every row (the daemon's four, FERB Voice's hearing, the clipboard and the
+      app's own Notifications/Microphone, which the app's Done now sends) decides both the window's `setup.finish` and
+      `ferb setup`; nothing is recorded otherwise and `missing` says what isn't granted. A checkout installs into
+      `~/.ferb/venv.new` (`uv venv --relocatable`, `uv export --frozen` → `uv pip install --require-hashes`, FERB with
+      `--no-deps`), the secret helper into `.ferb-secrets.new`, Codex with `npm ci` from package-lock.json into
+      `node.new` (version checked), and only then, with the daemon stopped, swaps the venv in (`_swap_venv`; a cut-off
+      swap is finished next time); any failure leaves the venv, plist and running daemon untouched. `codex_wanted`:
+      Codex is (re)installed only when a role uses it, or when the owner signs in to it. Doctor: every permission
+      fails when off (none optional), Full Disk Access says it waits for containment, "installed code differs" only
+      for a checkout's own daemon, the service definition check for FERB.app, no hints to removed commands.
+      `uninstall --purge` deletes every item of FERB's Keychain services (`ferb`, `ferb.owner-secrets`, Claude Code's
+      item for FERB's Claude home) by service, never reading a value. CLI errors: one plain line (`plain_error`), an
+      internal daemon failure says so and points at `ferb stats`. Tests: test_install.py, test_setup_flow.py,
+      test_setup_rpcs.py, test_cli.py.)
 - [x] Signal handlers before `start`; `start` failure runs `shutdown`.
 - [x] Disturbance sampler around acting tools; owner cursor ignored; facts to the checker; race fixed (decision 5).
       (6b: samples only around `on_screen` calls plus a task baseline, no timer; front app, focus, fullscreen, Space
@@ -181,9 +201,27 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       notes/gateway.md Rulings (step 6b).)
 - [x] Remove CLI chat; `task.stop` requires ids (decision 1).
       (Step 3: cli/chat.py, live_chat.py removed; `task.stop` without ids is refused (test_ux).)
-- [ ] SMAppService registration (decision 2); rule-10 protection of the service definition follows.
+- [x] SMAppService registration (decision 2); rule-10 protection of the service definition follows.
+      (Step 12b: ui/mac/FERBAgent/com.ferb.daemon.plist is copied by scripts/build-app.sh to
+      FERB.app/Contents/Library/LaunchAgents/com.ferb.daemon.plist (BundleProgram = the agent, FERB_APP_BUILD set,
+      no user paths) before signing. `ferb setup --service` from the app does the file work, retires the old user
+      LaunchAgent (stopped, then removed; only a plist naming FERB's label), records `~/.ferb/service.json` (build,
+      app) and restarts the service if macOS has it loaded; then the app registers it (`AppServiceAgent`:
+      `SMAppService.agent(plistName:)`, "already registered" counts as on), waits until FERB answers, and shows macOS's
+      "needs your OK" with an Open Login Items button, a missing definition or a refusal in the app's words
+      (`ServicePlan`). Launch decides from the old LaunchAgent, the service status and the record
+      (`AppSetupPlan.decide`). The clean-up's daemon-stopped work stops the app's daemon with `launchctl kill SIGTERM`
+      (clean exit, so KeepAlive doesn't restart it) and `kickstart`s it after; uninstall unregisters it from the app.
+      A checkout refuses to take over while launchd runs the label from the app's definition. Protection:
+      `BUNDLE_SERVICE` joins `service_files` (FERB_SERVICE, never lifted, the shell profile denies writing it);
+      the user plists were already FERB_SERVICE. Tests: test_install.py, test_protection.py, AppSetupTests,
+      SetupModelTests.)
 - [x] CLI trim (decisions 3, 4); `ferb uninstall` stays in the toolbox. Remove the `voice` and `decide` commands.
       (Step 3: removed chat, voice, decide, conversations, notifications, test-mode, regress, watch and the Mac probe/watch harness (probe.py, watch.py, detector.py, watch_ext, watch_page.html), the permission walkthrough (`_grant`, `_automation`, `hearing_setup`, `clipboard_setup`, `voice_setup`; `ferb setup` records setup only when every permission is granted) and `trace --steps` (`render.steps`). Still in the CLI: schedules, reminders, timeline, pause/resume, stop/resume-tasks, kill, attach, device, baseline, release-checklist, setup --key/--jev/--identity/--persona/--claude-login.)
+      (Step 12b: those removed (cli/attach.py, eval/comparison.py, their admin functions and tests); `setup
+      --claude-logout` stays because FERB.app now runs it (Settings → AI → Sign out of Claude); `ferb.cli.APP_COMMANDS`
+      lists what the app runs and a test keeps them parsing. The daemon's failed-sign-in text no longer names
+      `ferb setup --claude-login`. Identity-profile setup has no path until the app's screen exists (decision 7).)
 - [x] Remove the daemon push-to-talk stack together with CLI chat (they share CLI rendering; notes/voice.md decision 3).
       (Step 3: see notes/voice.md.)
 - [ ] Identity-profile setup moves into the app (owner's UI side); `identity.check`/`identity.pair` RPCs stay.
@@ -191,7 +229,82 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       (Step 3: the `test.mode` RPC and config stay; the CLI command is gone.)
 - [ ] "About FERB" source and worker lookup tool (decision 6).
 - [ ] FERB email setup in the app (decision 7); identity RPCs for the app.
-- [ ] `ferb logs --policy` filter fixed; main.py's raw SQL moved into the stores; investigate the 2.2-2.4 GB footprint.
+- [x] `ferb logs --policy` filter fixed; main.py's raw SQL moved into the stores; investigate the 2.2-2.4 GB footprint.
       (Step 2: `--policy` fixed and an unknown filter refused; 13 of 54 statements moved (task_results, tasks lookups,
       task_memory_refs, learning retire, trail rows); the rest belong to areas later steps rewrite or remove. Footprint
       not investigated.)
+      (Step 12b: tasks lookups, the task page, verdicts and a schedule's last result into TaskTree/TaskResults; journal
+      reads into Journal (`recent_values`, `by_ids`, `latest_kind`, `of_running_tasks`); timer deliveries into Timers;
+      memory questions into ferb/memory/questions.py; the dead `reminders.unseen` RPC removed. Left in the areas: the
+      memory area's card/search/activity reads (9, the memory stores' own seams), Jev's 3 (switched off), PRAGMAs and the
+      schedule transaction. Footprint: see "Footprint (step 12b)".)
+
+## Rulings (step 12b, technical)
+- **Dev launch path for a checkout**: the same label as a user LaunchAgent in ~/Library/LaunchAgents
+  (`Installer.plist`, `-P`, WorkingDirectory = FERB's home), loaded with launchctl. FERB.app never writes one: its
+  definition is the app's, registered by the app. A checkout refuses to install while launchd runs the label from
+  FERB.app's definition (only the app can unregister it); an old app plist is still taken over as before.
+- FERB.app's definition can't name the owner's home (it is fixed and signed), so it has no WorkingDirectory or log
+  paths: the daemon `chdir`s to FERB's home and opens its logs itself when launchd left stdout/stderr at /dev/null.
+- The setup command stays the app's file step (`ferb setup --service`); registration is the app's (Python can't call
+  SMAppService for the app's bundle). The old user LaunchAgent is retired by that command, before the app registers,
+  because launchd can't hold the same label twice.
+- "Daemon stopped" for FERB.app's service = `launchctl kill SIGTERM` + wait for its process, then `launchctl
+  kickstart`: a clean exit isn't restarted (KeepAlive SuccessfulExit false) and the registration stays untouched
+  (`bootout`/`bootstrap` can't reload a BundleProgram definition).
+- Which build is set up: `~/.ferb/service.json` (build, app path, label), written by the setup command, read by the app.
+- A checkout's new venv is built `--relocatable` at `venv.new` and renamed into place with the daemon stopped (old one
+  removed after); every checkout update builds a fresh venv from uv.lock (hashes required) and restarts by unload +
+  load, not kickstart.
+- Codex is installed when a role uses it (Codex when unset) or when the owner signs in to it (`--codex-login`
+  installs it first); a link into FERB.app follows the same rule.
+- Uninstall's Keychain clean-up deletes by service (`security delete-generic-password -s SERVICE`, repeated until none
+  is left, at most 10,000): FERB never lists or reads a value. Only `--purge` does it (the owner typed `delete`).
+- Permission rows: every row reports `required: true` (field kept for older apps); "setup done" needs every row
+  granted, the app's own included (the app sends them with Done); Full Disk Access blocked by containment counts as
+  not granted.
+- Embedding model: FERB.app ships it at Contents/Resources/models/embeddings/potion-base-8M@bf8b056651a2 (build-app.sh
+  fetches it once with the pinned hashes into its build cache and copies it in); the daemon reads it there and never
+  fetches. A checkout's setup fetches it at install (`Installer.fetch_model`); a failure is said and doesn't stop the
+  install; that daemon keeps its one-time fetch as the fallback. Every load checks the hashes.
+- Provider HTTP refusals say a plain cause from the status code first, then the provider's words (`api.http_cause`).
+  Runtime errors point at Settings → AI, never a `ferb` command or config.toml.
+
+## Footprint (step 12b, read-only: resource_samples and ps, 2026-10-31)
+- What is measured: the daemon process's own physical footprint (`ri_phys_footprint`). Not the database: no `mmap_size`,
+  and clean file pages don't count; children stay small (≤ 250 MB, `child_footprint`).
+- It only grows, then drops at a restart: 10-30 rose 1.48 GB (00:01) → 8.47 GB (23:55); the 00:47 restart on 10-31 went
+  back to 337 MB; this morning's process (11:09) 293 → 686 MB by 15:38; `ps` RSS 507 MB at 16:00.
+- Two parts: ~100-160 MB an hour with nothing happening (no events, no tool calls, ~1% CPU: 10-30 14:12 → 20:43,
+  6.99 → 8.03 GB), and 200-400 MB per 5-minute window while worker tasks run (10-30 08:00-09:20: 3.07 → 6.40 GB over
+  ~6 tasks, never returned).
+- The live process is the old build (FERB.app 0dd5185, 10-28, with Jev shadow on), so the growth is a leak in long-lived
+  process state, not caches that page out. Measured here (scratch scripts, not the daemon): PyObjC calls on threads
+  with no autorelease pool leak 300-450 bytes a call (NSWorkspace app list, permission checks), 55-90 with a pool:
+  real but ~1-2 MB an hour at today's call rates, too small to explain it. The cause needs a measurement inside the
+  daemon (tracemalloc or `footprint`/`heap` on the process), which this step did not do (no attaching to the owner's
+  process); the step-13 check below repeats the read on the rebuilt code first.
+
+## Live checks for step 13 (step 12b)
+- Moving from the hand-edited LaunchAgent to SMAppService: build FERB.app (`scripts/build-app.sh`), install it in
+  /Applications, open it. Expected: launch decides `.update` (the old ~/Library/LaunchAgents/com.ferb.daemon.plist runs
+  this app's agent) or asks first if that plist runs a checkout ("Set up FERB from this app?" → Set Up From This App);
+  the setup command retires the plist (gone from ~/Library/LaunchAgents), macOS lists FERB under System Settings →
+  General → Login Items → "Allow in the Background" (allow it if the window says macOS needs your OK), and the notch
+  answers. Then: `launchctl print gui/$UID/com.ferb.daemon` shows `path = /Applications/FERB.app/Contents/Library/
+  LaunchAgents/com.ferb.daemon.plist`; `ps` shows the agent with `-m ferb.daemon`; `~/.ferb/service.json` names the
+  build; `lsof -p <pid> | grep cwd` shows ~/.ferb; logs/daemon.err.log receives output.
+- Restart FERB from the menu, log out and in: the daemon comes back by itself. Switch it off in Login Items: the next
+  launch shows the setup window with the approval note and the button.
+- `ferb setup --cleanup --ok …` with the app's service: the daemon stops (`launchctl kill`), the clean-up runs, it starts
+  again; the registration stays.
+- From the checkout while the app's service is registered, `ferb setup --update` refuses and says why. Uninstall from
+  Settings → Advanced: Login Items no longer lists FERB's service.
+- A checkout `ferb setup --update` while the daemon runs: `~/.ferb/venv.new` appears, then the daemon restarts once on
+  the new venv; with the network off it fails and the running daemon keeps working (no restart).
+- Setup window Done with one permission off: the window comes back at the next launch; with all on it doesn't.
+- A fresh FERB.app install: `ferb memory embeddings` reports the model loaded from FERB.app, no `memory.embedding_model
+  fetched` row, nothing under ~/.ferb/models.
+- Settings → AI → Sign out of Claude signs FERB's Claude out; a failed Claude sign-in says why without a `ferb` command.
+- Footprint: after a day on the rebuilt code, read `resource_samples` again (idle and per-task growth); if it still
+  grows, a tracemalloc snapshot through a developer RPC (owner's go) names the holder.

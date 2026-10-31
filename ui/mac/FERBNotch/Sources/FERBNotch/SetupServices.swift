@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import Foundation
 import NotchCore
+import ServiceManagement
 @preconcurrency import Speech
 import UserNotifications
 
@@ -39,6 +40,44 @@ protocol APIKeyStoring {
 @MainActor
 protocol DaemonServicing: AnyObject {
     func restart() async -> Bool
+}
+
+/// FERB's background service as FERB.app registers it with macOS (notes/daemon.md decision 2): its definition is inside
+/// the signed app, so nothing can edit it, deleting the app removes it, and Login Items lists it under FERB.
+@MainActor
+protocol BackgroundServiceRegistering: AnyObject {
+    var status: ServiceStatus { get }
+    func register() throws
+    func unregister() async throws
+    func openLoginItems()
+}
+
+/// SMAppService.agent for Contents/Library/LaunchAgents/com.ferb.daemon.plist.
+@MainActor
+final class AppServiceAgent: BackgroundServiceRegistering {
+    private let service = SMAppService.agent(plistName: ServicePlan.plistName)
+
+    var status: ServiceStatus {
+        switch service.status {
+        case .enabled: return .enabled
+        case .requiresApproval: return .requiresApproval
+        case .notFound: return .notFound
+        case .notRegistered: return .notRegistered
+        @unknown default: return .notRegistered
+        }
+    }
+
+    /// Registering again is harmless: macOS reports it as already registered, which counts as on.
+    func register() throws {
+        do { try service.register() } catch let error as NSError where error.code == kSMErrorAlreadyRegistered {}
+    }
+
+    func unregister() async throws {
+        guard service.status != .notRegistered else { return }
+        try await service.unregister()
+    }
+
+    func openLoginItems() { SMAppService.openSystemSettingsLoginItems() }
 }
 
 enum AppBundle {
@@ -203,7 +242,7 @@ final class SystemOpener: SystemOpening {
 
 /// An API key goes from the setup window straight into the Keychain (L34 C, rule 14): written on `security`'s stdin
 /// (`security -i`), never as an argument other processes could read, never to the daemon, a log or FERB's settings. The
-/// item is the one `ferb setup --key` writes, so the daemon's runtimes read it the same way. Only its presence is checked
+/// item is the one the daemon's runtimes read (ferb/runtimes/keys.py), so the daemon's runtimes read it the same way. Only its presence is checked
 /// afterwards, never its value.
 @MainActor
 struct KeychainAPIKeyStore: APIKeyStoring {
@@ -235,7 +274,8 @@ struct KeychainAPIKeyStore: APIKeyStoring {
 }
 
 /// FERB's background service through launchd (`LaunchctlPlan`): restarted after a Screen Recording or Full Disk Access
-/// grant (macOS applies those to a new process), and by the menu's Restart (Phase D). Running tasks stop.
+/// grant (macOS applies those to a new process), and by the menu's Restart (Phase D). Running tasks stop. The service is
+/// the app's registered one (an old user LaunchAgent is loaded only while one is still there).
 @MainActor
 final class DaemonService: DaemonServicing {
     private let plist = FileManager.default.homeDirectoryForCurrentUser

@@ -233,6 +233,31 @@ def test_ferbs_own_service_definition_is_never_changed_or_lifted(tmp_path: Path)
     assert any(r["id"] == FERB_SERVICE and r["liftable"] is False for r in p.rules())
 
 
+def test_the_service_definition_inside_ferb_app_is_never_changed_or_lifted(tmp_path: Path) -> None:
+    """Rule 10, notes/daemon.md decision 2: the background service's definition FERB.app registers with macOS
+    (Contents/Library/LaunchAgents/com.ferb.daemon.plist) is refused to FERB's file tools as FERB's own service, not
+    only as part of the app; reading it stays open, no lift reopens it, and the shell profile denies writing it."""
+    from ferb.act.shell.sandbox import Sandbox
+    from ferb.device.install import BUNDLE_SERVICE
+    from ferb.policy.protection import BUNDLE_SERVICE as PROTECTED, FERB_SERVICE
+    assert PROTECTED == BUNDLE_SERVICE
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    app = tmp_path / "Applications" / "FERB.app"
+    definition = app / BUNDLE_SERVICE
+    definition.parent.mkdir(parents=True)
+    definition.write_text("<plist/>")
+    p = Protection(home, ferb, [], ["~/Library/LaunchAgents"], [], app_bundle=app)
+    assert p.fs_denied(definition, "read") is None
+    for access in ("write", Kind.TRASH, Kind.DELETE_PERMANENT):
+        assert p.fs_rules(definition, access) == [FERB_SERVICE], access
+    assert p.fs_denied(definition.parent, Kind.TRASH) in (FERB_SERVICE, "ferb_app")   # nor the folder holding it
+    assert not p.liftable(FERB_SERVICE)
+    assert any(r["id"] == FERB_SERVICE and str(definition) in r["path"] for r in p.rules())
+    profile = Sandbox(p, tmp_path / "profiles", listeners=lambda: set()).profile()
+    assert f'(deny file-write* (literal "{definition.resolve()}"))' in profile
+
+
 def test_removing_a_folder_that_holds_a_never_read_store_is_refused(tmp_path: Path) -> None:
     """Trashing ~/.config would hand over ~/.config/gh in the Trash: a removal of a folder holding a never-read store is
     closed with that store's rule. Reading the folder itself (a listing) is fine."""

@@ -198,7 +198,7 @@ def test_doctor_reports_and_fails_on_missing_required_permission(world: dict[str
     rc = S.doctor(env)
     text = out.getvalue()
     assert rc == 1
-    assert "✗ permission accessibility: denied" in text and "✓ agent loaded" in text
+    assert "✗ permission accessibility: denied" in text and "✓ background service" in text
     ok_lines = [l for l in text.splitlines() if l.startswith("✓")]
     assert ok_lines and not any("→" in l for l in ok_lines)            # hints only on problems
     assert "✗ permission full_disk_access: denied" in text
@@ -214,24 +214,16 @@ def test_doctor_reports_and_fails_on_missing_required_permission(world: dict[str
     assert S.doctor(env) == 0, out2.getvalue()
 
 
-def test_doctor_says_jev_is_optional_and_where_a_key_comes_from(world: dict[str, Any]) -> None:
-    """L37 (owner 2026-10-24): without a Jev key activity notices are off; doctor says so and links Typesafe's key page,
-    as an ok line (optional, never a failure)."""
+def test_doctor_says_jev_is_off_and_where_a_key_comes_from(world: dict[str, Any]) -> None:
+    """Jev is switched off (notes/memory.md decision 4, daemon decision 9): doctor says so as an ok line, never a
+    failure, and names no removed command."""
     world["inst"].install()
     env, out = make_env(world, [])
     S.doctor(env)
     line = next(l for l in out.getvalue().splitlines() if " jev:" in l)
     assert line.startswith("✓") and "→" not in line
-    assert "activity notices are off" in line and "https://console.typesafe.ai/keys" in line and "ferb setup --jev" in line
-
-
-def test_jev_setup_links_typesafes_key_page_before_asking(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    import subprocess
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 1))
-    env, out = make_env(world, [])
-    assert S.jev_setup(env) == 1
-    text = out.getvalue()
-    assert text.index("https://console.typesafe.ai/keys") < text.index("Paste your Jev API key")
+    assert "activity notices are paused" in line and "https://console.typesafe.ai/keys" in line
+    assert "ferb setup --jev" not in out.getvalue()
 
 
 def test_uninstall_purge_needs_typed_confirmation(world: dict[str, Any]) -> None:
@@ -253,7 +245,7 @@ def test_update_reports_missing_permissions_without_opening_settings_or_promptin
     assert world['panes'] == [] and world['daemon'].automation_requests == []
     assert Config(world['home']).get('setup', 'permissions_version', 0) == 0
     assert 'Not granted yet' in out.getvalue() and 'accessibility=denied' in out.getvalue()
-    assert ('doctor.check', {'selftest': False}) in world['daemon'].calls
+    assert ('doctor.check', {'selftest': False, 'hearing': True}) in world['daemon'].calls
 
 
 def test_update_recognizes_existing_grants_despite_an_older_setup_marker(world):
@@ -327,23 +319,6 @@ def test_update_shows_what_ferb_saw_without_asking_or_repeating_permission_flow(
     assert world['panes'] == [] and world['daemon'].automation_requests == []
 
 
-def test_persona_only_review_does_not_install_or_restart(world):
-    env, out = make_env(world, [])
-    calls = []
-
-    class Client:
-        def call(self, method, params):
-            calls.append((method, params))
-            return {'state': 'seen', 'summary': "Here's what I saw on your Mac: you code."}
-
-        def close(self): pass
-    env.connect = Client
-    assert S.persona_setup(env) == 0
-    assert calls == [('setup.persona', {'refresh': True})]
-    assert world['runner'].ran('uv', 'python', 'install') == 0
-    assert "you code" in out.getvalue() and world['panes'] == []
-
-
 # ---------- L26: FERB.app hears app sound during tasks (Speech Recognition only, unless --voice) ----------
 
 def test_plain_setup_builds_ferb_app_for_hearing_without_a_permission_dialog(world: dict[str, Any]) -> None:
@@ -409,9 +384,11 @@ from tests.support.app_bundle import PINNED, BundleRunner, make_ferb_app  # noqa
 
 @pytest.fixture
 def app_world(world: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
-    """The same Mac, with FERB installed from a packaged FERB.app instead of a checkout."""
+    """The same Mac, with FERB installed from a packaged FERB.app instead of a checkout; the app has registered its
+    background service (macOS loaded it)."""
     app = make_ferb_app(tmp_path / "Applications")
     runner = BundleRunner(world["home"])
+    runner.loaded = True
     world.update(app=app, runner=runner, inst=Installer(world["home"], label="com.ferb.test", run=runner,
                                                         launch_agents=tmp_path / "LA", bundle=app,
                                                         cli_dir=tmp_path / "bin"))
@@ -439,23 +416,24 @@ def test_setup_from_the_app_repins_push_to_talk_to_the_bundled_voice_helper(app_
     assert "Set Up FERB… in FERB's menu bar" in out.getvalue()               # an ad-hoc update can lose permissions
 
 
-def test_closing_setup_while_it_installs_never_leaves_the_daemon_unloaded(app_world: dict[str, Any]) -> None:
-    """The app stops setup with SIGTERM when it quits: a stop that arrives while the background service is being
-    (re)installed waits until it is loaded again, then setup stops."""
+def test_closing_setup_while_it_installs_never_leaves_the_daemon_unloaded(world: dict[str, Any]) -> None:
+    """A stop (SIGTERM, Ctrl-C) that arrives while the background service is being reinstalled waits until it is
+    loaded again, then setup stops."""
     import os
     import signal
-    runner = app_world["runner"]
+    runner = world["runner"]
+    world["inst"].install()
     real = runner.__call__
 
     def stop_midway(cmd: list[str]) -> Any:
         if cmd[:2] == ["launchctl", "bootout"]:
-            os.kill(os.getpid(), signal.SIGTERM)           # the owner quits FERB between unload and load
+            os.kill(os.getpid(), signal.SIGTERM)           # the owner stops setup between unload and load
         return real(cmd)
-    app_world["inst"].run = stop_midway
-    env, out = make_env(app_world, [], daemon_up=False)
+    world["inst"].run = stop_midway
+    env, out = make_env(world, [], daemon_up=False)
     with pytest.raises(KeyboardInterrupt):
-        S.setup(env)
-    assert runner.loaded and runner.ran("launchctl", "bootstrap") == 1       # loaded before setup stopped
+        S.setup(env, update=True)
+    assert runner.loaded and runner.ran("launchctl", "bootstrap") == 2       # loaded before setup stopped
     assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
 
 
@@ -463,6 +441,8 @@ def test_a_checkout_update_says_it_took_over_from_the_app(app_world: dict[str, A
     app_world["inst"].install()
     source = Installer(app_world["home"], label="com.ferb.test", run=app_world["runner"], launch_agents=tmp_path / "LA")
     app_world["runner"].requirement = 'identifier "com.ferb.secrets" and certificate leaf = H"local"'   # its own build
+    from ferb.runtimes.codex_exec import CODEX_VERSION
+    app_world["runner"].codex_version = f"codex-cli {CODEX_VERSION}\n"
     (source.venv / "bin").mkdir(parents=True)
     (source.venv / "bin" / "python").write_text("")
     app_world["inst"] = source
@@ -478,7 +458,7 @@ def test_doctor_from_the_app_checks_the_bundled_interpreter_not_a_venv(app_world
     text = out.getvalue()
     assert f"✓ app: {app_world['app']}" in text
     assert f"✓ interpreter: {app_world['app']}/Contents/Helpers/FERB.app/Contents/MacOS/FERB" in text
-    assert "venv" not in text and "✓ LaunchAgent: installed" in text
+    assert "venv" not in text and "✓ service definition: inside FERB.app" in text and "✓ background service" in text
 
 
 # ---------- packaged FERB.app × hearing (L26 + L27 integration) ----------
@@ -527,7 +507,7 @@ def _signed_out(world: dict[str, Any]) -> Path:
     auth = world["home"] / "codex-home" / "auth.json"
     auth.unlink()
     binary = world["home"] / "node" / _NATIVE_BIN
-    binary.parent.mkdir(parents=True)
+    binary.parent.mkdir(parents=True, exist_ok=True)
     binary.write_text("")
     return auth
 
@@ -897,9 +877,10 @@ def test_the_setup_window_refuses_a_disk_image_copy_with_its_fix(app_world: dict
                                   launch_agents=tmp_path / "LA", bundle=app_world["app"], cli_dir=tmp_path / "bin",
                                   read_only=lambda path: True)
     env, out = make_env(app_world, [], daemon_up=False)
+    app_world["runner"].loaded = False
     with pytest.raises(InstallError, match="drag FERB.app to Applications"):
         S.service_setup(env)
-    assert not app_world["runner"].loaded
+    assert not app_world["runner"].loaded and not app_world["inst"].record_path.exists()
 
 
 def test_the_setup_window_refuses_while_a_foreground_dev_daemon_holds_the_socket(world: dict[str, Any]) -> None:

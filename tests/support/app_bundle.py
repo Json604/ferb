@@ -26,6 +26,10 @@ def make_ferb_app(root: Path, build: str = "202610140201", bundle_id: str = "com
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_bytes(b"fake " + rel.encode())
         f.chmod(0o755)
+    service = contents / "Library" / "LaunchAgents" / "com.ferb.daemon.plist"    # as scripts/build-app.sh copies it
+    service.parent.mkdir(parents=True)
+    definition = plistlib.loads((Path(__file__).parents[2] / "ui/mac/FERBAgent/com.ferb.daemon.plist").read_bytes())
+    service.write_bytes(plistlib.dumps({**definition, "EnvironmentVariables": {"FERB_APP_BUILD": build}}))
     (contents / "Info.plist").write_bytes(plistlib.dumps({
         "CFBundleIdentifier": bundle_id, "CFBundleName": "FERB", "CFBundleExecutable": "FERBNotch",
         "CFBundleShortVersionString": "0.27.0", "CFBundleVersion": build}))

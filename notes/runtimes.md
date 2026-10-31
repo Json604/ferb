@@ -75,6 +75,7 @@ cites 68dc95b for the same files).
 - Codex workers keep Codex's automatic compaction (long tool loops need it); only supervisor runs have it off.
 - `worker_type` is validated per call rather than an enum, so the planner schema stays stable for the P20 cache.
 - A Claude sign-out button in the app is UI-side work; `ferb setup --claude-logout` exists meanwhile.
+  (Step 12b: Settings → AI → Sign out of Claude runs it.)
 
 ## Target design
 1. One small runtime table (name, factory, limits, price, key or sign-in) replacing the five lists and the
@@ -86,8 +87,13 @@ cites 68dc95b for the same files).
 4. All adapters kept and fixed (decision 1), behind the one runtime table and the same gateway path.
 
 ## Fix list
-- [ ] Owner-facing errors in app words, plain cause first (no `ferb …` commands, config.toml or raw provider errors
+- [x] Owner-facing errors in app words, plain cause first (no `ferb …` commands, config.toml or raw provider errors
       like "anthropic HTTP 400: output_config…"): catalog.py, codex_stream.py, claude_sdk.py, api.py, *_api.py.
+      (Step 12b: sign-in and key fixes point at Settings → AI; model-limit errors name the cause and the models FERB
+      knows; a provider HTTP refusal reads "it refused the request FERB sent (HTTP 400: …)" (`api.http_cause` from
+      the status code); Codex account errors, the Claude sign-in's failure text, the Jev and identity errors and setup's
+      browser line no longer name commands. Tests: test_api_runtime.py, test_claude_login.py, test_codex_streaming.py,
+      test_runtime_selection.py.)
 - [x] Remove the Codex exec path, `workdir`, `model_instructions_file`, duplicate MODEL constant, duplicate `check_final`.
       (Step 3: exec path and `workdir` removed. Step 4: `codex_exec.MODEL` and the providers' `DEFAULT_MODEL` gone,
       defaults live only in the runtime table; codex_stream no longer runs `check_final`, every caller's one check

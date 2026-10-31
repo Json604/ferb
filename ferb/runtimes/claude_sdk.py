@@ -79,8 +79,8 @@ ALIASES = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "c
 def limits_for(model: str | None) -> ModelLimits:
     from ferb.runtimes.anthropic_api import limits_for as documented
     if not model:
-        raise ModelLimitsUnknown("the Claude runtime has no model set, so its context window is the account's "
-                                 "plan-dependent default: set [models] claude in config.toml")
+        raise ModelLimitsUnknown("no model is chosen for Claude, so its context window is the account's "
+                                 "plan-dependent default")
     resolved = documented(ALIASES.get(model, model))
     return ModelLimits(model, resolved.context_window, resolved.max_output,
                        resolved.source + "; aliases: https://code.claude.com/docs/en/model-config")
@@ -126,8 +126,7 @@ class ClaudeRuntime:
         from ferb.runtimes.claude_login import claude_home
         own = claude_home(Path(self.ferb_home))       # L34 C: FERB's own Claude sign-in, once it finished
         if own is None:                               # never the owner's own ~/.claude login and billing
-            raise Unsupported("Claude isn't signed in for FERB: sign in to Claude in FERB's settings, or run "
-                              "`ferb setup --claude-login`")
+            raise Unsupported("Claude isn't signed in for FERB: sign in to Claude in Settings → AI")
         # CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0: Claude Code otherwise aborts a tool call that is silent for 30 minutes;
         # an owner question waits as long as the owner takes (§8.1). "0 disables" is Claude Code's own wording.
         env = {"ANTHROPIC_BASE_URL": self.proxy.base_url(run_id), "DISABLE_TELEMETRY": "1",
