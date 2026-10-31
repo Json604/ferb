@@ -1,5 +1,5 @@
-"""S4 without false alarms; one bulk question with a sample (L3, L4). Cases from the traced questions
-(.superpowers/sdd/2026-10-13-astra-review/traces.md §2): the URL check asked about plain words such as "search",
+"""S4 without false alarms; one bulk question with a sample (L3, L4). Cases from traced live questions
+(2026-10-13 review): the URL check asked about plain words such as "search",
 "playlist" and "history" that FERB's own context and the owner's signed-in pages hold, and every task counted as
 having read outside content because FERB's memory and history carry the labels of what they were made from. Bulk
 questions (S4(c)) asked about recipients and folders the owner named, and listed every path."""
