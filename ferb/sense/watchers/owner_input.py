@@ -1,13 +1,9 @@
 """Observe recent owner input through a listen-only tap. Must not suppress or replay input.
 
 Marked FERB events do not count as owner activity; field capture receives their FERB mark.
-Recent activity is a fact for yielding, never a saved focus target.
-
-It is also FERB's one idle/active signal (orchestration decision 17, "when you're back at your Mac"): the owner is away
-after `idle_after_s` ([sense] idle_after_s) with no input of theirs, and back at the first input after that (waking the
-Mac and unlocking it are such input). `away()` says which; `present_since` is when the current active stretch began;
-`on_return` is told of each return (on the tap's thread). Without the tap (no Input Monitoring, sensing paused) FERB
-can't tell, and `away()` is False: unknown counts as present."""
+Recent activity is a fact for yielding, never a saved focus target. Input quiet time is not "away from the Mac"
+(orchestration decision 17, clarified 2026-10-31): that is the Mac's presence signal (ferb/sense/watchers/presence.py:
+wake, unlock, login)."""
 
 import threading
 import time
@@ -29,16 +25,13 @@ def _input_monitoring_granted() -> bool:
 class OwnerInput:
     def __init__(self, quiet_s: float = 1.5, now: Callable[[], float] = time.monotonic,
                  allowed: Callable[[], bool] = _input_monitoring_granted,
-                 wall: Callable[[], float] = time.time, idle_after_s: float = 120.0) -> None:
+                 wall: Callable[[], float] = time.time) -> None:
         """`allowed`: whether Input Monitoring is granted. Creating the tap without it makes macOS ask "would like to
         receive keystrokes" (live 2026-10-26: on setup's first screen), so it waits for the grant. `wall`: the wall
         clock as a POSIX time (the daemon's clock)."""
         self.quiet_s, self.now, self.allowed, self.wall = quiet_s, now, allowed, wall
-        self.idle_after_s = idle_after_s
         self.last_owner: float | None = None
         self.last_owner_wall: float | None = None       # wall-clock time of the same event (time header, idle)
-        self.present_since: float | None = None         # wall-clock start of the current active stretch
-        self.on_return: Callable[[], None] | None = None   # each return after being away (called on the tap's thread)
         self.running = False
         self._tap: Any = None
         self._loop: Any = None
@@ -46,23 +39,8 @@ class OwnerInput:
         self.on_text: Callable[[Any, bool], None] | None = None
 
     def owner_event(self) -> None:
-        wall = self.wall()
-        back = self.last_owner_wall is None or wall - self.last_owner_wall >= self.idle_after_s
         self.last_owner = self.now()
-        self.last_owner_wall = wall
-        if back:
-            self.present_since = wall
-            if self.on_return is not None:
-                try:
-                    self.on_return()
-                except Exception:
-                    pass                           # telling FERB must never disturb input delivery
-
-    def away(self) -> bool:
-        """The owner is away from the Mac: the tap runs and saw no input of theirs for `idle_after_s` (or none yet).
-        Without the tap FERB can't tell: False (unknown counts as present)."""
-        last = self.last_owner_wall
-        return self.running and (last is None or self.wall() - last >= self.idle_after_s)
+        self.last_owner_wall = self.wall()
 
     def active(self) -> bool:
         """The owner touched input within the quiet period: GUI work must wait."""

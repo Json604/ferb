@@ -12,7 +12,9 @@ keystrokes are collected. Public Space notifications report transitions, not IDs
 Sound is part of background-first too (hands decision 5): a browser tab that isn't FERB's starting or stopping sound, or
 being muted or unmuted (the extension's `sound` event, protocol 19), while one of FERB's acting calls is in flight or
 ended within SOUND_NEAR_S, is recorded for that call's task as a `tab_sound` change (the browser's own facts, the tab's
-id and the task holding it if any; never its page). With no FERB call near it is the owner's own and nothing is kept.
+id and the task holding it if any; never its page). With no FERB call near it is the owner's own and nothing is kept;
+nor when the owner used the keyboard or mouse within OWNER_NEAR_S of it, or muted or unmuted the tab themselves (the
+browser's `mutedInfo.reason` "user", left out by the daemon): only changes FERB could have caused (hands decision 11).
 While the owner has paused sensing (`ferb pause`), nothing about the desktop is recorded; a read already under way
 when the pause begins is dropped. Space switches may still be counted in memory meanwhile; the baseline taken after
 `ferb resume` discards them.
@@ -34,6 +36,9 @@ NO_ON_SCREEN_KEPT = 10   # the newest plain statements an agent's context carrie
 # hands decision 5: how long after one of FERB's acting calls a sound change in another tab counts as near it (a pause
 # takes effect at once; the browser's audible flag drops about 2 s after the sound stops)
 SOUND_NEAR_S = 5.0
+# hands decision 11 (owner 2026-10-31): a sound change within this long of the owner's own keyboard or mouse input (the
+# input tap's last unmarked event) is theirs, never recorded: the browser's audible flag trails a pause by about 2 s
+OWNER_NEAR_S = 3.0
 # What FERB could change on the owner's screen, and all that is compared (daemon decision 5): never the cursor
 FERB_KEYS = ("frontmost_app", "key_window", "fullscreen", "active_space_epoch")
 PAUSED = "sensing paused by the owner (Pause FERB): nothing about the desktop is read or recorded until Resume"
@@ -141,6 +146,25 @@ def screen_changes(before: dict[str, Any] | None, after: dict[str, Any] | None) 
             if k not in unread and before.get(k) != after.get(k)}
 
 
+def told(changed: dict[str, Any]) -> dict[str, Any]:
+    """What changed on the owner's screen during one call (`after_action`'s facts), briefly, for the worker's own tool
+    result (hands decision 9, owner 2026-10-31): an app that came to the front by itself after a background call is let
+    be, never put back and never asked about; the worker is told, so it can take a route that opens no window. Facts
+    only: who did it stays the reader's conclusion."""
+    def name(app: Any) -> Any:
+        return (app.get("name") or app.get("bundle_id")) if isinstance(app, dict) else app
+    out: dict[str, Any] = {}
+    if front := changed.get("frontmost_app"):
+        out["front_app"] = {"before": name(front.get("before")), "after": name(front.get("after"))}
+    elif "key_window" in changed:
+        out["focused_window_changed"] = True
+    if "fullscreen" in changed:
+        out["fullscreen"] = changed["fullscreen"].get("after")
+    if "active_space_epoch" in changed:
+        out["space_changed"] = True
+    return out | {"put_back": False} if out else {}
+
+
 class DisturbanceSentinel:
     """One sampler shared by all active tasks: a baseline when a task starts, then samples right around each call that
     can change the screen (`before_action` / `after_action` with on_screen), nothing else."""
@@ -228,8 +252,9 @@ class DisturbanceSentinel:
     def sound_changed(self, tab: dict[str, Any], change: dict[str, Any]) -> None:
         """A tab that isn't FERB's changed its sound (`change`: {audible|muted: {before, after}}): recorded as a
         `tab_sound` change for each active task with an acting call in flight or just ended (temporal correlation,
-        never who did it); nothing when no FERB call is near or sensing is paused."""
-        if not self.active or not change or self.paused():
+        never who did it); nothing when no FERB call is near, the owner's own input was (hands decision 11), or sensing
+        is paused."""
+        if not self.active or not change or self.paused() or self._owner_input_near():
             return
         now = time.monotonic()
         near = list(self._acting.values()) + [c for at, c in self._ended if now - at <= SOUND_NEAR_S]
@@ -247,6 +272,17 @@ class DisturbanceSentinel:
             self.record(tree, "disturbance.change", {"changes": changes, "actions": calls,
                                                      "permission_assessment": "not_inferred",
                                                      "attribution": "temporal_correlation_only"})
+
+    def _owner_input_near(self) -> bool:
+        """The owner's own keyboard or mouse input is under way or ended within OWNER_NEAR_S (the input tap's timing,
+        on the daemon's clock); False when the tap isn't running or can't say."""
+        try:
+            o = self.owner_input()
+            last = o.get("last_event_wall")
+            return bool(o.get("recent")) or (last is not None and
+                                             self.now().timestamp() - float(last) <= OWNER_NEAR_S)
+        except Exception:
+            return False
 
     def facts(self, task_id: str) -> list[dict[str, Any]]:
         """What FERB's calls in this task changed on the screen so far (for the merged checker, step 8)."""

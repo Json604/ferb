@@ -92,13 +92,14 @@ class Notify:
                 self.perception.banner_failed(banner)
 
     def owner_idle(self) -> bool:
-        """Away from the Mac longer than [sense] idle_after_s: the one idle/active signal (`OwnerInput.away`, the
-        owner-input tap); unknown counts as present."""
-        return self.owner_input.away()
+        """The Mac is out of use (asleep, its displays asleep, locked or switched away: `MacPresence.away`, decision 17
+        clarified 2026-10-31), when the notch can't show (decision 21) and a banner would go unseen; never input
+        idleness (a film watched without touching anything is being at the Mac). Unknown counts as present."""
+        return self.presence.away()
 
     async def _notify(self, title: str, text: str, urgent: bool = False, *, category: str = "",
                       target: dict[str, str] | None = None, when_hidden: bool = False, ident: str = "") -> None:
-        """Time awareness in code (13): while the owner is idle, non-urgent banners wait until they're back. A category
+        """Time awareness in code (13): while the Mac is out of use, non-urgent banners wait until it's back. A category
         the owner switched off in Settings posts nothing (L34 D); chat, logs and the journal still have it."""
         if not banners.enabled(self.config.get, category):
             return

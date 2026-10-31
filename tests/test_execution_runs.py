@@ -339,11 +339,13 @@ def _pause_through_chat(daemon: RunningDaemon, script: Any, tree: str, words: st
     _until(daemon, lambda: _row(daemon, tree) == "paused")
 
 
-def _owner_input(daemon: RunningDaemon, after_s: float = 0) -> None:
-    """The owner touches the Mac `after_s` seconds from now (back at it when they were away), on the daemon's loop."""
+def _owner_back(daemon: RunningDaemon, after_s: float = 0) -> None:
+    """The Mac comes back into use `after_s` seconds from now (locked, then unlocked; decision 17)."""
+    from tests.support.schedules import mac_away, mac_back
     if after_s:
         daemon.call_soon(daemon.daemon.clock.advance, after_s)
-    run(daemon, daemon.daemon.owner_input.owner_event)
+    mac_away(daemon)
+    mac_back(daemon)
 
 
 def _mentions(daemon: RunningDaemon) -> list[Any]:
@@ -361,20 +363,18 @@ def test_a_paused_task_is_mentioned_once_a_day_when_the_owner_is_back_and_resume
     tree = _tree(daemon)
     _until(daemon, lambda: _row(daemon, tree + ".worker") == "running")
     _pause_through_chat(daemon, script, tree)
-    oi = daemon.daemon.owner_input
-    oi.running, oi.last_owner_wall = True, None
     try:
-        _owner_input(daemon)                                 # back the same day it was paused: nothing yet
+        _owner_back(daemon)                                 # back the same day it was paused: nothing yet
         time.sleep(0.3)
         assert _mentions(daemon) == []
-        _owner_input(daemon, 24 * 3600)                      # the next day, back at the Mac
+        _owner_back(daemon, 24 * 3600)                      # the next day, back at the Mac
         _until(daemon, lambda: len(_mentions(daemon)) == 1)
         [first] = _mentions(daemon)
         assert first.task_id.split(".", 1)[0] == tree and set(first.options) == {"Resume", "Stop"}
-        _owner_input(daemon, 600)                            # back again later that day: once a day
+        _owner_back(daemon, 600)                            # back again later that day: once a day
         time.sleep(0.3)
         assert [ap.id for ap in _mentions(daemon)] == [first.id]
-        _owner_input(daemon, 24 * 3600)                      # the day after, still unanswered: replaced
+        _owner_back(daemon, 24 * 3600)                      # the day after, still unanswered: replaced
         _until(daemon, lambda: [ap.id for ap in _mentions(daemon)] not in ([], [first.id]))
         assert len(_mentions(daemon)) == 1 and _row(daemon, tree) == "paused"
         assert run(daemon, lambda: daemon.daemon.state.approvals.get(first.id)).state == "superseded"
@@ -384,7 +384,7 @@ def test_a_paused_task_is_mentioned_once_a_day_when_the_owner_is_back_and_resume
         marks = run(daemon, lambda: daemon.daemon.journal.of_kind("task.pause_mentioned", "task_id", tree))
         assert len(marks) == 2
     finally:
-        oi.running = False
+        daemon.daemon.presence.stop()
 
 
 def test_pause_stops_the_tasks_listening_and_running_commands_and_keeps_the_rest(daemon: RunningDaemon,

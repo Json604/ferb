@@ -73,7 +73,8 @@ class Sensing:
                         ScriptedTabsWatcher(self._automation_granted, self._any_extension_connected)]
             watchers += self.perception.native_watchers()
         self.sense = Sense(self.home, self.trail, watchers, self.owner_input if self.watch_owner_input else None,
-                           on_pause=self._on_pause, on_fail=self._watcher_failed)
+                           on_pause=self._on_pause, on_fail=self._watcher_failed,
+                           presence=self.presence if self.watch_owner_input else None)
         await self.sense.start()
         if self.sense.paused:
             self._journal().append("sense.still_paused", {})
@@ -93,11 +94,14 @@ class Sensing:
     def _tab_sound(self, br: Any, e: Any) -> None:
         """Hands decision 5: a tab that isn't FERB's started or stopped sound, or was muted or unmuted (the browser's
         own facts): a disturbance fact when one of FERB's calls was near (`DisturbanceSentinel.sound_changed`). FERB's
-        own tabs (opened by it, or in its window) are left out. Nothing about the page is kept."""
+        own tabs (opened by it, or in its window) are left out, and so is a mute the owner changed themselves (the
+        browser's `mutedInfo.reason` "user", protocol 21: hands decision 11). Nothing about the page is kept."""
         if e.ferb:
             return
+        owners_mute = getattr(e, "muted_reason", None) == "user"
         change = {k: {"before": not bool(getattr(e, k)), "after": bool(getattr(e, k))}
-                  for k in ("audible", "muted") if k in e.changed and getattr(e, k) is not None}
+                  for k in ("audible", "muted") if k in e.changed and getattr(e, k) is not None
+                  and not (k == "muted" and owners_mute)}
         tab = {"browser": br.name, "tab_id": e.tab_id} | ({"task": task} if (task := self._tab_task(br, e.tab_id))
                                                           else {})
         self.disturbance.sound_changed(tab, change)

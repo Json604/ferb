@@ -152,6 +152,7 @@ class Browsers:
         self.downloads = downloads.Downloads(self.home / "workspace" / downloads.FOLDER, self.db, self.clock.now,
                                              self.config.get, lambda text: str(self.redact({"u": text})["u"]),
                                              self._publish)
+        self.downloads.on_over_cap = self._downloads_cap     # hands decision 8: over the cap, the owner is asked
         for name, step in (("sweep", self.downloads.sweep), ("finalize_stale", self.downloads.finalize_stale)):
             try:                                         # what a restart cut off, each step on its own
                 step()

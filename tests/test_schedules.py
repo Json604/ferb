@@ -187,25 +187,34 @@ def test_ages_are_fresh_and_situation_precedes_owner_message(daemon: RunningDaem
     assert "h ago" not in ctx.split("[now ")[0]                                    # nothing relative stored earlier
 
 
-def test_non_urgent_notifications_wait_while_the_owner_is_away(daemon: RunningDaemon) -> None:
+def test_non_urgent_notifications_wait_while_the_mac_is_out_of_use(daemon: RunningDaemon) -> None:
+    """Decision 21: a banner is for when the notch can't show; while the displays sleep it waits for them to wake.
+    The owner not touching input (a film) holds nothing."""
     from ferb.daemon.banners import Banner
+    from tests.support.schedules import mac_away, mac_back, watching
     notes: list[tuple[str, str]] = []
 
     async def note(title: str, text: str) -> None:
         notes.append((title, text))
     d = daemon.daemon
     d.notify = note
+    watching(daemon)
     d.owner_input.running = True
-    d.owner_input.last_owner_wall = d.clock.now().timestamp() - 3600               # away for an hour
+    d.owner_input.last_owner_wall = d.clock.now().timestamp() - 3600               # no input for an hour
+    daemon.run(d._notify("FERB note", "a film is on"))
+    assert notes == [("FERB note", "a film is on")] and d._held == []
+    notes.clear()
+    mac_away(daemon, "displays_asleep")
     daemon.run(d._notify("FERB finished", "done"))
     daemon.run(d._notify("FERB reminder", "call Mom", urgent=True))
     assert notes == [("FERB reminder", "call Mom")] and d._held == [Banner("FERB finished", "done")]
-    d.owner_input.last_owner_wall = d.clock.now().timestamp()                      # back
+    mac_back(daemon, "displays_asleep")                                            # the screens wake
     for _ in range(150):
         if len(notes) == 2:
             break
         time.sleep(0.1)
     d.owner_input.running = False
+    d.presence.stop()
     assert notes[-1] == ("FERB finished", "done")
 
 

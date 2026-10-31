@@ -104,7 +104,13 @@ found):
   downloads skip every limit. A link past the cap is simply not opened (no `open_plain`).
 - A page's saves dropped past the hold caps are all reported: the first at once, then those that follow within the
   minute in one event, each `download` event with detail "dropped" carrying `count`.
-An older extension would hand a capped popup to the browser and report drops once a minute at most."""
+An older extension would hand a capped popup to the browser and report drops once a minute at most.
+
+Protocol 21 (step 12e, extension 0.19.0, the minimum; hands decision 11, owner 2026-10-31):
+- A `sound` tab event carries `muted_reason`: who last changed the tab's mute, as the browser reports it
+  (`mutedInfo.reason`: "user", "capture" or "extension"; null when it was never changed). The owner's own mute or
+  unmute ("user") is never recorded as a disturbance fact.
+An older extension sends no reason, so the owner's own mute could be counted against FERB."""
 
 import base64
 import hashlib
@@ -114,8 +120,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 20
-MIN_EXTENSION_VERSION = "0.18.0"
+PROTOCOL_VERSION = 21
+MIN_EXTENSION_VERSION = "0.19.0"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
@@ -189,6 +195,7 @@ class TabEvent(BaseModel):
     muted: bool | None = None
     ferb: bool | None = None                   # sound: a tab FERB opened, or in FERB's own window
     changed: list[Literal["audible", "muted"]] = []
+    muted_reason: str | None = None            # sound (protocol 21): mutedInfo.reason, who last changed the mute
 
 
 class Event(BaseModel):

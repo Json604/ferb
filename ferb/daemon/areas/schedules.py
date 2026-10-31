@@ -24,21 +24,45 @@ class Schedules:
 
     def _build_timers(self) -> None:
         """Start the timer loop and the held-banner flush (the timers and schedules were built with the stores), after
-        every active schedule has its next run booked (`_reconcile_schedules`). Decision 17: timers held for the owner
-        follow the one idle/active signal (the owner-input tap); their return wakes the timers and brings the day's
-        paused-task mentions (decision 13)."""
+        every active schedule has its next run booked (`_reconcile_schedules`). Decision 17 (clarified 2026-10-31):
+        timers held for the owner follow the Mac's presence signal (wake, unlock, login: `MacPresence`, never input
+        idleness); its return wakes the timers and brings the day's paused-task mentions (decision 13)."""
         from datetime import datetime as _dt
-        idle = self.owner_input
-        idle.idle_after_s = float(self.config.get("sense", "idle_after_s", 120))
-        self.timers.owner_away = idle.away
-        # when the current active stretch began; None when FERB can't tell (no tap): unknown counts as present
-        self.timers.present_since = lambda: (None if not idle.running else _dt.fromtimestamp(
-            idle.present_since if idle.present_since is not None and not idle.away() else 0).astimezone())
+        mac = self.presence
+        self.timers.owner_away = mac.away
+        # when the current stretch of use began; None when FERB can't tell (not watching): unknown counts as present
+        self.timers.present_since = lambda: (None if not mac.running else _dt.fromtimestamp(
+            mac.present_since if mac.present_since is not None and not mac.away() else 0).astimezone())
         loop = asyncio.get_running_loop()
-        idle.on_return = lambda: loop.call_soon_threadsafe(self._owner_back)
+        mac.on_return = lambda signal: loop.call_soon_threadsafe(self._owner_back, signal)
         self._reconcile_schedules()
         self._timer_task = asyncio.get_running_loop().create_task(self.timers.run())
         self._held_task = asyncio.get_running_loop().create_task(self._supervise("held_banners", self._flush_held))
+
+    @staticmethod
+    def _login_session() -> str | None:
+        """A digest of this login session's unique id (CoreGraphics; a restart or a new login gives a new one), kept
+        in `daemon.started`; None when it can't be read."""
+        import hashlib
+        from ferb.sense.watchers.presence import session
+        ident = session().get("id")
+        return hashlib.sha256(str(ident).encode()).hexdigest()[:16] if ident else None
+
+    def _mac_started(self, new_session: bool) -> None:
+        """Decision 17: the daemon starting in a new login session (after a restart or a login) is the Mac coming back
+        into use, a return, unless the Mac is out of use right now (its unlock is the return then). A start in the same
+        session (an update, a crash) is no return: the current stretch began at the last return recorded."""
+        mac = self.presence
+        if not mac.running:
+            return
+        if new_session:
+            if not mac.away():
+                mac.returned("login")
+            return
+        row = self.db.conn.execute("SELECT at FROM journal WHERE kind = 'mac.back_in_use' ORDER BY seq DESC "
+                                   "LIMIT 1").fetchone() if self.db is not None else None
+        if row is not None and mac.present_since is None:
+            mac.present_since = datetime.fromisoformat(row[0]).timestamp()
 
     def _reconcile_schedules(self) -> None:
         """At start-up, every active schedule has a pending timer for its next run. A crash between marking a schedule's
@@ -73,9 +97,12 @@ class Schedules:
         return self.timers.add("schedule", due, message or s.id, when_active=s.rule.when_active,
                                return_after=return_after)
 
-    def _owner_back(self) -> None:
-        """The owner is back at the Mac after being away (decision 17): what was held for them fires now, and paused
-        tasks get their mention of the day (decision 13)."""
+    def _owner_back(self, signal: str = "") -> None:
+        """The Mac came back into use (decision 17: woken, unlocked, logged in or restarted; `signal` says which):
+        what was held for the owner fires now, and paused tasks get their mention of the day (decision 13)."""
+        if self._shutting_down:
+            return
+        self._journal().append("mac.back_in_use", {"signal": signal})
         if self.timers is not None:
             self.timers.wake()
         if self.supervisor is not None and not self._shutting_down:

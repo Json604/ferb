@@ -64,8 +64,36 @@ from installed apps, terminal detection fails closed)*
    - **Shell downloads count against the same per-task budget and the free-disk floor** (one shared path): curl, brew,
      pip, git clone, huggingface-cli, docker pull. When a shell command would push free space under the floor, or take
      the task over its byte budget, it is stopped and the worker is told plainly why. It is a fact, not a judgment.
-   - Unchanged from 2026-10-09: FERB's downloads folder keeps to 20 GB (its oldest files to the Trash past it), 50 tabs
-     per task, no time-based clearing, a browser download never opens a Save dialog.
+   - Unchanged from 2026-10-09: FERB's downloads folder keeps to 20 GB (its oldest files to the Trash past it, until
+     decision 8 below), 50 tabs per task, no time-based clearing, a browser download never opens a Save dialog.
+
+8. **The downloads folder's cap asks; Yes deletes for good** (owner, 2026-10-31; replaces the move to the Trash, which
+   freed no space): when `~/.ferb/workspace/downloads` goes over its 20 GB cap, FERB tells the owner and asks, showing
+   how much would go and how many files (oldest first, enough to get back under the cap). On Yes it deletes those
+   files permanently; on No, or with no answer, it does nothing and doesn't ask again until the folder grows past the
+   cap by a further meaningful amount (threshold: a technical ruling; simple, no nagging). The question goes through
+   the existing owner-question path, follows orchestration decision 21 for how it appears, and isn't tied to a task;
+   it is the permanent-deletion confirmation of rule 5. Only files inside that folder are deleted, never through a
+   link; each deletion is journaled with counts and bytes only, never file names.
+
+9. **An app that comes forward by itself is let be** (owner, 2026-10-31; live: the Slack uninstall's background
+   "File > Find" press made Finder come to the front): when an app brings itself to the front in answer to FERB's
+   background action, FERB doesn't put the owner's app back and doesn't ask. The worker is told, as a fact, and the
+   trace shows it, so the worker can avoid that route. FERB makes it rare by preferring routes that open no window
+   (Spotlight `mdfind` instead of Finder's Find window, reading AX attributes instead of opening windows, AppleScript
+   that only reads, a quiet reopen); lessons reach the how-notes and playbooks (memory step 9b) so the same app and
+   route isn't repeated. Code never scans AppleScript for "activate" (rule 4): the after-call fact covers it.
+
+10. **"When you're back at your Mac" is the Mac coming back into use** (owner, 2026-10-31; orchestration decision 17
+    clarified): lid opened / wake from sleep, screen unlocked, login, or restart (the daemon starting after boot).
+    Input idleness doesn't count: watching a film without touching anything is still being at the Mac. Kept: at most
+    once per the schedule's own rule, and away for days gives one run. The paused-task mention (orchestration decision
+    13) uses the same signal; held banners follow decision 21 (a banner only when the notch can't show).
+
+11. **A sound-change fact never blames FERB for the owner's own action** (owner, 2026-10-31; refines decision 5): a
+    change is not recorded when Chrome says the owner muted or unmuted the tab (`mutedInfo.reason == "user"`) or when
+    the owner's own keyboard or mouse input was under way at that moment (the input tap's timing). Only changes FERB
+    could have caused are recorded: a structural fact, not a judgment.
 
 ## What exists today (verified)
 
@@ -355,6 +383,104 @@ from installed apps, terminal detection fails closed)*
   the Trash is emptied. Left as it is: permanent deletion is the owner's call.
 - Extension protocol 20, extension and minimum 0.18.0 (one bump): download parts, `popup_refused`, drop counts.
 
+## Rulings (step 12e part 2, technical: Mac background/focus, decisions 8-11)
+- **Foreground right after the owner's Yes (live 2026-10-31, clean-up task: Terminal never came forward and every
+  foreground action after the Yes was refused).** `mac.act` and `mac.click` refused a foreground route whenever one of
+  FERB's own apps was in front (`_own_front`), before activating the target: right after a Yes in the notch FERB *is*
+  in front. That pre-activation refusal is gone (and `_own_front` with it). What keeps input out of FERB's own app is
+  unchanged: `_real` waits for the owner to be quiet, activates the target, and posts each event only while the target
+  is the front app (`PointerInterrupted` otherwise); `_own_point` refuses a real click/scroll wherever a FERB window
+  would take it, before bringing anything forward and again right before each event; every Mac tool still refuses to
+  target FERB's apps (`app()`).
+- **One foreground question per app, not per spelling** (live: asked about "Terminal", then "pid:9040").
+  `confirm.foreground_need` keys its Need by `confirm.app_key`: the running app's bundle id (casefolded) when the name,
+  `pid:N` or bundle id names exactly one running app (`apps.find`, the drivers' own lookup), else the argument without
+  case or invisible marks. The question still shows the app as the worker wrote it. A Yes therefore covers every
+  spelling and every retry in the task (rule 5).
+- **Self-activation reaches the worker (decision 9).** The disturbance sampler already recorded what changed during an
+  on-screen call (span output `screen`, the checker's `how_facts` `screen_changes_during_ferb_calls`); the worker
+  never saw it. Its tool result now carries `screen_changed_during_call` (`disturbance.told`: `front_app` {before,
+  after} by name, else `focused_window_changed`; `fullscreen`; `space_changed`; `put_back: false`), on success and on
+  failure. Nothing is restored or asked. Which calls are sampled is unchanged (capabilities with `on_screen`: Mac
+  input, menu, open, AppleScript, shell commands, the browser tools that can raise a window); `mac.applescript` is
+  sampled, so a script whose app activates itself is told the same way, with no scan of the script (rule 4).
+- **Background launch without hiding (fix 4).** `apps.launch` uses `open -g -b` (was `open -g -j -b`). Reasoned, not
+  measured on the owner's Mac (no app was launched): `-j` launches hidden, and a hidden app's windows are ordered out,
+  so ScreenCaptureKit's window capture and pointer events posted to the window can't reach them (Accessibility reads
+  either way); `-g` alone doesn't activate the app. Not added: `NSRunningApplication.unhide()` for an app the owner
+  hid (it changes the owner's arrangement; its activation behaviour is unmeasured).
+- **Windowless running app (fix 4).** `mac.open reopen=true` sends the core `reopen` Apple Event (kAEReopenApplication,
+  what a Dock click sends) to the running app's pid without `kAECanSwitchLayer`, never interacting, no reply awaited
+  (`apps.reopen`), only when the app shows no window; then waits for one as before. Its "no window" result names this
+  and the app's New Window menu item (mac_menu, an AX press). An app that comes forward anyway is decision 9's fact.
+- **Open a file or address in an app, in the background (fix 5).** `mac.open` takes `path` (absolute or `~/…`) or
+  `url` (http/https only: other schemes start programs or send mail; argument validity) and opens it with
+  `NSWorkspace.openURLs(_:withApplicationAt:configuration:)`, `activates = false` (`apps.open_in`, waits up to 15 s
+  for macOS's confirmation). Through the gateway like any call: the file is the capability's `file_paths` (read), so
+  the protection lists ask or refuse as for the file tools; a `url` is described as an `OPEN_TAB` to its site, so the
+  address checks (no-site refusal, S4's private-data sink, known destinations) apply as for `browser.open`. The
+  terminal rule (D31): when the app is a terminal (a script opened in Terminal runs) or opens files with their default
+  apps (Finder, System Events) and that default is a terminal app (a `.command`), `terminal_input` returns the file
+  with its exact contents, the gateway asks, and right before opening the driver re-hashes it (`open_refusal`): a
+  changed file isn't covered. A `path` Launch Services counts an application (`NSURLIsApplicationKey`: an .app, an
+  applet) is refused (a where-boundary): opening it would start a program the shell wrote outside the shell's sandbox;
+  installed apps open by `bundle_id`. The shell's `lsopen` denial (sandbox.py) is untouched: `mac.open` runs in the
+  daemon, not in a sandboxed command, and mac.applescript's profile still denies launches and document opens.
+- **Window-free routes in the tool description (fix 6).** One sentence in `mac.open`'s description: finding and
+  reading need no window (mdfind through the shell, mac_snapshot's Accessibility reads). Recorded in notes/prompts.md.
+- **`_bring_forward` and the notch click (fix 7).** The input tap counts every unmarked event as the owner's,
+  including a click in the notch. But `_real` first waits for the owner to be quiet (`RealInput.quiet`, 1.5 s since
+  their last input) and only then activates; `_bring_forward` gives up only on input after that, so the Yes click
+  itself can't make it give up; a mouse move right after it can. Left as it is (moving the mouse is real owner
+  activity that a foreground click would fight); measured in step 13.
+- **Presence signal (decision 10, `ferb/sense/watchers/presence.py`).** `MacPresence` replaces the input tap's
+  idle/active as the "back at your Mac" signal: out of use while the Mac is asleep, its displays are asleep, its screen
+  is locked or its login session is switched away (NSWorkspace will-sleep/did-wake, screens-did-sleep/wake,
+  session resign/become active; distributed `com.apple.screenIsLocked`/`screenIsUnlocked`; one thread of FERB's with
+  its own run loop, measured: the old workspace watcher received 106 `NSWorkspaceDidWakeNotification`s on that kind of
+  thread, 10-11 → 10-31). Every 5 s the same thread also reads the session's lock and console state
+  (`CGSessionCopyCurrentDictionary`) and the main display's sleep (`CGDisplayIsAsleep`), so a missed notification
+  costs seconds. Back = the moment none of those holds after one did; journaled `mac.back_in_use` {signal}. A daemon
+  start in a new login session (the session's unique id, kept as a digest in `daemon.started`) is a return ("login":
+  restart or login), unless the Mac is locked then (its unlock is the return); a start in the same session (an update,
+  a crash) isn't, and the current stretch begins at the last `mac.back_in_use`. Started and stopped with sensing (Pause
+  FERB: unknown, counted as present, as before). Timers, `Schedules._book`, "at most once per its rule", "away for days
+  = one run" and the paused-task mention are unchanged; only the signal moved. `OwnerInput` keeps only input timing
+  (yielding, the trail's idle/active records); `[sense] idle_after_s` now only drives those records.
+- **Held banners (decision 21).** `_notify` holds a non-urgent banner while the Mac is out of use (displays asleep,
+  locked, asleep, switched away), not after input quiet time, and delivers it when the Mac is back. A film watched
+  without input gets its banners at once.
+- **Sound facts (decision 11).** The extension's `sound` event carries `muted_reason` (Chrome's `mutedInfo.reason`;
+  protocol 21, extension and minimum 0.19.0, one bump). The daemon drops the `muted` part of a change whose reason is
+  "user". The sampler records nothing when the owner's input is under way or ended within OWNER_NEAR_S = 3 s
+  (Chrome's audible flag trails a pause by about 2 s), from the tap's last unmarked event on the daemon's clock;
+  without the tap, input can't be told and only the reason applies.
+- **Downloads cap (decision 8).** `Downloads.over_cap` (the oldest files whose deletion brings the folder back under
+  `browser.download_total_gb`, by recorded size) after each taken file and in the hourly retention pass; nothing moves
+  to the Trash any more. The question is one of FERB's own task-less questions (the memory forget's path:
+  `_ask_owner`, kind `downloads:over_cap`, capability `downloads.delete`, Yes/No only, kept in `memory_questions` so a
+  restart asks it again), shown as decision 21 says (the notch opens; a banner when it can't). **Re-ask threshold
+  (ruling):** after a No, or while the question waits, it is asked again only once the folder is a further 10% of the
+  cap (2 GB of 20 GB) past the size it was asked at; the newer question replaces the waiting one. After a Yes the next
+  pass over the cap asks afresh. Yes deletes exactly the files the question counted that are still there, through the
+  open folder (`O_NOFOLLOW`), regular files only, never a link (a link or a missing file is recorded "gone"); rows stay
+  with `kept` deleted. Journal: `downloads.cap_asked` {files, bytes, total_bytes, cap_bytes}, `downloads.deleted`
+  {files, bytes}, `downloads.cap_declined`: no names.
+
+## Step 13 must measure (step 12e part 2)
+- Whether `open -g` (no `-j`) puts a launched app's first window behind the owner's front window, on the current
+  Space, without a front-app or focus change (TextEdit, Notes, Reminders, Calendar).
+- Whether a window screenshot and pointer input work for an app launched with `-g`, and (for comparison, on a
+  disposable app) whether they failed for a hidden (`-j`) launch; whether `unhide()` activates.
+- The `reopen` Apple Event without `kAECanSwitchLayer`: which apps open a window without coming forward (TextEdit,
+  Notes, Finder); whether macOS asks for Automation permission for it.
+- `NSWorkspace` open with `activates = false`: a file in TextEdit and an address in Safari stay behind the owner's app.
+- Presence: lid close/open, screen lock/unlock, display sleep/wake, fast user switch, restart each journal one
+  `mac.back_in_use` with the right signal; whether distributed lock notifications reach FERB's thread or only the
+  5-second read catches them.
+- `_bring_forward`: a foreground click right after a Yes in the notch, with the owner's hand still on the mouse.
+- Sound: the owner pausing their own music by click or space bar while a FERB call runs records nothing.
+
 ## Measurements (step 0, 2026-10-30)
 - **Sandbox semantics, measured with `sandbox-exec` on scratch folders:**
   - `deny file-write-unlink` blocks unlink, rmdir, renaming a file out of or within the folder, and renaming onto an
@@ -481,7 +607,19 @@ from installed apps, terminal detection fails closed)*
 - [x] Dropped page saves are all reported, with a count. (12e)
 - [x] One unit for download limits: decimal GB; MB keys upgraded once, journaled. (12e)
 - [x] The worker moves a download to where the owner wants it instead of copying it. (12e)
-- [ ] Known limitation, owner's call: the 20 GB folder cap moves files to the Trash, which frees no space until it is
-      emptied.
+- [x] Known limitation, owner's call: the 20 GB folder cap moves files to the Trash, which frees no space until it is
+      emptied. (Decision 8, step 12e part 2: the owner is asked; Yes deletes the oldest for good.)
+- [x] Foreground right after the owner's Yes in the notch goes through; one foreground question per app however it is
+      spelled. (12e part 2; tests/test_own_apps.py, tests/test_foreground_asks.py.)
+- [x] An app that comes forward by itself during a call is told to the worker, never put back (decision 9).
+      (12e part 2: `screen_changed_during_call`; tests/test_mac_focus.py.)
+- [x] Background launch without `-j`; `mac.open` reopen for a windowless app; `mac.open` path/url opened without
+      activation through the gateway's file, address and terminal checks. (12e part 2; tests/test_mac_focus.py.)
+- [x] "Back at your Mac" from wake / unlock / login / restart, not input idleness; held banners while the Mac is out
+      of use (decision 10). (12e part 2: `MacPresence`; tests/test_when_active.py, test_schedules.py,
+      test_execution_runs.py.)
+- [x] Sound facts skip the owner's own mute and input-coincident changes (decision 11; protocol 21 / 0.19.0).
+      (12e part 2; tests/test_mac_focus.py.)
+- [ ] Step 13 measurements above (Step 13 must measure (step 12e part 2)).
 - [x] One protection check shared by shell and file tools, with the lift rule of gateway decision 2 and decision 1 here.
       (5a: `Protection.fs_rules`; `fs_reads_never_read` gone.)

@@ -79,6 +79,7 @@ from ferb.sense.exclusions import Exclusions
 from ferb.sense.manager import Sense
 from ferb.sense.trail import Attribution, Trail
 from ferb.sense.watchers.owner_input import OwnerInput
+from ferb.sense.watchers.presence import MacPresence
 from ferb.store.db import Database
 from ferb.store.spans import SpanStore
 from ferb.store.task_results import TaskResults
@@ -177,6 +178,8 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         # The owner's Mac + shell
         self.watch_owner_input = watch_owner_input
         self.owner_input = OwnerInput(wall=lambda: self.clock.now().timestamp())   # the daemon's clock
+        # whether the Mac is in use (decision 17, clarified 2026-10-31): wake, unlock, login; never input idleness
+        self.presence = MacPresence(wall=lambda: self.clock.now().timestamp())
         from ferb.daemon.disturbance import DesktopProbe, DisturbanceSentinel
         self.disturbance = DisturbanceSentinel(DesktopProbe(), self._record_disturbance,
             owner_input=lambda: {"monitored": self.owner_input.running,
@@ -392,7 +395,10 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         self._register_rpc()
         await self._prepare_codex()
         await self.server.start()          # refuses to start if another daemon answers on the socket
-        self.journal.append("daemon.started", {"pid": os.getpid()})
+        session = self._login_session()
+        previous = self.journal.recent_values("daemon.started", "session", 1)
+        self.journal.append("daemon.started", {"pid": os.getpid()} | ({"session": session} if session else {}))
+        self._mac_started(session is not None and previous != [session])
         # L28: an unknown window is said, never guessed. The catalog shipped with the pinned binary was dumped before
         # serving (`_prepare_codex`), so a fresh install knows each model's window before Codex has ever fetched
         # a catalog for FERB's login.

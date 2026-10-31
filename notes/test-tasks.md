@@ -44,9 +44,9 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       `retention.failed`; the first hourly pass journals `retention.purged` and `trail.purged`. [storage.md]
 - [ ] Daemon start journals no `runtime.codex_problem`; a run starts without a `codex --version` process. [runtimes.md]
 - [ ] Jev stays off after the upgrade even with a key present. [daemon.md decision 9]
-- [ ] Reload the browser extension once in each paired profile (protocol 20, extension 0.18.0: tab groups, card fields,
-      signing, muted FERB tabs and sound events, 512 KiB download parts, capped popups closed, dropped saves counted);
-      `ferb doctor` / `ferb browsers` show the version and "connected". [hands.md 5c, 14b, 12e]
+- [ ] Reload the browser extension once in each paired profile (protocol 21, extension 0.19.0: tab groups, card fields,
+      signing, muted FERB tabs and sound events with who muted, 512 KiB download parts, capped popups closed, dropped
+      saves counted); `ferb doctor` / `ferb browsers` show the version and "connected". [hands.md 5c, 14b, 12e]
 - [ ] Config upgrade: the journal has one `config.upgraded` for `download-limits-2026-10-31`; config.toml has no
       `download_max_mb` / `*_mb` download keys, and has `download_task_max_files = 300`, `download_task_max_gb = 32`,
       `download_total_gb = 20`, `download_min_free_gb = 10`. [hands.md 12e]
@@ -181,6 +181,35 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       and a window.open button: past 3 open FERB tabs nothing new opens (no plain tab, nothing in ~/Downloads), the
       result says so; closing one lets the next open. A page that saves 30 blobs at once: the facts add up to 10 dropped.
       Reset the setting after. [hands.md 12e]
+- [ ] Downloads folder cap (hands decision 8): with `browser.download_total_gb` set to 0.5 for the test, a task that
+      downloads three disposable 200 MB files from kartikey.xyz: after the third, one question (the notch opens, no
+      task row) naming how many of the oldest files and how much would be deleted; No leaves every file; a further
+      small download asks nothing; one more past +10% of the cap asks once again; Yes deletes exactly those files (not
+      in the Trash) and the journal has `downloads.deleted` with counts and bytes only. Reset the setting after.
+      [hands.md 12e part 2]
+- [ ] Mac background (hands decisions 9-11, 12e part 2). Each passes with no front-app, Space or keyboard-focus change
+      in the trace's screen facts (`ferb trace TASK --full`: the calls' `screen`, the checker's
+      `screen_changes_during_ferb_calls`) unless one foreground question is listed; in every run, compare the trace's
+      screen facts with what the worker was told (`screen_changed_during_call` in its results). Surfaces: disposable
+      files in ~/Desktop/ferb-test, an owner-controlled calendar, WhatsApp "message yourself" with the test-mode send
+      allowlist.
+  - [ ] 1. "Save a TextEdit document with 'hello' to ~/Desktop/ferb-test/hello.txt", TextEdit not running.
+  - [ ] 2. The same with TextEdit running but windowless (`reopen` or New Window, never brought forward).
+  - [ ] 3. "Make a Notes note titled 'FERB test'".
+  - [ ] 4. "Find the files in ~/Desktop/ferb-test" (mdfind / reads, not Finder's Find window).
+  - [ ] 5. "Remind me tomorrow at 9 to check the ferb-test folder" (a Reminder).
+  - [ ] 6. A Calendar event on an owner-controlled calendar.
+  - [ ] 7. "How much storage is free? (System Settings → Storage)", read-only.
+  - [ ] 8. "Open hello.txt in TextEdit" (`mac.open path`, not activated).
+  - [ ] 9. A forced foreground Bold click in TextEdit: exactly one question; it succeeds the first time after the Yes;
+        no second question when the worker spells the app as `pid:N`.
+  - [ ] 10. WhatsApp "message yourself" with the test-mode allowlist.
+  - [ ] 11. "Run `echo hi` in Terminal": exactly one question showing the command.
+- [ ] Mac presence (hands decision 10): a "when I'm back at my Mac remind me to stretch" reminder fires after a screen
+      lock + unlock and after closing and opening the lid, not after 5 minutes without touching the keyboard while a
+      video plays; `mac.back_in_use` in the journal names the signal; a held banner arrives when the display wakes.
+- [ ] Sound (hands decision 11): with the owner's music tab playing and a FERB task running, the owner muting the tab
+      and pausing it with the space bar record no sound fact in the trace.
 - [ ] Bot check: a page behind "Verify you are human": the worker reads `browser_verification` (`abilities.read`) and
       tries the visible check; if it still blocks, one notification and the exact tab comes forward; after the owner
       passes it FERB carries on. [hands.md decision 6]

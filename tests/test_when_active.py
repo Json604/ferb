@@ -1,28 +1,17 @@
-"""Orchestration decision 17 ("when you're back at your Mac"): a reminder or schedule the planner marks when_active fires
-when the owner is at the Mac (the owner-input tap's idle/active signal), not while they're away, and never polls; a
-scheduled run that found nothing to tell posts nothing. The real daemon with the scripted model; the owner's presence
-is set on the daemon's owner-input object (no event tap runs in tests)."""
+"""Orchestration decision 17 ("when you're back at your Mac", clarified by the owner 2026-10-31): a reminder or schedule
+the planner marks when_active fires while the Mac is in use and, held while it's out of use (asleep, displays asleep,
+locked, switched away), when it comes back (wake, unlock, login, restart); never on input idleness, and never polls; a
+scheduled run that found nothing to tell posts nothing. The real daemon with the scripted model; the Mac's presence is
+told to the daemon's presence object (no macOS notifications in tests)."""
 import json
 from datetime import timedelta
 from typing import Any
 
 from ferb.policy.targets import Targets
 from tests.conftest import RunningDaemon, chat, install, report, sup, task
-from tests.support.schedules import fire, make_schedule, results, run
+from tests.support.schedules import fire, mac_away, mac_back, make_schedule, results, run, watching
 
 NO_TIME = {"in_minutes": None, "in_days": None, "day": None, "date": None, "time": None}
-
-
-def _away(d: RunningDaemon) -> None:
-    """The tap runs and the owner's last input was an hour ago."""
-    oi = d.daemon.owner_input
-    oi.running = True
-    oi.last_owner_wall = d.daemon.clock.now().timestamp() - 3600
-
-
-def _input(d: RunningDaemon) -> None:
-    """One input of the owner's now (a return when they were away), on the daemon's loop."""
-    run(d, d.daemon.owner_input.owner_event)
 
 
 def _schedule(words: str, repeat: str = "daily") -> str:
@@ -42,7 +31,7 @@ def test_a_when_active_schedule_fires_when_the_owner_is_back_and_not_while_they_
     install(daemon, [_schedule(words), sup("reply", "Reminder: you want to apply to YC."),
                      sup("reply", "Reminder: you want to apply to YC.")])
     try:
-        _away(daemon)
+        mac_away(daemon)                                     # the Mac is locked
         chat(daemon, words)
         s = run(daemon, daemon.daemon.schedules.all)[0]
         assert s.rule.when_active and s.rule.repeat == "daily" and s.next_run > daemon.daemon.clock.now()
@@ -50,7 +39,7 @@ def test_a_when_active_schedule_fires_when_the_owner_is_back_and_not_while_they_
         due_in = (s.next_run - daemon.daemon.clock.now()).total_seconds()
         fire(daemon, due_in + 3600)                         # due an hour ago, the owner still away: held
         assert _runs(daemon) == 0 and results(daemon) == []
-        _input(daemon)                                       # back at the Mac
+        mac_back(daemon)                                     # unlocked: back at the Mac
         fire(daemon, 1)
         assert _runs(daemon) == 1
         assert [r["answer"] for r in results(daemon)] == ["Reminder: you want to apply to YC."]
@@ -59,13 +48,66 @@ def test_a_when_active_schedule_fires_when_the_owner_is_back_and_not_while_they_
         nxt = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
         assert nxt.next_run > daemon.daemon.clock.now() and run(daemon, lambda: daemon.daemon.timers.when_active(
             nxt.timer_id))                                   # the next day's run waits for them too
-        # the next day, the owner is at the Mac when it comes due: it fires then, no return needed
+        # the next day, the Mac is in use when it comes due: it fires then, no return needed
         daemon.call_soon(daemon.daemon.clock.advance, (nxt.next_run - daemon.daemon.clock.now()).total_seconds() + 5)
-        daemon.daemon.owner_input.last_owner_wall = daemon.daemon.clock.now().timestamp() - 10
         fire(daemon, 0)
         assert _runs(daemon) == 2
     finally:
-        daemon.daemon.owner_input.running = False
+        daemon.daemon.presence.stop()
+
+
+def test_input_idleness_is_not_away_and_waking_the_mac_is_a_return(daemon: RunningDaemon) -> None:
+    """The owner watching a film touches nothing for an hour: still at the Mac, so the run goes at its time. Asleep
+    displays hold the next one until the screens wake."""
+    words = "remind me every day whenever I'm on my mac that I want to apply to YC"
+    install(daemon, [_schedule(words), sup("reply", "Reminder: you want to apply to YC."),
+                     sup("reply", "Reminder: you want to apply to YC.")])
+    oi = daemon.daemon.owner_input
+    try:
+        watching(daemon)
+        oi.running, oi.last_owner_wall = True, daemon.daemon.clock.now().timestamp() - 3600   # no input for an hour
+        chat(daemon, words)
+        s = run(daemon, daemon.daemon.schedules.all)[0]
+        fire(daemon, (s.next_run - daemon.daemon.clock.now()).total_seconds() + 1)
+        assert _runs(daemon) == 1                            # input quiet time doesn't hold it
+        nxt = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
+        mac_away(daemon, "displays_asleep")
+        fire(daemon, (nxt.next_run - daemon.daemon.clock.now()).total_seconds() + 3600)
+        assert _runs(daemon) == 1                            # the screens are asleep: held
+        mac_back(daemon, "displays_asleep")                  # the screens wake
+        fire(daemon, 1)
+        assert _runs(daemon) == 2
+        backs = run(daemon, lambda: daemon.daemon.journal.of_kind("mac.back_in_use"))
+        assert [b.data["signal"] for b in backs] == ["screens_wake"]
+    finally:
+        oi.running = False
+        daemon.daemon.presence.stop()
+
+
+def test_the_daemon_starting_in_a_new_login_session_is_a_return(daemon: RunningDaemon) -> None:
+    """A restart or a login brings the daemon up in a new login session: what waited for the owner's return fires;
+    the same session again (an update, a crash) is no return."""
+    words = "when I'm back at my mac remind me to call Mom"
+    install(daemon, [json.dumps({"kind": "reply", "text": "Okay.", "task": None, "schedule": None,
+                                 "schedule_changes": [], "timers": [{"when": NO_TIME, "message": "Call Mom",
+                                                                     "quote": words, "when_active": True}]})])
+    fired: list[dict[str, Any]] = []
+    daemon.daemon.events.on({"timer.fired"}, lambda topic, data: fired.append(data))
+    try:
+        p = watching(daemon)
+        p.returned("unlock")                                 # the owner is at the Mac, asking now
+        run(daemon, lambda: None)
+        chat(daemon, words)
+        daemon.call_soon(daemon.daemon.clock.advance, 600)
+        run(daemon, lambda: daemon.daemon._mac_started(False))   # a daemon restart in the same session
+        fire(daemon, 1)
+        assert fired == []
+        run(daemon, lambda: daemon.daemon._mac_started(True))    # after a restart of the Mac: a new login session
+        run(daemon, lambda: None)
+        fire(daemon, 1)
+        assert [f["message"] for f in fired] == ["Call Mom"]
+    finally:
+        daemon.daemon.presence.stop()
 
 
 def test_a_reminder_for_when_the_owner_is_back_waits_for_their_next_return(daemon: RunningDaemon) -> None:
@@ -76,21 +118,22 @@ def test_a_reminder_for_when_the_owner_is_back_waits_for_their_next_return(daemo
     fired: list[dict[str, Any]] = []
     daemon.daemon.events.on({"timer.fired"}, lambda topic, data: fired.append(data))
     try:
-        _away(daemon)
-        _input(daemon)                                       # the owner is at the Mac, asking now
+        mac_away(daemon)
+        mac_back(daemon)                                     # the owner is at the Mac, asking now
         chat(daemon, words)
         fire(daemon, 30)
         assert fired == []                                   # said while here: it waits for a return
-        daemon.call_soon(daemon.daemon.clock.advance, 600)   # away ten minutes, then back
-        _input(daemon)
+        daemon.call_soon(daemon.daemon.clock.advance, 600)   # locked ten minutes, then back
+        mac_away(daemon)
+        mac_back(daemon)
         fire(daemon, 1)
         assert [f["message"] for f in fired] == ["Call Mom"]
     finally:
-        daemon.daemon.owner_input.running = False
+        daemon.daemon.presence.stop()
 
 
-def test_without_the_tap_a_when_active_schedule_runs_at_its_time(daemon: RunningDaemon) -> None:
-    """FERB can't tell where the owner is (no Input Monitoring, or sensing paused): unknown counts as present."""
+def test_without_the_presence_signal_a_when_active_schedule_runs_at_its_time(daemon: RunningDaemon) -> None:
+    """FERB can't tell whether the Mac is in use (sensing paused): unknown counts as present."""
     words = "every day whenever I'm on my mac remind me to apply to YC"
     install(daemon, [_schedule(words), sup("reply", "Reminder: you want to apply to YC.")])
     chat(daemon, words)

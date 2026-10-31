@@ -1,8 +1,9 @@
 """Start and stop enabled observation watchers. Must not execute agent tasks from raw observations.
 
-Starts and stops every watcher. `ferb pause` stops all of them — the owner-input tap included — and
-the trail records nothing until `ferb resume`; the pause survives a restart (a marker file). While paused, FERB can't
-tell when the owner is using the mouse or keyboard, so real input is refused (Accessibility actions still work)."""
+Starts and stops every watcher. `ferb pause` stops all of them (the owner-input tap and the Mac's presence watcher
+included) and the trail records nothing until `ferb resume`; the pause survives a restart (a marker file). While paused,
+FERB can't tell when the owner is using the mouse or keyboard, so real input is refused (Accessibility actions still
+work)."""
 
 import asyncio
 from pathlib import Path
@@ -15,9 +16,10 @@ from ferb.sense.watchers.base import Watcher
 class Sense:
     def __init__(self, home: Path, trail: Trail, watchers: list[Watcher], owner_input: Any = None,
                  on_pause: Callable[[bool], None] = lambda paused: None,
-                 on_fail: Callable[[str, str], None] = lambda source, error: None) -> None:
+                 on_fail: Callable[[str, str], None] = lambda source, error: None, presence: Any = None) -> None:
         self.marker = home / "PAUSED"
         self.trail, self.watchers, self.owner_input, self.on_pause = trail, watchers, owner_input, on_pause
+        self.presence = presence                                  # whether the Mac is in use (decision 17)
         self.on_fail = on_fail
         self.failed: dict[str, str] = {}                          # source -> why it last failed (doctor shows it)
         self.retry_s = 60.0                                      # a failed watcher tries again after this, doubling
@@ -41,6 +43,8 @@ class Sense:
             return
         if self.owner_input is not None:
             self.owner_input.start()
+        if self.presence is not None:
+            self.presence.start()
         self._stop = asyncio.Event()
         self._tasks = [asyncio.get_running_loop().create_task(self._guard(w)) for w in self.watchers]
 
@@ -81,6 +85,8 @@ class Sense:
         self._tasks, self._stop = [], None
         if self.owner_input is not None:
             self.owner_input.stop()
+        if self.presence is not None:
+            self.presence.stop()
 
     async def pause(self) -> None:
         self.marker.touch(mode=0o600)

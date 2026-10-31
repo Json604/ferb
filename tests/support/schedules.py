@@ -81,3 +81,23 @@ def own_daemon(home: Path, ids: str = "id") -> RunningDaemon:
     if d.daemon.supervisor is not None:
         d.daemon.supervisor.availability = d.daemon.supervisor._default_availability
     return d
+
+
+def watching(d: RunningDaemon) -> Any:
+    """The daemon's Mac-presence signal running without macOS (nothing read, no notifications): the test says when the
+    Mac goes out of use and comes back (decision 17, clarified 2026-10-31)."""
+    p = d.daemon.presence
+    p.read_session, p.read_displays = dict, lambda: None
+    p.start(native=False)
+    return p
+
+
+def mac_away(d: RunningDaemon, flag: str = "locked") -> None:
+    """The Mac goes out of use (`flag`: locked, displays_asleep, asleep or switched_away)."""
+    watching(d).changed(flag, True)
+
+
+def mac_back(d: RunningDaemon, flag: str = "locked") -> None:
+    """It comes back (an unlock, a wake, …): the return reaches the daemon's loop."""
+    d.daemon.presence.changed(flag, False)
+    run(d, lambda: None)                                     # the loop has run the return it was handed

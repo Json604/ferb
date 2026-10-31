@@ -274,6 +274,15 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       nothing its request asks to tell and did nothing (the schema field says the same). browser_media's description:
       a tab FERB opened is muted until unmute, audio_listen or a recording with_audio lets it be heard for the rest of
       the task (replacing "The owner may briefly hear what plays."). Live re-test in step 13 (notes/test-tasks.md).
+- [x] Tool-description lines for code step 12e part 2 needs (notes/hands.md decisions 9 and 8), minimal, no prompt
+      section: `mac.open`'s description now says it opens an app, a file (`path`) or a web address (`url`) in the
+      background, that `reopen=true` asks a windowless running app for a window the way a Dock click does without
+      bringing it forward, and one line "Finding and reading need no window: search files with mdfind through the
+      shell and read apps with mac_snapshot, rather than opening a window to look." (replacing "Does not choose a menu
+      item to reopen a window." and "Reading an app that isn't running? Open it first."). `browser.downloads`: past the
+      folder's cap FERB asks the owner whether to delete the oldest (replacing "the oldest copies move to the Trash").
+      Tool results (not descriptions) carry `screen_changed_during_call` and, for a windowless app, the reopen / New
+      Window options.
 
 ## Expected size
 Planner static ≈53k → ≈15k chars; worker system ≈47k → ≈9k; plus ≈38k less per worker/checker run from the catalog

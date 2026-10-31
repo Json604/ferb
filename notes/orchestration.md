@@ -68,7 +68,8 @@ to commit c6621c3. S = supervisor.py, M = main.py.
     Clarified by the owner, 2026-10-31: "on my Mac" means the Mac coming back into use: lid opened / wake from
     sleep, screen unlocked, login or restart. Not input idleness: watching a film without touching anything is
     still being at the Mac, and no keyboard/mouse quiet time counts as away. (Step 14b used 2 min without input;
-    to be changed to these signals; the paused-task mention of decision 13 uses the same signal.)
+    changed in step 12e part 2 to these signals, notes/hands.md decision 10 and its rulings; the paused-task mention
+    of decision 13 uses the same signal.)
 18. **Restart rule kept, narrow** (decision 10 clarified, 2026-10-30): it applies only to messages sent before FERB's
     first reply to the previous one; FERB restarts once and reads both (related → folded in, unrelated → both answered);
     later messages wait their turn. Once FERB has replied, a running task is unaffected and new messages are normal
@@ -309,6 +310,11 @@ to commit c6621c3. S = supervisor.py, M = main.py.
   hidden input names none. Limit: mac.secret reports no field kind, so a Mac app payment has no name.
 
 ## Rulings (step 14b, technical: decisions 17 and 13)
+- **Superseded in step 12e part 2** (decision 17 clarified 2026-10-31): the signal below is now the Mac's presence
+  (`MacPresence`: wake, screens wake, unlock, session active, a daemon start in a new login session; notes/hands.md
+  Rulings (step 12e part 2)), not input idleness; held banners wait while the Mac is out of use. Everything else in
+  these rulings (held timers, `_book`, frequency, the paused-task mention) stands, with "away"/"return" read as
+  out of use / back in use.
 - One idle/active signal: the owner-input tap (`OwnerInput`). The owner is away after `[sense] idle_after_s` (120 s,
   existing) with no input of theirs (FERB's marked events don't count); back at the first input after that, which is
   also how waking or unlocking the Mac shows (no separate wake signal: the NSWorkspace wake watcher is perception's,
@@ -358,7 +364,9 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - [x] Decision 17, "when you're back at your Mac": reminders and schedules fire when the owner is active at the Mac, a
       run that did nothing posts nothing, the planner expresses it. (Step 14b: `OwnerInput.away/present_since/on_return`,
       `Timers` held timers, migration 0058, `when.when_present`, `Rule.when_active`, planner `when_active` on schedule
-      and timers, `nothing_to_tell` for scheduled runs; see Rulings (step 14b); tests/test_when_active.py.)
+      and timers, `nothing_to_tell` for scheduled runs; see Rulings (step 14b); tests/test_when_active.py.
+      Step 12e part 2: the signal is the Mac coming back into use (wake / unlock / login / restart), not input
+      idleness: `MacPresence`, notes/hands.md decision 10.)
 - [x] Decision 13 rest: pause stops terminal commands and listening, keeps tabs and progress, pauses a scheduled run's
       schedule; FERB mentions a paused task once a day. (Step 14b: daemon `_task_paused`/`_task_resumed`,
       `Supervisor.mention_paused`; tests/test_execution_runs.py decision-13 section.)

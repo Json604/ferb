@@ -296,9 +296,9 @@ def test_protocol_and_extension_versions_move_together() -> None:
     manifest = json.loads((EXT / "manifest.json").read_text())
     js = subprocess.run([_node(), "-e", f"console.log(require({json.dumps(str(EXT / 'protocol.js'))}).FERB_PROTOCOL)"],
                         capture_output=True, text=True, timeout=20).stdout.strip()
-    # Protocol 20 (step 12e: 512 KiB download parts, popup_refused, every dropped save reported) moves with the minimum
-    # and the shipped bundle at 0.18.0; protocol 18's tabGroups permission stays
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (20, 20, "0.18.0", "0.18.0")
+    # Protocol 21 (step 12e: the sound event's muted_reason; protocol 20's 512 KiB download parts, popup_refused, every
+    # dropped save reported) moves with the minimum and the shipped bundle at 0.19.0; protocol 18's tabGroups stays
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (21, 21, "0.19.0", "0.19.0")
     assert "tabGroups" in manifest["permissions"]
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 
@@ -537,7 +537,7 @@ def test_a_dismissed_browser_download_is_reported_as_canceled(bd: Any) -> None:
     assert row["state"] == "not_taken" and "dismissed" in row["reason"]
 
 
-# ---------- retention: working copies go to the Trash ----------
+# ---------- retention: working copies stay; over the cap the owner is asked (hands decision 8) ----------
 
 def _fake_trash(monkeypatch: Any, home: Path) -> Path:
     """A Trash beside the test's FERB home (tests.support.trash): retention moves through open folders, like fs.trash."""
@@ -548,7 +548,7 @@ def _fake_trash(monkeypatch: Any, home: Path) -> Path:
 
 
 def test_downloads_stay_until_the_owner_deletes_them_however_old(bd: Any, monkeypatch: Any) -> None:
-    """Owner, 2026-10-09: no time-based clearing; only the folder's total moves the oldest to the Trash."""
+    """Owner, 2026-10-09: no time-based clearing (and, hands decision 8, nothing goes without the owner's Yes)."""
     d, launched = bd
     trash = _fake_trash(monkeypatch, d.daemon.home)
     ext, g, tab, chrome_id = _task_tab(d, launched)
@@ -561,21 +561,96 @@ def test_downloads_stay_until_the_owner_deletes_them_however_old(bd: Any, monkey
     assert row["path"] == rec["path"] and row["trashed_to"] is None
 
 
-def test_the_folder_keeps_to_its_total_budget_oldest_first(bd: Any, monkeypatch: Any) -> None:
+def _cap_question(d: RunningDaemon) -> list[Any]:
+    async def go() -> list[Any]:
+        return [a for a in d.daemon.state.approvals.pending() if a.capability == "downloads.delete"]
+    return d.run(go())
+
+
+def _answer_cap(d: RunningDaemon, choice: str) -> str:
+    """The owner taps Yes or No on the downloads cap question (the notch's buttons, chat.answer's path)."""
+    async def go() -> str:
+        [ap] = [a for a in d.daemon.state.approvals.pending() if a.capability == "downloads.delete"]
+        d.daemon.state.approvals.resolve(ap.id, True, ap.options.index(choice) + 1)
+        return str(d.daemon._question_answered(ap))
+    return d.run(go())
+
+
+def _cap_journal(d: RunningDaemon) -> list[Any]:
+    async def go() -> list[Any]:
+        return d.daemon.journal.entries_of("downloads.cap_asked", "downloads.deleted", "downloads.cap_declined")
+    return d.run(go())
+
+
+def test_over_the_cap_the_owner_is_asked_and_yes_deletes_the_oldest_for_good(bd: Any, monkeypatch: Any) -> None:
+    """Hands decision 8 (owner 2026-10-31): past browser.download_total_gb nothing moves by itself; the owner is asked,
+    with how many files and how much, and their Yes deletes those oldest files permanently (never to the Trash)."""
     d, launched = bd
     trash = _fake_trash(monkeypatch, d.daemon.home)
+    d.daemon.config.set("browser", "download_total_gb", 0.001)                    # 1 MB
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    for i in range(3):
+        _deliver(d, ext, chrome_id, name=f"{i}.bin", data=os.urandom(400_000), source_url="https://x.example/f")
+        d.call_soon(d.daemon.clock.advance, 1)
+    assert sorted(p.split("-", 2)[-1] for p in _kept(d)) == ["0.bin", "1.bin", "2.bin"]   # nothing went by itself
+    [ap] = _cap_question(d)
+    assert ap.task_id == "" and ap.options == ("Yes", "No") and "1 oldest file (0.4 MB)" in ap.reason
+    assert "Deleted 1 file (0.4 MB)" in _answer_cap(d, "Yes")
+    assert sorted(p.split("-", 2)[-1] for p in _kept(d)) == ["1.bin", "2.bin"] and not list(trash.iterdir())
+    [gone] = [r for r in _records(d) if r["name"] == "0.bin"]
+    assert gone["path"] is None and gone["kept"] == "deleted"
+    fact = next(f for f in call(d, g, "browser.downloads")["content"]["downloads"] if f["download"] == gone["id"])
+    assert "path" not in fact and fact["kept"].startswith("deleted on the owner's Yes")
+    entries = _cap_journal(d)
+    assert [e.kind for e in entries] == ["downloads.cap_asked", "downloads.deleted"]
+    assert entries[1].data == {"files": 1, "bytes": 400_000}
+    assert all(".bin" not in json.dumps(e.data) for e in entries)                  # counts and bytes, never names
+    assert _cap_question(d) == []
+
+
+def test_a_no_deletes_nothing_and_the_question_waits_for_the_folder_to_grow_further(bd: Any) -> None:
+    """On No (or no answer) nothing is deleted and FERB doesn't ask again until the folder has grown past the size it
+    asked at by a further tenth of the cap (ruling, step 12e): no nagging after each download or retention pass."""
+    d, launched = bd
+    d.daemon.config.set("browser", "download_total_gb", 0.001)                    # 1 MB: asks again from +100 KB
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    for i in range(3):
+        _deliver(d, ext, chrome_id, name=f"{i}.bin", data=os.urandom(400_000), source_url="https://x.example/f")
+    assert len(_cap_question(d)) == 1
+    assert "nothing was deleted" in _answer_cap(d, "No")
+    assert len(_kept(d)) == 3 and _cap_question(d) == []
+    _deliver(d, ext, chrome_id, name="small.bin", data=os.urandom(50_000), source_url="https://x.example/s")
+    d.call_soon(d.daemon._purge_records)                                           # a retention pass too
+    assert _cap_question(d) == [] and len(_kept(d)) == 4
+    _deliver(d, ext, chrome_id, name="more.bin", data=os.urandom(60_000), source_url="https://x.example/m")
+    [again] = _cap_question(d)                                                     # 1.31 MB: past 1.2 + 0.1
+    _deliver(d, ext, chrome_id, name="more2.bin", data=os.urandom(10_000), source_url="https://x.example/m2")
+    assert [a.id for a in _cap_question(d)] == [again.id]                         # waiting: not asked twice
+    assert [e.kind for e in _cap_journal(d)] == ["downloads.cap_asked", "downloads.cap_declined",
+                                                 "downloads.cap_asked"]
+
+
+def test_the_yes_deletes_only_files_in_the_folder_and_never_follows_a_link(bd: Any, tmp_path: Path) -> None:
+    """A recorded file swapped for a link (FERB's shell can write the workspace) is never followed: the link's target
+    outside the folder stays, and the record says the file was gone. A file the owner already removed is recorded
+    so."""
+    d, launched = bd
     d.daemon.config.set("browser", "download_total_gb", 0.001)
     ext, g, tab, chrome_id = _task_tab(d, launched)
-    names = []
-    for i in range(3):
-        names.append(_deliver(d, ext, chrome_id, name=f"{i}.bin", data=os.urandom(400_000),
-                              source_url="https://x.example/f")["name"])
-        d.call_soon(d.daemon.clock.advance, 1)
-    assert sorted(p.split("-", 2)[-1] for p in _kept(d)) == ["1.bin", "2.bin"]       # 0.bin, the oldest, went
-    [gone] = [r for r in _records(d) if r["trashed_to"]]
-    assert gone["path"] is None and gone["state"] == "taken" and Path(gone["trashed_to"]).parent == trash
-    fact = next(f for f in call(d, g, "browser.downloads")["content"]["downloads"] if f["download"] == gone["id"])
-    assert "path" not in fact and fact["kept"].startswith("moved to the Trash")
+    a = _deliver(d, ext, chrome_id, name="a.bin", data=os.urandom(400_000), source_url="https://x.example/a")
+    b = _deliver(d, ext, chrome_id, name="b.bin", data=os.urandom(400_000), source_url="https://x.example/b")
+    outside = tmp_path / "keep.txt"
+    outside.write_text("the owner's own file")
+    Path(a["path"]).unlink()
+    Path(b["path"]).unlink()
+    Path(b["path"]).symlink_to(outside)
+    _deliver(d, ext, chrome_id, name="c.bin", data=os.urandom(800_000), source_url="https://x.example/c")
+    [ap] = _cap_question(d)
+    assert "2 oldest files" in ap.reason                                           # a and b, as recorded
+    _answer_cap(d, "Yes")
+    assert outside.read_text() == "the owner's own file"
+    rows = {r["name"]: r for r in _records(d)}
+    assert rows["a.bin"]["kept"] == "gone" and rows["b.bin"]["kept"] == "gone" and Path(rows["c.bin"]["path"]).exists()
 
 
 def test_partial_files_a_restart_cut_off_are_swept(bd: Any) -> None:
@@ -741,30 +816,6 @@ def test_pagination_cursors_stay_readable_while_credentials_are_redacted() -> No
     assert "continuationToken=T" in out and "SECRET" not in out and "SIG" not in out
 
 
-def test_retention_records_a_gone_file_and_never_evicts_a_newer_one_for_one_that_wont_move(bd: Any,
-                                                                                          monkeypatch: Any) -> None:
-    from ferb.act.fs import files
-    d, launched = bd
-    ext, g, tab, chrome_id = _task_tab(d, launched)
-    d.daemon.config.set("browser", "download_total_gb", 0.001)
-    a = _deliver(d, ext, chrome_id, name="a.bin", data=os.urandom(300_000), source_url="https://x.example/a")
-    d.call_soon(d.daemon.clock.advance, 1)
-    b = _deliver(d, ext, chrome_id, name="b.bin", data=os.urandom(300_000), source_url="https://x.example/b")
-    d.call_soon(d.daemon.clock.advance, 1)
-    Path(a["path"]).unlink()                                           # the owner removed it
-
-    def stuck(near: Path) -> Path:
-        raise files.TrashRefused("in use")
-    monkeypatch.setattr(files, "trash_folder", stuck)
-    c = _deliver(d, ext, chrome_id, name="c.bin", data=os.urandom(800_000), source_url="https://x.example/c")
-    rows = {r["name"]: r for r in _records(d)}
-    assert rows["a.bin"]["kept"] == "gone" and rows["a.bin"]["path"] is None
-    assert rows["b.bin"]["kept"].startswith("stuck") and Path(b["path"]).exists()   # left in place, recorded
-    assert Path(c["path"]).exists()                                    # never evicted in b's place
-    facts = {f["name"]: f for f in call(d, g, "browser.downloads")["content"]["downloads"]}
-    assert facts["a.bin"]["kept"] == "already gone when retention ran" and facts["b.bin"]["kept"].startswith("stuck")
-
-
 def test_the_downloads_description_says_files_stay_until_the_folder_passes_its_total(bd: Any) -> None:
     d, launched = bd
     d.daemon.config.set("browser", "download_total_gb", 7)
@@ -782,28 +833,6 @@ def test_a_stale_listeners_middle_or_cmd_click_opens_in_the_background(bd: Any) 
     ext.link_to_new_tab(301, f"{SITE}/later", background=True)
     ext.wait_for(lambda: 301 in ext.disarmed)
     assert ext.plain_opens == [{"tab_id": 301, "url": f"{SITE}/later", "active": False}]
-
-
-def test_a_stuck_old_file_stops_counting_so_newer_ones_stay(bd: Any, monkeypatch: Any) -> None:
-    from ferb.act.fs import files
-    d, launched = bd
-    ext, g, tab, chrome_id = _task_tab(d, launched)
-    old = _deliver(d, ext, chrome_id, name="old.bin", data=os.urandom(600_000), source_url="https://x.example/o")
-    d.call_soon(d.daemon.clock.advance, 31 * 86400)
-    d.daemon.config.set("browser", "download_total_gb", 0.001)
-
-    trash = _fake_trash(monkeypatch, d.daemon.home)
-    moved = files.move_excl
-
-    def only_old_stuck(src_dir: int, src: str, dst_dir: int, dst: str) -> None:   # the old file won't move
-        if src.endswith("old.bin"):
-            raise OSError(errno.EBUSY, os.strerror(errno.EBUSY))
-        moved(src_dir, src, dst_dir, dst)
-    monkeypatch.setattr(files, "move_excl", only_old_stuck)
-    new1 = _deliver(d, ext, chrome_id, name="new1.bin", data=os.urandom(300_000), source_url="https://x.example/1")
-    new2 = _deliver(d, ext, chrome_id, name="new2.bin", data=os.urandom(300_000), source_url="https://x.example/2")
-    assert all(Path(f["path"]).exists() for f in (old, new1, new2))   # old is stuck; the newer ones never pay for it
-    assert {r["name"]: r["kept"] for r in _records(d)}["old.bin"].startswith("stuck") and not list(trash.iterdir())
 
 
 def test_released_tasks_and_tab_counts_stay_bounded(bd: Any) -> None:
@@ -900,18 +929,15 @@ def test_a_row_outside_the_downloads_folder_is_left_as_it_is_recorded_once_and_n
                                                          path.name, size, "external:download",
                                                          (now - timedelta(days=age)).isoformat()))
     settings = {("browser", "download_total_gb"): 0.001}
-    trash = tmp_path / ".Trash"
-    trash.mkdir()
-    use_trash(monkeypatch, trash)
     dl = Downloads(root, db, lambda: now, lambda s, k, v: settings.get((s, k), v), lambda t: t, lambda *a: None)
-    assert dl.purge() == 0
+    assert dl.over_cap() is None
     changes = db.conn.total_changes
-    assert dl.purge() == 0 and db.conn.total_changes == changes      # recorded once, not on every pass
+    assert dl.over_cap() is None and db.conn.total_changes == changes      # recorded once, not on every pass
     rows = {r["id"]: dict(r) for r in db.conn.execute("SELECT id, path, kept FROM downloads")}
     assert rows["dl-aaaaaaaaaaaa"]["path"] == str(outside) and outside.read_bytes() == b"old"
     assert rows["dl-aaaaaaaaaaaa"]["kept"].startswith("skipped")
     assert rows["dl-bbbbbbbbbbbb"] == {"id": "dl-bbbbbbbbbbbb", "path": str(inside), "kept": None}
-    assert list(trash.iterdir()) == [] and inside.exists()       # the folder's 300 KB is under 1 MB: nothing goes
+    assert inside.exists()                                       # the folder's 300 KB is under 1 MB: nothing to ask
 
 
 def test_ferb_opens_a_new_tab_link_only_when_the_extension_still_waits_for_it(bd: Any) -> None:

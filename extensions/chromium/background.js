@@ -2099,7 +2099,8 @@ chrome.tabs.onUpdated.addListener((id, info, t) => { if (info.status === "comple
 chrome.tabs.onActivated.addListener(async ({ tabId }) => { try { tabEvent("activated", await chrome.tabs.get(tabId)); } catch (_) {} });
 chrome.tabs.onRemoved.addListener((tabId) => tabEvent("removed", { id: tabId }));
 // Protocol 19 (hands decision 5): a tab's sound started or stopped, or it was muted or unmuted: the browser's own facts,
-// with whether the tab is FERB's (as list_tabs says it). The daemon records a change in a tab that isn't FERB's as a
+// with whether the tab is FERB's (as list_tabs says it) and, protocol 21, who last changed its mute (`muted_reason`).
+// The daemon records a change in a tab that isn't FERB's as a
 // disturbance fact when a FERB call was near; nothing about the page is sent.
 async function soundEvent(tabId, info, tab) {
   const st = await install();
@@ -2108,6 +2109,7 @@ async function soundEvent(tabId, info, tab) {
   const changed = ["audible", "mutedInfo"].filter((k) => k in info).map((k) => (k === "mutedInfo" ? "muted" : k));
   await send("tab_event", { event: "sound", tab_id: tabId, audible: !!tab.audible,
                             muted: !!(tab.mutedInfo && tab.mutedInfo.muted), changed,
+                            muted_reason: (tab.mutedInfo && tab.mutedInfo.reason) || null,
                             ferb: !kept.has(tabId) && ((mine[tabId] && !mine[tabId].borrowed) ||
                                                       (s.windowId != null && tab.windowId === s.windowId)) });
 }

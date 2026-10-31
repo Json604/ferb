@@ -43,7 +43,7 @@ OPERATIONAL_KINDS = frozenset({
     "runtime.failed", "runtime.stale_runs_swept",
     "plan.step", "plan.repair", "plan.extended", "plan.tidied", "loop.round",
     "task.send_digest", "task.steering_delivered", "task.dispatch_failed", "tasks.interrupted_after_restart",
-    "timer.failed", "attention.failed", "episode.failed",
+    "timer.failed", "attention.failed", "episode.failed", "mac.back_in_use",
     "memory.episode_failed", "memory.episode_deferred", "memory.episode_refs_damaged", "memory.episode_refs_expired",
     "memory.distill_failed", "memory.consolidate_failed", "memory.cards_failed", "memory.playbooks_failed",
     "memory.profile_failed", "memory.mac_profile_failed", "memory.search_reindex_failed",

@@ -7,11 +7,12 @@ goes back to the browser untouched (the owner's own download, never cancelled or
 per file; 300 files and 32 GB per request), failed only when it stops moving (no bytes for STALL_S), never for how long
 it takes; hashes what it received; writes `~/.ferb/workspace/downloads/<id>-<safe name>` (never elsewhere) and records
 facts, never content. The file is FERB's working copy, outside content (MP2: `external:download`, the folder is always
-an untrusted fs root). It stays until the owner deletes it; only when the folder passes `browser.download_total_gb` do
-the oldest move to the Trash (owner, 2026-10-09: no time-based clearing; the Trash frees no space until it is emptied, a
-known limitation). A download that would leave less than `browser.download_min_free_gb` free on the disk is refused: by
-its declared size before any byte moves, and before each part is written while it streams. A download the extension
-couldn't intercept, or one it could not take, is a fact for the worker.
+an untrusted fs root). It stays until the owner deletes it; when the folder passes `browser.download_total_gb` the
+daemon asks the owner whether to delete the oldest for good (hands decision 8, owner 2026-10-31, replacing the move to
+the Trash, which freed no space); no time-based clearing. A download that would leave less than
+`browser.download_min_free_gb` free on the disk is refused: by its declared size before any byte moves, and before each
+part is written while it streams. A download the extension couldn't intercept, or one it could not take, is a fact for
+the worker.
 
 The task tree's byte budget is one counter shared with FERB's shell (one path): what a tree's shell commands received
 through the egress proxy (`shell_received`, kept in `shell_downloads` so a restart doesn't reset it) counts beside the
@@ -66,6 +67,15 @@ class TaskTab:
     task: str
     tab: str
     identity: str                       # owner | ferb
+
+
+class OverCap(NamedTuple):
+    """The downloads folder over its cap: the oldest files that would go (download ids, never names), their bytes, the
+    folder's total and the cap."""
+    ids: tuple[str, ...]
+    bytes: int
+    total: int
+    cap: int
 
 
 class Limits(NamedTuple):
@@ -149,6 +159,7 @@ class Downloads:
         #                                                     shell_downloads row; the row survives a restart)
         self.free_bytes: Callable[[], int] = self._disk_free   # tests replace it
         self.monotonic: Callable[[], float] = time.monotonic   # the stall clock (tests replace it)
+        self.on_over_cap: Callable[[], None] = lambda: None   # the daemon's cap check (hands decision 8)
 
     def limits(self) -> Limits:
         """The owner's limits; an old config's per-file key (`download_max_mb`) or MB keys are not read."""
@@ -343,7 +354,7 @@ class Downloads:
             except Exception:                           # no record: no file (never a file FERB can't account for)
                 os.unlink(final, dir_fd=folder)
                 raise
-            self._evict()                               # the folder's total budget, oldest first, to the Trash
+            self._evict()                               # the folder's cap: the owner is asked when it is over
         except _Refused as r:
             await _send(br, ev.download_id, abort=True)
             self._finish_quietly(br, ev, fid, "refused", size=r.size, reason=r.reason)
@@ -511,69 +522,80 @@ class Downloads:
             params.append(identity)
         return [_fact(dict(r)) for r in self.db.conn.execute(sql + " ORDER BY at, rowid", params)]
 
-    # ---------- the folder's total: the oldest working copies go to the Trash, never unlinked ----------
+    # ---------- the folder's total: over the cap, the owner is asked; their Yes deletes the oldest for good ----------
 
-    def purge(self) -> int:
-        """While the folder is over browser.download_total_gb, the oldest files move to the Trash (owner, 2026-10-09: no
-        time-based clearing; a file stays until the owner deletes it). Their rows stay, with the path cleared and where
-        the Trash put them. A file already gone is recorded so; one that won't move is skipped and recorded (the next
-        pass tries again) and stops counting toward the total, so it never makes a newer file go in its place. A row
-        whose file isn't in the downloads folder is left as it is (path and file), recorded once as skipped, and never
-        counted."""
-        lim = self.limits()
+    def _in_folder(self) -> list[dict[str, Any]]:
+        """The rows of files kept in the downloads folder, oldest first. A row whose file isn't in the folder is left
+        as it is (path and file), recorded once as skipped, and never counted."""
         rows = [dict(r) for r in self.db.conn.execute(
             "SELECT id, path, bytes, at, kept FROM downloads WHERE path IS NOT NULL ORDER BY at, rowid")]
         for r in [r for r in rows if Path(str(r["path"])).parent != self.root]:
             rows.remove(r)
             if r["kept"] != OUTSIDE:
                 self.db.conn.execute("UPDATE downloads SET kept = ? WHERE id = ?", (OUTSIDE, r["id"]))
-        total, moved = sum(int(r["bytes"] or 0) for r in rows), 0
+        return rows
+
+    def over_cap(self) -> OverCap | None:
+        """The folder over browser.download_total_gb (hands decision 8, owner 2026-10-31): the oldest files whose
+        permanent deletion brings it back under, with their count and bytes; None while it is within. Nothing is
+        changed: the owner decides (the daemon asks)."""
+        lim = self.limits()
+        rows = self._in_folder()
+        total = sum(int(r["bytes"] or 0) for r in rows)
+        if total <= lim.total_bytes:
+            return None
+        doomed, left = [], total
+        for r in rows:
+            if left <= lim.total_bytes:
+                break
+            doomed.append(r)
+            left -= int(r["bytes"] or 0)
+        return OverCap(tuple(str(r["id"]) for r in doomed), sum(int(r["bytes"] or 0) for r in doomed), total,
+                       lim.total_bytes)
+
+    def delete(self, ids: Iterable[str]) -> tuple[int, int]:
+        """The owner's Yes (hands decision 8): these downloads' files deleted for good, through the open downloads
+        folder and only there: a regular file in it, never a link (nothing outside the folder is ever reached). Each
+        row stays with its path cleared (`kept` deleted, or gone when the file had already gone). (files deleted,
+        their bytes)."""
+        wanted = list(dict.fromkeys(ids))
+        if not wanted:
+            return 0, 0
         try:
             folder = self._open_folder()
         except OSError:
-            return 0
+            return 0, 0
+        count = size = 0
         try:
-            for r in rows:
-                if total <= lim.total_bytes:
-                    break
-                result = self._trash(folder, r)
-                total -= int(r["bytes"] or 0)            # a stuck file stops counting: no newer file goes in its place
-                if result != "stuck":
-                    moved += 1
+            for r in self._in_folder():
+                if str(r["id"]) not in wanted:
+                    continue
+                name = Path(str(r["path"])).name
+                try:
+                    st = os.stat(name, dir_fd=folder, follow_symlinks=False)
+                except FileNotFoundError:
+                    st = None
+                if st is None or not stat.S_ISREG(st.st_mode):
+                    self.db.conn.execute("UPDATE downloads SET path = NULL, kept = 'gone' WHERE id = ?", (r["id"],))
+                    continue
+                try:
+                    os.unlink(name, dir_fd=folder)
+                except OSError as e:
+                    self.db.conn.execute("UPDATE downloads SET kept = ? WHERE id = ?",
+                                         (self.redact_text(f"stuck: couldn't delete it ({e})")[:300], r["id"]))
+                    continue
+                self.db.conn.execute("UPDATE downloads SET path = NULL, kept = 'deleted' WHERE id = ?", (r["id"],))
+                count, size = count + 1, size + st.st_size
         finally:
             os.close(folder)
-        return moved
+        return count, size
 
     def _evict(self) -> None:
+        """After a file is taken: the daemon checks the folder's cap (and asks the owner when it is over)."""
         try:
-            self.purge()
+            self.on_over_cap()
         except Exception:
-            pass                                        # the next retention pass tries again
-
-    def _trash(self, folder: int, row: dict[str, Any]) -> str:
-        """One working copy in the downloads folder to the Trash: "trashed", "gone" (looked: no such file in the
-        folder any more) or "stuck"."""
-        from ferb.act.fs import files                   # the same move as fs.trash (tests: tests.support.trash)
-        p = Path(str(row["path"]))
-        try:
-            st = os.stat(p.name, dir_fd=folder, follow_symlinks=False)
-        except FileNotFoundError:
-            st = None
-        if st is None or not stat.S_ISREG(st.st_mode):
-            self.db.conn.execute("UPDATE downloads SET path = NULL, kept = 'gone' WHERE id = ?", (row["id"],))
-            return "gone"
-        try:                                            # through the open downloads folder, never by path (rule 10)
-            moved = files.trash_item(folder, p.name)
-        except Exception as e:
-            moved = files.Trashed(None, error=f"{type(e).__name__}: {e}")
-        if moved.trashed_to is None:
-            self.db.conn.execute("UPDATE downloads SET kept = ? WHERE id = ?",
-                                 (self.redact_text(f"stuck: couldn't move it to the Trash ({moved.error})")[:300],
-                                  row["id"]))
-            return "stuck"
-        self.db.conn.execute("UPDATE downloads SET path = NULL, trashed_to = ?, kept = 'trash' WHERE id = ?",
-                             (moved.trashed_to, row["id"]))
-        return "trashed"
+            pass                                        # the next retention pass checks again
 
     def sweep(self) -> int:
         """At startup: partial files of transfers that never finished (FERB's own `.dl-*.part`) are removed."""
@@ -609,7 +631,9 @@ def _fact(row: dict[str, Any]) -> dict[str, Any]:
         out["bytes" if row["state"] == "taken" else "size"] = row["bytes"]
     kept = row.get("kept")
     if row["state"] == "taken" and not row.get("path"):
-        out["kept"] = "already gone when retention ran" if kept == "gone" else "moved to the Trash (retention)"
+        out["kept"] = ("already gone when retention ran" if kept == "gone" else
+                       "deleted on the owner's Yes (the downloads folder was over its cap)" if kept == "deleted" else
+                       "moved to the Trash (retention)")
     elif kept and str(kept).startswith(("stuck", "skipped")):
         out["kept"] = str(kept)
     return out

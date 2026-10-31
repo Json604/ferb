@@ -7,7 +7,10 @@
 // back when a tab becomes the owner's, and `sound` tab events.
 // Protocol 20 (extension 0.18.0, hands decision 7): download parts of 512 KiB sent whole, `popup_refused` (a popup past
 // the task's tab cap is closed while blank), and every dropped page save reported (`count`).
-const FERB_PROTOCOL = 20;
+// Protocol 21 (extension 0.19.0, hands decision 11): a `sound` tab event says who last changed the tab's mute
+// (`muted_reason`, the browser's mutedInfo.reason: user / capture / extension), so the owner's own mute is never a
+// disturbance fact.
+const FERB_PROTOCOL = 21;
 const FERB_HOST = "com.ferb.native_host";
 
 // Reads: commands that never change the page. One failing (a timeout, a frame gone, a page the browser won't let FERB

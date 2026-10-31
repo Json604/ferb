@@ -192,6 +192,12 @@ redact, image redaction, origins).
   (Step 14b, hands decision 5: the same sampler also records a sound change in a browser tab that isn't FERB's, told by
   the extension's `sound` event, when any acting call (not `observation`) was in flight or ended within 5 s: no extra
   sampling, `tab_sound` in the task's changes, `how_facts` for the checker. notes/hands.md Rulings (step 14b).)
+- **Foreground (step 12e part 2, notes/hands.md Rulings (step 12e part 2)):** the foreground Need's key is the running
+  app's bundle id however the worker spells the app (`confirm.app_key`: name, `pid:N`, bundle id), so one Yes covers
+  the app for the task across spellings and retries; the Mac driver no longer refuses a foreground route because
+  FERB's notch (where the owner just answered) is in front: it brings the target forward and posts only while the
+  target is in front. A call's screen change reaches the worker's result (`screen_changed_during_call`) and is never
+  restored (hands decision 9).
 - Left for later: legacy confirmation rows in the DB (inert: keyed by ended trees; step 12's cleanup); the remaining
   attributes set from outside (`standing`, `conversation_guard`, `observer`, `test_send_allowlist`).
 

@@ -125,7 +125,9 @@ def activate(bundle_id: str, pid: int | None = None) -> bool:
 
 
 def launch(bundle_id: str) -> bool:
-    """Open (or bring back) an installed app by bundle id, without taking focus when it's already running."""
+    """Open an installed app by bundle id in the background (`open -g`: not activated), leaving a running one as it
+    is. Not hidden (`-j` is gone, step 12e fix 4): a hidden app's windows are off screen, so a window screenshot and
+    pointer input to its window can't reach them; Accessibility reads either way."""
     if candidates(bundle_id):
         return True  # Running is a fact; reopening windows is a separate explicit action.
     from AppKit import NSWorkspace
@@ -134,4 +136,66 @@ def launch(bundle_id: str) -> bool:
     if url is None:
         return False
     import subprocess
-    return subprocess.run(["open", "-g", "-j", "-b", bundle_id], capture_output=True).returncode == 0
+    return subprocess.run(["open", "-g", "-b", bundle_id], capture_output=True).returncode == 0
+
+
+def is_application(path: str) -> bool:
+    """Blocking: Launch Services counts this path an application (an .app bundle, an applet): opening it starts a
+    program. Read-only; unreadable counts as one (the open is refused rather than run unchecked)."""
+    try:
+        from Foundation import NSURL, NSURLIsApplicationKey
+        ok, value, _ = NSURL.fileURLWithPath_(path).getResourceValue_forKey_error_(None, NSURLIsApplicationKey, None)
+        return bool(value) if ok else True
+    except Exception:
+        return True
+
+
+OPEN_WAIT_S = 15.0       # how long FERB waits for macOS to confirm an open (speed only: nothing is retried)
+
+
+def open_in(bundle_id: str, target: str) -> str | None:
+    """Blocking (step 12e fix 5): open a file (an absolute path) or a web address in this installed app without
+    activating it (NSWorkspace's open configuration, `activates` off; the app launches in the background when it isn't
+    running). None when macOS confirmed it, else why not. The gateway's checks (protection lists, the address's site,
+    the terminal question) come first; this only opens."""
+    import threading
+    from AppKit import NSWorkspace, NSWorkspaceOpenConfiguration
+    from Foundation import NSURL
+    ws = NSWorkspace.sharedWorkspace()
+    app_url = ws.URLForApplicationWithBundleIdentifier_(bundle_id)
+    if app_url is None:
+        return f"no installed app {bundle_id}"
+    url = NSURL.fileURLWithPath_(target) if target.startswith("/") else NSURL.URLWithString_(target)
+    if url is None:
+        return f"{target!r} isn't an address macOS can open"
+    config = NSWorkspaceOpenConfiguration.configuration()
+    config.setActivates_(False)
+    done, failed = threading.Event(), []
+
+    def finished(app: Any, error: Any) -> None:
+        if error is not None:
+            failed.append(str(error.localizedDescription()))
+        done.set()
+    ws.openURLs_withApplicationAtURL_configuration_completionHandler_([url], app_url, config, finished)
+    if not done.wait(OPEN_WAIT_S):
+        return f"macOS didn't confirm the open within {OPEN_WAIT_S:.0f} s; check with mac_snapshot before trying again"
+    return failed[0] if failed else None
+
+
+def _code(four: str) -> int:
+    return int.from_bytes(four.encode("ascii"), "big")
+
+
+def reopen(pid: int) -> str | None:
+    """Blocking (step 12e fix 4): ask a running app for a window the way a Dock click does (the core `reopen` Apple
+    Event, kAEReopenApplication), without bringing it forward: sent without `kAECanSwitchLayer`, never interacting,
+    no reply awaited. An app may still come forward by itself in answer; that is the call's screen fact (hands
+    decision 9).
+    None when sent, else why not."""
+    from Foundation import NSAppleEventDescriptor
+    target = NSAppleEventDescriptor.descriptorWithProcessIdentifier_(pid)
+    event = NSAppleEventDescriptor.appleEventWithEventClass_eventID_targetDescriptor_returnID_transactionID_(
+        _code("aevt"), _code("rapp"), target, -1, 0)              # kAutoGenerateReturnID, kAnyTransactionID
+    no_reply, never_interact, dont_record = 0x1, 0x10, 0x1000     # NSAppleEventSend… (no CanSwitchLayer, 0x40)
+    _, error = event.sendEventWithOptions_timeout_error_(no_reply | never_interact | dont_record, 5.0, None)
+    return None if error is None else str(error.localizedDescription())

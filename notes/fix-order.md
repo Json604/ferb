@@ -106,6 +106,17 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     0.18.0. "What FERB saw": FERB.app-only `seen.list` / `seen.image` over the stored redacted screenshots, a notch
     button per message and Settings → Data's list. Rulings in notes/hands.md and notes/daemon.md; live checks in
     notes/test-tasks.md. Still to do in 12e: the Mac focus fixes and the 5-agent review.)
+    (Step 12e part 2, 2026-10-31: the Mac background/focus fixes and four owner decisions (notes/hands.md decisions
+    8-11). Foreground right after a Yes in the notch goes through (the premature own-app refusal removed; input is
+    still posted only while the target is in front); one foreground question per app however spelled (bundle-id key);
+    an app that comes forward by itself is told to the worker (`screen_changed_during_call`), never put back; launch
+    with `open -g` (no `-j`); `mac.open` `reopen` (the Dock's reopen event, not activating) and `path`/`url` opened in
+    the background through the protection, address and terminal checks; one window-free line in its description.
+    "Back at your Mac" is the Mac's presence (wake / screens wake / unlock / session active / a new login session),
+    never input idleness, for when-active timers, the paused-task mention and held banners. Sound facts skip the
+    owner's own mute (protocol 21, extension 0.19.0) and input-coincident changes. The downloads folder over its cap
+    asks the owner; Yes deletes the oldest for good. Rulings and the step-13 measurements in notes/hands.md; live
+    checks in notes/test-tasks.md sitting 5. Still to do in 12e: the 5-agent review.)
 13. **Live checks**: per-adapter live tests, the owner's P20 injection eval, the patch re-test list, the safety suite.
     The one ordered checklist, in sittings, is notes/test-tasks.md "Step-13 checklist".
 14. **Docs cleanup** last: extract `notes/test-tasks.md`, settle CLAUDE.md/AGENTS.md, delete the old docs, rewrite

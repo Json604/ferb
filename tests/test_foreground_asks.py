@@ -62,3 +62,18 @@ def test_the_short_question_says_the_tasks_reason() -> None:
     assert confirm.reason_line(why) == why
     assert confirm.reason_line("FERB: it is fine") == "(from the task) FERB: it is fine"
     assert confirm.reason_line("  ") == ""
+
+
+def test_one_question_covers_an_app_by_name_pid_or_bundle_id(monkeypatch) -> None:
+    """Step 12e, fix 2 (live 2026-10-31: the clean-up task asked about "Terminal", then about "pid:9040"): the answer is
+    keyed by the running app, so a retry that spells the same app another way is covered by the same Yes."""
+    from ferb.act.mac import apps
+    from ferb.act.mac.apps import RunningApp
+    monkeypatch.setattr(apps, "running", lambda: [RunningApp("com.apple.finder", "Finder", 96185, False),
+                                                  RunningApp("com.apple.Terminal", "Terminal", 9040, True)])
+    keys = {confirm.foreground_need("mac.act", {"app": app, "mechanism": "foreground", "action": "press"}).key
+            for app in ("Finder", "pid:96185", "com.apple.finder", "‎finder")}
+    assert len(keys) == 1
+    terminal = confirm.foreground_need("mac.act", {"app": "pid:9040", "mechanism": "foreground", "action": "press"})
+    assert terminal is not None and terminal.key not in keys
+    assert terminal.key == confirm.foreground_need("mac.click", {"app": "Terminal", "allow_foreground": True}).key

@@ -5,9 +5,11 @@ Drivers retain actual window/element/coordinate validity, background mechanics a
 
 import asyncio
 import contextlib
+import os
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Collection, ContextManager, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -254,17 +256,63 @@ class MacApps(_Base):
 class MacOpen(_Base):
     name = "mac.open"
     on_screen = True
-    description = ("Request a background launch of an installed app. Does not choose a menu item to reopen a window. "
-                   "FERB never restores an earlier foreground app over the owner's current choice. Reading "
-                   "an app that isn't running? Open it first. An app this call launches belongs to the task: FERB "
-                   "quits it when the task ends, unless the owner used it or it may hold unsaved changes.")
+    description = ("Open an installed app in the background (never brought forward), optionally with a file (path) or "
+                   "a web address (url) opened in it, also in the background. A running app that shows no window: "
+                   "reopen=true asks it for one the way a Dock click does, without bringing it forward. Finding and "
+                   "reading need no window: search files with mdfind through the shell and read apps with "
+                   "mac_snapshot, rather than opening a window to look. FERB never restores an earlier foreground app "
+                   "over the owner's current choice. An app this call launches belongs to the task: FERB quits it when "
+                   "the task ends, unless the owner used it or it may hold unsaved changes.")
     scopes = {"mac:read"}             # opening an app to look at it is part of reading (owner decision 2026-10-01)
 
     class Input(BaseModel):
         bundle_id: str = Field(description="The app's bundle id, e.g. com.apple.Notes")
+        path: str | None = Field(default=None, description="a file or folder to open in that app (absolute or ~/…)")
+        url: str | None = Field(default=None, description="an http(s) address to open in that app")
+        reopen: bool = Field(default=False, description="the app runs but shows no window: ask it for one, in the "
+                                                        "background")
+
+        @field_validator("url")
+        @classmethod
+        def web_only(cls, v: str | None) -> str | None:
+            """A web address only (other schemes start programs or send mail: argument validity, never meaning)."""
+            if v is not None and not re.match(r"(?i)^https?://", v.strip()):
+                raise ValueError("url takes an http:// or https:// address")
+            return v.strip() if v is not None else None
+
+    @staticmethod
+    def _path(args: BaseModel) -> str | None:
+        raw = getattr(args, "path", None)
+        return os.path.abspath(os.path.expanduser(raw)) if raw else None
+
+    def precheck(self, args: BaseModel) -> str | None:
+        if getattr(args, "path", None) and getattr(args, "url", None):
+            return "pass path or url, not both"
+        raw = getattr(args, "path", None)
+        if raw and not os.path.isabs(os.path.expanduser(raw)):
+            return "path must be absolute or start with ~/"
+        return super().precheck(args)
+
+    def file_paths(self, args: Any) -> list[tuple[str, FileAccess]]:
+        """The protection lists check the file the app is given (rule 10): the app reads it."""
+        path = self._path(args)
+        return [(path, "read")] if path else []
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec(Kind.OPEN_TAB, Target(site=str(getattr(args, "bundle_id")).lower()))
+        url = getattr(args, "url", None)
+        if url:                                          # its site, for the address checks (S4, decision 5)
+            return ActionSpec(Kind.OPEN_TAB, Target(site=(urlsplit(url).hostname or "").lower()))
+        return ActionSpec(Kind.OPEN_TAB, Target(site=str(getattr(args, "bundle_id")).lower(),
+                                                path=self._path(args)))
+
+    async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
+        """D31: a file that would run when opened there (a script in a terminal app, a .command through Finder): the
+        file with its exact contents, so the gateway asks the owner first; else None."""
+        path = self._path(args)
+        if not path:
+            return None
+        return await _terminal_input(getattr(self.driver, "open_terminal_input", None), str(getattr(args, "bundle_id")),
+                                     path)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         bid = str(getattr(args, "bundle_id"))
@@ -273,17 +321,41 @@ class MacOpen(_Base):
         if bid.lower() in {e.lower() for e in self.driver.excluded()}:
             return _err(f"{bid} is on the owner's exclusion list")
         apps = self.driver.apps                          # NSWorkspace and `open`: off the event loop
-        running = await asyncio.to_thread(apps.find, bid) is not None
-        if not await asyncio.to_thread(apps.launch, bid):
+        before = await asyncio.to_thread(apps.find, bid)
+        path, url = self._path(args), getattr(args, "url", None)
+        out: dict[str, Any] = {"opened": bid}
+        if path or url:
+            if path and not os.path.exists(path):
+                return _err(f"no such file or folder: {path}")
+            program = getattr(apps, "is_application", None)
+            if path and callable(program) and await asyncio.to_thread(program, path):
+                # a where-boundary: opening an app bundle starts a program outside the shell's sandbox, which can't
+                # open apps (sandbox.py `lsopen`); installed apps open by bundle_id
+                return _err(f"{path} is an app: mac.open gives files to installed apps and opens installed apps by "
+                            "bundle_id, never starts a program from a file")
+            refuse = getattr(self.driver, "open_refusal", None)
+            if path and callable(refuse) and (why := await asyncio.to_thread(refuse, bid, path, ctx.terminal)):
+                return _err(why)                         # D31: right before opening, the owner's Yes to these contents
+            if why := await asyncio.to_thread(apps.open_in, bid, path or url):
+                return _err(why)
+            out |= {"path": path} if path else {"url": url}
+        elif not await asyncio.to_thread(apps.launch, bid):
             return _err(f"no installed app {bid}")
         # L39: an app this call launched (it wasn't running) is the task's resource, quit at its release
-        launched = not running and (app := await asyncio.to_thread(apps.find, bid)) is not None
+        launched = before is None and (app := await asyncio.to_thread(apps.find, bid)) is not None
         if launched and (record := getattr(self.driver, "launched", None)) is not None:
             record.launched(ctx.task_id, app.bundle_id, app.name, app.pid)     # stamped with FERB's clock (M7)
+        if getattr(args, "reopen", False) and before is not None and not path and not url and \
+                not await self.driver.ensure_window(bid, wait_s=0):
+            if why := await asyncio.to_thread(apps.reopen, before.pid):
+                return _err(f"{before.name} didn't take the request for a window: {why}")
+            out["reopened"] = True                       # the Dock's reopen request, sent without bringing it forward
         window = await self.driver.ensure_window(bid)
-        return ToolResult({"opened": bid, "launched": launched, "window": window,
-                           "next": "mac_snapshot reads it where it is" if window else
-                                   "it's running but shows no window; mac_snapshot may still read its menus"})
+        return ToolResult(out | {"launched": launched, "window": window,
+                                 "next": "mac_snapshot reads it where it is" if window else
+                                         "it's running but shows no window: mac_open with reopen=true asks it for one "
+                                         "in the background, or its New Window menu item through mac_menu; "
+                                         "mac_snapshot may still read its menus"})
 
 
 class MacMenu(_Base):

@@ -9,7 +9,8 @@ Durable timers: SQLite-backed; survive restarts and sleep; delivered exactly onc
   handed over again, and the consumer skips a timer id it already acted on (`timer_deliveries`, written in the same
   transaction as the consumer's own record).
 - When the owner is at the Mac (orchestration decision 17): a timer added `when_active` (a row in
-  `timer_when_active`) is not claimed while the owner is away (`owner_away`, the one idle/active signal); it fires at
+  `timer_when_active`) is not claimed while the Mac is out of use (`owner_away`: the Mac's presence signal, asleep,
+  displays asleep, locked or switched away; never input idleness); it fires at
   its time when they're active then, else when they're back (`wake()` on their return). One with `return_after` waits
   for an active stretch that began after that time ("when I'm back at my Mac", said while at it). Its lateness counts
   from when it could fire: waiting for the owner isn't late. Nothing else about it changes (pending, cancel, exactly
@@ -58,8 +59,8 @@ class Timers:
         self.consume = consume
         # told of a consumer that raised (the timer) or a check that failed (None); the daemon journals it
         self.on_error = on_error
-        # decision 17: whether the owner is away from the Mac, and when their current active stretch began (None:
-        # not known); the daemon sets both from the owner-input tap, and calls `wake()` when they're back
+        # decision 17: whether the Mac is out of use, and when its current stretch of use began (None: not known); the
+        # daemon sets both from its presence signal (MacPresence), and calls `wake()` when the Mac is back in use
         self.owner_away: Callable[[], bool] = lambda: False
         self.present_since: Callable[[], datetime | None] = lambda: None   # None: FERB can't tell (unknown = present)
         self._wake = asyncio.Event()

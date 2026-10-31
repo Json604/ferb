@@ -134,14 +134,28 @@ def foreground_need(tool: str, args: dict[str, Any]) -> "Need | None":
     # owner's Space). Listing menus (no path) reads only. A where-boundary on the target app, never on the step.
     # Which apps are browsers: the one list (ferb/act/mac/browsers.py: known bundle ids, installed http handlers,
     # names without invisible marks, `pid:N` by its running app).
-    from ferb.act.mac.browsers import clean, is_browser_app
+    from ferb.act.mac.browsers import is_browser_app
     acts = tool in FOREGROUND_TOOLS or (tool == "mac.menu" and bool(str(args.get("path") or "").strip()))
     in_browser = acts and is_browser_app(str(args.get("app") or ""))
     if not in_browser and (tool not in FOREGROUND_TOOLS
                            or not (args.get("allow_foreground") or args.get("mechanism") == "foreground")):
         return None
     app = str(args.get("app") or "an app")
-    return Need(FOREGROUND, key(FOREGROUND, clean(app)), {"app": app})       # "\u200eWhatsApp" is "WhatsApp"
+    return Need(FOREGROUND, key(FOREGROUND, app_key(app)), {"app": app})
+
+
+def app_key(app: str) -> str:
+    """One app however a Mac tool's `app` argument spells it (step 12e, fix 2; live 2026-10-31: "Terminal", then
+    "pid:9040", asked twice): the running app's bundle id, casefolded, when the name, `pid:N` or bundle id names exactly
+    one running app (`apps.find`, the drivers' own lookup); else the argument without case or invisible marks
+    ("\u200eWhatsApp" is "WhatsApp")."""
+    from ferb.act.mac import apps
+    from ferb.act.mac.browsers import clean
+    try:
+        found = apps.find(app.strip())
+    except Exception:                                    # the running-app list can't be read: the spelling decides
+        found = None
+    return found.bundle_id.casefold() if found is not None else clean(app)
 
 
 def key(*parts: object) -> str:

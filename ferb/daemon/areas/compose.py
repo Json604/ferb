@@ -23,10 +23,11 @@ from ferb.sanitize.redact import Redactor
 def question_kind(capability: str, kind: str) -> str:
     """A question's kind from who asks it and how (structural; never its words)."""
     from ferb.daemon.gateway import CONFIRM_ASK, RETRY_ASK
-    from ferb.orchestrator.steering import CONVERSATION_ASK, MEMORY_ASKS
+    from ferb.orchestrator.steering import CONVERSATION_ASK, DOWNLOADS_ASK, MEMORY_ASKS
     if kind in ("owner_login_code", "owner_admin_password", "owner_secret"):
         return "secret"
     return {CONFIRM_ASK: "confirm", RETRY_ASK: "retry", CONVERSATION_ASK: "conversation_scope", "plan.ask": "task",
+            DOWNLOADS_ASK: "downloads",
             "owner.ask": "task", "loop.ask": "loop", "runtime.switch": "runtime_switch"}.get(
         capability, "memory" if capability in MEMORY_ASKS else capability)
 

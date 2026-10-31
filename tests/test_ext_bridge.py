@@ -730,8 +730,8 @@ def test_an_extension_older_than_the_terminal_fact_is_refused_at_hello() -> None
         {"version": "0.15.10", "protocol": PROTOCOL_VERSION}))))
     reply = json.loads(writes[0])
     assert reply["type"] == "refused" and "reload the FERB extension" in reply["reason"]
-    assert reply["minimum_version"] == MIN_EXTENSION_VERSION == "0.18.0"     # protocol 20 raised it past 0.15.11
-    assert version_ok("0.18.0") and not version_ok("0.17.0") and not version_ok("0.15.10")
+    assert reply["minimum_version"] == MIN_EXTENSION_VERSION == "0.19.0"     # protocol 21 raised it past 0.15.11
+    assert version_ok("0.19.0") and not version_ok("0.18.0") and not version_ok("0.15.10")
 
 
 def test_a_reinstalled_unpaired_extension_says_pair_it_with_browser_pair(

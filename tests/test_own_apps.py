@@ -3,8 +3,9 @@
 The send-to-developer review: `MacComputerDriver.app()` refused only the owner's exclusion list, so a worker could
 press the notch's Approve button, click it, or type into it, and answer FERB's own question for the owner. Every Mac
 tool now refuses FERB's own apps (`front_window.FERB_APPS`, the daemon's own pid); a pointer click on a point where a
-FERB window would take it, and keyboard input while a FERB app is in front, are refused; an AppleScript for one, or a
-System Events script naming one, is refused, never asked. Fakes only: no real app, window or key event."""
+FERB window would take it is refused, and foreground input is posted only while its target is the front app (never
+into FERB's app, even right after the owner's Yes in the notch); an AppleScript for one, or a System Events script
+naming one, is refused, never asked. Fakes only: no real app, window or key event."""
 
 import asyncio
 from types import SimpleNamespace
@@ -35,6 +36,7 @@ class Apps:
     def __init__(self, front: RunningApp) -> None:
         self.apps, self.front, self.activated = [NOTCH, CODE, TEXTEDIT], front, []
         self.accessory = {NOTCH.pid}
+        self.comes_forward = True                       # an activated app becomes the front app (False: it doesn't)
 
     def find(self, q: str) -> RunningApp | None:
         hits = [a for a in self.apps if q.lower() in (a.bundle_id.lower(), a.name.lower(), f"pid:{a.pid}")]
@@ -54,6 +56,8 @@ class Apps:
 
     def activate(self, bid: str, pid: int | None = None) -> bool:
         self.activated.append(bid)
+        if self.comes_forward:
+            self.front = next(a for a in self.apps if a.bundle_id == bid)
         return True
 
 
@@ -172,13 +176,29 @@ def test_a_click_where_a_notch_window_would_take_it_is_refused(monkeypatch: pyte
     assert posted == [] and ax.pressed == []
 
 
-def test_foreground_typing_or_a_key_while_the_notch_is_in_front_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_foreground_input_right_after_a_yes_in_the_notch_goes_through(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Step 12e, fix 1 (live 2026-10-31, clean-up task: every foreground action after the owner's Yes was refused,
+    because the notch they had just answered in was in front): the target is brought forward and the input lands
+    there."""
     d, ax, posted = _driver(monkeypatch, front=NOTCH)
-    asyncio.run(d.snapshot("Code"))
+    asyncio.run(d.snapshot("TextEdit"))
     for action in (ComputerAction("type", "s1e1", "yes", mechanism="foreground", allow_foreground=True),
                    ComputerAction("key", None, "return", mechanism="foreground", allow_foreground=True)):
-        with pytest.raises(Refused, match=OWN):
-            asyncio.run(d.act("Code", action, "w1", "t1"))
+        d.apps.front = NOTCH                                                      # the owner answered in the notch
+        assert asyncio.run(d.act("TextEdit", action, "w1", "t1")).ok
+    assert posted == ["type yes", "key return"] and d.apps.activated == [TEXTEDIT.bundle_id, TEXTEDIT.bundle_id]
+
+
+def test_foreground_input_never_lands_while_the_notch_stays_in_front(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The target didn't come forward (the notch is still in front): nothing is posted (M1)."""
+    from ferb.act.mac.input import PointerInterrupted
+    d, ax, posted = _driver(monkeypatch, front=NOTCH)
+    d.apps.comes_forward = False
+    asyncio.run(d.snapshot("TextEdit"))
+    for action in (ComputerAction("type", "s1e1", "yes", mechanism="foreground", allow_foreground=True),
+                   ComputerAction("key", None, "return", mechanism="foreground", allow_foreground=True)):
+        with pytest.raises(PointerInterrupted):
+            asyncio.run(d.act("TextEdit", action, "w1", "t1"))
     assert posted == []
 
 
@@ -296,20 +316,12 @@ def test_ferbs_pids_come_from_every_running_app_whatever_its_activation_policy(
 
 def test_background_input_goes_on_while_the_notch_holds_the_keyboard(monkeypatch: pytest.MonkeyPatch) -> None:
     """M1: process-directed typing and keys go to the target app's process and can't reach the notch, so they work
-    while the notch is key; foreground keyboard and pointer input, which go to whatever is in front, are refused."""
+    while the notch is key, and FERB never brings anything forward for them."""
     d, ax, posted = _driver(monkeypatch, front=NOTCH)
     asyncio.run(d.snapshot("TextEdit"))
     assert asyncio.run(d.act("TextEdit", ComputerAction("type", "s1e1", "hello", mechanism="pid"), "w1", "t1")).ok
     assert asyncio.run(d.act("TextEdit", ComputerAction("key", None, "return", mechanism="pid"), "w1", "t1")).ok
-    assert posted == ["type hello", "key return"]
-    posted.clear()
-    asyncio.run(d.snapshot("Code"))
-    for action in (ComputerAction("type", "s1e1", "yes", mechanism="foreground", allow_foreground=True),
-                   ComputerAction("key", None, "return", mechanism="foreground", allow_foreground=True),
-                   ComputerAction("press", "s1e1", mechanism="foreground", allow_foreground=True)):
-        with pytest.raises(Refused, match=OWN):
-            asyncio.run(d.act("Code", action, "w1", "t1"))
-    assert posted == []
+    assert posted == ["type hello", "key return"] and d.apps.activated == [] and d.apps.front == NOTCH
 
 
 # ---------- fix round 4: no over-refusal, one fail-open closed (N1, N2, N3, N4, U1; D31, rule 8, rule 9) ----------

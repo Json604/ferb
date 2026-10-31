@@ -417,6 +417,13 @@ def _window_of(found: Any) -> str | None:
     return None
 
 
+def _screen_told(screen: dict[str, Any] | None) -> dict[str, Any]:
+    """The call's screen change for the worker's result (hands decision 9), else nothing."""
+    from ferb.daemon.disturbance import told
+    fact = told(screen) if screen else {}
+    return {"screen_changed_during_call": fact} if fact else {}
+
+
 def before_acting(e: BaseException) -> bool:
     """Whether a tool's exception says it failed before it acted (P19: failed, not unknown): a safety check's refusal
     (`Refused`: nothing was attempted), invalid arguments, or an error that says so (`attempted = False`). Any other
@@ -1581,14 +1588,15 @@ class Gateway:
                 self._finish_call(span, name, {"error": detail}, True,
                                   output=(kept_out or {}) | ({"screen": screen} if screen else {}) or None,
                                   error=detail)
-                return reply({"error": f"{name} failed: {detail}"} | (kept_out or {}), True)
+                return reply({"error": f"{name} failed: {detail}"} | (kept_out or {}) | _screen_told(screen), True)
             if intent_id:                                # outcome unknown: the ledger reconciles, never retries blindly
                 self.ledger.mark(intent_id, "unknown", [detail])
             self._observed(name, spec, action, grant, "unknown")
             self.spans.update_input(span.id, {"outcome": "unknown"})
             self._finish_call(span, name, {"error": detail}, True,
                               output=(kept_out or {}) | ({"screen": screen} if screen else {}) or None, error=detail)
-            return reply({"error": f"{name} failed: {detail}; outcome unknown"} | (kept_out or {}), True)
+            return reply({"error": f"{name} failed: {detail}; outcome unknown"} | (kept_out or {})
+                         | _screen_told(screen), True)
         screen = await self.hooks.screen_after(span.id)  # daemon decision 5: what FERB changed on the screen
         if intent_id:                                    # the span id is already its evidence (marked executing)
             self.ledger.mark(intent_id, "failed" if result.is_error else "done")
@@ -1599,7 +1607,7 @@ class Gateway:
         raw = result.content
         if spec.kind not in REVERSIBLE:                  # V2: what the action read back (a failure's too), never a guess
             raw = {**raw, "after": aftercheck.after_of(aftercheck.facts_of(raw))}
-        raw = {**raw, **snap}
+        raw = {**raw, **snap, **_screen_told(screen)}   # hands decision 9: the worker is told, nothing is put back
         origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
                                          self.excluded_host)
         try:

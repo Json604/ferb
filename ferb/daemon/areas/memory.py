@@ -653,7 +653,9 @@ class MemoryGlue:
         questions = self._memory_questions()
         questions.drop_kinds(GONE_QUESTIONS)
         for row in questions.waiting():
-            if row["kind"] == "forget:learning":
+            if row["kind"].startswith("downloads:"):
+                gone = False                             # the downloads folder's cap: asked again as it was
+            elif row["kind"] == "forget:learning":
                 gone = self.learning is None or self.learning.get(row["target"]) is None
             else:
                 gone = self.memory is None or self.memory.get(row["target"]) is None
@@ -669,6 +671,8 @@ class MemoryGlue:
             return ""
         self._memory_questions().answered(ap.id)
         what, ident = followup
+        if what.startswith("downloads:"):
+            return self._downloads_answered(ap, ident)
         from ferb.memory.items import MemoryRefused
         if not (ap.state == "granted" and ap.choice == "Yes"):
             return "Kept: nothing was forgotten."

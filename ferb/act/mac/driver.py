@@ -13,6 +13,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Collection, ContextManager, Literal
 
 from ferb.act.mac import accessibility as axm
@@ -520,11 +521,6 @@ class MacComputerDriver:
             if pid is not None and w.pid == pid and (w.id == window if window is not None else w.layer == 0):
                 return None
         return None
-
-    def _own_front(self) -> bool:
-        """Blocking: one of FERB's own apps is in front (its window may hold the keyboard): no keyboard input."""
-        front = self.apps.frontmost()
-        return front is not None and self._own_app(front.bundle_id, front.pid)
 
     async def _expose(self, a: Any) -> None:
         if a.pid not in self._exposed:
@@ -1123,8 +1119,8 @@ class MacComputerDriver:
         if mechanism == "foreground":                    # a real click: whatever window takes it there gets it
             if why := await asyncio.to_thread(self._own_point, px, py, a.pid, shot.window):
                 raise Refused(why)                       # a FERB window may take it (rule 8, rule 9)
-            if await asyncio.to_thread(self._own_front):
-                raise Refused(OWN_APP)                   # input that goes to what is in front (M1)
+            # FERB's own app in front (the notch, where the owner just said Yes) is no refusal: `_real` brings the
+            # target forward and checks before each event that the target is in front (step 12e, fix 1)
         facts = await asyncio.to_thread(self._point_facts, a, shot, px, py)
         if mechanism == "foreground":
             if not allow_foreground:
@@ -1511,6 +1507,35 @@ class MacComputerDriver:
             return None
         return terminals.UNASKED.format(why="a file that opens in a terminal app and runs", app=a.name)
 
+    def _opens_to_run(self, bundle_id: str, path: str) -> tuple[Any, tuple[tuple[str, str, str], ...]]:
+        """Blocking (step 12e fix 5, `mac.open` with a file): the app as the question names it, and the file's facts
+        when opening it there can run it: the app itself is a terminal (a script opened in Terminal runs), or it opens
+        files with their default apps (Finder: a .command runs in Terminal) and that default is a terminal app. Else
+        no files."""
+        found = self.apps.find(bundle_id)
+        a = found if found is not None else SimpleNamespace(bundle_id=bundle_id, name=bundle_id)
+        runs = self._app_terminal_why(a) is not None or (bundle_id.casefold() in terminals.OPENS_FILES and
+                                                         self._opens_in_terminal(path))
+        return a, ((self._file_facts(path),) if runs else ())
+
+    def open_terminal_input(self, bundle_id: str, path: str) -> TerminalInput | None:
+        """Blocking: opening this file in this app runs it in a terminal (`_opens_to_run`): the file, with its exact
+        contents, for the owner's question; else None."""
+        a, files = self._opens_to_run(bundle_id, path)
+        return TerminalInput(a.name, a.bundle_id, "a file that opens in a terminal app", files=files) if files else None
+
+    def open_refusal(self, bundle_id: str, path: str, grant: TerminalGrant | None) -> str | None:
+        """Blocking, right before the open: None unless the file would run in a terminal and the owner's Yes doesn't
+        name it with these exact contents (re-hashed now)."""
+        a, files = self._opens_to_run(bundle_id, path)
+        if not files:
+            return None
+        approved = {(p, h) for p, h, _ in grant.input.files} if grant is not None and \
+            grant.input.bundle_id == a.bundle_id else set()
+        if all((p, h) in approved for p, h, _ in files):
+            return None
+        return terminals.UNASKED.format(why="a file that opens in a terminal app and runs", app=a.name)
+
     def _hit(self, a: Any, shot_id: str, x: float, y: float) -> Any:
         """Blocking: the element under (x, y) of the app's latest screenshot, or None."""
         st = self._state.get(a.bundle_id)
@@ -1812,8 +1837,6 @@ class MacComputerDriver:
         if routes is not None and mechanism not in routes:
             raise Refused(f"{action.kind} takes mechanism {' or '.join(sorted(routes))}, not {mechanism}; nothing "
                           "was sent")
-        if mechanism == "foreground" and await asyncio.to_thread(self._own_front):
-            raise Refused(OWN_APP)                       # foreground input goes to what is in front: FERB's app (M1)
         if action.kind == "key":
             return await self._act_key(a, action.text or "", holder, task, terminal, mechanism)
         if action.kind == "scroll":
@@ -2342,7 +2365,9 @@ class MacComputerDriver:
 
     async def _real(self, a: Any, steps: list[Any], holder: str, what: str, task: str | None = None,
                     prepare: Callable[[], Awaitable[None]] | None = None) -> ActionResult:
-        """An explicitly chosen foreground action. Yield permanently if the owner takes over; restore nothing."""
+        """An explicitly chosen foreground action. Yield permanently if the owner takes over; restore nothing. Whatever
+        is in front first (FERB's notch too, right after the owner's Yes there) the target is brought forward, and each
+        event is posted only while the target is the front app, so none reaches FERB's own app (M1)."""
         if not self.input.available():
             return ActionResult(False, "FERB is paused: no foreground input", {"performed": False})
         await self.input.quiet(holder, what)

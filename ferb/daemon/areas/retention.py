@@ -2,6 +2,7 @@
 ferb/store/retention.py's; this runs them hourly. Must not purge the task list, episodes, chat, results or memory."""
 
 import asyncio
+import json
 import sqlite3
 import sys
 from datetime import datetime, timedelta
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterator, NamedTuple
 
 from ferb.act.fs import recovery
+from ferb.core import origin as origin_
 from ferb.daemon import resources as resource_use
 from ferb.orchestrator import episodes
 from ferb.store import retention
@@ -16,6 +18,9 @@ from ferb.store.db import BUSY_TIMEOUT_MS, VACUUM_PASS_PAGES, VACUUM_SLICE_PAGES
 
 
 ROOTS_PER_PURGE = 200
+# Ruling (step 12e, hands decision 8): after a No, or while the question waits, the downloads cap question comes again
+# only once the folder has grown past the size it was asked at by this share of the cap (2 GB of the default 20 GB)
+DOWNLOADS_REASK = 0.1
 
 
 class _PurgePlan(NamedTuple):
@@ -234,19 +239,63 @@ class Retention:
             return 0
 
     def _purge_downloads(self) -> int:
-        """D35: when FERB's downloads folder passes browser.download_total_gb, its oldest working copies go to the
-        Trash (no time-based clearing, owner 2026-10-09); their records stay. Journaled when any moved."""
-        if self.downloads is None:
-            return 0
+        """Hands decision 8: the retention pass checks FERB's downloads folder against its cap (`_downloads_cap`);
+        nothing is deleted without the owner's Yes. 0: nothing went in this pass."""
         try:
-            trashed = self.downloads.purge()
+            self._downloads_cap()
         except Exception as e:
             self._journal().append("retention.failed", {"downloads": True, "error": f"{type(e).__name__}: {e}"})
-            return 0
-        if trashed:
-            self._journal().append("retention.downloads", {
-                "trashed": trashed, "total_mb": self.downloads.limits().total_bytes // (1024 * 1024)})
-        return trashed
+        return 0
+
+    def _downloads_cap(self) -> None:
+        """Hands decision 8 (owner 2026-10-31): FERB's downloads folder over browser.download_total_gb: the owner is
+        asked, outside any task, whether to delete for good the oldest files that bring it back under, with how many
+        and how much. Asked once: after a No, or while the question waits, not again until the folder has grown past
+        the size it was asked at by a further DOWNLOADS_REASK of the cap (ruling, step 12e); a Yes deletes exactly the
+        files shown (those still there), and the next time the folder passes its cap it asks afresh. Journaled with
+        counts and bytes only, never names."""
+        from ferb.act.browser.downloads import _gb
+        if self.downloads is None or self.db is None:
+            return
+        over = self.downloads.over_cap()
+        if over is None:
+            return
+        asked = self.db.conn.execute(
+            "SELECT seq, json_extract(data_json, '$.total_bytes') FROM journal WHERE kind = 'downloads.cap_asked' "
+            "ORDER BY seq DESC LIMIT 1").fetchone()
+        deleted = self.db.conn.execute(
+            "SELECT seq FROM journal WHERE kind = 'downloads.deleted' ORDER BY seq DESC LIMIT 1").fetchone()
+        if asked is not None and (deleted is None or deleted[0] < asked[0]) and \
+                over.total < int(asked[1] or 0) + over.cap * DOWNLOADS_REASK:
+            return                                       # declined or waiting, and not grown enough since: no nagging
+        for approval_id, (kind, _) in list(self._owner_followups.items()):
+            if kind.startswith("downloads:"):            # the older question, with its older numbers, closes
+                self._owner_followups.pop(approval_id, None)
+                self._memory_questions().answered(approval_id)
+                if self.state.approvals.supersede(approval_id) is not None:
+                    self._publish("approval.resolved", {"approval_id": approval_id, "state": "superseded"})
+        reason = (f"FERB's downloads folder is over its {_gb(over.cap)} limit ({_gb(over.total)} now). Delete its "
+                  f"{len(over.ids)} oldest file{'s' if len(over.ids) != 1 else ''} ({_gb(over.bytes)}) for good to get "
+                  "back under it? Nothing is deleted unless you say Yes.")
+        self._ask_owner("downloads:over_cap", json.dumps(list(over.ids)), reason,
+                        f"downloads-cap-{self.clock.now().strftime('%Y%m%dT%H%M%S')}")
+        self._journal().append("downloads.cap_asked", {"files": len(over.ids), "bytes": over.bytes,
+                                                       "total_bytes": over.total, "cap_bytes": over.cap})
+
+    def _downloads_answered(self, ap: Any, ident: str) -> str:
+        """The owner's answer to the downloads cap question: on Yes the files it showed are deleted for good (only
+        inside the folder, never through a link); on No nothing is. A line for the owner."""
+        if not (ap.state == "granted" and ap.choice == "Yes") or self.downloads is None:
+            self._journal().append("downloads.cap_declined", {})
+            return "Kept: nothing was deleted from FERB's downloads folder."
+        from ferb.act.browser.downloads import _gb
+        try:
+            ids = [str(i) for i in json.loads(ident)]
+        except (TypeError, ValueError):
+            ids = []
+        count, size = self.downloads.delete(ids)
+        self._journal().append("downloads.deleted", {"files": count, "bytes": size}, origin=origin_.OWNER)
+        return f"Deleted {count} file{'s' if count != 1 else ''} ({_gb(size)}) from FERB's downloads folder."
 
     def _journal_purged(self, plan: _PurgePlan, counts: dict[str, int], left: int, stopped: bool = False) -> None:
         operational = {k: v for k, v in counts.items() if k in plan.rows.operational and v}
