@@ -2,7 +2,7 @@
 never the owner's browsers or profiles) with the unpacked FERB extension, a test daemon with its own home, and a
 local page. Nothing but the lab Chrome is touched; ~/.ferb stays out.
 
-Proves on this Mac what ARCHITECTURE.md promises: FERB's tab opens in a minimized window and stays inactive;
+Proves on this Mac that FERB's tab opens in a minimized window and stays inactive;
 real (isTrusted) typing, clicks and keys land there; the page and a container scroll by wheel; a confirm() is
 answered by the extension; a file lands in a file input; a screenshot renders; and the frontmost app never changed
 while all of it happened (NSWorkspace polled every 50 ms, as in the probes).

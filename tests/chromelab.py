@@ -1,6 +1,6 @@
 """A lab Chrome for real browser tests: a throwaway `--user-data-dir`, driven over `--remote-debugging-pipe` only to
 load the unpacked FERB extension, hand it a pairing token and look at windows. FERB itself never debugs a browser
-this way; the owner's Chrome, Brave and profiles are never touched (ARCHITECTURE.md: browser lab).
+this way; the owner's Chrome, Brave and profiles are never touched.
 
 Also here: the native-host wiring for the lab (a standalone copy of ferb/native_host/main.py in a folder Chrome can
 read, pointed at the test daemon's socket) and a frontmost-app watcher (NSWorkspace polled every 50 ms, as in the

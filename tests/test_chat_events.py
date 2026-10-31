@@ -2,7 +2,6 @@
 its request and when it was sent; the CLI never answers a pending question from ordinary typed text."""
 import json
 import queue
-import re
 import threading
 import time
 from datetime import datetime
@@ -13,8 +12,6 @@ from ferb.cli.client import Client
 from ferb.core.types import Identity
 from ferb.policy.rules import ActionRequest
 from tests.conftest import done, install, sup, task
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def _stream(sock: Path, session: str, text: str) -> "queue.Queue[dict[str, Any] | None]":
@@ -176,16 +173,6 @@ def test_daemon_acks_never_repeat_one_of_the_last_eight_said(daemon):
     said = daemon.run(acknowledge())
     assert all(phrase not in said[max(0, n - 8):n] for n, phrase in enumerate(said))
     assert [row['text'] for _, row in _journal(daemon, 'chat.ack')] == said
-
-
-def test_ack_phrases_are_the_plans_p25_list_without_the_starred_one():
-    from ferb.orchestrator import acks
-    plan = (ROOT / 'docs' / '0.27_PLAN.md').read_text()
-    draft = re.search(r'- P25\. .*?Draft:\s*(.*?)\s*Sources:', plan, re.S)
-    assert draft is not None
-    listed = [p.strip() for p in re.sub(r'\(\*[^)]*\)', '', draft.group(1)).split('·')]
-    assert acks.PHRASES == tuple(p for p in listed if p and not p.endswith('*'))
-    assert 'On it, one sec.' not in acks.PHRASES and len(acks.PHRASES) == 29
 
 
 def test_approval_requested_carries_its_request_id_only_when_it_belongs_to_a_task(daemon):

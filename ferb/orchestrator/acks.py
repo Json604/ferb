@@ -2,7 +2,8 @@
 takes or that it will succeed: every phrase fits every message, so none is chosen by reading the message."""
 import random
 
-# docs/0.27_PLAN.md P25, verbatim and in order, without the starred "On it, one sec." (it implies speed).
+# The 0.27 plan's P25 list (owner-approved 2026-10-07; the plan is in git history), verbatim and in order, without the
+# starred "On it, one sec." (it implies speed).
 PHRASES = (
     "On it.", "Got it.", "On it now.", "Okay, on it.", "Got it, on it.", "Working on it.", "Okay, working on it.",
     "Starting on it.", "Starting now.", "Okay, starting.", "Sure.", "Sure, on it.", "Sure, starting now.", "Alright.",

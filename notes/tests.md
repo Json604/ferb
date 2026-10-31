@@ -25,7 +25,8 @@ run. Product code is 64,703 lines.
   files, 5 checker files, `*_026` and `test_rework_fixes` leftovers).
 - **No import/compile check exists**; **no upgrade-from-old-DB test** (only fresh `migrate()`); no redaction fuzz or
   vendor-format table.
-- `test_decision_coverage.py`, `test_doc_sources.py` and one test in `test_chat_events.py` read docs/ (being deleted).
+- `test_decision_coverage.py`, `test_doc_sources.py` and one test in `test_chat_events.py` read docs/ (deleted with the
+  docs in step 14a).
 - **The end-to-end harness** (`Script`/`FakeRuntime`/`install()`/`chat()` in conftest.py) hard-codes the `.dispatch`,
   `.verify`, `.question` steps (conftest.py:373-432); the dispatcher merge and supervisor rewrite break it and every
   test on it (566).
@@ -67,8 +68,8 @@ A small suite that guards what live use can't show: the safety floor, plus a han
 ## Depends on
 - notes/orchestration.md: the harness rewrite goes with the orchestration rewrite.
 - notes/storage.md decision 5: upgrade tests on copies of real older databases and configs.
-- CLAUDE.md rule 3 requires `tests/test_decision_coverage.py`; deleting it with the docs needs CLAUDE.md updated
-  (owner question, notes/docs-cleanup.md).
+- The old CLAUDE.md rule 3 required `tests/test_decision_coverage.py`; the 2026-10-30 CLAUDE.md doesn't, and the test went
+  with the docs in step 14a.
 
 ## Fix list
 - [x] Rewrite the conftest harness once for the new step kinds (no dispatcher) before deleting old harness tests.
@@ -153,9 +154,10 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       (Step 12d: deleted with the 106 files: Jev/consolidation/eval-catalogue tests, the prompt-text, wording and
       rendering files, and the old-harness wiring files; the two prompt-text tests left in test_owner_answers removed.
       Left: wording and wiring tests inside the kept files (see the trim item above).)
-- [ ] Delete doc-reading tests with the docs cleanup.
-      (Step 14. They are: tests/test_decision_coverage.py, tests/test_doc_sources.py, and
-      tests/test_chat_events.py::test_ack_phrases_are_the_plans_p25_list_without_the_starred_one (reads docs/0.27_PLAN.md).)
+- [x] Delete doc-reading tests with the docs cleanup.
+      (Step 14a: deleted tests/test_decision_coverage.py, tests/test_doc_sources.py with its scripts/check_doc_sources.py,
+      and tests/test_chat_events.py::test_ack_phrases_are_the_plans_p25_list_without_the_starred_one; nothing else read
+      the deleted docs. The P25 phrases stay in ferb/orchestrator/acks.py.)
 - [x] Keep `no_real_models`, `offline_trash`, network routing, `runaway.py`.
       (Step 12d: kept in tests/conftest.py (`no_real_models`, `offline_trash`, `network_route`, `fake_browser_peer`,
       `offline_tokenizer`) and tests/support/runaway.py with its tests, tests/test_runaway_guards.py.)
@@ -167,7 +169,8 @@ Before: 300 test files, 92,866 lines with support, 5,545 offline items (5,544 pa
 (measured while other work ran on this Mac). Deleted 109 test files (listed below; three with the eval code they
 tested) and 8 orphaned support modules (batches_reference, bus, codex_loopback, context_reference, interleave, loop_fakes, model_loopback, signing_stubs).
 Kept: every target-design safety file, every listed past-bug guard, the step 8a-12c behaviour files, the upgrade,
-import and adapter-contract tests, the guards, the live (`-m real`) tests for step 13, and the step-14 doc tests. After:
+import and adapter-contract tests, the guards, the live (`-m real`) tests for step 13, and the step-14 doc tests (deleted in
+step 14a). After:
 see notes/fix-order.md step 12d. Deleted, by reason:
 - removed or switched-off code (Jev, consolidation, the eval catalogue) and memory internals (12): test_decide,
   test_decide_real, test_destructive_shadow, test_release_measurement, test_security_harness, test_batcher_cost,
@@ -197,6 +200,8 @@ see notes/fix-order.md step 12d. Deleted, by reason:
   test_permissions_on_first_need, test_setup_rpcs, test_tokenizer_cache, test_verdict, test_window_rpcs
 
 ## Live re-test list (step 13)
+
+Also in the one step-13 checklist, notes/test-tasks.md (sitting 9, scenarios R1–R33).
 
 Step 10b removed the prompt patches (notes/prompt-patches.md) and rewrote the prompts to contracts; these live runs
 show whether a removed line mattered (prompt-patches.md "Re-test", deduplicated, plus prompts.md's prompt-only

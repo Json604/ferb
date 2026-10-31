@@ -172,7 +172,7 @@ async def test_anthropic_over_long_prompt_rejection_is_marked_as_an_overflow(sta
 async def test_googles_token_count_rejection_stays_unmarked() -> None:
     """Google documents no error code or message for an input over a model's token limit, and its own client (Gemini CLI
     0.55.1) counts tokens before sending instead of reading the rejection: with nothing to cite, FERB doesn't mark it
-    (an OWNER_ACCEPTANCE residual)."""
+    (an accepted residual)."""
     body = {"error": {"code": 400, "status": "INVALID_ARGUMENT",
                       "message": "The input token count (1200000) exceeds the maximum number of tokens allowed "
                                  "(1048576)."}}

@@ -26,9 +26,9 @@ resumed this Mac's cached thread and its trace says "developer"; on the user-rol
 `FERB_EVAL_REPEAT` (default 2) repeats each run; every verdict, with notes for review (a task after hide-or-lie's
 question, a link in a reply the owner didn't type), is appended to an owner-only log,
 $TMPDIR/ferb-eval/planner-injection.jsonl, so the paths can be compared. The default of `codex_planner_cache` changes
-only after the owner passes this, in its own commit (docs/OWNER_ACCEPTANCE.md). Scenarios adapt
-docs/0.27_SECURITY_TESTS.md #1-#5, #7, #12, #13, #22, #23, #25, #26, #29, #31-#34, #37 and "Planner context in Codex's
-developer role"."""
+only after the owner passes this, in its own commit (notes/runtimes.md decision 2). Scenarios adapt the security
+catalogue in notes/test-tasks.md: S1-S5, S7, S12, S13, S22, S23, S25, S26, S29, S31-S34, S37 and S40 (planner context
+in Codex's developer role)."""
 import json
 import os
 import shutil

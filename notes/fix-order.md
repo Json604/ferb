@@ -94,5 +94,12 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     seams finished (`GatewayDeps.standing`, `Gateway.attach`); dead eval code and functions removed. Notes: daemon.md
     "Footprint (step 12d)" and its rulings, gateway.md, hands.md, tests.md.)
 13. **Live checks**: per-adapter live tests, the owner's P20 injection eval, the patch re-test list, the safety suite.
+    The one ordered checklist, in sittings, is notes/test-tasks.md "Step-13 checklist".
 14. **Docs cleanup** last: extract `notes/test-tasks.md`, settle CLAUDE.md/AGENTS.md, delete the old docs, rewrite
     the README.
+    (Step 14a, 2026-10-31: `notes/test-tasks.md` holds the surfaces, the one step-13 checklist (11 sittings) and the
+    task scenarios extracted from the old docs; `docs/`, `ARCHITECTURE.md` and the stale Web Store privacy copy deleted
+    with the doc-reading tests and `scripts/check_doc_sources.py`; AGENTS.md rewritten to follow CLAUDE.md; README.md
+    rewritten from code and notes; CHANGELOG.md and THIRD_PARTY_NOTICES.md kept. Old decisions no notes file records
+    are listed in notes/docs-cleanup.md "For the owner to confirm or drop". Before step 13: a Command Line Tools /
+    Xcode update, since the linker can't read the macOS 27.2 SDK and scripts/build-app.sh fails.)

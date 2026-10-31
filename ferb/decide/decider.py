@@ -30,7 +30,7 @@ JEV_URL = "https://api.typesafe.ai/v1/systemone"
 JEV_KEYS_URL = "https://console.typesafe.ai/keys"     # where anyone gets a key (Typesafe's docs, quickstart)
 JEV_MODEL = "jev-1.13.0"
 KEY_ACCOUNT = "jev/api_key"                      # Keychain: service "ferb", this account
-JEV_CONTEXT_TOKENS = 32000             # D10/P1 in docs/0.27_PLAN.md; includes state, questions and framing
+JEV_CONTEXT_TOKENS = 32000             # D10/P1 of the 0.27 plan (git history); includes state, questions and framing
 
 
 class JevUnavailable(Exception):

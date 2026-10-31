@@ -1,6 +1,6 @@
 """Owns shared task, action and observation data types. Must not infer intent, choose a target or claim semantic success from transport facts.
 
-Core execution data (see ARCHITECTURE.md). Pure data: no I/O, imports nothing from ferb except core."""
+Core execution data. Pure data: no I/O, imports nothing from ferb except core."""
 
 from dataclasses import dataclass, field
 from datetime import datetime

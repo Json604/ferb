@@ -13,7 +13,7 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
   (the order of work) and `docs-cleanup.md`. The "Owner decisions" sections are authoritative; a later decision
   supersedes an earlier one. If code, a prompt or this file disagrees with a decision, name both and ask the owner.
 - `README.md`: setup and use (being rewritten).
-- Everything under `docs/`, `ARCHITECTURE.md` and `CHANGELOG.md` is stale and will be removed (notes/docs-cleanup.md);
+- `CHANGELOG.md` is stale; the owner decides after launch whether to remove or restart it (notes/docs-cleanup.md);
   don't rely on it.
 - Runtime Markdown under `ferb/` (`ferb/orchestrator/prompts/*.md`, `ferb/memory/*.md`, `ferb/abilities/**`) is
   executable input, not documentation; it changes only through notes/prompts.md.

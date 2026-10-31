@@ -1,8 +1,8 @@
-"""A fake FERB extension speaking the real protocol (extensions/chromium, ARCHITECTURE.md 9.4/9.6) through the
+"""A fake FERB extension speaking the real protocol (extensions/chromium) through the
 real `ferb-native-host` process to a real daemon: install id, pairing, HMAC + seq, generations, seen / owned ids,
 tab events. Pages are in-memory. `hold` makes commands hang (in flight) so tests can drop the connection mid-command.
 
-It models the background-by-construction extension (ARCHITECTURE.md §6): one minimized FERB window per
+It models the background-by-construction extension: one minimized FERB window per
 profile with a blank placeholder tab, task tabs created inactive in it, a debugger attached on a tab's first
 action and kept until the tab closes (`cancel_debugger` is the owner pressing Cancel on the infobar), dialogs
 answered by the extension, keepalive pings, chunked screenshots, uploads.
