@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from ferb.sense.software import app_security_facts, associated_jobs, privacy_facts, login_items
+from ferb.sense.software import app_security_facts, associated_jobs, change_stamp, privacy_facts, login_items
 from ferb.sense.trail import Observation
 from ferb.sense.watchers.base import Emit
 
@@ -17,10 +17,17 @@ class SoftwareWatcher:
 
     async def run(self, emit: Emit, stop: asyncio.Event) -> None:
         previous: dict[str, str] = {}
+        stamp: tuple[object, ...] | None = None
         while not stop.is_set():
+            # The grants and launch jobs of apps already seen are read again only when TCC or a launch-job folder
+            # changed (stat calls each tick); a newly installed app is read at once
+            now = await asyncio.to_thread(change_stamp)
+            changed, stamp = now != stamp, now
             for bundle, path in self.installed():
                 if stop.is_set():
                     break
+                if path in previous and not changed:
+                    continue
                 if path not in previous:
                     facts = await asyncio.to_thread(lambda: self.redact(app_security_facts(Path(path), bundle)))
                     current = {key: facts[key] for key in ("privacy", "launch_jobs", "login_items")}

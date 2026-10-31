@@ -21,6 +21,7 @@ class EventClass(Enum):
 CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "task.steered", "approval.requested", "approval.resolved",
             "device.changed", "browser.profile_paired", "timer.fired", "memory.committed",
             "memory.retired", "memory.expires",   # L36 §6: an item stops holding now, or gets the end its words give
+            "memory.set_aside", "memory.restored",   # decision 17: the owner's words set aside as over, or used again
             "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed",
             "browser.debugger_detached",
             "browser.owner_stopped", "browser.owner_took",   # owner decision 3: the owner closed / took a FERB tab

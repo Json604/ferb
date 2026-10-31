@@ -41,10 +41,10 @@ def test_field_switch_and_pause_never_relabel_old_text_as_new_field() -> None:
     b = replace(a, field_id="search")
     fields = TypedFields(events.append, Redactor())
     fields.feed(a, "draft", actor="owner", now=0)
-    fields.feed(b, "find", actor="owner", now=0.1)
+    fields.feed(b, "find", actor="owner", now=0.1)      # step 9b: the burst in `a` is complete and kept, as `a`'s
     fields.clear()
     fields.flush(b, secure=False, now=1)
-    assert not events
+    assert [(e.data["field_id"], e.data["text"]) for e in events] == [("compose", "draft")]   # never relabelled
 
 
 def test_clipboard_concealed_markers_checked_before_read_and_exact_ferb_count() -> None:

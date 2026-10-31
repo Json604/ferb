@@ -119,12 +119,24 @@ class Environment:
         from ferb.sense.tools import trail_sources
         actions = search_actions(dict(self.registry.capabilities), words)   # a copy: this may run off the event loop
         activity = self.daily_activity.search(words)        # the turn's one search (L28): text and refs share it
+        from ferb.memory.search import PLANNER, tokens
         from ferb.sense.daily import without_queries
         activity = without_queries(activity)               # addresses without query strings (live 2026-10-28)
+        # decision 7 (step 9b): within the activity limit, best first, never a row cut; the rest counted
+        kept, used = [], 0
+        for row in activity:
+            cost = tokens(json.dumps(row, ensure_ascii=False))
+            if used + cost <= PLANNER.activity_tokens:
+                kept.append(row)
+                used += cost
+        left_out = len(activity) - len(kept)
+        activity = kept
         trail = {str(row['source']) for row in activity if row.get('source')}
         labels = {origin.from_read_source(k, i) for k, i in trail_sources(trail)} if trail else set()
         return ('\nRelevant installed actions: ' + json.dumps(actions) +
-                '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) + '\n',
+                '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) + '\n' +
+                (f'({left_out} more matching activity row(s) today left out to stay within the limit; '
+                 'trail.query finds them.)\n' if left_out else ''),
                 origin.join({origin.FERB} | labels),
                 json.dumps([row["data"] if "data" in row else row for row in activity], ensure_ascii=False),
                 ["trail:" + str(row["source_id"]) for row in activity if row.get("source") and row.get("source_id")])

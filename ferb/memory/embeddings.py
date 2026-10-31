@@ -1,79 +1,108 @@
-"""Local-only optional MLX embeddings, pinned artifacts and measured adoption (M8).
+"""Local text embeddings for memory search (notes/memory.md decision 8). Must not send text anywhere, run downloaded
+code, or embed anything but redacted text.
 
-No text goes to a network service. Downloads contain public model files only. Candidate models remain disabled
-until the owner-history evaluation beats keyword search; failures leave keyword retrieval available.
-"""
+The model is a static embedding table (model2vec's potion-base-8M, MIT; Ruling in notes/memory.md, step 9b): each
+token of a WordPiece vocabulary has one 256-number vector; a text's embedding is the mean of its tokens' vectors,
+normalized. No neural network runs at query time, so the cost is a table lookup per token (pure Python, no new
+framework), the files are ~31 MB, and the table is memory-mapped (only the rows a text touches are read in).
+
+The files are fetched once from a pinned revision with pinned SHA-256s (`download`) into
+`~/.ferb/models/embeddings/<name>` at first use, or read from wherever `[memory] embedding_model` points (the app
+bundle can ship them there, step 12). Nothing else is ever downloaded and only these data files are read
+(`.json` and `.safetensors`: never code).
+
+Vectors are stored as normalized int8 (`quantize`) with their sign bits (`sign_bits`) in `recall_vectors` (migration
+0054). `nearest` ranks by the sign bits' Hamming distance first when there are many, then by the int8 cosine of the
+closest few, from an in-memory copy kept per database and model, reloaded when the table changed (`recall_state`
+generation, kept by triggers)."""
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import array
-import sqlite3
+import hashlib
 import json
 import math
+import mmap
+import operator
 import os
 import re
+import struct
 import tempfile
 import threading
+import unicodedata
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 from urllib.request import urlopen
 
-from ferb.memory.learning import LearningRefused, digest, encoded, search_text
+# The pinned model (Ruling, step 9b): minishlab/potion-base-8M, MIT licence, 29,528 tokens x 256 dimensions (float32)
+MODEL: dict[str, Any] = {
+    "name": "potion-base-8M",
+    "repository": "minishlab/potion-base-8M",
+    "revision": "bf8b056651a2c21b8d2565580b8569da283cab23",
+    "license": "MIT",
+    "dimensions": 256,
+    "files": {
+        "config.json": "2a6ac0e9aaa356a68a5688070db78fc3a464fefe85d2f06a1905ce3718687553",
+        "model.safetensors": "f65d0f325faadc1e121c319e2faa41170d3fa07d8c89abd48ca5358d9a223de2",
+        "tokenizer.json": "e67e803f624fb4d67dea1c730d06e1067e1b14d830e2c2202569e3ef0f70bb50",
+    },
+}
+# Ruling: what of a text is embedded (a static model's mean dilutes over long text; the keyword index holds it all)
+EMBED_CHARS = 2000
+MAX_TOKENS = 512                   # model2vec's own default cut
+# Ruling: above this many vectors, `nearest` narrows by sign bits to the closest PREFILTER, then scores those exactly
+PREFILTER_ABOVE = 1000
+PREFILTER = 256
 
 
-def manifest(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text())
-    if not re.fullmatch(r'[0-9a-f]{40}', str(data.get('revision', ''))):
-        raise ValueError('model revision must be an immutable commit hash')
-    if not re.fullmatch(r'[\w.-]+/[\w.-]+', str(data.get('repository', ''))):
-        raise ValueError('invalid model repository')
-    files = data.get('files', {})
-    if not files or 'config.json' not in files or not any(n.endswith('.safetensors') for n in files):
-        raise ValueError('manifest needs config and safetensors weights')
+def manifest_ok(data: dict[str, Any]) -> dict[str, Any]:
+    """A model description FERB accepts: a pinned commit, a SHA-256 for each file, data files only."""
+    if not re.fullmatch(r"[0-9a-f]{40}", str(data.get("revision", ""))):
+        raise ValueError("model revision must be an immutable commit hash")
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", str(data.get("repository", ""))):
+        raise ValueError("invalid model repository")
+    files = data.get("files", {})
+    if not files or "tokenizer.json" not in files or not any(n.endswith(".safetensors") for n in files):
+        raise ValueError("a model needs a tokenizer and safetensors weights")
     for name, sha in files.items():
         p = Path(name)
-        if p.is_absolute() or '..' in p.parts or p.suffix not in ('.json', '.safetensors', '.txt', '.model', '.tiktoken'):
-            raise ValueError('model manifest contains an unsafe path or executable file')
-        if not re.fullmatch(r'[0-9a-f]{64}', str(sha)):
-            raise ValueError('every file needs a SHA256 hash')
-    if data.get('dimensions') not in (256, 512):
-        raise ValueError('choose the planned 256 or 512 embedding dimensions')
+        if p.is_absolute() or ".." in p.parts or len(p.parts) != 1 or p.suffix not in (".json", ".safetensors"):
+            raise ValueError("model files must be plain data files in one folder")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(sha)):
+            raise ValueError("every file needs a SHA256 hash")
+    if int(data.get("dimensions") or 0) <= 0:
+        raise ValueError("the model needs its dimensions")
     return data
 
 
 def verify(root: Path, data: dict[str, Any]) -> None:
-    actual = {str(p.relative_to(root)) for p in root.rglob('*') if p.is_file()}
-    if actual != set(data['files']):
-        raise ValueError('model directory differs from its pinned manifest')
-    for name, expected in data['files'].items():
+    """Every pinned file is there, a regular file (never a link), with its SHA-256."""
+    for name, expected in data["files"].items():
         path = root / name
-        if path.is_symlink() or any(p.is_symlink() for p in path.parents if p != root.parent):
-            raise ValueError('model artifacts cannot be symlinks')
-        with path.open('rb') as f:
-            if hashlib.file_digest(f, 'sha256').hexdigest() != expected:
-                raise ValueError('model file hash mismatch: ' + name)
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("model file missing or not a regular file: " + name)
+        with path.open("rb") as f:
+            if hashlib.file_digest(f, "sha256").hexdigest() != expected:
+                raise ValueError("model file hash mismatch: " + name)
 
 
-def extra_missing() -> str | None:
-    """The optional `memory` extra's module a local embedding model needs, when this install lacks it (the packaged
-    app doesn't bundle it): checked before anything is downloaded (review M8). sqlite-vec has a Python fallback."""
-    import importlib.util
-    return None if importlib.util.find_spec("mlx_embeddings") is not None else "mlx_embeddings"
+def default_root(home: Path, data: dict[str, Any] = MODEL) -> Path:
+    return home / "models" / "embeddings" / f"{data['name']}@{data['revision'][:12]}"
 
 
-def download(root: Path, data: dict[str, Any], fetch: Callable[..., Any] = urlopen) -> None:
-    root.parent.mkdir(parents=True, exist_ok=True)
+def download(root: Path, data: dict[str, Any] = MODEL, fetch: Callable[..., Any] = urlopen) -> None:
+    """Fetch the pinned files once into `root` (a temporary folder renamed into place after every hash checks)."""
+    manifest_ok(data)
     if root.exists():
         verify(root, data)
         return
-    with tempfile.TemporaryDirectory(prefix='.embedding-', dir=root.parent) as folder:
-        tmp = Path(folder)
-        for name, sha in data['files'].items():
-            target = tmp / name
-            target.parent.mkdir(parents=True, exist_ok=True)
+    root.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with tempfile.TemporaryDirectory(prefix=".embedding-", dir=root.parent) as folder:
+        tmp = Path(folder) / "model"
+        tmp.mkdir()
+        for name in data["files"]:
             url = f"https://huggingface.co/{data['repository']}/resolve/{data['revision']}/{name}"
-            with fetch(url) as incoming, target.open('wb') as out:
+            target = tmp / name
+            with fetch(url, timeout=60) as incoming, target.open("wb") as out:
                 while chunk := incoming.read(1024 * 1024):
                     out.write(chunk)
                 out.flush()
@@ -84,174 +113,222 @@ def download(root: Path, data: dict[str, Any], fetch: Callable[..., Any] = urlop
         root.chmod(0o700)
 
 
-class LocalMLX:
-    """Use only a verified local directory; no provider fallback and no remote Python model code."""
-    def __init__(self, root: Path, data: dict[str, Any]) -> None:
-        verify(root, data)
-        from mlx_embeddings.utils import load  # optional memory extra
-        self.model, self.tokenizer = load(str(root), tokenizer_config={'local_files_only': True,
-                                                                       'trust_remote_code': False})
-        self.dimensions = data['dimensions']
-        self.name = data['repository'] + '@' + data['revision'] + ':' + str(self.dimensions) + ':' + digest(data)
-        self.query_prefix = str(data.get('query_prefix', ''))
-        self._encode_lock = threading.Lock()
+# ---------- the tokenizer (BERT normalizer, pre-tokenizer and WordPiece, as the model's tokenizer.json declares) ----
 
-    def encode(self, text: str, *, query: bool = False) -> list[int]:
-        from mlx_embeddings.utils import generate
-        value = (self.query_prefix if query else '') + text
-        # Do not silently clip long evidence. The model may report an unsupported context length.
-        # Idle indexing runs in a thread; a new task can query this same loaded model.
-        with self._encode_lock:
-            out = generate(self.model, self.tokenizer, texts=value, truncation=False).text_embeds[0].tolist()
-        if len(out) < self.dimensions:
-            raise ValueError('embedding model returned fewer dimensions than its manifest')
-        return quantize(out[:self.dimensions])
+def _punctuation(ch: str) -> bool:
+    cp = ord(ch)
+    if 33 <= cp <= 47 or 58 <= cp <= 64 or 91 <= cp <= 96 or 123 <= cp <= 126:
+        return True
+    return unicodedata.category(ch).startswith("P")
+
+
+def _cjk(cp: int) -> bool:
+    return (0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF or 0x20000 <= cp <= 0x2A6DF or 0x2A700 <= cp <= 0x2B73F
+            or 0x2B740 <= cp <= 0x2B81F or 0x2B820 <= cp <= 0x2CEAF or 0xF900 <= cp <= 0xFAFF
+            or 0x2F800 <= cp <= 0x2FA1F)
+
+
+class WordPiece:
+    def __init__(self, spec: dict[str, Any]) -> None:
+        model = spec["model"]
+        if model.get("type") != "WordPiece":
+            raise ValueError("the embedding model's tokenizer is not WordPiece")
+        self.vocab: dict[str, int] = {str(k): int(v) for k, v in model["vocab"].items()}
+        self.unk = str(model.get("unk_token") or "[UNK]")
+        self.prefix = str(model.get("continuing_subword_prefix") or "##")
+        self.max_chars = int(model.get("max_input_chars_per_word") or 100)
+        norm = spec.get("normalizer") or {}
+        self.lowercase = bool(norm.get("lowercase", True))
+        strip = norm.get("strip_accents")
+        self.strip_accents = self.lowercase if strip is None else bool(strip)
+
+    def _normalize(self, text: str) -> str:
+        out = []
+        for ch in text:
+            cp = ord(ch)
+            if cp == 0 or cp == 0xFFFD or (unicodedata.category(ch).startswith("C") and ch not in "\t\n\r"):
+                continue
+            if ch.isspace():
+                out.append(" ")
+            elif _cjk(cp):
+                out.append(f" {ch} ")
+            else:
+                out.append(ch)
+        text = "".join(out)
+        if self.lowercase:
+            text = text.lower()
+        if self.strip_accents:
+            text = "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
+        return text
+
+    def _words(self, text: str) -> Iterable[str]:
+        for chunk in text.split():
+            word = ""
+            for ch in chunk:
+                if _punctuation(ch):
+                    if word:
+                        yield word
+                        word = ""
+                    yield ch
+                else:
+                    word += ch
+            if word:
+                yield word
+
+    def ids(self, text: str) -> list[int]:
+        """Token ids, unknown words left out (model2vec drops the unknown token before pooling)."""
+        out: list[int] = []
+        for word in self._words(self._normalize(text)):
+            if len(word) > self.max_chars:
+                continue
+            start, pieces = 0, list[int]()
+            while start < len(word):
+                end, found = len(word), None
+                while start < end:
+                    piece = word[start:end] if start == 0 else self.prefix + word[start:end]
+                    if piece in self.vocab:
+                        found = self.vocab[piece]
+                        break
+                    end -= 1
+                if found is None:
+                    pieces = []
+                    break
+                pieces.append(found)
+                start = end
+            out += pieces
+            if len(out) >= MAX_TOKENS:
+                return out[:MAX_TOKENS]
+        return out
+
+
+class StaticEmbedder:
+    """The pinned static model from a verified folder. `encode` is thread-safe (read-only data)."""
+
+    def __init__(self, root: Path, data: dict[str, Any] = MODEL) -> None:
+        manifest_ok(data)
+        verify(root, data)
+        self.dimensions = int(data["dimensions"])
+        self.name = f"{data['name']}@{data['revision'][:12]}:{self.dimensions}"
+        self.tokenizer = WordPiece(json.loads((root / "tokenizer.json").read_text(encoding="utf-8")))
+        weights = next(n for n in data["files"] if n.endswith(".safetensors"))
+        self._file = open(root / weights, "rb")
+        self._map = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ)
+        size = struct.unpack("<Q", self._map[:8])[0]
+        header = json.loads(self._map[8:8 + size])
+        tensor = next(v for k, v in header.items() if k != "__metadata__")
+        if tensor["dtype"] != "F32" or len(tensor["shape"]) != 2 or tensor["shape"][1] != self.dimensions:
+            raise ValueError("unexpected embedding table shape")
+        begin, end = tensor["data_offsets"]
+        self.rows = int(tensor["shape"][0])
+        self._table = memoryview(self._map)[8 + size + begin:8 + size + end].cast("f")
+
+    def close(self) -> None:
+        try:
+            self._table.release()
+            self._map.close()
+        finally:
+            self._file.close()
+
+    def floats(self, text: str) -> list[float] | None:
+        """The text's normalized mean embedding, or None when no token is known."""
+        ids = [i for i in self.tokenizer.ids(text[:EMBED_CHARS]) if 0 <= i < self.rows]
+        if not ids:
+            return None
+        d = self.dimensions
+        acc = [0.0] * d
+        add = operator.add
+        for i in ids:
+            acc = list(map(add, acc, self._table[i * d:(i + 1) * d]))
+        norm = math.sqrt(sum(x * x for x in acc))
+        return [x / norm for x in acc] if norm else None
+
+    def encode(self, text: str, *, query: bool = False) -> list[int] | None:
+        values = self.floats(text)
+        return quantize(values) if values is not None else None
 
 
 def quantize(values: list[float]) -> list[int]:
     if not values or any(not math.isfinite(x) for x in values):
-        raise ValueError('embedding must contain finite numbers')
+        raise ValueError("embedding must contain finite numbers")
     norm = math.sqrt(sum(x * x for x in values))
     if not norm:
-        raise ValueError('zero embedding')
-    # Normalized int8; scale is the representable int8 range, not a data cap.
-    peak = max(abs(x / norm) for x in values)
+        raise ValueError("zero embedding")
+    peak = max(abs(x / norm) for x in values)       # normalized int8; the scale is int8's range, not a data cap
     return [round(127 * x / norm / peak) for x in values]
 
 
-def _unembedded(learning: Any, node: dict[str, Any], model: Any) -> None:
-    """A node with nothing to match (a rollup, an intent label: `search_text` is empty) is never embedded; a vector an
-    earlier index made of its JSON goes, so similarity can't rank it either."""
-    learning.db.conn.execute('DELETE FROM learning_vectors WHERE node_id=? AND model=?', (node['id'], model.name))
+def sign_bits(vector: list[int]) -> bytes:
+    """One bit per dimension (set when positive): `nearest`'s cheap first ranking."""
+    value = 0
+    for n, x in enumerate(vector):
+        if x > 0:
+            value |= 1 << n
+    return value.to_bytes((len(vector) + 7) // 8, "little")
 
 
-def index(learning: Any, model: Any) -> int:
-    count = 0
-    for node in learning.items():
-        text = search_text(node['kind'], node['key'], node['body'])     # what keyword search matches too (L36 §3)
-        if not text:
-            _unembedded(learning, node, model)
-            continue
-        sha = digest(text)
-        old = learning.db.conn.execute('SELECT text_hash FROM learning_vectors WHERE node_id=? AND model=?',
-                                       (node['id'], model.name)).fetchone()
-        if old and old[0] == sha:
-            continue
-        vec = model.encode(text)
-        learning.db.conn.execute('INSERT OR REPLACE INTO learning_vectors VALUES (?,?,?,?,?)',
-            (node['id'], model.name, array.array('b', vec).tobytes(), node['recorded_at'][:7], sha))
-        count += 1
-    return count
+def text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
-def ranked(db: Any, model: Any, query: str, *, vector: list[int] | None = None) -> list[str]:
-    """Nodes nearest the query. `vector`: the query's embedding when the caller already computed it off the event
-    loop (L28); otherwise it is computed here."""
-    vector = vector if vector is not None else model.encode(query, query=True)
-    # sqlite-vec performs int8 distance locally; Python's exact cosine is a portable offline fallback.
-    try:
-        import sqlite_vec
-        db.conn.enable_load_extension(True)
-        try:
-            sqlite_vec.load(db.conn)
-        finally:
-            db.conn.enable_load_extension(False)
-        return [r[0] for r in db.conn.execute('SELECT node_id FROM learning_vectors WHERE model=? '
-            'ORDER BY vec_distance_cosine(vec_int8(vector_blob),vec_int8(?)),node_id',
-            (model.name, array.array('b', vector).tobytes()))]
-    except (ImportError, AttributeError, sqlite3.OperationalError):
-        def score(raw: bytes) -> float:
-            v = list(array.array('b', raw))
-            if len(v) != len(vector):
-                raise ValueError('stored vector dimension differs from query')
-            return sum(a * b for a, b in zip(v, vector)) / math.sqrt(sum(x*x for x in v) * sum(x*x for x in vector))
-        return [r[0] for r in sorted(db.conn.execute('SELECT node_id,vector_blob FROM learning_vectors WHERE model=?',
-                                                    (model.name,)), key=lambda r: (-score(r[1]), r[0]))]
+# ---------- the stored vectors ----------
+
+def store(conn: Any, doc: str, kind: str, at: str, model: str, digest: str, vector: list[int]) -> None:
+    conn.execute("INSERT OR REPLACE INTO recall_vectors (doc, model, kind, at, text_hash, vector, bits) "
+                 "VALUES (?,?,?,?,?,?,?)", (doc, model, kind, at, digest,
+                                            array.array("b", vector).tobytes(), sign_bits(vector)))
 
 
-def evaluate(learning: Any, model: Any, cases: list[dict[str, Any]], *, prepare: bool = True) -> dict[str, Any]:
-    """Paired reciprocal-rank measurement, grounded in recorded owner requests and owner-labelled relevant IDs.
+class _Loaded:
+    def __init__(self, generation: int, rows: list[tuple[str, str, int, array.array[int], float]]) -> None:
+        self.generation, self.rows = generation, rows
 
-    No fixed minimum corpus size is invented; the report exposes n and the plan calls for ~50–100 owner queries.
-    Adoption is a separate explicit owner action and also requires measured hybrid improvement.
-    """
-    if not cases:
-        raise LearningRefused('evaluation needs labelled owner-history queries')
-    for case in cases:
-        source = learning.db.conn.execute('SELECT request_text FROM episodes WHERE task_id=?',
-                                          (case.get('task_id'),)).fetchone()
-        if not source or case.get('query') != source[0] or not case.get('relevant'):
-            raise LearningRefused('query must match its real episode request and have relevance labels')
-        if any(learning.get(i) is None for i in case['relevant']):
-            raise LearningRefused('label references missing memory')
-    if prepare:
-        index(learning, model)
-    previous = learning.embedder
+
+_cache: dict[tuple[str, str], _Loaded] = {}
+_cache_lock = threading.Lock()
+
+
+def _generation(conn: Any) -> int:
+    row = conn.execute("SELECT value FROM recall_state WHERE name = 'vectors'").fetchone()
+    return int(row[0]) if row else 0
+
+
+def _loaded(db: Any, model: str) -> _Loaded:
+    key = (str(getattr(db, "path", id(db))), model)
+    generation = _generation(db.conn)
+    with _cache_lock:
+        held = _cache.get(key)
+        if held is not None and held.generation == generation:
+            return held
     rows = []
-    try:
-        for case in cases:
-            result = {'task_id': case['task_id']}
-            for name, embedder in (('keyword', None), ('hybrid', model)):
-                learning.embedder = embedder
-                hits = learning.search(case['query'])
-                # Hold out the query task itself to avoid measuring identity lookup as helpful memory.
-                held_out = learning.descendants(['episode:' + case['task_id']])
-                hits = [h for h in hits if h['id'] not in held_out and h['body'].get('task_id') != case['task_id']]
-                pos = next((n + 1 for n, hit in enumerate(hits) if hit['id'] in case['relevant']), None)
-                result[name] = 1 / pos if pos else 0.0
-            rows.append(result)
-    finally:
-        learning.embedder = previous
-    scores = {k: sum(r[k] for r in rows) / len(rows) for k in ('keyword', 'hybrid')}
-    out = {'queries': len(rows), 'mrr': scores, 'improved': scores['hybrid'] > scores['keyword'], 'rows': rows,
-           'answer_quality': 'not measured; paired with/without-memory task evaluation still required'}
-    ident = digest([model.name, cases, out])
-    learning.db.conn.execute('INSERT OR REPLACE INTO learning_embedding_evals VALUES (?,?,?,?,?,0)',
-                             (ident, model.name, digest(cases), learning.now(), encoded(out)))
-    return out | {'id': ident, 'model': model.name}
+    for doc, kind, raw, bits in db.conn.execute("SELECT doc, kind, vector, bits FROM recall_vectors WHERE model = ?",
+                                                (model,)):
+        vec = array.array("b", raw)
+        norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+        rows.append((str(doc), str(kind), int.from_bytes(bits, "little"), vec, norm))
+    held = _Loaded(generation, rows)
+    with _cache_lock:
+        _cache[key] = held
+    return held
 
 
-def adopt(learning: Any, model: Any, evaluation_id: str) -> None:
-    row = learning.db.conn.execute('SELECT * FROM learning_embedding_evals WHERE id=? AND model=?',
-                                   (evaluation_id, model.name)).fetchone()
-    if row is None or json.loads(row['result_json']).get('improved') is not True:
-        raise LearningRefused('this exact model has not beaten keyword retrieval on owner history')
-    learning.db.conn.execute('UPDATE learning_embedding_evals SET adopted=0')
-    learning.db.conn.execute('UPDATE learning_embedding_evals SET adopted=1 WHERE id=?', (evaluation_id,))
-    learning.embedder = model
+def nearest(db: Any, model: str, vector: list[int], kinds: Iterable[str], limit: int = 100
+            ) -> list[tuple[str, float]]:
+    """The stored docs of `kinds` nearest `vector` by cosine, best first, at most `limit`."""
+    wanted = set(kinds)
+    rows = [r for r in _loaded(db, model).rows if r[1] in wanted]
+    if not rows:
+        return []
+    q = array.array("b", vector)
+    qnorm = math.sqrt(sum(x * x for x in q)) or 1.0
+    if len(rows) > PREFILTER_ABOVE:
+        qbits = int.from_bytes(sign_bits(vector), "little")
+        rows = sorted(rows, key=lambda r: (r[2] ^ qbits).bit_count())[:max(PREFILTER, limit)]
+    mul = operator.mul
+    scored = [(doc, sum(map(mul, q, vec)) / (qnorm * norm)) for doc, _, _, vec, norm in rows]
+    scored.sort(key=lambda s: (-s[1], s[0]))
+    return scored[:limit]
 
 
-async def index_async(learning: Any, model: Any) -> int:
-    """Keep inference off the daemon thread; only the owner loop touches SQLite."""
-    count = 0
-    for node in learning.items():
-        text = search_text(node['kind'], node['key'], node['body'])     # what keyword search matches too (L36 §3)
-        if not text:
-            _unembedded(learning, node, model)
-            continue
-        sha = digest(text)
-        old = learning.db.conn.execute('SELECT text_hash FROM learning_vectors WHERE node_id=? AND model=?',
-                                       (node['id'], model.name)).fetchone()
-        if old and old[0] == sha:
-            continue
-        vector = await asyncio.to_thread(model.encode, text)
-        if learning.get(node['id']) is None:
-            continue  # owner may forget evidence during inference
-        learning.db.conn.execute('INSERT OR REPLACE INTO learning_vectors VALUES (?,?,?,?,?)',
-            (node['id'], model.name, array.array('b', vector).tobytes(), node['recorded_at'][:7], sha))
-        count += 1
-    return count
-
-
-async def evaluate_async(learning: Any, model: Any, cases: list[dict[str, Any]]) -> dict[str, Any]:
-    await index_async(learning, model)
-    vectors = {}
-    for case in cases:
-        vectors[case['query']] = await asyncio.to_thread(model.encode, case['query'], query=True)
-    class PreparedQueries:
-        name = model.name
-        def encode(self, text: str, *, query: bool = False) -> list[int]:
-            if not query:
-                raise ValueError('evaluation corpus must be prepared before scoring')
-            return vectors[text]
-    return evaluate(learning, PreparedQueries(), cases, prepare=False)
+def similarity(a: list[int], b: list[int]) -> float:
+    na, nb = math.sqrt(sum(x * x for x in a)), math.sqrt(sum(x * x for x in b))
+    return sum(map(operator.mul, a, b)) / (na * nb) if na and nb else 0.0

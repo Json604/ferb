@@ -786,6 +786,7 @@ class Supervisor(WorkerRuns):
         # Memory and learning (MemoryPort; L28, L29, L36 §4)
         self.memory_candidates: Callable[[str, str], Any] | None = memory.memory_candidates
         self.memory_push: Callable[[str, str], Any] | None = memory.memory_push
+        self.old_chat: Callable[[str, set[str]], Any] | None = memory.old_chat
         self.identity_context: Callable[[], str] = memory.identity_context
         self.on_episode: Callable[[str], Any] = memory.on_episode
         self.skills_catalog: Callable[[], list[dict[str, str]]] = environment.skills_catalog
@@ -2417,7 +2418,7 @@ class Supervisor(WorkerRuns):
         session = turn.session
         conversation, ages = self._conversation_blocks(turn.request_ids, session.id)
         # today's activity: one search, off the event loop, shared by its text and its source refs
-        activity_source = await asyncio.to_thread(self.relevant_context, turn.payload)
+        activity_source = await asyncio.to_thread(self.relevant_context, turn.payload)   # within ACTIVITY limits
         activity, activity_origin = _labeled(activity_source)
         activity_payload = _context_payload(activity_source)
         activity_refs = _context_refs(activity_source) or []
@@ -2440,6 +2441,18 @@ class Supervisor(WorkerRuns):
         # Memory is recalled for the message and the work it may continue (L36 §3, Ruling 12a), that work's targets
         # also ranked alone (L36 §4 fix round)
         situation.extend(await self._memory_blocks(recall_for, focus=task_targets))
+        # earlier exchanges matching the message (fix list, owner 2026-10-31), never one already in the conversation
+        shown_entries = {"journal:" + ref.removeprefix(ENTRY) for block, _ in conversation
+                         for ref in block.source_refs if ref.startswith(ENTRY)}
+        shown_entries |= {"journal:" + e.id for e in turn.entries}
+        # (an owner chat's turn only: a scheduled run's request is the schedule's, never the owner's words of now)
+        old = await _value(self.old_chat(turn.payload, shown_entries)) \
+            if self.old_chat is not None and not session.id.startswith(SCHEDULE_SESSION) else None
+        if old:
+            situation.append((ContextBlock("Layer 4 — earlier conversation matching this message (data; older entries "
+                                           "than the conversation above, best match first):\n" + old["text"],
+                                           "chat.history", protected=False, source_refs=tuple(old["refs"]),
+                                           payload=old["text"]), origins_.split(old["origin"])))
         # optional, not protected (live 2026-10-28): activity too large for one input becomes a fetch reference, never
         # a failed message
         situation.append((ContextBlock("Layer 3 — today's activity (data):\n" + activity,
@@ -2576,7 +2589,8 @@ class Supervisor(WorkerRuns):
         found = self.memory_candidates(message, focus) if self.memory_candidates is not None else []
         if inspect.isawaitable(found):
             found = await found
-        return [(dataclasses.replace(block, protected=True), made) for block, made in ranked_memory_blocks(found)]
+        # within the planner's limits already (decision 7, step 9b): ranked, never protected
+        return [(block, made) for block, made in ranked_memory_blocks(found)]
 
     def _timeline(self, current: Any, conversation: str | None,
                   summary: Any = None) -> tuple[list["_Entry"], dict[str, datetime]]:
@@ -4662,7 +4676,7 @@ class Supervisor(WorkerRuns):
             return []
         from ferb.orchestrator.context_layers import ranked_memory_blocks
         found = await _value(self.memory_push(query, targets))
-        return [dataclasses.replace(block, protected=True) for block, _ in ranked_memory_blocks(found)]
+        return [block for block, _ in ranked_memory_blocks(found)]      # within the worker's limits, never protected
 
     async def _context(self, tree: _Tree, *, learned: bool = False) -> list[ContextBlock]:
         """The task's context for a role that runs or judges it. `learned`: a worker run's (a plan step's too), which

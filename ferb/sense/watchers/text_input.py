@@ -134,7 +134,7 @@ class TextInputWatcher:
                 return
             field = focused_field(self.excluded, self.terminal_apps)
             if field is None or not field.safe:
-                fields.clear()
+                fields.leave(field)        # an earlier field's complete burst is kept; this key never is
                 return
             flags = Quartz.CGEventGetFlags(event)
             if flags & (Quartz.kCGEventFlagMaskCommand | Quartz.kCGEventFlagMaskControl):

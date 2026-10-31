@@ -176,24 +176,27 @@ class Notify:
                                category="loop", task_id=tree_id)
 
     async def _tell_owner(self, ident: str, refs: list[str], text: str, notice_origin: str, *, category: str = "",
-                          task_id: str = "") -> None:
+                          task_id: str = "", cards: list[dict[str, Any]] | None = None) -> None:
         """One notice line in the owner's chat, posted once per `ident` (`AttentionNotices.add`, `_post_notice`): a
         loop's notice (L31), or a fact distillation retired or replaced on the owner's words (L36 §6, re-review ruling
-        (c), `Distiller.tell`). `refs`: what it cites."""
+        (c), `Distiller.tell`). `refs`: what it cites. `cards`: typed cards from FERB's own records (step 8e), on the
+        event and the journaled row."""
         if self.attention_notices is None:
             return
         notice = self.attention_notices.add(ident, refs, text, notice_origin=notice_origin)
         if notice is not None:
-            await self._post_notice(notice, category=category, task_id=task_id)
+            await self._post_notice(notice, category=category, task_id=task_id, cards=cards)
 
-    async def _post_notice(self, notice: dict[str, Any], *, category: str = "", task_id: str = "") -> None:
+    async def _post_notice(self, notice: dict[str, Any], *, category: str = "", task_id: str = "",
+                           cards: list[dict[str, Any]] | None = None) -> None:
         """L9: a notice is a FERB message in the owner's chat: journaled `chat.notice`, published `attention.notice`, and
         listed in `chat.status` until a client acknowledges it. Posting it is telling: a notification it cites gets its
         told receipt now. A macOS banner (its text, never its outside quotes) only when no connected FERB client
         receives `attention.notice`."""
         assert self.attention_notices is not None and self.db is not None
-        view = self.attention_notices.view(notice)
-        self._journal().append('chat.notice', {k: view[k] for k in ('id', 'text', 'quotes')}, origin=notice['origin'])
+        view = self.attention_notices.view(notice) | ({"cards": cards} if cards else {})
+        self._journal().append('chat.notice', {k: view[k] for k in ('id', 'text', 'quotes', 'cards') if k in view},
+                               origin=notice['origin'])
         if self.perception is not None:
             for ref in json.loads(notice['source_refs_json']):
                 row = self.trail.row(ref.removeprefix('trail:')) if self.trail is not None else None

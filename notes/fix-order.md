@@ -39,6 +39,10 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     `runtime_switch`; error codes reach the app (FERB.app-only refusal -32005); part events carry `done`/`total`.
     Rulings in notes/orchestration.md. Live checks with step 13.)
 9. **Memory**: Tier 1-3, local embeddings, how-notes, simple forget, perception fixes.
+   (Step 9a: Tier 1 core profile, no Keep questions, decisions 11-16. Step 9b: the local embedding model
+   (potion-base-8M, fetched once) and one fused search over facts, past tasks, playbooks and old chat within per-role
+   limits; chat.history by meaning and date; how-notes, playbooks and the repeat measure; bounded card sources;
+   perception fixes; decisions 17-18; the bot-check fact. Rulings and measurements in notes/memory.md.)
 10. **Prompts**: rewrite to contracts; patch mapping table reviewed by the owner; owner-confirmed memory items.
 11. **Voice**: speaker factory (macOS voice first), replies from structured events.
 12. **Storage**: retention, `source_refs` removal, incremental vacuum, one-time cleanup (owner OK), upgrade path

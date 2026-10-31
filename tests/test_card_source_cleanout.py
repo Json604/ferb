@@ -34,12 +34,15 @@ def _rows(db: Database) -> dict[str, set[str]]:
 
 def test_card_source_refs_are_what_a_current_card_cites(store: Any) -> None:
     """The source collection factored out of `prepare_episode` is the card rule itself: a card the current composer
-    writes cites exactly `card_source_refs`; a task with no trace left gives None."""
+    writes cites refs from `card_source_refs` only, and since step 9b one per distinct set of origins of the
+    activity rows (fix list: up to 58,250 refs a card); a task with no trace left gives None."""
     db, spans, learning = store
     kept, shown = traced_task(db, spans, learning, "c0ffee01")
     assert learning.card_source_refs("c0ffee01") == kept
     card = learning.capture_episode("c0ffee01")
-    assert card is not None and set(card["sources"]) == kept
+    assert card is not None and set(card["sources"]) <= kept and "episode:c0ffee01" in card["sources"]
+    trail = [r for r in card["sources"] if r.startswith("trail:")]
+    assert trail and len(trail) < len([r for r in kept if r.startswith("trail:")])    # one per origin set
     assert learning.card_source_refs("c0ffee99") is None
 
 

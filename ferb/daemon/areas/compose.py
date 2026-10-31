@@ -10,7 +10,7 @@ from ferb.act.fs.changes import Changes
 from ferb.core import origin as origin_
 from ferb.core.errors import FerbError
 from ferb.daemon.gateway import FsRoots, Gateway
-from ferb.memory.learning import WORKER_MEMORY_ITEMS
+from ferb.memory import search as memory_search
 from ferb.orchestrator.supervisor import Supervisor
 from ferb.orchestrator.verify import Checks
 from ferb.policy import protection as protection_lists
@@ -124,10 +124,11 @@ class Compose:
             on_task_end=self._task_end, facts=self._facts, checks=Checks(self._urls_of, self.spans), roots=roots,
             questions=questions,
             memory=ports.MemoryPort(
-                # L36 §4: every worker and plan step gets the one search at the owner's worker budget, its task's
-                # targets also ranked alone
-                memory_candidates=lambda words, focus: self._learning_candidates(words, focus=focus),
-                memory_push=lambda words, focus: self._learning_candidates(words, WORKER_MEMORY_ITEMS, focus=focus),
+                # L36 §4: every worker and plan step gets the one search within the worker's limits (step 9b), its
+                # task's targets also ranked alone
+                memory_candidates=lambda words, focus: self._learning_candidates(words, memory_search.PLANNER, focus=focus),
+                memory_push=lambda words, focus: self._learning_candidates(words, memory_search.WORKER, focus=focus),
+                old_chat=self._old_chat,
                 remember=self._remember, forget_request=self._chat_forget,
                 question_answered=self._question_answered, settle=self._settle_forgets,
                 identity_context=self._core_profile_text, on_episode=self._capture_learning_episode,
@@ -163,7 +164,7 @@ class Compose:
         add_context_readers(self.registry, self.supervisor.continuity,
                             lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None),
                             lambda: self.memory, lambda ref: self.learning._source_origins(ref) if self.learning else {origin_.external('unlabeled'), origin_.PRIVATE},
-                            search=self._memory_item_search)
+                            search=self._memory_item_search, chat_search=self._chat_search)
         from ferb.identity.secret_tools import SecretsList
         self.registry.add(SecretsList(lambda: self.home,               # L36 §5: names only, never values
                                       lambda ctx, place: self.gateway.hidden._question_sites(ctx, place) if self.gateway
@@ -200,8 +201,12 @@ class Compose:
                 self.supervisor.notify_plan_event(topic, data)
 
         def activity(topic: str, data: dict[str, Any]) -> None:
+            # Memory decision 3: accessibility rows stay in the trail only (pull-only, trail.query), never in today's
+            # activity or its per-turn search. Each row's data is stored once (fix list: it was also copied as
+            # `where`).
+            if data.get('source') == 'accessibility':
+                return
             self.daily_activity.record(dict(data, what=data.get('what', data.get('source', topic)),
-                                            where=data.get('where', data.get('data', {})),
                                             device_id=self._activity_device()))
 
         def conversations(topic: str, data: dict[str, Any]) -> None:

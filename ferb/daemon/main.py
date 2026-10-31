@@ -95,7 +95,7 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
                  notifications: bool = True, retention: bool = True, resources: bool = True,
                  snapshots: bool = True,
                  persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True,
-                 preload_secrets: bool = True) -> None:
+                 preload_secrets: bool = True, embeddings: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
@@ -202,6 +202,10 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         self.learning: Any = None
         self.distiller: Any = None
         self._distill_task: asyncio.Task[None] | None = None
+        # Decision 8: the local embedding model, fetched once and loaded, then new text embedded in the background.
+        # Tests turn it off (never a download) and put a fake embedder in place themselves.
+        self.run_embeddings = embeddings
+        self._embed_task: asyncio.Task[None] | None = None
         # L36 §3: the start's re-index of the search text, in a worker thread; asked to stop at shutdown
         self._reindex_task: asyncio.Task[None] | None = None
         self._reindex_stop = threading.Event()
@@ -421,7 +425,7 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         # Stop task producers before taking the task snapshot. Task finalizers still need the
         # gateway resources, disturbance observer and database until cancellation has completed.
         await drain({job for job in (self._macos_task, self._distill_task, self._retention_task, self._timer_task,
-                                self._held_task, self._resources_task)
+                                self._held_task, self._resources_task, self._embed_task)
                      if job is not None}, "producers")
         if self.supervisor:
             self.supervisor.suspend_plans()

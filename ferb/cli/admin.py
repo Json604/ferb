@@ -281,8 +281,6 @@ def memory(client: Client, args: Any, ask: Any, out: TextIO) -> int:
     if c in ("embeddings", "eval-export"):
         import json
         params = {"op": "embedding" if c == "embeddings" else "eval_export"}
-        params.update({k: getattr(args, k) for k in ("action", "manifest", "dataset", "evaluation")
-                       if getattr(args, k, None) is not None})
         client.set_timeout(None)
         print(json.dumps(client.call("memory.learning", params), ensure_ascii=False, indent=2), file=out)
         return 0
@@ -704,10 +702,29 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
         if latest and latest[0]:
             print(f"  latest failed call: ferb trace {latest[0]}", file=out)
         _daemon_problems(c, since, out)
+        if "learning_nodes" in tables and "episodes" in tables:
+            _repeats(c, out)
         _resources(c, days, "resource_samples" in tables, out)
     finally:
         c.close()
     return 0
+
+
+def _repeats(c: Any, out: TextIO) -> None:
+    """"Gets better at repeated tasks", measured (notes/memory.md, step 9b): each playbook's verified runs of one kind
+    of work, first and latest, with attempts and time, and how many later runs were shown its memory."""
+    from ferb.memory.playbooks import repeat_stats
+    books = repeat_stats(c)
+    print(f"Repeated work (playbooks): {len(books)}", file=out)
+    for book in books[:10]:
+        runs = book["runs"]
+        if not runs:
+            continue
+        first, last = runs[0], runs[-1]
+        used = [r["used_memory"] for r in runs[1:] if r["used_memory"] is not None]
+        print(f"  {book['title']}: {len(runs)} runs; first {first['attempts']} attempt(s), {first['seconds']:g} s; "
+              f"latest {last['attempts']} attempt(s), {last['seconds']:g} s; memory shown in {sum(used)} of "
+              f"{len(used)} later traced run(s)", file=out)
 
 
 def _daemon_problems(c: Any, since: str, out: TextIO) -> None:

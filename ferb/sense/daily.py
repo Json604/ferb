@@ -19,6 +19,20 @@ def terms(text: str) -> set[str]:
     return {t for t in re.findall(r"\w+", text.casefold()) if len(t) > 2}
 
 
+def values(node: Any) -> Iterator[str]:
+    """A row's values as text, never its keys (fix list: "data", "where", "source" matched every row)."""
+    if isinstance(node, dict):
+        for value in node.values():
+            yield from values(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from values(item)
+    elif isinstance(node, str):
+        yield node
+    elif isinstance(node, (int, float)) and not isinstance(node, bool):
+        yield str(node)
+
+
 @dataclass
 class _Index:
     """Terms of each row of today's log, read once as rows are appended (L28): a search looks terms up instead of
@@ -72,6 +86,10 @@ class DailyActivity:
                 self.path.write_text('', encoding='utf-8')
         return today
 
+    def roll_over(self) -> None:
+        """Empty the file when it still holds an earlier day's rows (what the next `record` would do)."""
+        self._rotate()
+
     def record(self, event: dict[str, Any]) -> None:
         day = self._rotate()
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -117,13 +135,14 @@ class DailyActivity:
     def redact_source(self, source_id: str, data: dict[str, Any]) -> None:
         def update(row: dict[str, Any]) -> dict[str, Any]:
             if row.get('source_id', row.get('id')) == source_id:
-                return dict(row, source_id=source_id, data=data, where=data)
+                return {k: v for k, v in row.items() if k != 'where'} | {'source_id': source_id, 'data': data}
             return row
         self._rewrite(update)
 
     def search(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
-        """Today's rows sharing the most terms with the query, best first (ties: the later row). Read-only: the log
-        rotates when the next row is recorded, so a search that finds yesterday's rows only filters them out."""
+        """Today's rows sharing the most terms with the query, best first, the more recent row first among near equals
+        (a later row gains less than one shared term). Read-only: the log rotates when the next row is recorded, so a
+        search that finds yesterday's rows only filters them out."""
         day, wanted = self.now().astimezone().date().isoformat(), terms(query)
         if not wanted:
             return []
@@ -134,7 +153,9 @@ class DailyActivity:
             scores: Counter[int] = Counter()
             for term in wanted:
                 scores.update(index.postings.get(term, ()))
-            best = sorted(((score, row) for row, score in scores.items() if index.days[row] == day), reverse=True)
+            count = max(1, len(index.rows))
+            best = sorted(((score + 0.5 * row / count, row) for row, score in scores.items() if index.days[row] == day),
+                          reverse=True)
             offsets = [index.rows[row] for _, row in best[:max(1, limit)]]
             found: list[dict[str, Any]] = []
             try:
@@ -177,7 +198,7 @@ class DailyActivity:
                     number = len(index.rows)
                     index.rows.append(position)
                     index.days.append(str(row.get('day')))
-                    for term in terms(json.dumps(row, ensure_ascii=False)):
+                    for term in terms(" ".join(values(row))):
                         index.postings.setdefault(term, array('I')).append(number)
                 position += len(line)
             index.offset += end

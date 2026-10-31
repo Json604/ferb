@@ -73,8 +73,15 @@ def chain(d: Any) -> None:
         owner_fact(d, f"chain_{i}", f"bicycle chain note {i}")
 
 
+def recalled(d: Any, words: str) -> list[str]:
+    """What a planner turn is given for `words`: its retrieved memory, and the core profile (the owner's own words
+    about themselves join it at once, decision 18, and then take no retrieved slot)."""
+    return [c["text"] for c in d.run(d.daemon._learning_candidates(words))] + \
+        str(run(d, d.daemon._core_profile_text)).splitlines()
+
+
 def pune(d: Any) -> list[str]:
-    return [c["text"] for c in d.run(d.daemon._learning_candidates("where is Pune")) if "Pune" in c["text"]]
+    return [t for t in recalled(d, "where is Pune") if "Pune" in t]
 
 
 def test_a_dated_fact_leaves_search_after_its_day(daemon: Any) -> None:
@@ -119,7 +126,7 @@ def test_a_later_statement_replaces_the_earlier_one(daemon: Any) -> None:
     chain(daemon)
     first = owner_fact(daemon, "appointment_preferences", CHENNAI)
     owner_fact(daemon, "appointment_preferences", ANYWHERE)
-    found = [c["text"] for c in daemon.run(daemon.daemon._learning_candidates("visa booking Chennai"))]
+    found = recalled(daemon, "visa booking Chennai")
     assert any("book the visa anywhere" in t for t in found)
     assert not any("notify me before booking" in t for t in found)
     assert run(daemon, lambda: daemon.daemon.memory.get(first.id)).valid_to is not None
@@ -152,7 +159,7 @@ def test_a_superseding_steer_replaces_the_chennai_preference(daemon: Any, monkey
     assert run(daemon, lambda: daemon.daemon.memory.get(first.id)).valid_to is not None
     [now] = [i for i in run(daemon, lambda: daemon.daemon.memory.items("active")) if i.key == "appointment_preferences"]
     assert (now.content, now.origin, now.supersedes) == (ANYWHERE, "owner_stated", first.id)
-    found = [c["text"] for c in daemon.run(daemon.daemon._learning_candidates("visa booking Chennai"))]
+    found = recalled(daemon, "visa booking Chennai")
     assert any("book the visa anywhere" in t for t in found)
     assert not any("notify me before booking" in t for t in found)
 
@@ -225,11 +232,13 @@ def test_a_retire_whose_quote_is_not_the_owners_words_about_the_item_is_ferbs_ow
     rsna = owner_fact(daemon, "rsna", "I'm in the RSNA knee competition")
     later(daemon)
     r = rsna_over(daemon, message, pasted, quote, content)
-    assert run(daemon, lambda: daemon.daemon.memory.get(rsna.id)).valid_to is not None
+    item = run(daemon, lambda: daemon.daemon.memory.get(rsna.id))
+    assert item.valid_to is None and item.set_aside                  # decision 17: the owner's words are set aside
     assert run(daemon, lambda: daemon.daemon.state.approvals.pending()) == []
-    assert (r["retired"], r["retired_as_check"]) == ([rsna.id], [{"item": rsna.id, "why": why}])
+    assert (r["retired"], r["retired_as_check"]) == ([rsna.id], [{"item": rsna.id, "why": why,
+                                                                  "outcome": "set_aside"}])
     [told] = notices(daemon)
-    assert "RSNA knee competition" in told and "because you said" not in told
+    assert "RSNA knee competition" in told and "because you said" not in told and "stop using it" in told
 
 
 def test_older_words_never_retire_a_newer_version(daemon: Any) -> None:
@@ -293,7 +302,8 @@ def test_a_stale_item_without_the_owners_words_is_retired_and_told_once(daemon: 
     later(daemon)
     handle = c_handle(daemon, said(daemon, "kaggle results came out today"))
     distill_day(daemon, distill_item(handle, "The RSNA competition is over", kind="fact", key="rsna", retire=True))
-    assert run(daemon, lambda: daemon.daemon.memory.get(rsna.id)).valid_to is not None
+    item = run(daemon, lambda: daemon.daemon.memory.get(rsna.id))
+    assert item.set_aside and item.valid_to is None          # decision 17: the owner's words set aside, kept
     assert run(daemon, lambda: daemon.daemon.state.approvals.pending()) == []
     [told] = notices(daemon)
     assert "RSNA knee competition" in told

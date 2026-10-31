@@ -270,7 +270,7 @@ def test_forget_deletes_the_item_its_versions_and_its_trail_rows_and_nothing_com
                                         [("journal", chat_src)] + [("trail", r) for r in rows]))
     tea = run(daemon, lambda: m.propose("preference", "owner", "drink", "Likes tea", "owner_stated",
                                         [("journal", chat_src)], 1.0))
-    run(daemon, lambda: daemon.daemon.learning.sync_facts(daemon.daemon.memory))
+    old_copy(daemon, inf)                                  # an older build's fact-node copy: the forget deletes it too
     plan = run(daemon, lambda: m.plan_forget(inf.id))
     assert set(plan.items) >= {inf.id} and tea.id not in plan.items and set(plan.trail) == set(rows)
     assert plan.rebuild_days == [day] and plan.kept == 1
@@ -434,6 +434,17 @@ def test_secrets_never_reach_memory_or_its_export(daemon: RunningDaemon) -> None
 
 # ---------- round 2 (re-review F3, F4, F5) ----------
 
+def old_copy(daemon: RunningDaemon, item: Any) -> dict[str, Any]:
+    """The fact node an older build (before step 9b) kept as a copy of a memory item."""
+    from dataclasses import asdict
+
+    from ferb.memory.learning import memory_origin
+    d = daemon.daemon
+    return dict(run(daemon, lambda: d.learning.put(
+        "fact", f"{item.subject}/{item.key}", asdict(item), ["memory:" + item.id], made_by="code:fact-index/1",
+        origin_label=memory_origin(item.origin), state="active", owner=item.origin == "owner_stated")))
+
+
 def test_the_memory_pages_not_right_on_a_fact_retires_the_memory_itself(daemon: RunningDaemon) -> None:
     """Fix list: the dashboard's op=retire on a fact retired only its index node; the item kept reaching prompts."""
     from ferb.cli.client import Client
@@ -441,8 +452,7 @@ def test_the_memory_pages_not_right_on_a_fact_retires_the_memory_itself(daemon: 
     src = journal(daemon, "chat.message", {"text": "my manager is Quentarr"})
     item = run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
                                                    [("journal", src)], 0.7))
-    run(daemon, lambda: d.learning.sync_facts(d.memory))
-    [node] = [n for n in run(daemon, lambda: d.learning.items("fact")) if n["body"].get("id") == item.id]
+    node = old_copy(daemon, item)                          # an older app may still name a fact by its node id
     c = Client(daemon.sock)
     try:
         c.call("memory.learning", {"op": "retire", "id": node["id"]})

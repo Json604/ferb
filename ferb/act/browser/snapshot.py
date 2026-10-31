@@ -10,6 +10,34 @@ FIELD_KINDS = frozenset({"password", "new_password", "one_time_code", "card_numb
 
 MAX_TEXT = 8000  # initial tool preview only; browser.read retrieves the complete saved snapshot
 
+# Hands decision 6: the frames bot-check widgets draw in, by their address (host, and a path prefix where the host
+# serves other things too). A structural fact like a field's kind: the widget's own frame, never the page's words.
+CHALLENGE_FRAMES = (("challenges.cloudflare.com", "", "Cloudflare Turnstile"), ("hcaptcha.com", "", "hCaptcha"),
+                    ("google.com", "/recaptcha/", "reCAPTCHA"), ("recaptcha.net", "/recaptcha/", "reCAPTCHA"),
+                    ("arkoselabs.com", "", "Arkose"), ("funcaptcha.com", "", "Arkose"),
+                    ("captcha-delivery.com", "", "DataDome"), ("awswaf.com", "", "AWS WAF"),
+                    ("geetest.com", "", "GeeTest"))
+BOT_CHECK_ABILITY = "browser_verification"
+
+
+def bot_check(frame_urls: list[str]) -> dict[str, Any] | None:
+    """The bot-check widgets a page's frames show (by CHALLENGE_FRAMES), stated with the ability that covers them."""
+    from urllib.parse import urlsplit
+    found: dict[str, str] = {}
+    for url in frame_urls:
+        try:
+            parts = urlsplit(url)
+        except ValueError:
+            continue
+        host = (parts.hostname or "").lower()
+        for domain, path, name in CHALLENGE_FRAMES:
+            if (host == domain or host.endswith("." + domain)) and parts.path.startswith(path):
+                found.setdefault(host, name)
+    if not found:
+        return None
+    return {"widgets": sorted(set(found.values())), "frames": list(found),
+            "ability": BOT_CHECK_ABILITY, "read": f"abilities.read name={BOT_CHECK_ABILITY}"}
+
 
 def _submit(raw: Any) -> FormSubmit | None:
     """The extension's `submit` fact (protocol 18), kept only in its exact shape."""
@@ -99,6 +127,9 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
         els = shown
     text = snap.text if full else snap.text[:MAX_TEXT]
     out: dict[str, Any] = {"tab": snap.tab.tab_id, "url": snap.url, "title": snap.title}
+    check = bot_check(snap.frame_urls)
+    if check is not None:                          # hands decision 6: stated first, with the ability that covers it
+        out["bot_check"] = check
     # L26: confirm playback before listening or recording. First, ahead of up to 24,000 characters of elements and the
     # text, so whoever reads the recorded result sees whether it plays without paging to its end (L31, live 2026-10-25)
     if snap.media:

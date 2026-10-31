@@ -1,73 +1,105 @@
+"""Decision 8 (step 9b): the local embedding model, a static table read by FERB's own code. Nothing is downloaded here:
+the model is a tiny synthetic one built in the test, and the fetch is a fake."""
 import hashlib
+import io
+import json
+import math
+import struct
 from pathlib import Path
+from typing import Any
 
 import pytest
-from ferb.memory.embeddings import manifest, quantize, verify
+
+from ferb.memory.embeddings import (MODEL, StaticEmbedder, WordPiece, download, manifest_ok, nearest, quantize,
+                                    sign_bits, similarity, store, verify)
+
+VOCAB = ["[PAD]", "[UNK]", "piano", "music", "visa", "##s", "play", ",", "!"]
 
 
-def test_int8_finite_normalization():
-    assert quantize([0.0, 1.0, -1.0]) == [0,127,-127]
-    with pytest.raises(ValueError):
-        quantize([float('nan')])
+def tiny_model(root: Path) -> dict[str, Any]:
+    """A 4-dimension table: piano and music point the same way, visa another."""
+    rows = {"piano": [1, 0, 0, 0], "music": [0.9, 0.1, 0, 0], "visa": [0, 0, 1, 0], "##s": [0, 0, 0, 1],
+            "play": [0.5, 0.5, 0, 0], ",": [0, 0, 0, 0.1], "!": [0, 0, 0, 0.1]}
+    data = b"".join(struct.pack("<4f", *rows.get(t, [0, 0, 0, 0])) for t in VOCAB)
+    header = json.dumps({"embeddings": {"dtype": "F32", "shape": [len(VOCAB), 4], "data_offsets": [0, len(data)]}})
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "model.safetensors").write_bytes(struct.pack("<Q", len(header)) + header.encode() + data)
+    (root / "tokenizer.json").write_text(json.dumps({
+        "normalizer": {"type": "BertNormalizer", "lowercase": True, "strip_accents": None},
+        "model": {"type": "WordPiece", "unk_token": "[UNK]", "continuing_subword_prefix": "##",
+                  "max_input_chars_per_word": 100, "vocab": {t: i for i, t in enumerate(VOCAB)}}}))
+    (root / "config.json").write_text("{}")
+    files = {n: hashlib.sha256((root / n).read_bytes()).hexdigest()
+             for n in ("config.json", "model.safetensors", "tokenizer.json")}
+    return {"name": "tiny", "repository": "test/tiny", "revision": "a" * 40, "dimensions": 4, "files": files}
 
 
-def test_manifest_requires_pinned_hashes_and_no_executable_or_traversal(tmp_path):
-    import json
-    p = tmp_path/'manifest.json'
-    data = {'repository':'Qwen/model', 'revision':'a'*40, 'dimensions':256,
-            'files':{'config.json':'b'*64,'model.safetensors':'c'*64}}
-    p.write_text(json.dumps(data))
-    assert manifest(p)['revision'] == 'a'*40
-    data['files']['../escape.json'] = 'd'*64
-    p.write_text(json.dumps(data))
-    with pytest.raises(ValueError):
-        manifest(p)
+def test_the_pinned_model_is_data_files_with_hashes() -> None:
+    manifest_ok(MODEL)
+    for bad in ({**MODEL, "revision": "main"}, {**MODEL, "files": {**MODEL["files"], "run.py": "0" * 64}},
+                {**MODEL, "files": {"../x.json": "0" * 64, "model.safetensors": "0" * 64, "tokenizer.json": "0" * 64}}):
+        with pytest.raises(ValueError):
+            manifest_ok(bad)
 
 
-def test_model_directory_rejects_extra_files_and_changed_weights(tmp_path):
-    p=tmp_path/'model.safetensors';p.write_bytes(b'weights')
-    data={'files':{p.name:hashlib.sha256(b'weights').hexdigest()}}
-    verify(tmp_path,data)
-    (tmp_path/'hidden.py').write_text('')
-    with pytest.raises(ValueError):
-        verify(tmp_path,data)
+def test_the_tokenizer_splits_like_bert_and_drops_unknown_words() -> None:
+    w = WordPiece(json.loads(json.dumps({"normalizer": {"lowercase": True},
+                                         "model": {"type": "WordPiece", "vocab": {t: i for i, t in enumerate(VOCAB)}}})))
+    assert w.ids("Piano, PIANOS!") == [2, 7, 2, 5, 8]          # case folded, punctuation split, a "##s" piece
+    assert w.ids("pianó zebra") == [2]                         # an accent stripped; an unknown word dropped whole
 
 
-def test_paired_memory_report_never_calls_missing_owner_verdict_a_pass():
-    from ferb.eval.memory import paired_results
-    rows=[{'case_id':'q','task_id':'actual-run','verified':True}]
-    r=paired_results([{'id':'q'}],rows,rows)
-    assert r['acceptance']=='pending'
-    assert r['with']['owner_passes']==0
-
-
-def test_local_model_identity_covers_preprocessing(monkeypatch,tmp_path):
-    import sys,types
-    from ferb.memory import embeddings
-    monkeypatch.setattr(embeddings,'verify',lambda root,data:None)
-    stub=types.ModuleType('mlx_embeddings.utils');stub.load=lambda *a,**k:(None,None)
-    monkeypatch.setitem(sys.modules,'mlx_embeddings.utils',stub)
-    data={'repository':'Qwen/model','revision':'a'*40,'dimensions':256,'files':{},'query_prefix':'query: '}
-    first=embeddings.LocalMLX(tmp_path,data)
-    second=embeddings.LocalMLX(tmp_path,data|{'query_prefix':'different: '})
-    assert first.name != second.name
-
-
-def test_without_the_memory_extra_nothing_is_downloaded(daemon, monkeypatch, tmp_path):
-    """Review M8: the packaged app has no `memory` extra; `ferb memory embeddings evaluate|adopt` downloaded the model,
-    then failed importing mlx_embeddings. The missing extra is found first, and nothing is fetched."""
-    from ferb.cli.client import Client
-    from ferb.memory import embeddings
-    monkeypatch.setattr(embeddings, "extra_missing", lambda: "mlx_embeddings")
-    fetched = []
-    monkeypatch.setattr(embeddings, "download", lambda *a, **k: fetched.append(a))
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text("{}")
-    c = Client(daemon.sock)
+def test_a_text_is_the_normalized_mean_of_its_tokens(tmp_path: Path) -> None:
+    root = tmp_path / "tiny"
+    model = StaticEmbedder(root, tiny_model(root))
     try:
-        status = c.call("memory.learning", {"op": "embedding", "action": "status"})
-        with pytest.raises(Exception, match="optional memory extra"):
-            c.call("memory.learning", {"op": "embedding", "action": "prepare", "manifest": str(manifest)})
+        piano, music, visa = (model.encode(t) for t in ("piano", "music", "visa"))
+        assert piano and music and visa
+        assert similarity(piano, music) > 0.9 and similarity(piano, visa) == 0
+        assert model.encode("zebra") is None                    # nothing the model knows
+        floats = model.floats("play piano")
+        assert floats is not None and math.isclose(sum(x * x for x in floats), 1.0, rel_tol=1e-6)
     finally:
-        c.close()
-    assert status["available"] is False and fetched == []
+        model.close()
+
+
+def test_a_changed_file_is_refused(tmp_path: Path) -> None:
+    root = tmp_path / "tiny"
+    data = tiny_model(root)
+    (root / "config.json").write_text('{"changed": true}')
+    with pytest.raises(ValueError, match="hash mismatch"):
+        verify(root, data)
+
+
+def test_the_fetch_checks_every_hash_before_the_folder_appears(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    data = tiny_model(source)
+    fetched: list[str] = []
+
+    def fetch(url: str, timeout: float = 0) -> Any:
+        fetched.append(url)
+        return io.BytesIO((source / url.rsplit("/", 1)[1]).read_bytes())
+    root = tmp_path / "models" / "tiny"
+    download(root, data, fetch)
+    assert root.is_dir() and len(fetched) == 3 and all(data["revision"] in u for u in fetched)
+    download(root, data, lambda *a, **k: pytest.fail("fetched twice"))          # already there: verified, not fetched
+    bad = {**data, "files": {**data["files"], "config.json": "0" * 64}}
+    with pytest.raises(ValueError):
+        download(tmp_path / "models" / "bad", bad, fetch)
+    assert not (tmp_path / "models" / "bad").exists()
+
+
+def test_quantized_vectors_rank_by_cosine_with_a_sign_bit_prefilter(tmp_path: Path) -> None:
+    from ferb.store.db import Database
+    db = Database(tmp_path / "v.db")
+    db.migrate()
+    assert quantize([3.0, -4.0]) == [95, -127] and sign_bits([1, -1, 0, 5]) == bytes([0b1001])
+    for n in range(1200):                                       # past the prefilter's size
+        store(db.conn, f"doc{n}", "chat", "t", "m", "h", [1 if n % 2 else -1] * 4 + [-1] * 4)
+    store(db.conn, "best", "chat", "t", "m", "h", [5] * 8)
+    store(db.conn, "fact", "fact", "t", "m", "h", [5] * 8)
+    found = nearest(db, "m", [3] * 8, ["chat"], 3)
+    assert found[0][0] == "best" and "fact" not in [d for d, _ in found]
+    db.conn.execute("DELETE FROM recall_vectors WHERE doc = 'best'")
+    assert nearest(db, "m", [3] * 8, ["chat"], 1)[0][0] != "best"            # the cached copy reloads on a change
+    db.close()

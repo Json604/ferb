@@ -71,3 +71,19 @@ def clean_before_tier1(memory: Memory, record: Callable[[str, dict[str, Any]], A
     record(CLEANUP_KIND, out)
     memory.on_change()
     return out
+
+
+FACT_NODES_KIND = "memory.fact_nodes_closed"
+
+
+def close_fact_nodes(db: Any, now: str, record: Callable[[str, dict[str, Any]], Any]) -> int | None:
+    """Step 9b (fix list: "Search memory_items directly; remove sync_facts"): the copies of memory items an older build
+    kept as `fact` (and `identity`) learning nodes are closed once; search reads `memory_items` itself. Closed, not
+    deleted: a forget still finds and deletes an item's copies (`Learning.drop_fact_index`), and the step-12 clean-up,
+    with the owner's OK, removes the rest. Journaled once; a second start finds nothing open."""
+    if db.conn.execute("SELECT 1 FROM journal WHERE kind = ? LIMIT 1", (FACT_NODES_KIND,)).fetchone():
+        return None
+    closed = db.conn.execute("UPDATE learning_nodes SET valid_to = ? WHERE kind IN ('fact', 'identity') "
+                             "AND valid_to IS NULL", (now,)).rowcount
+    record(FACT_NODES_KIND, {"closed": closed})
+    return int(closed)

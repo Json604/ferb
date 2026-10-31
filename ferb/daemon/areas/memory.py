@@ -14,8 +14,7 @@ from ferb.core import origin as origin_
 from ferb.core.errors import Deferred, FerbError, Refused
 from ferb.daemon.areas.shared import EDIT_HIDDEN, _all_hidden
 from ferb.daemon.server import Session
-from ferb.memory.learning import (PLANNER_MEMORY_ITEMS, PROMPT_LEAVES_OUT, SEARCH_TEXT_VERSION, reindex_search,
-                                  search_indexed)
+from ferb.memory.learning import SEARCH_TEXT_VERSION, reindex_search, search_indexed
 from ferb.orchestrator.worker import reason
 from ferb.store.db import Database
 
@@ -30,6 +29,10 @@ def _named_node(node: dict[str, Any]) -> str:
 GONE_QUESTIONS = ("confirm", "edit", "retire")
 # A fact FERB's weekly check found out of date, told once in chat (decision 15: quiet, corrected by talking)
 ENDED_NOTICE = "Memory: I stopped using {items}, which look out of date. Tell me if any still holds."
+# Decision 17: the owner's own words FERB's check found over are set aside (kept, restored by saying they still hold)
+SET_ASIDE_NOTICE = ("Memory: {items} look over, so I'll stop using them. They're kept; tell me if any still holds and "
+                    "I'll use it again.")
+ACCESSIBILITY_DAYS = 7                    # memory decision 3 (owner): accessibility rows are kept 7 days
 
 
 class MemoryGlue:
@@ -39,7 +42,7 @@ class MemoryGlue:
         from ferb.memory import summary
         from ferb.memory.distill import Distiller
         from ferb.memory.profile import CoreProfile
-        from ferb.memory.upgrade import clean_before_tier1
+        from ferb.memory.upgrade import clean_before_tier1, close_fact_nodes
         assert self.db is not None and self.journal is not None
         from ferb.memory.tools import LearningRead
         self.learning.note = lambda kind, data: self._journal().append(kind, data)
@@ -50,6 +53,8 @@ class MemoryGlue:
         self.memory.on_ended = self._memory_ended
         self.profile = CoreProfile(self.memory, self.clock, record=lambda kind, data: self._journal().append(kind, data))
         self.memory.on_saved = self.profile.saved
+        self.memory.on_set_aside = lambda ids: self.profile.remove(ids, by="code")
+        self.profile.on_joined = self._now_always_on
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
@@ -59,6 +64,8 @@ class MemoryGlue:
         # step 9a upgrade (storage decision 5): memory cleaned once, then the core profile seeded from it, both journaled
         clean_before_tier1(self.memory, lambda kind, data: self._journal().append(kind, data))
         self.profile.seed()
+        # step 9b upgrade: the old fact-node copies close once (search reads memory_items itself)
+        close_fact_nodes(self.db, self.clock.now().isoformat(), lambda kind, data: self._journal().append(kind, data))
         self._restore_memory_questions()
         if self.run_distill:
             self._distill_task = asyncio.get_running_loop().create_task(self._distill_loop())
@@ -66,6 +73,8 @@ class MemoryGlue:
             self._retention_task = asyncio.get_running_loop().create_task(self._retention_loop())
         if self.resource_log is not None:
             self._resources_task = asyncio.get_running_loop().create_task(self._resources_loop())
+        if self.run_embeddings:                      # decision 8: the local model, then new text in the background
+            self._embed_task = asyncio.get_running_loop().create_task(self._embed_loop())
 
     def _app_versions(self) -> dict[str, str]:
         profile = self._device_profile()
@@ -146,8 +155,8 @@ class MemoryGlue:
     async def _refresh_cards(self) -> dict[str, Any]:
         """The hourly pass's episode cards (L28): each card whose inputs changed (a new verdict, a rebuilt episode) or
         that was never captured is read again, one at a time and only while no task runs; then the day summaries are
-        indexed for search (`index_summaries`, in a worker thread) and, with an adopted embedding model, the new nodes
-        are embedded. A card that can't be built waits for its inputs to change."""
+        indexed for search (`index_summaries`, in a worker thread). New text is embedded by the background embedder
+        (`_embed_loop`). A card that can't be built waits for its inputs to change."""
         from ferb.memory.learning import LearningRefused, index_summaries
         l = self.learning
 
@@ -183,12 +192,6 @@ class MemoryGlue:
         await asyncio.to_thread(index)
         for event in events:
             l.publish(*event)
-        if l.embedder is not None:
-            from ferb.memory.embeddings import index_async
-            try:
-                await index_async(l, l.embedder)
-            except Exception as e:
-                l.publish("memory.embedding_unavailable", {"error": l.redact(str(e))})
         return {"status": "done"}
 
     def _core_profile_text(self) -> str:
@@ -228,10 +231,10 @@ class MemoryGlue:
             await asyncio.wait({self._reindex_task})
 
     async def _query_vector(self, words: str) -> tuple[list[int] | None, bool]:
-        """The query's embedding when the owner adopted a model, computed off the event loop (L28); (None, False)
-        after a failed encode, reported once (keyword ranking only)."""
+        """The query's embedding by the local model, computed off the event loop (L28); (None, False) after a failed
+        encode, reported once (keyword ranking only); (None, True) without a model or words."""
         embedder = self.learning.embedder if self.learning else None
-        if embedder is None or not words:
+        if embedder is None or not words.strip():
             return None, True
         try:
             return await asyncio.to_thread(embedder.encode, words, query=True), True
@@ -239,33 +242,22 @@ class MemoryGlue:
             self._journal().append("memory.embedding_unavailable", {"error": self._redact_text(str(e))})
             return None, False
 
-    async def _search(self, query: str, *, limit: int | None = None, leave_out: frozenset[str] = frozenset(),
-                      sources: bool = True, focus: str = '', **filters: Any) -> list[dict[str, Any]]:
-        """The one ranked search (L36 §3) for the planner, attention, workers, memory.read and memory.learned: memory
-        items synced to fact nodes first, the query's embedding off the loop, SQLite on it. `sources` False: without
-        each node's source refs (a prompt's lines). `focus`: the target words of the tasks the caller works for, also
-        ranked alone (`Learning.search`; the planner's and workers' searches, L36 §4 fix round)."""
-        if not self.learning:
-            return []
-        await self._search_ready()
-        self.learning.sync_facts(self.memory)
-        vector, embed = await self._query_vector(query)
-        return list(self.learning.search(query, query_vector=vector, embed=embed, limit=limit, leave_out=leave_out,
-                                         sources=sources, focus=focus, **filters))
+    def _memory_search(self, db: Any = None) -> Any:
+        """The one fused search (ferb/memory/search.py) on the daemon's connection or `db`."""
+        from ferb.memory.search import MemorySearch
+        embedder = self.learning.embedder if self.learning else None
+        return MemorySearch(db if db is not None else self.db, self.clock,
+                            model=getattr(embedder, "name", None) if embedder is not None else None)
 
     async def _learned_search(self, query: str, **filters: Any) -> list[dict[str, Any]]:
-        """memory.learned's search (L36 §3): the one search, with its SQLite reads in a worker thread on a connection
-        of its own, as the re-index's are (`_reindex_search`; final review M3). A broad or empty query reads every
-        matched node with all its source refs (a day's or week's rollup cites tens of thousands), so on the event loop
-        it could hold every other call. It waits for the re-index, and facts are synced on the loop first (a write, on
-        the daemon's connection); the query's embedding is computed off the loop (`_query_vector`). What the thread's
-        store reports (an embedding failure) is published after it, on the loop."""
-        from ferb.memory.learning import Learning
+        """memory.learned's search over learned nodes (past tasks with their how-notes, playbooks, day summaries): its
+        SQLite reads in a worker thread on a connection of its own, as the re-index's are (final review M3), the
+        query's embedding off the loop. What the thread's store reports (an embedding failure) is published after."""
+        from ferb.memory.learning import PROMPT_LEAVES_OUT, Learning
         if not self.learning:
             return []
         assert self.db is not None
         await self._search_ready()
-        self.learning.sync_facts(self.memory)
         vector, embed = await self._query_vector(query)
         learning, path = self.learning, self.db.path
         told: list[tuple[str, dict[str, Any]]] = []
@@ -276,7 +268,8 @@ class MemoryGlue:
                 reader = Learning(db, learning.clock, lambda topic, data: told.append((topic, data)), learning.redact,
                                   redact_id=learning.redact_id)
                 reader.embedder, reader.home = learning.embedder, learning.home
-                return list(reader.search(query, query_vector=vector, embed=embed, **filters))
+                return list(reader.search(query, query_vector=vector, embed=embed, sources=False,
+                                          leave_out=PROMPT_LEAVES_OUT, limit=self.MEMORY_LEARNED_MOST, **filters))
             finally:
                 db.close()
         found = await asyncio.to_thread(work)
@@ -284,44 +277,204 @@ class MemoryGlue:
             self._publish(topic, data)
         return found
 
-    async def _memory_item_search(self, query: str) -> list[str]:
-        """memory.read's query, ranked by the one search (L36 §3): the memory items behind the matching facts."""
-        return [str(n["body"]["id"]) for n in await self._search(query, kind="fact") if n["body"].get("id")]
+    # Ruling (step 9b): a lookup tool ranks at most this many (memory.read, memory.learned); they page through them
+    MEMORY_LEARNED_MOST = 100
 
-    async def _learning_candidates(self, words: str, budget: int = PLANNER_MEMORY_ITEMS, *,
-                                   focus: str = '') -> list[dict[str, Any]]:
-        """Relevant learned memory, ranked, at most `budget` items (the owner's: planner 60, worker 20; L36 §3), each
-        line saying what it is (`shown_text`). A remembered fact is named by its memory id and labelled by where it came
-        from (decision 15), so the planner can say which one a new statement replaces; one already in the core profile
-        (in every prompt) takes no slot. `focus`: the target words of the tasks the turn or worker serves, also ranked
-        alone (L36 §4 fix round). Each item cites itself."""
-        if not self.learning:
+    async def _memory_item_search(self, query: str) -> list[str]:
+        """memory.read's query: the facts themselves (`memory_items`), ranked by the one search."""
+        if self.memory is None:
             return []
-        found = await self._search(words, limit=None, leave_out=PROMPT_LEAVES_OUT, sources=False, focus=focus)
+        vector, _ = await self._query_vector(query)
+        return [hit.data.id for hit in self._memory_search().facts(self.memory, query, vector=vector,
+                                                                  limit=self.MEMORY_LEARNED_MOST)]
+
+    def _fact_origin(self, item_id: str, item_origin: str) -> str:
+        from ferb.memory.learning import LearningRefused, memory_origin
+        try:
+            return origin_.join(self.learning.labels(["memory:" + item_id]))
+        except (LearningRefused, AttributeError):
+            return memory_origin(item_origin)
+
+    async def _learning_candidates(self, words: str, limits: Any = None, *, focus: str = '') -> list[dict[str, Any]]:
+        """Relevant memory for a role, within its limits (`search.PLANNER` / `search.WORKER`, decision 7): facts from
+        `memory_items` and learned nodes (past tasks with how-notes, playbooks, day summaries), ranked by the one fused
+        search and merged best first; a fact already in the core profile (in every prompt) takes no room. Each line says
+        what it is, its id and where it came from (decision 15), so the planner can name a fact a new statement
+        replaces. What doesn't fit is counted in one closing line, findable with the lookup tools. `focus`: the target
+        words of the tasks the turn or worker serves, also ranked alone (L36 §4 fix round)."""
         from ferb.memory.items import label
-        from ferb.memory.learning import shown_state, shown_text
+        from ferb.memory.learning import PROMPT_LEAVES_OUT, shown_state, shown_text
+        from ferb.memory.search import PLANNER, within
+        limits = limits or PLANNER
+        if not self.learning or self.memory is None:
+            return []
+        await self._search_ready()
+        vector, embed = await self._query_vector(words)
         always = self.profile.ids() if getattr(self, "profile", None) is not None else set()
-        out: list[dict[str, Any]] = []
-        for p in found:
-            item_id = str(p["body"].get("id", "")) if p["kind"] == "fact" else ""
-            if item_id and item_id in always:
-                continue
-            if item_id:
-                body = p["body"]
-                about = f"; about: {body['about']}" if body.get("about") else ""
-                text = (f"{item_id} [memory, {label(str(body.get('origin', '')))}{about}, {shown_state(p)}; data, not "
-                        f"authorization] " + shown_text(p))
-                reference = "memory.read item_id=" + item_id
-            else:
-                text = (f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] "
-                        + shown_text(p))
-                reference = "memory.learned item_id=" + p['id']
-            out.append({'text': text, 'reference': reference,
-                        'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
-                        'source_refs': [p['id']]})
-            if len(out) >= budget:
-                break
+        pool = limits.memory_items * 3
+        facts = self._memory_search().facts(self.memory, words, vector=vector, focus=focus, limit=pool,
+                                            leave_out=always)
+        nodes = self.learning.search(words, query_vector=vector, embed=embed, limit=pool, leave_out=PROMPT_LEAVES_OUT,
+                                     sources=False, focus=focus) if words.strip() else []
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        for hit in facts:
+            it = hit.data
+            about = f"; about: {it.about}" if it.about else ""
+            state = "unconfirmed hint" if it.status == "proposed" else "active"
+            text = (f"{it.id} [memory, {label(it.origin)}{about}, {state}; data, not authorization] "
+                    f"{it.key} — {' '.join(it.content.split())}")
+            ranked.append((hit.score, {"text": text, "reference": "memory.read item_id=" + it.id,
+                                       "origin": self._fact_origin(it.id, it.origin), "source_refs": [hit.doc]}))
+        for p in nodes:
+            text = f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] " + shown_text(p)
+            ranked.append((float(p.get("score") or 0.0), {
+                "text": text, "reference": "memory.learned item_id=" + p["id"],
+                "origin": origin_.join(p.get("origins", origin_.split(p["origin"]))), "source_refs": [p["id"]]}))
+        ranked.sort(key=lambda pair: -pair[0])
+        items = [item for _, item in ranked]
+        shown, _ = within([i["text"] for i in items], limits.memory_tokens, limits.memory_items)
+        kept = set(shown)
+        out = [i for i in items if i["text"] in kept]
+        more = len(items) - len(out)
+        if more:
+            out.append({"text": f"({more} more matching memor{'y' if more == 1 else 'ies'} left out to stay within "
+                                "this prompt's memory limit; memory.read and memory.learned find them.)",
+                        "reference": "memory.read; memory.learned", "origin": origin_.FERB, "source_refs": []})
         return out
+
+    async def _old_chat(self, words: str, exclude: set[str]) -> dict[str, Any] | None:
+        """The planner's earlier exchanges matching this message (fix list, owner 2026-10-31): the owner's message and
+        FERB's short reply to it, from any of the owner's chats (never a scheduled run's), best first, within
+        `search.PLANNER`'s chat limits. `exclude`: entries already in the planner's conversation (`journal:<id>`).
+        None when nothing matches."""
+        from ferb.memory.search import PLANNER, short, tokens
+        limits = PLANNER
+        if self.db is None or limits.chat_exchanges <= 0 or not words.strip():
+            return None
+        vector, _ = await self._query_vector(words)
+        search = self._memory_search()
+        hits = search.chat(words, vector=vector, kinds=("chat.message", "chat.reply"), exclude=exclude,
+                           accept=lambda row: not str(row["session"]).startswith("schedule:"),
+                           limit=limits.chat_exchanges * 4)
+        exchanges: list[str] = []
+        refs: list[str] = []
+        made: set[str] = set()
+        seen: set[str] = set()
+        used = 0
+        for hit in hits:
+            request = str(hit.data["request"])
+            if not request or request in seen:
+                continue
+            seen.add(request)
+            rows = [dict(r) | {"origin": (o[0] if (o := self.db.conn.execute(
+                "SELECT origin FROM journal WHERE id = ?", (str(r["doc"]).removeprefix("journal:"),)).fetchone())
+                else None)} for r in self.db.conn.execute(
+                "SELECT doc, kind, at, text FROM chat_fts WHERE request = ? AND kind IN ('chat.message', 'chat.reply') "
+                "ORDER BY at", (request,)).fetchall()]
+            owner = " / ".join(str(r["text"]) for r in rows if r["kind"] == "chat.message")
+            ferb = " / ".join(short(str(r["text"])) for r in rows if r["kind"] == "chat.reply")
+            if not owner:
+                continue
+            when = str(rows[0]["at"])[:16].replace("T", " ")
+            first = next(str(r["doc"]) for r in rows if r["kind"] == "chat.message")
+            line = (f"({when}) Owner: {owner}" + (f"\n  FERB: {ferb}" if ferb else "")
+                    + f"\n  [Full source: chat.history entry_id={first.removeprefix('journal:')}]")
+            if len(exchanges) >= limits.chat_exchanges or used + tokens(line) > limits.chat_tokens:
+                continue
+            exchanges.append(line)
+            used += tokens(line)
+            for r in rows:
+                refs.append(str(r["doc"]))
+                made |= origin_.split(r["origin"]) if r["origin"] else {origin_.OWNER if r["kind"] == "chat.message"
+                                                                          else origin_.FERB}
+        if not exchanges:
+            return None
+        return {"text": "\n".join(exchanges), "refs": refs, "origin": origin_.join(made)}
+
+    async def _chat_search(self, root_task: str, query: str, since: str | None, until: str | None,
+                           limit: int) -> list[str]:
+        """chat.history's query: entries of the task's conversation matching by meaning and keywords, best first."""
+        assert self.supervisor is not None
+        continuity = self.supervisor.continuity
+        conversation = continuity.conversation_of(root_task)
+        if conversation is None:
+            return []
+        vector, _ = await self._query_vector(query)
+        hits = self._memory_search().chat(
+            query, vector=vector, limit=limit, since=since, until=until,
+            accept=lambda row: continuity.belongs(conversation, str(row["kind"]), str(row["session"]),
+                                                  str(row["request"])))
+        return [hit.doc.removeprefix("journal:") for hit in hits]
+
+    # ---------- the local embedding model (decision 8) ----------
+
+    # Ruling (step 9b): how often the background embedder looks for new text, and its pause between batches
+    EMBED_EVERY_S = 60
+    EMBED_PAUSE_S = 0.05
+
+    def _embedding_root(self) -> tuple[Path, bool]:
+        """Where the model's files are: `[memory] embedding_model` (the app bundle may point there), else FERB's own
+        copy under ~/.ferb/models; and whether FERB may fetch them there itself."""
+        from ferb.memory.embeddings import default_root
+        configured = str(self.config.get("memory", "embedding_model", "") or "").strip()
+        if configured:
+            return Path(configured).expanduser(), False
+        return default_root(self.home), True
+
+    async def _load_embedder(self) -> None:
+        """Load the pinned model, fetching it once when FERB keeps its own copy (journaled). Search runs on keywords
+        and recency until it is there; a failure is journaled and tried again by the next start."""
+        from ferb.memory.embeddings import StaticEmbedder, download
+        if self.learning is None or self.learning.embedder is not None:
+            return
+        root, fetch = self._embedding_root()
+        try:
+            if fetch and not root.exists():
+                await asyncio.to_thread(download, root)
+                self._journal().append("memory.embedding_model", {"state": "fetched", "path": str(root)})
+            self.learning.embedder = await asyncio.to_thread(StaticEmbedder, root)
+        except Exception as e:
+            self._journal().append("memory.embedding_model", {
+                "state": "unavailable", "error": self._redact_text(f"{type(e).__name__}: {e}")[:300]})
+
+    async def _embed_now(self) -> dict[str, Any] | None:
+        """Embed what has no vector yet, in a worker thread on a connection of its own (never in a turn); a pass that
+        embedded a batch or more is journaled with its cost (`memory.embedded`: counts, encode CPU seconds, wall
+        seconds)."""
+        import time
+        from ferb.memory.search import EMBED_BATCH
+        embedder = self.learning.embedder if self.learning else None
+        if embedder is None or self.db is None:
+            return None
+        path, stop = self.db.path, self._reindex_stop
+
+        def work() -> dict[str, Any]:
+            db = Database(path)
+            try:
+                db.conn.execute("PRAGMA busy_timeout = 60000")
+                return dict(self._memory_search(db).embed_pending(
+                    embedder, stop=stop.is_set, pause=lambda: time.sleep(self.EMBED_PAUSE_S)))
+            finally:
+                db.close()
+        started = time.monotonic()
+        out = await asyncio.to_thread(work)
+        out["wall_s"] = round(time.monotonic() - started, 3)
+        if out["embedded"] >= EMBED_BATCH:
+            self._journal().append("memory.embedded", out)
+        return out
+
+    async def _embed_loop(self) -> None:
+        """Background: the model once, then new text embedded every EMBED_EVERY_S (a cheap check when nothing is new).
+        First start of this build: everything already stored is embedded here (upgrade, storage decision 5)."""
+        await self._load_embedder()
+        while not self._shutting_down:
+            try:
+                await self._embed_now()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self._journal().append("memory.embed_failed", {"error": self._redact_text(f"{type(e).__name__}: {e}")})
+            await asyncio.sleep(self.EMBED_EVERY_S)
 
     def _forget_item_copies(self, plan: Any) -> None:
         """A forget's work outside the memory tables (`Memory.on_forget`), before they change: the item's own search
@@ -525,18 +678,18 @@ class MemoryGlue:
         if op in ("guess", "guess_state"):
             raise LearningRefused("FERB no longer asks about its guesses: it saves what it understands, labelled as "
                                   "its understanding; correct it by telling FERB or on the memory page")
-        if op == "inventory":
-            l.sync_facts(self.memory)
-            return {"items": [n | {"confirmable": not n["confirmed"] and (
-                n["kind"] == "identity_proposal" or (n["kind"] == "fact" and n["state"] == "proposed"))}
-                for n in l.items(history=bool(params.get("history")))]}
+        if op == "inventory":                # learned nodes without their source refs (fix list, step 9b)
+            return {"items": [n | {"confirmable": not n["confirmed"] and n["kind"] == "identity_proposal"}
+                              for n in l.items(history=bool(params.get("history")), sources=False)]}
         if op == "search":             # its SQLite reads and the query's embedding off the event loop
             return {"items": await self._learned_search(str(params.get("query", "")), **{
                 k: str(params[k]) for k in ("kind", "app", "person", "since", "until") if params.get(k)})}
         if op == "get":
-            node = l.get(ident)
-            return {"item": node, "history": [n for n in l.items(history=True)
-                    if node and n["kind"] == node["kind"] and n["key"] == node["key"]]}
+            node = l.get(ident, sources=False)
+            if node is not None:
+                node["source_count"] = int(self.db.conn.execute(
+                    "SELECT COUNT(*) FROM learning_sources WHERE node_id = ?", (ident,)).fetchone()[0])
+            return {"item": node, "history": l.versions(node["kind"], node["key"]) if node else []}
         if op == "confirm":
             node = l.get(ident)
             if node and node["kind"] == "fact":           # decision 15: a memory item is never waiting for a Keep
@@ -546,9 +699,8 @@ class MemoryGlue:
             node = l.get(ident)
             if node and node["kind"] == "fact":
                 item_id = node["body"]["id"]
-                await self._memory_edit(session, {"id": item_id, "content": str(params.get("text", ""))})
-                l.sync_facts(self.memory)
-                return {"items": l.search(node["key"])}
+                return {"item": await self._memory_edit(session, {"id": item_id,
+                                                                  "content": str(params.get("text", ""))})}
             return {"item": l.edit(ident, str(params.get("text", "")))}
         if op == "retire":
             node = l.get(ident)
@@ -559,7 +711,6 @@ class MemoryGlue:
                     self.memory.retire(item_id, "the owner, on the memory page")
                 except MemoryRefused:
                     raise LearningRefused("that memory no longer holds") from None
-                l.sync_facts(self.memory)
                 return {"item": self._item_dict(self.memory.get(item_id))}
             return {"item": l.retire(ident)}
         if op == "forget":
@@ -583,34 +734,11 @@ class MemoryGlue:
         if op == "eval_export":
             from ferb.eval.memory import history_queries
             return history_queries(l)
-        if op == "embedding":
-            from ferb.memory import embeddings
-            action = str(params.get("action", "status"))
-            missing = embeddings.extra_missing()
-            if action == "status":
-                return {"active": getattr(l.embedder, "name", None), "available": missing is None,
-                        "evaluations": [dict(r) for r in
-                                        self.db.conn.execute("SELECT * FROM learning_embedding_evals ORDER BY at")]}
-            if missing is not None:                      # found before any download (M8)
-                raise LearningRefused(f"local embeddings need FERB's optional memory extra ({missing}), which this "
-                                      "install doesn't have; nothing was downloaded")
-            manifest_path = Path(str(params["manifest"]))
-            data = embeddings.manifest(manifest_path)
-            root = self.home / "models" / "embeddings" / embeddings.digest(data)
-            await asyncio.to_thread(embeddings.download, root, data)
-            if action == "prepare":
-                return {"ready": True, "path": str(root), "active": False}
-            model = await asyncio.to_thread(embeddings.LocalMLX, root, data)
-            if action == "evaluate":
-                cases = json.loads(Path(str(params["dataset"])).read_text())
-                return await embeddings.evaluate_async(l, model, cases.get("cases", []) if isinstance(cases, dict) else cases)
-            if action == "adopt":
-                embeddings.adopt(l, model, str(params["evaluation"]))
-                config = self.home / "memory-embedding.json"
-                config.write_text(json.dumps({"manifest": data, "root": str(root), "model": model.name}))
-                config.chmod(0o600)
-                return {"active": model.name}
-            raise LearningRefused("unknown embedding action")
+        if op == "embedding":            # decision 8: the pinned local model, always on once its files are here
+            embedder = l.embedder
+            root, fetch = self._embedding_root()
+            return {"active": getattr(embedder, "name", None), "path": str(root), "fetched_by_ferb": fetch,
+                    "vectors": int(self.db.conn.execute("SELECT COUNT(*) FROM recall_vectors").fetchone()[0])}
         raise LearningRefused("unknown learning operation")
 
     def _record_learning_usage(self, role: str) -> Callable[[str, dict[str, Any]], None]:
@@ -627,6 +755,9 @@ class MemoryGlue:
         purged, refused = self.trail.purge(int(self.config.get("sense", "trail_retention_days", 30)))
         if purged:
             self._journal().append("trail.purged", {"days": purged})
+        # memory decision 3: accessibility rows are kept 7 days (trail only, pull-only)
+        if gone := self.trail.purge_source("accessibility", ACCESSIBILITY_DAYS):
+            self._journal().append("trail.purged", {"source": "accessibility", "rows": gone})
         return purged, refused
 
     async def _distill_loop(self) -> None:
@@ -636,14 +767,15 @@ class MemoryGlue:
             await asyncio.sleep(3600)
 
     async def _memory_pass(self) -> None:
-        """One hourly pass: distill, refresh episode cards, restore the memory embedding, then (when due) the weekly
-        core-profile pass and the weekly re-check of what FERB saw on this Mac. Each job has its own error scope, so
+        """One hourly pass: distill, refresh episode cards, merge playbooks, then (when due) the weekly core-profile
+        pass and the weekly re-check of what FERB saw on this Mac. Each job has its own error scope, so
         one failing never stops the others (L16); a failure never takes the daemon down and is tried again next hour."""
         assert self.distiller is not None
         jobs: list[tuple[str, Callable[[], Awaitable[Any]]]] = [("memory.distill_failed", self.distiller.catch_up)]
         if self.learning is not None:
             jobs.append(("memory.cards_failed", self._refresh_cards))
-            jobs.append(("memory.embedding_restore_failed", self._restore_memory_embedding))
+        if self.learning is not None:
+            jobs.append(("memory.playbooks_failed", self._merge_playbooks))
         jobs.append(("memory.profile_failed", self._profile_pass))
         jobs.append(("memory.mac_profile_failed", self._refresh_mac_profile))
         for failed, job in jobs:
@@ -654,6 +786,33 @@ class MemoryGlue:
             except Exception as e:
                 self._journal().append(failed, {"error": f"{type(e).__name__}: {e}"})
 
+    async def _merge_playbooks(self) -> list[str]:
+        """Tier 3 playbooks (step 9b): verified how-notes of the same kind of work merged, a few model calls a pass,
+        only while no task runs and once the local model is there (it finds the candidates)."""
+        from ferb.memory.playbooks import merge
+        if self.learning is None or self.learning.embedder is None:
+            return []
+        if self.supervisor is not None and self.supervisor.running_trees():
+            return []
+        return await merge(self.learning, self._make_runtime, self.learning.embedder,
+                           device_id=str(self.config.get("device", "id", "dev")), spans=self.spans,
+                           record=lambda kind, data: self._journal().append(kind, data),
+                           usage=self._record_learning_usage("playbook"))
+
+    async def _memory_repeats(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """"Gets better at repeated tasks", measured: each playbook's runs (attempts, time, verified, memory used)."""
+        from ferb.memory.playbooks import repeat_stats
+        assert self.db is not None
+        return {"playbooks": repeat_stats(self.db.conn)}
+
+    async def _memory_restore(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Decision 17: the owner says a fact FERB set aside still holds (the memory page's Restore)."""
+        item_id = str(params.get("id") or "")
+        if self.memory.get(item_id) is None:
+            raise FerbError("no memory with that id")
+        restored = self.memory.restore(item_id)
+        return {"restored": restored, "item": self._item_dict(self.memory.get(item_id))}
+
     async def _profile_pass(self, *, force: bool = False) -> dict[str, Any] | None:
         """The weekly core-profile pass (decision 9), when due (`CoreProfile.due`: a week since the last, or the profile
         over its budget) or forced (the `memory.profile` RPC's op "pass"). Facts it found out of date are told once,
@@ -663,13 +822,33 @@ class MemoryGlue:
             return None
         out = await profile.run_pass(self._make_runtime, device_id=str(self.config.get("device", "id", "dev")),
                                      spans=self.spans, usage=self._record_learning_usage("profile"))
-        ended = out.get("ended_items") or []
+        ended = [e for e in out.get("ended_items") or [] if e.get("outcome") != "set_aside"]
+        aside = [e for e in out.get("ended_items") or [] if e.get("outcome") == "set_aside"]
+        stamp = self.clock.now().isoformat()
         if ended:
             text = ENDED_NOTICE.format(items=", ".join(f"“{e['text']}”" for e in ended))
-            await self._tell_owner(f"memory-profile-ended-{self.clock.now().isoformat()}",
-                                   ["memory:" + e["id"] for e in ended], text,
+            await self._tell_owner(f"memory-profile-ended-{stamp}", ["memory:" + e["id"] for e in ended], text,
                                    origin_.join({origin_.FERB, origin_.INFERRED}))
+        if aside:                                    # decision 17: the owner's words, told once, kept
+            text = SET_ASIDE_NOTICE.format(items=", ".join(f"“{e['text']}”" for e in aside))
+            await self._tell_owner(f"memory-profile-aside-{stamp}", ["memory:" + e["id"] for e in aside], text,
+                                   origin_.join({origin_.FERB, origin_.OWNER}))
         return out
+
+    def _now_always_on(self, items: list[Any]) -> None:
+        """Decision 18: facts of FERB's understanding or observation that just joined the core profile, each told once
+        by a quiet notice with its note card (the 8e note card, `always_on`), Correct / Forget on it; never a
+        question."""
+        from ferb.memory.items import label
+        from ferb.orchestrator import cards
+        for it in items:
+            text = " ".join(it.content.split())
+            line = f"Now always on: “{text}” ({label(it.origin)})"
+            card = cards.note(it.id, text, "saved", line) | {"label": label(it.origin), "origin": it.origin,
+                                                            "always_on": True}
+            self._spawn(self._tell_owner(f"memory-always-on-{it.id}", ["memory:" + it.id], line,
+                                         origin_.join({origin_.FERB, origin_.INFERRED}), cards=[card]),
+                        "always-on notice")
 
     async def _refresh_mac_profile(self) -> None:
         """Decision 16, "refreshed as usage changes": weekly, with the profile pass's cadence (Ruling), FERB gathers the
@@ -685,19 +864,6 @@ class MemoryGlue:
         if checked and self.clock.now() - datetime.fromisoformat(str(checked)) < timedelta(days=PASS_DAYS):
             return
         await review.refresh()
-
-    async def _restore_memory_embedding(self) -> None:
-        if self.learning.embedder is not None:
-            return
-        config = self.home / "memory-embedding.json"
-        from ferb.memory.embeddings import LocalMLX, extra_missing
-        if not config.is_file() or extra_missing() is not None:     # keyword ranking only (status says why)
-            return
-        value = json.loads(config.read_text())
-        adopted = self.db.conn.execute("SELECT 1 FROM learning_embedding_evals WHERE model=? AND adopted=1",
-                                       (value["model"],)).fetchone()
-        if adopted:
-            self.learning.embedder = await asyncio.to_thread(LocalMLX, Path(value["root"]), value["manifest"])
 
     def _export_memory(self) -> None:
         from ferb.memory.export import export
@@ -859,6 +1025,7 @@ class MemoryGlue:
                 "valid_from": it.valid_from.isoformat(),
                 "valid_to": it.valid_to.isoformat() if it.valid_to else None, "supersedes": it.supersedes,
                 "review_at": it.review_at.isoformat() if it.review_at else None, "in_profile": it.id in in_profile,
+                "set_aside": it.set_aside,
                 "sources": it.source_ids, "evidence_days": self.memory.evidence_days(it.id), "conflict": conflict}
 
     async def _memory_profile(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:

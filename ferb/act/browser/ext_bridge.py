@@ -63,6 +63,20 @@ MEDIA_FIELDS = ("playing", "paused", "current_time", "duration", "muted", "volum
 MEDIA_ID = re.compile(r"m[0-9]{1,9}-[0-9a-f]{6}")
 
 
+def frame_urls(frames: list[dict[str, Any]]) -> list[str]:
+    """The addresses of a snapshot's embedded frames, in order, once each: each child frame's own address (its content
+    script reports it) and each frame element's `src` (a frame no script reaches, such as one in a closed shadow root,
+    still names it). Structural facts, read like a field's kind (hands decision 6)."""
+    found: list[str] = []
+    for f in frames:
+        urls = [str(i.get("src") or "") for i in f.get("iframes") or [] if isinstance(i, dict)]
+        if int(f.get("frame_id") or 0) != 0:
+            urls.append(str(f.get("url") or ""))
+        for u in urls:
+            if u.startswith(("http://", "https://")) and u not in found:
+                found.append(u)
+    return found
+
 class OutcomeUnknown(DriverError):
     """The connection dropped while a command was in flight: it may or may not have happened."""
 
@@ -1382,7 +1396,7 @@ class _TabDriver:
         t.containers, t.media, t.media_ids = containers, media_refs, media_ids
         t.page, t.motion, t.moved = _Page.of(v.get("window"), top), motion, False
         result = PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
-                              scroll, scrollers, media)
+                              scroll, scrollers, media, frame_urls(v["frames"]))
         from ferb.act.browser.snapshot import for_model
         full = for_model(result, full=True)
         full["frames"] = [{k: f[k] for k in ("frame_id", "url", "text", "truncated") if k in f} for f in v["frames"]]

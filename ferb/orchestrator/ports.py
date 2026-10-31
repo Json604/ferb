@@ -17,6 +17,9 @@ class MemoryPort:
     memory_candidates: Callable[[str, str], Any]
     # a worker's or plan step's ranked memory for (its query, its task's target words); an awaitable
     memory_push: Callable[[str, str], Any]
+    # the planner's earlier exchanges matching its message (words, entries already in its conversation as
+    # journal:<id>) -> {text, refs, origin} or None; an awaitable
+    old_chat: Callable[[str, set[str]], Any]
     # chat capture (I1): (items, own words, source, sites=, elsewhere=) -> per item receipt or refusal (may await)
     remember: Callable[..., Any]
     forget_request: Callable[[str, str], str]           # a forget asked in chat (I2): (item id, request id) -> a line

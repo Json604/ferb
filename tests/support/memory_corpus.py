@@ -17,7 +17,7 @@ def topic(n: int) -> str:
 
 
 def fact(store: Learning, key: str, content: str, *, owner: bool = True, subject: str = "owner") -> dict[str, Any]:
-    """A fact node as `Learning.sync_facts` indexes a memory item."""
+    """A fact node as builds before step 9b indexed a memory item (`sync_facts`, removed)."""
     body = {"id": "item-" + key, "kind": "fact", "subject": subject, "key": key, "content": content,
             "origin": "owner_stated" if owner else "inferred", "status": "active", "unconfirmed_hint": False,
             "observed_at": "2026-10-21T00:00:00+00:00", "valid_from": "2026-10-21T00:00:00+00:00", "valid_to": None,

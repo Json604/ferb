@@ -213,8 +213,8 @@ def current(item: MemoryItem, now: datetime | None = None) -> bool:
 def prompt_ready(item: MemoryItem, now: datetime | None = None) -> bool:
     """Whether an item may shape FERB's prompts: a current active item (one with an end date, until then: L36 §6), or
     an observed pattern still gathering days (shown as an unconfirmed hint). Each carries its label (`LABELS`)."""
-    return current(item, now) and (item.status == "active"
-                                   or (item.status == "proposed" and item.origin == "observed"))
+    return current(item, now) and not item.set_aside and (
+        item.status == "active" or (item.status == "proposed" and item.origin == "observed"))
 
 
 def label(origin: str) -> str:
@@ -305,6 +305,8 @@ class Memory:
         self.on_ended: Callable[[list[str], str | None], None] = lambda ids, new: None
         # told an item that became current (a new fact, or a new version of one): the core profile follows its fact
         self.on_saved: Callable[[MemoryItem], None] = lambda item: None
+        # decision 17: told the owner's items FERB set aside as over (the core profile drops them; nothing else ends)
+        self.on_set_aside: Callable[[list[str]], None] = lambda ids: None
 
     # ---------- reads ----------
 
@@ -317,12 +319,14 @@ class Memory:
             "SELECT kind, source_id FROM memory_sources WHERE item_id = ? ORDER BY kind, source_id", (r["id"],))]
         extra = self.db.conn.execute("SELECT about, review_at FROM memory_context WHERE item_id = ?",
                                      (r["id"],)).fetchone()
+        aside = self.db.conn.execute("SELECT 1 FROM memory_set_aside WHERE item_id = ?", (r["id"],)).fetchone()
         return MemoryItem(r["id"], r["kind"], r["subject"], r["key"], r["content"], srcs,
                           datetime.fromisoformat(r["observed_at"]), datetime.fromisoformat(r["valid_from"]),
                           datetime.fromisoformat(r["valid_to"]) if r["valid_to"] else None, r["supersedes"],
                           float(r["confidence"]), r["origin"], r["status"],
                           str(extra["about"]) if extra else "",
-                          datetime.fromisoformat(extra["review_at"]) if extra and extra["review_at"] else None)
+                          datetime.fromisoformat(extra["review_at"]) if extra and extra["review_at"] else None,
+                          aside is not None)
 
     def items(self, status: str | None = "active", subject: str | None = None, valid_now: bool = True) -> list[MemoryItem]:
         q, args = "SELECT * FROM memory_items WHERE 1=1", list[Any]()
@@ -428,6 +432,8 @@ class Memory:
                 "AND status = 'proposed' AND valid_to IS NULL ORDER BY seq LIMIT 1", (kind, subject, key)).fetchone()
         if same is not None:                                     # the same fact again: more evidence, no new item
             item_id = same["id"]
+            if owner_now:                                        # decision 17: saying it again says it still holds
+                self.restore(item_id)
         else:
             item_id = self.ids.new_id()
             self.db.conn.execute(
@@ -452,6 +458,8 @@ class Memory:
                 replaced += self._end([o for o in named if o.id not in {r.id for r in replaced}], item_id)
         it = self.get(item_id)
         assert it is not None
+        if same is not None and it.status == "active" and not replaced:
+            self.on_saved(it)                     # seen again: the core profile may now take it (decision 18)
         return Saved(it, replaced, [i for i, _ in refused])
 
     def _replaceable(self, ids: list[str]) -> tuple[list[MemoryItem], list[tuple[str, str]]]:
@@ -608,6 +616,36 @@ class Memory:
         self.on_ended([item_id], None)
         self.on_change()
 
+    def looks_over(self, item_id: str, why: str) -> str:
+        """Decision 17 (owner, 2026-10-31): FERB's check found this current item over. FERB's understanding and what it
+        observed are retired ("retired"); the owner's own words are only set aside ("set_aside"): no longer used,
+        kept as history, restored by the owner saying it still holds (`restore`). Their end date, when they gave one,
+        ends them by itself (`expire_at`). The caller tells the owner once."""
+        it, now = self.get(item_id), self.clock.now()
+        if it is None or it.status != "active" or not current(it, now):
+            raise MemoryRefused(f"no current item {item_id}")
+        if it.origin != "owner_stated":
+            self.retire(item_id, why)
+            return "retired"
+        self.db.conn.execute("INSERT OR REPLACE INTO memory_set_aside (item_id, at, why) VALUES (?, ?, ?)",
+                             (item_id, now.isoformat(), " ".join(self.redact(why).split())[:200]))
+        self.publish("memory.set_aside", {"id": item_id, "reason": why})
+        self.on_set_aside([item_id])
+        self.on_change()
+        return "set_aside"
+
+    def restore(self, item_id: str) -> bool:
+        """The owner says a fact FERB set aside still holds (decision 17): it is used again. False when it wasn't set
+        aside."""
+        if self.db.conn.execute("DELETE FROM memory_set_aside WHERE item_id = ?", (item_id,)).rowcount == 0:
+            return False
+        self.publish("memory.restored", {"id": item_id})
+        it = self.get(item_id)
+        if it is not None:
+            self.on_saved(it)
+        self.on_change()
+        return True
+
     def _never_again(self, it: MemoryItem) -> None:
         self.db.conn.execute("INSERT OR IGNORE INTO memory_forgotten (fingerprint, at) VALUES (?, ?)",
                              (fingerprint(it.kind, it.subject, it.key, it.content), self.clock.now().isoformat()))
@@ -704,6 +742,7 @@ class Memory:
             c.execute(f"DELETE FROM memory_sources WHERE item_id IN ({marks})", plan.items)
             c.execute(f"DELETE FROM memory_context WHERE item_id IN ({marks})", plan.items)
             c.execute(f"DELETE FROM memory_profile WHERE item_id IN ({marks})", plan.items)
+            c.execute(f"DELETE FROM memory_set_aside WHERE item_id IN ({marks})", plan.items)
             c.execute(f"DELETE FROM memory_items WHERE id IN ({marks})", plan.items)
             for kind, value in plan.destinations:          # decision 14: a send there asks again
                 c.execute("DELETE FROM known_destinations WHERE kind = ? AND value = ?", (kind, value))

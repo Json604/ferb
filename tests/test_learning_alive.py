@@ -219,15 +219,15 @@ def test_one_failing_hourly_memory_job_never_stops_the_others(daemon) -> None:
 
     d.distiller.catch_up = job('distill')
     d._refresh_cards = job('cards', RuntimeError('a card reader failed'))
-    d._restore_memory_embedding = job('embedding')
+    d._merge_playbooks = job('playbooks')
     daemon.run(d._memory_pass())
-    assert ran == ['distill', 'cards', 'embedding']                      # no intent-label or consolidation call
+    assert ran == ['distill', 'cards', 'playbooks']                      # no intent-label or consolidation call
 
     ran.clear()
     d.distiller.catch_up = job('distill', AttributeError("'str' object has no attribute 'get'"))
     d._refresh_cards = job('cards')
     daemon.run(d._memory_pass())
-    assert ran == ['distill', 'cards', 'embedding']
+    assert ran == ['distill', 'cards', 'playbooks']
 
     async def failures() -> list[tuple[str, str]]:
         return [(r[0], json.loads(r[1])['error']) for r in d.db.conn.execute(

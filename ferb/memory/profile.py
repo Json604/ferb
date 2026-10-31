@@ -33,6 +33,10 @@ PROFILE_TOKENS = 2500
 CHARS_PER_TOKEN = 4
 PASS_DAYS = 7                       # decision 9: the weekly pass
 RETRY_HOURS = 1                     # a failed or over-budget pass is tried again on the next hourly memory pass
+# Ruling (step 9b, coordinator 2026-10-31): an owner fact that didn't fit makes the pass due early, at most once a day
+# (each pass is a model call and rewrites the cached prompt prefix); until then retrieval finds it
+EARLY_PASS_HOURS = 24
+WAITING_KIND = "memory.profile_waiting"
 RECENT = "Recently said"
 PASS_KIND = "memory.profile_pass"
 SEED_KIND = "memory.profile_seeded"
@@ -80,6 +84,9 @@ class CoreProfile:
         self.memory, self.db, self.clock, self.record = memory, memory.db, clock, record
         self.budget_tokens = budget_tokens
         self.on_change: Callable[[], None] = lambda: None
+        # decision 18: told the facts of FERB's understanding or observation that just joined the profile (code's join
+        # or the pass's), each once: the daemon adds a quiet "Now always on" note card
+        self.on_joined: Callable[[list[MemoryItem]], None] = lambda items: None
 
     # ---------- reads ----------
 
@@ -90,7 +97,7 @@ class CoreProfile:
         out = []
         for r in self.db.conn.execute("SELECT * FROM memory_profile ORDER BY position, rowid").fetchall():
             it = self.memory.get(r["item_id"])
-            if it is not None and it.status == "active" and current(it, now):
+            if it is not None and it.status == "active" and current(it, now) and not it.set_aside:
                 out.append(Entry(str(r["section"]), int(r["position"]), it, str(r["added_by"])))
         return out
 
@@ -169,20 +176,29 @@ class CoreProfile:
 
     def due(self) -> bool:
         """The weekly pass is due: none ran yet, the last ran a week ago, or the profile is over its budget (each
-        tried at most once an hour)."""
+        tried at most once an hour); or early, at most once a day (EARLY_PASS_HOURS), when an owner fact didn't fit
+        (`saved`)."""
         now, tried, done = self.clock.now(), self._last_try(), self.last_pass()
         if tried is not None and now - tried < timedelta(hours=RETRY_HOURS):
             return False
         if done is None or now - datetime.fromisoformat(done) >= timedelta(days=PASS_DAYS):
             return True
+        if now - datetime.fromisoformat(done) >= timedelta(hours=EARLY_PASS_HOURS) and self._waiting(done):
+            return True
         return self.render()[1] > 0
+
+    def _waiting(self, since: str) -> bool:
+        """Whether an owner fact that didn't fit was recorded after the last pass."""
+        return self.db.conn.execute("SELECT 1 FROM journal WHERE kind = ? AND seq > (SELECT COALESCE(MAX(seq), 0) "
+                                    "FROM journal WHERE kind = ?) LIMIT 1", (WAITING_KIND, PASS_KIND)).fetchone() \
+            is not None
 
     def holds_up(self, item: MemoryItem, now: datetime | None = None) -> bool:
         """Decision 15: may this fact enter the profile? The owner's words at once; FERB's understanding and what it
         observed once seen again (sources on two separate days) or after standing a full weekly pass uncorrected.
         Never outside content, an observed pattern still gathering days, or the old setup summary."""
         now = now or self.clock.now()
-        if item.status != "active" or not current(item, now) or item.key in PERSONA_KEYS:
+        if item.status != "active" or not current(item, now) or item.key in PERSONA_KEYS or item.set_aside:
             return False
         if item.origin == "owner_stated":
             return True
@@ -239,16 +255,28 @@ class CoreProfile:
             self.on_change()
 
     def saved(self, item: MemoryItem) -> None:
-        """A fact became current (`Memory.on_saved`): a preference the owner stated about themselves joins the profile
-        under "Recently said" while it fits (the weekly pass regroups it)."""
-        if not (item.origin == "owner_stated" and item.kind == "preference" and item.subject == "owner"):
+        """A fact became current or was seen again (`Memory.on_saved`), decision 18: the owner's own words about
+        themselves join the profile at once, under "Recently said", while they fit; FERB's understanding and what it
+        observed join the same way once they hold up (seen on two separate days; standing a week is the weekly
+        pass's to see), and each such join is told once (`on_joined`: the "Now always on" note card). An owner fact
+        that doesn't fit makes the pass due early (`due`); retrieval finds it meanwhile."""
+        if item.subject != "owner" or item.key in PERSONA_KEYS or item.id in self.ids():
             return
-        if item.id in self.ids() or item.key in PERSONA_KEYS:
+        if item.origin == "owner_stated":
+            pass
+        elif item.origin in ("inferred", "observed") and self.holds_up(item):
+            pass
+        else:
             return
-        if self.used_tokens() + (len(entry_line(item)) + 1) // CHARS_PER_TOKEN + 1 > self.budget_tokens:
-            return                                       # over budget: it waits for the pass (search still finds it)
+        room = self.budget_tokens * CHARS_PER_TOKEN - len(HEADER) - len(f"## {RECENT}") - 1
+        if self.used_tokens() * CHARS_PER_TOKEN + len(entry_line(item)) + 1 > room:
+            if item.origin == "owner_stated":
+                self.record(WAITING_KIND, {"item": item.id})
+            return
         self._write(item.id, RECENT, self._next_position(), "code")
         self.record("memory.profile_changed", {"added": item.id, "by": "code"})
+        if item.origin != "owner_stated":
+            self.on_joined([item])
         self.on_change()
 
     def add(self, item_id: str, section: str = "", *, by: str = "owner") -> None:
@@ -341,12 +369,18 @@ class CoreProfile:
             ended.append({"id": it.id, "why": " ".join(str(end.get("why", "")).split())[:200],
                           "text": " ".join(it.content.split())})
         pins = {e.item.id for e in pinned}
+        before = self.ids()
         self.db.conn.execute("DELETE FROM memory_profile")
         for position, (title, item_id) in enumerate(placed):
             if item_id not in {g["id"] for g in ended}:
                 self._write(item_id, title, position, "owner" if item_id in pins else "pass")
-        for gone in ended:
-            self.memory.retire(gone["id"], "FERB's weekly check: " + (gone["why"] or "its time has passed"))
+        for gone in ended:                               # decision 17: the owner's words are set aside, not ended
+            gone["outcome"] = self.memory.looks_over(gone["id"], "FERB's weekly check: " +
+                                                     (gone["why"] or "its time has passed"))
+        joined = [it for i in self.ids() - before if (it := self.memory.get(i)) is not None
+                  and it.origin in ("inferred", "observed")]
+        if joined:
+            self.on_joined(joined)
         _, left_out = self.render()
         done = {"entries": len(placed) - len(ended), "refused": refused, "ended": [g["id"] for g in ended],
                 "left_out": left_out}

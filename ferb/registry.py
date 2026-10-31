@@ -150,9 +150,9 @@ def add_evidence(r: Registry, spans: Any, parent: Callable[[str], str | None],
 
 def add_context_readers(r: Registry, continuity: Any, root: Callable[[str], str | None],
                         memory: Callable[[], Any], source_origins: Callable[[str], set[str]] | None = None,
-                        search: Any = None) -> None:
+                        search: Any = None, chat_search: Any = None) -> None:
     from ferb.orchestrator.evidence import ChatHistory, MemoryRead
-    r.add(ChatHistory(continuity, root))
+    r.add(ChatHistory(continuity, root, chat_search))
     r.add(MemoryRead(memory, source_origins, search))
 
 

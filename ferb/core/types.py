@@ -110,6 +110,7 @@ class MemoryItem:
     status: Literal["proposed", "active", "retracted"]
     about: str = ""                           # decision 13: what the owner's words are about (from the task)
     review_at: datetime | None = None         # when FERB checks a period fact still holds (no end in their words)
+    set_aside: bool = False                   # decision 17: the owner's words FERB stopped using as over (kept)
 
 
 # ---------- actions (descriptive execution metadata) ----------
@@ -466,6 +467,9 @@ class PageSnapshot:
     # video/audio elements (L26): {index, playing (its time moved, I5), paused, current_time, duration, muted, volume,
     # in_view[, frame]}
     media: list[dict[str, Any]] = field(default_factory=list)
+    # the addresses of the page's embedded frames (each child frame's own and each frame element's src, query strings
+    # masked): structural facts such as a bot-check widget's challenge frame (hands decision 6)
+    frame_urls: list[str] = field(default_factory=list)
 
 
 # ---------- Mac / computer ----------

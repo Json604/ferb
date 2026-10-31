@@ -1,4 +1,5 @@
-"""L36 §3: one ranked search over content, with the owner's budgets ("Planner 60, worker 20")."""
+"""L36 §3: one ranked search over content; step 9b: facts searched in memory_items directly, each role within its
+limits (decision 7)."""
 import threading
 from datetime import timedelta
 from pathlib import Path
@@ -6,10 +7,9 @@ from typing import Any
 
 import pytest
 
-from ferb.memory import embeddings
-from ferb.memory.learning import (PLANNER_MEMORY_ITEMS, RECENCY_WEIGHT, SEARCH_TEXT_VERSION, WORKER_MEMORY_ITEMS,
-                                  _tied, digest, encoded,
-                                  reindex_search, search_text, shown_text, slug_words)
+from ferb.memory.learning import (RECENCY_WEIGHT, SEARCH_TEXT_VERSION, _tied, digest, encoded, reindex_search,
+                                  search_text, shown_text, slug_words)
+from ferb.memory.search import PLANNER, WORKER, MemorySearch
 from ferb.orchestrator.context_layers import target_words
 from ferb.orchestrator.schemas import TargetsSpec
 from tests.conftest import chat, install, sup, task
@@ -19,6 +19,9 @@ from tests.support.memory_corpus import USERNAME, fact, goal_like_episodes, owne
 from tests.support.memory_items import owner_fact, run
 from tests.support.visa_audit import MSG_1217, MSG_1222, RESEARCH_OFFICIAL, VISA_GOAL, VISA_TARGETS
 
+# The Learning.search tests below rank nodes against the pre-9b budgets they were measured with (60 / 20 nodes); the
+# roles' limits now are search.PLANNER / search.WORKER (decision 7)
+NODE_PLANNER_LIMIT, NODE_WORKER_LIMIT = 60, 20
 PLANNER_QUERIES = ["log in to usvisascheduling.com",
                    "Check usvisascheduling.com in Chrome New_Personal for Chennai OFC and interview availability",
                    "usvisascheduling B1 B2 India OFC consular booking fields New_Personal owner-account"]
@@ -62,10 +65,10 @@ def test_the_owners_visa_messages_recall_the_username_through_the_task_they_cont
     username = fact(store, "usvisascheduling_username", USERNAME)
     continued = VISA_GOAL + "\n" + target_words(VISA_TARGETS)
     for message in (MSG_1217, MSG_1222):
-        assert ranked(store, message + "\n" + continued, username["id"], PLANNER_MEMORY_ITEMS), message[:20]
-        assert not ranked(store, message, username["id"], PLANNER_MEMORY_ITEMS), message[:20]   # alone: no shared word
+        assert ranked(store, message + "\n" + continued, username["id"], NODE_PLANNER_LIMIT), message[:20]
+        assert not ranked(store, message, username["id"], NODE_PLANNER_LIMIT), message[:20]   # alone: no shared word
     for query in PLANNER_QUERIES:
-        assert ranked(store, query, username["id"], PLANNER_MEMORY_ITEMS), query
+        assert ranked(store, query, username["id"], NODE_PLANNER_LIMIT), query
 
 
 def test_the_research_official_step_recalls_the_username_within_its_20(store: Any) -> None:
@@ -73,7 +76,7 @@ def test_the_research_official_step_recalls_the_username_within_its_20(store: An
     task's targets (Ruling 12)."""
     username = fact(store, "usvisascheduling_username", USERNAME)
     query = "\n".join((MSG_1217, VISA_GOAL, RESEARCH_OFFICIAL, target_words(VISA_TARGETS)))
-    assert ranked(store, query, username["id"], WORKER_MEMORY_ITEMS)
+    assert ranked(store, query, username["id"], NODE_WORKER_LIMIT)
 
 
 def test_long_past_tasks_bury_the_username_unless_the_tasks_targets_are_ranked_alone(busy_store: Any) -> None:
@@ -84,10 +87,10 @@ def test_long_past_tasks_bury_the_username_unless_the_tasks_targets_are_ranked_a
     targets = target_words(VISA_TARGETS)
     step = f"{MSG_1217}\n{VISA_GOAL}\n{RESEARCH_OFFICIAL}\n{targets}"
     planner = f"{MSG_1217}\n{VISA_GOAL}\n{targets}"
-    assert not ranked(busy_store, step, username["id"], WORKER_MEMORY_ITEMS)
-    assert not ranked(busy_store, planner, username["id"], PLANNER_MEMORY_ITEMS)
-    assert ranked(busy_store, step, username["id"], WORKER_MEMORY_ITEMS, focus=targets)
-    assert ranked(busy_store, planner, username["id"], PLANNER_MEMORY_ITEMS, focus=targets)
+    assert not ranked(busy_store, step, username["id"], NODE_WORKER_LIMIT)
+    assert not ranked(busy_store, planner, username["id"], NODE_PLANNER_LIMIT)
+    assert ranked(busy_store, step, username["id"], NODE_WORKER_LIMIT, focus=targets)
+    assert ranked(busy_store, planner, username["id"], NODE_PLANNER_LIMIT, focus=targets)
 
 
 def test_focus_words_that_match_nothing_or_carry_no_weight_change_nothing(busy_store: Any) -> None:
@@ -118,14 +121,14 @@ def test_a_common_target_word_never_takes_over_the_budget(busy_store: Any) -> No
     flights = {fact(busy_store, f"flight_{i}", text)["id"] for i, text in enumerate(FLIGHT_NOTES)}
     targets = target_words(VISA_TARGETS)
     step = f"{MSG_1217}\n{VISA_GOAL}\n{RESEARCH_OFFICIAL}\n{targets}"
-    main = [n["id"] for n in busy_store.search(step, limit=WORKER_MEMORY_ITEMS)]
-    fused = [n["id"] for n in busy_store.search(step, limit=WORKER_MEMORY_ITEMS, focus=targets)]
+    main = [n["id"] for n in busy_store.search(step, limit=NODE_WORKER_LIMIT)]
+    fused = [n["id"] for n in busy_store.search(step, limit=NODE_WORKER_LIMIT, focus=targets)]
     assert username["id"] in fused and len(set(main) & set(fused)) >= 12
     aimed = target_words(TargetsSpec(apps=["Google Chrome"], sites=["makemytrip.com"]))
     query = ("find me a cheap flight to goa next friday\nFind the cheapest flight to Goa next Friday and compare "
              f"airlines\n{aimed}")
-    plain = [n["id"] for n in busy_store.search(query, limit=WORKER_MEMORY_ITEMS)]
-    aimed_too = [n["id"] for n in busy_store.search(query, limit=WORKER_MEMORY_ITEMS, focus=aimed)]
+    plain = [n["id"] for n in busy_store.search(query, limit=NODE_WORKER_LIMIT)]
+    aimed_too = [n["id"] for n in busy_store.search(query, limit=NODE_WORKER_LIMIT, focus=aimed)]
     assert len(flights & set(plain)) >= 9 and len(flights & set(aimed_too)) >= 6
 
 
@@ -155,7 +158,7 @@ def test_the_planner_recalls_for_the_work_its_message_continues(daemon: Any, mon
     message in a chat with no task (the negative control) leaves it out."""
     for i in range(6):
         owner_fact(daemon, f"hose_{i}", f"the garden hose {i} is a good thing for this and then what")
-    owner_fact(daemon, "usvisascheduling_username", USERNAME)
+    owner_fact(daemon, "usvisascheduling_username", USERNAME, subject="account:usvisascheduling")   # not in the profile
     worker = StalledWorker(monkeypatch)
     script = install(daemon, [sup("task", "Looking.", task(VISA_GOAL, apps=("Chrome New_Personal",),
                                                            sites=("usvisascheduling.com",)))])
@@ -183,7 +186,7 @@ def test_the_planners_12_17_turn_recalls_the_username_in_a_busy_store(daemon: An
     tasks that share the visa goal's words, the 12:17 message sent while the visa task runs still brings the username
     into the planner's 60."""
     run(daemon, lambda: (owner_like_store(daemon.daemon.learning), goal_like_episodes(daemon.daemon.learning)))
-    owner_fact(daemon, "usvisascheduling_username", USERNAME)
+    owner_fact(daemon, "usvisascheduling_username", USERNAME, subject="account:usvisascheduling")   # not in the profile
     worker = StalledWorker(monkeypatch)
     script = install(daemon, [sup("task", "Looking.", task(VISA_GOAL, apps=("Chrome New_Personal",),
                                                            sites=("usvisascheduling.com",)))])
@@ -207,32 +210,36 @@ def test_words_most_items_share_find_nothing_instead_of_the_newest_items(store: 
     assert store.search("") != []                              # no words at all: a listing, newest first
 
 
-class _Embedder:
-    """A stand-in embedding model: every text gets the same direction, so similarity ranks every node."""
-    name = "test-model"
-
-    def encode(self, text: str, *, query: bool = False) -> list[int]:
-        return [1, 2, 3]
-
-
 def test_common_words_find_nothing_with_an_embedding_model_too(store: Any) -> None:
     """m5: similarity alone would rank every node; a query whose words all carry no weight finds nothing."""
-    embeddings.index(store, _Embedder())
-    store.embedder = _Embedder()
+    from tests.support.fake_embedder import FakeEmbedder
+    model = FakeEmbedder()
+    MemorySearch(store.db, store.clock).embed_pending(model)
+    store.embedder = model
     assert store.search("is the for and owner") == []
     assert store.search("kaggle leaderboard") != []
 
 
 def test_embeddings_embed_what_search_matches_and_never_a_rollup(store: Any) -> None:
+    """Step 9b: the background embedder embeds each node's search text (what keyword search matches too), once; a node
+    kind search no longer serves (an old rollup) is never embedded."""
+    from tests.support.fake_embedder import FakeEmbedder
     rollup = store.put("summary", "day:2026-10-01", {"period": "day", "text": "task001", "children": [], "count": 0},
                        [], made_by="code:rollup/1", state="active")
-    store.db.conn.execute("INSERT INTO learning_vectors VALUES (?,?,?,?,?)",
-                          (rollup["id"], _Embedder.name, b"\x01\x02\x03", "2026-10", "an older text"))
-    embeddings.index(store, _Embedder())
-    hashes = dict(store.db.conn.execute("SELECT node_id, text_hash FROM learning_vectors").fetchall())
+    model = FakeEmbedder()
+    MemorySearch(store.db, store.clock).embed_pending(model)
+    hashes = dict(store.db.conn.execute("SELECT doc, text_hash FROM recall_vectors").fetchall())
     episode = next(n for n in store.items("episode"))
-    assert hashes[episode["id"]] == digest(search_text("episode", episode["key"], episode["body"]))
-    assert rollup["id"] not in hashes                          # nothing to match: its older vector goes too
+    assert hashes[episode["id"]] == embeddings_hash(search_text("episode", episode["key"], episode["body"]))
+    assert rollup["id"] not in hashes
+    calls = model.calls
+    MemorySearch(store.db, store.clock).embed_pending(model)
+    assert model.calls == calls                                # nothing new: nothing encoded again
+
+
+def embeddings_hash(text: str) -> str:
+    from ferb.memory.embeddings import text_hash
+    return text_hash(text)
 
 
 def test_a_budgeted_search_reads_only_the_bodies_it_returns(store: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -388,39 +395,45 @@ def test_the_daemon_journals_a_reindex_only_when_nodes_were_reindexed(daemon: An
     d = daemon.daemon
     daemon.run(d._search_ready())
     assert run(daemon, lambda: d.journal.of_kind("memory.search_reindexed")) == []
-    owner_fact(daemon, "dentist", "my dentist is Dr. Rao")
-    node = run(daemon, lambda: (d.learning.sync_facts(d.memory), d.learning.items("fact")[0])[1])
+    node = run(daemon, lambda: d.learning.put("activity_summary", "trail.day_narrative:2026-10-01", {
+        "day": "2026-10-01", "text": "The owner saw the dentist."}, [], made_by="model:test", state="active"))
     run(daemon, lambda: (_indexed_by_json(d.db, node), d.db.conn.execute("DELETE FROM learning_search_version")))
     daemon.run(d._reindex_search())
     assert [e.data for e in run(daemon, lambda: d.journal.of_kind("memory.search_reindexed"))] == \
         [{"version": SEARCH_TEXT_VERSION, "finished": True}]
-    assert run(daemon, lambda: _fts_text(d.db, node)) == "my dentist is Dr. Rao owner dentist"
+    assert run(daemon, lambda: _fts_text(d.db, node)) == "The owner saw the dentist."
 
 
-def test_the_planner_gets_at_most_its_60_items(daemon: Any) -> None:
+def test_the_planner_gets_at_most_its_limit_best_first(daemon: Any) -> None:
+    """Decision 7 (step 9b): retrieved memory is within the role's limits, best first, never protected; what is left out
+    is one counted line."""
     for i in range(80):
-        owner_fact(daemon, f"tomato_{i}", f"tomato tip {i}: water them in the morning")
+        owner_fact(daemon, f"tomato_{i}", f"tomato tip {i}: water them in the morning", subject="project:garden")
     for i in range(100):
-        owner_fact(daemon, f"bicycle_{i}", f"bicycle note {i}: oil the chain")
+        owner_fact(daemon, f"bicycle_{i}", f"bicycle note {i}: oil the chain", subject="project:garage")
     found = daemon.run(daemon.daemon._learning_candidates("how should I grow tomato plants"))
-    assert len(found) == PLANNER_MEMORY_ITEMS and all("tomato" in c["text"] for c in found)
+    *items, more = found
+    assert len(items) <= PLANNER.memory_items and all("tomato" in c["text"] for c in items)
+    assert sum(len(c["text"]) for c in items) <= PLANNER.memory_tokens * 4
+    assert "more matching memories left out" in more["text"]
+    worker = daemon.run(daemon.daemon._learning_candidates("how should I grow tomato plants", WORKER))
+    assert len(worker) - 1 <= WORKER.memory_items
 
 
-def test_an_identity_preference_never_takes_a_slot_of_the_ranked_budget(daemon: Any) -> None:
-    """Final review M1 (the reviewer's probe): the owner preference "reply to visa emails in a formal tone" is in every
-    role's identity layer, and its fact twin was also one of the worker's 20 for "draft the visa email reply". The
-    spec's ruling: identity items don't count toward the 60/20, so the prompts' ranked lists leave them out. The memory
-    tools still find them."""
+def test_a_profile_entry_never_takes_a_slot_of_the_ranked_limit(daemon: Any) -> None:
+    """Final review M1, decision 18: the owner's preference "reply to visa emails in a formal tone" is in every role's
+    core profile, so the ranked lists leave it out; the memory tools still find it."""
     d = daemon.daemon
     for i in range(4):
         owner_fact(daemon, f"chain_{i}", f"bicycle chain note {i}")
     tone = owner_fact(daemon, "visa_email_tone", "reply to visa emails in a formal tone", kind="preference")
-    other = owner_fact(daemon, "visa_email_signature", "visa email replies are signed Kartikey")
+    other = owner_fact(daemon, "visa_email_signature", "visa email replies are signed Kartikey",
+                       subject="project:visa")
     assert "reply to visa emails in a formal tone" in run(daemon, d._core_profile_text)     # Tier 1, every role
-    worker = [c["text"] for c in daemon.run(d._learning_candidates("draft the visa email reply", WORKER_MEMORY_ITEMS))]
+    worker = [c["text"] for c in daemon.run(d._learning_candidates("draft the visa email reply", WORKER))]
     assert any("signed Kartikey" in t for t in worker) and not any("formal tone" in t for t in worker)
-    found = [n["body"].get("id") for n in daemon.run(d._search("draft the visa email reply")) if n["kind"] == "fact"]
-    assert tone.id in found and other.id in found                         # memory.learned / memory.read still do
+    found = daemon.run(d._memory_item_search("draft the visa email reply"))
+    assert tone.id in found and other.id in found                         # memory.read still finds both
 
 
 def test_an_empty_query_lists_newest_first_with_no_recency_or_owner_boost(tmp_path: Path) -> None:
@@ -455,16 +468,25 @@ def test_memory_read_without_its_search_refuses_a_query_rather_than_match_substr
     assert out.is_error and "search" in out.content["error"]
 
 
+def dentist_episode(daemon: Any) -> dict[str, Any]:
+    return dict(run(daemon, lambda: daemon.daemon.learning.put("episode", "t-dentist", {
+        "task_id": "t-dentist", "intent": "Book the dentist for Tuesday", "request": "book my dentist",
+        "status": "done", "verified": True, "narrative": "Booked.", "ended_at": "2026-10-20T10:00:00+00:00",
+        "actions": [], "apps": {}, "slots": {}}, [], origin_label="ferb", made_by="code:evidence-card/4",
+        state="active")))
+
+
 def test_memory_learned_returns_content_with_ids(daemon: Any) -> None:
     import json
     from ferb.memory.tools import LearningRead
     for i in range(4):
         owner_fact(daemon, f"chain_{i}", f"bicycle chain note {i}")
-    owner_fact(daemon, "dentist", "my dentist is Dr. Rao")
-    reader = LearningRead(lambda: daemon.daemon.learning, daemon.daemon._search)
+    dentist_episode(daemon)
+    reader = LearningRead(lambda: daemon.daemon.learning, daemon.daemon._learned_search)
     out = daemon.run(reader.run(LearningRead.Input(query="dentist"), None))
-    [c] = [c for c in json.loads(out.content["text"])["candidates"] if c["kind"] == "fact"]
-    assert c["text"] == "owner/dentist — my dentist is Dr. Rao" and c["id"].startswith("m-")
+    [c] = json.loads(out.content["text"])["candidates"]
+    assert list(c)[:2] == ["id", "text"] and "sources" not in c                     # what it says first; no refs
+    assert "Book the dentist" in c["text"] and c["id"].startswith("m-") and c["kind"] == "episode"
 
 
 def test_the_memory_tools_are_registered_on_the_waiting_search(daemon: Any) -> None:
@@ -495,7 +517,7 @@ def test_memory_learned_reads_off_the_event_loop(daemon: Any, monkeypatch: pytes
     import json
 
     from ferb.memory.learning import Learning
-    owner_fact(daemon, "dentist", "my dentist is Dr. Rao")
+    dentist_episode(daemon)
     real, entered, gate = Learning.search, threading.Event(), threading.Event()
 
     def held(self: Any, *args: Any, **kwargs: Any) -> Any:
@@ -515,7 +537,7 @@ def test_memory_learned_reads_off_the_event_loop(daemon: Any, monkeypatch: pytes
     finally:
         gate.set()
     candidates = json.loads(reading.result(5).content["text"])["candidates"]
-    assert [c["text"] for c in candidates if c["kind"] == "fact"] == ["owner/dentist — my dentist is Dr. Rao"]
+    assert [c["kind"] for c in candidates] == ["episode"]
 
 
 def test_memory_read_refuses_a_query_with_no_words_and_finds_nothing_for_common_words(daemon: Any) -> None:

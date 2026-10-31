@@ -125,7 +125,7 @@ def test_the_weekly_pass_groups_what_holds_up_and_retires_what_is_over(daemon: A
     view = run(daemon, d.profile.view)
     assert [s["title"] for s in view["sections"]] == ["How you like things done"]
     assert [i["id"] for i in view["sections"][0]["items"]] == [tone.id]
-    assert run(daemon, lambda: d.memory.get(exam.id)).valid_to is not None
+    assert run(daemon, lambda: d.memory.get(exam.id)).set_aside      # decision 17: the owner's words set aside
     told = [e.data["text"] for e in run(daemon, lambda: d._journal().of_kind("chat.notice"))]
     assert len(told) == 1 and "DevOps capstone" in told[0]
     assert tone.id in str(rt.contexts[0]) and "write formally to professors" in str(rt.contexts[0])

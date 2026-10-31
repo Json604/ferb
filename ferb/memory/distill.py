@@ -50,6 +50,9 @@ NOTHING_SHARED = "the quote shares no telling word with what FERB remembers"
 RETIRED_NOTICE = "I retired “{item}” because you said “{quote}” ({day}). Reply to undo."
 REPLACED_NOTICE = "I replaced “{item}” because you said “{quote}” ({day}). Reply to undo."
 STALE_NOTICE = "Memory: I stopped using “{item}”: it looks out of date ({day}). Tell me if it still holds."
+# Decision 17: the owner's own words FERB's check finds over are set aside, kept as history
+ASIDE_NOTICE = ("Memory: “{item}” looks over ({day}), so I'll stop using it. It's kept; tell me if it still holds and "
+                "I'll use it again.")
 ALREADY_STORED = "already remembered (its kind, subject and key hold a current item)"
 
 
@@ -199,15 +202,17 @@ class Distiller:
                            else self._may_end(item, ev, stated[1], ends=[target], about=[target]))
                     if why == OLDER_WORDS:
                         raise MemoryRefused(OLDER_WORDS)
-                    self.memory.retire(target.id, f"the owner's words on {day}" if not why
-                                       else f"FERB's check of {day}: {why}")
-                    retired.append(target.id)
-                    if not why:
+                    if not why:                        # the owner's own words say it is over
+                        self.memory.retire(target.id, f"the owner's words on {day}")
+                        retired.append(target.id)
                         assert stated is not None
                         await self._tell(RETIRED_NOTICE, "retired", target, item, stated[1])
-                    else:
-                        stale.append({"item": target.id, "why": why})
-                        await self._tell_stale(target, day)
+                        continue
+                    # FERB's own check (decision 17): its understanding is retired, the owner's words set aside
+                    outcome = self.memory.looks_over(target.id, f"FERB's check of {day}: {why}")
+                    retired.append(target.id)
+                    stale.append({"item": target.id, "why": why, "outcome": outcome})
+                    await self._tell_stale(target, day, aside=outcome == "set_aside")
                     continue
                 srcs = check(item, ev)
                 origin_, content = item["origin"], item["content"]
@@ -282,10 +287,11 @@ class Distiller:
         await self.tell(f"memory-{verb}-{ended.id}", ["memory:" + ended.id, "journal:" + journal_id], text,
                         origin.join({origin.FERB, origin.OWNER, memory_origin(ended.origin)}))
 
-    async def _tell_stale(self, ended: Any, day: str) -> None:
-        """Decision 15: an item FERB retired on its own check of the day is told once, quietly; a reply undoes it."""
+    async def _tell_stale(self, ended: Any, day: str, *, aside: bool = False) -> None:
+        """Decisions 15 and 17: an item FERB retired (or, the owner's own words, set aside) on its own check of the day
+        is told once, quietly; a reply undoes it."""
         from ferb.memory.learning import memory_origin
-        text = STALE_NOTICE.format(item=" ".join(ended.content.split()), day=day)
+        text = (ASIDE_NOTICE if aside else STALE_NOTICE).format(item=" ".join(ended.content.split()), day=day)
         await self.tell(f"memory-stale-{ended.id}", ["memory:" + ended.id], text,
                         origin.join({origin.FERB, origin.INFERRED, memory_origin(ended.origin)}))
 

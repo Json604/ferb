@@ -15,7 +15,11 @@ ELEMENT_EVENTS = ("AXValueChanged", "AXTitleChanged", "AXUIElementDestroyed", "A
 
 def accessibility_observation(bundle_id: str, app: str, pid: int, notification: str, facts: dict[str, Any],
                               redact: Callable[[Any], Any]) -> Observation:
-    allowed = {k: facts[k] for k in ("window_id", "field_id", "role", "title") if k in facts}
+    """One AX event as recorded. In a browser no title is kept (fix list, step 9b): a page or window title can't be
+    checked against incognito or the excluded domains (windows.py skips browser titles for the same reason)."""
+    from ferb.act.mac.browsers import is_browser
+    keys = ("window_id", "field_id", "role") if is_browser(bundle_id) else ("window_id", "field_id", "role", "title")
+    allowed = {k: facts[k] for k in keys if k in facts}
     return Observation("accessibility", redact({"bundle_id": bundle_id, "app": app, "pid": pid,
                        "notification": notification} | allowed), {"actor": "unknown"})
 

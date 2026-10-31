@@ -112,26 +112,71 @@ class Continuity:
         return {row[0] for row in self.db.conn.execute(
             "SELECT task_id FROM task_context WHERE conversation_id = ?", (conversation,))}
 
-    def history(self, task_id: str, *, include_tasks: bool = False) -> list[dict[str, Any]]:
-        """Complete data for the registered task's conversation; never pick a conversation from words."""
-        found = self.db.conn.execute("SELECT conversation_id FROM task_context WHERE task_id = ?", (task_id,)).fetchone()
-        if found is None:
+    # The conversation kinds chat.history reads (supervisor.CONVERSATION_KINDS)
+    KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer", "chat.notice")
+
+    def _where(self, conversation: str) -> tuple[str, list[Any]]:
+        """SQL for the journal rows that belong to a conversation (`in_conversation`, plus its tasks' answers)."""
+        marks = ",".join("?" * len(self.KINDS))
+        notices = "" if conversation.startswith(SCHEDULE_SESSION) else \
+            " OR (kind = 'chat.notice' AND json_extract(data_json, '$.session_id') IS NULL)"
+        return (f"kind IN ({marks}) AND ((kind = 'task.answer' AND json_extract(data_json, '$.task_id') IN "
+                f"(SELECT task_id FROM task_context WHERE conversation_id = ?)){notices} OR (kind != 'task.answer' "
+                f"AND json_extract(data_json, '$.session_id') IS NOT NULL AND json_extract(data_json, '$.session_id') = ?)"
+                f" OR (kind NOT IN ('task.answer', 'chat.notice') AND json_extract(data_json, '$.session_id') IS NULL "
+                f"AND ? = 'owner'))", [*self.KINDS, conversation, conversation, conversation])
+
+    @staticmethod
+    def _record(row: Any) -> dict[str, Any]:
+        data = json.loads(row["data_json"])
+        return {"id": row["id"], "at": row["at"], "kind": row["kind"], "data": data,
+                "origin": row["origin"] or journal_origin(row["kind"], data)}
+
+    def entries(self, task_id: str, *, since: str | None = None, until: str | None = None, after: int = 0,
+                limit: int = 20) -> tuple[list[dict[str, Any]], int]:
+        """One page of the registered task's conversation, oldest first, read from the database (never the whole
+        journal), and how many entries it has in all (within `since`/`until`, ISO bounds on the time). Never picks a
+        conversation from words."""
+        conversation = self.conversation_of(task_id)
+        if conversation is None:
+            return [], 0
+        where, args = self._where(conversation)
+        if since:
+            where, args = where + " AND at >= ?", args + [since]
+        if until:
+            where, args = where + " AND at <= ?", args + [until]
+        total = int(self.db.conn.execute(f"SELECT COUNT(*) FROM journal WHERE {where}", args).fetchone()[0])
+        rows = self.db.conn.execute(f"SELECT * FROM journal WHERE {where} ORDER BY seq LIMIT ? OFFSET ?",
+                                    [*args, limit, after]).fetchall()
+        return [self._record(r) for r in rows], total
+
+    def entry(self, task_id: str, entry_id: str) -> dict[str, Any] | None:
+        """One entry of the registered task's conversation by its id, or None when it isn't one of its entries."""
+        conversation = self.conversation_of(task_id)
+        if conversation is None:
+            return None
+        where, args = self._where(conversation)
+        row = self.db.conn.execute(f"SELECT * FROM journal WHERE id = ? AND {where}", [entry_id, *args]).fetchone()
+        return self._record(row) if row is not None else None
+
+    def belongs(self, conversation: str, kind: str, session: str, request: str) -> bool:
+        """Whether an indexed conversation entry (its kind, chat and request or task id) is in this conversation."""
+        if kind == "task.answer":
+            return request in self.task_ids(conversation)
+        if kind == "chat.notice" and not session:
+            return not conversation.startswith(SCHEDULE_SESSION)
+        return session == conversation
+
+    def tasks(self, task_id: str) -> list[dict[str, Any]]:
+        """The tasks of the registered task's conversation, as chat.history lists them."""
+        conversation = self.conversation_of(task_id)
+        if conversation is None:
             return []
-        conversation = found[0]
-        tasks = self.task_ids(conversation)
-        records = []
-        for row in self.db.conn.execute("SELECT * FROM journal ORDER BY seq"):
-            data = json.loads(row["data_json"])
-            belongs = (data.get("task_id") in tasks if row["kind"] == "task.answer" else
-                       in_conversation(row["kind"], data, conversation))
-            if belongs and row["kind"] in ("chat.message", "chat.reply", "chat.clarify", "task.answer", "chat.notice"):
-                records.append({"id": row["id"], "at": row["at"], "kind": row["kind"], "data": data,
-                                "origin": row["origin"] or journal_origin(row["kind"], data)})
-        if include_tasks:
-            for row in self.candidates(conversation):
-                made = origin.join({origin.INFERRED} | self.task_origins(row["task_id"]))   # model-written (MP2)
-                records.append({"id": row["task_id"], "kind": "task", "data": row, "origin": made})
-        return records
+        out = []
+        for row in self.candidates(conversation):
+            made = origin.join({origin.INFERRED} | self.task_origins(row["task_id"]))   # model-written (MP2)
+            out.append({"id": row["task_id"], "kind": "task", "data": row, "origin": made})
+        return out
 
 
 LEGACY_UPGRADE = "continuity_legacy"     # the one-time upgrade below, journaled as store.upgraded once it has run

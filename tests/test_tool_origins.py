@@ -120,7 +120,9 @@ def test_chat_history_records_carry_journal_origins(daemon: RunningDaemon) -> No
     def history():
         root = daemon.daemon.db.conn.execute(
             "SELECT id FROM tasks WHERE parent_id IS NULL ORDER BY created_at DESC").fetchone()["id"]
-        return {r["kind"]: r["origin"] for r in daemon.daemon.supervisor.continuity.history(root, include_tasks=True)}
+        continuity = daemon.daemon.supervisor.continuity
+        rows, _ = continuity.entries(root, limit=100)
+        return {r["kind"]: r["origin"] for r in rows + continuity.tasks(root)}
     got = _on_loop(daemon, history)
     assert got["chat.message"] == "owner"
     assert "inferred" in got["task.answer"].split(",") and "inferred" in got["task"].split(",")   # model-written
@@ -295,7 +297,12 @@ def test_task_evidence_passes_recorded_origins_through(daemon: RunningDaemon, mo
 def test_chat_history_and_memory_read_pass_stored_origins_through() -> None:
     records = [{"id": "j1", "at": "t", "kind": "chat.message", "data": {"text": "hi"}, "origin": "owner"},
                {"id": "j2", "at": "t", "kind": "chat.message", "data": {"text": "x"}, "origin": "external:paste,owner"}]
-    history = ChatHistory(SimpleNamespace(history=lambda root, include_tasks=False: records), root=lambda t: "task-1")
+    async def search(root: str, query: str, since: Any, until: Any, limit: int) -> list[str]:
+        return [r["id"] for r in records if query.casefold() in json.dumps(r["data"]).casefold()]
+    continuity = SimpleNamespace(entries=lambda root, since=None, until=None, after=0, limit=20: (records, 2),
+                                 entry=lambda root, ident: next((r for r in records if r["id"] == ident), None),
+                                 tasks=lambda root: [])
+    history = ChatHistory(continuity, root=lambda t: "task-1", search=search)
     assert _run(history) == {"owner", "external:paste"}
     assert _run(history, entry_id="j1") == {"owner"}
     assert _run(history, query="no such text") == {"ferb"}

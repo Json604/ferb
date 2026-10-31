@@ -110,6 +110,11 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
 - [ ] Incremental vacuum + `journal_size_limit`; WAL truncate after the hourly pass.
 - [ ] One-time cleanup step (decision 4).
 - [ ] Upgrade path from any older build (decision 5), tested on copies of real older databases and configs.
+      (Step 9b: migration 0054 (`recall_vectors`, `recall_state`, `chat_fts`, `memory_set_aside`, triggers that drop a
+      deleted fact's or node's vector); the conversation index and the vectors are filled in the background at the first
+      start (nothing at migration time); open fact/identity copies closed once (journaled `memory.fact_nodes_closed`).
+      The `memory` optional extra (mlx-embeddings, sqlite-vec) is gone; `learning_vectors`/`learning_embedding_evals`
+      are no longer written (their rows, if any, go with the step-12 clean-up, as do the 1.5M old card source rows).)
       (Step 9a: migration 0053 (`memory_context`, `memory_profile`, re-runnable tables beside `memory_items`); the
       one-time memory clean-up and Tier 1 seed at first start (ferb/memory/upgrade.py, journaled); old waiting Keep
       questions dropped; `persona.json` gains `seen`; tests/test_memory_upgrade.py on a schema-52 fixture.)

@@ -107,6 +107,17 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       tests/test_setup_persona.py rewritten for decision 16 (observed, shown once, setup vs chat, refresh only on
       change, holds up before Tier 1); test_memory.py (pass verdict verified, forget leaves known destinations);
       test_memory_retirement.py (retire told, not asked; a due check). Keep/Edit/Drop and Retire/Keep tests deleted.
+      Step 9b (memory): tests/test_memory_recall.py (one search finds facts, past tasks and old chat by meaning with the
+      fake embedder and not by keywords alone; the planner's matching old exchanges, never one already shown;
+      chat.history by meaning and date, paged from SQL; no fact copies and the old ones closed once; the planner's
+      memory / old chat / activity within limits on a 10,000-fact store; how-notes from recorded calls, the worker and
+      the owner's hints; playbook merge, a declined group, the repeat measure in the RPC and `ferb stats`; one card
+      source per origin set; decision 17 by source with restore; decision 18's card and the cache guarantee; a burst of
+      owner facts with one early pass a day); tests/test_perception_9b.py (accessibility out of activity and purged at
+      7 days, browser privacy, values-only recent-first activity search, the activity limit, typed text across a focus
+      change, the software watcher on change, the bot-check fact); tests/test_memory_embeddings.py rewritten for the
+      static model (tokenizer, pooling, hashes, the fetch with a fake, int8 ranking); test_memory_search.py and
+      test_worker_memory.py moved to memory_items and the role limits (the 60/20 and fact-node tests replaced).
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.

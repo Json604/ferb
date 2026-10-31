@@ -613,7 +613,8 @@ def test_a_username_said_in_a_live_correction_reaches_the_next_tasks_login(daemo
     assert all(line.startswith("For atlasauth.b2clogin.com only (usvisascheduling.com account: Asha Rao): ")
                for line in shown), shown
     step = next(ctx for _, key, ctx, _ in script.contexts if key == "step.login")
-    assert "the username is Asha Rao" in step
+    system = next(req.system for _, key, req in script.requests if key == "step.login")
+    assert "the username is Asha Rao" in step + system        # the owner's words join the core profile (decision 18)
     listed = call(daemon, grant(daemon, "q", Identity.OWNER, {"task:read"}, None), "secrets.list", place=ATLAS)
     assert listed["content"]["username"] == "Asha Rao"
     assert listed["content"]["username_site"] == "usvisascheduling.com"

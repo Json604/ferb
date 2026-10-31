@@ -150,6 +150,11 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       understanding, facts said in passing included, retire without asking (quote or null), never re-propose a stored
       fact, "Due for a check" items, and the health/finances exclusion removed (memory decision 12). New runtime prompts:
       ferb/memory/profile.md (the weekly core-profile pass) and ferb/memory/mac_profile.md (decision 16).)
+      (Step 9b, memory: worker.md says recorded activity, accessibility events included, is read with trail.query and
+      that chat.history / memory.learned find earlier messages and past tasks by meaning; supervisor.md's memory line
+      names "Layer 4 — earlier conversation matching this message". New runtime prompt: ferb/memory/playbook.md (merging
+      verified how-notes of one kind of work). Tool descriptions changed: chat.history (query by meaning, since/until),
+      memory.learned (past tasks, playbooks, summaries; facts are memory.read's).)
 - [ ] Live re-test list adds prompt-only behaviours: the pause trigger, asking only what/who/which, asking before
       installing a named tool (the 10-14 Mole task failed with "not installed" instead of asking), how-note quality.
 - [ ] One foreground contract: code asks Yes/No once per task per app (30-minute option); remove "now / when idle /

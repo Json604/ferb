@@ -243,9 +243,13 @@ from installed apps, terminal detection fails closed)*
   owner's own run of the probe was in Terminal, so it showed Terminal's grants, not FERB's.)
 
 ## Fix list
-- [ ] Bot-check fact (decision 6): when a page shows a bot-check widget (a structural fact, e.g. the challenge frame's
+- [x] Bot-check fact (decision 6): when a page shows a bot-check widget (a structural fact, e.g. the challenge frame's
       origin, reported by the extension/snapshot like a field's kind), the tool result says so and names the
       `browser_verification` ability. No prompt line about bypasses (owner).
+      (Step 9b: `PageSnapshot.frame_urls` from what the extension already reports (each child frame's address, each frame
+      element's `src`; `ext_bridge.frame_urls`); `snapshot.bot_check` matches them against `CHALLENGE_FRAMES` and the
+      snapshot result starts with `bot_check` {widgets, frames, ability: browser_verification, read: "abilities.read
+      name=browser_verification"}. No protocol change, so no extension reload; no prompt line. tests/test_perception_9b.py.)
 - [x] One extension protocol bump covering tab groups, card fields secret, and daemon→extension signing/pairing
       (manifest, JS/Python protocol and minimum versions together). (5c: protocol 18, extension and minimum 0.16.0,
       `tabGroups` permission; the `rest`/`show_tab` version gates removed. The owner reloads the extension once.)

@@ -22,8 +22,38 @@ def privacy_facts(bundle_id: str, path: Path, database: Path | None = None) -> d
         return {"status": "unavailable", "error": type(error).__name__, "requires": "Full Disk Access"}
 
 
+def tcc_databases() -> list[Path]:
+    return [Path.home() / "Library/Application Support/com.apple.TCC/TCC.db",
+            Path("/Library/Application Support/com.apple.TCC/TCC.db")]
+
+
+def job_folders() -> list[Path]:
+    return [Path.home() / "Library/LaunchAgents", Path("/Library/LaunchAgents"), Path("/Library/LaunchDaemons")]
+
+
+def change_stamp(databases: list[Path] | None = None, folders: list[Path] | None = None) -> tuple[Any, ...]:
+    """What changes when an app's privacy grants or launch jobs can: the TCC databases' (and their WAL files') size and
+    time, and each launch-job folder's listing with each plist's time. Stat calls only, nothing read (fix list:
+    the software watcher re-read TCC and every plist each second)."""
+    out: list[Any] = []
+    for db in databases if databases is not None else tcc_databases():
+        for file in (db, db.with_name(db.name + "-wal")):
+            try:
+                st = file.stat()
+                out.append((str(file), st.st_mtime_ns, st.st_size))
+            except OSError:
+                out.append((str(file), None))
+    for folder in folders if folders is not None else job_folders():
+        try:
+            out.append((str(folder), folder.stat().st_mtime_ns,
+                        tuple(sorted((f.name, f.stat().st_mtime_ns) for f in folder.glob("*.plist")))))
+        except OSError:
+            out.append((str(folder), None))
+    return tuple(out)
+
+
 def associated_jobs(path: Path, folders: list[Path] | None = None) -> list[dict[str, Any]]:
-    folders = folders or [Path.home() / "Library/LaunchAgents", Path("/Library/LaunchAgents"), Path("/Library/LaunchDaemons")]
+    folders = folders or job_folders()
     jobs = []
     for folder in folders:
         for file in sorted(folder.glob("*.plist")):

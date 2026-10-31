@@ -43,6 +43,10 @@ class Field:
     def safe(self) -> bool:
         return bool(self.field_id) and self.role in TEXT_ROLES and not self.masked
 
+    def place(self) -> tuple[str, int, str, str]:
+        """Which element this is, whatever its state (masked, its role or label changed)."""
+        return self.bundle_id, self.pid, self.window_id, self.field_id
+
     def data(self) -> dict[str, Any]:
         return {"bundle_id": self.bundle_id, "app": self.app, "pid": self.pid,
                 "window_id": self.window_id, "field_id": self.field_id, "role": self.role, "field": self.label}
@@ -67,6 +71,14 @@ class TypedFields:
         with self._lock:
             self._pending = None
 
+    def leave(self, current: "Field | None") -> None:
+        """A key arrived where nothing is captured (a secure field, a terminal, no text field): a burst held for
+        another field is complete and kept; one for this same field, now not safe, is dropped."""
+        with self._lock:
+            p, self._pending = self._pending, None
+            if p is not None and (current is None or current.place() != p.field.place()):
+                self._emit(p)
+
     @property
     def holding(self) -> bool:
         """Typed text is waiting for its field's flush."""
@@ -80,7 +92,11 @@ class TypedFields:
                 return
             p = self._pending
             if p is None or p.field != field or p.actor != actor:
-                # A focus/actor change inside the hold window cannot validate the former field: discard it.
+                # Focus moved to another safe field (or another actor typed): the former burst is complete. Its field
+                # was checked safe as each of its keys arrived, so it is kept (fix list: text typed within 0.5 s of
+                # moving on was dropped).
+                if p is not None:
+                    self._emit(p)
                 p = self._pending = _Pending(field, actor, "", now)
             for char in text:
                 if char in ("\x08", "\x7f"):
@@ -94,17 +110,23 @@ class TypedFields:
             p = self._pending
             if p is None:
                 return
-            if secure or current is None or not current.safe or current != p.field:
-                self._pending = None
+            if secure:
+                self._pending = None              # Secure Input or a secure field now: nothing held is kept
                 return
-            if now - p.at < self.hold_s:
+            if current is not None and current == p.field and current.safe and now - p.at < self.hold_s:
                 return
+            # The hold ran out, or focus moved on: the burst is complete. A field that turned secret meanwhile
+            # (`current` the same element, no longer safe) keeps nothing.
             self._pending = None
-            if p.text:
-                # F5's shared capture redactor understands native OTP/secure-field metadata.
-                text = self.redact.field(p.text, role=p.field.role, label=p.field.label)
-                data = self.redact(p.field.data() | {"text": text})
-                self.emit(Observation("typed_text", data, {"actor": p.actor}))
+            if current is None or current.place() != p.field.place() or current.safe:
+                self._emit(p)
+
+    def _emit(self, p: _Pending) -> None:
+        if p.text:
+            # F5's shared capture redactor understands native OTP/secure-field metadata.
+            text = self.redact.field(p.text, role=p.field.role, label=p.field.label)
+            data = self.redact(p.field.data() | {"text": text})
+            self.emit(Observation("typed_text", data, {"actor": p.actor}))
 
 
 def clipboard_observation(change_count: int, types: set[str], read: Callable[[], str | None],

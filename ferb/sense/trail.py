@@ -101,6 +101,13 @@ class Attribution:
         return h.get("default_actor", "owner"), None
 
 
+def browser_key(bundle_id: str) -> str:
+    """The browser name tab observations use for a browser app's bundle id ("" when it isn't one of them)."""
+    from ferb.act.browser.profiles import BROWSERS
+    keys = {b.bundle_id.casefold(): key for key, b in BROWSERS.items()} | {"com.apple.safari": "safari"}
+    return keys.get(bundle_id.casefold(), "")
+
+
 class Trail:
     def __init__(self, db: Database, clock: Clock, ids: IdSource, redact: Callable[[Any], Any],
                  exclusions: Callable[[], Exclusions], publish: Callable[[str, dict[str, Any]], None],
@@ -111,10 +118,37 @@ class Trail:
         self.attribution = attribution or Attribution()
         self.tag: Callable[[TrailEvent], None] = lambda e: None      # Jev tagging
         self.last_event_at: datetime | None = None
+        # Each browser's page as its last tab observation gave it (host, incognito), seen before the exclusions apply,
+        # so text typed or copied in that browser can be checked against them (fix list, step 9b)
+        self.pages: dict[str, dict[str, Any]] = {}
+
+    def _in_browser_page(self, o: Observation) -> Observation | None:
+        """Text typed or copied in a browser carries the page it was in (its host, and whether it was private), so the
+        incognito and excluded-domain rules apply to it as to the page itself (windows.py's reason for skipping browser
+        titles); in a browser whose page FERB doesn't know, the text can't be checked and isn't recorded. Any other
+        observation is returned as it is."""
+        if o.source == "browser_tab":
+            self.pages[str(o.data.get("browser") or "")] = {"host": str(o.data.get("host") or ""),
+                                                            "incognito": bool(o.data.get("incognito"))}
+            return o
+        if o.source not in ("typed_text", "clipboard"):
+            return o
+        from ferb.act.mac.browsers import is_browser
+        bundle = str(o.data.get("bundle_id") or "")
+        if not bundle or not is_browser(bundle):
+            return o
+        page = self.pages.get(browser_key(bundle))
+        if page is None:
+            return None
+        return Observation(o.source, {**o.data, "host": page["host"], "incognito": page["incognito"]}, o.hints)
 
     def record(self, o: Observation) -> TrailEvent | None:
         if self.paused():
             return None
+        checked = self._in_browser_page(o)
+        if checked is None:
+            return None
+        o = checked
         if self.exclusions().excluded(o.source, o.data):
             return None                                               # 1. nothing excluded goes further
         data = self.redact(o.data)
@@ -220,3 +254,17 @@ class Trail:
         for d in purged:
             self.db.conn.execute("DELETE FROM trail WHERE day = ?", (d,))
         return purged, [d for d in old if d not in done]
+
+    def purge_source(self, source: str, days: int, today: date | None = None, chunk: int = 2000) -> int:
+        """Delete one source's rows of days older than `days` (memory decision 3: accessibility rows are kept 7 days),
+        summarized or not, in chunks of `chunk` rows, each its own statement, so the write lock is never held for a
+        whole day's rows (up to 81k). Returns how many went."""
+        today = today or self.clock.now().astimezone().date()
+        cutoff = (today - timedelta(days=days)).isoformat()
+        gone = 0
+        while True:
+            n = self.db.conn.execute("DELETE FROM trail WHERE rowid IN (SELECT rowid FROM trail WHERE source = ? AND "
+                                     "day < ? LIMIT ?)", (source, cutoff, chunk)).rowcount
+            gone += n
+            if n < chunk:
+                return gone

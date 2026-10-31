@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, NamedTuple
@@ -45,20 +44,18 @@ COPYING_CARD_MAKER = 'code:evidence-card/1'
 SOURCE_REF_INDEX = 'CREATE INDEX IF NOT EXISTS learning_source_ref ON learning_sources(source_ref)'
 # Model-written suggestions the owner can turn down ("Not right": retire); one turned down never comes back (M3).
 SUGGESTIONS = frozenset({'procedure', 'identity_proposal', 'lesson'})
-# The owner's budgets (2026-10-24: "Planner 60, worker 20"): the most relevant items a planner turn, and a worker or
-# plan step, get after ranking. The identity layer (the owner's own preferences about themselves) is outside them.
-PLANNER_MEMORY_ITEMS = 60
-WORKER_MEMORY_ITEMS = 20
-# What a prompt's memory never lists: identity is in every system prompt, an intent label is bookkeeping, and the
-# procedures the planner may choose are listed apart (L29)
-PROMPT_LEAVES_OUT = frozenset({'identity', 'episode_intent', 'procedure'})
+# What a search over learned nodes never returns (step 9b): fact and identity nodes (no longer made: facts are searched
+# in memory_items directly, ferb/memory/search.py), intent labels (bookkeeping), and what step 3 removed (procedures,
+# lessons, rollups) that an older store still holds until the step-12 clean-up
+PROMPT_LEAVES_OUT = frozenset({'fact', 'identity', 'identity_proposal', 'episode_intent', 'procedure', 'lesson',
+                               'summary', 'entity'})
 # Ruling: recency's share of a node's score, at most RECENCY_WEIGHT (the gap between ranks 4 and 5), halving every
 # RECENCY_HALF_LIFE_DAYS, so it reorders near-equal matches only. An owner-stated node always takes the full share: the
 # owner's words don't age, so at equal relevance no guess outscores them (review fix 1)
 RECENCY_WEIGHT = 0.05
 RECENCY_HALF_LIFE_DAYS = 30
 # The version of `search_text` the index holds (migration 0048, `reindex_search`)
-SEARCH_TEXT_VERSION = 'content/1'
+SEARCH_TEXT_VERSION = 'content/2'      # 2: an episode's how-note, playbooks (step 9b)
 # The stored bodies re-indexed per write transaction (`reindex_search`), in bytes; one node larger than this is a batch
 # of its own. A batch's cost is mostly erasing the old JSON text's terms (FTS5 secure-delete, migration 0037). On a
 # scratch copy of the owner's database (2026-10-24: 1,150 nodes, 30 MB of JSON-indexed text) the whole re-index took
@@ -147,6 +144,71 @@ def slug_words(slug: str) -> str:
     return ' '.join(query_terms(slug.split(':', 1)[1] if ':' in slug else slug))
 
 
+# A card keeps every ref of these families; of the others one per distinct set of origins (`_card_labels`, step 9b)
+KEPT_FAMILIES = frozenset({'episode', 'journal', 'memory'})
+HINT_CHARS = 300                     # an owner hint as a how-note quotes it
+# The recorded steps a how-note lists (Ruling, step 9b): at most this many, each a tool and what it acted on
+HOW_STEPS = 12
+HOW_CHARS = 600
+# What a recorded call acted on, as the how-note names it: the argument fields that name a place, never a value typed
+STEP_TARGETS = ('url', 'app', 'bundle_id', 'path', 'site', 'host', 'recipient')
+
+
+def _step_target(args: dict[str, Any]) -> str:
+    from urllib.parse import urlsplit
+    for key in STEP_TARGETS:
+        value = args.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        if key == 'url' and '://' in value:
+            parts = urlsplit(value)
+            return (parts.hostname or '') + (parts.path if parts.path not in ('', '/') else '')
+        if key == 'path':
+            return Path(value).name or value
+        return value
+    return ''
+
+
+def recorded_steps(actions: list[dict[str, Any]]) -> str:
+    """The steps a task's recorded tool calls show (code's, from the trace; not the worker's words): each call that
+    didn't fail as its tool and what it acted on, repeats folded ("×3"), at most HOW_STEPS; failed calls counted."""
+    steps: list[list[Any]] = []
+    failed = 0
+    for action in actions:
+        if action.get('error') or (isinstance(action.get('result'), dict) and action['result'].get('ok') is False):
+            failed += 1
+            continue
+        tool = str(action.get('tool') or '').removeprefix('ferb_')
+        if not tool:
+            continue
+        target = _step_target(action.get('args') or {})
+        label = f"{tool}({target})" if target else tool
+        if steps and steps[-1][0] == label:
+            steps[-1][1] += 1
+        else:
+            steps.append([label, 1])
+    shown = [label + (f" ×{n}" if n > 1 else '') for label, n in steps[:HOW_STEPS]]
+    more = len(steps) - len(shown)
+    text = ' → '.join(shown) + (f" → … {more} more" if more > 0 else '')
+    return text + (f" ({failed} call{'s' if failed != 1 else ''} failed)" if failed and text else '')
+
+
+def how_note(body: dict[str, Any]) -> str:
+    """An episode's how-note (Tier 3, notes/memory.md): the worker's own note on what worked, the owner's hints during
+    the task in their words (`owner_hints`: their corrections to it), and the steps its recorded tool calls show."""
+    parts = []
+    if str(body.get('how') or '').strip():
+        parts.append(_one_line(body['how']))
+    hints = [_one_line(h) for h in body.get('owner_hints') or [] if str(h).strip()]
+    if hints:
+        parts.append("The owner's hints (their words): " + ' / '.join(f"“{h}”" for h in hints))
+    steps = recorded_steps(body.get('actions') or [])
+    if steps:
+        parts.append('Recorded steps: ' + steps)
+    text = ' '.join(parts)
+    return text if len(text) <= HOW_CHARS else text[:HOW_CHARS - 1].rstrip() + '…'
+
+
 def search_text(kind: str, key: str, body: dict[str, Any]) -> str:
     """What search matches a node by (L36 §3): its content (for a fact, with the words of its subject and key slugs, the
     item's own words), never JSON field names or FERB's scaffolding."""
@@ -158,7 +220,9 @@ def search_text(kind: str, key: str, body: dict[str, Any]) -> str:
     if kind in ('entity', 'identity', 'identity_proposal'):
         return words(key, body.get('text'))
     if kind == 'episode':
-        return words(body.get('intent'), body.get('narrative'), body.get('status'))
+        return words(body.get('intent'), body.get('narrative'), body.get('status'), how_note(body))
+    if kind == 'playbook':
+        return words(body.get('title'), body.get('text'))
     if kind == 'episode_annotation':
         return words(body.get('reflection'), body.get('narrative'))
     if kind == 'activity_summary':
@@ -174,7 +238,12 @@ def shown_text(node: dict[str, Any]) -> str:
     if kind == 'episode':
         when = str(body.get('ended_at') or body.get('started_at') or node['recorded_at'])[:10]
         outcome = str(body.get('status') or 'unknown') + (', verified' if body.get('verified') is True else '')
-        return f"past task {body.get('task_id') or key} ({when}): {_one_line(body.get('intent'))} — {outcome}"
+        how = how_note(body) if body.get('verified') is True else ''
+        return (f"past task {body.get('task_id') or key} ({when}): {_one_line(body.get('intent'))} — {outcome}"
+                + (f" — how it was done: {how}" if how else ''))
+    if kind == 'playbook':
+        runs = len(body.get('tasks') or [])
+        return f"playbook “{_one_line(body.get('title'))}” (from {runs} verified runs): {_one_line(body.get('text'))}"
     if kind == 'episode_annotation':
         return f"about task {key}: {_one_line(body.get('reflection'))}"
     text = _one_line(body.get('text'))
@@ -306,14 +375,34 @@ class Learning:
                 'SELECT source_ref FROM learning_sources WHERE node_id=? ORDER BY source_ref', (node_id,))]
         return out
 
-    def items(self, kind: str | None = None, history: bool = False) -> list[dict[str, Any]]:
-        sql, args = 'SELECT id FROM learning_nodes WHERE 1=1', []
+    def items(self, kind: str | None = None, history: bool = False, *, sources: bool = True,
+              kinds: Iterable[str] = ()) -> list[dict[str, Any]]:
+        """Nodes in order, each with `source_count`; their source refs unless `sources` is False (a card could cite
+        tens of thousands: memory review fix list, step 9b; listings pass False). `kinds`: only these."""
+        sql, args = 'SELECT id FROM learning_nodes WHERE 1=1', list[Any]()
+        wanted = list(kinds)
+        if wanted:
+            sql += f" AND kind IN ({','.join('?' * len(wanted))})"
+            args += wanted
         if kind:
             sql += ' AND kind=?'
             args.append(kind)
         if not history:
             sql += ' AND valid_to IS NULL AND state NOT IN (\'retired\',\'rolled_back\')'
-        return [self.get(r[0]) for r in self.db.conn.execute(sql + ' ORDER BY recorded_at,id', args)]  # type: ignore[misc]
+        out = []
+        for r in self.db.conn.execute(sql + ' ORDER BY recorded_at,id', args).fetchall():
+            node = self.get(r[0], sources)
+            if node is not None:
+                node['source_count'] = int(self.db.conn.execute(
+                    'SELECT COUNT(*) FROM learning_sources WHERE node_id=?', (r[0],)).fetchone()[0])
+                out.append(node)
+        return out
+
+    def versions(self, kind: str, key: str) -> list[dict[str, Any]]:
+        """Every version of one node (its kind and key), oldest first, without source refs."""
+        return [n for r in self.db.conn.execute('SELECT id FROM learning_nodes WHERE kind=? AND key=? '
+                                                 'ORDER BY recorded_at,rowid', (kind, key)).fetchall()
+                if (n := self.get(r[0], False)) is not None]
 
     def _source_origin(self, ref: str) -> str:
         return origin.least_trusted(self._source_origins(ref))
@@ -381,7 +470,7 @@ class Learning:
             supersede: bool = True) -> dict[str, Any]:
         """`labels`: the sources' origins when the caller already read them (`labels`), e.g. on a read connection off
         the event loop; otherwise they are read here. `supersede` False: the node closes no open node of its key (a
-        waiting guess's fact node: `sync_facts`)."""
+        waiting guess's fact node, before step 9b)."""
         if kind == 'identity' and not owner:
             raise LearningRefused('only the owner can write identity')
         if kind in SUGGESTIONS and not owner and self.db.conn.execute(
@@ -511,13 +600,17 @@ class Learning:
         # notes/memory.md decision 5: the owner's latest verdict decides (their pass counts as verified, as the checker's
         # does; their fail overrides); without one, the checker's
         valid = (feedback[-1]['verdict'] == 'pass') if feedback else ep['verified'] is True
+        hints, hint_refs = self._owner_hints(task_id)
+        source_refs |= hint_refs
         body = {'task_id': task_id, 'request': ep['request_text'], 'intent': ep['goal'], 'slots': {},
                 'apps': {a: (apps or {}).get(a, 'unknown') for a in used_apps},
                 'app_versions_captured': apps is not None, 'app_version_scope': 'identified apps and browser inventory', 'surfaces': ep['tools'], 'actions': actions,
                 'status': ep['status'], 'verified': valid, 'conditions': ep['conditions'],
                 'feedback': feedback, 'narrative': ep['answer'], 'how': ep.get('how') or '', 'problems': ep['problems'],
                 'started_at': ep['started_at'], 'ended_at': ep['ended_at'], 'usage': ep['usage']}
-        old = self.current_card(task_id)
+        if hints:
+            body['owner_hints'] = hints
+        old = self.current_card(task_id, sources=False)       # its refs only when its trace is gone (below)
         if old and apps is None:
             # A verdict/retention refresh keeps the versions actually captured at completion.
             body['apps'] = old['body'].get('apps', {})
@@ -526,12 +619,13 @@ class Learning:
                 body['actions'] = old['body'].get('actions', [])
             if not traced:
                 # Its trace reached retention: the card keeps the lineage it was captured with.
-                source_refs.update(old['sources'])
-        labels, damaged, expired, forgotten = self._card_labels(source_refs)
+                source_refs.update(s[0] for s in self.db.conn.execute(
+                    'SELECT source_ref FROM learning_sources WHERE node_id=?', (old['id'],)))
+        labels, damaged, expired, forgotten, kept = self._card_labels(source_refs)
         inputs = self.card_inputs(task_id).get(task_id, '')
         if forgotten:
             return {'task_id': task_id, 'forgotten': forgotten, 'inputs': inputs}
-        return {'task_id': task_id, 'body': body, 'sources': sorted(source_refs - set(damaged)),
+        return {'task_id': task_id, 'body': body, 'sources': kept,
                 'labels': sorted(labels), 'damaged': damaged, 'expired': expired, 'inputs': inputs}
 
     def card_trace(self, task_id: str) -> Iterator[CardSpan]:
@@ -694,28 +788,60 @@ class Learning:
         """The sources of one recorded tool call's result (memory/lineage.py)."""
         return call_sources(inp, result)
 
-    def current_card(self, task_id: str) -> dict[str, Any] | None:
-        """A task's current episode card, by its key (the task id)."""
+    def current_card(self, task_id: str, sources: bool = True) -> dict[str, Any] | None:
+        """A task's current episode card, by its key (the task id); its source refs only when asked (a verdict's
+        refresh read every ref of the old card before: fix list, step 9b)."""
         row = self.db.conn.execute("SELECT id FROM learning_nodes WHERE kind='episode' AND key=? AND valid_to IS NULL "
                                    "AND state NOT IN ('retired','rolled_back') ORDER BY recorded_at DESC,rowid DESC "
                                    "LIMIT 1", (task_id,)).fetchone()
-        return self.get(row[0]) if row else None
+        return self.get(row[0], sources) if row else None
 
-    def _card_labels(self, refs: Iterable[str]) -> tuple[set[str], list[str], list[str], list[str]]:
+    def _owner_hints(self, task_id: str) -> tuple[list[str], set[str]]:
+        """The owner's corrections to this task while it ran (`task.steered`), in their own words (pasted parts left
+        out), with the messages they came from: the method hints a how-note carries with the owner's origin (fix
+        list, step 9b: "hard refresh usually fixes it")."""
+        from ferb.memory.search import own_words
+        hints: list[str] = []
+        refs: set[str] = set()
+        for row in self.db.conn.execute("SELECT data_json FROM journal WHERE kind='task.steered' AND "
+                                        "json_extract(data_json,'$.task_id')=? ORDER BY seq", (task_id,)).fetchall():
+            ref = direct(str(json.loads(row[0]).get('source_ref') or ''))
+            if not ref.startswith('journal:'):
+                continue
+            msg = self.db.conn.execute("SELECT data_json FROM journal WHERE id=? AND kind='chat.message'",
+                                       (ref.removeprefix('journal:'),)).fetchone()
+            words = ' '.join(own_words(str(json.loads(msg[0]).get('text') or '')).split()) if msg else ''
+            if words:
+                hints.append(words[:HINT_CHARS])
+                refs.add(ref)
+        return hints, refs
+
+    def _card_labels(self, refs: Iterable[str]) -> tuple[set[str], list[str], list[str], list[str], list[str]]:
         """The origins of a card's sources, and its missing sources by why they are missing (C1):
         - `forgotten`: an explicit owner forget deleted it (its tombstone): the card is built on forgotten content;
         - `damaged`: it holds the redaction marker. No FERB id contains '[' or ']', so an earlier redaction altered it
           (60 old rows in the owner's journal); it never resolves and is dropped;
         - `expired`: any other, removed by retention (aged out); it stays an edge (source edges survive retention).
         A damaged or expired ref adds the labels of a source whose content is unknown: never assume it was less
-        private (as for a retained fact's lost event)."""
+        private (as for a retained fact's lost event).
+        `kept`: the refs the card stores (fix list, step 9b: one card had 58,250): every episode, journal and memory
+        ref, and of the others (activity rows, learned nodes) one per distinct set of origins, so the card's labels
+        stay derivable from what it keeps; the labels themselves are computed from every ref."""
         labels: set[str] = set()
         damaged: list[str] = []
         expired: list[str] = []
         forgotten: list[str] = []
+        kept: list[str] = []
+        seen: set[frozenset[str]] = set()
         for ref in sorted(set(refs)):
             try:
-                labels |= self._source_origins(ref)
+                found = self._source_origins(ref)
+                labels |= found
+                if ref.partition(':')[0] in KEPT_FAMILIES:
+                    kept.append(ref)
+                elif frozenset(found) not in seen:
+                    seen.add(frozenset(found))
+                    kept.append(ref)
                 continue
             except LearningRefused:
                 pass
@@ -726,8 +852,13 @@ class Learning:
                 continue
             else:
                 expired.append(ref)
+                if ref.partition(':')[0] in KEPT_FAMILIES:
+                    kept.append(ref)
+                elif frozenset({'expired'}) not in seen:
+                    seen.add(frozenset({'expired'}))
+                    kept.append(ref)
             labels |= {origin.PRIVATE, origin.external('unlabeled')}
-        return labels, damaged, expired, forgotten
+        return labels, damaged, expired, forgotten, kept
 
     def confirm(self, node_id: str) -> dict[str, Any]:
         p = self.get(node_id)
@@ -838,7 +969,7 @@ class Learning:
 
     def drop_fact_index(self, ref: str, memory: Any) -> list[str]:
         """The owner's Drop on one of FERB's guesses (L36 §2): the fact nodes that index that memory item `ref`
-        (`sync_facts`, every version) are deleted, and nothing else. Never `forget`: what was built on the guess while
+        (made before step 9b, every version) are deleted, and nothing else. Never `forget`: what was built on the guess while
         it existed (the episode cards of tasks whose memory reads returned it, the summaries and intent labels built on
         those cards, an entity summary) stays, and no tombstone is left, so a later capture of such a card counts the
         guess as a missing source, never a forgotten one (`_card_labels`). Live 2026-10-25: one Drop through `forget`
@@ -922,8 +1053,7 @@ class Learning:
         fused by reciprocal rank (each ranking adds 1 / (rank + 1), ranks from 0; equal scores share a rank: `_tied`),
         plus a small recency boost; at equal score the owner's own statement first. A query whose every word most nodes
         share finds nothing, by similarity too (m5); a query with no words lists the newest first, with
-        no recency or owner boost. `leave_out`: kinds dropped before `limit` (the budget) applies; leaving out
-        identity also leaves out the fact nodes of what identity holds (`_identity_twins`, final review M1). An
+        no recency or owner boost. `leave_out`: kinds dropped before `limit` (the budget) applies. An
         episode without a stored goal is left out. `query_vector`: the query's embedding, computed off the event loop
         (L28); `embed` False: keyword ranking only (the caller's encode failed and was reported). `sources` False:
         nodes without their source refs (`get`), for a prompt's lines. `focus`: a task's target words (`target_words`),
@@ -951,11 +1081,15 @@ class Learning:
                                           "('retired','rolled_back') AND (? IS NULL OR kind = ?) "
                                           "ORDER BY recorded_at DESC, id DESC", (kind or None, kind or None)).fetchall()
             rankings.append({r[0]: n for n, r in enumerate(listed)})
-        if self.embedder is not None and query and embed:
-            from ferb.memory.embeddings import ranked
+        if self.embedder is not None and terms and embed:
+            from ferb.memory.embeddings import nearest
+            from ferb.memory.search import MIN_SIMILARITY, NEAREST, NODE_KINDS
             try:
-                rankings.append({ident: n for n, ident in enumerate(ranked(self.db, self.embedder, query,
-                                                                             vector=query_vector))})
+                vector = query_vector if query_vector is not None else self.embedder.encode(query, query=True)
+                if vector is not None:
+                    near = [doc for doc, score in nearest(self.db, self.embedder.name, vector, NODE_KINDS, NEAREST)
+                            if score >= MIN_SIMILARITY]
+                    rankings.append({doc: n for n, doc in enumerate(near)})
             except Exception as e:
                 self.publish('memory.embedding_unavailable', {'error': self.redact(str(e))})
         # Reciprocal ranks fuse retrieval methods; age only nudges near-equal matches, never deletes.
@@ -966,11 +1100,10 @@ class Learning:
         # Ranked by each node's columns first; bodies are read best first only until the budget is full (review fix 5:
         # a planner query matched 698 of the owner's nodes, and reading every body and its sources took 1.4 s a turn)
         now = self.clock.now()
-        twins = self._identity_twins() if 'identity' in leave_out else set()
         order: list[tuple[float, bool, str, str, float]] = []
         for row in self._columns(scores):
             if row['valid_to'] or row['state'] in ('retired', 'rolled_back', 'proposed') or \
-                    (kind and row['kind'] != kind) or row['kind'] in leave_out or row['id'] in twins:
+                    (kind and row['kind'] != kind) or row['kind'] in leave_out:
                 continue                          # 'proposed': a memory item waiting for the owner's Keep
             if row['kind'] == 'episode_intent':   # a card's intent label (L29): bookkeeping, never recalled
                 continue
@@ -1002,18 +1135,6 @@ class Learning:
             out.append(p)
         return out
 
-    def _identity_twins(self) -> set[str]:
-        """The open fact nodes of the memory items the identity layer already holds (an owner-stated preference about
-        the owner: `sync_facts` indexes it as a fact and as identity). A search that leaves identity out leaves these
-        out too: identity is in every role's prompt and never takes a slot of the 60/20 (L36 ruling "Identity", final
-        review M1)."""
-        return {r[0] for r in self.db.conn.execute(
-            "SELECT f.node_id FROM learning_sources f JOIN learning_nodes n ON n.id = f.node_id "
-            "WHERE n.kind = 'fact' AND n.valid_to IS NULL AND f.source_ref IN ("
-            "SELECT s.source_ref FROM learning_sources s JOIN learning_nodes i ON i.id = s.node_id "
-            "WHERE i.kind = 'identity' AND i.origin = ? AND i.valid_to IS NULL "
-            "AND i.state NOT IN ('retired','rolled_back') AND s.source_ref LIKE 'memory:%')", (origin.OWNER,))}
-
     def _bm25(self, terms: list[str], *, positional: bool = False) -> dict[str, int]:
         """The nodes whose content holds any of `terms`, ranked by bm25 (ties share a rank: `_tied`)."""
         match = ' OR '.join('"' + t.replace('"', '""') + '"' for t in terms)
@@ -1031,49 +1152,6 @@ class Learning:
             rows += self.db.conn.execute('SELECT id, kind, origin, state, valid_to, valid_from, recorded_at FROM '
                                          f"learning_nodes WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall()
         return rows
-
-    def sync_facts(self, memory: Any) -> None:
-        """Index the memory items as fact nodes: those that may shape prompts (`prompt_ready`; an unconfirmed hint says
-        so in its body), and inferred ones waiting for the owner's Confirm in state 'proposed', which search (so every
-        prompt) leaves out but the dashboard lists and confirms. Close the nodes of items that are neither. No item
-        becomes an identity node any more: the core profile (Tier 1, profile.py) replaced the "Layer 1 identity" rule
-        (step 9a; the clean-up closed the old identity nodes)."""
-        from ferb.memory.items import current, prompt_ready
-        now = self.clock.now()                        # an item with an end date holds until then (L36 §6)
-
-        def pending(item: Any) -> bool:
-            return current(item, now) and item.status == 'proposed' and item.origin == 'inferred'
-        for node in self.items('fact') + self.items('identity'):     # only what it syncs: never every label (L29)
-            if not any(s.startswith('memory:') for s in node['sources']):
-                continue
-            source_id = next(s.removeprefix('memory:') for s in node['sources'] if s.startswith('memory:'))
-            source = memory.get(source_id)
-            if source is None or not (prompt_ready(source, now) or (node['kind'] == 'fact' and pending(source))):
-                self.db.conn.execute('UPDATE learning_nodes SET valid_to=? WHERE id=?', (self.now(), node['id']))
-        for item in memory.items(status=None, valid_now=False):
-            if not (prompt_ready(item, now) or pending(item)):
-                continue
-            body = asdict(item)
-            body['unconfirmed_hint'] = item.status == 'proposed'
-            state = 'proposed' if pending(item) else 'active'
-            try:
-                # A waiting guess's node closes nothing (review Q-I3: it hid a kept version of its fact from every
-                # search); the guess replaces a version only once kept, through its item's own versioning
-                node = self.put('fact', f'{item.subject}/{item.key}', body, ['memory:' + item.id],
-                                origin_label=memory_origin(item.origin), made_by='code:fact-index/1',
-                                state=state, owner=item.origin == 'owner_stated', supersede=state != 'proposed')
-                if state == 'proposed':                  # its own older node alone is replaced (more evidence)
-                    self.db.conn.execute(
-                        "UPDATE learning_nodes SET valid_to=? WHERE kind='fact' AND valid_to IS NULL AND id != ? AND "
-                        "id IN (SELECT node_id FROM learning_sources WHERE source_ref=?)",
-                        (self.now(), node['id'], 'memory:' + item.id))
-                # `put` returns a node already there unchanged: one stored 'active' before pending items were indexed
-                # 'proposed' kept reaching every prompt. Its state follows its item (the body fixes which), but an
-                # owner's Retire, a rollback or a closed version is never undone here.
-                if node['state'] in ('active', 'proposed') and node['state'] != state and node['valid_to'] is None:
-                    self.db.conn.execute('UPDATE learning_nodes SET state=? WHERE id=?', (state, node['id']))
-            except LearningRefused:
-                pass  # a forgotten derived item is deliberately never reconstructed
 
 
 def index_summaries(learning: Learning, stop: Callable[[], bool] = lambda: False) -> None:

@@ -1,0 +1,417 @@
+"""Step 9b (notes/memory.md decisions 7, 8, 17, 18 and the fix list): one fused search by meaning and keywords over
+facts, past tasks with their how-notes, playbooks and old chat, each role within fixed limits; chat.history by meaning
+and date from the database; no fact copies in learning_nodes; playbooks and the repeat measure; bounded card sources;
+stale facts split by source; "Now always on"; and the cache guarantee. Nothing downloads: the embedding model is
+`FakeEmbedder`."""
+import io
+import json
+from datetime import timedelta
+from typing import Any
+
+from ferb.memory.learning import how_note, search_text, shown_text
+from ferb.memory.profile import CoreProfile
+from ferb.memory.search import PLANNER
+from ferb.orchestrator import episodes
+from tests.conftest import FakeDistillRuntime, chat, done, install, sup, task, tool
+from tests.support.fake_embedder import FakeEmbedder
+from tests.support.memory_items import journal, owner_fact, run
+
+
+def put_card(d: Any, task_id: str, goal: str, *, how: str = "", verified: bool = True,
+             actions: list[dict[str, Any]] | None = None, **extra: Any) -> dict[str, Any]:
+    body = {"task_id": task_id, "intent": goal, "request": goal.lower(), "status": "done", "verified": verified,
+            "narrative": "Done.", "how": how, "ended_at": "2026-10-20T10:00:00+00:00", "actions": actions or [],
+            "apps": {}, "slots": {}} | extra
+    return dict(run(d, lambda: d.daemon.learning.put("episode", task_id, body, [], origin_label="ferb",
+                                                     made_by="code:evidence-card/4", state="active")))
+
+
+def said(d: Any, text: str, session: str, request: str, reply: str = "") -> str:
+    jid = journal(d, "chat.message", {"session_id": session, "request_id": request, "text": text,
+                                      "untrusted_parts": 0})
+    if reply:
+        journal(d, "chat.reply", {"session_id": session, "request_id": request, "text": reply})
+    return jid
+
+
+def planner_context(script: Any) -> str:
+    return [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
+
+
+# ---------- the fused search (decision 8) ----------
+
+def test_one_search_finds_facts_past_tasks_and_old_chat_by_meaning(daemon: Any) -> None:
+    """None of these share a word with the query; the local model's nearest find them (keywords alone don't)."""
+    d = daemon.daemon
+    owner_fact(daemon, "music", "I am learning piano", subject="hobby:music")
+    put_card(daemon, "t-mail", "Send outreach emails to recruiters", how="Used Gmail drafts, one per recruiter")
+    said(daemon, "which keyboard should I buy for sonatas", "s-old", "r-old", reply="A 61-key keyboard is fine.")
+    d.learning.embedder = FakeEmbedder()
+    out = daemon.run(d._embed_now())
+    assert out is not None and out["embedded"] >= 4                      # the fact, the card, the message, the reply
+    found = [c["text"] for c in daemon.run(d._learning_candidates("melody chords for a newbie"))]
+    assert any("I am learning piano" in t for t in found)
+    mail = [c["text"] for c in daemon.run(d._learning_candidates("my mailing routine"))]
+    assert any("Send outreach emails to recruiters" in t for t in mail)
+    old = daemon.run(d._old_chat("melody practice", set()))
+    assert old is not None and "which keyboard should I buy" in old["text"] and "61-key" in old["text"]
+    d.learning.embedder = None                                           # keywords alone: none of them
+    assert not [c for c in daemon.run(d._learning_candidates("melody chords for a newbie")) if "piano" in c["text"]]
+    assert daemon.run(d._old_chat("melody practice", set())) is None
+
+
+def test_the_planner_gets_matching_old_exchanges_never_one_already_shown(daemon: Any) -> None:
+    said(daemon, "what sonatas suit a beginner", "s-old", "r-old", reply="Try Clementi's Sonatina in C.")
+    script = install(daemon, [sup("reply", "Sure."), sup("reply", "Sure.")])
+    chat(daemon, "any easy sonatas I could practise?", session="s-new")
+    ctx = planner_context(script)
+    assert "Layer 4 — earlier conversation matching this message" in ctx and "Clementi" in ctx
+    chat(daemon, "more sonatas please", session="s-old")                  # that chat's own entries are in its history
+    ctx = planner_context(script)
+    assert "earlier conversation matching" not in ctx and ctx.count("Clementi") == 1
+
+
+def test_chat_history_finds_by_meaning_and_date_and_pages_from_the_database(daemon: Any) -> None:
+    d = daemon.daemon
+    d.learning.embedder = FakeEmbedder()
+    start = run(daemon, d.clock.now)
+    for n in range(6):
+        said(daemon, f"note number {n} about lunch", "hist", f"r{n}", reply=f"Noted {n}.")
+        daemon.call_soon(d.clock.advance, timedelta(days=1).total_seconds())
+    said(daemon, "which keyboard should I buy", "hist", "r-kb")
+    said(daemon, "a keyboard for the other chat", "elsewhere", "r-x")
+    daemon.run(d._embed_now())                                           # the background embedder's pass
+    assert not hasattr(d.supervisor.continuity, "history")              # no whole-journal read any more
+    got: dict[str, Any] = {}
+
+    def worker(token: str) -> str:
+        got["meaning"] = tool(daemon.sock, token, "chat.history", query="melody")["content"]
+        got["page"] = tool(daemon.sock, token, "chat.history", limit=3)["content"]
+        day = (start + timedelta(days=2)).astimezone().date().isoformat()
+        got["day"] = tool(daemon.sock, token, "chat.history", since=day, until=day)["content"]
+        return done("Read it.")
+    install(daemon, [sup("task", "Looking.", task())], {"worker": worker})
+    chat(daemon, "what did I ask about music gear?", session="hist")
+    meaning = json.loads(got["meaning"]["text"]) if "text" in got["meaning"] else got["meaning"]
+    previews = [r["preview"] for r in meaning["records"]]
+    assert any("which keyboard should I buy" in p for p in previews)
+    assert not any("other chat" in p for p in previews)                  # another conversation's entry never shows
+    page = got["page"]
+    assert len(page["records"]) == 3 and page["next_after"] == 3 and page["total_records"] > 3
+    assert {r["preview"] for r in got["day"]["records"]} == {json.dumps(x, ensure_ascii=False) for x in (
+        {"session_id": "hist", "request_id": "r2", "text": "note number 2 about lunch", "untrusted_parts": 0},
+        {"session_id": "hist", "request_id": "r2", "text": "Noted 2."})}
+
+
+def test_facts_are_searched_in_memory_items_with_no_copies_in_learning_nodes(daemon: Any) -> None:
+    """Fix list: `sync_facts` copied every memory item into learning_nodes on every search; no copy is made now, and
+    the copies an older build left close once (journaled, idempotent)."""
+    from ferb.memory.upgrade import close_fact_nodes
+    d = daemon.daemon
+    item = owner_fact(daemon, "dentist", "my dentist is Dr. Rao", subject="person:dr_rao")
+    script = install(daemon, [sup("reply", "Dr. Rao.")])
+    chat(daemon, "who is my dentist?")
+    assert "my dentist is Dr. Rao" in planner_context(script)
+    assert daemon.run(d._memory_item_search("dentist")) == [item.id]
+    count = run(daemon, lambda: d.db.conn.execute(
+        "SELECT COUNT(*) FROM learning_nodes WHERE kind IN ('fact', 'identity')").fetchone()[0])
+    assert count == 0
+    assert run(daemon, lambda: d.journal.of_kind("memory.fact_nodes_closed"))           # the upgrade ran at start
+
+
+def test_an_older_builds_fact_copies_close_once(tmp_path: Any) -> None:
+    from ferb.memory.upgrade import close_fact_nodes
+    from tests.support.learning_fixtures import new_store
+    db, learning = new_store(tmp_path / "m.db")
+    learning.put("fact", "owner/old", {"content": "an old copy"}, [], made_by="code:fact-index/1", state="active")
+    told: list[Any] = []
+
+    def record(kind: str, data: dict[str, Any]) -> None:
+        told.append((kind, data))
+        db.conn.execute("INSERT INTO journal (id, at, kind, data_json, origin) VALUES (?, 'now', ?, ?, 'ferb')",
+                        (f"j{len(told)}", kind, json.dumps(data)))
+    assert close_fact_nodes(db, "2026-10-31T00:00:00+00:00", record) == 1
+    assert close_fact_nodes(db, "2026-10-31T00:00:00+00:00", record) is None and len(told) == 1
+    assert db.conn.execute("SELECT valid_to FROM learning_nodes WHERE kind = 'fact'").fetchone()[0] is not None
+    db.close()
+
+
+# ---------- limits (decision 7) ----------
+
+def test_the_planners_memory_old_chat_and_activity_stay_within_their_limits_whatever_the_store(daemon: Any) -> None:
+    """Coordinator 2026-10-31 (decision 7): 10,000 facts, hundreds of past tasks and a long chat history give the planner
+    the same bounded blocks as a small store."""
+    d = daemon.daemon
+
+    def planner_turn(text: str) -> str:
+        script = install(daemon, [sup("reply", "Ok.")])
+        chat(daemon, text, session="limits")
+        return planner_context(script)
+    owner_fact(daemon, "garden", "the tomato garden needs water at dawn", subject="project:garden")
+    small = planner_turn("how is my tomato garden doing")
+
+    def topic(n: int) -> str:                    # one in twenty is about the garden: its words still carry weight
+        return "tomato garden" if n % 20 == 0 else f"errand{n % 400} chore{n % 37}"
+
+    def fill() -> None:
+        now = d.clock.now().isoformat()
+        rows = [(f"bulk{n}", "fact", "project:home", f"tip_{n}", f"note {n}: the {topic(n)} needs care at dawn",
+                 "owner_stated", "active", 1.0, now, now, now) for n in range(10_000)]
+        d.db.conn.execute("BEGIN")
+        d.db.conn.executemany("INSERT INTO memory_items (id, kind, subject, key, content, origin, status, confidence, "
+                              "observed_at, valid_from, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+        d.db.conn.execute("COMMIT")
+        for n in range(300):
+            d.learning.put("episode", f"bulk-task{n}", {"task_id": f"bulk-task{n}", "intent": f"Look after the {topic(n)} {n}",
+                                                        "status": "done", "verified": True, "narrative": "Watered.",
+                                                        "actions": [], "apps": {}, "slots": {}},
+                           [], origin_label="ferb", made_by="code:evidence-card/4", state="active")
+        for n in range(400):
+            d._journal().append("chat.message", {"session_id": "old-chat", "request_id": f"o{n}",
+                                                 "text": f"how is the {topic(n)} {n}", "untrusted_parts": 0})
+            d._journal().append("chat.reply", {"session_id": "old-chat", "request_id": f"o{n}",
+                                               "text": f"The {topic(n)} is fine {n}. " + "x" * 400})
+            d.daily_activity.record({"id": f"a{n}", "source": "window", "what": "window",
+                                     "data": {"title": f"{topic(n)} planner {n} " + "y" * 200}})
+    run(daemon, fill)
+    big = planner_turn("how is my tomato garden doing")
+    memory = [part for part in big.split("Layer 4 — retrieved memory (data):\n")[1:]]
+    shown = [p.split("\n\n")[0] for p in memory]
+    assert len(shown) <= PLANNER.memory_items + 1
+    assert sum(len(t) for t in shown) <= PLANNER.memory_tokens * 4 + 400          # plus the one counted line
+    old = big.split("Layer 4 — earlier conversation matching this message")[1].split("\n\n")[0]
+    assert len(old) <= PLANNER.chat_tokens * 4 + 200 and old.count("Owner:") <= PLANNER.chat_exchanges
+    activity = big.split("Relevant activity today (data): ")[1].split("\n\n")[0]
+    assert len(activity) <= PLANNER.activity_tokens * 4 + 600
+    assert len(big) < len(small) + 4 * (PLANNER.memory_tokens + PLANNER.chat_tokens + PLANNER.activity_tokens) + 4000
+
+
+# ---------- how-notes, playbooks and the repeat measure ----------
+
+def test_a_how_note_is_built_from_the_recorded_calls_the_worker_and_the_owner(daemon: Any) -> None:
+    actions = [{"tool": "browser.navigate", "args": {"url": "https://www.usvisascheduling.com/en-US/login?x=1"}},
+               {"tool": "browser.snapshot", "args": {}}, {"tool": "browser.snapshot", "args": {}},
+               {"tool": "browser.act", "args": {"element": "s1e2"}, "error": "stale ref"},
+               {"tool": "browser.act", "args": {"element": "s2e4"}, "result": {"ok": True}}]
+    body = {"how": "Hard refresh first, then the login form works.", "actions": actions, "verified": True,
+            "owner_hints": ["hard refresh usually fixes it"], "intent": "Log in to the visa site", "task_id": "t1"}
+    note = how_note(body)
+    assert note.startswith("Hard refresh first")
+    assert "“hard refresh usually fixes it”" in note
+    assert "browser.navigate(www.usvisascheduling.com/en-US/login) → browser.snapshot ×2 → browser.act" in note
+    assert "(1 call failed)" in note and "x=1" not in note
+    assert "Recorded steps" in search_text("episode", "t1", body)
+    shown = shown_text({"kind": "episode", "key": "t1", "body": body | {"status": "done"}, "recorded_at": "2026-10-30"})
+    assert "how it was done: Hard refresh first" in shown
+    d = daemon.daemon
+    jid = said(daemon, "hard refresh usually fixes it", "s1", "r9")
+    journal(daemon, "task.steered", {"task_id": "t-visa", "session_id": "s1", "request_id": "r9",
+                                     "source_ref": "entry:" + jid})
+    hints, refs = run(daemon, lambda: d.learning._owner_hints("t-visa"))
+    assert hints == ["hard refresh usually fixes it"] and refs == {"journal:" + jid}
+
+
+def record_run(d: Any, task_id: str, goal: str, attempts: int, seconds: float, day: int) -> dict[str, Any]:
+    steps = [{"at": "t", "role": "Worker", "seconds": 1, "text": "", "mark": "✓"}] * attempts
+    run(d, lambda: episodes.write(d.daemon.db, {
+        "task_id": task_id, "request_id": None, "request_text": goal, "goal": goal, "status": "done",
+        "verified": True, "started_at": f"2026-10-{day:02d}T10:00:00+00:00", "ended_at": f"2026-10-{day:02d}T10:05:00+00:00",
+        "seconds": seconds, "answer": "Booked.", "conditions": [], "steps": steps, "problems": [], "tools": {},
+        "origins": ["ferb"], "usage": {}, "desktop": {}, "made_by": "code:episode/1", "built_at": "now"}))
+    return put_card(d, task_id, goal, how="Open the OFC page, pick the first slot",
+                    ended_at=f"2026-10-{day:02d}T10:05:00+00:00")
+
+
+def test_verified_runs_of_one_kind_merge_into_a_playbook_and_the_repeat_measure_shows_the_change(daemon: Any) -> None:
+    from ferb.cli.admin import stats
+    from ferb.cli.client import Client
+    from ferb.memory.playbooks import candidates, merge
+    d = daemon.daemon
+    d.learning.embedder = FakeEmbedder()
+    record_run(daemon, "t-visa-1", "Book the visa appointment at the consulate", attempts=3, seconds=600, day=10)
+    record_run(daemon, "t-visa-2", "Book a visa appointment for biometrics", attempts=1, seconds=120, day=20)
+    record_run(daemon, "t-food", "Order dinner on zomato", attempts=1, seconds=60, day=21)
+    answer = {"same_kind": True, "members": ["t-visa-1", "t-visa-2", "t-food"], "title": "Book a visa slot",
+              "text": "Open the OFC page; pick the first slot; confirm."}
+    rt = FakeDistillRuntime(answer)
+    record = lambda kind, data: d._journal().append(kind, data)    # noqa: E731
+    written = daemon.run(merge(d.learning, lambda *a, **k: rt, d.learning.embedder, record=record))
+    daemon.run(d._embed_now())
+    assert len(written) == 1 and len(rt.contexts) == 1
+    assert "t-visa-1" in str(rt.contexts[0]) and "t-food" not in str(rt.contexts[0])   # code chose who is shown
+    book = run(daemon, lambda: d.learning.get(written[0], False))
+    assert book["kind"] == "playbook" and book["body"]["tasks"] == ["t-visa-1", "t-visa-2"]   # never t-food
+    assert run(daemon, lambda: candidates(d.learning, d.learning.embedder)) == []             # merged: not asked again
+    found = [c["text"] for c in daemon.run(d._learning_candidates("visa appointment booking"))]
+    assert any("playbook “Book a visa slot”" in t for t in found)
+    c = Client(daemon.sock)
+    try:
+        [measured] = c.call("memory.repeats", {})["playbooks"]
+    finally:
+        c.close()
+    assert [r["attempts"] for r in measured["runs"]] == [3, 1]
+    assert measured["change"] == {"attempts": -2, "seconds": -480.0}
+    out = io.StringIO()
+    stats(d.home, out)
+    assert "Repeated work (playbooks): 1" in out.getvalue() and "first 3 attempt(s), 600 s" in out.getvalue()
+
+
+def test_a_group_the_model_says_is_not_one_kind_is_not_asked_again(daemon: Any) -> None:
+    from ferb.memory.playbooks import candidates, merge
+    d = daemon.daemon
+    d.learning.embedder = FakeEmbedder()
+    record_run(daemon, "t-a", "Book the visa appointment at the consulate", attempts=1, seconds=60, day=10)
+    record_run(daemon, "t-b", "Cancel a visa appointment", attempts=1, seconds=60, day=11)
+    rt = FakeDistillRuntime({"same_kind": False, "members": [], "title": "", "text": ""})
+    record = lambda kind, data: d._journal().append(kind, data)    # noqa: E731
+    assert daemon.run(merge(d.learning, lambda *a, **k: rt, d.learning.embedder, record=record)) == []
+    assert run(daemon, lambda: candidates(d.learning, d.learning.embedder)) == []
+
+
+def test_a_card_keeps_one_source_per_kind_of_origin_not_every_row_a_tool_read(tmp_path: Any) -> None:
+    """Fix list: 1.5M learning_sources rows, up to 58,250 per card, from refs inside tool results. The labels are
+    computed from every ref; the card keeps its journal and memory refs and one ref per distinct set of origins."""
+    from tests.support.learning_fixtures import new_store
+    db, learning = new_store(tmp_path / "m.db")
+    for n in range(500):
+        db.conn.execute("INSERT INTO trail (id, at, day, device_id, actor, task_id, source, data_json) VALUES "
+                        "(?,?,?,?,?,?,?,?)", (f"r{n}", "2026-10-21T00:00:00+00:00", "2026-10-21", "dev", "owner", None,
+                                              "app_focus" if n % 2 else "browser_tab", "{}"))
+    jid = db.conn.execute("INSERT INTO journal (id, at, kind, data_json, origin) VALUES ('j1', '2026-10-21', "
+                          "'chat.message', '{}', 'owner') RETURNING id").fetchone()[0]
+    refs = {f"trail:r{n}" for n in range(500)} | {"journal:" + jid}
+    labels, damaged, expired, forgotten, kept = learning._card_labels(refs)
+    assert "journal:j1" in kept and len(kept) == 3                       # the journal ref and one per origin set
+    assert labels >= learning.labels(["trail:r0", "trail:r1"]) and not damaged and not forgotten
+    db.close()
+
+
+# ---------- decisions 17 and 18 ----------
+
+def notices(d: Any) -> list[dict[str, Any]]:
+    return [e.data for e in run(d, lambda: d.daemon._journal().of_kind("chat.notice"))]
+
+
+def test_stale_facts_are_split_by_source(daemon: Any) -> None:
+    """Decision 17: FERB's understanding that looks over is retired and told once; the owner's own words are only set
+    aside (not used, kept), told once, and come back when the owner says them again or restores them."""
+    from ferb.cli.client import Client
+    d = daemon.daemon
+    trip = owner_fact(daemon, "trip", "I'm in Goa this week")
+    src = journal(daemon, "chat.message", {"text": "x"})
+    guess = run(daemon, lambda: d.memory.propose("fact", "owner", "exam", "The owner has an exam this week",
+                                                 "inferred", [("journal", src)]))
+    daemon.call_soon(d.clock.advance, timedelta(days=8).total_seconds())
+    rt = FakeDistillRuntime({"sections": [], "ended": [{"id": trip.id, "why": "the week is over"},
+                                                       {"id": guess.id, "why": "the week is over"}]})
+    d._make_runtime = lambda *a, **k: rt
+    daemon.run(d._profile_pass(force=True))
+    kept, gone = run(daemon, lambda: d.memory.get(trip.id)), run(daemon, lambda: d.memory.get(guess.id))
+    assert kept.set_aside and kept.valid_to is None and gone.valid_to is not None and not gone.set_aside
+    texts = [n["text"] for n in notices(daemon)]
+    assert any("I'm in Goa this week" in t and "stop using" in t and "kept" in t for t in texts)
+    assert any("The owner has an exam" in t and "look out of date" in t for t in texts)
+    assert daemon.run(d._memory_item_search("Goa week")) == []                 # not used while set aside
+    again = journal(daemon, "memory.added", {"content": "I'm in Goa this week"})
+    run(daemon, lambda: d.memory.save("fact", "owner", "trip", "I'm in Goa this week", "owner_stated",
+                                      [("journal", again)], 1.0))
+    assert not run(daemon, lambda: d.memory.get(trip.id)).set_aside             # saying it again: it holds
+    run(daemon, lambda: d.memory.looks_over(trip.id, "test"))
+    c = Client(daemon.sock)
+    try:
+        assert c.call("memory.restore", {"id": trip.id})["restored"] is True
+    finally:
+        c.close()
+    assert daemon.run(d._memory_item_search("Goa week")) == [trip.id]
+
+
+def test_understanding_that_holds_up_joins_with_one_quiet_now_always_on_card(daemon: Any) -> None:
+    """Decision 18: FERB's understanding joins the core profile once it holds up (here, seen on a second day), with one
+    "Now always on" note card (the 8e note card, marked always_on), never a question; the owner's words join at
+    once (any kind, about the owner)."""
+    d = daemon.daemon
+    mine = owner_fact(daemon, "city", "I live in Pune")                   # a fact, not a preference: joins at once
+    assert mine.id in run(daemon, d.profile.ids)
+    first = journal(daemon, "chat.message", {"text": "beginner piano"})
+    guess = run(daemon, lambda: d.memory.propose("fact", "owner", "piano", "The owner is a piano beginner",
+                                                 "inferred", [("journal", first)]))
+    assert guess.id not in run(daemon, d.profile.ids) and notices(daemon) == []
+    daemon.call_soon(d.clock.advance, timedelta(days=1, hours=2).total_seconds())
+    second = journal(daemon, "chat.message", {"text": "still a piano beginner"})
+    run(daemon, lambda: d.memory.propose("fact", "owner", "piano", "The owner is a piano beginner", "inferred",
+                                         [("journal", second)]))
+    daemon.run(d._settle_forgets())
+    assert guess.id in run(daemon, d.profile.ids)
+    [told] = [n for n in notices(daemon) if "Now always on" in n["text"]]
+    assert told["text"] == "Now always on: “The owner is a piano beginner” (FERB's understanding)"
+    [card] = told["cards"]
+    assert card["type"] == "note" and card["item_id"] == guess.id and card["always_on"] is True
+    assert run(daemon, lambda: d.state.approvals.pending()) == []
+
+
+def test_the_profile_and_so_the_cached_prefix_change_only_when_a_profile_entry_changes(daemon: Any) -> None:
+    """Decision 18's guarantee: the planner's instructions (the cached prefix) are identical across turns unless a
+    profile entry changed; saving a fact outside the profile changes nothing; nothing but the weekly pass rewrites it on
+    a schedule (the hourly jobs leave it as it is)."""
+    d = daemon.daemon
+    d.learning.embedder = FakeEmbedder()
+    owner_fact(daemon, "style", "keep replies short", kind="preference")
+    script = install(daemon, [sup("reply", "Ok.")] * 4)
+
+    def system() -> str:
+        chat(daemon, "hello", session="cache")
+        return str([req.system for _, key, req in script.requests if key == "supervisor"][-1])
+    first = system()
+    src = journal(daemon, "chat.message", {"text": "x"})
+    run(daemon, lambda: d.memory.propose("fact", "owner", "guess", "The owner may like jazz", "inferred",
+                                         [("journal", src)]))
+    owner_fact(daemon, "shop", "the shop is on MG Road", subject="place:shop")   # not about the owner: not in it
+    daemon.run(d._refresh_cards())
+    daemon.run(d._merge_playbooks())
+    daemon.run(d._embed_now())
+    assert system() == first
+    owner_fact(daemon, "tone", "never use emojis", kind="preference")       # a profile entry: the prefix changes
+    changed = system()
+    assert changed != first and "never use emojis" in changed
+    assert system() == changed
+
+
+def test_a_burst_of_owner_facts_stays_within_budget_with_at_most_one_early_pass_a_day(daemon: Any) -> None:
+    """Coordinator 2026-10-31: owner facts that don't fit make the pass due early, at most once a day; the profile
+    stays within its budget, nothing is lost from the fact store, and retrieval finds what was left out."""
+    d = daemon.daemon
+    profile = CoreProfile(d.memory, d.clock, record=lambda kind, data: d._journal().append(kind, data),
+                          budget_tokens=300)
+    rt = FakeDistillRuntime({"sections": [], "ended": []})
+    run(daemon, lambda: profile.apply({"sections": [], "ended": []}))        # a pass ran today
+    d.memory.on_saved = profile.saved
+    for n in range(40):
+        owner_fact(daemon, f"rule_{n}", f"house rule number {n}: shoes off at the door, always")
+    text, left_out = run(daemon, profile.render)
+    assert len(text) <= 300 * 4 and left_out == 0
+    assert len(run(daemon, lambda: d.memory.items("active"))) == 40         # nothing lost
+    assert not run(daemon, profile.due)                                      # a pass already ran today
+    daemon.call_soon(d.clock.advance, timedelta(hours=25).total_seconds())
+    assert run(daemon, profile.due)                                          # due early, once the day has passed
+    daemon.run(profile.run_pass(lambda *a, **k: rt))
+    owner_fact(daemon, "rule_late", "house rule late: lights off at night")
+    assert not run(daemon, profile.due)                                      # at most one early pass a day
+    outside = [i.id for i in run(daemon, lambda: d.memory.items("active")) if i.id not in run(daemon, profile.ids)]
+    assert outside and daemon.run(d._memory_item_search("house rule number 39"))[:1] == \
+        [next(i.id for i in run(daemon, lambda: d.memory.items("active")) if i.key == "rule_39")]
+
+
+def test_a_journal_entry_that_goes_takes_its_index_copy_and_vector(daemon: Any) -> None:
+    """The seven-day purge deletes a notice's journal entry (attention.expire_derived); the conversation index and its
+    vector must not keep a copy."""
+    d = daemon.daemon
+    d.learning.embedder = FakeEmbedder()
+    jid = journal(daemon, "chat.notice", {"id": "n1", "text": "your piano lesson moved", "quotes": []})
+    daemon.run(d._embed_now())
+    count = lambda: run(daemon, lambda: (d.db.conn.execute("SELECT COUNT(*) FROM chat_fts WHERE doc = ?",   # noqa: E731
+                                                           ("journal:" + jid,)).fetchone()[0],
+                                         d.db.conn.execute("SELECT COUNT(*) FROM recall_vectors WHERE doc = ?",
+                                                           ("journal:" + jid,)).fetchone()[0]))
+    assert count() == (1, 1)
+    run(daemon, lambda: d.db.conn.execute("DELETE FROM journal WHERE id = ?", (jid,)))
+    assert count() == (0, 0)

@@ -149,7 +149,11 @@ class Perception:
             kept = {k: data[k] for k in ("bundle_id", "app", "pid", "window_id", "field_id", "role", "change_count") if k in data}
             kept["content_expired"] = True
             d.db.conn.execute("UPDATE trail SET data_json=? WHERE id=?", (json.dumps(kept), row["id"]))
-            d.daily_activity.redact_source(row["id"], kept)
+        if rows:
+            # Today's activity file holds only today's rows, so no 7-day-old one is there once it has rolled over:
+            # it is rolled over now if nothing has been recorded since the day changed (fix list: the file was
+            # rewritten and fsynced once per expired row)
+            d.daily_activity.roll_over()
         expired = {"trail:" + r["id"] for r in d.db.conn.execute(
             "SELECT id FROM trail WHERE source IN ('typed_text','clipboard') "
             "AND json_extract(data_json,'$.content_expired') IS NOT NULL")}

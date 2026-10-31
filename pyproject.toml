@@ -25,9 +25,6 @@ dependencies = [
     "tomlkit>=0.15.1",
 ]
 
-[project.optional-dependencies]
-memory = ["mlx-embeddings==0.1.0", "sqlite-vec==0.1.9"]
-
 [project.scripts]
 ferb = "ferb.cli:main"
 
