@@ -8,7 +8,8 @@ gets the result on its localhost callback (or a code the owner pastes from the p
 the login Keychain itself (`security -i` on stdin; item `Claude Code-credentials-<first 8 hex of sha256(config dir)>`).
 FERB never sees it: runs started with the same CLAUDE_CONFIG_DIR read that saved login. FERB records only that a
 sign-in finished (SIGNED_IN, a marker that holds no secret), after `auth status --json` said so. Checked on Claude Code
-2.1.283 (claude-agent-sdk 0.2.160); its `setup-token` is an interactive terminal screen and isn't used."""
+2.1.283 (claude-agent-sdk 0.2.160), and again on 2.1.310 (0.2.174: the same `auth login --claudeai`, `auth logout` and
+`auth status --json`, offline 2026-11-01); its `setup-token` is an interactive terminal screen and isn't used."""
 
 import asyncio
 import json

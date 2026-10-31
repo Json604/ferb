@@ -290,7 +290,7 @@ class Runtimes:
     async def _runtime_status(self) -> dict[str, Any]:
         import importlib.metadata
         from ferb.device.install import repo_root
-        from ferb.runtimes.claude_sdk import SDK_VERSION
+        from ferb.runtimes.claude_sdk import claude_pin_status
         from ferb.runtimes.codex_exec import CODEX_VERSION, check_version, codex_binary
         status: dict[str, Any] = {
             "orchestrator": self.config.get("runtimes", "orchestrator", "codex"),
@@ -301,7 +301,6 @@ class Runtimes:
             status["codex"] = f"{CODEX_VERSION} ({binary})"
         except FerbError as e:
             status["codex"] = f"problem: {e}"
-        installed = importlib.metadata.version("claude-agent-sdk")
-        status["claude"] = installed if installed == SDK_VERSION else f"problem: {installed} != pinned {SDK_VERSION}"
+        status["claude"] = claude_pin_status(importlib.metadata.version("claude-agent-sdk"))
         status["limits"] = self._runtime_limits()
         return status

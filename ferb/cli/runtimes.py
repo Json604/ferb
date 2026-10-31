@@ -91,3 +91,76 @@ def use(home: Path, role: str, runtime: str, model: str | None, out: TextIO) -> 
     if not ok:
         print(f"{runtime} isn't usable on this Mac yet: {fix}. The {role} will fail until then.", file=out)
     return 0
+
+
+# `ferb runtimes pins` (developer toolbox): FERB's Codex and Claude Agent SDK pins against what npm and PyPI publish.
+# It informs only: it never changes a pin (moving one is the checklist in notes/runtimes.md "Moving the Codex/Claude
+# pins"), and it reaches the network only when a developer runs it.
+NPM_TAGS = "https://registry.npmjs.org/-/package/@openai/codex/dist-tags"
+NPM_SEARCH = "https://registry.npmjs.org/-/v1/search?text=%40openai%2Fcodex&size=5"
+PYPI = "https://pypi.org/pypi/claude-agent-sdk/json"
+
+
+def _release(version: str) -> tuple[int, ...] | None:
+    """A plain release's numbers ("0.166.0"); None for a pre-release or anything else."""
+    parts = version.split(".")
+    return tuple(int(p) for p in parts) if parts and all(p.isdigit() for p in parts) else None
+
+
+def _age(published: str | None, now: Any) -> str:
+    from datetime import datetime
+    if not published:
+        return ""
+    try:
+        when = datetime.fromisoformat(published.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    days = (now - when).total_seconds() / 86400
+    return f", published {when.date().isoformat()} ({days:.0f} days ago)" if days >= 1 else \
+        f", published {when.date().isoformat()} (under a day ago)"
+
+
+def pin_report(get: Any, now: Any) -> list[str]:
+    """One line per pin: pinned, newest published release and its age, and whether FERB is behind. `get(url)` returns
+    the parsed JSON (tests pass a stand-in)."""
+    from ferb.runtimes.claude_sdk import CLAUDE_CODE_VERSION, SDK_VERSION
+    from ferb.runtimes.codex_exec import CODEX_VERSION
+    lines = []
+    latest = str(get(NPM_TAGS).get("latest", ""))
+    date = next((o["package"].get("date") for o in get(NPM_SEARCH).get("objects", [])
+                 if o.get("package", {}).get("name") == "@openai/codex" and o["package"].get("version") == latest), None)
+    lines.append(_line("Codex (@openai/codex)", CODEX_VERSION, latest, _age(date, now)))
+    pypi = get(PYPI)
+    newest = str(pypi.get("info", {}).get("version", ""))
+    files = pypi.get("releases", {}).get(newest) or [{}]
+    behind = sorted(v for v in pypi.get("releases", {}) if (_release(v) or ()) > (_release(SDK_VERSION) or ()))
+    lines.append(_line(f"Claude Agent SDK (claude-agent-sdk; bundles Claude Code {CLAUDE_CODE_VERSION})", SDK_VERSION,
+                       newest, _age(files[0].get("upload_time_iso_8601"), now))
+                 + (f"; {len(behind)} newer releases" if len(behind) > 1 else ""))
+    return lines
+
+
+def _line(name: str, pinned: str, latest: str, age: str) -> str:
+    if not latest:
+        return f"{name}: pinned {pinned}; the registry named no newest release"
+    if _release(latest) is not None and (_release(latest) or ()) > (_release(pinned) or ()):
+        return (f"{name}: pinned {pinned}, newest {latest}{age}: behind (see notes/runtimes.md \"Moving the "
+                f"Codex/Claude pins\")")
+    return f"{name}: pinned {pinned}, newest {latest}{age}: up to date"
+
+
+def pins(out: TextIO) -> int:
+    from datetime import datetime, timezone
+    import httpx
+
+    def get(url: str) -> Any:
+        reply = httpx.get(url, timeout=20, follow_redirects=True)
+        reply.raise_for_status()
+        return reply.json()
+    try:
+        lines = pin_report(get, datetime.now(timezone.utc))
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
+        print(f"Couldn't read npm or PyPI: {type(e).__name__}: {e}", file=out)
+        return 1
+    print("\n".join(lines), file=out)
+    return 0

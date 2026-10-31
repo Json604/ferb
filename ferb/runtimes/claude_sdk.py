@@ -31,18 +31,26 @@ from ferb.runtimes.proxy import ToolListProxy
 from ferb.runtimes.schema_shape import Shape, for_anthropic
 from ferb.runtimes.usage import from_anthropic
 
-SDK_VERSION = "0.2.160"
+SDK_VERSION = "0.2.174"
+# The Claude Code the pinned SDK bundles (claude_agent_sdk/_cli_version.py); `runtimes.status` compares both
+CLAUDE_CODE_VERSION = "2.1.310"
 STRUCTURED_OUTPUT = "StructuredOutput"                # tool the SDK adds when output_format is set
-# The CLI's result subtype when the model's answers never matched output_format (bundled CLI, SDK 0.2.160)
+# The CLI's result subtype when the model's answers never matched output_format (bundled CLI 2.1.283 and 2.1.310)
 STRUCTURED_RETRIES = "error_max_structured_output_retries"
 
 
-# P20: FERB's breakpoint on its stable prefix. One hour, because Claude Code 2.1.283 puts its own breakpoints around
-# FERB's text (its system prompt before, its environment message after) and the API refuses a longer TTL after a
-# shorter one; CACHE_TTL_ENV pins Claude Code's own to the same hour (unset, it picks 5 minutes on a subscription past
-# its usage limits). With FERB's, 3 of the API's 4 breakpoints (measured through the pinned CLI, 2026-10-25).
+# P20: FERB's breakpoint on its stable prefix. One hour, because Claude Code puts its own breakpoints around FERB's text
+# (its system prompt before, its environment message after) and the API refuses a longer TTL after a shorter one;
+# CACHE_TTL_ENV pins Claude Code's own to the same hour (unset, it picks 5 minutes on a subscription past its usage
+# limits). With FERB's, 3 of the API's 4 breakpoints (measured through 2.1.283, 2026-10-25; the same three in 2.1.310's
+# request, checked offline 2026-11-01).
 CACHE = {"type": "ephemeral", "ttl": "1h"}
 CACHE_TTL_ENV = {"CLAUDE_CODE_PROMPT_CACHE_TTL": "1h"}
+# Claude Code 2.1.304 turned tool search on by default behind a custom ANTHROPIC_BASE_URL (FERB's tool-list proxy; it
+# was off there before). It then sends a `DeferredToolPlaceholder` tool, which FERB's tool check would stop as a tool
+# outside the run's list, and may defer FERB's MCP tools behind a search. Off, the request carries exactly the run's
+# tools, as with 2.1.283 (offline request check, 2026-11-01).
+TOOL_SEARCH_ENV = {"ENABLE_TOOL_SEARCH": "false"}
 
 
 def _content(request: ModelRequest) -> list[dict[str, Any]]:
@@ -86,6 +94,27 @@ def limits_for(model: str | None) -> ModelLimits:
                        resolved.source + "; aliases: https://code.claude.com/docs/en/model-config")
 
 
+def claude_pin_status(installed_sdk: str) -> str:
+    """The doctor's Claude line: the installed SDK and the Claude Code it bundles against the pins, or the problem (a
+    mismatch on either, or the bundled copy missing, which every run refuses)."""
+    from ferb.runtimes.claude_login import cli_binary
+    bundled: str | None
+    try:
+        from claude_agent_sdk._cli_version import __cli_version__ as bundled
+    except ImportError:
+        bundled = None
+    problems = []
+    if installed_sdk != SDK_VERSION:
+        problems.append(f"SDK {installed_sdk} != pinned {SDK_VERSION}")
+    if bundled != CLAUDE_CODE_VERSION:
+        problems.append(f"bundled Claude Code {bundled or 'unknown'} != pinned {CLAUDE_CODE_VERSION}")
+    try:
+        cli_binary()
+    except Unsupported as e:
+        problems.append(str(e))
+    return "problem: " + "; ".join(problems) if problems else f"{installed_sdk} (Claude Code {bundled})"
+
+
 def write_token_file(run_token: str) -> Path:
     """The run token in a fresh owner-only folder, as a 0600 file the shim reads (`FERB_RUN_TOKEN_FILE`)."""
     folder = Path(tempfile.mkdtemp(prefix="ferb-claude-run-"))          # 0700
@@ -123,16 +152,20 @@ class ClaudeRuntime:
 
     def _options(self, run_id: str, token_file: Path | None) -> Any:
         from claude_agent_sdk import ClaudeAgentOptions
-        from ferb.runtimes.claude_login import claude_home
+        from ferb.runtimes.claude_login import claude_home, cli_binary
         own = claude_home(Path(self.ferb_home))       # L34 C: FERB's own Claude sign-in, once it finished
         if own is None:                               # never the owner's own ~/.claude login and billing
             raise Unsupported("Claude isn't signed in for FERB: sign in to Claude in Settings → AI")
+        # the pinned Claude Code the SDK bundles, by path: without one the SDK would fall back to any `claude` on PATH
+        # (subprocess_cli._find_cli); missing, the run is refused as the sign-in is
+        cli = cli_binary()
         # CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0: Claude Code otherwise aborts a tool call that is silent for 30 minutes;
         # an owner question waits as long as the owner takes (§8.1). "0 disables" is Claude Code's own wording.
         env = {"ANTHROPIC_BASE_URL": self.proxy.base_url(run_id), "DISABLE_TELEMETRY": "1",
                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_ERROR_REPORTING": "1",
                "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "", "CLAUDE_CODE_OAUTH_TOKEN": "",
-               "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0", "CLAUDE_CONFIG_DIR": str(own), **CACHE_TTL_ENV}
+               "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0", "CLAUDE_CONFIG_DIR": str(own), **CACHE_TTL_ENV,
+               **TOOL_SEARCH_ENV}
         mcp: dict[str, Any] = {}
         if self.mode == "worker":
             if not self.shim_cmd:
@@ -147,7 +180,7 @@ class ClaudeRuntime:
             tools=[], allowed_tools=sorted(self.allowed - {STRUCTURED_OUTPUT}), permission_mode="dontAsk",
             setting_sources=[],
             strict_mcp_config=True, plugins=[], agents=None, skills=None, mcp_servers=mcp, env=env,
-            model=self.model, effort=self.effort,   # type: ignore[arg-type]
+            model=self.model, effort=self.effort, cli_path=cli,   # type: ignore[arg-type]
             include_partial_messages=self.mode == 'supervisor' and self.output_schema is not None,
             extra_args={"no-session-persistence": None, "replay-user-messages": None},   # no transcript (tool results, screenshots) on disk
             output_format={"type": "json_schema", "schema": self.shape.wire} if self.shape else None)
@@ -236,8 +269,8 @@ class ClaudeRuntime:
                         yield RuntimeEvent("message", {"text": b.text})
             elif isinstance(m, ResultMessage):
                 # Claude Code's total_cost_usd is cumulative across the turns of one streaming-input session ("each
-                # result carries the running total so far": its own field description, Claude Code 2.1.283), while
-                # usage is per turn: a steered run's later results report only the cost added since the last one
+                # result carries the running total so far": its own field description, Claude Code 2.1.283 and 2.1.310),
+                # while usage is per turn: a steered run's later results report only the cost added since the last one
                 cost = m.total_cost_usd
                 if cost is not None:
                     cost, run.state["cost_so_far"] = max(cost - run.state.get("cost_so_far", 0.0), 0.0), cost

@@ -1,8 +1,8 @@
 {
   "private": true,
   "name": "ferb-tooling",
-  "description": "Pinned external CLIs FERB drives. Upgrading Codex: rerun spike 1 tests first (see PROGRESS.md).",
+  "description": "Pinned external CLIs FERB drives. To move the pin: notes/runtimes.md, Moving the Codex/Claude pins.",
   "devDependencies": {
-    "@openai/codex": "0.157.1"
+    "@openai/codex": "0.166.0"
   }
 }

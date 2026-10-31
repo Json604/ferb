@@ -138,7 +138,7 @@ class Process:
             self.stdout.put({'id': ident, 'result': {'thread': {'id': 'th', 'ephemeral': True},
                 'model': msg['params'].get('model') or 'test-model', 'modelProvider': 'openai', 'approvalPolicy': 'never',
                 'sandbox': {'type': 'readOnly', 'networkAccess': False}, 'instructionSources': []}})
-        elif method == 'thread/resume':                    # Codex 0.157.1 resuming the rollout at params['path']
+        elif method == 'thread/resume':                    # Codex (0.157.1, 0.166.0) resuming the rollout at params['path']
             result = {'thread': {'id': msg['params']['threadId'], 'ephemeral': False},
                       'model': msg['params'].get('model'), 'modelProvider': 'openai', 'approvalPolicy': 'never',
                       'sandbox': {'type': 'readOnly', 'networkAccess': False}, 'instructionSources': []}

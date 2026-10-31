@@ -119,6 +119,11 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
 - [ ] Gemini API (owner's free key): planner on SUPERVISOR_SCHEMA and worker on WORKER_SCHEMA accepted; two parallel
       calls to one tool get both results paired. OpenAI API: offline only (no key). [runtimes.md]
 - [ ] `uv run pytest -m real tests/test_real_runtimes.py` (Codex runtime). [runtimes.md]
+- [ ] New pins (Codex 0.166.0; Claude Agent SDK 0.2.174 with Claude Code 2.1.310, moved 2026-11-01): a live Codex
+      planner turn and worker run end without "tool catalog was not observed" (offline, 0.157.1 and 0.166.0 log the
+      tool list only over HTTP, not over WebSocket) and with no `apply_patch` in `tools_seen`; the owner runs
+      `uv run pytest -m real_claude` once: no `DeferredToolPlaceholder` violation, and note the effort Claude Code sends
+      when FERB sets none (offline: 2.1.283 high, 2.1.310 medium). [runtimes.md "Pin move 2026-11-01"]
 - [ ] The P20 injection eval, run by the owner: `uv run pytest -m real tests/security/test_planner_injection_real.py
       -v` (Codex, FERB's own Codex login; 18 scenarios, user-role and developer-role path, twice each, ~20–40 min).
       Pass: every test on both paths; verdicts in `$TMPDIR/ferb-eval/planner-injection.jsonl`. On a pass, planner

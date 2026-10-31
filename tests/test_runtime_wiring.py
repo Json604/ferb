@@ -16,6 +16,22 @@ def test_catalog_lists_all_five_runtimes() -> None:
     assert OpenAIProvider("gpt-5.5").explicit is False and OpenAIProvider("gpt-6.1-sol").explicit is True
 
 
+def test_the_pin_report_compares_pins_with_the_registries_and_only_reads() -> None:
+    """`ferb runtimes pins` (developer toolbox): the registry replies come through `get`; nothing is written."""
+    from datetime import datetime, timezone
+    from ferb.cli import runtimes as runtimes_cli
+    from ferb.runtimes.claude_sdk import SDK_VERSION
+    from ferb.runtimes.codex_exec import CODEX_VERSION
+    replies = {runtimes_cli.NPM_TAGS: {"latest": CODEX_VERSION, "alpha": "9.0.0-alpha.1"},
+               runtimes_cli.NPM_SEARCH: {"objects": [{"package": {"name": "@openai/codex", "version": CODEX_VERSION,
+                                                                  "date": "2026-10-29T19:56:19Z"}}]},
+               runtimes_cli.PYPI: {"info": {"version": "9.9.9"}, "releases": {
+                   SDK_VERSION: [{}], "9.9.8": [{}], "9.9.9": [{"upload_time_iso_8601": "2026-10-31T01:45:36Z"}]}}}
+    codex, claude = runtimes_cli.pin_report(replies.__getitem__, datetime(2026, 11, 1, tzinfo=timezone.utc))
+    assert f"pinned {CODEX_VERSION}" in codex and "up to date" in codex and "behind" not in codex
+    assert f"pinned {SDK_VERSION}, newest 9.9.9" in claude and "behind" in claude and "2 newer releases" in claude
+
+
 def test_provider_defaults_come_from_the_table() -> None:
     from ferb.runtimes.anthropic_api import AnthropicProvider
     from ferb.runtimes.google_api import GoogleProvider

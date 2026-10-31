@@ -57,8 +57,10 @@ async def test_final_answer_deltas_arrive_before_turn_completion(tmp_path, monke
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize('phase', ['commentary', None, 'unexpected_phase'])
+@pytest.mark.parametrize('phase', ['commentary', None, 'unexpected_phase', 'partial_answer'])
 async def test_commentary_and_unknown_phase_never_become_deltas(tmp_path, monkeypatch, phase):
+    """Only a declared final answer (or a phaseless message) is the answer. Codex 0.166.0's `partial_answer` is answer
+    text that may be followed by more output, so it is neither streamed nor taken as the final."""
     proc = Process(phase=phase)
     stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
     proc.complete()
@@ -149,6 +151,21 @@ async def test_a_turn_error_event_carries_codexs_message(tmp_path, monkeypatch):
     assert 'stream disconnected before completion' in got[-1].data['message']
     assert 'responseStreamDisconnected' in got[-1].data['message']
     assert 'overflow' not in got[-1].data
+
+
+@pytest.mark.anyio
+async def test_a_model_codex_cant_run_is_said_plainly_as_needing_a_newer_codex(tmp_path, monkeypatch):
+    """Codex 0.166.0's CodexErrorInfo `modelNotFound`: FERB already checked the model against the pinned catalog, so the
+    owner reads that it may need a newer Codex, which a FERB update brings, before Codex's own words."""
+    from ferb.runtimes.codex_exec import CODEX_VERSION
+    proc = Process()
+    stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
+    proc.notify('error', {'error': {'message': 'The model does not exist or you do not have access to it.',
+                                    'codexErrorInfo': 'modelNotFound'}, 'willRetry': False})
+    got = [ev async for ev in stream.events(rt, run)]
+    message = got[-1].data['message']
+    assert got[-1].kind == 'error' and message.startswith(f"Codex {CODEX_VERSION} can't run this model")
+    assert 'newer Codex' in message and 'FERB update' in message and 'modelNotFound' in message
 
 
 @pytest.mark.anyio

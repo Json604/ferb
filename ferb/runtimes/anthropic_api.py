@@ -125,8 +125,9 @@ class AnthropicProvider:
         """The Messages API's rejection of an input over the model's window: a 400 `invalid_request_error` whose message
         starts "prompt is too long" ("prompt is too long: N tokens > M maximum"), or "input length and `max_tokens`
         exceed context limit" when the input and the reply ceiling together exceed it. Anthropic's own client defines
-        both shapes (Claude Code 2.1.283, bundled in the pinned claude-agent-sdk 0.2.160: `"Prompt is too long"` with
-        `/prompt is too long[^0-9]*(\\d+)\\s*tokens?\\s*>\\s*(\\d+)/i`, and its `max_tokens_context_overflow` class);
+        both shapes (Claude Code 2.1.283 and 2.1.310, bundled in claude-agent-sdk 0.2.160 and 0.2.174: `"Prompt is too
+        long"` with `/prompt is too long[^0-9]*(\\d+)\\s*tokens?\\s*>\\s*(\\d+)/i`, and its `max_tokens_context_overflow`
+        class);
         the API's errors page documents the status and type, not the message (fix wave 6b round 2)."""
         message = str(error.get("message") or "").lower()
         return status == 400 and error.get("type") == "invalid_request_error" and message.startswith(WINDOW_EXCEEDED)

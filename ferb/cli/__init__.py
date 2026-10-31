@@ -90,6 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
     mrb.add_argument("batch")
     rp = sub.add_parser("runtimes", help="model runtimes: the runtime table, what each role uses; `use` switches a role")
     rsub = rp.add_subparsers(dest="rcmd")
+    rsub.add_parser("pins", help="compare FERB's Codex and Claude Agent SDK pins with npm and PyPI (reads the network; "
+                                 "changes nothing)")
     ru = rsub.add_parser("use", help="make a role (orchestrator, worker, checker) use a runtime, from its next call")
     ru.add_argument("role")
     ru.add_argument("runtime")
@@ -160,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
         from ferb.cli import runtimes as runtimes_cli
         if args.rcmd == "use":
             return runtimes_cli.use(ferb_home(), args.role, args.runtime, args.model, sys.stdout)
+        if args.rcmd == "pins":
+            return runtimes_cli.pins(sys.stdout)
         return runtimes_cli.show(ferb_home(), sys.stdout)
     if args.cmd == "browsers" and args.bcmd == "extension":
         from ferb.act.browser.profiles import SUPPORT

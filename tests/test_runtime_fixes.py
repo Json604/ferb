@@ -231,7 +231,7 @@ async def test_a_version_mismatch_is_never_remembered(tmp_path, monkeypatch) -> 
 def test_the_locked_catalog_is_written_once_and_again_only_when_codex_s_changes(tmp_path, monkeypatch) -> None:
     codex_home(tmp_path)
     source = tmp_path / "codex-home" / "models_cache.json"
-    source.write_text(json.dumps({"models": [{"slug": "m", "tool_mode": "code"}]}))
+    source.write_text(json.dumps({"models": [{"slug": "m", "tool_mode": "code", "apply_patch_tool_type": "freeform"}]}))
     writes = []
     real = cx.write_locked_catalog
 
@@ -241,11 +241,25 @@ def test_the_locked_catalog_is_written_once_and_again_only_when_codex_s_changes(
     monkeypatch.setattr(cx, "write_locked_catalog", counting)
     monkeypatch.setattr(cx, "_locked", {})
     first = cx.locked_catalog(tmp_path)
-    assert first is not None and json.loads(first.read_text())["models"][0]["tool_mode"] is None
+    locked = json.loads(first.read_text())["models"][0] if first is not None else {}
+    assert locked["tool_mode"] is None and locked["apply_patch_tool_type"] is None   # Codex 0.166.0 offers apply_patch
     assert cx.locked_catalog(tmp_path) == first and len(writes) == 1
     source.write_text(json.dumps({"models": [{"slug": "m"}, {"slug": "n"}]}))
     os.utime(source, ns=(1, 1))
     assert len(json.loads(cx.locked_catalog(tmp_path).read_text())["models"]) == 2 and len(writes) == 2  # type: ignore[union-attr]
+
+
+def test_a_model_that_needs_a_newer_codex_is_refused_in_plain_words(tmp_path) -> None:
+    """A catalog entry's `minimal_client_version` above the pinned Codex (the model service's [major, minor, patch])."""
+    from ferb.core.errors import ModelLimitsUnknown
+    codex_home(tmp_path)
+    entry = {"context_window": 272_000, "effective_context_window_percent": 95}
+    (tmp_path / "codex-home" / "models_cache.json").write_text(json.dumps({"models": [
+        {"slug": "gpt-6.1-sol", **entry, "minimal_client_version": [99, 0, 0]},
+        {"slug": "gpt-5.6-sol", **entry, "minimal_client_version": cx.CODEX_VERSION}]}))
+    with pytest.raises(ModelLimitsUnknown, match="needs a newer Codex .* it comes with a FERB update"):
+        cx.limits_for(tmp_path, "gpt-6.1-sol")
+    assert cx.limits_for(tmp_path, "gpt-5.6-sol").context_window == 258_400
 
 
 def test_daemon_builds_codex_with_the_planners_90_s_and_others_their_limit(daemon, monkeypatch) -> None:

@@ -63,7 +63,8 @@ ferb_trim_app() {
   local std="$c/Resources/python/lib/python3.12"
   local site="$std/site-packages"
   # Codex parts FERB turns off on every start (codex_exec.py DISABLED: code_mode_host and the shell tools) or never
-  # starts (voice; its dylibs are re-signed by signing.sh, so OpenAI's library-validated voice host couldn't load them)
+  # starts (voice; its dylibs are re-signed by signing.sh, so OpenAI's library-validated voice host couldn't load them;
+  # zsh: shipped up to Codex 0.157.1, gone in 0.166.0)
   rm -rf "${vendor:?}/bin/codex-code-mode-host" "${vendor:?}/codex-resources/voice" "${vendor:?}/codex-resources/zsh"
   # Python parts nothing imports: 2to3, pydoc's topic texts, the build configuration (python.o, Makefile), turtle,
   # test suites and benchmarks, the SDK's test helpers, and debug symbols

@@ -15,7 +15,7 @@ SERVER = Path(__file__).with_name("server.py")
 
 # Pinned in the repo's package.json; upgrading means rerunning these tests first.
 CODEX = Path(__file__).resolve().parents[2] / "node_modules" / ".bin" / "codex"
-CODEX_VERSION = "0.157.1"
+CODEX_VERSION = "0.166.0"
 
 
 def codex_version() -> str:

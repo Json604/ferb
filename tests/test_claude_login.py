@@ -130,15 +130,26 @@ def test_only_a_saved_subscription_login_counts_and_no_key_takes_over(tmp_path: 
 
 # ---------- runs, status and the terminal ----------
 
-def test_runs_use_only_ferbs_own_claude_home(tmp_path: Path) -> None:
+def test_runs_use_only_ferbs_own_claude_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     proxy = type("P", (), {"base_url": lambda self, run_id: "http://unused"})()
     rt = ClaudeRuntime("supervisor", proxy, str(tmp_path))                          # type: ignore[arg-type]
     with pytest.raises(Unsupported, match="isn't signed in for FERB"):  # never the owner's own ~/.claude login
         rt._options("run", None)
     CL.mark(tmp_path)
-    env = rt._options("run", None).env
+    monkeypatch.setattr(CL, "cli_binary", lambda: Path("/bundled/claude"))
+    options = rt._options("run", None)
+    env = options.env
     assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "claude-home")
     assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "" and env["ANTHROPIC_API_KEY"] == ""   # nothing can take over the login
+    # the bundled Claude Code by path, never a `claude` on PATH; tool search off behind FERB's proxy (Claude Code
+    # 2.1.304+ would add a DeferredToolPlaceholder tool, which FERB's tool check stops)
+    assert options.cli_path == Path("/bundled/claude") and env["ENABLE_TOOL_SEARCH"] == "false"
+
+    def missing() -> Path:
+        raise Unsupported("the Claude Agent SDK's bundled Claude Code is missing")
+    monkeypatch.setattr(CL, "cli_binary", missing)
+    with pytest.raises(Unsupported, match="bundled Claude Code is missing"):
+        rt._options("run", None)
 
 
 def test_status_says_which_runtimes_ferb_is_signed_in_to(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -2,10 +2,11 @@
 
 CodexRuntime: isolated app-server for steerable workers and typed supervisor output streaming.
 
-Tool containment (measured in spikes 1 and 21): pinned Codex 0.157.1 and the model in FERB's runtime table
+Tool containment (measured in spikes 1 and 21; re-checked offline on 0.166.0, notes/runtimes.md "Moving the Codex/Claude
+pins"): pinned Codex 0.166.0 and the model in FERB's runtime table
 (ferb/runtimes/catalog.py), run without code mode / sub-agents via
 FERB's own model catalog, user config and rules ignored,
-every disableable native tool off, read-only sandbox (makes the non-removable apply_patch inert),
+every disableable native tool off, apply_patch dropped from that catalog and inert anyway in the read-only sandbox,
 approval_policy=never. Worker mode's only tool source is `ferb mcp` (pre-approved); supervisor mode has none.
 Codex runs with its own empty HOME to keep the owner's personal skills out. Ephemeral: nothing is written into the owner's ~/.codex sessions. The model-visible tool list is scanned from the
 request trace on every run; anything outside the allowlist kills the run.
@@ -33,18 +34,18 @@ from ferb.core.errors import InputTooLarge, ModelLimitsUnknown, Unsupported
 from ferb.core.types import ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
 from ferb.sanitize.redact import Redactor
 
-CODEX_VERSION = "0.157.1"
+CODEX_VERSION = "0.166.0"
 # L28: Codex refuses a turn whose text input items together hold more characters (Unicode scalar values) than this,
 # before any model sees it ("Input exceeds the maximum length of 1048576 characters."). It counts per turn/start (and
 # per turn/steer), the instructions FERB gives thread/start apart.
 MAX_INPUT_CHARS = 1 << 20
 INPUT_CHARS_SOURCE = (
-    "openai/codex tag rust-v0.157.1: MAX_USER_INPUT_TEXT_CHARS = 1 << 20 (codex-rs/protocol/src/user_input.rs:10), "
+    "openai/codex tag rust-v0.166.0: MAX_USER_INPUT_TEXT_CHARS = 1 << 20 (codex-rs/protocol/src/user_input.rs:10), "
     "compared with the sum of a turn's text input items' chars().count() by turn/start and turn/steer "
-    "(codex-rs/app-server/src/request_processors/turn_processor.rs:502-519, 551-571, 1045; UserInput::text_char_count, "
-    "codex-rs/app-server-protocol/src/protocol/v2/turn.rs:517-527); codex exec's prompt goes through the same "
-    "turn/start (codex-rs/exec/src/lib.rs:908, 1152); thread/start's baseInstructions/developerInstructions are not "
-    "counted")
+    "(codex-rs/app-server/src/request_processors/turn_processor.rs:476-493, 523-552, 1050; UserInput::text_char_count, "
+    "codex-rs/app-server-protocol/src/protocol/v2/turn.rs:550-560); codex exec's prompt goes through the same "
+    "turn/start (codex-rs/exec/src/lib.rs:950-1004, 1238); thread/start's baseInstructions/developerInstructions are "
+    "not counted")
 # Codex's npm platform package per Mac architecture (package-lock.json pins both): its folder and its binary's target
 # triple. scripts/app-parts.sh ferb_arch_names names the same binary for FERB.app.
 _CODEX_PACKAGES = {"arm64": ("codex-darwin-arm64", "aarch64-apple-darwin"),
@@ -65,7 +66,8 @@ DISABLED = ["shell_tool", "unified_exec", "shell_snapshot", "multi_agent", "mult
             "in_app_browser", "computer_use", "image_generation", "view_image", "goals", "sleep_tool",
             "code_mode_host", "skill_mcp_dependency_install"]
 # Native tools Codex always offers: inert (MCP resource plumbing over FERB's server only; request_user_input fails
-# closed in exec and client actions are rejected in app-server; apply_patch cannot write in the read-only sandbox).
+# closed in exec and client actions are rejected in app-server; apply_patch, which CATALOG_LOCKDOWN now drops, cannot
+# write in the read-only sandbox).
 SUPERVISOR_SETTINGS = ["-c", 'model_reasoning_effort="low"', "-c", "include_environment_context=false",
                        "-c", "include_permissions_instructions=false", "-c", "include_apps_instructions=false",
                        "-c", "include_collaboration_mode_instructions=false"]
@@ -75,16 +77,18 @@ SUPERVISOR_SETTINGS = ["-c", 'model_reasoning_effort="low"', "-c", "include_envi
 SKILLS_OFF = ["-c", "skills.include_instructions=false", "-c", "skills.bundled.enabled=false"]
 # A supervisor run is one turn on a context FERB already fitted to the model's window (L28): Codex's automatic
 # compaction could only rewrite that context (36 planner prompts went over the 244.8k-token point where it starts), so
-# its threshold is put out of reach. Codex 0.157.1 reads `model_auto_compact_token_limit` (strings of the pinned binary,
-# 2026-10-30); an input still too large comes back as Codex's contextWindowExceeded, which FERB handles. Worker runs keep
-# Codex's default: a long tool loop may compact rather than fail (the owner's call, notes/runtimes.md).
+# its threshold is put out of reach. Codex reads `model_auto_compact_token_limit` (strings of 0.157.1, 2026-10-30;
+# 0.166.0 accepts it under --strict-config, 2026-11-01); an input still too large comes back as Codex's
+# contextWindowExceeded, which FERB handles. Worker runs keep Codex's default: a long tool loop may compact rather than
+# fail (the owner's call, notes/runtimes.md).
 NO_AUTO_COMPACT = ["-c", "model_auto_compact_token_limit=1000000000000"]
-# How long Codex waits for FERB's MCP shim (Codex 0.157.1 `mcp_servers.<name>`; its defaults are 10 s to start and 60 s
-# per call). Start: the shim is a Python process that imports FERB's MCP code and asks the daemon for the worker's tools;
-# 10 s on a busy Mac can leave a worker with no FERB tools (seen 2026-10-13), so 120 s. A call: a FERB tool can wait on
-# the owner (a confirmation never expires while its task waits) or run a long shell command, so 7 days, longer than any
-# wait FERB means to make; a hang is ended by FERB's own stall watchdog and stop, never by Codex giving up the call. A call
-# Codex does abandon is still released (`on_abandoned`), and an identical retry gets the owner's answer.
+# How long Codex waits for FERB's MCP shim (Codex `mcp_servers.<name>`, keys 0.166.0's --strict-config accepts; its
+# defaults are 10 s to start and 60 s per call). Start: the shim is a Python process that imports FERB's MCP code and
+# asks the daemon for the worker's tools; 10 s on a busy Mac can leave a worker with no FERB tools (seen 2026-10-13), so
+# 120 s. A call: a FERB tool can wait on the owner (a confirmation never expires while its task waits) or run a long
+# shell command, so 7 days, longer than any wait FERB means to make; a hang is ended by FERB's own stall watchdog and
+# stop, never by Codex giving up the call. A call Codex does abandon is still released (`on_abandoned`), and an
+# identical retry gets the owner's answer.
 MCP_STARTUP_TIMEOUT_S = 120
 MCP_TOOL_TIMEOUT_S = 7 * 24 * 3600
 # Codex finds the owner's personal skills through HOME (~/.agents/skills), even with skill_search disabled and its own
@@ -105,10 +109,13 @@ def codex_home(ferb_home: Path) -> Path | None:
 # (`functions.exec` runs code), multi-agent v2 (`collaboration.*` sub-agents outside FERB's gateway) and experimental
 # tools (ask the user, wait). FERB hands Codex its own copy of the catalog with these neutralized, for every model.
 # supports_search_tool False keeps FERB's MCP tools directly visible instead of deferred behind tool_search (Codex
-# 0.157.1, verified 2026-10-07); the side effects that brings (apps, plugins, sub-agents) stay in DISABLED.
+# 0.157.1, verified 2026-10-07; still so in 0.166.0's requests); the side effects that brings (apps, plugins,
+# sub-agents) stay in DISABLED. apply_patch_tool_type None drops apply_patch: Codex 0.166.0 started offering it to every
+# run (0.157.1 left it out of these runs); the read-only sandbox made it inert, now it isn't offered at all (offline
+# check 2026-11-01). BASE_TOOLS still tolerates it, so a model that brings it another way is inert, not a stopped run.
 CATALOG_LOCKDOWN: dict[str, Any] = {"tool_mode": None, "multi_agent_version": None,
                                     "multi_agent_reasoning_effort": None, "experimental_supported_tools": [],
-                                    "supports_search_tool": False}
+                                    "supports_search_tool": False, "apply_patch_tool_type": None}
 
 
 def _bundled_path(ferb_home: Path) -> Path:
@@ -231,10 +238,30 @@ def write_locked_catalog(ferb_home: Path) -> Path | None:
     return out
 
 
+def _version(value: Any) -> tuple[int, ...] | None:
+    """A version as Codex's model service writes `minimal_client_version` ([0, 99, 0]) or as text ("0.99.0")."""
+    parts = value.split(".") if isinstance(value, str) else value
+    if not isinstance(parts, list) or not parts:
+        return None
+    try:
+        return tuple(int(p) for p in parts)
+    except (TypeError, ValueError):
+        return None
+
+
+def too_new(entry: dict[str, Any]) -> bool:
+    """Whether a catalog entry's `minimal_client_version` is above the pinned Codex. Codex's model service sends it and
+    filters its list by the `client_version` Codex asks with; Codex 0.166.0's own catalog files (models_cache.json,
+    `debug models --bundled`) don't keep the field, so this holds only when a catalog carries it (checked 2026-11-01,
+    codex-rs/codex-api/src/endpoint/models.rs and protocol/src/openai_models.rs ModelInfo)."""
+    wanted = _version(entry.get("minimal_client_version"))
+    return wanted is not None and wanted > (_version(CODEX_VERSION) or ())
+
+
 def limits_for(ferb_home: Path, model: str) -> ModelLimits:
     """L28: the input window Codex runs this model with, as Codex reports it: its catalog's `context_window` times its
-    `effective_context_window_percent` (272,000 x 95 % = 258,400 for gpt-5.6-sol in Codex 0.157.1's bundled catalog,
-    the figure a Codex session reports as `model_context_window`:
+    `effective_context_window_percent` (272,000 x 95 % = 258,400 for gpt-5.6-sol in the bundled catalogs of Codex
+    0.157.1 and 0.166.0, the figure a Codex session reports as `model_context_window`:
     https://community.openai.com/t/why-does-codex-report-a-258-400-token-context-window-for-gpt-5-6-sol/1394346).
     Codex's docs don't say whether that window also holds the reply (https://learn.chatgpt.com/docs/config-file/
     config-reference, `model_context_window`: "Context window tokens available to the active model"), so FERB uses it
@@ -246,6 +273,9 @@ def limits_for(ferb_home: Path, model: str) -> ModelLimits:
         raise ModelLimitsUnknown("Codex's model catalog isn't available: the pinned Codex didn't print one")
     data, label = found
     entry = next((m for m in _models(data) or [] if isinstance(m, dict) and m.get("slug") == model), None)
+    if entry is not None and too_new(entry):
+        raise ModelLimitsUnknown(f"{model} needs a newer Codex than the {CODEX_VERSION} FERB has; it comes with a FERB "
+                                 "update")
     window = entry.get("context_window") if entry else None
     percent = entry.get("effective_context_window_percent") if entry else None
     if not isinstance(window, int) or window <= 0 or not isinstance(percent, (int, float)) or not 0 < percent <= 100:

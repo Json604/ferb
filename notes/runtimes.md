@@ -39,8 +39,10 @@ cites 68dc95b for the same files).
   the result). One worker had no FERB tools loaded (10-13), suspected startup timeout.
 - **Supervisor timeouts doubled**: 900 s for start and another 900 s for events (codex_stream.py:247, 540).
 - **Per call**: `codex --version` subprocess and a rewrite of the locked catalog file.
-- **Version pin 0.157.1** in package.json, package-lock.json, CODEX_VERSION, INPUT_CHARS_SOURCE; a mismatched binary
-  fails every run loudly. Checkout installs run `npm install @openai/codex@0.157.1` without the lockfile.
+- **Version pin 0.166.0** (was 0.157.1 until 2026-11-01) in package.json, package-lock.json, CODEX_VERSION,
+  INPUT_CHARS_SOURCE; a mismatched binary fails every run loudly. Checkout installs run `npm ci` on package-lock.json
+  into a staging folder (ferb/device/install.py `ensure_codex`); FERB.app's build runs `npm ci` too
+  (scripts/build-app.sh).
 - **Claude SDK adapter**: `tools=[]`, dontAsk, `setting_sources=[]`, strict MCP config. Run token in argv via
   `--mcp-config` (claude_sdk.py:115-116 → SDK subprocess_cli.py:667-689), visible in `ps`; the shim already supports
   `FERB_RUN_TOKEN_FILE`. Without FERB's sign-in marker it uses the owner's own `~/.claude` login and billing (settings,
@@ -161,8 +163,8 @@ cites 68dc95b for the same files).
 - **Claude steering replay order: no bug found offline.** FERB waits for the replay (by UUID) of every correction
   before it accepts a result, so a stale result before or after the replay is skipped, and merged corrections need
   one result (tests/test_claude_steering.py). Claude Code also reports `queued_turn_count` on results ("> 0 means at
-  least one more result follows"), but the pinned SDK 0.2.160 drops that field when it parses a result, so FERB can't
-  read it. Unknown offline: whether Claude Code replays a queued message when it receives it or when its turn
+  least one more result follows"), but the SDK (0.2.160, still 0.2.174) drops that field when it parses a result, so
+  FERB can't read it. Unknown offline: whether Claude Code replays a queued message when it receives it or when its turn
   starts; if on receipt mid-turn, a result for a turn that didn't see the correction could be accepted. Live check.
 - **Gemini parallel same-tool calls: no collision inside FERB's loop** (results are paired by position), but both got
   the same id (the tool name). Now FERB-local unique ids; only Gemini's own ids go back.
@@ -170,6 +172,72 @@ cites 68dc95b for the same files).
   carries structured outputs (`requestCarriesStructuredOutputs` in its code), so the Anthropic reshaping is applied
   to Claude runs too. Open: whether FERB's MCP tool schemas then count toward the 24-optional/16-union limits in a
   Claude worker run with an output schema.
+
+## Moving the Codex/Claude pins
+`ferb runtimes pins` (developer toolbox) compares the pins with npm and PyPI and says when FERB is behind; it changes
+nothing and reads the network only when run. To move a pin, all offline unless marked, never with `~/.ferb`, a login or
+a model request:
+1. Pick the newest release at least two days old (`npm view @openai/codex time --json`;
+   `https://pypi.org/pypi/claude-agent-sdk/json`). Codex: package.json, then `npm install --package-lock-only` and
+   `npm ci`; CODEX_VERSION and INPUT_CHARS_SOURCE in codex_exec.py; spikes/01_codex_mcp/codex_run.py CODEX_VERSION last.
+   Claude: pyproject.toml, `uv lock`, `uv sync --group dev`; SDK_VERSION and CLAUDE_CODE_VERSION (the SDK's
+   `_cli_version.py`) in claude_sdk.py. scripts/build-app.sh and tests/test_packaging.py read these constants.
+2. Codex, with HOME and CODEX_HOME in a temporary folder: `codex features list` against DISABLED (every new default-on
+   feature that adds a model-visible tool goes in DISABLED; an unknown name in DISABLED fails `--strict-config`);
+   `codex debug models --bundled` fields against CATALOG_LOCKDOWN and limits_for; `codex app-server generate-ts` (old
+   and new, diffed) against the methods, notifications, item types, phases and CodexErrorInfo values codex_stream.py
+   uses, and tests/test_codex_streaming.py's recorded messages; `codex app-server --print-startup-config
+   --strict-config` with FERB's flags (codex_stream._command); the input cap in the new tag's source; the request trace
+   format tooltrace.py reads. Strongest: FERB's own adapter against a local stand-in for the Responses endpoint, the
+   binary under `sandbox-exec` with only localhost reachable, a made-up ChatGPT login (`-c openai_base_url=…` and
+   `chatgpt_base_url=…` added): supervisor, worker with an MCP call, the P20 resume, and one run with the lockdown off
+   that must be stopped. `codex debug prompt-input` with FERB's flags lists the tools offline too.
+3. Claude: the new Claude Code's changelog since the old one (github.com/anthropics/claude-code CHANGELOG.md); the
+   behaviours claude_sdk.py names (cache breakpoints, tool search, the too-long text, the MCP idle timeout, the cost
+   field, the structured-output subtype, the auth commands) in the bundled binary's strings; strongest: FERB's
+   `ClaudeRuntime._options` against a local stand-in for the Messages API, the CLI under `sandbox-exec` with only
+   localhost reachable and no Keychain, a made-up API key, comparing the request's tools and cache_control with the
+   old CLI's.
+4. `uv run pytest -q`, `uv run mypy ferb/core`, `git diff --check`.
+5. Live, at step 13 or the next owner session: `uv run pytest -m real tests/test_real_runtimes.py` (Codex) and one
+   owner-run `uv run pytest -m real_claude`.
+
+## Pin move 2026-11-01: Codex 0.157.1 → 0.166.0, SDK 0.2.160 → 0.2.174 (Claude Code 2.1.283 → 2.1.310)
+Checked offline as above (SDK 0.2.175/0.2.176 were under 48 h old).
+- **Codex features:** every DISABLED name still exists (strict config accepts all of FERB's flags); none of the new
+  default-on features (incremental_tools, plugin_discovery_prefetch, instant_interrupt, ultrafast_mode, cli_daybreak,
+  in_app_voice, browser_annotation_api, …) adds a model-visible tool: the request's tool list is the same set with
+  FERB's flags, for gpt-5.5, gpt-5.6-sol, gpt-6-sol, gpt-6-astra and gpt-6.1-sol. DISABLED unchanged.
+- **apply_patch:** 0.166.0 offers it to every run (0.157.1 left it out); CATALOG_LOCKDOWN now sets
+  `apply_patch_tool_type` to None, which drops it.
+- **Lockdown still caught:** with CATALOG_LOCKDOWN off a worker is stopped (`exec`, `collaboration.*`, `wait`,
+  `request_user_input_async`); with the shell features on, `exec_command`/`write_stdin` stop it.
+- **Trace format:** incremental_tools (on for responses-lite models) puts the tool list in an `additional_tools` input
+  item; tooltrace.py already reads every `"tools":[` array, and the HTTP request trace (`POST to …: {body}`) is
+  unchanged. Over WebSocket neither version logs the request, so a WebSocket run fails closed ("tool catalog was not
+  observed") on both; live runs work today, so they go over HTTP. Live check.
+- **Protocol (generate-ts diff):** no method FERB uses changed; MessagePhase gained `partial_answer` (not the answer;
+  test added); CodexErrorInfo gained `modelNotFound` and others and became open-ended (FERB reads strings and objects);
+  Account gained `workspaceName`, Turn `rootTurnId`, items `startedAtMs`/`completedAtMs`, turn/start optional
+  `parentTurnId`/`rootTurnId`; new notifications FERB ignores. The input cap is still `1 << 20` (sources cited in
+  INPUT_CHARS_SOURCE). The bundled catalog has the same fields; it adds gpt-6.1-sol and gpt-6.1-terra (FERB knows no
+  OpenAI max output for gpt-6.1-terra yet) and drops gpt-5.4.
+- **minimal_client_version:** Codex's model service sends it and filters by client version, but Codex's own catalog
+  files drop it; limits_for refuses a model whose entry carries a higher one ("needs a newer Codex; it comes with a FERB
+  update"), and Codex's run-time `modelNotFound` is worded the same way. FERB has no Codex model list to filter.
+- **Claude Code 2.1.310:** cache breakpoints unchanged (system prompt, FERB's stable part, environment message, 1 h);
+  too-long text, MCP idle timeout ("0 disables"), `total_cost_usd` (running total),
+  `error_max_structured_output_retries` and `auth login --claudeai`/`logout`/`status --json` unchanged. **Changed:** 2.1.304 turned tool search on behind a
+  custom ANTHROPIC_BASE_URL, adding a `DeferredToolPlaceholder` tool that FERB's tool check would stop on every run:
+  FERB now sets `ENABLE_TOOL_SEARCH=false` (request then carries exactly the run's tools). 2.1.307 no longer sends the
+  `prompt-caching-scope` beta behind a custom base URL (cache rates: live check). With no effort set, the offline
+  request carried `medium` (2.1.283: `high`); FERB still sends none unless asked (L39); live check.
+- **Small fixes:** runs pass `cli_path` = the bundled Claude Code (no fallback to a `claude` on PATH; missing, the run
+  is refused); the doctor's Claude line compares the bundled Claude Code version too.
+- **App size (owner decision needed):** the Codex binary grew 238 → 269 MB and the bundled Claude Code 225 → 274 MB
+  (arm64), about +80 MB in FERB.app. The trimmed app measured 581 MB (arm64) and 609 MB (Intel) on 2026-10-25 against
+  the owner's 600 / 630 MB targets (tests/test_packaging.py MAX_APP_MB), so the step-13 build will likely be over both.
+  Codex 0.166.0 no longer ships `codex-resources/zsh` (the trim's `rm -rf` of it is now a no-op).
 
 ## Live checks for step 13, per adapter (from step 4)
 - **Codex:** (1) a worker run with FERB's base instructions in place of Codex's: FERB tools listed and called, typed
