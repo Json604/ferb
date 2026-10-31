@@ -1,5 +1,5 @@
-"""Owner's Unit 1 (2026-10-01): faster replies within Codex, plain reasons when the model service fails, FERB's
-accurate self-description, and FERB's voice (`ferb chat --speak`)."""
+"""Owner's Unit 1 (2026-10-01): faster replies within Codex, plain reasons when the model service fails, and FERB's
+accurate self-description. FERB's voice is tests/test_voice.py."""
 
 import json
 from pathlib import Path
@@ -10,7 +10,6 @@ from ferb.core.types import ModelRequest, Task
 from ferb.orchestrator.worker import service_problem
 from ferb.runtimes.codex_exec import SUPERVISOR_SETTINGS, CodexRuntime, codex_home
 from ferb.runtimes.claude_sdk import ClaudeRuntime
-from ferb.voice.speak import SaySpeaker
 from tests.conftest import RunningDaemon, chat, install, sup
 
 CODEX_START = CodexRuntime.start
@@ -182,25 +181,6 @@ class Stream:
 
     def close(self) -> None:
         pass
-
-
-def test_say_runs_the_macs_voice_and_can_be_cut_off() -> None:
-    runs: list[list[str]] = []
-
-    class P:
-        def __init__(self, cmd: list[str], **k: Any) -> None:
-            runs.append(cmd)
-            self.terminated = False
-
-        def poll(self) -> None:
-            return None
-
-        def terminate(self) -> None:
-            runs.append(["terminated"])
-    s = SaySpeaker(run=P)                                                   # type: ignore[arg-type]
-    s.say("ferb> Hello there.")
-    s.say("ferb> Second thing.")
-    assert runs == [["say", "Hello there."], ["terminated"], ["say", "Second thing."]]
 
 
 def test_gpt6_catalog_lockdown_and_namespaced_tools(tmp_path: Path, monkeypatch: Any) -> None:

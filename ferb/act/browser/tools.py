@@ -559,11 +559,14 @@ class BrowserRecord(_Base):
         from ferb.act.browser.profiles import BROWSERS
         from ferb.act.fs.files import resolve, write_check
         tab = self.driver.owned_by(args.tab, ctx.task_id)
+        page = self.driver.tab_url(tab.tab_id) or ''
         audio = None
         if args.with_audio:                            # hearing is its own scope, like audio.listen (L26)
             hearing = getattr(self.recordings, "hearing", None)
             if "audio" not in ctx.scopes or hearing is None:
                 raise Refused("recording with sound needs the audio scope (hearing); record without with_audio")
+            if hearing.excluded_host(_host(page) or ""):   # as audio.listen: an excluded site is never heard
+                raise Refused("that tab's site is on the owner's exclusion list; FERB doesn't record its sound")
             if tab.browser not in BROWSERS:
                 raise Refused(f"FERB doesn't know which app {tab.browser} runs as")
             exact = getattr(self.driver, "browser_pid", lambda r: None)(tab)   # that browser's own process
@@ -571,7 +574,6 @@ class BrowserRecord(_Base):
             if audio[0] != BROWSERS[tab.browser].bundle_id:
                 raise Refused(f"the process showing that tab isn't {tab.browser}; FERB didn't record its sound")
         target, capture = self.driver.recording_source(tab, ctx.task_id)
-        page = self.driver.tab_url(tab.tab_id) or ''
         result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps,
                                              audio=audio, language=args.language, sources=(('web', page),),
                                              closed=write_check(ctx))

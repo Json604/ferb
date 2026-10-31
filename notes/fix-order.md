@@ -53,6 +53,11 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     copy, the effect contract once, the approved memory items seeded once in the owner's store; sizes measured in
     notes/prompts.md "Expected size"; the live re-test list in notes/tests.md, run in step 13.)
 11. **Voice**: speaker factory (macOS voice first), replies from structured events.
+    (Step 11: `[voice] tts/voice/rate` and the provider registry in ferb/voice/speak.py, one redacting speech path;
+    `chat.send speak: true` answers a turn aloud from its reply/plan/answer events, interrupted by any new message or a
+    stop; the app's "Send dictation when I let go of the keys" and spoken voice turns; hearing's time limit, alignment
+    off the loop, FERB Voice spared mid-transcription, record-with-audio exclusion check, strings to the app. Rulings
+    in notes/voice.md; live checks with step 13.)
 12. **Storage**: retention, `source_refs` removal, incremental vacuum, one-time cleanup (owner OK), upgrade path
     tested on copies of real older databases and configs.
 13. **Live checks**: per-adapter live tests, the owner's P20 injection eval, the patch re-test list, the safety suite.

@@ -677,6 +677,49 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     private func makeModel(_ rpc: StatusRPC) -> NotchModel { makeModelWithSuite(rpc).0 }
 
+    // MARK: - Voice turns (notes/voice.md decision 3)
+
+    func testAHeldDictationSendsOnReleaseWhenChosenAndAsksForASpokenReply() async throws {
+        let rpc = StatusRPC()
+        let suite = "FERBNotchTests-" + UUID().uuidString
+        suites.append(suite)
+        let preferences = UserDefaults(suiteName: suite)!
+        preferences.set(true, forKey: NotchModel.sendOnReleaseKey)
+        let microphone = ScriptedMicrophone(text: "What's on my calendar today")
+        let model = NotchModel(rpc: rpc, preferences: preferences, microphone: microphone)
+        let sent = expectation(description: "The dictated message is sent on release")
+        rpc.onCall = { method, _ in if method == "chat.send" { sent.fulfill() } }
+        model.beginHeldVoice()
+        model.finishHeldVoice()
+        await fulfillment(of: [sent], timeout: 2)
+        let params = rpc.calls.first { $0.0 == "chat.send" }?.1
+        XCTAssertEqual(params?["text"] as? String, "What's on my calendar today")
+        XCTAssertEqual(params?["speak"] as? Bool, true)
+        model.disconnectDaemon()
+    }
+
+    func testWithoutSendOnReleaseDictationStaysInTheDraftAndATypedMessageIsNotSpoken() async throws {
+        let rpc = StatusRPC()
+        let suite = "FERBNotchTests-" + UUID().uuidString
+        suites.append(suite)
+        let model = NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: suite)!,
+                               microphone: ScriptedMicrophone(text: "Remind me at five"))
+        model.beginHeldVoice()
+        model.finishHeldVoice()
+        XCTAssertEqual(model.session.draft, "Remind me at five")
+        XCTAssertFalse(rpc.calls.contains { $0.0 == "chat.send" })
+        let sent = expectation(description: "Sent")
+        sent.expectedFulfillmentCount = 2
+        rpc.onCall = { method, _ in if method == "chat.send" { sent.fulfill() } }
+        model.startWork()                                      // still the dictated words: a voice turn
+        model.session.draft = "And a typed one"
+        model.startWork()
+        await fulfillment(of: [sent], timeout: 2)
+        let speaks = rpc.calls.filter { $0.0 == "chat.send" }.map { $0.1["speak"] as? Bool }
+        XCTAssertEqual(speaks, [true, nil])
+        model.disconnectDaemon()
+    }
+
     private func makeModelWithSuite(_ rpc: StatusRPC) -> (NotchModel, String) {
         let suite = "FERBNotchTests-" + UUID().uuidString
         suites.append(suite)
@@ -733,6 +776,20 @@ final class QuestionsAndNoticesTests: XCTestCase {
             }
         }
     }
+}
+
+/// Dictation that hears `text` and finishes when told to.
+@MainActor
+private final class ScriptedMicrophone: VoiceCapturing {
+    let text: String
+    private var completion: ((Result<String, Error>) -> Void)?
+    init(text: String) { self.text = text }
+    func start(update: @escaping (String) -> Void, completion: @escaping (Result<String, Error>) -> Void) {
+        update(text)
+        self.completion = completion
+    }
+    func finish() { completion?(.success(text)); completion = nil }
+    func cancel() { completion = nil }
 }
 
 /// A daemon whose status, traces and `chat.send` events are fixtures; it records every call.

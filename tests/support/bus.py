@@ -19,7 +19,7 @@ def until(check: Callable[[], Any], what: str) -> Any:
 
 class Subscriber:
     """An authenticated FERB client holding a bus subscription: unfiltered, as the notch UI and `ferb chat` do, or
-    filtered, as `ferb logs --filter` and `ferb voice` do."""
+    filtered, as `ferb logs --filter` does."""
 
     def __init__(self, d: RunningDaemon, filters: list[str] | None = None) -> None:
         self.d, self.client, self.events = d, Client(d.sock), []          # type: list[dict[str, Any]]

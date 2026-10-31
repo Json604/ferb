@@ -52,7 +52,7 @@ from ferb.daemon.areas.schedules import Schedules
 from ferb.daemon.areas.sensing import Sensing
 from ferb.daemon.areas.shared import (FRESH_S, INTERNAL_FRAMES, INTERNAL_MESSAGE_CHARS, MACOS_TICK_S, Redact,
                                       UNHANDLED, _code_path, _Fresh, _no_notify, _raise_file_limit, _Repeats)
-from ferb.daemon.areas.voice import HearingGlue
+from ferb.daemon.areas.voice import VoiceGlue
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.banners import Banner
 from ferb.daemon.gateway import Gateway
@@ -87,7 +87,7 @@ LOOP_RESTART_S, LOOP_RESTART_MAX_S = 1.0, 60.0    # a background loop that raise
 
 
 class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Browsers, Desktop, Egress, Sensing, Environment, Runtimes,
-             Retention, JevGlue, HearingGlue, Rpc):
+             Retention, JevGlue, VoiceGlue, Rpc):
     """FERB's daemon: one process that owns the stores, the agents, the drivers and the socket."""
 
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
@@ -271,6 +271,15 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
             lambda bundle: _permissions.automation_async(bundle, ask=False))
         self.speech_request: Callable[[Path], Any] = (
             lambda app: subprocess.run(_permissions.speech_request_argv(app), check=False))
+        # notes/voice.md decisions 2-3: a voice turn's replies, spoken by the configured provider through one shared
+        # path that redacts first; a new turn or a stop interrupts it. Tests replace `build_speaker` (nothing speaks).
+        from ferb.voice import speak
+        self.build_speaker: Callable[[], Any] = lambda: speak.build(self.config)
+        self.speech = speak.Speech(lambda: self.build_speaker(), self._redact_text,
+                                   said=lambda words: self._publish("voice.said", {"text": words}),
+                                   failed=self._speech_failed)
+        self.stop_control.register("speech", self.speech.interrupt)
+        self._voiced: set[str] = set()      # request ids whose turn also reads a spoken message merged into it
 
         def _clipboard_request() -> Any:          # one read, so macOS shows its paste alert (I3); nothing kept
             from ferb.sense.watchers.clipboard import request_access
@@ -440,6 +449,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
             await drain(set(self.gateway._background), "gateway background work")
         if self._proxy:
             self._proxy.close()
+        await self.speech.close()
         await self.hearing.shutdown()
         await self.recordings.shutdown()
         if self.identity_browser is not None:

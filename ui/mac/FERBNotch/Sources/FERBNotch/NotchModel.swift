@@ -104,6 +104,10 @@ final class NotchModel: ObservableObject {
     @Published var voiceTranscript = ""
     @Published var voiceFinishing = false
     private var voiceDraft = ""
+    /// The words the last dictation added: a draft still holding them is sent as a voice turn, answered aloud.
+    private var lastDictation: String?
+    /// Settings → General: a held dictation sends its draft when the keys are released.
+    static let sendOnReleaseKey = "voice.sendOnRelease"
     let rpc: DaemonRPCTransport
     /// FERB's click-through windows, told to the daemon (D31 fix round 4)
     let clickThrough: ClickThroughReport
@@ -552,14 +556,20 @@ final class NotchModel: ObservableObject {
             self.voiceFinishing = false
             self.heldVoiceSnapshot = nil
             self.session.finishVoicePreview()
+            var send = false
             switch result {
             case .success(let text):
                 self.session.draft = self.voiceDraft + (self.voiceDraft.isEmpty || text.isEmpty ? "" : " ") + text
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.lastDictation = text
+                    send = held && self.preferences.bool(forKey: Self.sendOnReleaseKey)
+                }
             case .failure(let error): self.promptError = error.localizedDescription
             }
             self.onPresentationChange?(true)
             self.focusRequest = UUID()
             self.resumePendingPinnedFold()
+            if send { self.startWork() }
         })
     }
 
@@ -586,6 +596,8 @@ final class NotchModel: ObservableObject {
         localSettingReply = nil
         let outgoing = PastedRequest(text: session.draft, provenance: pasteProvenance).markedText
         let draft = session.draft
+        let spoken = lastDictation.map { draft.contains($0) } ?? false
+        lastDictation = nil
         let sources = session.attachments
         if let active = session.activeTaskID { workSessions[active] = session }
         var next = NotchSession()
@@ -610,7 +622,7 @@ final class NotchModel: ObservableObject {
         showingActivity = false
         onInteraction?()
         onPresentationChange?(true)
-        submitToDaemon(localID: id, text: outgoing, sources: sources)
+        submitToDaemon(localID: id, text: outgoing, sources: sources, speak: spoken)
     }
 
     func stopWork() { requestDaemonStop() }

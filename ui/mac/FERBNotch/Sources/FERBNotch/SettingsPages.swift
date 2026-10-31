@@ -68,6 +68,7 @@ struct GeneralSettingsPage: View {
     var updates: UpdateCoordinator? = nil
     @AppStorage("cursor.enabled") private var cursorEnabled = true
     @AppStorage("notch.hoverEnabled") private var hoverEnabled = true
+    @AppStorage(NotchModel.sendOnReleaseKey) private var sendOnRelease = false
     var onHoverEnabledChange: ((Bool) -> Void)?
 
     var body: some View {
@@ -81,6 +82,9 @@ struct GeneralSettingsPage: View {
             Section("Notch") {
                 LabeledContent("Open / close FERB", value: "Double-tap right Option, or Control–Option–Space")
                 LabeledContent("Dictation", value: "Hold right Command + Option")
+                Toggle("Send dictation when I let go of the keys", isOn: $sendOnRelease)
+                Text("A dictated message is answered aloud as well as in the chat.")
+                    .font(.caption).foregroundStyle(.secondary)
                 LabeledContent("Submit / new line", value: "Return / Shift–Return")
                 Toggle("Open when I hover over FERB", isOn: $hoverEnabled)
                     .onChange(of: hoverEnabled) { _, enabled in onHoverEnabledChange?(enabled) }

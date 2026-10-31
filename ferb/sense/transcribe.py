@@ -15,6 +15,9 @@ FERB's daemon is a bare Python interpreter, so FERB.app (macapp/FERB, signed wit
   it. Deleting the file means stop: FERB.app watches it and exits without answering. Killing `open -W` alone wouldn't
   stop an app LaunchServices started, and an answer written after the deletion lands in an unlinked file, so no raw
   transcript is left behind. This side reads the answer once and deletes it. Nothing goes to stdout, stderr or a log.
+- a technical time limit (step 11 ruling, notes/voice.md): LIMIT_S plus PER_AUDIO_S for each second of sound, since
+  recognition time grows with the sound's length; past it the lease is deleted (FERB.app stops) and hearing says so.
+  `busy` tells an update not to quit FERB.app while a transcription is in flight.
 `redacted` builds what a model may see: the transcript through the Redactor, and sentence segments cut from that
 redacted text only, so a secret spoken across several words never survives in any one segment."""
 
@@ -31,6 +34,8 @@ from typing import Any, Awaitable, Callable
 from ferb.core.errors import Refused
 
 Launch = Callable[[list[str]], Awaitable[int]]
+LIMIT_S = 60.0              # FERB.app's start, the recognizer's set-up and a short sound
+PER_AUDIO_S = 2.0           # each second of sound (on-device recognition runs faster than real time)
 SENTENCE_END = (".", "?", "!", "…", "。", "?", "!", "\n")
 
 
@@ -73,7 +78,7 @@ async def launch(argv: list[str]) -> int:
 
 
 def signed(app: Path, requirement: str) -> bool:
-    """FERB.app's signature meets the requirement `ferb setup` recorded (bundle id + FERB's certificate)."""
+    """FERB.app's signature meets the requirement setup recorded (bundle id + FERB's certificate)."""
     r = subprocess.run(["/usr/bin/codesign", "--verify", "--strict", f"-R={requirement}", str(app)], capture_output=True)
     return r.returncode == 0
 
@@ -85,40 +90,55 @@ class Transcriber:
         is in, ~/.ferb for a checkout install's ~/.ferb/FERB.app)."""
         self.app, self.requirement, self.launch, self.signed = app, requirement, launch, signed
         self.home = home
+        self.in_flight = 0                       # FERB.app runs now for this many asks
+
+    @property
+    def busy(self) -> bool:
+        return self.in_flight > 0
 
     async def _checked(self) -> None:
         if not self.app.exists():
-            raise HearingUnavailable("FERB.app isn't installed, so FERB can't turn sound into text: run `ferb setup`")
+            raise HearingUnavailable("FERB Voice isn't in this FERB.app, so FERB can't turn sound into text; download "
+                                     "FERB again")
         req = self.requirement()
         if not req or not await asyncio.to_thread(self.signed, self.app, req):
-            raise HearingUnavailable("FERB.app's signature isn't the one recorded at setup, so FERB didn't give it "
-                                     "the sound: run `ferb setup`")
+            raise HearingUnavailable("FERB Voice's signature isn't the one setup recorded, so FERB didn't give it the "
+                                     "sound; set up FERB again")
 
-    async def _ask(self, mode: str, folder: Path, *args: str) -> dict[str, Any]:
+    async def _ask(self, mode: str, folder: Path, *args: str, limit_s: float = LIMIT_S) -> dict[str, Any]:
         await self._checked()
         folder.mkdir(parents=True, exist_ok=True)
         folder.chmod(0o700)
         answer = folder / f".{mode}-{secrets.token_hex(8)}.json"
         os.close(os.open(answer, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600))   # the lease
+        self.in_flight += 1
         try:
-            code = await self.launch(launch_args(self.app, mode, *args[:1], str(answer), *args[1:], home=self.home))
+            argv = launch_args(self.app, mode, *args[:1], str(answer), *args[1:], home=self.home)
+            try:
+                code = await asyncio.wait_for(self.launch(argv), limit_s)
+            except asyncio.TimeoutError:          # the lease goes below: FERB.app stops without answering
+                raise HearingUnavailable(f"FERB Voice didn't finish within {limit_s:.0f} s, so FERB stopped it; "
+                                         "nothing was transcribed") from None
             try:
                 raw = answer.read_text()
             except OSError:
                 raw = ""
             if not raw:
-                raise HearingUnavailable(f"FERB.app gave no answer (exit {code}); run `ferb doctor`")
+                raise HearingUnavailable(f"FERB Voice gave no answer (exit {code})")
             data = json.loads(raw)
         except ValueError:
-            raise HearingUnavailable("FERB.app's answer couldn't be read; run `ferb doctor`") from None
+            raise HearingUnavailable("FERB Voice's answer couldn't be read") from None
         finally:                                  # read once and never kept; a stop deletes it first (FERB.app exits)
+            self.in_flight -= 1
             answer.unlink(missing_ok=True)
         if not isinstance(data, dict):
-            raise HearingUnavailable("FERB.app's answer couldn't be read; run `ferb doctor`")
+            raise HearingUnavailable("FERB Voice's answer couldn't be read")
         return data
 
-    async def transcribe(self, audio: Path, language: str | None) -> Transcript:
-        data = await self._ask("transcribe", audio.parent, str(audio), *([language] if language else []))
+    async def transcribe(self, audio: Path, language: str | None, audio_s: float = 0.0) -> Transcript:
+        """`audio_s`: how long the sound is, which sets the time limit (LIMIT_S + PER_AUDIO_S per second)."""
+        data = await self._ask("transcribe", audio.parent, str(audio), *([language] if language else []),
+                               limit_s=LIMIT_S + PER_AUDIO_S * max(0.0, audio_s))
         if data.get("error"):
             raise HearingUnavailable(_why(data, audio))
         words = []
@@ -128,7 +148,7 @@ class Transcriber:
         return Transcript(str(data.get("text") or ""), words, str(data.get("locale") or language or ""))
 
     async def status(self, folder: Path) -> dict[str, Any]:
-        """FERB.app's Speech Recognition state, for `ferb doctor` and setup: speech, on_device, locale. No prompt."""
+        """FERB.app's Speech Recognition state, for the doctor and setup: speech, on_device, locale. No prompt."""
         data = await self._ask("status", folder)
         return {k: data[k] for k in ("speech", "on_device", "locale") if k in data}
 
@@ -139,8 +159,8 @@ def _why(data: dict[str, Any], audio: Path) -> str:
         return (f"On-device speech recognition isn't available for {locale} on this Mac, so FERB didn't transcribe it; "
                 "it never sends sound to a cloud recognizer.")
     if reason == "not_authorized":
-        return (f"FERB.app isn't allowed to use Speech Recognition ({data.get('speech') or 'not allowed'}): run "
-                "`ferb setup` and allow it.")
+        return (f"FERB Voice isn't allowed to use Speech Recognition ({data.get('speech') or 'not allowed'}): the "
+                "owner allows it in FERB's Settings → Permissions.")
     if reason == "unsupported_language":
         return f"Apple speech recognition has no recognizer for {locale}."
     return f"FERB.app couldn't transcribe the sound: {data.get('error')}."

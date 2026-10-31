@@ -212,7 +212,8 @@ extension NotchModel {
         expand()
     }
 
-    func submitToDaemon(localID: UUID, text: String, sources: [URL]) {
+    /// `speak`: a voice turn (the app's dictation); the daemon also says its replies aloud.
+    func submitToDaemon(localID: UUID, text: String, sources: [URL], speak: Bool = false) {
         submissions[localID] = Task { [weak self] in
             guard let self else { return }
             defer {
@@ -229,6 +230,7 @@ extension NotchModel {
                 }
                 var params: [String: Any] = ["session_id": self.conversationID!, "text": text]
                 if !sources.isEmpty { params["input_paths"] = sources.map(\.path) }
+                if speak { params["speak"] = true }
                 for try await event in self.rpc.stream("chat.send", params: params) {
                     guard !Task.isCancelled else { return }
                     self.receiveChatEvent(event, localID: localID)

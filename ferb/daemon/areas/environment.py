@@ -176,8 +176,8 @@ class Environment:
         if "screen" in registered and not perms.get("screen", True):
             problems["screen"] = "FERB doesn't have the Screen Recording permission — run `ferb doctor`"
         if "audio" in registered and not perms.get("screen", True):   # app sound is captured under Screen Recording
-            problems["hearing"] = "FERB doesn't have the Screen Recording permission, which covers app sound — run " \
-                                  "`ferb doctor`"
+            problems["hearing"] = "FERB doesn't have the Screen Recording permission, which covers app sound — the " \
+                                  "owner grants it in FERB's Settings → Permissions"
         return build(registered, problems, profiles)
 
     def _urls_of(self, task_id: str) -> list[str]:

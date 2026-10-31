@@ -94,7 +94,7 @@ class Hearing:
             if isinstance(e, Refused):
                 raise
             raise Refused(f"screen capture couldn't start hearing {app}: {self.redact(str(e))}. FERB hears app sound "
-                          "under its Screen Recording permission (`ferb doctor`)") from None
+                          "under its Screen Recording permission (FERB's Settings → Permissions)") from None
         listen.started = float(getattr(listen.handle, "started", None) or self.now())
         return listen
 
@@ -142,8 +142,9 @@ class Hearing:
             return {"transcript": "", "segments": [], "on_device": True, "note": CAPTURE_FAILED}
         if not facts.get("audio_s") or not facts.get("peak"):
             return {"transcript": "", "segments": [], "on_device": True, "note": NO_SOUND}
-        t = await self.transcriber.transcribe(path, language)
-        return redacted(t, self.redact, offset) | {"on_device": True, "language": t.locale}
+        t = await self.transcriber.transcribe(path, language, float(facts.get("audio_s") or 0))
+        # the redaction and its alignment to the words grow with a long listen: off the event loop
+        return await asyncio.to_thread(redacted, t, self.redact, offset) | {"on_device": True, "language": t.locale}
 
     async def listen(self, owner: str, app: str, pid: int, seconds: float, language: str | None) -> dict[str, Any]:
         listen = await self.start(owner, app, pid)

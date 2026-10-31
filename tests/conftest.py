@@ -34,6 +34,16 @@ pytest_plugins = ["tests.browserkit",           # browser fixtures: local pages,
                   "tests.support.runaway"]       # a hung or memory-growing test ends the run with tracebacks
 
 
+class SilentSpeaker:
+    """A speech provider that records what it was given and says nothing."""
+
+    def __init__(self) -> None:
+        self.said: list[str] = []
+
+    async def say(self, text: str) -> None:
+        self.said.append(text)
+
+
 class RunningDaemon:
     """A real Daemon on its own event loop in a background thread (the tests talk to it over the socket)."""
 
@@ -44,6 +54,8 @@ class RunningDaemon:
         self.daemon: Daemon = self.run(self._make(home, kwargs))
         # Offline: never run `security` against the real Keychain. Tests that need others patch it themselves.
         self.daemon._runtime_available = lambda name: name in ("codex", "claude")   # type: ignore[method-assign]
+        self.speaker = SilentSpeaker()                  # nothing is ever spoken aloud from tests
+        self.daemon.build_speaker = lambda: self.speaker
         self.run(self.daemon.start())
 
     @staticmethod

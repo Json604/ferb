@@ -97,8 +97,9 @@ class Rpc:
         return built
 
     def _update_blockers(self) -> list[dict[str, str]]:
-        """What an update must wait for: the supervisor's running trees (update_blockers), and each FERB process still
-        running whose tree isn't listed already (a long-lived server outlives its task; a restart would kill it)."""
+        """What an update must wait for: the supervisor's running trees (update_blockers), each FERB process still
+        running whose tree isn't listed already (a long-lived server outlives its task; a restart would kill it), and
+        a transcription in flight that no listed task covers (a setup or doctor probe)."""
         running = self.supervisor.update_blockers() if self.supervisor is not None else []
         listed = {r["task_id"] for r in running}
         if self.shells is not None:
@@ -106,6 +107,8 @@ class Rpc:
                 if p.running and p.owner_task.split(".", 1)[0] not in listed:
                     running.append({"task_id": p.owner_task,
                                     "goal": "process: " + self._redact_text(p.command)[:120]})
+        if not running and self.hearing.transcriber.busy:     # FERB Voice runs from the app the update replaces
+            running.append({"task_id": "", "goal": "turning captured sound into text"})
         return running
 
     async def _update_prepare(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
