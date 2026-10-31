@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 from ferb.store import db as dbmod
-from ferb.store.db import Database, MigrationError, _split_sql
+from ferb.store.db import Database, MigrationError, NewerStore, _split_sql
 
 FIXTURES = Path(__file__).parent / "fixtures" / "migrations"
 OLDER = FIXTURES / "older"
@@ -165,7 +165,7 @@ def test_a_database_newer_than_this_build_is_still_refused(tmp_path: Path) -> No
     db = Database(path)
     db.migrate()
     db.conn.execute("INSERT INTO schema_version (version, sha256) VALUES (?, 'x')", (NEWEST + 1,))
-    with pytest.raises(MigrationError, match="newer than this FERB"):
+    with pytest.raises(NewerStore, match="last used by a newer FERB"):
         db.migrate()
     db.close()
 
@@ -243,6 +243,7 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     assert config.get("gates", "owner_profiles") == ["Default"]          # a key no longer read is left alone
     assert config.section("feedback") == {} and "reports@example.org" not in (home / "config.toml").read_text()
     assert (home / "persona.json").exists()
+    assert not list(home.glob("*.broken-*")) and not (home / "set-aside.json").exists()   # readable: nothing set aside
     shown = cleanup.preview(home / "ferb.db")
     assert shown["compact"] is True and shown["ok"]
     drops = {s["table"]: s["rows"] for s in shown["steps"] if s.get("drop")}

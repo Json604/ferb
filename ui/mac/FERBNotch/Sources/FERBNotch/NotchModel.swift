@@ -271,7 +271,7 @@ final class NotchModel: ObservableObject {
     }
     var expanded: Bool { session.isExpanded }
     var bodyVisible: Bool { expanded && !isHeaderOnly }
-    var isYielded: Bool { yielding.isActive }
+    var isYielded: Bool { self.yielding.isActive }
     @Published var availableSurfaceSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
     var bodyWidth: CGFloat { min(availableSurfaceSize.width, max(360, preferredPanelWidth)) }
     var hoverEnabled: Bool { preferences.object(forKey: "notch.hoverEnabled") as? Bool ?? true }

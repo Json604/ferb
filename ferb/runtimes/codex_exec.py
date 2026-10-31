@@ -123,7 +123,13 @@ def bundled_catalog(ferb_home: Path) -> Path | None:
     M8)."""
     out = _bundled_path(ferb_home)
     if out.exists():
-        return out
+        try:
+            data = json.loads(out.read_text())
+            if isinstance(data, dict) and isinstance(data.get("models"), list):
+                return out
+        except (OSError, ValueError):
+            pass
+        out.unlink(missing_ok=True)               # cut short or damaged (an older FERB's leftover): dumped again
     try:
         from ferb.device.install import repo_root
         binary = codex_binary(ferb_home, repo_root())

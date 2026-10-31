@@ -799,7 +799,8 @@ class Installer:
 
     def uninstall(self, purge: bool = False) -> list[str]:
         """Stop the daemon and remove the checkout's LaunchAgent (FERB.app unregisters its own service), the old user
-        LaunchAgent, FERB.app's login fallback, the native-host files and the `ferb` link. purge=True also deletes
+        LaunchAgent, FERB.app's login fallback, the native-host files, the `ferb` link and the service record
+        (`SERVICE_RECORD`). purge=True also deletes
         FERB's home and every FERB Keychain item (`remove_keychain_items`), after the caller has asked the owner.
         Returns what was removed. A checkout refuses while FERB.app's service is registered (as `install` does)."""
         self.check_not_foreign("before uninstalling FERB from this checkout")
@@ -822,6 +823,9 @@ class Installer:
         if self.cli_link is not None and self._app_link(self.cli_link):
             self.cli_link.unlink()
             removed.append(str(self.cli_link))
+        if self.record_path.is_file():               # no service is set up any more: a reinstall sets it up afresh
+            self.record_path.unlink()
+            removed.append(str(self.record_path))
         if purge:
             self._check_purge_target()
             removed += [f"Keychain items of {service}: {count}"

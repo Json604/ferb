@@ -80,7 +80,8 @@ from ferb.sense.manager import Sense
 from ferb.sense.trail import Attribution, Trail
 from ferb.sense.watchers.owner_input import OwnerInput
 from ferb.sense.watchers.presence import MacPresence
-from ferb.store.db import Database
+from ferb.store import salvage
+from ferb.store.db import Database, NewerStore
 from ferb.store.spans import SpanStore
 from ferb.store.task_results import TaskResults
 
@@ -343,6 +344,9 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
             self.protection = protection_lists.load(self.config.get, Path.home(), self.home)
 
     async def _start(self) -> None:
+        # What an older FERB left that can't be read is set aside before anything opens it; a database a newer FERB
+        # migrated stops the start here, unchanged (owner, 2026-11-01; ferb/store/salvage.py)
+        await asyncio.to_thread(salvage.check_home, self.home, salvage.this_build())
         self.config.ensure_privacy_defaults()
         self._load_config()
         self.db = Database(self.home / "ferb.db")
@@ -416,6 +420,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         session = self._login_session()
         previous = self.journal.recent_values("daemon.started", "session", 1)
         self.journal.append("daemon.started", {"pid": os.getpid()} | ({"session": session} if session else {}))
+        await self._tell_set_aside()
         self._mac_started(session is not None and previous != [session])
         # L28: an unknown window is said, never guessed. The catalog shipped with the pinned binary was dumped before
         # serving (`_prepare_codex`), so a fresh install knows each model's window before Codex has ever fetched
@@ -679,4 +684,9 @@ def main() -> None:
     service_streams(ferb_home())
     daemon = Daemon()
     redacting_hooks(daemon._redact_text)
-    asyncio.run(daemon.run())
+    try:
+        asyncio.run(daemon.run())
+    except NewerStore as e:
+        # Not a crash: nothing was changed, and a clean exit keeps launchd from starting it again and again (KeepAlive
+        # SuccessfulExit false); FERB.app's setup says the same when it next runs
+        print(f"FERB: {e}", file=sys.stderr)

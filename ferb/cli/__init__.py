@@ -194,6 +194,15 @@ def main(argv: list[str] | None = None) -> int:
         from ferb.act.browser.profiles import SUPPORT
         from ferb.device.install import InstallError
         from pathlib import Path
+        if args.cmd == "setup":                   # before anything reads config.toml or installs (owner, 2026-11-01)
+            from ferb.store import salvage
+            try:
+                salvage.refuse_newer(ferb_home())  # a newer FERB's database: nothing is changed
+                for line in salvage.describe(salvage.check_files(ferb_home())):
+                    print(line)
+            except (FerbError, OSError) as e:
+                print(plain_error(e), file=sys.stderr)
+                return 1
         inst = setup_cmd.installer(ferb_home(), SUPPORT, every_browser=args.cmd == "uninstall",
                                    cli_dir=Path.home() / ".local" / "bin")       # where FERB.app links `ferb`
         env = setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout, browser_support=SUPPORT)

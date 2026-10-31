@@ -89,6 +89,15 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       command. [daemon.md 12b]
 - [ ] Uninstall and delete everything only on a disposable install (another macOS user), never the owner's: Login
       Items no longer lists FERB's service. [daemon.md 12b/12c]
+- [ ] Reinstall over a deliberately broken disposable FERB home (another macOS user, never the owner's): install and
+      use FERB.app once, uninstall from the CLI without purge (`ferb uninstall`), then truncate `~/.ferb/ferb.db` (e.g.
+      `truncate -s 64k`), add an unclosed `[` to `config.toml`, replace `bin/ferb-secrets` with any other file, point
+      `~/.local/bin/ferb` at a deleted app, and open FERB.app again. Expected: setup runs without a question about
+      files; `ferb.db.broken-…` (with `-wal`/`-shm`) and `config.toml.broken-…` sit in `~/.ferb`; the notch shows one
+      notice per file naming where it went, once (not again after Restart FERB); the journal has `home.set_aside`;
+      the helper, the link and `service.json` are this build's. Then put a copy of a store with a higher schema in
+      place: the setup window says FERB needs a newer build, nothing in `~/.ferb` changes, `launchctl print` shows the
+      daemon not restarting. A reinstall over an intact older home keeps chats, memory and settings. [daemon.md 11]
 
 ### Sitting 2: runtimes and the P20 injection eval
 - [ ] Codex: (1) a worker run with FERB's base instructions: FERB tools listed and called, typed answer returned, no

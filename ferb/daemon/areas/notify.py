@@ -3,6 +3,7 @@ chat. Must not decide what is worth telling: callers do."""
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 from ferb.core import origin as origin_
@@ -172,6 +173,23 @@ class Notify:
         import uuid
         await self._tell_owner(f'loop-{step_id}-{uuid.uuid4().hex[:12]}', [f'task:{tree_id}'], text, notice_origin,
                                category="loop", task_id=tree_id)
+
+    async def _tell_set_aside(self) -> None:
+        """Each file FERB set aside because it couldn't be read (ferb/store/salvage.py, by this start or by setup):
+        journaled `home.set_aside` and told to the owner once, as a notice in the chat (a banner when no FERB client
+        is connected); then it leaves the record. A failure is journaled and the next start tells it."""
+        from ferb.store import salvage
+        entries = salvage.pending(self.home)
+        if not entries:
+            return
+        try:
+            for entry in entries:
+                self._journal().append("home.set_aside", {k: entry.get(k) for k in ("file", "moved_to", "why", "at")})
+                await self._tell_owner(f"set-aside-{Path(entry['moved_to']).name}", [], salvage.notice(entry),
+                                       origin_.FERB, category="alert")
+            salvage.told(self.home, entries)
+        except Exception as e:
+            self._journal().append("home.set_aside_failed", {"error": f"{type(e).__name__}: {e}"[:300]})
 
     async def _tell_owner(self, ident: str, refs: list[str], text: str, notice_origin: str, *, category: str = "",
                           task_id: str = "", cards: list[dict[str, Any]] | None = None) -> None:

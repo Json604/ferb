@@ -68,6 +68,12 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
     kept; what was cut stated at the top); the full report always stays on the Mac. The token gains Contents: Read and
     write on ferb-reports only, beside Issues: Read and write; nothing else. The user still only previews and presses
     Send.
+11. **Reinstalling over an older FERB's files** (owner, 2026-11-01): "confirm that the case is handled where ferb old
+    files are left and user reinstalls ferb. so if files are broken it deletes and starts new. if nothing's broken it
+    proceeds normally." Ruling (technical, see "Reinstall over leftovers" below): FERB's program files and own state are
+    deleted and recreated; the owner's data that can't be read is **moved aside with a timestamp, never deleted**, and
+    the owner is told once; a database from a newer FERB is not broken (FERB says it needs the newer build and changes
+    nothing).
 
 ## What exists today (verified)
 
@@ -157,6 +163,8 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
 - The crash "interrupted + auto-resume" fix is owned by notes/orchestration.md.
 
 ## Fix list
+- [x] Reinstall over an older FERB's files (decision 11, 2026-11-01): see "Reinstall over leftovers" below.
+      (Tests: tests/test_reinstall.py, test_upgrade.py.)
 - [x] Report relay (decision 10, 2026-11-01). `relay/`: the Worker (`worker.mjs`, plain JavaScript, no build, no
       dependencies), `wrangler.toml` (worker `ferb-reports`, `GITHUB_REPO`, the `REPORT_LIMIT` rate-limit binding),
       `README.md` (the owner's deploy, test, rotate and delete steps) and `test.mjs` (`node relay/test.mjs`, fake GitHub).
@@ -307,6 +315,59 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       memory questions into ferb/memory/questions.py; the dead `reminders.unseen` RPC removed. Left in the areas: the
       memory area's card/search/activity reads (9, the memory stores' own seams), Jev's 3 (switched off), PRAGMAs and the
       schedule transaction. Footprint: see "Footprint (step 12b)".)
+
+## Reinstall over leftovers (2026-11-01, decision 11)
+Audit (what an older build or an uninstall without purge leaves, and what a FERB.app opened over it does):
+- **Launch** (`AppSetupPlan.decide`, unchanged): an unreadable `service.json` is no record; a record naming another
+  build or app, a service macOS doesn't have enabled, or no running daemon all give `.update`, which runs `ferb setup
+  --service --update`; a legacy LaunchAgent is retired (asked first only when it runs another installation). The app's
+  launch decisions did not change.
+- **Program files** are rewritten by every app setup, valid or not (`_install_from_bundle`): the secret helper and its
+  `.requirement` (copied from the app and pinned to what its seal names, so a missing or differently signed helper is
+  replaced), the extension folder, the native-host launcher and every installed browser's manifest, the `ferb` link (a
+  link into a deleted FERB.app is relinked; a file that isn't FERB's link is left alone), `node` (a link into a deleted
+  app, or another Codex version, relinked), `service.json`, the old user LaunchAgent (only a plist naming FERB's
+  label: an unreadable one is left alone, launchd can't load it either), `[hearing] requirement`. A checkout's
+  `venv`/`python`/`~/.ferb/FERB.app` are kept on an app install (valid, unused; a checkout setup rebuilds them).
+- **The daemon's start** clears its own leftovers: a socket nothing answers on, sandbox profiles, recording frames; a
+  Codex catalog dump cut short is now dumped again (before: kept forever, so every limits read failed).
+- **Before** (the gaps): an unparseable `config.toml` crashed both the daemon (launchd restarted it every 5 s) and every
+  `ferb setup` (the installer reads it first); a damaged or non-database `ferb.db` crash-looped the daemon; a database
+  from a newer FERB crash-looped it too, saying so only in daemon.err.log while the app said "didn't start";
+  `owner-secret-handles.json` that isn't JSON refused every secret use; `persona.json` that isn't JSON failed its RPCs;
+  uninstall without purge left `service.json`.
+Rulings (technical):
+- **One check, `ferb/store/salvage.py`**, run by the daemon's start in a worker thread before anything opens a file
+  (`check_home`), and by every `ferb setup` before it reads config.toml (`refuse_newer`, then `check_files`). The
+  database is the daemon's alone to judge (setup only reads its schema version), so nothing moves it under a running
+  daemon.
+- **The owner's data is moved aside, never deleted**: `config.toml` that doesn't parse as TOML, `ferb.db` that SQLite
+  reports damaged or not a database (primary codes SQLITE_CORRUPT, SQLITE_NOTADB, or quick_check/integrity_check not
+  "ok"), `owner-secret-handles.json` that isn't JSON. Moved to `<name>.broken-YYYYMMDD-HHMM` in FERB's home (`-2`, … when
+  taken; the database's `-wal`/`-shm` under the same new name, so SQLite still opens the copy with its WAL). FERB then
+  starts that file fresh (defaults; a new database; no saved secret names, the Keychain items stay). A JSON file in a
+  form this FERB doesn't know (a newer build's) is not broken and stays. An insecure config (wrong owner or mode) is
+  still refused, not moved: that is a protection rule, not damage.
+- **Told once**: each move is kept in `set-aside.json` until the daemon has journaled it (`home.set_aside`: file,
+  moved_to, why, at) and posted a notice in the owner's chat ("FERB couldn't read its database: … It moved the file
+  aside to … (nothing was deleted) and started a new one."; a banner, category alert, when no FERB client is
+  connected); the notice id is the moved file's name, so it is posted once. Setup prints the same in its output.
+- **A newer database is not damage** (`NewerStore`, a MigrationError): setup refuses before installing anything with
+  "FERB's database was last used by a newer FERB (schema N; this FERB knows up to M). Install the newer FERB; nothing was
+  changed" (the setup window shows the command's last lines); the daemon raises it before touching config.toml and
+  exits with status 0, so launchd doesn't restart it (KeepAlive SuccessfulExit false) until a setup does.
+- **Cheap**: SQLite's quick_check at each daemon start (read-only connection, so it never checkpoints the WAL into a
+  file about to be set aside; 0.5 s for a 1.4 GB file measured warm); integrity_check only to confirm a failed
+  quick_check and once per new build (`this_build()`: version, FERB.app's build, newest schema; the build that passed
+  is kept in `run/store-checked.json`, FERB's own state: lost, the check runs once more). A lock, an I/O or permission
+  error is raised as it is, never read as damage.
+- **Uninstall without purge** now removes `service.json` too (no service is set up any more), so a reinstall starts
+  from the welcome window instead of a quiet update.
+- **Left as is**: `persona.json` that isn't JSON is FERB's own (rescanned) and deleted; `STOPPED`/`PAUSED` are the
+  owner's stop and stay; FERB's own Codex and Claude sign-ins (`codex-home`, `claude-home`) stay (a broken one fails
+  sign-in checks and the owner signs in again in Settings → AI); extension files an older build had and the new one
+  dropped stay in the folder (unreferenced). Not covered offline: an SMAppService registration made by a FERB.app at
+  another path (registering this app's service over it is the step-13 check below).
 
 ## Report relay (2026-11-01, decision 10)
 Rulings (technical):

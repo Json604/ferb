@@ -29,6 +29,23 @@ class MigrationError(FerbError):
     """The migrations can't be applied safely; the daemon refuses to start rather than run on a wrong schema."""
 
 
+class NewerStore(MigrationError):
+    """The database was migrated by a newer FERB than this one. Not damage: nothing is changed or set aside, and the
+    owner is told FERB needs the newer build (owner, 2026-11-01)."""
+
+
+def known_schema(folder: Path | None = None) -> int:
+    """The newest schema version this build's migration files reach."""
+    folder = folder if folder is not None else MIGRATIONS
+    return max((int(f.name[:4]) for f in folder.glob("[0-9][0-9][0-9][0-9]_*.sql")), default=0)
+
+
+def newer_than_build(newest: int, known: int) -> str:
+    """What the owner reads about a database a newer FERB migrated."""
+    return (f"FERB's database was last used by a newer FERB (schema {newest}; this FERB knows up to {known}). Install "
+            "the newer FERB; nothing was changed")
+
+
 def store_size(path: Path) -> int:
     """The bytes a store takes on disk: its database file and its WAL."""
     return sum(p.stat().st_size for p in (path, path.with_name(path.name + "-wal")) if p.exists())
@@ -146,8 +163,7 @@ class Database:
         recorded = {int(r["version"]): r["sha256"] for r in self.conn.execute("SELECT version, sha256 FROM schema_version")}
         newest = max(recorded, default=0)
         if newest > max(files, default=0):
-            raise MigrationError(f"the database is newer than this FERB (schema {newest}, this build knows up to "
-                                 f"{max(files, default=0)}); install the newer FERB")
+            raise NewerStore(newer_than_build(newest, max(files, default=0)))
         sums = {version: hashlib.sha256(f.read_bytes()).hexdigest() for version, f in files.items()}
         for version, f in files.items():
             if version in recorded:
