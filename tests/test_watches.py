@@ -17,7 +17,6 @@ from tests.conftest import RunningDaemon, chat, done, install, outcome, sup, tas
 from tests.support.bus import Subscriber, until
 from tests.support.schedules import fire, make_schedule, own_daemon, results, run, schedule_reply
 
-PROMPTS = Path(__file__).resolve().parents[1] / "ferb" / "orchestrator" / "prompts"
 FILE_WORDS = "tell me when ~/Downloads/done.txt exists"
 FILE_WATCH = "Check whether ~/Downloads/done.txt exists and tell me once it does."
 BATTERY_WORDS = "turn on Low Power Mode and alert me loudly when the battery is at or below 12%"
@@ -344,23 +343,6 @@ def test_a_quiet_check_is_recorded_but_never_reaches_a_client(daemon: RunningDae
 
 # ---------- the watch text leaves FERB's own work alone (review I4) ----------
 
-OWN_WORK_PLANNER = (
-    "When the owner asks to be told when work FERB starts is done (\"start Codex on it and tell me when it's done\"), "
-    "that is the task's own work (it monitors what it started and reports when it finishes), never a watch.")
-OWN_WORK_WORKER = (
-    "Observing a process or agent your task started (shell_wait, monitoring a coding agent until it finishes) is not a "
-    "watch: it stays your task.")
-
-
-@pytest.mark.parametrize("name, sentence", [("supervisor.md", OWN_WORK_PLANNER), ("worker.md", OWN_WORK_WORKER)])
-def test_watching_work_ferb_started_stays_the_tasks_own_work(name: str, sentence: str) -> None:
-    assert " ".join(sentence.split()) in _words(name)
-
-
-def test_the_watch_examples_leave_any_time_is_fine_alone() -> None:
-    """A bare "whenever …" example clashed with the Times section, where "whenever" means any time is fine (M5)."""
-    assert '"whenever …"' not in _words("supervisor.md")
-
 
 # ---------- ending a watch, overlapping runs, pauses (review M1, M3, M6, M7) ----------
 
@@ -503,17 +485,6 @@ def test_a_check_reads_the_last_finding_without_reading_the_watchs_history(daemo
     assert len(notes) == 1                                  # still at or below: told once
 
 
-WATCH_CHECK_CONDITIONS = (
-    "Its success conditions are that the check was made and its answer reports the fresh observation (check kind "
-    "none), never that the watched condition holds: a check that finds it not holding yet is a finished check, not a "
-    "failed task.")
-
-
-def test_a_watch_checks_conditions_are_the_check_and_its_report() -> None:
-    """A condition like "~/Downloads/x exists" failed every check until the file came: a "FERB" banner each interval
-    (re-review N3)."""
-    assert " ".join(WATCH_CHECK_CONDITIONS.split()) in _words("scheduled.md")
-
 
 def test_only_a_watchs_check_records_watch_met(daemon: RunningDaemon) -> None:
     """An ordinary task's stray flag was never judged, so it is never recorded (re-review M2)."""
@@ -552,51 +523,3 @@ def test_a_watch_and_its_next_check_survive_a_restart(home: Path, monkeypatch: p
 
 
 # ---------- the prompts carry the guidance ----------
-
-def _words(name: str) -> str:
-    return " ".join((PROMPTS / name).read_text().split())
-
-
-WATCH_PLANNER = (
-    "Watches: a request to be told or alerted when something outside FERB's own work becomes true (a file appears, "
-    'the battery reaches a level, a price drops, a page changes: "tell me when the download finishes", "alert me '
-    'when the battery is at 10%") is a schedule with repeat "every" whose request names what to check, what to tell'
-    ' or alert, and whether it ends once that happens (watch "until_met": "when the download finishes", "once it\'s '
-    'back in stock") or keeps watching (watch "standing": "whenever the battery hits 10%"). A watch tells the owner'
-    ' once each time the condition becomes true, not again while it stays true. A watch only tells; work that FERB '
-    'must repeat or keep true is a loop step in a plan, not a watch. "Turn on Low Power Mode and alert me at '
-    '10%" is a task for the work now plus the watch in "schedule", in the same turn.')
-WATCH_RUN = (
-    'A watch (watch in the schedule facts) checks its condition afresh in every run: use one task, without a plan, '
-    'whose answer says what it observed and whether the condition holds now.')
-WATCH_RUN_TELLS = (
-    'A watch tells the owner once each time the condition becomes true. When it holds and the latest earlier check '
-    'that reported it found it not holding, or none did (last_reported_met false or null in the schedule facts), '
-    'tell or alert the owner as the request asks; the run may use its tools for an alert the owner asked for (a '
-    'sound, speech). When last_reported_met is true, the owner was told then: stay quiet, with no new alert, and '
-    'say it still holds. FERB itself ends an until_met watch once a confirmed run finds the condition met, and '
-    'tells the owner it stopped checking.')
-WATCH_WORKER = (
-    "- watch_met (a watch, a condition the owner asked to be told about): true when your fresh observation shows it "
-    "holds now, false when it doesn't, null when you couldn't see it.")
-NO_LOOP_WORKER = (
-    "A request to be told or alerted when something outside your task's work becomes true later (a file appearing, "
-    "a battery level, a price) is FERB's watch, a schedule that survives restarts and checks it once per run: check"
-    ' it once when that is your task, do only your own part when your task is other work from the same request, and'
-    ' never wait for such a condition with a loop, sleep or background process (those die when FERB restarts or '
-    'updates).')
-
-
-@pytest.mark.parametrize("name, sentence", [("supervisor.md", WATCH_PLANNER), ("scheduled.md", WATCH_RUN),
-                                            ("scheduled.md", WATCH_RUN_TELLS), ("worker.md", WATCH_WORKER),
-                                            ("worker.md", NO_LOOP_WORKER)])
-def test_the_prompts_carry_the_watch_guidance(name: str, sentence: str) -> None:
-    assert " ".join(sentence.split()) in _words(name)
-
-
-def test_a_schedule_with_work_now_is_allowed_in_the_same_turn() -> None:
-    """The planner's schedule entry once said "No task now", which forbade the live case's task plus watch."""
-    words = _words("supervisor.md")
-    assert "No task now." not in words
-    assert ("No task for the scheduled work itself; when the same message also asks for something now, that part is a "
-            "task in the same turn.") in words

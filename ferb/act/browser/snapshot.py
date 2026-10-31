@@ -18,6 +18,10 @@ CHALLENGE_FRAMES = (("challenges.cloudflare.com", "", "Cloudflare Turnstile"), (
                     ("captcha-delivery.com", "", "DataDome"), ("awswaf.com", "", "AWS WAF"),
                     ("geetest.com", "", "GeeTest"))
 BOT_CHECK_ABILITY = "browser_verification"
+# Prompts decision 6 (ruling, 2026-10-31): the fact says plainly what code saw, a widget's frame, and that it may be only
+# a passive badge (a reCAPTCHA v3 or Turnstile footer badge draws in the same frames); no wording about bypasses
+BOT_CHECK_FACT = ("A bot-check widget's frame is on this page. It may be only a passive badge that blocks nothing; "
+                  "the page's own words say whether a check is asked.")
 
 
 def bot_check(frame_urls: list[str]) -> dict[str, Any] | None:
@@ -35,7 +39,7 @@ def bot_check(frame_urls: list[str]) -> dict[str, Any] | None:
                 found.setdefault(host, name)
     if not found:
         return None
-    return {"widgets": sorted(set(found.values())), "frames": list(found),
+    return {"fact": BOT_CHECK_FACT, "widgets": sorted(set(found.values())), "frames": list(found),
             "ability": BOT_CHECK_ABILITY, "read": f"abilities.read name={BOT_CHECK_ABILITY}"}
 
 

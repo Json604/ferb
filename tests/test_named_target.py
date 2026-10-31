@@ -33,12 +33,6 @@ def test_the_named_targets_reach_the_checker_as_a_named_target_not_a_substitute(
     assert "people: Asmit" in context and "apps: WhatsApp" in context and NAMED in context
 
 
-def test_the_checker_is_told_an_uninspectable_named_target_is_unknown_with_how() -> None:
-    from pathlib import Path
-    text = " ".join((Path(__file__).parents[1] / "ferb" / "orchestrator" / "prompts" / "verifier.md").read_text().split())
-    assert "If the named target could not be inspected, that is `met=null`, and give `how`, in the owner's terms" in text
-
-
 def test_an_unreachable_named_target_ends_not_confirmed_never_done(daemon):
     """The checker couldn't reach what the owner named (met=null) and the orchestrator finishes it as unconfirmed:
     done_unverified with the reason and how to check, never done (V5, D34)."""

@@ -209,9 +209,11 @@ class _El(_Tab):
 class BrowserOpen(_Base):
     verb = "open"
     on_screen = True
-    blurb = ("Open an inactive tab in {whose}. Reuses an existing FERB window; otherwise returns window choices. "
-             "Select an exact window_id to avoid creating a window. Returns tab id; then call {p}_snapshot. A URL "
-             "that is a download becomes a file in FERB's workspace (`downloads`: path, size, sha256), never a dialog.")
+    blurb = ("Open an inactive tab in {whose}, in the background: a paired profile that isn't running or connected is "
+             "started (or its window opened when that doesn't connect), and the tab goes in one of its open windows or, "
+             "with none, FERB's own minimized window; never ask the owner to open a profile. Returns tab id; then call "
+             "{p}_snapshot. A URL that is a download becomes a file in FERB's workspace (`downloads`: path, size, "
+             "sha256), never a dialog.")
 
     class Input(BaseModel):
         url: str = Field(description="http(s) URL")

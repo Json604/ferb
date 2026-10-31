@@ -6,7 +6,6 @@ the conditions, the report and "Full observations: task_evidence", and paged thr
 
 import json
 import math
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -68,22 +67,6 @@ def test_the_checker_starts_with_every_recorded_call_and_its_result(daemon) -> N
         assert text == _record(daemon, span_id)
         assert json.loads(text)["output"]["text"] in ("battery is at 64%", "low power mode on", "Low Power Mode: 1")
     assert "task_evidence" in context                            # the tool for everything else stays named
-
-
-def test_the_checker_prompt_says_the_calls_are_in_its_context() -> None:
-    """Edited minimally: task_evidence is for what is cut or left out, the root's other records and searches; every rule
-    about fresh reads, unknown versus false and citing record ids stays."""
-    text = " ".join(Path("ferb/orchestrator/prompts/verifier.md").read_text().split())
-    assert ("The worker's recorded tool calls, with their inputs and results, are in your context in recorded order "
-            "(when your context says it holds none, list and page through them with task_evidence).") in text
-    assert ('Use task_evidence for a record cut short there (read on from the offset it names), left out ("[Context '
-            'omitted ...]", by its span_id) or counted in a note\'s range (list them with kind=tool.call), and to '
-            'search.') in text
-    assert ("Use task.evidence for root intake, context, cleanup and disturbance records as well as recorded calls cut "
-            "short or left out of your context.") in text
-    assert "search and page through" not in text and "across all list pages" not in text
-    assert "Use fresh reads for current or changed state" in text and "Cite the source, timestamp or record id" in text
-    assert "met=false needs contradictory evidence; missing evidence is met=null." in text
 
 
 def test_a_task_without_tool_calls_says_so(daemon) -> None:

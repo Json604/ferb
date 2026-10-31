@@ -324,12 +324,13 @@ class WorkerRuns:
             live.put_nowait({**event, "task_id": tree_id})
 
     async def run_worker(self, tree: "_Tree", task: Task, prompt: str, ctx: list[ContextBlock], schema: dict[str, Any],
-                         span: str, *, effort: str | None = None) -> tuple[dict[str, Any] | Outcome, str]:
+                         span: str, *, effort: str | None = None,
+                         roles: tuple[str, ...] = ()) -> tuple[dict[str, Any] | Outcome, str]:
         """One attempt. The orchestrator, rather than a report-word classifier, chooses recovery. A run whose runtime
         shows FERB's tools were never loaded is a runtime fault, not a judgment: it is re-run once with that fact.
         `effort`: the reasoning effort the run asks its runtime for (L39: "high" for a checker of a step that changed
-        files); None keeps the runtime's default."""
-        result, worker_id = await self._run_worker_once(tree, task, prompt, ctx, schema, span, effort)
+        files); None keeps the runtime's default. `roles`: the role blocks the run's instructions get (`_system`)."""
+        result, worker_id = await self._run_worker_once(tree, task, prompt, ctx, schema, span, effort, roles)
         seen = self._tools_seen.pop(worker_id, None)
         offered = self._tools_offered.pop(worker_id, False)
         if (seen is not None and offered and not any("ferb" in name for name in seen)
@@ -338,13 +339,15 @@ class WorkerRuns:
                                  input={"tools_seen": seen})
             self.spans.finish(s, output={"rerun": True})
             fact = ContextBlock(NO_TOOLS_LOADED, "runtime fact: FERB tools were not loaded", protected=True)
-            result, worker_id = await self._run_worker_once(tree, task, prompt, ctx + [fact], schema, span, effort)
+            result, worker_id = await self._run_worker_once(tree, task, prompt, ctx + [fact], schema, span, effort,
+                                                            roles)
             self._tools_seen.pop(worker_id, None)
             self._tools_offered.pop(worker_id, False)
         return result, worker_id
 
     async def _run_worker_once(self, tree: "_Tree", task: Task, prompt: str, ctx: list[ContextBlock], schema: dict[str, Any],
-                               span: str, effort: str | None = None) -> tuple[dict[str, Any] | Outcome, str]:
+                               span: str, effort: str | None = None,
+                               roles: tuple[str, ...] = ()) -> tuple[dict[str, Any] | Outcome, str]:
         if tree.stop:
             return Outcome(task.id, "cancelled", tree.stop, [], []), ""
         worker_id = "w-" + self.ids.new_id()
@@ -390,8 +393,8 @@ class WorkerRuns:
                     else "worker:" + (tree.runtime or tree.spec.worker_type))
             rt = self.make_runtime(role, mode="worker", tool_names=tools, schema=schema,
                                    **({"effort": effort} if effort else {}))   # D32: each adapter's own setting
-            final = await self._run(rt, task, self._system(prompt), full_ctx, token, wspan.id, tree, worker_id,
-                                    images=images)
+            final = await self._run(rt, task, self._system(prompt, roles=roles), full_ctx, token, wspan.id, tree,
+                                    worker_id, images=images)
             try:
                 result: dict[str, Any] | Outcome = json.loads(final)
             except json.JSONDecodeError as exc:     # outside FERB's form, as check_final words it

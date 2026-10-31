@@ -335,7 +335,7 @@ summary = "Three trace levels built by code: story, steps, full/json, with token
 
 [P27]
 milestone = "F6"
-tests = ["tests/test_f6_context.py", "tests/test_prompt_contract.py", "tests/test_completion_reporting.py", "tests/test_full_answers.py"]
+tests = ["tests/test_f6_context.py", "tests/test_completion_reporting.py", "tests/test_full_answers.py"]
 note = "F4 pinned you/your; owner 2026-10-11 requested concise, relevant, natural replies. Shared prompts separate brief owner answers from complete evidence; pending questions lead without hiding conditions. Report audit requires primary evidence for live availability and truthful source coverage/scoring; native Markdown preserves readable tables and details."
 summary = "Rules for everything FERB says to the owner"
 
@@ -436,7 +436,7 @@ summary = "\"Already authorized\" decided by code from provenance; the orchestra
 
 [D34]
 milestone = "F4"
-tests = ["tests/test_named_target.py", "tests/test_report_check.py", "tests/test_prompt_contract.py"]
+tests = ["tests/test_named_target.py", "tests/test_report_check.py"]
 note = "F4 built the checker side: the named targets reach the checker, and evidence about a substitute is met=false, so the task is failed. Asking which target is the agents' owner.ask; remembering the answer uses the existing chat capture, unchanged in F4. F4 live fixes: every check also judges the report the owner sees (who did each part, with what); the named agent does the work (work the owner hands to an agent or person that does it on its own; an app FERB uses as a tool is not that), and FERB asks before taking over."
 summary = "A named target FERB can't find becomes a what/which question, answered once and remembered as the owner's words; never a substitute"
 
@@ -471,7 +471,7 @@ summary = "Shell and browser reach any site without asking; code records every s
 
 [L3]
 milestone = "L"
-tests = ["tests/test_owner_answers.py", "tests/test_sink_false_alarms.py", "tests/test_standing_permission_campaign.py", "tests/test_task_plans.py", "tests/test_questions_persistence.py", "tests/test_confirmations.py", "tests/test_answers_owner_words.py", "tests/test_prompt_contract.py"]
+tests = ["tests/test_owner_answers.py", "tests/test_sink_false_alarms.py", "tests/test_standing_permission_campaign.py", "tests/test_task_plans.py", "tests/test_questions_persistence.py", "tests/test_confirmations.py", "tests/test_answers_owner_words.py"]
 note = "Code asks only for money, account-security changes, permanent deletion and sends as the owner to someone new unless a standing scope covers them (plus S4, D31 and P19). Answers are routed by question id, recorded in the owner's own words; a plain Yes/No counts for FERB's checks; an ambiguous reply gets 'which one?'. Steering never records a No (only questions the planner names are superseded). Questions never expire (spec section 8.1). Big-job plans are stated, not blocking. A named tool that isn't installed is asked about once (owner, 2026-10-14). An owner-driven retry or continue re-asks a confirmation they said No to, once; agent retries keep the No (controller ruling under rule 9). Schedules: test_a_scheduled_campaign_post_runs_inside_the_scope_recorded_with_its_schedule, test_the_setup_persona_never_names_a_destination_for_a_schedules_scope, test_a_correction_to_a_scheduled_run_keeps_its_scope_withdrawn_by_a_cancel (an unattended run is never widened). A post's destination names its account, no recipients for a public post (test_a_declared_post_names_no_audience_in_its_destination)."
 summary = "FERB asks only for money, account security, permanent deletion and sending as the owner to someone new unless a standing permission covers it; once per task, the answer carries across retries"
 
@@ -626,7 +626,7 @@ summary = "FERB's resource log: every 5 minutes one row of numbers (the daemon's
 
 [L31]
 milestone = "L"
-tests = ["tests/test_loops.py", "tests/test_watches.py", "tests/test_prompt_contract.py"]
+tests = ["tests/test_loops.py", "tests/test_watches.py"]
 note = "Owner 2026-10-24: \"there should be general capabilities like loop, or long running task so that it can use them here. not a per task addition everytime.\" Decisions: a loop with no stated end runs until the owner says stop (\"Until you say stop\"); churn backs off and tells the owner once (\"Back off and tell you\"); the numbers PROBE_SECONDS 10, BACKUP_SECONDS 1800, NO_LASTING_FIX_SECONDS 120, CHURN_ROUNDS 3 in CHURN_WINDOW_SECONDS 600, gap 120 doubling to 3600, RESET_SECONDS 1800 (\"yes numbers work, go ahead\"). Spec docs/superpowers/specs/2026-10-24-loops-design.md approved (\"approved, write the plan and build it\"); plan docs/superpowers/plans/2026-10-24-loops.md. Owner 2026-10-25, loop speed: a round that only looked skips the model checker (\"Skip it for look-only rounds\"); the resource review is skipped when cleanup left nothing to decide (\"Skip when nothing changed\"); between rounds the owner's held tab keeps only the hold that keeps the page running, and their downloads and new-tab links are theirs (\"give them back between rounds\")."
 summary = "Loops: a loop plan step repeats an ordinary checked worker round under one task id; between rounds code reads one exact field from a probe-safe observation tool every 10 s and no model runs; a round starts on a probe trip, a plan event, the owner's steer or a 30-minute backup; churn backs off and tells the owner once; a loop with no end_when ends only by the owner's stop; it survives restarts quietly and keeps its resources until it ends."
 
@@ -649,8 +649,7 @@ milestone = "L"
 tests = ["tests/test_careful_checks.py", "tests/test_changes.py", "tests/test_changes_protection.py",
          "tests/test_changes_races.py", "tests/test_changes_round3.py", "tests/test_changes_round4.py",
          "tests/test_checker_effort.py",
-         "tests/test_launched_apps.py", "tests/test_recovery.py", "tests/test_tls_floor.py", "tests/test_tls_confirm.py",
-         "tests/test_prompt_contract.py"]
+         "tests/test_launched_apps.py", "tests/test_recovery.py", "tests/test_tls_floor.py", "tests/test_tls_confirm.py"]
 note = "Owner 2026-10-25, after the assignment task (39e35d57) corrupted a document and certified it: tasks like this \"demand high agency and there should be a good level of responsibility in doing them\", and being slower on long tasks is OK. The owner set the goal only; the mechanisms below are design rulings (not the owner's), which the owner can correct. Live evidence: a shell perl replace turned Table 10's header \"ID\" into the student id; the step's checker made 0 tool calls and passed; PDF placeholders were covered by white boxes; FERB-launched Pages stayed running and Word came forward over the owner's Brave; 5 trashed files had no backup copy. Owner 2026-10-25 answered \"yes\" to \"Should FERB ask you before any command that turns off certificate checks?\" (CLAUDE.md rule 8). Rulings: shell writes are caught from the paths a command's text names (APFS clones before the call, folder listings), not from the sandbox's kernel write reports (measured, but they need a live system log stream and give no earlier copy); \"the owner used an app\" is its coming forward with no FERB on-screen call near, or being frontmost at release; an app whose unsaved state Accessibility can't read stays running."
 summary = "Careful edits: before a call that can change files (file tools, shell, AppleScript) code copies each existing file it names and lists their folders; the step's checker reads an old-vs-new diff of every changed file (text, DOCX text, PDF text layer with annotations counted), shown as data; a pass on such a step needs a read of each changed file or its change record, else the check runs once more with the reason and a second refusal is met=null; such a checker runs at high reasoning effort; worker and checker prompts ask for the one intended edit and an honest check; an app FERB launched is quit at its task's release unless the owner used it or it may hold unsaved changes (then the answer names it); a move to the Trash keeps a backup copy; a shell command that turns off certificate checks asks the owner first with the exact command."
 

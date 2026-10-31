@@ -9,7 +9,10 @@ class OwnerAsk:
     name = "owner.ask"
     description = ("Resolve a necessary choice, missing input, or an unrequested final outcome after preparing "
                    "the concrete result. The orchestrator answers from context first; only unresolved questions "
-                   "reach owner chat. Returns {answer}, {declined}, or an execution error. Then continue the task.")
+                   "reach owner chat. Returns {answer}, {declined}, or an execution error. Then continue the task. "
+                   "Give options when the answer is one of a few (yes or no, which of these): a picked option reaches "
+                   "you as picked. Never ask for a password, code or card detail here (a typed answer to a question "
+                   "that mentions passwords, passcodes or PINs is hidden whole): the sealed fill tools ask for them.")
     scopes: set[str] = set()
     identities = {Identity.OWNER, Identity.FERB}
     risk, reversible = RiskLevel.LOW, True

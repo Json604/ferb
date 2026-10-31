@@ -412,9 +412,12 @@ class MacAct(_Base):
                    "take (focus and select: ax only). Screen-wide keys (cmd+tab, cmd+space, ctrl+arrows, force quit) "
                    "are refused; cmd+q / cmd+h quit or hide only an app FERB opened for this task. No automatic retry, "
                    "ancestor press, source substitution or input replay. Delivered input is not verified success. "
-                   "Foreground requires allow_foreground=true and prior task-wide owner permission; nothing is "
-                   "restored afterwards. After an uncertain effect, check what happened before trying again; a "
-                   "repeat of any action but focus needs the owner.")
+                   "Foreground input (allow_foreground=true) asks the owner Yes/No once per task for that app; "
+                   "nothing is restored afterwards. After an uncertain effect, check what happened before trying "
+                   "again; a repeat of any action but focus needs the owner. scroll: target an element inside the list or "
+                   "pane (AXScrollToVisible only reveals an element); batches stop on unconfirmed progress, so read "
+                   "the returned count and reason, and remember unchanged content can mean failed input, not the end. "
+                   "Never substitute Next Chat, selection changes or opening each row for scrolling a list.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
     method_args = ("mechanism", "allow_foreground")    # how input is delivered, not what it does (P19 hash)
@@ -579,7 +582,7 @@ class MacClick(_Base):
     generic_input = True                               # W2: its declared effect says what it does (rules.declare)
     description = ("Click exact screenshot pixels using a single chosen mechanism: pointer (default, window/process "
                    "addressed), ax (exact hit-tested control), or foreground. No fallback or replay. "
-                   "Foreground requires allow_foreground=true and task-wide owner permission. "
+                   "Foreground input asks the owner Yes/No once per task for that app. "
                    "Inspect a fresh snapshot after delivery; no app is restored afterwards.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
@@ -678,8 +681,8 @@ class MacPointer(MacClick):
                    "Window-targeted background input where supported (legacy fallback limited to the current Space); never "
                    "intentionally moves the global cursor or "
                    "activates the app. Prefer AX actions for named controls. Input delivered is not task success: "
-                   "take a new screenshot to verify. Prefer connected browser tools for pages; this is also a native "
-                   "fallback when their extension is unavailable. effect and why are optional annotations.")
+                   "take a new screenshot to verify. For web pages use the browser tools: Mac input into a browser "
+                   "asks the owner first. effect and why are optional annotations.")
 
     class Input(MacClick.Input):
         mechanism: Literal["pointer"] = "pointer"

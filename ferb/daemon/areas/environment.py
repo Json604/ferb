@@ -111,13 +111,12 @@ class Environment:
                 + json.dumps(tabs)) if tabs else ""
 
     def _relevant_context(self, words: str) -> tuple[str, str, str, list[str]]:
-        """Installed actions (FERB's own) and today's matching activity, with its origin (S3):
-        recorded trail rows carry the trail labels; FERB's own observed actions are FERB's."""
-        from ferb.act.catalog import search_actions
+        """Today's matching activity, with its origin (S3): recorded trail rows carry the trail labels; FERB's own
+        observed actions are FERB's. No copy of the tool catalog (step 10b, prompts fix list): a worker gets its tools'
+        descriptions once, with the tools; actions.search reads the registry."""
         from ferb.core import origin
         from ferb.sanitize.untrusted import wrap_untrusted
         from ferb.sense.tools import trail_sources
-        actions = search_actions(dict(self.registry.capabilities), words)   # a copy: this may run off the event loop
         activity = self.daily_activity.search(words)        # the turn's one search (L28): text and refs share it
         from ferb.memory.search import PLANNER, tokens
         from ferb.sense.daily import without_queries
@@ -133,8 +132,7 @@ class Environment:
         activity = kept
         trail = {str(row['source']) for row in activity if row.get('source')}
         labels = {origin.from_read_source(k, i) for k, i in trail_sources(trail)} if trail else set()
-        return ('\nRelevant installed actions: ' + json.dumps(actions) +
-                '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) + '\n' +
+        return ('\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) + '\n' +
                 (f'({left_out} more matching activity row(s) today left out to stay within the limit; '
                  'trail.query finds them.)\n' if left_out else ''),
                 origin.join({origin.FERB} | labels),

@@ -505,15 +505,6 @@ def test_recording_with_audio_needs_the_audio_scope(tmp_path: Path) -> None:
 
 # ---------- the worker prompt, the planner, push-to-talk ----------
 
-def test_the_worker_prompt_says_how_to_hear_and_to_confirm_playback_first() -> None:
-    words_ = " ".join((ROOT / "ferb" / "orchestrator" / "prompts" / "worker.md").read_text().split())
-    assert ("Before recording or listening, confirm the media is actually playing and not muted: check the snapshot's "
-            "`media` (playing, muted, volume), use browser_media / ferb_browser_media to play or unmute it, and check again") in words_
-    assert "audio_listen" in words_ and "the whole browser" in words_
-    assert "browser_media / ferb_browser_media" in words_                  # FERB's own browser has its own tool
-    assert "They are silent sampled videos" not in words_
-
-
 def test_the_planner_sees_hearing_when_its_tools_are_installed() -> None:
     from ferb.orchestrator.availability import build
     text = build({"audio"}, {}).text

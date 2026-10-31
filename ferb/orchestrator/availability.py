@@ -19,20 +19,18 @@ GROUPS: tuple[Group, ...] = (
           "use the supplied location and operating-system access."),
     Group("owner_browsers", "the owner's browsers", frozenset({"browser:read", "browser:act"}),
           "The owner's browsers, connection observations: {profiles} — open pages in their signed-in "
-          "sessions, read them, click/type/select, or take over a tab the owner already has open. Only when the "
-          "owner explicitly requests a personal browser or profile for this request. Owner-requested OTP login uses browser_login_code with hidden input; passwords require owner sign-in. If the owner names a profile "
-          "(\"in my Work profile\"), put it in the goal."),
+          "sessions, read them, click/type/select, or take over a tab the owner already has open. For work that "
+          "needs the owner's accounts or a profile they name (prompts decision 5); login codes and passwords come "
+          "through FERB's hidden input."),
     Group("ferb_browser", "FERB's own browser", frozenset({"identity:browse", "secrets:fill", "mailbox:send"}),
-          "FERB's own browser ({scopes}): default for web work, FERB's own accounts, passwords from the "
-          "Keychain and codes "
-          "from FERB's inbox (the worker never sees them), and sending email from FERB's own address (mailbox:send; "
-          "outcomes follow the owner's request). Browser families identify account context, not worker permission classes."),
+          "FERB's own browser ({scopes}): the default for web work, FERB's own accounts, passwords from the "
+          "Keychain and codes from FERB's inbox (the worker never sees them), and sending email from FERB's own "
+          "address (mailbox:send)."),
     Group("time", "reminders and timers", frozenset({"time"}),
           "Time (either identity): reminders and timers for the owner, and pausing a task until a time (time)."),
     Group("mac", "the owner's Mac apps", frozenset({"mac:read", "mac:act", "applescript"}),
-          "The owner's Mac apps: through Accessibility{and_applescript} ({scopes}). Apps "
-          "work from the background — the owner stays in their own app: never plan to bring an app to the front, "
-          "activate or switch to it; a goal is what to read or do in it (\"Read the top chat in WhatsApp\")."),
+          "The owner's Mac apps: through Accessibility{and_applescript} ({scopes}), from the background: the owner "
+          "stays in their own app. A goal is what to read or do in it (\"Read the top chat in WhatsApp\")."),
     Group("screen", "screenshots of app windows", frozenset({"screen"}),
           "A screenshot of one app window, with screenshot-bound pointer input (screen, mac:act)."),
     Group("hearing", "hearing app sound", frozenset({"audio"}),
@@ -72,6 +70,5 @@ def build(registered: set[str], problems: dict[str, str], profiles: str = "") ->
     a = Availability(scopes, text, missing)
     if missing:
         text += "\nConnection/permission observations: " + "; ".join(missing) + "."
-    text += "\nWorkers inspect current capabilities and alternatives; the orchestrator decides recovery and missing input."
     a.text = text
     return a

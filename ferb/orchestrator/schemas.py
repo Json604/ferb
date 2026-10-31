@@ -65,6 +65,11 @@ SEND_SCOPE_SCHEMA = _obj({
     "capability": {"type": "string"}, "identity": {"type": "string", "enum": ["owner", "ferb"]},
     "account": _nullable("string"), "site": _nullable("string"), "recipients": _strings(),
     "content": _nullable("string")})
+# step 10b (patch table row 24): how a campaign's scope is written, shown where the scope is (not in the prompt)
+SEND_SCOPE_SCHEMA["description"] = ("One exact send scope. Posting from the owner's browser (a campaign): capability "
+                                    "browser.act, site the page's host (x.com), recipients [] for public posts, "
+                                    "content null unless the owner gave the exact text, account the account the posts "
+                                    "go out from.")
 PLAN_SCHEMA = _obj({"steps": {"type": "array", "items": STEP_SCHEMA}, "input_paths": _strings(),
                     "big_job": {"type": "boolean"}, "time_estimate": {"type": "string"},
                     "cost_estimate": {"type": "string"},

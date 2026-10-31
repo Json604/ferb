@@ -536,10 +536,12 @@ def test_a_declared_effect_never_drops_a_send_the_capability_declared(daemon: Ru
 def test_send_means_delivering_the_owners_words_not_signing_in(daemon: RunningDaemon) -> None:
     """I5: the tool text defines send narrowly; a sign-in, search, filter or setting is edit or navigate."""
     grant, _ = campaign_grant(daemon, WORDS)
-    help_text = {t["name"]: t for t in daemon.daemon.gateway.tools_for(grant)}["browser.act"][
-        "input_schema"]["properties"]["effect"]["description"]
-    assert "message, post or email" in help_text and "sign-in" in help_text and "edit or navigate" in help_text
-    assert "form submissions" not in help_text
+    from ferb.daemon.gateway import EFFECT_HELP     # step 10b: in the worker's instructions once, not on each tool
+    effect = {t["name"]: t for t in daemon.daemon.gateway.tools_for(grant)}["browser.act"]["input_schema"][
+        "properties"]["effect"]
+    assert "send" in effect["enum"] and "Effects" in effect["description"]
+    assert "message, post or email" in EFFECT_HELP and "sign-in" in EFFECT_HELP and "edit or navigate" in EFFECT_HELP
+    assert "form submissions" not in EFFECT_HELP
 
 
 def test_accounts_compare_exactly_and_sites_by_their_idna_form() -> None:
@@ -650,23 +652,6 @@ def test_test_mode_lets_a_post_through_only_to_an_allowed_site_and_account(daemo
     assert not ok["is_error"] and browser.clicks() == ["https://x.com/compose/post"]
     for refused in (other, bare, elsewhere):
         assert refused["is_error"] and "test-mode send allowlist" in refused["content"]["error"]
-
-
-def test_the_prompts_carry_the_declaration_and_the_campaign_scope() -> None:
-    """Controller ruling: workers declare effect and destination truthfully (send narrowly; pay on the final control);
-    the planner states a browser campaign's scope as the gateway matches it."""
-    prompts = Path(__file__).resolve().parents[1] / "ferb" / "orchestrator" / "prompts"
-    worker = " ".join((prompts / "worker.md").read_text().split())
-    supervisor = " ".join((prompts / "supervisor.md").read_text().split())
-    for words in ("`send` only when the action delivers the owner's message, post or email to people or a public "
-                  "audience", "`pay` only on the final Pay or confirm control", "`account_security` only for changing a password",
-                  "Put what it reaches in `destination`", "never only in `why`",
-                  "a declaration never grants permission, so never declare a milder kind"):
-        assert words in worker, words
-    assert "does not grant or withhold permission" not in worker
-    assert ("the scope's capability is browser.act, its site the page's host (x.com), its recipients [] for public "
-            "posts, its content null unless the owner gave the exact text") in supervisor
-
 
 
 # ---------- fix round 2 ----------

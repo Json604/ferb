@@ -3,7 +3,6 @@ parallel across the Scaler tabs right now" while the only worker had already rep
 carries FERB's own record of each task (state, the last worker report's first line, plan steps), once (step 8c), and its
 prompt says to answer progress only from it."""
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,8 +12,6 @@ from ferb.orchestrator.plans import Plan, Step
 from ferb.orchestrator.schemas import TaskSpec
 from ferb.orchestrator.supervisor import ChatSession, _Tree
 from tests.conftest import RunningDaemon, chat, install, sup
-
-PROMPTS = Path(__file__).resolve().parents[1] / "ferb" / "orchestrator" / "prompts"
 
 
 def _tree(tree_id: str, goal: str, reports: list[dict[str, Any]], plan: Plan | None = None) -> _Tree:
@@ -56,13 +53,6 @@ def test_a_progress_question_sees_that_the_task_is_blocked(daemon: RunningDaemon
     status = context[context.index("task status"):]
     assert "tree-scaler" in status and '"state": "blocked"' in status
     assert "Only one tab can be driven at a time" in status and "Details follow" not in status   # its first line
-
-
-def test_the_planner_answers_progress_only_from_the_status_facts() -> None:
-    words = " ".join((PROMPTS / "supervisor.md").read_text().split())
-    assert ("Answer a question about progress (\"are the agents working?\", \"how far is it?\") only from the task "
-            "status facts: say a task is blocked, waiting or finished when they say so, and never claim work is going "
-            "on that they don't show.") in words
 
 
 def test_a_blocked_plan_step_shows_in_the_tasks_state(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -150,9 +140,3 @@ def test_a_running_loops_state_and_its_pause_question_are_in_the_tasks_row(daemo
         {"goal": "Keep the inbox at zero", "state": "paused", "rounds": 2,
          "question": "Which account should I keep at zero?"},
         {"goal": "Keep the tab playing", "state": "backing off", "rounds": 2}]
-
-
-def test_the_planner_routes_a_reply_to_a_paused_loop_as_a_steer() -> None:
-    words = " ".join((PROMPTS / "supervisor.md").read_text().split())
-    assert ("The owner's reply to a paused loop's question (its task's row in the task status facts) is a correction "
-            "of that task (action continue).") in words

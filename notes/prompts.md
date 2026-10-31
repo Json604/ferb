@@ -148,8 +148,9 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
 - Memory block names and the Remember / Tier 1 path for owner-confirmed patch items (notes/memory.md).
 
 ## Fix list
-- [ ] Direct replies name their source (screen / memory / general knowledge) and say guesses as guesses (2 of 3
+- [x] Direct replies name their source (screen / memory / general knowledge) and say guesses as guesses (2 of 3
       "who is on my screen" replies were wrong and corrected by the owner).
+      (Step 10b: rule R4 in supervisor.md's "reply" and the worker's `answer` field.)
 - [ ] (Step 8c added minimal supervisor.md lines for code it needs: the pause trigger, every chat's running tasks, messages
       read together, folders, keep_tabs_open, identity/plan changes through retry; the rewrite is step 10.)
       (Step 8d added the parts lines: several asks as `parts`, direct or answer_step, conditions per part, no summing-up
@@ -171,38 +172,111 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       (Step 9c, memory import: new runtime prompts ferb/memory/import_recall.md (candidates from another assistant's
       history, each with its message and exact quote) and ferb/memory/import_verify.md (keep what an owner line says,
       tighten, same_as, ended / until / review_in_days); notes/memory-import.md.)
-- [ ] Live re-test list adds prompt-only behaviours: the pause trigger, asking only what/who/which, asking before
+      (Step 10b: the rewrite keeps every one of these as one line of the field it describes: pause, cross-chat control
+      and the restart rule's "messages read together", folders, keep_tabs_open, retry for identity/plan changes, parts,
+      until/set_end, the remember/forget contract with login_origin (example removed), replaces, until, review_in_days and
+      the real memory block names; the step-9b tool lines are in worker.md's "Pull context" line.)
+- [x] Live re-test list adds prompt-only behaviours: the pause trigger, asking only what/who/which, asking before
       installing a named tool (the 10-14 Mole task failed with "not installed" instead of asking), how-note quality.
-- [ ] One foreground contract: code asks Yes/No once per task per app (30-minute option); remove "now / when idle /
+      (Step 10b: in notes/tests.md "Live re-test list (step 13)", one list with the patch re-tests.)
+- [x] One foreground contract: code asks Yes/No once per task per app (30-minute option); remove "now / when idle /
       skip" and "never plan it" (problem 8).
-- [ ] Rewrite interaction.md as the shared prefix; move worker method rules to worker.md or tool descriptions.
+      (Step 10b: one "Background first" line in interaction.md; availability.py's Mac line lost "never plan to bring an
+      app to the front"; mac.act / mac.click descriptions say code asks once per task per app; mac.pointer no longer
+      offers itself as a browser fallback.)
+- [x] Rewrite interaction.md as the shared prefix; move worker method rules to worker.md or tool descriptions.
+      (Step 10b: trust, voice, background first, and rules R2, R5, R10 (prompt-patches.md); 11.5k → 3.1k. Method rules
+      went to worker.md or tool descriptions; the window, route_unavailable, CAPTCHA, disturbance and duplicate
+      "Visible answers" passages went.)
 - [x] The planner's remember rule covers durable facts said in passing (notes/memory.md decision 11).
       (Step 9a: minimal line in supervisor.md; the step-10 rewrite keeps it.)
-- [ ] Rewrite supervisor.md to the skeleton; drop steer, procedures, notification rules, map/reduce kinds; add pause/resume.
-- [ ] Rewrite worker.md to the skeleton; role blocks appended by code from step_context (supervisor.py:2606, 2785, 2937).
+- [x] Rewrite supervisor.md to the skeleton; drop steer, procedures, notification rules, map/reduce kinds; add pause/resume.
+      (Step 10b: role, kinds, context (one paragraph naming every block), remember/forget, task fields, plans (do with an
+      input list stays, orchestration decision 5), existing tasks (continue/pause/stop/retry, R7), schedules and
+      reminders (R9, until, every_minutes = the owner's interval), times, `text` last. Rules R1, R4, R7, R8, R9 placed
+      here; 38.5k → 20.5k. "steering", procedures, notification rules, map/reduce, the recency/exhaustive-comparison/
+      ticket paragraphs (R3, worker and checker), the Low Power Mode / Codex / visa / scaler / campaign examples went.)
+- [x] Rewrite worker.md to the skeleton; role blocks appended by code from step_context (supervisor.py:2606, 2785, 2937).
+      (Step 10b: role, authority, what code does (the effect contract once, `{effects}`), how to work (R1, R3, R6, the
+      R9 line, background, asking, pulling context), report fields; 30.9k → 5.6k. Role blocks in prompts/roles/ (step,
+      inputs, proposals, converse, watch, loop, parts), chosen by `Supervisor._report_roles` with the report schema and
+      appended by `_system(roles=…)`; the loop step context's LOOP_ROUND shrank to its data line.)
 - [x] Merge verifier.md + dispatch.md into one checker prompt. (Step 8b: minimal merge so the role works: the next-step
       contract and the dispatcher's still-valid rules appended to verifier.md; the skeleton rewrite is step 10.)
 - [x] Remove resources.md and `_reconcile_resources` (decision 1); resource facts go to the merged checker.
-- [ ] runtime_tools.md: keep the dynamic tool-name line; drop the Codex deferred-tool patch (code reruns on
-      NO_TOOLS_LOADED, worker.py:33, 310-320).
-- [ ] question.md, scheduled.md: drop code-enforced and duplicate lines; watch-alert guidance to the worker.
-- [ ] summary.md, repair.md, distill.md: keep (distill: drop the lines code enforces, keep "third_party subject is
+- [x] runtime_tools.md: keep the dynamic tool-name line; drop the Codex deferred-tool patch (code reruns on
+      NO_TOOLS_LOADED, worker.py:33, 310-320). (Step 10b: one line.)
+- [x] question.md, scheduled.md: drop code-enforced and duplicate lines; watch-alert guidance to the worker.
+      (Step 10b: question.md 2.6k → 1.1k (confirmations, local/Drive, named tool, named agent: shared prefix or memory);
+      scheduled.md 2.6k → 1.0k, the check-and-act copy gone (R8 in the planner), the alert rule (last_reported_met) in
+      the worker's watch role block.)
+- [x] summary.md, repair.md, distill.md: keep (distill: drop the lines code enforces, keep "third_party subject is
       never owner" and "no health or finances").
-- [ ] attention.md: not loaded while Jev is off.
+      (Step 10b: summary.md and repair.md unchanged; distill.md lost the code-enforced lines (observed needs several
+      days, FERB checks quotes, FERB skips a stored key, never secrets). "No health or finances" stays out: memory
+      decision 12 removed it in step 9a.)
+- [x] attention.md: not loaded while Jev is off.
+      (Step 10b: checked, structural: the only path to attention.md is a `perception.attention` event, which only a Jev
+      yes publishes (sense/batches.py `_attention`), and nothing batches while Jev is off (memory decision 4). No gate
+      added: tests publish that event directly to drive considerations.)
 - [ ] Code: remove the Layer 3 catalog copy (main.py:3943); EFFECT_HELP/DESTINATION_SCHEMA once, not per tool if the
       runtime allows; catalogs and tool-fetch lines only to roles with tools (supervisor.py:654-656) (step 9a: done,
       `TOOLLESS_ROLES`); worker types
       out of the droppable activity block (main.py:3943-3946) into a fixed planner block; per-role schemas; remove
       `steer` from TaskControl (schemas.py:277); procedure/notification/map fields out of the schemas.
+      (Step 10b: `_relevant_context` no longer adds "Relevant installed actions" (the planner's, the worker's and the
+      checker's context); EFFECT_HELP + DESTINATION_HELP once in the worker's instructions (`{effects}`), each acting
+      tool's `effect`/`destination` fields carry a one-line pointer (EFFECT_FIELD, DESTINATION_FIELD). Already done
+      earlier and checked: worker types in Layer 1 (8c), per-role worker schemas (8b), `steer` out of TaskControl and
+      procedure/notification/map out of the schemas (step 3, 8a).)
 - [ ] Code-written context strings (REFUSED_PASS, CHANGED_FILES, CHECK_DIDNT_LOOK, NOTHING_TO_RECHECK, REPORT_*):
       re-check against the merged checker; remove those for removed paths.
       (Step 8b: CHECK_DIDNT_LOOK, NOTHING_TO_RECHECK, RECHECK_NOTHING_STOP and REPORT_*/WATCH_* removed; REFUSED_PASS,
       CHANGED_FILES, NO_LOOK kept; the step-10 rewrite re-checks the rest.)
-- [ ] Patch mapping table (decision 2): trace each patch (git log -S), sort into memory / rule / tool / code; owner
+      (Step 10b: REFUSED_PASS, CHANGED_FILES, OTHER_CHANGES, NO_LOOK and NO_TOOLS_LOADED match the merged checker and
+      stay; the "Preliminary observations" block now says it is code's literal predicate, never the judgment (the line
+      left verifier.md); LOOP_ROUND keeps only its data line.)
+- [x] Patch mapping table (decision 2): trace each patch (git log -S), sort into memory / rule / tool / code; owner
       reviews; owner confirms the memory items; then remove the patches.
-- [ ] Live re-test list: the original task behind each removed patch.
-- [ ] Remove "every_minutes at least 15" (supervisor.md:124).
+      (Step 10a: notes/prompt-patches.md; owner approved 2026-10-31, decision 4. Step 10b applied it: the 10 rules in
+      place (R2, R5, R10 in the shared prefix every role gets; planner R1, R4, R7, R8, R9; worker R1, R3, R6, the R9 line
+      and R4 in its answer field; checker R1, R3, R6, R8); tool manuals in descriptions (browser open, shell escape, mac.act scroll, mac.pointer,
+      owner.ask, audio.listen, fs.edit, the standing_sends schema description); the bot-check fact's wording (decision
+      6, act/browser/snapshot.py `BOT_CHECK_FACT`). Memory items M1-M9 and "email me" seeded once
+      (memory/upgrade.py `seed_owner_items`, below).)
+- [x] Seed the approved memory items (decision 4). (Step 10b: `seed_owner_items` at the first start of this build, after
+      the 9a clean-up and the profile seed: each item as the owner's words resting on one journaled
+      `memory.owner_confirmed` record, unless a current item already says the same; FERB's inferred items with the same
+      kind, subject and key end (fc0f1e54 messages, 9f4693bc Scaler, kept as history); M2's username goes to the
+      usvisascheduling.com login record when it has none; journaled `memory.owner_seed` once. Only in the owner's store,
+      known by the items the table names (`OWNER_STORE_ITEMS`): a friend's install or a fresh store gets none.
+      Placement: subject "owner" → Tier 1 at once (decision 18); M7 subject project:scaler and M8 project:study-material
+      → search only. tests/test_owner_memory_seed.py.)
+- [x] Live re-test list: the original task behind each removed patch. (Step 10b: notes/tests.md "Live re-test list
+      (step 13)".)
+- [x] Remove "every_minutes at least 15" (supervisor.md:124). (Step 10b: "the owner's interval, a positive number".)
 
 ## Expected size
 Planner static ≈53k → ≈15k chars; worker system ≈47k → ≈9k; plus ≈38k less per worker/checker run from the catalog
 copy. A worker's first turn drops from ≈41k tokens of instructions and tool text to roughly 25k (tool schemas stay).
+
+**Measured (step 10b, 2026-10-31)**, on the test daemon with every tool installed (69 tools; a fresh store, so no
+memory, profile or conversation), the same request before and after; chars:
+
+| | Before | After |
+|---|---|---|
+| Planner instructions (`_system("supervisor.md", live=False)`: shared prefix, supervisor.md, capabilities, facts) | 51,477 | 24,832 |
+| Worker instructions (`_system("worker.md")`, catalogs and the effect contract included) | 43,430 | 10,866 |
+| Checker instructions | 30,098 | 10,760 |
+| Question router instructions | 14,138 | 4,298 |
+| Tool-catalog copy in the context of every planner, worker and checker run ("Relevant installed actions") | 26,998 | 0 |
+| Effect/destination text in the acting tools' schemas (18 tools) | 18,117 | 7,178 |
+| Worker tool schemas, all 69 tools | 93,617 | 84,272 |
+| A worker's first turn (instructions + context + tool schemas) | 167,891 (≈42k tok) | 97,545 (≈24k tok) |
+
+Prompt files: supervisor.md 38.5k → 20.5k, worker.md 30.9k → 5.6k (+ role blocks 0.2-1.2k each, only when a run
+needs them), verifier.md 17.6k → 6.6k, interaction.md 11.5k → 3.1k, question.md 2.6k → 1.1k, scheduled.md 2.6k →
+1.0k, runtime_tools.md 0.8k → 0.05k, distill.md 3.0k → 2.8k (bytes). The planner lands above the ≈15k estimate: its
+schema has ~40 fields code needs explained (memory, schedules, times, parts, plans, controls) and it carries rules R1,
+R4, R7, R8, R9 in full, as the approved table placed them. The live catalog copy was ≈38k (more tools and a real
+registry), so the live saving per run is larger than the fixture's 27k.

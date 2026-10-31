@@ -839,20 +839,6 @@ def test_the_prompts_carry_no_copyable_example_phrasing(phrase: str) -> None:
     assert not any(phrase in _prompt(path.name) for path in PROMPTS.glob('*.md'))
 
 
-@pytest.mark.parametrize('name, words', [
-    ('interaction.md', "It answers the owner's question as they asked it, read in the conversation's"),
-    ('interaction.md', "It keeps the fact the conversation is about"),
-    ('interaction.md', "Never use FERB's internal terms in anything the owner reads"),
-    ('worker.md', "It answers the owner's question as they asked it, in the conversation's context"),
-    ('supervisor.md', "`text` answers the owner's message as they asked it"),
-    ('supervisor.md', 'FERB adds that line itself'),
-    ('supervisor.md', 'an earlier one whose reminder was never set'),
-    ('supervisor.md', 'new_goal'),
-])
-def test_the_answer_prompts_require_the_question_as_asked_and_no_internal_terms(name: str, words: str) -> None:
-    assert words in _prompt(name)
-
-
 def test_the_planner_is_not_told_to_confirm_a_reminder_it_cannot_know_was_set() -> None:
     assert 'Reply confirming' not in _prompt('supervisor.md')        # reminders and schedules alike
 

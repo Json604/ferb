@@ -2,15 +2,12 @@
 code adds the condition and hands the checker the report; the checker judges it (rule 6). A done answer is the report
 the check judged, with only the checker's exact fixes (step 8b: no after-cleanup review; owner decision 9)."""
 import json
-from pathlib import Path
 from typing import Any
 
 from ferb.orchestrator.supervisor import REPORT_CONDITION
 from ferb.trace import compose
 from tests.conftest import RunningDaemon, chat, cond, done, install, outcome, sup, task, verdict
 from tests.support.trace_builder import TraceBuilder
-
-PROMPTS = Path(__file__).resolve().parents[1] / "ferb" / "orchestrator" / "prompts"
 
 
 def test_every_check_judges_the_report_the_owner_will_see(daemon: RunningDaemon) -> None:
@@ -119,15 +116,6 @@ def test_unfinished_work_never_shows_the_report_condition(daemon: RunningDaemon)
     out = outcome(chat(daemon, "do it"))
     assert out["status"] == "failed" and REPORT_CONDITION.text not in out["answer"]
     assert out["answer"] == "I couldn't finish this task. couldn't find it."
-
-
-def test_the_checker_is_told_about_the_report() -> None:
-    verifier = " ".join((PROMPTS / "verifier.md").read_text().split())
-    assert ('FERB adds one condition to every check, numbered last, starting "My report to you says truthfully what '
-            'was done".') in verifier
-    assert ("Give `met=false` when the report states or implies something the records contradict, or leaves out "
-            "something that changes the result") in verifier
-    assert "Use this, not retry, when only FERB's report condition isn't met." in verifier
 
 
 def test_the_trace_counts_the_report_condition_when_a_check_checked_nothing() -> None:

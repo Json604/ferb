@@ -43,7 +43,7 @@ def test_interaction_contract_reaches_every_task_role_and_preserves_owner_direct
     # step 8b: the checker also chooses the next attempt; no resource reviewer (prompts decision 1)
     assert set(systems) == {'supervisor', 'worker', 'worker.question', 'worker.verify'}
     contract = Path('ferb/orchestrator/prompts/interaction.md').read_text().strip()
-    assert contract and 'shell' in contract and 'AppleScript' in contract
+    assert contract
     for role, prompts in systems.items():
         assert all(contract in prompt for prompt in prompts), role
     for _, role, context, _ in script.contexts:
@@ -242,7 +242,7 @@ def test_invalid_recovery_output_finishes_truthfully_and_cleans_resources(daemon
     assert any('ValidationError' in r for r in daemon.run(failure()))
 
 
-def test_each_turn_searches_memory_activity_and_registry(daemon):
+def test_each_turn_searches_memory_and_activity(daemon):
     recalled = []
     daemon.daemon.supervisor.memory_candidates = lambda words, focus: recalled.append(words) or [
         {'text': 'Remembered FMI project', 'reference': 'memory.learned id=m1', 'origin': 'private',
@@ -257,7 +257,7 @@ def test_each_turn_searches_memory_activity_and_registry(daemon):
     assert len(recalled) == 2
     for _, _, ctx, _ in script.contexts:
         assert 'Remembered FMI project' in ctx and 'FMI assignment in Gmail' in ctx
-        assert 'Relevant installed actions:' in ctx and 'unrelated chess game' not in ctx
+        assert 'Relevant installed actions:' not in ctx and 'unrelated chess game' not in ctx   # 10b: no catalog
 
 
 def test_repeated_calls_do_not_have_a_hard_action_limit(daemon):

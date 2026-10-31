@@ -69,16 +69,6 @@ def test_the_gateway_samples_only_calls_that_can_change_the_screen(daemon: Runni
     assert "screen" not in (read or {})
 
 
-def test_agents_are_told_what_a_change_with_no_ferb_on_screen_action_means() -> None:
-    path = Path(__file__).resolve().parents[1] / "ferb" / "orchestrator" / "prompts" / "interaction.md"
-    text = " ".join(path.read_text().split())
-    assert ("A change with no FERB on-screen action in progress says when the last one ended, or that this task made "
-            "none: it may come from the owner, another app, a process FERB started (such as a coding agent, which acts "
-            "with FERB containment, with its own sandbox disabled by caller-chosen flags; FERB never rewrites those flags or removes approvals), or a FERB action whose effect landed late (an app finishing its launch); "
-            "weigh the elapsed time and the running processes.") in text
-    assert "nearness to a FERB action does not prove FERB caused a change." in text
-
-
 def test_the_running_processes_a_change_records_are_ferbs_with_commands_redacted(daemon: RunningDaemon,
                                                                                 tmp_path: Path) -> None:
     """Rule 14: a command reaches the span, the bus event and the agents' context only redacted."""

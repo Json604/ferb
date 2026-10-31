@@ -578,7 +578,7 @@ class Gateway:
             schema = cap.Input.model_json_schema()
             props = schema.setdefault("properties", {})
             if self._acts(cap):
-                props["effect"] = {"type": "string", "enum": list(EFFECTS), "description": EFFECT_HELP}
+                props["effect"] = {"type": "string", "enum": list(EFFECTS), "description": EFFECT_FIELD}
             if getattr(cap, "generic_input", False) and "destination" not in props:
                 props["destination"] = DESTINATION_SCHEMA
             props["why"] = {"type": "string", "description": WHY_HELP}
@@ -2329,14 +2329,21 @@ EFFECT_HELP = ("The kind of change this action makes, declared truthfully. send:
                "signing in with existing credentials is edit. FERB checks a declared send, "
                "payment, delete or account-security change like one and asks the owner when it must; a declaration "
                "never grants permission.")
+DESTINATION_HELP = ("with effect send, pay, destroy or account_security, what the action reaches, as the page or "
+                    "app shows it (never only in why). recipients: the people a message or email goes to (none for a "
+                    "public post); account: the account it posts, sends or pays from, or whose security it changes; "
+                    "amount: what a payment pays, and currency: its currency as the page shows it (₹, $, INR); item: "
+                    "what a delete removes. FERB checks these against the owner's words and any standing permission; "
+                    "they never grant permission.")
+# Step 10b (prompts fix list: EFFECT_HELP/DESTINATION_SCHEMA once): the full contract is in the worker's instructions
+# once (`Supervisor._system`, "{effects}"); each acting tool's fields carry only these pointers
+EFFECT_FIELD = ("The kind of change this action makes, declared truthfully: the kinds are under Effects in your "
+                "instructions.")
+DESTINATION_FIELD = ("With effect send, pay, destroy or account_security: what the action reaches, as the page or app "
+                     "shows it (the fields are under Effects in your instructions).")
 DESTINATION_SCHEMA = {
     "type": "object", "additionalProperties": False,
-    "description": ("With effect send, pay, destroy or account_security: what the action reaches, as the page or "
-                    "app shows it. recipients: the people a message or email goes to (none for a public post); "
-                    "account: the account it posts, sends or pays from, or whose security it changes; amount: what "
-                    "a payment pays, and currency: its currency as the page shows it (₹, $, INR); item: what a "
-                    "delete removes. FERB checks these against the owner's words and any standing permission; they "
-                    "never grant permission."),
+    "description": DESTINATION_FIELD,
     "properties": {"recipients": {"type": "array", "items": {"type": "string"}},
                    "account": {"type": "string"}, "amount": {"type": "number", "minimum": 0},
                    "currency": {"type": "string", "maxLength": 8}, "item": {"type": "string"}}}

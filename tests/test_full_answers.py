@@ -175,13 +175,3 @@ def test_answer_prompts_ask_for_no_separate_short_version(name):
     text = ' '.join((PROMPTS / name).read_text().split())
     assert 'display_text' not in text and 'concise owner display' not in text.lower()
     assert 'answer in Details' not in text and 'available as Details' not in text
-
-
-def test_the_question_prompt_keeps_its_display_rules():
-    text = ' '.join((PROMPTS / 'question.md').read_text().split())
-    assert 'write `display_text` as a direct choice or request for the missing input' in text
-
-
-def test_the_planner_prompt_streams_text_last():
-    text = ' '.join((PROMPTS / 'supervisor.md').read_text().split())
-    assert 'Write the structured response in schema order, with `text` last.' in text

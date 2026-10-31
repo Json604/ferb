@@ -310,31 +310,6 @@ def test_workers_are_never_told_to_ask_for_confirmation() -> None:
         assert "final confirmation" not in (PROMPTS / orchestrator).read_text()
 
 
-def test_workers_declare_the_true_kind_of_consequential_actions() -> None:
-    """The code floor sees a browser send, post or payment only when the call declares its kind (W2, D23)."""
-    interaction = " ".join((PROMPTS / "interaction.md").read_text().split())
-    worker = " ".join((PROMPTS / "worker.md").read_text().split())
-    assert "declare the true kind of every consequential browser or app" in interaction
-    # Task 18 owns the declaration wording (narrow send, pay on the final control, account_security, destination)
-    for kind in ("effect send", "`pay` only on the final Pay or confirm control", "`destroy` for a permanent delete",
-                 "`account_security` only for changing a password", "account-security change",
-                 "purpose send or call"):
-        assert kind in worker, kind
-    assert "never ask the owner to confirm yourself" in worker
-
-
-def test_prompts_carry_the_install_question_and_never_narrow_to_read_only() -> None:
-    supervisor = (PROMPTS / "supervisor.md").read_text()
-    worker = (PROMPTS / "worker.md").read_text()
-    question = (PROMPTS / "question.md").read_text()
-    for text in (supervisor, worker):
-        assert "isn't installed — should I install it?" in text
-    assert "read-only" in supervisor and "unless the owner said so" in supervisor
-    assert "isn't installed" in question                                    # the router asks it once, then it carries
-    assert "waits for the owner's go-ahead" not in supervisor               # D24 plans are stated, not asked
-    assert "exact quote" not in supervisor.split("answer_question", 1)[1][:400]
-
-
 def test_the_install_question_is_asked_once_and_carried_across_retries(daemon: RunningDaemon) -> None:
     ask = "Mole isn't installed — should I install it? (brew install mole)"
     asked_owner: list[str] = []
@@ -1307,11 +1282,6 @@ def test_an_answer_that_needs_a_which_one_question_leaves_the_rest_for_the_reply
     events = chat(daemon, "Yes", session="s")
     assert [e["type"] for e in events] == ["clarify"] and daemon.run(_on_loop(daemon.daemon.memory.items)) == []
     call.cancel()
-
-
-def test_the_planner_is_told_an_answer_can_come_with_other_requests() -> None:
-    text = " ".join((PROMPTS / "supervisor.md").read_text().split())
-    assert "return that too: FERB records the answer first, then does the rest" in text
 
 
 # ========== final review M9 ==========

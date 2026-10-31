@@ -1,5 +1,13 @@
 # Prompt patches: mapping table (step 10a, for your review)
 
+**Status:** approved by the owner 2026-10-31 (notes/prompts.md decision 4) and applied in step 10b: every row went to
+its destination (the rules R1-R10 in the prompts named below, tool manuals in tool or schema descriptions, code-covered
+and dropped lines removed, the memory items seeded once). Two placements differ slightly from the table: row 7's
+password-words line stays one line in supervisor.md's "clarify" (clarify is a value of `kind`, which has no field of its
+own to describe) and in owner.ask's description; row 20's "email me" is the seeded memory item plus one line in the
+task's targets ("me" for "email me", the address from memory, asked when missing). The live re-test list is in
+notes/tests.md "Live re-test list (step 13)".
+
 Prompts decision 2: patches leave the prompts. Each one becomes a memory item, folds into a general rule, moves to a
 tool's description, is already covered by code, or is dropped. You review this table and confirm the memory items
 (memory decisions 15 and 18: there are no Keep questions, so this review is where you confirm them). Step 10b then

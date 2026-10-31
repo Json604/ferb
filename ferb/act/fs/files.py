@@ -547,7 +547,8 @@ class FsWrite(_Base):
 class FsEdit(_Base):
     name, description = ("fs.edit", "Replace one exact occurrence of old_text with new_text in a UTF-8 text file. The "
                          "rest of the file stays byte for byte, its line endings too (in a file with CRLF line "
-                         "endings, \\n in old_text and new_text means its CRLF).")
+                         "endings, \\n in old_text and new_text means its CRLF). Include enough surrounding text "
+                         "that old_text matches only the occurrence you mean.")
     scopes, risk, reversible = {"fs:write"}, RiskLevel.MEDIUM, False
     access = "write"
     undone = "nothing was changed"

@@ -48,6 +48,10 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
     saved as FERB's understanding; a background job (estimate, progress, resume, cancel) with RPCs `memory.import.*` and
     a Memory page section; migration 0055. (Built 2026-10-31; live checks with step 13.)
 10. **Prompts**: rewrite to contracts; patch mapping table reviewed by the owner; owner-confirmed memory items.
+    (Step 10a: notes/prompt-patches.md, approved 2026-10-31. Step 10b: every runtime prompt rewritten to its contract,
+    the patches placed (rules, tool descriptions, code, memory), role blocks only when a run needs them, no tool-catalog
+    copy, the effect contract once, the approved memory items seeded once in the owner's store; sizes measured in
+    notes/prompts.md "Expected size"; the live re-test list in notes/tests.md, run in step 13.)
 11. **Voice**: speaker factory (macOS voice first), replies from structured events.
 12. **Storage**: retention, `source_refs` removal, incremental vacuum, one-time cleanup (owner OK), upgrade path
     tested on copies of real older databases and configs.

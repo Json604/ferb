@@ -35,7 +35,7 @@ from ferb.core.prompts import load_prompt
 from ferb.trace.lines import clip
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
-from ferb.daemon.gateway import FsRoots, Gateway, Observer, observes
+from ferb.daemon.gateway import DESTINATION_HELP, EFFECT_HELP, FsRoots, Gateway, Observer, observes
 from ferb.memory.items import query_terms, quoted
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, REQUEST_REFERENCE, TASK
@@ -839,17 +839,23 @@ class Supervisor(WorkerRuns):
         """Single insertion point for a future verified approach; harness mechanics never depend on it."""
         return "orchestrator/prompts"
 
-    def _system(self, name: str | None = None, *, live: bool = True) -> str:
-        """A role's instructions: the shared and role prompts, what's usable now, the facts about this FERB, the owner's
-        identity and rules, and the skill and ability catalogs. `live`: also the facts that change between turns; the
-        planner gets those after the conversation instead (decision 4), so its instructions stay a cacheable prefix."""
+    def _system(self, name: str | None = None, *, live: bool = True, roles: tuple[str, ...] = ()) -> str:
+        """A role's instructions: the shared and role prompts, the role blocks this run needs (`roles`: a worker's loop
+        round, watch, conversation turn …, prompts/roles/, step 10b), what's usable now, the facts about this FERB, the
+        owner's identity and rules, and the skill and ability catalogs. `live`: also the facts that change between
+        turns; the planner gets those after the conversation instead (decision 4), so its instructions stay a cacheable
+        prefix."""
         facts = "\n".join(part for part in (self.facts(), self.live_facts() if live else "") if part)
         directory = self._approach()
         text = load_prompt(directory + "/interaction.md")
         if name is not None:
             text += '\n\n' + load_prompt(directory + "/" + name)
+        for role in roles:
+            text += '\n\n' + load_prompt(f"{directory}/roles/{role}.md")
         if "{capabilities}" in text:                          # built in code: only what's usable right now
             text = text.replace("{capabilities}", self.availability().text)
+        if "{effects}" in text:              # the effect/destination contract once, not on every acting tool (10b)
+            text = text.replace("{effects}", EFFECT_HELP + " Destination: " + DESTINATION_HELP)
         text += (f"\n\nFacts about this FERB:\n{facts}\n" if facts else "")
         # Tier 1, the core profile (notes/memory.md target design 1): always on in every role's prompt, in the stable
         # position the old "Layer 1 — identity" held (orchestration 8c: part of the cacheable instructions)
@@ -4316,7 +4322,8 @@ class Supervisor(WorkerRuns):
             self._set_status(task.id, "running")
             ctx = (await self._context(tree, learned=True)) + [ContextBlock(instructions, "current continuation",
                                                                             protected=True)]
-            raw, _ = await self.run_worker(tree, task, "worker.md", ctx, self._report_schema(tree), span)
+            schema, roles = self._report_roles(tree)
+            raw, _ = await self.run_worker(tree, task, "worker.md", ctx, schema, span, roles=roles)
             if self._is_paused(tree) and not tree.stop:
                 continue                 # the pause ended this attempt: its report is dropped, and it isn't counted
             choice: _Next | None = None
@@ -4412,10 +4419,12 @@ class Supervisor(WorkerRuns):
         """A correction this attempt's worker never saw (delivered after its run took its last one)."""
         return tree.result_revision < len(tree.steering.messages)
 
-    def _report_schema(self, tree: _Tree) -> dict[str, Any]:
-        """The report schema of this tree's worker (per role, step 8b): a do step with inputs gets input notes, a step a
-        converse step takes its scopes from gets conversation proposals, a conversation turn its action, a watch's run
-        watch_met, a loop round its action and probe."""
+    def _report_roles(self, tree: _Tree) -> tuple[dict[str, Any], tuple[str, ...]]:
+        """This tree's worker run's report schema (per role, step 8b) and the role blocks its instructions get (step
+        10b, prompts target design 4: only when needed, prompts/roles/): a plan step gets its step block; a do step with
+        inputs, input notes; a step a converse step takes its scopes from, conversation proposals; a conversation turn,
+        its action; a watch's run, watch_met; a loop round, its action and probe; a multi-part task's step, corrections
+        to answers already posted."""
         step: dict[str, Any] = {}
         if tree.step_context:
             with suppress(ValueError, TypeError):
@@ -4428,9 +4437,13 @@ class Supervisor(WorkerRuns):
                 proposals = any(s.kind == 'converse' and s.conversation is None and tree.step_id in s.depends_on
                                 for s in plan.steps)
         root = self._tree_of.get(tree.id)
-        return worker_schema(inputs=bool(tree.required_inputs), proposals=proposals,
-                             conversation="conversation" in step, watch=tree.watch, loop="loop" in step,
-                             parts=bool(step.get("step")) and root is not None and root.card is not None)
+        flags = {"inputs": bool(tree.required_inputs), "proposals": proposals, "conversation": "conversation" in step,
+                 "watch": tree.watch, "loop": "loop" in step,
+                 "parts": bool(step.get("step")) and root is not None and root.card is not None}
+        blocks = {"inputs": "inputs", "proposals": "proposals", "conversation": "converse", "watch": "watch",
+                  "loop": "loop", "parts": "parts"}
+        roles = (("step",) if step.get("step") else ()) + tuple(blocks[k] for k, on in flags.items() if on)
+        return worker_schema(**flags), roles
 
     def _read_report(self, tree: _Tree, task: Task, raw: dict[str, Any] | Outcome) -> Outcome:
         """The attempt's report as an Outcome: done (summary: the owner's answer) or not done ("failed", summary: why);
@@ -4697,7 +4710,7 @@ class Supervisor(WorkerRuns):
                  ContextBlock((f"Parent task goal: {tree.parent_goal}\n" if tree.parent_goal else "") +
                               f"Task: {spec.goal}\nWorker type: {spec.worker_type}", "task specification",
                               protected=True, cache=True),
-                 dataclasses.replace(self._source_block(tree, "Layer 3 — relevant activity and actions", *activity,
+                 dataclasses.replace(self._source_block(tree, "Layer 3 — relevant activity", *activity,
                                                                source_refs=tuple(activity_refs or ()) if activity[0] else (),
                                                                payload=_context_payload(activity_source) if activity[0] else ""), priority=1),
                  *memory,
@@ -4754,7 +4767,8 @@ class Supervisor(WorkerRuns):
         if spec.plan:
             parts.append(ContextBlock('Layer 6 — durable plan state (data):\n' + wrap_untrusted(
                          json.dumps(self.plans.steps(tree.id))), 'task.evidence', protected=True))
-        elif not tree.step_context and tree.worker.id == f"{tree.id}.{WORKER}" and (saved := self._saved_plan(tree.id)):
+        elif not tree.step_context and tree.worker.id == f"{tree.id}.{WORKER}" and \
+                (saved := self._saved_plan(tree.id)) and not self._own_one_step(saved, tree.spec.goal):
             # L11: a new goal without a plan replaced this task's plan; its steps' results are data, never steps to run
             parts.append(ContextBlock("Layer 6 — this task's earlier plan and its step results (data; the current "
                                       "task replaces that plan, and none of its steps runs again):\n" +
@@ -4776,6 +4790,13 @@ class Supervisor(WorkerRuns):
         if attempts is not None:     # this task's own attempts rank above every other optional block, runs too (M2)
             parts[attempts] = dataclasses.replace(parts[attempts], priority=1 + max(b.priority for b in parts))
         return parts
+
+    @staticmethod
+    def _own_one_step(saved: dict[str, Any], goal: str) -> bool:
+        """The saved plan is this task's own one-step plan (a single task is one since 8a), not an earlier plan a new
+        goal replaced (step 10b: the "earlier plan" block went to every single task and its checker)."""
+        steps = saved['plan'].get('steps') or []
+        return len(steps) == 1 and steps[0].get('id') == WORKER and steps[0].get('goal') == goal
 
     def _saved_plan(self, tree_id: str) -> dict[str, Any]:
         """This task's saved plan and its step states, when it has one."""
@@ -4911,7 +4932,8 @@ class Supervisor(WorkerRuns):
             report += ("\nThe worker's corrections to answers already posted to the owner (data, part of its report): "
                        + wrap_untrusted(json.dumps(tree.part_updates, ensure_ascii=False)))
         report += "\nWorker types available for a retry: " + json.dumps(self.worker_types())
-        report += "\nPreliminary observations (data): " + wrap_untrusted(json.dumps([{
+        report += ("\nPreliminary observations (code's literal check of each condition's check fields: a fact about "
+                   "that predicate, never the judgment of the condition; data): ") + wrap_untrusted(json.dumps([{
             "index": r.index, "predicate_met": r.met, "observation": r.evidence,
             "predicate": tree.spec.success_conditions[r.index].check.model_dump()} for r in observations or []]))
         began = self.spans.request_began(tree.id, task.request_id, task.id)

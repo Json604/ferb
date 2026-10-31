@@ -121,6 +121,11 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       Step 9c (memory import): tests/test_memory_import.py (each reader on a fixture, redaction before any call, recall →
       verify, FERB's understanding / no destinations, newer wins, resume, cancel, nothing raw kept, the quality eval and its
       `-m real` variant); tests/support/import_fixtures.py.
+      Step 10b (prompts): tests/test_prompt_assembly.py (a role block only for the run that needs it, no tool catalog in
+      any role's context and no catalogs for the planner, the effect contract once in the worker's instructions and not
+      on each tool); tests/test_owner_memory_seed.py (the approved items once as the owner's words, inferred duplicates
+      ended, M7/M8 search only, the visa username's login record, a second start changes nothing, another store gets
+      none).
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.
@@ -128,3 +133,52 @@ A small suite that guards what live use can't show: the safety floor, plus a han
 - [ ] Delete doc-reading tests with the docs cleanup.
 - [ ] Keep `no_real_models`, `offline_trash`, network routing, `runaway.py`.
 - [ ] Each area's fix lands with its tests in the same change (CLAUDE.md development rules).
+
+## Live re-test list (step 13)
+
+Step 10b removed the prompt patches (notes/prompt-patches.md) and rewrote the prompts to contracts; these live runs
+show whether a removed line mattered (prompt-patches.md "Re-test", deduplicated, plus prompts.md's prompt-only
+behaviours). Each runs on owner-controlled surfaces (CLAUDE.md rule 16); a run that sends to a real third party only in
+an owner-approved run.
+
+Patch re-tests:
+1. "who's this actor?" on a show frame: the reply says it's a likely match and from what, or checks the cast (R4).
+2. "what is this song?" on an Instagram reel; "hear and tell" on a video (R4, audio_listen).
+3. An assignment done in full, FMI-style, with no caveats and nothing saying AI (M1).
+4. "how are you better than dots?": FERB described from its installed capabilities (R4).
+5. A username given mid-task, then a later task logs in with it (login_origin, M2).
+6. Kaggle via Codex Astra: Codex does the work, the owner controls the browser; "score well, no overfitting" are
+   conditions (R1, R5, M6, M9).
+7. "storage is 80% again, use mole" with Mole not installed: one install question, never another tool (M3).
+8. "open my scaler gmail, find the latest FMI assignment" (M4, R2, R3).
+9. Scaler, 5 days, official groups only (R2, R3, M5, M7).
+10. The 1-week study material (R1, R3, M8).
+11. The visa job: a six-hourly check with no slots is a finished check (R8); pause, then resume, and its schedule
+    follows (R7); the login with its three security questions asks nothing for the sign-in (effect contract); the check
+    through the bot check (the ability); the task with Chrome New_Personal closed (browser open starts it).
+12. A friend-style read-only "reduce my storage" scan plus a Homebrew cleanup: FERB's own snapshot is no change (R8).
+13. "every 5 minutes …" is accepted as a schedule (no 15-minute floor).
+14. "take mac to low power mode … loud warning at 10%": the task now plus a watch in the same turn (R9).
+15. "every morning at 9 email me …": the address from memory ("email me").
+16. "remind me about this show on oct30 anytime": FERB picks a time and says which (R10).
+17. "do this for all the tabs in parallel": one step per tab, parallel never a condition (R1).
+18. The hotspot question, then "leave it, but tell me why": continued without changes, not stopped (R7).
+19. FMI Assignment 2 with "astra high": requirements read first, Codex configured (R3, R5, M6).
+20. "check scaler mail for the new assignment": the current item by its dates (R3).
+21. Concert tickets now (primary seller pages) and "analyze all coding agent sessions" (every source, no caps)
+    (R1, R3).
+22. Three ZIPs checked for name and student ID: only the intended replace, no box over PDF text (R6).
+23. The Codex startup fix in VS Code: terminal typing asks first with the exact command.
+24. The EF saved-application page with only a footer badge: not reported as a block (the bot-check fact's wording).
+25. "keep it running, only stop when I say", then a follow-up: the earlier run's calls aren't this run's failure.
+26. "did the PDF I uploaded come from Drive or my Mac?" (R2).
+27. An X post from Brave Work (owner-approved run only): the campaign's standing scope.
+
+Prompt-only behaviours (notes/prompts.md):
+28. Pausing a task when the owner doubts or wants to rethink it, and resuming it.
+29. Questions ask only what/who/which, never how or for permission.
+30. A named tool that isn't installed is asked about once (as 7).
+31. How-note quality on a verified task (the `how` field reads as steps that worked).
+32. A direct reply about the screen names its source and says a guess as a guess (as 1).
+33. Role blocks: a loop round arms a probe and keeps its tab; a watch run alerts once and then stays quiet; a delegated
+    conversation turn waits and hands over.

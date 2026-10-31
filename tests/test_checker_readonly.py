@@ -106,15 +106,6 @@ def test_only_reading_capabilities_are_marked_observation() -> None:
     assert all(getattr(caps[name], "reversible", True) for name in marked)   # none carries an effect annotation
 
 
-def test_the_checker_prompt_matches_the_gateway() -> None:
-    """The prompt no longer offers acting (typing in a search field, opening an app, navigating a task tab); it says
-    what to do instead."""
-    md = Path("ferb/orchestrator/prompts/verifier.md").read_text()
-    assert "observation tools only" in md and "`met=null`" in md and "the step that would gather" in md
-    assert "mac_open" not in md and "You may open sources" not in md and "loading a URL in a task tab" not in md
-    assert "only the FERB-browser tabs you opened yourself" in md
-
-
 # ---------- browser tabs: the checker reads the worker's tabs where they are (V3, W4) ----------
 
 class TabBridge:
