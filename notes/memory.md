@@ -136,6 +136,14 @@ to commit c6621c3.
       with `always_on: true` (notices now carry `cards`, journaled and published). An owner fact that doesn't fit records
       `memory.profile_waiting`, which makes the pass due early, at most once a day (`EARLY_PASS_HOURS`).
       tests/test_memory_recall.py: the join and its card, the cache guarantee, the burst.)
+- [x] Decision 18 was narrowed by the 9b ruling to the owner's words about the owner (`saved` returned early unless
+      subject "owner"). (2026-11-01: the owner's own words about anything join at once, within the fixed budget; FERB's
+      understanding / observed still only about the owner once they hold up. Prompts decision 4 placed M7 and M8 by
+      search: the seed journals `memory.search_only` with their (subject, key), and `holds_up` keeps those out of the
+      profile, whichever version. tests/test_core_profile.py
+      `test_the_owners_words_about_anything_join_at_once_unless_placed_by_search`; recall tests now use FERB's
+      understanding for facts that must stay out of the profile. Owner check: whether decision 18 meant "about you" too,
+      and whether M7/M8 stay search only.)
 - [x] Decision 17: stale facts split by source (9b).
       (Step 9b: `Memory.looks_over`: FERB's understanding / observed → retired; the owner's words → set aside
       (`memory_set_aside`, migration 0054; `MemoryItem.set_aside`; out of `prompt_ready`, search and the profile, kept as
@@ -358,9 +366,9 @@ to commit c6621c3.
   two separate days (seen again) or they have stood a full weekly pass (7 days) without being replaced, retired or
   forgotten. "Used without correction" needs exposure records (step 9b). An item the owner kept under an older build's
   Keep question (active inferred at the clean-up, `owner_kept`) holds up at once. The old setup dump never.
-- Code's own Tier 1 additions: only an owner-stated preference about the owner (the old Layer 1 rule, so nothing reaches
-  prompts later than before), under "Recently said", while it fits; everything else waits for the pass. The owner's
-  "Always on" pins (`memory.profile` add) survive every pass.
+- Code's own Tier 1 additions: an owner-stated fact about anything (decision 18; 2026-11-01, was only about the owner),
+  except one the owner placed by search (`memory.search_only`, prompts decision 4's M7/M8), under "Recently said", while
+  it fits; everything else waits for the pass. The owner's "Always on" pins (`memory.profile` add) survive every pass.
 - The pass: weekly, or sooner when over budget, at most one try an hour; the model returns sections of ids and `ended`;
   code refuses ids that don't hold up, renders, retires the ended ones ("FERB's weekly check"), told once in chat.
 - Replacement: a version resting on the owner's words now (chat capture, `memory add`/`edit`, a distilled quote that
@@ -423,11 +431,12 @@ to commit c6621c3.
 - How-notes show for verified runs only; at most 12 steps and 600 characters; the owner's hints quoted, 300 chars each.
 - Decision 18: code joins FERB's understanding / observed facts only on an event that shows them holding up (a save on
   a second day); "standing 7 days uncorrected" is the weekly pass's to see (the pass stays the only scheduled rewrite).
-  Code's joins are facts about the owner (`subject` "owner"); the pass places the rest. An owner fact that doesn't fit
-  makes the pass due early, at most once in 24 h (`EARLY_PASS_HOURS`).
+  Code joins the owner's words about anything at once (2026-11-01) and FERB's understanding / observed facts about the
+  owner (`subject` "owner") once they hold up; the pass places the rest. An owner fact that doesn't fit makes the pass
+  due early, at most once in 24 h (`EARLY_PASS_HOURS`).
 - Decision 17: "set aside" is its own state beside `memory_items` (`memory_set_aside`), not an end: the login username
   an owner fact gave stays (it is still theirs and current); the profile drops it at once.
-- Accessibility rows go after 7 days whether or not their day was summarized; deleted 2,000 rows a statement.
+- Accessibility rows go after 7 days whether or not their day was summarized; deleted 200 rows a transaction (`retention.BATCH`).
 - Typed or copied text in a browser whose page FERB hasn't seen is not recorded (it can't be checked).
 - Bot checks: a frame whose address is a known challenge frame (Cloudflare Turnstile, hCaptcha, reCAPTCHA, Arkose,
   DataDome, AWS WAF, GeeTest; `snapshot.CHALLENGE_FRAMES`) puts `bot_check` {widgets, frames, ability

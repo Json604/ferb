@@ -23,7 +23,7 @@ class PlanStore:
         return json.dumps(self.redact(value), ensure_ascii=False)
 
     def create(self, task_id: str, plan: Plan, request: dict[str, Any], conversation: str | None) -> None:
-        with self.db.conn:
+        with self.db.transaction():
             self.db.conn.execute('INSERT INTO task_plans(task_id,plan,request,conversation) VALUES(?,?,?,?) '
                                  'ON CONFLICT(task_id) DO UPDATE SET request=excluded.request',
                                  (task_id, self._json(plan.model_dump()), self._json(request), conversation))
@@ -38,7 +38,7 @@ class PlanStore:
         EARLIER and its unfinished steps go, as `replace` keeps them. A run restored after a restart keeps its step's
         state (a paused step asks again; a running one runs again)."""
         plan = single(goal)
-        with self.db.conn:
+        with self.db.transaction():
             self.db.conn.execute("INSERT INTO task_plans(task_id,plan,request,conversation) VALUES(?,?,?,?) "
                                  "ON CONFLICT(task_id) DO UPDATE SET plan=excluded.plan, request=excluded.request, "
                                  "status='running'",
@@ -88,7 +88,7 @@ class PlanStore:
 
     def reopen(self, task_id: str) -> None:
         """Explicit owner continuation retries unfinished steps; completed outputs and P19 ledger stay intact."""
-        with self.db.conn:
+        with self.db.transaction():
             self.db.conn.execute("UPDATE plan_steps SET status='pending' WHERE task_id=? AND status != 'done'",
                                  (task_id,))
             # Ended trees revoke standing grants. A resumed send plan must display/approve its scope again.
@@ -107,7 +107,7 @@ class PlanStore:
         with a reused id starts fresh. The task's action ledger, spans and evidence stay. Like reopen, a send plan
         must be approved again."""
         kept = {step.id for step in plan.steps if step in self.load(task_id)['plan'].steps}
-        with self.db.conn:
+        with self.db.transaction():
             for key, state in self.steps(task_id).items():
                 if key.startswith(EARLIER) or (key.split(':', 1)[0] in kept and state['status'] == 'done'):
                     continue

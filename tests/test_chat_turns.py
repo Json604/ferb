@@ -231,10 +231,11 @@ def test_the_planner_context_is_ordered_most_stable_first(daemon: RunningDaemon)
 
 
 def test_a_long_chat_keeps_the_planner_and_every_summary_call_within_their_bounds(daemon: RunningDaemon) -> None:
-    """Decision 4: the planner reads the summary and the tail after it, at most about one chunk beyond the last
-    RECENT_EXCHANGES exchanges (RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS); a summary call holds the summary and at
-    most FOLD_CHUNK_TOKENS of the oldest entries, never "what fits the window" (live 2026-10-28: one fold read 533k
-    tokens), and is told the days it keeps."""
+    """Decision 4: the planner reads the summary and the tail after it: the last RECENT_EXCHANGES exchanges word for
+    word however long they are (owner, 2026-10-30: always at least the last 20; no token cap folds one of them), and at
+    most about one chunk beyond them; a summary call holds the summary and at most FOLD_CHUNK_TOKENS of the oldest
+    entries, never "what fits the window" (live 2026-10-28: one fold read 533k tokens), and is told the days it
+    keeps."""
     import asyncio
     turns = RECENT_EXCHANGES + 10
     script = install(daemon, [sup("reply", f"answer {i} " + "detail " * 1500) for i in range(turns + 1)],
@@ -253,8 +254,11 @@ def test_a_long_chat_keeps_the_planner_and_every_summary_call_within_their_bound
     chat(daemon, "what next?")
     context = _planner_calls(script)[-1].context
     assert "message number 0 " not in context and "EARLIER-SUMMARY" in context
-    one_exchange = 2 * count_tokens("filler " * 1500)
-    assert max(sizes) <= RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS + SUMMARY_TOKENS + one_exchange
+    # the last 20 exchanges, each far longer than RECENT_CONVERSATION_TOKENS / 20, all there word for word
+    assert all(f"message number {i} " in context for i in range(turns - RECENT_EXCHANGES, turns))
+    assert RECENT_EXCHANGES * sizes[1] > RECENT_CONVERSATION_TOKENS
+    one_exchange = sizes[1]                                     # the first turn's conversation: one whole exchange
+    assert max(sizes) <= (RECENT_EXCHANGES + 1) * one_exchange + FOLD_CHUNK_TOKENS + SUMMARY_TOKENS
     folds = [r for _, key, r in script.requests if key == "summary"]
     assert folds
     for fold in folds:

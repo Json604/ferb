@@ -16,7 +16,7 @@ from tests.conftest import chat, install, sup, task
 from tests.support.learning_fixtures import TickingClock, new_store
 from tests.support.live_steer import StalledWorker
 from tests.support.memory_corpus import USERNAME, fact, goal_like_episodes, owner_like_store
-from tests.support.memory_items import owner_fact, run
+from tests.support.memory_items import owner_fact, run, understood
 from tests.support.visa_audit import MSG_1217, MSG_1222, RESEARCH_OFFICIAL, VISA_GOAL, VISA_TARGETS
 
 # The Learning.search tests below rank nodes against the pre-9b budgets they were measured with (60 / 20 nodes); the
@@ -158,7 +158,7 @@ def test_the_planner_recalls_for_the_work_its_message_continues(daemon: Any, mon
     message in a chat with no task (the negative control) leaves it out."""
     for i in range(6):
         owner_fact(daemon, f"hose_{i}", f"the garden hose {i} is a good thing for this and then what")
-    owner_fact(daemon, "usvisascheduling_username", USERNAME, subject="account:usvisascheduling")   # not in the profile
+    understood(daemon, "usvisascheduling_username", USERNAME, subject="account:usvisascheduling")   # search only (FERB's understanding)
     worker = StalledWorker(monkeypatch)
     script = install(daemon, [sup("task", "Looking.", task(VISA_GOAL, apps=("Chrome New_Personal",),
                                                            sites=("usvisascheduling.com",)))])
@@ -186,7 +186,7 @@ def test_the_planners_12_17_turn_recalls_the_username_in_a_busy_store(daemon: An
     tasks that share the visa goal's words, the 12:17 message sent while the visa task runs still brings the username
     into the planner's 60."""
     run(daemon, lambda: (owner_like_store(daemon.daemon.learning), goal_like_episodes(daemon.daemon.learning)))
-    owner_fact(daemon, "usvisascheduling_username", USERNAME, subject="account:usvisascheduling")   # not in the profile
+    understood(daemon, "usvisascheduling_username", USERNAME, subject="account:usvisascheduling")   # search only (FERB's understanding)
     worker = StalledWorker(monkeypatch)
     script = install(daemon, [sup("task", "Looking.", task(VISA_GOAL, apps=("Chrome New_Personal",),
                                                            sites=("usvisascheduling.com",)))])
@@ -408,9 +408,9 @@ def test_the_planner_gets_at_most_its_limit_best_first(daemon: Any) -> None:
     """Decision 7 (step 9b): retrieved memory is within the role's limits, best first, never protected; what is left out
     is one counted line."""
     for i in range(80):
-        owner_fact(daemon, f"tomato_{i}", f"tomato tip {i}: water them in the morning", subject="project:garden")
+        understood(daemon, f"tomato_{i}", f"tomato tip {i}: water them in the morning", subject="project:garden")
     for i in range(100):
-        owner_fact(daemon, f"bicycle_{i}", f"bicycle note {i}: oil the chain", subject="project:garage")
+        understood(daemon, f"bicycle_{i}", f"bicycle note {i}: oil the chain", subject="project:garage")
     found = daemon.run(daemon.daemon._learning_candidates("how should I grow tomato plants"))
     *items, more = found
     assert len(items) <= PLANNER.memory_items and all("tomato" in c["text"] for c in items)
@@ -427,7 +427,7 @@ def test_a_profile_entry_never_takes_a_slot_of_the_ranked_limit(daemon: Any) -> 
     for i in range(4):
         owner_fact(daemon, f"chain_{i}", f"bicycle chain note {i}")
     tone = owner_fact(daemon, "visa_email_tone", "reply to visa emails in a formal tone", kind="preference")
-    other = owner_fact(daemon, "visa_email_signature", "visa email replies are signed Kartikey",
+    other = understood(daemon, "visa_email_signature", "visa email replies are signed Kartikey",
                        subject="project:visa")
     assert "reply to visa emails in a formal tone" in run(daemon, d._core_profile_text)     # Tier 1, every role
     worker = [c["text"] for c in daemon.run(d._learning_candidates("draft the visa email reply", WORKER))]

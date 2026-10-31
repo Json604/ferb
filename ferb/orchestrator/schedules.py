@@ -20,7 +20,12 @@ as its rule says and each fires when the owner is at the Mac then, or when they'
 
 A schedule can have an end (decision 22): the time code worked out from the end the owner's words gave it ("until Nov
 3", "for 2 weeks"), stored beside it (`schedule_ends`, migration 0052). No run is booked after it; a schedule without
-one (every schedule made before) runs until stopped."""
+one (every schedule made before) runs until stopped.
+
+A schedule records what every run uses (orchestration decision 14): its folders, whose identity, the worker type, the
+owner's browser profile and the account, resolved by the turn that made it and stated then (`run_scope`, kept in its
+recorded targets as `run_scope`). Each run's task uses those, never re-guessed; a schedule made before has none, and its
+runs plan them as before."""
 
 import json
 from dataclasses import dataclass
@@ -47,6 +52,27 @@ def until_said(end: datetime) -> str:
     if (local.hour, local.minute, local.second) == (0, 0, 0):
         return f"until {(local - timedelta(seconds=1)):%a %d %b}"
     return f"until {local:%a %d %b %H:%M}"
+
+
+RUN_SCOPE = "run_scope"             # the key of what every run uses (decision 14) in a schedule's recorded targets
+
+
+def scope_said(scope: dict[str, Any]) -> str:
+    """What every run of a schedule uses (decision 14), in the owner's words, so they can correct it when it's made."""
+    from pathlib import Path
+    from ferb.runtimes.catalog import label
+    home = str(Path.home())
+    who = ("you" + (f", in your browser profile “{scope['profile']}”" if scope.get("profile") else "")
+           if scope.get("identity") == "owner" else "FERB's own browser and accounts")
+    parts = [f"as {who}" if scope.get("identity") == "owner" else who]
+    if scope.get("account"):
+        parts.append(f"account {scope['account']}")
+    if scope.get("folders"):
+        parts.append("in " + ", ".join("~" + f[len(home):] if f == home or f.startswith(home + "/") else f
+                                       for f in scope["folders"]))
+    if scope.get("worker_type") not in (None, "", "default"):
+        parts.append(f"with {label(str(scope['worker_type']))}")
+    return "Each run uses: " + "; ".join(parts) + "."
 
 
 def watch_met(status: Any, met: Any) -> bool:
@@ -136,6 +162,12 @@ class Schedule:
     watch: str = "none"              # WATCHES
     last_reported_met: bool | None = None   # a watch: what its latest finished check that reported it found
     until: datetime | None = None    # decision 22: no run after it; None runs until stopped
+
+    @property
+    def run_scope(self) -> dict[str, Any] | None:
+        """What every run uses (decision 14), recorded when it was made; None for a schedule made before."""
+        scope = self.targets.get(RUN_SCOPE)
+        return dict(scope) if isinstance(scope, dict) else None
 
     def describe(self) -> str:
         """Its rule, its end and what kind of watch it is (if it is one), in plain words."""

@@ -217,6 +217,21 @@ def test_an_import_waits_while_the_owner_has_a_turn(daemon: RunningDaemon, tmp_p
     assert model.contexts and status(daemon)["status"] == "done"
 
 
+def test_every_import_call_waits_for_the_owners_turn_not_only_the_first(daemon: RunningDaemon, tmp_path: Path) -> None:
+    """memory-import rulings: each model call waits while the owner has a chat turn. A turn that starts after a chunk's
+    recall call holds its verify calls too."""
+    d, model, released = daemon.daemon, ScriptedImportModel(), [False]
+    d._import_busy = lambda: bool(model.contexts) and not released[0]  # type: ignore[method-assign]
+    run(daemon, lambda: setattr(d._import_job(), "idle_poll", 0.01))
+    d._make_runtime = model                                              # type: ignore[method-assign,assignment]
+    daemon.run(d._memory_import_start(None, {"source": "codex", "path": make_exports(tmp_path / "x").path("codex")}))
+    daemon.run(asyncio.sleep(0.3))
+    assert [kind for kind, _ in model.contexts] == ["recall"] and status(daemon)["status"] == "running"
+    released[0] = True
+    daemon.run(_wait(d._import_task), timeout=30)
+    assert "verify" in {kind for kind, _ in model.contexts} and status(daemon)["status"] == "done"
+
+
 def test_cancel_stops_the_run_and_a_later_start_goes_on(daemon: RunningDaemon, tmp_path: Path) -> None:
     d, exports, model = daemon.daemon, make_exports(tmp_path / "x"), ScriptedImportModel()
     model.block_after = 0

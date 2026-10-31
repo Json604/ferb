@@ -33,6 +33,10 @@ PAY_RULE = "floor:pay"                    # confirm.ALWAYS[Kind.PAY]: the owner'
 # Calls that send something to someone as the owner (the gateway's send class without a plain form submit, which is a
 # site's form, not a message to a person)
 SEND_KINDS = (Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.CALL)
+# Calls that did something for the owner (decision 17: a scheduled run that did any of these posts, whatever its worker
+# reported): a send, a payment, a submitted form, a written, trashed or deleted file, an account-security change
+ACTING_KINDS = frozenset({*SEND_KINDS, Kind.PAY, Kind.SUBMIT, Kind.WRITE_FILE, Kind.TRASH, Kind.DELETE_PERMANENT,
+                          Kind.ACCOUNT_SECURITY})
 
 
 def event(kind: str, ident: str, what: str, when: str, line: str, repeat: str | None = None,
@@ -84,6 +88,11 @@ def _host(url: Any) -> str:
         return (urlsplit(str(url)).hostname or "") if url else ""
     except ValueError:
         return ""
+
+
+def acted(spans: SpanStore, tree_id: str) -> bool:
+    """Whether a call of the tree that ran without an error was of an acting kind (its own, declared or fact kinds)."""
+    return any(_kinds(c) & ACTING_KINDS for c in _calls(spans, tree_id))
 
 
 def payments(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:

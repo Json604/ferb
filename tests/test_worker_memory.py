@@ -10,7 +10,7 @@ from ferb.memory.search import WORKER
 from ferb.orchestrator.plans import Plan, Step
 from tests.conftest import chat, done, install, outcome, sup, task
 from tests.support.memory_corpus import USERNAME, goal_like_episodes, owner_like_store
-from tests.support.memory_items import owner_fact, run
+from tests.support.memory_items import run, understood
 from tests.support.visa_audit import (
     MSG_1217,
     RESEARCH_OFFICIAL,
@@ -23,7 +23,7 @@ def filler(d: Any, n: int = 6) -> None:
     """Notes that share "the" with the goals and the username fact, so "the" carries no weight (I4): only the task's
     targets can recall the username."""
     for i in range(n):
-        owner_fact(d, f"hose_{i}", f"the garden hose note {i}", subject="project:garden")
+        understood(d, f"hose_{i}", f"the garden hose note {i}", subject="project:garden")
 
 
 def visa_plan(sites: tuple[str, ...]) -> dict[str, Any]:
@@ -34,7 +34,7 @@ def visa_plan(sites: tuple[str, ...]) -> dict[str, Any]:
 
 def test_a_plan_step_gets_its_parent_goal_and_the_memory_it_needs(daemon: Any) -> None:
     filler(daemon)
-    item = owner_fact(daemon, "usvisascheduling_username", "the username is Asha Rao", subject="account:usvisascheduling")
+    item = understood(daemon, "usvisascheduling_username", "the username is Asha Rao", subject="account:usvisascheduling")
     # neither the request nor a goal names the site: only the task's targets do (Ruling 12)
     script = install(daemon, [sup("task", "On it.", visa_plan(("usvisascheduling.com",)))],
                      {"step.read": done("Read."), "worker": done("Checked.")})
@@ -50,7 +50,7 @@ def test_the_live_research_step_gets_the_username_in_a_busy_store(daemon: Any) -
     long past tasks that share the visa goal's words (fix round): the research_official step of the visa task, started
     by the 12:17 message, gets the username among its 20 through its task's targets ranked alone (`focus`)."""
     run(daemon, lambda: (owner_like_store(daemon.daemon.learning), goal_like_episodes(daemon.daemon.learning)))
-    owner_fact(daemon, "usvisascheduling_username", USERNAME, subject="account:usvisascheduling")
+    understood(daemon, "usvisascheduling_username", USERNAME, subject="account:usvisascheduling")
     spec = task(VISA_GOAL, apps=tuple(VISA_TARGETS.apps), sites=tuple(VISA_TARGETS.sites))
     spec["plan"] = Plan(steps=[Step(id="research_official", kind="do", goal=RESEARCH_OFFICIAL)]).model_dump()
     script = install(daemon, [sup("task", "On it.", spec)],
@@ -64,7 +64,7 @@ def test_the_live_research_step_gets_the_username_in_a_busy_store(daemon: Any) -
 def test_without_the_site_among_its_targets_the_step_does_not_recall_it(daemon: Any) -> None:
     """The negative control (I4): the same task without its site; nothing else in its query recalls the username."""
     filler(daemon)
-    owner_fact(daemon, "usvisascheduling_username", "the username is Asha Rao", subject="account:usvisascheduling")
+    understood(daemon, "usvisascheduling_username", "the username is Asha Rao", subject="account:usvisascheduling")
     script = install(daemon, [sup("task", "On it.", visa_plan(()))],
                      {"step.read": done("Read."), "worker": done("Checked.")})
     outcome(chat(daemon, "find me a visa slot"))
@@ -75,7 +75,7 @@ def test_without_the_site_among_its_targets_the_step_does_not_recall_it(daemon: 
 
 def test_a_worker_gets_ranked_memory_for_its_request_and_goal(daemon: Any) -> None:
     filler(daemon)
-    owner_fact(daemon, "usvisascheduling_username", "the username is Asha Rao", subject="account:usvisascheduling")
+    understood(daemon, "usvisascheduling_username", "the username is Asha Rao", subject="account:usvisascheduling")
     script = install(daemon, [sup("task", "On it.", task("Log in to the visa site", sites=("usvisascheduling.com",)))],
                      {"worker": done("Done.")})
     chat(daemon, "log in to the visa site")
@@ -96,7 +96,7 @@ def test_the_worker_query_is_the_request_goal_and_targets_embedded_off_the_event
             if query:
                 queries.append((text, threading.current_thread().name))
             return [1, 2, 3]
-    owner_fact(daemon, "usvisascheduling_username", "the username is Asha Rao", subject="account:usvisascheduling")
+    understood(daemon, "usvisascheduling_username", "the username is Asha Rao", subject="account:usvisascheduling")
     daemon.daemon.learning.embedder = Embedder()
     install(daemon, [sup("task", "On it.", task("Log in to the visa site", sites=("usvisascheduling.com",)))],
             {"worker": done("Done.")})
@@ -130,9 +130,9 @@ def test_the_worker_search_carries_its_targets_and_attention_and_memory_read_car
 
 def test_a_worker_gets_at_most_its_limit(daemon: Any) -> None:
     for i in range(30):
-        owner_fact(daemon, f"tomato_{i}", f"tomato tip {i}: water them in the morning", subject="project:garden")
+        understood(daemon, f"tomato_{i}", f"tomato tip {i}: water them in the morning", subject="project:garden")
     for i in range(40):
-        owner_fact(daemon, f"bicycle_{i}", f"bicycle note {i}: oil the chain", subject="project:garage")
+        understood(daemon, f"bicycle_{i}", f"bicycle note {i}: oil the chain", subject="project:garage")
     script = install(daemon, [sup("task", "On it.", task("Water the tomato plants"))], {"worker": done("Done.")})
     chat(daemon, "water my tomato plants")
     worker = next(ctx for _, key, ctx, _ in script.contexts if key == "worker")
@@ -143,7 +143,7 @@ def test_a_worker_gets_at_most_its_limit(daemon: Any) -> None:
 def test_only_the_worker_gets_memory_not_its_checker(daemon: Any) -> None:
     """I10: the checker judges fresh observations; memory goes to worker and step runs alone."""
     filler(daemon)
-    owner_fact(daemon, "usvisascheduling_username", "the username is Asha Rao", subject="account:usvisascheduling")
+    understood(daemon, "usvisascheduling_username", "the username is Asha Rao", subject="account:usvisascheduling")
     script = install(daemon, [sup("task", "On it.", task("Log in to the visa site", sites=("usvisascheduling.com",)))],
                      {"worker": done("Done.")})
     chat(daemon, "log in to the visa site")

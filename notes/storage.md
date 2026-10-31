@@ -26,6 +26,9 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
    - Codex re-pinned; `permissions_version` and new permissions re-checked;
    - old secrets, memories, schedules and episodes carried over.
    Tested on copies of real older databases and configs (the owner's own and an older build's) before release.
+6. **Finished reminders** (owner, 2026-11-01): a reminder timer that went off or was cancelled is deleted 90 days after
+   it finished, with the other operational records (decision 3); one still to come stays until the owner removes it.
+   The retention table says so (`retention.RULES`).
 
 ## What exists today (verified)
 
@@ -144,7 +147,16 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
       reaches the app as `doctor.check`'s `database.cleanup_pending` (Health → Database, the Data page, About).
       The digest refusal is tests/test_setup_flow.py::test_the_cleanup_refuses_without_the_owners_ok…; the app's
       parsing is AppScreensTests.)
-- [x] Upgrade path from any older build (decision 5), tested on copies of real older databases and configs.
+- [ ] Upgrade path from any older build (decision 5), tested on copies of real older databases and configs.
+      Open: not yet tested on a copy of a real older build's database (only the owner's store, step 12a measurements,
+      and synthetic stores below); the fixture stores were first built from today's migration files, though 0015,
+      0018, 0019, 0025, 0042, 0044, 0045, 0047 and 0048 were edited in place before checksums began (5119c2ac).
+      (2026-11-01 review fix: stores built from the first versions of 0044, 0045, 0047 and 0048, as a build that
+      updated on 10-23/24 applied them (tests/fixtures/migrations/older, from git history), reach today's schema with
+      `integrity_check` ok, no foreign-key faults, a new install's tables, their data, the search re-index resuming
+      from a node id in the column 0048 first typed INTEGER, and the activity change counter working; the first-start
+      test runs on such a store. The only schema difference left is that column's declared type, harmless for the
+      hex ids FERB makes.)
       (Step 12a: tests/test_upgrade.py builds stores as older builds left them (schemas 18, 30, 40 with the deleted 0040,
       44, 48 with and without 0040, 52, 55; the pre-checksum runner) and an older config.toml (persona under [setup],
       FERB-written limits, a retired key, keys no longer read): all reach 0056 with their data and a new install's tables;
@@ -193,6 +205,44 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
       was already paged in step 9b.)
 - [x] The 3.09 GB `ferb.db.before-restore-20261025-224330` deleted (decision 2).
 
+## Fixes (2026-11-01 review; measured on a copy of the owner's store)
+- [x] The first start after the update could fail with "database is locked" (2 of 9 measured first starts): the
+      memory clean-up (`upgrade.clean_before_tier1`) read in a deferred transaction, the search re-index worker
+      (started earlier, its own connection) committed a batch, and the clean-up's first write failed at once on its
+      stale read (the busy timeout doesn't apply to that). It begins `BEGIN IMMEDIATE`; so do the migrations
+      (`Database.migrate`). The other start-up upgrades (`upgrade_legacy`, the seeds, `close_fact_nodes`) write in
+      autocommit or begin with a write, which waits as usual. Test: tests/test_storage_fixes.py (a writer committing
+      between the read and the write).
+- [x] The compaction needed more free disk than it checked: VACUUM in WAL mode writes the whole new database into the
+      WAL (measured +1.85 GB for a 1.66 GB result) beside its temporary copy. `compaction_needs`: 2.25 times the used
+      bytes ((page_count − freelist_count) × page_size); the refusal says the figure, the preview shows it (`needed`)
+      and the app's Clean up screen shows it and the not-compacted result. Test: tests/test_storage_fixes.py (faked
+      free space), tests/test_setup_flow.py.
+- [x] The hourly checkpoint could hold the event loop up to 5 s: `wal_checkpoint(TRUNCATE)` waits the busy timeout for
+      readers. `Database.checkpoint` runs it with the busy timeout at 0 for that statement: a reader in the way makes it
+      copy what it can (as PASSIVE) and the next pass tries again; the WAL stays bounded by `journal_size_limit` either
+      way. The forget's `truncate_wal` keeps its wait (rare, owner-asked, a privacy guarantee; a miss is journaled
+      `store.wal_not_truncated` and the next hourly checkpoint empties it). Test: tests/test_storage_fixes.py.
+- [x] The clean-up's OK was refused whenever an hourly pass ran between the preview and the OK (for about 30 days after
+      the upgrade): the digest held exact counts of Jev's decisions and perception receipts, which the pass trims. Now
+      the digest covers the steps, the compaction and the exact rows of each step only the clean-up changes; steps the
+      running daemon also changes (`live`: decisions, perception receipts, relevance labels, card source rows) are
+      approved by table. A live step that empties completely in between still refuses (look again). Test:
+      tests/test_setup_flow.py.
+- [x] Plan writes that looked atomic weren't: `with conn:` on the autocommit connection opens no transaction.
+      `Database.transaction()` (`BEGIN IMMEDIATE` … COMMIT, rolled back whole on an error, joining a transaction already
+      open) now wraps `PlanStore.create`, `create_single`, `reopen` and `replace`; no other `with …conn:` in ferb/.
+      Test: tests/test_storage_fixes.py (a replace failing halfway leaves the plan as it was).
+- [x] Typed and copied text's 7-day rule (D14/P8) is a row of `retention.RULES` (`TYPED_DAYS`), with the notice text
+      derived from it; `Perception.purge_text` reads its window there (behaviour unchanged). The notices row says a
+      notice's text from typed or copied text goes with it. Test: tests/test_storage_fixes.py.
+- [x] Reminders: the RULES text says what the code does (decision 6): reminders still to come until removed, finished
+      ones with the operational records.
+- [x] The clean-up's "never touched" check covers what FERB keeps forever: learned nodes other than the old rollups
+      (`PROTECTED_ROWS`), task result cards, timers, the memory set-aside and import tables, `forgotten_refs`,
+      `memory_forgotten` (`cleanup.PROTECTED`; the test fills each and fails on a table that no longer exists).
+- No migration in these fixes.
+
 ## Rulings (step 12c, technical)
 - The retention rules are one table, `retention.RULES` (what, where, how long, the window name, the setting and its
   default): the hourly pass reads its windows from it (`retention.windows`), settings.py its retention defaults, and
@@ -223,7 +273,8 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
 - Trail purges moved from the distiller to the retention pass (one place); both are chunked and take the Jev perception
   receipts of deleted rows with them.
 - `busy_timeout` 5000 ms (what sqlite3 waited before, now explicit everywhere); `journal_size_limit` 64 MiB; after each
-  pass up to 8192 free pages are handed back in 512-page slices, then `wal_checkpoint(TRUNCATE)`. New stores start with
+  pass up to 8192 free pages are handed back in 512-page slices, then `wal_checkpoint(TRUNCATE)` (without waiting,
+  since 2026-11-01). New stores start with
   `auto_vacuum=INCREMENTAL`; an older store gets it only from the clean-up's VACUUM.
 - Context spans keep a block's own refs and drop `trail:` lists: the notes said "only `entry:` refs", but the repeat
   measure (step 9b) finds learned node ids and a card cites the owner's request entry, so those stay. `chat.summary`
@@ -232,8 +283,8 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
   tombstones (rows kept) and adds an index. Tables no code reads are dropped only by the clean-up after the OK, listed
   with their rows even when empty (so a run leaves none behind); `pending` (doctor) counts only those holding rows, so a
   new install isn't asked about empty ones.
-- The clean-up's OK is the preview's `ok` digest (its steps and counts); apply reads the plan again with the daemon
-  stopped and refuses on any difference. It journals counts even when stopped (`stopped: true`); a re-run finishes.
+- The clean-up's OK is the preview's `ok` digest (its steps and counts; since 2026-11-01 a `live` step's by table, not
+  count); apply reads the plan again with the daemon stopped and refuses on any difference. It journals counts even when stopped (`stopped: true`); a re-run finishes.
 - The card rule for old cards is today's (`card_source_plan`): a traced card keeps what its trace gives, an untraced one
   what it cites, then one activity row/learned node per distinct origin set (step 9b). Once a trace and its trail rows
   aged out, those rows' origins come from the cards that cite them, so an untraced card keeps fewer rows than it would

@@ -138,7 +138,10 @@ class Environment:
                 ["trail:" + str(row["source_id"]) for row in activity if row.get("source") and row.get("source_id")])
 
     def _availability(self) -> Any:
-        """What the planner may use right now, and what's missing with how to fix it (owner decision, 2026-09-30)."""
+        """What the planner may use, and what's missing with how to fix it (owner decision, 2026-09-30). Only facts
+        that hold across turns (the installed groups, the paired profiles, permissions): it sits in every role's
+        instructions, the planner's cached prefix included (decision 4); whether a paired profile is connected right now
+        is a live fact (`_live_facts`, "Layer 2 — right now")."""
         from ferb.orchestrator.availability import build
         registered = set().union(*(c.scopes for c in self.registry.capabilities.values()))
         problems: dict[str, str] = {}
@@ -148,22 +151,13 @@ class Environment:
             owner = [b for b in (self.pairings.all() if self.pairings else [])
                      if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
             names = {(p.browser, p.folder): p.display_name for p in self._fresh_profiles()} if owner else {}
-            live = [b for b in owner if self.hub is not None and (br := self.hub.bridges.get((b.browser, b.folder)))
-                    is not None and br.conn is not None]
             if not owner:
                 problems["owner_browsers"] = ("none of the owner's browser profiles is paired — browser_pair pairs "
                                               "one (FERB asks the owner once)")
-            elif not live and not (self.router and self.router.wake):
-                shown = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
-                                  for b in owner)
-                problems["owner_browsers"] = f"{shown} paired; {IDLE_PROFILE}"
             profiles = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
-                                 for b in live)
-            sleeping = [b for b in owner if b not in live]
-            if sleeping and self.router and self.router.wake:
-                wakeable = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
-                                     for b in sleeping)
-                profiles = (f"{profiles}; " if profiles else "none; ") + f"can wake paired profiles: {wakeable}"
+                                 for b in owner)
+            if profiles:
+                profiles = f"paired: {profiles} (whether each is connected now: the live facts)"
         prof = self._identity_profile()
         if prof is not None and self.identity_browser is None:   # FERB's own browser is part of this FERB
             problems["ferb_browser"] = "not paired yet"

@@ -170,11 +170,13 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 
 ## Rulings (step 8c, technical)
 - Conversation bounds (constants in supervisor.py): the planner reads the summary and every entry after what it covers,
-  append-only (target design 5: consecutive turns share the cached prefix; no entry is ever in neither). A fold runs
-  once that tail holds FOLD_CHUNK_TOKENS=20k beyond the last 20 exchanges (counted within a RECENT_CONVERSATION_TOKENS=15k
-  safety cap), or the whole tail passes 15k + 20k; it folds the entries beyond those exchanges, a call of at most 20k
-  each (live 2026-10-28: one fold read 533k tokens), so the tail drops back to about the last 20 exchanges: the planner
-  sees at least 20 exchanges and at most about one chunk more. The summary is asked to stay within SUMMARY_TOKENS=2k
+  append-only (target design 5: consecutive turns share the cached prefix; no entry is ever in neither). The last 20
+  exchanges are never folded or dropped, however long they are (decision 4, owner 2026-10-30: always at least the last
+  20; corrected 2026-11-01: a RECENT_CONVERSATION_TOKENS=15k cap used to shorten them, and was never the owner's). The
+  token figures only decide when what lies beyond those 20 folds: once it holds FOLD_CHUNK_TOKENS=20k, or the whole tail
+  passes RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS (15k + 20k); it folds the entries beyond those exchanges, a call
+  of at most 20k each (live 2026-10-28: one fold read 533k tokens), so the tail drops back to the last 20 exchanges: the
+  planner sees those 20 word for word and at most about one chunk more. The summary is asked to stay within SUMMARY_TOKENS=2k
   and is cut to it when shown; SUMMARY_DAYS=14 is the "~2 weeks" it keeps (the fold call is told today's date and to
   keep only those days and what's still open; summary.md got that one line); a report's short form is its first
   paragraph, 300 chars.
@@ -341,7 +343,10 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - "A run that did nothing posts nothing": a one-step scheduled run that isn't a watch gets `nothing_to_tell` in its
   report schema (role block roles/scheduled.md); true with a finished run records the result (task_results, its
   conversation) but publishes nothing, as a watch check with nothing new already did. A multi-step scheduled plan and a
-  scheduled run the planner answers without a task (a reply) always post.
+  scheduled run the planner answers without a task (a reply) always post. The worker's word alone doesn't silence a
+  run (2026-11-01): a run whose tree has a call of an acting kind that ran without an error (`cards.ACTING_KINDS`: a
+  send class, pay, submit, write_file, trash, delete_permanent, account_security; the call's own, declared or fact
+  kinds) posts whatever its worker reported (`cards.acted`, in `_final`).
 - Decision 13 gaps found: pause only ended the attempt; terminal commands and listening kept running, and the schedule
   pause depended on the planner adding schedule_changes. Now `task.paused` (the daemon's events) stops the tree's
   still-running commands (`ShellManager.stop_running`; long-lived ones stay, as at task end; their records stay so a
@@ -360,7 +365,57 @@ to commit c6621c3. S = supervisor.py, M = main.py.
   as a question it opens the notch (decision 21), and a banner only when the notch can't show. Without the tap there
   is no return, so no mention.
 
+## Rulings (2026-11-01, review fixes, technical)
+- Decision 14: the planner states what every run uses in the schedule entry itself (SCHEDULE_SCHEMA `folders`,
+  `identity`, `worker_type`, `profile`, `account`; no unions, so the planner schema stays within Anthropic's limits),
+  since a turn that makes a schedule usually has no task. Checked like a task's (an unavailable worker type, a folder
+  that names no one folder: repair). Recorded as `run_scope` inside the schedule's recorded targets (`intent_json`): no
+  migration; a schedule without it (every older one, or a planner output without `identity`) plans each run as before.
+  Stated under the "🗓 Scheduled" line ("Each run uses: …", `schedules.scope_said`) and journaled with
+  `schedule.created`. Each run: the planner sees it as `recorded_scope` in the schedule facts; code sets the run's
+  task folders, identity and worker type (every plan step's too) to the recorded ones (`Supervisor._apply_run_scope`;
+  `schedule.scope_applied` journals what the plan proposed otherwise), so `gateway.task_folders` and the worker's
+  identity are the recorded ones. The profile and account are given as facts to the planner and the worker; nothing
+  binds a browser call to a profile in the gateway yet (not for chat tasks either).
+- A scheduled run's worker (and its checker) gets the schedule facts as a data block (`_schedule_block`): rule, watch,
+  `last_reported_met`, the previous run with its answer (that answer's own origins), `recorded_scope`. Kept with the
+  plan (`schedule.facts`), so a resumed run has them.
+- An answer in chat to a question with options (check-in, paused mention, closed tab, a step's choice) counts only as
+  one of its options: the owner's words exactly, else the planner's reading exactly, else FERB asks which (`_plain_choice`,
+  as for its own checks). The owner's words stay the recorded answer; the option is the choice.
+- A check-in or runtime switch waiting at a restart is saved with its kind (`question_kind`, the attempts, the offer) and
+  asked again as itself after the restart (`_restored`): No stops with what it found. A step saved without a kind (an
+  older build, an owner pause, a closed tab) comes back as a pause, as before.
+- Decision 9: a `retry` from the checker when every outcome condition is verified met is taken as `fix_answer` (its
+  edits applied; an unproven detail marked by the one line), never a redo.
+- `{capabilities}` (every role's instructions, the planner's cached prefix) names the paired owner profiles only;
+  whether each is connected now is in the live facts ("Layer 2 — right now").
+- `Card.show` returns early only for a row that posted an answer (done/updated) in this run: a row that failed and is
+  rerun after a correction shows working / asks / paused again.
+
 ## Fix list
+- [x] Decision 14: scheduled runs use what the request recorded (folders, profile/identity/account, worker type) when
+      the schedule was made, stated then; runs never re-guess them; the planner sees them as facts. (2026-11-01: see
+      Rulings (2026-11-01); tests/test_schedules.py decision-14 section: the recorded folders and identity win over the
+      run's plan, an older schedule unchanged.)
+- [x] A free-text chat answer to an option question counted as "carry on" (check-in, paused mention, closed tab).
+      (2026-11-01: `_answer`; tests/test_execution_runs.py `test_free_text_in_chat_answers_the_check_in_only_as_one_of_its_options`.)
+- [x] A check-in asked before a restart came back as an owner pause, and "No" resumed it. (2026-11-01: `_mark_waiting`
+      saves the kind, `_restored`; tests/test_execution_runs.py `test_a_check_in_asked_before_a_restart_is_asked_again_and_no_stops`.)
+- [x] Decision 17's "a run that did nothing posts nothing" rested only on the worker's word. (2026-11-01: `cards.acted`;
+      tests/test_when_active.py `test_a_scheduled_run_that_acted_posts_whatever_its_worker_said`.)
+- [x] The watch role block (and scheduled.md) named schedule facts only the planner got. (2026-11-01: the worker's
+      schedule facts block; tests/test_schedules.py `test_a_watch_runs_worker_reads_what_its_last_check_reported`.)
+- [x] The planner's cached prefix carried live browser connection state through `{capabilities}`. (2026-11-01:
+      `_availability` stable; tests/test_memory_recall.py
+      `test_a_browser_connecting_or_disconnecting_leaves_the_cached_prefix_alone`.)
+- [x] "At least the last 20 exchanges" could fall below 20 under the 15k cap. (2026-11-01: `_recent_entries` keeps all
+      20; ruling text above; tests/test_chat_turns.py long-chat test checks all 20 word for word.)
+- [x] Decision 9's "no redo when only the answer is wrong" wasn't enforced on a `retry`. (2026-11-01: `_next`;
+      tests/test_merged_checker.py `test_a_retry_with_every_outcome_verified_fixes_the_answer_instead`.)
+- [x] A failed part rerun after a correction couldn't show working/asks/paused in its row (`Card.show`). (2026-11-01.)
+- [ ] `_timeline` reads a chat's whole history each turn (and `_keep_recent` again after it): measure on a 10× store
+      before changing it.
 - [x] Decision 17, "when you're back at your Mac": reminders and schedules fire when the owner is active at the Mac, a
       run that did nothing posts nothing, the planner expresses it. (Step 14b: `OwnerInput.away/present_since/on_return`,
       `Timers` held timers, migration 0058, `when.when_present`, `Rule.when_active`, planner `when_active` on schedule

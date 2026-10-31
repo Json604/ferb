@@ -14,9 +14,9 @@ SCALER_GUESS = ("For Scaler-related Gmail, Docs, and assignment links, the owner
                 "rather than another browser/profile.")
 
 
-def _owner_store(home: Path) -> None:
+def _owner_store(home: Path, scaler_key: str = "scaler_chrome_profile", seeded: bool = False) -> None:
     """The owner's live shapes (read 2026-10-31): M5 in their words with FERB's inferred copy beside it, and FERB's
-    inferred Scaler item that M4 replaces."""
+    inferred Scaler item that M4 replaces (`scaler_key`: its key; `seeded`: the seed already ran once)."""
     home.mkdir(parents=True)
     db = Database(home / "ferb.db")
     db.migrate()
@@ -32,7 +32,10 @@ def _owner_store(home: Path) -> None:
                   (ident, "j" + ident))
     item("88bdea14092e42da8be4dc38983a4d69", "preference", "message_call_default_app", M5, "owner_stated")
     item("fc0f1e546b6b40f5a4e2b0d328c56d3a", "preference", "message_call_default_app", M5, "inferred")
-    item("9f4693bcaec14c4c93b965117117af89", "preference", "scaler_chrome_profile", SCALER_GUESS, "inferred")
+    item("9f4693bcaec14c4c93b965117117af89", "preference", scaler_key, SCALER_GUESS, "inferred")
+    if seeded:
+        c.execute("INSERT INTO journal (id, at, kind, data_json, origin) VALUES ('seeded', ?, 'memory.owner_seed', "
+                  "'{\"version\": 1}', 'ferb')", (AT,))
     db.close()
 
 
@@ -84,3 +87,35 @@ def test_another_store_gets_none_of_them(daemon: Any) -> None:
         return dd.memory.current_items(), dd._journal().of_kind("memory.owner_seed")
     items, seeds = daemon.run(_go(read))
     assert items == [] and seeds == []
+
+
+def _current_ids(d: Any) -> set[str]:
+    return set(d.run(_go(lambda: {it.id for it in d.daemon.memory.current_items()})))
+
+
+def test_a_named_duplicate_ends_whatever_its_key(home: Path) -> None:
+    """The table names FERB's inferred Scaler item by id: it ends even when its key isn't M4's."""
+    _owner_store(home, scaler_key="scaler_profile_choice")
+    d = _own_daemon(home)
+    try:
+        assert "9f4693bcaec14c4c93b965117117af89" not in _current_ids(d)
+    finally:
+        d.stop()
+
+
+def test_a_store_seeded_before_ends_the_named_duplicate_once(home: Path) -> None:
+    """A store the seed already ran on, where the duplicate's other key kept it current: the next start ends it,
+    journaled once; a later start changes nothing."""
+    _owner_store(home, scaler_key="scaler_profile_choice", seeded=True)
+    d = _own_daemon(home)
+    try:
+        assert "9f4693bcaec14c4c93b965117117af89" not in _current_ids(d)
+        assert "88bdea14092e42da8be4dc38983a4d69" in _current_ids(d)               # the owner's words stay
+    finally:
+        d.stop()
+    again = _own_daemon(home, ids="again")
+    try:
+        rows = again.run(_go(lambda: [e.data for e in again.daemon._journal().of_kind("memory.owner_seed_duplicates")]))
+        assert [r["ended"] for r in rows] == [["9f4693bcaec14c4c93b965117117af89"]]
+    finally:
+        again.stop()

@@ -8,7 +8,7 @@ from datetime import timedelta
 from typing import Any
 
 from ferb.policy.targets import Targets
-from tests.conftest import RunningDaemon, chat, install, report, sup, task
+from tests.conftest import FakeCap, RunningDaemon, chat, install, report, sup, task, tool
 from tests.support.schedules import fire, mac_away, mac_back, make_schedule, results, run, watching
 
 NO_TIME = {"in_minutes": None, "in_days": None, "day": None, "date": None, "time": None}
@@ -158,3 +158,24 @@ def test_a_scheduled_run_that_found_nothing_to_tell_posts_nothing(daemon: Runnin
     assert [r[0] for r in recorded] == ["Nothing changed since yesterday."]
     fire(daemon, 24 * 3600)
     assert [r["answer"] for r in results(daemon)] == ["The deadline moved to Nov 5."] and len(published) == 1
+
+
+def test_a_scheduled_run_that_acted_posts_whatever_its_worker_said(daemon: RunningDaemon) -> None:
+    """Decision 17 ("a run that did nothing posts nothing") rests on facts, not only the worker's word: a run whose tree
+    has an acting call that ran (here a form submitted) posts even when its worker reported nothing_to_tell."""
+    from ferb.policy.rules import Kind
+    submit = FakeCap("probe.submit", Kind.SUBMIT, {"probe"})
+    daemon.daemon.registry.capabilities[submit.name] = submit
+    now = daemon.daemon.clock.now()
+    make_schedule(daemon, "renew the library loan", "every day renew the library loan", Targets.of(),
+                  now + timedelta(minutes=1))
+
+    def worker(token: str) -> str:
+        tool(daemon.sock, token, "probe.submit", site="kartikey.xyz", text="renew")
+        return json.dumps(report("done", "Renewed.", nothing_to_tell=True))
+    install(daemon, [sup("task", "Renewing.", task("Renew the library loan"))], {"worker": worker})
+    published: list[dict[str, Any]] = []
+    daemon.daemon.events.on({"task.result"}, lambda topic, data: published.append(data))
+    fire(daemon, 61)
+    assert submit.calls == 1
+    assert [r["answer"] for r in results(daemon)] == ["Renewed."] and len(published) == 1

@@ -34,6 +34,13 @@ def said(d: Any, text: str, session: str, request: str, reply: str = "") -> str:
     return jid
 
 
+def understood(d: Any, key: str, content: str, subject: str) -> Any:
+    """FERB's understanding of a fact (not yet holding up): found by search, never in the always-on profile (the owner's
+    own words would join it at once, decision 18)."""
+    src = journal(d, "chat.message", {"text": content})
+    return run(d, lambda: d.daemon.memory.propose("fact", subject, key, content, "inferred", [("journal", src)]))
+
+
 def planner_context(script: Any) -> str:
     return [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
 
@@ -43,7 +50,7 @@ def planner_context(script: Any) -> str:
 def test_one_search_finds_facts_past_tasks_and_old_chat_by_meaning(daemon: Any) -> None:
     """None of these share a word with the query; the local model's nearest find them (keywords alone don't)."""
     d = daemon.daemon
-    owner_fact(daemon, "music", "I am learning piano", subject="hobby:music")
+    understood(daemon, "music", "I am learning piano", subject="hobby:music")
     put_card(daemon, "t-mail", "Send outreach emails to recruiters", how="Used Gmail drafts, one per recruiter")
     said(daemon, "which keyboard should I buy for sonatas", "s-old", "r-old", reply="A 61-key keyboard is fine.")
     d.learning.embedder = FakeEmbedder()
@@ -108,7 +115,7 @@ def test_facts_are_searched_in_memory_items_with_no_copies_in_learning_nodes(dae
     the copies an older build left close once (journaled, idempotent)."""
     from ferb.memory.upgrade import close_fact_nodes
     d = daemon.daemon
-    item = owner_fact(daemon, "dentist", "my dentist is Dr. Rao", subject="person:dr_rao")
+    item = understood(daemon, "dentist", "my dentist is Dr. Rao", subject="person:dr_rao")
     script = install(daemon, [sup("reply", "Dr. Rao.")])
     chat(daemon, "who is my dentist?")
     assert "my dentist is Dr. Rao" in planner_context(script)
@@ -365,7 +372,7 @@ def test_the_profile_and_so_the_cached_prefix_change_only_when_a_profile_entry_c
     src = journal(daemon, "chat.message", {"text": "x"})
     run(daemon, lambda: d.memory.propose("fact", "owner", "guess", "The owner may like jazz", "inferred",
                                          [("journal", src)]))
-    owner_fact(daemon, "shop", "the shop is on MG Road", subject="place:shop")   # not about the owner: not in it
+    understood(daemon, "shop", "the shop is on MG Road", subject="place:shop")   # not holding up yet: not in it
     daemon.run(d._refresh_cards())
     daemon.run(d._merge_playbooks())
     daemon.run(d._embed_now())
@@ -374,6 +381,37 @@ def test_the_profile_and_so_the_cached_prefix_change_only_when_a_profile_entry_c
     changed = system()
     assert changed != first and "never use emojis" in changed
     assert system() == changed
+
+
+def test_a_browser_connecting_or_disconnecting_leaves_the_cached_prefix_alone(daemon: Any) -> None:
+    """Decision 4 (target design 5): what's usable (`{capabilities}` in the instructions) holds only stable facts, the
+    paired profiles; whether one is connected right now is a live fact after the conversation."""
+    from types import SimpleNamespace
+    from ferb.core.types import Identity
+    d = daemon.daemon
+    binding = SimpleNamespace(identity=Identity.OWNER, browser="chrome", folder="Profile 7", install_id="i7")
+    bridge = SimpleNamespace(conn=None)
+
+    def wire() -> None:
+        d.pairings = SimpleNamespace(all=lambda: [binding], for_profile=lambda browser, folder: binding
+                                     if (browser, folder) == ("chrome", "Profile 7") else None)
+        d.hub = SimpleNamespace(bridges={("chrome", "Profile 7"): bridge}, unpaired={}, refused={})
+        d._fresh_profiles = lambda: [SimpleNamespace(browser="chrome", folder="Profile 7", display_name="Work")]
+        d.supervisor.availability = d._availability
+    run(daemon, wire)
+    script = install(daemon, [sup("reply", "Ok.")] * 3)
+
+    def turn() -> tuple[str, str]:
+        chat(daemon, "hello", session="browsers")
+        return (str([req.system for _, key, req in script.requests if key == "supervisor"][-1]),
+                planner_context(script))
+    idle_system, idle_context = turn()
+    assert "Work" in idle_system and "“Work”: paired, connected" not in idle_context
+    bridge.conn = object()                                               # the profile connects
+    live_system, live_context = turn()
+    assert live_system == idle_system and "“Work”: paired, connected" in live_context
+    bridge.conn = None                                                   # and disconnects
+    assert turn()[0] == idle_system
 
 
 def test_a_burst_of_owner_facts_stays_within_budget_with_at_most_one_early_pass_a_day(daemon: Any) -> None:

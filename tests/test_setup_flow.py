@@ -643,6 +643,17 @@ def _old_store(home: Path) -> dict[str, Any]:
               "'active', 1.0, '2026-10-01', '2026-10-01', '2026-10-01')")
     c.execute("INSERT INTO journal (id, at, kind, data_json, origin) VALUES ('j1', '2026-10-01T00:00:00+00:00', "
               "'chat.message', '{\"text\": \"hi\"}', 'owner')")
+    at = "2026-10-01T00:00:00+00:00"                                     # what FERB keeps forever beside them
+    c.execute("INSERT INTO task_result_cards VALUES ('c0ffee01', '[]')")
+    c.execute("INSERT INTO timers (id, kind, fire_at, message, state, delivered_at, created_at) VALUES "
+              "('tm1', 'reminder', ?, 'tea', 'delivered', ?, ?)", (at, at, at))
+    c.execute("INSERT INTO memory_set_aside VALUES ('mem1', ?, 'not about the owner')", (at,))
+    c.execute("INSERT INTO memory_import_runs (id, source, status, started_at, updated_at) VALUES "
+              "('run1', 'chatgpt', 'done', ?, ?)", (at, at))
+    c.execute("INSERT INTO memory_import_done VALUES ('chatgpt', 'part1', 'run1', ?)", (at,))
+    c.execute("INSERT INTO memory_import_items VALUES ('mem1', 'chatgpt', 'run1', ?)", (at,))
+    c.execute("INSERT INTO forgotten_refs VALUES ('trail:gone', ?)", (at,))
+    c.execute("INSERT INTO memory_forgotten VALUES ('print1', ?)", (at,))
     db.close()
     return {"versions": versions, "rule": rule, "copied": kept | shown, "rollup": rollup}
 
@@ -650,13 +661,16 @@ def _old_store(home: Path) -> dict[str, Any]:
 def _protected(home: Path) -> dict[str, list[Any]]:
     """Every row of every table decision 4 protects, order-free (VACUUM may renumber rowids)."""
     import sqlite3
-    from ferb.store.cleanup import PROTECTED
+    from ferb.store.cleanup import PROTECTED, PROTECTED_ROWS
     c = sqlite3.connect(home / "ferb.db")
+    where = PROTECTED_ROWS | {"journal": "kind NOT LIKE 'store.%'"}            # the journal: but the run's own records
     try:
         names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        return {t: sorted(map(repr, c.execute(f"SELECT * FROM {t}" + (" WHERE kind NOT LIKE 'store.%'"   # its records
-                                                                        if t == "journal" else ""))))
-                for t in PROTECTED if t in names}
+        assert set(PROTECTED) <= names                                   # a renamed table can't slip out of the check
+        rows = {t: sorted(map(repr, c.execute(f"SELECT * FROM {t}" + (f" WHERE {where[t]}" if t in where else ""))))
+                for t in PROTECTED}
+        assert rows["learning_nodes"] and rows["timers"] and rows["memory_import_items"]   # the fixture fills them
+        return rows
     finally:
         c.close()
 
@@ -734,6 +748,32 @@ def test_the_cleanup_refuses_without_the_owners_ok_and_starts_the_daemon_again(w
     assert (_q(world["home"], "SELECT COUNT(*) FROM learning_sources"),
             _q(world["home"], "SELECT COUNT(*) FROM decisions")) == before
     assert _journal_kinds(world["home"]) == [] and world["runner"].loaded
+
+
+def test_the_ok_holds_while_the_hourly_pass_trims_rows_and_not_when_a_row_only_the_cleanup_removes_changes(
+        world: dict[str, Any]) -> None:
+    """The owner's OK covers the steps and the rows only the clean-up changes; the running daemon's hourly pass ages
+    out Jev's decisions and perception receipts between the preview and the OK, which must not refuse it."""
+    import sqlite3
+    world["inst"].install()
+    _old_store(world["home"])
+    ok = _preview(world)["ok"]
+
+    def write(sql: str) -> None:
+        c = sqlite3.connect(world["home"] / "ferb.db")
+        c.execute(sql)
+        c.commit()
+        c.close()
+    write("DELETE FROM decisions WHERE id IN ('d0', 'd1')")             # the hourly pass, meanwhile
+    write("DELETE FROM perception_receipts WHERE rowid = (SELECT MIN(rowid) FROM perception_receipts)")
+    assert _preview(world)["ok"] == ok
+    write("INSERT INTO task_memory_refs VALUES ('c0ffee01', 'memory:m9')")   # not what the owner saw
+    code, text, result = _apply(world, ok)
+    assert code == 2 and result["refused"] is True
+    write("DELETE FROM task_memory_refs WHERE ref = 'memory:m9'")
+    code, text, result = _apply(world, ok)
+    assert code == 0, text
+    assert _q(world["home"], "SELECT COUNT(*) FROM decisions") == 0
 
 
 def test_the_cleanup_runs_with_the_daemon_stopped_removes_only_what_was_shown_and_journals_it(

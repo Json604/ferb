@@ -169,9 +169,8 @@ class ImportJob:
         entry: str | None = None
         failures, last_error = 0, ""
         for chunk in plan.chunks:
-            await self._wait_idle(run_id, counts)
             try:
-                facts = await self._chunk(chunk, index, counts)
+                facts = await self._chunk(run_id, chunk, index, counts)
             except asyncio.CancelledError:
                 raise
             except Exception as e:                       # the chunk stays unread: a later start tries it again
@@ -212,12 +211,13 @@ class ImportJob:
                 told = True
             await asyncio.sleep(self.idle_poll)
 
-    async def _chunk(self, chunk: ex.Chunk, index: ex.OwnerIndex, counts: dict[str, Any]) -> list[ex.Verified]:
+    async def _chunk(self, run_id: str, chunk: ex.Chunk, index: ex.OwnerIndex,
+                     counts: dict[str, Any]) -> list[ex.Verified]:
         task = Task(f"memory-import-{ex.digest(chunk.source, *(p.key for p in chunk.parts))[:12]}", None,
                     f"import memory from {SOURCES[chunk.source]}", self.device_id, Identity.OWNER, set(), "verifier",
                     "memory-import", [], None)
-        answer = await self._call(task, "memory/import_recall.md", chunk.text, ex.RECALL_SCHEMA, "memory_import_recall",
-                                  counts)
+        answer = await self._call(run_id, task, "memory/import_recall.md", chunk.text, ex.RECALL_SCHEMA,
+                                  "memory_import_recall", counts)
         candidates, dropped = ex.check_recall(answer, chunk, index, self.redact)
         counts["candidates"] += len(candidates) + len(dropped)
         counts["dropped"] += len(dropped)
@@ -225,17 +225,20 @@ class ImportJob:
         for batch in _batches(candidates):
             held = await ex.similar_held(self.memory, batch, self.similar)
             ctx = ex.verify_context(chunk.source, batch, held, label)
-            answer = await self._call(task, "memory/import_verify.md", ctx, ex.VERIFY_SCHEMA, "memory_import_verify",
-                                      counts)
+            answer = await self._call(run_id, task, "memory/import_verify.md", ctx, ex.VERIFY_SCHEMA,
+                                      "memory_import_verify", counts)
             kept, _gone = ex.check_verify(answer, batch, {it.id for it in held}, chunk.source)
             facts += kept
             counts["dropped"] += len(batch) - len(kept)
             counts["verified"] += len(kept)
         return facts
 
-    async def _call(self, task: Task, prompt: str, ctx: str, schema: dict[str, Any], role: str,
+    async def _call(self, run_id: str, task: Task, prompt: str, ctx: str, schema: dict[str, Any], role: str,
                     counts: dict[str, Any]) -> dict[str, Any]:
+        """One model call of the import, each after the owner's chat turn is over (`_wait_idle`): a recall or any of
+        its verify calls, never during a turn."""
         from ferb.memory.calls import learning_call
+        await self._wait_idle(run_id, counts)
         rt = self.make_runtime("worker", mode="supervisor", tool_names=[], schema=schema)
         counts["model_calls"] += 1
         text = await learning_call(rt, task, load_prompt(prompt), ctx, f"imported history ({role})", schema,

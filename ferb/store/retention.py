@@ -2,7 +2,8 @@
 design 1; memory decision 3), read first and deleted in short batches. Must not delete what nothing else preserves.
 
 Kept forever (never named here): the task list and task results, episodes and how-notes, memory and learned nodes,
-owner verdicts, schedules, known destinations, conversations, and the journal's owner and chat rows and day summaries.
+owner verdicts, schedules and reminders still to come, known destinations, conversations, and the journal's owner and
+chat rows and day summaries.
 
 Aged out:
 - spans: a task tree's 30 days (`retention.trace_days`) after it ended, and only once its permanent episode exists
@@ -13,7 +14,8 @@ Aged out:
   last write; a journal row a memory fact cites is kept;
 - Jev decisions after `retention.decision_days` (30);
 - activity rows (ferb/sense/trail.py): accessibility after 7 days, the rest after `sense.trail_retention_days` (30) once
-  their day's summary exists;
+  their day's summary exists; the text of typed and copied rows, and the notice text derived from it, after
+  `TYPED_DAYS` (7; the rows stay, ferb/sense/perception.py `purge_text`);
 - evidence media and shell logs (7, ferb/act/evidence/store.py), recovery copies (7, ferb/act/fs/recovery.py), resource
   samples (30, ferb/daemon/resources.py): purged by the stores that own their files, in the same pass.
 
@@ -29,6 +31,7 @@ from ferb.store.spans import tree_where
 MIN_DAYS = 1        # a retention of 0 days would purge what was just kept, before the checker or the owner could use it
 OPERATIONAL_DAYS = 90                   # decision 3 (owner, 2026-10-30)
 ACCESSIBILITY_DAYS = 7                  # memory decision 3 (owner): accessibility rows are kept 7 days
+TYPED_DAYS = 7                          # D14/P8 (owner): typed and copied text expires after 7 days
 # Ruling (step 12a): rows a delete transaction takes; small enough that a write elsewhere waits a few milliseconds
 BATCH = 200
 # Decision 3's "operational journal kinds": the daemon's own bookkeeping, failures and progress records. Owner and chat
@@ -95,16 +98,20 @@ RULES: tuple[Rule, ...] = (
     Rule("your tasks, their results and your verdicts", DB, "forever"),
     Rule("what each task did (episodes) and how-notes", DB, "forever"),
     Rule("what FERB remembers about you and what it learned", DB, "until you forget it (Memory page)"),
-    Rule("your chats with FERB, notices and day summaries", DB, "forever"),
-    Rule("schedules, reminders and the sites and people you approved", DB, "until you remove them"),
+    Rule("your chats with FERB, notices and day summaries", DB, "forever (a notice's text from typed or copied text: "
+         "with that text)"),
+    Rule("schedules, reminders still to come and the sites and people you approved", DB,
+         "until you remove them (a reminder that went off or was cancelled goes with the operational records)"),
     Rule("each task's full trace (every model and tool call)", DB, "after the task ends, once its episode exists",
          "trace_days", ("retention", "trace_days"), 30),
-    Rule("operational records (actions taken, confirmations, plans, loop state, finished timers, FERB's own "
-         "bookkeeping)", DB, "after their task or timer ends", "operational_days", ("retention", "operational_days"),
+    Rule("operational records (actions taken, confirmations, plans, loop state, finished reminders and timers, FERB's "
+         "own bookkeeping)", DB, "after their task or timer ends", "operational_days", ("retention", "operational_days"),
          OPERATIONAL_DAYS),
     Rule("Jev's decisions (Jev is switched off)", DB, "after they were made", "decision_days",
          ("retention", "decision_days"), 30),
     Rule("text read from apps on screen (accessibility)", DB, "after it was read", None, None, ACCESSIBILITY_DAYS),
+    Rule("text you typed or copied, and notice text that came from it", DB,
+         "after it was typed or copied (the record that you typed or copied stays)", None, None, TYPED_DAYS),
     Rule("other activity on this Mac (apps, windows, pages, files, notifications)", DB,
          "once that day's summary exists", "trail_days", ("sense", "trail_retention_days"), 30),
     Rule("screenshots, evidence and shell output", "~/.ferb/evidence and ~/.ferb/logs/shell on this Mac",

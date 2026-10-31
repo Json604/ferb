@@ -253,6 +253,12 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       known by the items the table names (`OWNER_STORE_ITEMS`): a friend's install or a fresh store gets none.
       Placement: subject "owner" → Tier 1 at once (decision 18); M7 subject project:scaler and M8 project:study-material
       → search only. tests/test_owner_memory_seed.py.)
+      (2026-11-01: the inferred duplicates end by the ids the table names (`duplicates`: 9f4693bc on M4, fc0f1e54 on
+      M5), whatever their key, as well as by the same key; on a store the seed already ran on, the next start ends a
+      named duplicate still current (`retire_named_duplicates`, inferred items only, journaled
+      `memory.owner_seed_duplicates` once, idempotent). Since memory decision 18 now lets the owner's words about anything
+      join Tier 1, M7/M8's search-only placement is recorded explicitly (`memory.search_only`, also written on a store
+      seeded before). tests/test_owner_memory_seed.py.)
 - [x] Live re-test list: the original task behind each removed patch. (Step 10b: notes/tests.md "Live re-test list
       (step 13)".)
 - [x] "About FERB" in every prompt (notes/daemon.md decision 6) without breaking the contract. (Step 12c: one fact
@@ -283,6 +289,14 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       folder's cap FERB asks the owner whether to delete the oldest (replacing "the oldest copies move to the Trash").
       Tool results (not descriptions) carry `screen_changed_during_call` and, for a windowless app, the reopen / New
       Window options.
+
+- [x] Lines for orchestration decision 14 and the schedule facts a run's worker gets (2026-11-01), minimal:
+      supervisor.md "Schedules and reminders": the schedule's field list adds what every run uses, resolved now as for a
+      task (folders, identity, worker_type, profile, account; "" when none), and "FERB states it to the owner".
+      scheduled.md: the scope that holds is the targets, standing_sends and `recorded_scope` in the schedule facts,
+      which FERB applies to the run's task (it said "targets, folders, account and standing_sends hold" before any of
+      that was recorded). roles/scheduled.md: one sentence that the schedule facts give the previous run with its answer
+      and `recorded_scope`. The watch role block is unchanged: its `last_reported_met` now reaches the worker.
 
 ## Expected size
 Planner static ≈53k → ≈15k chars; worker system ≈47k → ≈9k; plus ≈38k less per worker/checker run from the catalog

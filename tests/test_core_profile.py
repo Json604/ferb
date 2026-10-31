@@ -95,6 +95,24 @@ def test_a_preference_the_owner_states_joins_at_once_and_understanding_waits_to_
     assert run(daemon, lambda: d.profile.holds_up(d.memory.get(guess.id)))     # stood a weekly pass uncorrected
 
 
+def test_the_owners_words_about_anything_join_at_once_unless_placed_by_search(daemon: Any) -> None:
+    """Decision 18: the owner's own words join at once, whatever they are about (a project, a person); a fact the owner
+    placed by search (prompts decision 4's M7/M8, journaled by the seed) never does; FERB's understanding about someone
+    else doesn't join at once."""
+    from ferb.memory.profile import SEARCH_ONLY_KIND
+    d = daemon.daemon
+    project = owner_fact(daemon, "thesis_deadline", "my thesis is due on Dec 12", subject="project:thesis")
+    person = owner_fact(daemon, "sam_role", "Sam is my landlord", kind="person", subject="person:sam")
+    run(daemon, lambda: d._journal().append(SEARCH_ONLY_KIND, {"keys": [["project:scaler", "scaler_groups"]]}))
+    placed = owner_fact(daemon, "scaler_groups", "check all group names containing SST", subject="project:scaler")
+    src = journal(daemon, "chat.message", {"text": "Sam fixed the sink"})
+    guess = run(daemon, lambda: d.memory.propose("person", "person:sam", "sam_handy", "Sam is handy", "inferred",
+                                                 [("journal", src)]))
+    ids = run(daemon, d.profile.ids)
+    assert project.id in ids and person.id in ids
+    assert placed.id not in ids and guess.id not in ids
+
+
 def test_forget_and_retire_take_an_entry_out_at_once(daemon: Any) -> None:
     d = daemon.daemon
     a = owner_fact(daemon, "a", "always use dark mode", kind="preference")

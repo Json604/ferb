@@ -132,6 +132,10 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       already existed: a file write checked = tests/test_careful_checks.py, a forget removes the item =
       tests/test_forget_in_chat.py. Then 106 files the runs and the safety files make redundant were deleted (see
       "Step 12d: the deletion" below).
+      2026-11-01 (review): both runs confirmed present and passing through the real daemon and gateway (the file write
+      checked by the checker: tests/test_careful_checks.py, e.g. the shell replace that hits a table header; the forget:
+      tests/test_forget_in_chat.py `test_chat_can_forget_after_a_yes_to_a_question_naming_what_goes`); no new run
+      needed. tests/test_merged_checker.py's schema-shape test now covers the `scheduled` flag too.
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
       (Step 12d: kept whole: every file of the target design's safety suite and every past-bug guard listed above (all
       in kept files; test_front_window_context is kept, so its packaged-interpreter guard stays where it is). Moved: the
@@ -141,6 +145,10 @@ A small suite that guards what live use can't show: the safety floor, plus a han
 - [x] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
       (Step 12a: upgrade-from-old-DB done: tests/test_upgrade.py builds stores as older builds left them (schemas 18–55,
       the pre-checksum runner, the deleted 0040 from git history) and an older config.toml, and upgrades them.)
+      (2026-11-01 correction: those stores were built from today's migration files, which older builds didn't all apply
+      as they are now (files edited in place before checksums, notes/storage.md); stores built from the first versions
+      of 0044, 0045, 0047 and 0048 (tests/fixtures/migrations/older) now upgrade with an integrity check. A copy of a
+      real older build's database (storage decision 5) is still open.)
       (Step 12d: import check tests/test_imports.py (every ferb module but `__main__` entry points, in a fresh
       interpreter with a temporary FERB home); vendor table + fuzz in tests/test_redaction_rebuild.py (the table, the
       idempotence/JSON/stream fuzz from 6a, and `test_a_vendor_secret_anywhere_in_ordinary_text_is_always_masked`, which

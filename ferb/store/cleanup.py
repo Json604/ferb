@@ -10,13 +10,16 @@ What it removes (`preview` lists each with its row count; nothing else is ever d
 - episode cards' source rows the current card rule no longer gives them (`Learning.card_source_plan`);
 - tables no code reads or writes any more (`DROPPED`): dropped, with whatever rows they hold, only here (until then an
   install keeps them, unread).
-Then the file is compacted once with incremental auto-vacuum (`Database.compact`, only with free disk of at least the
-database's size), so later hourly passes hand free pages back to the disk.
+Then the file is compacted once with incremental auto-vacuum (`Database.compact`, only with the free disk
+`compaction_needs` gives: about twice what the database holds), so later hourly passes hand free pages back to the
+disk.
 
 The owner's OK is the preview's `ok` digest: `apply` reads the plan again with the daemon stopped and refuses, deleting
-nothing, when it differs from what the owner saw. Deletes run in batches, each its own transaction, so a stop or a crash
-keeps what was done and the next run finishes. The counts are journaled (`store.cleaned`), and so is the compaction
-(`store.compacted`)."""
+nothing, when it differs from what the owner saw (its steps, the compaction, and the rows of each step only the
+clean-up changes: a running daemon's hourly pass also trims Jev's decisions, perception receipts and relevance labels,
+and its new cards and aging traces change the card source count, so those steps are approved by name, not by count).
+Deletes run in batches, each its own transaction, so a stop or a crash keeps what was done and the next run finishes.
+The counts are journaled (`store.cleaned`), and so is the compaction (`store.compacted`)."""
 
 import hashlib
 import json
@@ -24,7 +27,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from ferb.store.db import store_size
+from ferb.store.db import compaction_needs, store_size
 
 CLEANED = "store.cleaned"            # journal: what a run removed (counts only)
 COMPACTED = "store.compacted"        # journal: the compaction (sizes only)
@@ -49,10 +52,18 @@ DROPPED = (
     ("learning_receipts", "procedure receipts (learning removed in step 3)"),
     ("learning_jobs", "learning job states (learning removed in step 3)"),
 )
-# Never written by a run (the test asserts it): what decision 4 protects
-PROTECTED = ("memory_items", "memory_sources", "memory_profile", "memory_context", "episodes", "episode_how", "journal",
-             "tasks", "task_results", "task_context", "schedules", "schedule_ends", "conversations", "owner_verdicts",
-             "spans", "trail", "known_destinations", "standing_permissions", "recall_vectors", "chat_fts")
+# Tables of EMPTIED whose rows the hourly retention pass also trims while the daemon runs (decisions after 30 days,
+# perception receipts with their activity rows): their steps are `live` (see `plan`)
+TRIMMED = frozenset({"decisions", "perception_receipts"})
+# Never written by a run (the test asserts it): what decision 4 protects and what FERB keeps forever
+PROTECTED = ("memory_items", "memory_sources", "memory_profile", "memory_context", "memory_set_aside",
+             "memory_import_runs", "memory_import_done", "memory_import_items", "memory_forgotten", "forgotten_refs",
+             "episodes", "episode_how", "journal", "tasks", "task_results", "task_result_cards", "task_context",
+             "schedules", "schedule_ends", "timers", "conversations", "owner_verdicts", "spans", "trail",
+             "known_destinations", "standing_permissions", "recall_vectors", "chat_fts", "learning_nodes")
+# The protected rows of a table a run also removes from: every learned node (episode cards, playbooks, how-notes) but
+# the old rollups
+PROTECTED_ROWS = {"learning_nodes": f"made_by IS NOT '{ROLLUP_MAKER}'"}
 
 
 def _count(conn: Any, sql: str, *params: Any) -> int:
@@ -67,16 +78,17 @@ def _learning(db: Any) -> Any:
 
 def plan(db: Any) -> dict[str, Any]:
     """What a run would remove, read without writing (`db`: anything with a `conn`, a read-only one included):
-    `steps` (table, rows, what), `rows` in all, `compact` (the file still needs its one-time compaction), and `ok`,
-    the digest the owner's OK carries. `cards` is the card plan `apply` follows."""
+    `steps` (table, rows, what; `live` when the running daemon's hourly pass also changes its rows), `rows` in all,
+    `compact` (the file still needs its one-time compaction), and `ok`, the digest the owner's OK carries. `cards` is
+    the card plan `apply` follows."""
     conn = db.conn
     steps: list[dict[str, Any]] = []
     for table, what in EMPTIED:
         if n := _count(conn, f"SELECT COUNT(*) FROM {table}"):
-            steps.append({"table": table, "rows": n, "what": what})
-    if n := _count(conn, "SELECT COUNT(*) FROM trail WHERE relevance IS NOT NULL"):
+            steps.append({"table": table, "rows": n, "what": what} | ({"live": True} if table in TRIMMED else {}))
+    if n := _count(conn, "SELECT COUNT(*) FROM trail WHERE relevance IS NOT NULL"):     # activity rows age out hourly
         steps.append({"table": "trail.relevance", "rows": n, "what": "Jev's relevance labels on activity rows (only "
-                                                                     "the label; the rows stay)"})
+                                                                     "the label; the rows stay)", "live": True})
     if n := _count(conn, "SELECT COUNT(*) FROM learning_nodes WHERE made_by = ?", ROLLUP_MAKER):
         sources = _count(conn, "SELECT COUNT(*) FROM learning_sources WHERE node_id IN (SELECT id FROM learning_nodes "
                                "WHERE made_by = ?)", ROLLUP_MAKER)
@@ -92,22 +104,26 @@ def plan(db: Any) -> dict[str, Any]:
     if n := sum(map(len, cards["drop"].values())):
         steps.append({"table": "learning_sources", "rows": n,
                       "what": f"episode cards' source rows the current card rule no longer gives them "
-                              f"({len(cards['drop'])} of {cards['nodes']} card versions)"})
+                              f"({len(cards['drop'])} of {cards['nodes']} card versions)",
+                      "live": True})                         # new cards, and traces aging out, change these counts
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     for table, what in DROPPED:
         if table in names:
             steps.append({"table": table, "rows": _count(conn, f"SELECT COUNT(*) FROM {table}"),
                           "what": what + "; the table is dropped", "drop": True})
     compact = int(conn.execute("PRAGMA auto_vacuum").fetchone()[0]) != 2
-    shown = {"steps": steps, "compact": compact}
-    return shown | {"rows": sum(s["rows"] for s in steps),
-                    "ok": hashlib.sha256(json.dumps(shown, sort_keys=True).encode()).hexdigest()[:16],
-                    "cards": cards}
+    # What the OK approves: every step and the compaction, with the exact rows of each step nothing else changes; a
+    # `live` step (rows the hourly pass trims, or cards it adds, between the preview and the OK) by its table only
+    approved = {"steps": [{"table": s["table"], "live": True} if s.get("live") else s for s in steps],
+                "compact": compact}
+    return {"steps": steps, "compact": compact, "rows": sum(s["rows"] for s in steps),
+            "ok": hashlib.sha256(json.dumps(approved, sort_keys=True).encode()).hexdigest()[:16], "cards": cards}
 
 
 def preview(path: Path, free: Callable[[Path], int] = lambda folder: shutil.disk_usage(folder).free) -> dict[str, Any]:
-    """`plan` on a read-only connection (a daemon may be running), with the file's size and the disk's free space,
-    without the card plan: what the app shows the owner."""
+    """`plan` on a read-only connection (a daemon may be running), with the file's size, the free disk the compaction
+    needs (`needed`, read before anything is removed, so at most what it will need) and the disk's free space, without
+    the card plan: what the app shows the owner."""
     import sqlite3
 
     class ReadOnly:
@@ -118,10 +134,11 @@ def preview(path: Path, free: Callable[[Path], int] = lambda folder: shutil.disk
     db = ReadOnly()
     try:
         out = plan(db)
+        needed = compaction_needs(db.conn)
     finally:
         db.conn.close()
     out.pop("cards")
-    return out | {"bytes": store_size(path), "free": free(path.parent)}
+    return out | {"bytes": store_size(path), "needed": needed, "free": free(path.parent)}
 
 
 def pending(path: Path) -> bool:

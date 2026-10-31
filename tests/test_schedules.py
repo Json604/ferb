@@ -515,3 +515,78 @@ def test_a_schedule_made_before_ends_existed_runs_on_unchanged(tmp_path: Path, d
     after = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
     assert "until" not in card and card["next_run"] == after.next_run.isoformat() and after.state == "active"
     assert "Schedule ended" not in result["answer"]
+
+
+# ---------- decision 14: what every run uses is recorded when the schedule is made ----------
+
+def _scoped_schedule(d: RunningDaemon, words: str, folders: list[str], identity: str, profile: str) -> str:
+    reply = json.loads(schedule_reply(d, "tidy my downloads", words, d.daemon.clock.now() + timedelta(minutes=1),
+                                      repeat="daily", paths=()))
+    reply["schedule"] |= {"until": None, "when_active": False, "folders": folders, "identity": identity,
+                          "worker_type": "default", "profile": profile, "account": ""}
+    return json.dumps(reply)
+
+
+def test_a_scheduled_run_uses_the_folders_and_identity_recorded_when_it_was_made(daemon: RunningDaemon) -> None:
+    """Decision 14 (owner, 2026-10-30): folders, profile/identity and worker type are fixed when the schedule is made
+    and stated then; an unattended run never re-guesses them. The run's plan proposes other folders and FERB's own
+    identity: the run works in the recorded folder as the owner, and its worker is given the recorded scope."""
+    words = "every day tidy my downloads folder in my Work profile"
+    sv = daemon.daemon.supervisor
+    seen: dict[str, Any] = {}
+
+    def worker(token: str) -> str:
+        grant = daemon.daemon.tokens.validate(token)
+        seen["folders"] = sv.gateway.task_folders.get(grant.task_id.split(".", 1)[0], ())
+        seen["identity"] = grant.identity
+        return json.dumps({"status": "done", "summary": "Tidied.", "artifacts": [], "evidence": []})
+    proposed = task("Tidy the documents") | {"folders": ["~/Documents"], "identity": "ferb"}
+    script = install(daemon, [_scoped_schedule(daemon, words, ["~/Downloads"], "owner", "Work"),
+                              sup("task", "Tidying.", proposed)], {"worker": worker})
+    told = "\n".join(str(e.get("text")) for e in chat(daemon, words))
+    assert "~/Downloads" in told and "Work" in told                    # stated, so the owner can correct it
+    [s] = run(daemon, daemon.daemon.schedules.all)
+    downloads = str(Path.home() / "Downloads")
+    assert s.run_scope == {"folders": [downloads], "identity": "owner", "worker_type": "default", "profile": "Work",
+                           "account": ""}
+    fire(daemon, 61)
+    assert seen["folders"] == (downloads,) and getattr(seen["identity"], "value", seen["identity"]) == "owner"
+    run_planner = [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
+    assert "recorded_scope" in run_planner                              # the run's planner sees it as a fact
+    worker_ctx = [ctx for _, key, ctx, _ in script.contexts if key == "worker"][-1]
+    assert "Schedule facts" in worker_ctx and "recorded_scope" in worker_ctx and "Work" in worker_ctx
+    applied = run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.scope_applied", "schedule_id", s.id))
+    assert applied and applied[-1].data["proposed"]["identity"] == "ferb"
+
+
+def test_a_schedule_made_before_decision_14_plans_each_run_as_before(daemon: RunningDaemon) -> None:
+    """An older schedule (no recorded scope) keeps working: its run's task keeps the folders its plan resolved."""
+    sv = daemon.daemon.supervisor
+    seen: dict[str, Any] = {}
+
+    def worker(token: str) -> str:
+        grant = daemon.daemon.tokens.validate(token)
+        seen["folders"] = sv.gateway.task_folders.get(grant.task_id.split(".", 1)[0], ())
+        return json.dumps({"status": "done", "summary": "Tidied.", "artifacts": [], "evidence": []})
+    s = make_schedule(daemon, "tidy my downloads", "every day tidy my downloads", Targets.of(),
+                      daemon.daemon.clock.now() + timedelta(minutes=1))
+    assert s.run_scope is None
+    install(daemon, [sup("task", "Tidying.", task("Tidy the downloads") | {"folders": ["~/Downloads"]})],
+            {"worker": worker})
+    fire(daemon, 61)
+    assert seen["folders"] == (str(Path.home() / "Downloads"),)
+
+
+def test_a_watch_runs_worker_reads_what_its_last_check_reported(daemon: RunningDaemon) -> None:
+    """The watch role block points the worker at last_reported_met in the schedule facts: the worker now gets them
+    (with the previous run and its answer), not only the planner."""
+    now = daemon.daemon.clock.now()
+    s = make_schedule(daemon, "tell me when the battery is below 20%", "tell me when the battery is below 20%",
+                      Targets.of(), now + timedelta(minutes=1), repeat="every", every=10, watch="standing")
+    run(daemon, lambda: daemon.daemon.schedules.reported(s.id, True))
+    watch = json.dumps({"status": "done", "reason": "", "question": None, "answer": "Battery at 15%.",
+                        "artifacts": [], "how": "", "watch_met": True})
+    script = install(daemon, [sup("task", "Checking.", task("Check the battery level"))], {"worker": watch})
+    fire(daemon, 61)
+    worker_ctx = [ctx for _, key, ctx, _ in script.contexts if key == "worker"][-1]
+    assert "Schedule facts" in worker_ctx and '"last_reported_met": true' in worker_ctx

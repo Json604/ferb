@@ -183,7 +183,7 @@ class Schedules:
         `origins`: what the turn that wrote the scheduled request was given; its runs inherit them (S3, MP2).
         `request_origins`: what that request itself carried, its runs' request origins for the sink rule (S4, L4).
         Returns the owner's line and, for a schedule set, its event card from the stored row (step 8e)."""
-        from ferb.orchestrator.schedules import WATCH_SAID, Rule, ScheduleError, until_said
+        from ferb.orchestrator.schedules import RUN_SCOPE, WATCH_SAID, Rule, ScheduleError, scope_said, until_said
         from ferb.policy.targets import Targets
         from ferb.memory.items import quoted
         if not quoted(own_words, spec.quote):
@@ -217,9 +217,15 @@ class Schedules:
             # D30: the standing scope stated now, with the owner here, is the only one the unattended runs get; only a
             # scope whose destinations the owner typed (now, or when stating a remembered item) is recorded (S3, MP2)
             scopes, unnamed = self._schedule_scopes(getattr(spec, "standing_sends", []), own_words, request_id)
+            # decision 14: what every run uses, as this turn resolved it (folders normalized as the task's are)
+            run_scope = spec.run_scope() if hasattr(spec, "run_scope") else None
+            if run_scope is not None:
+                run_scope["folders"] = list(dict.fromkeys(normalize_path(f, str(self.home / "workspace"))
+                                                          for f in run_scope["folders"] if f.strip()))
             s = self.schedules.add(spec.request, own_words,
-                                   recorded.to_json() | ({"standing_sends": scopes} if scopes else {}), rule, first,
-                                   spec.watch, until)
+                                   recorded.to_json() | ({"standing_sends": scopes} if scopes else {})
+                                   | ({RUN_SCOPE: self.redact(run_scope)} if run_scope is not None else {}), rule,
+                                   first, spec.watch, until)
         except (ScheduleError, ValueError) as e:
             return f"I couldn't schedule that: {e}.", None
         t = self._book(s, first, return_after=return_after)
@@ -228,7 +234,8 @@ class Schedules:
         self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe(),
                                                     "request_id": request_id, "standing_sends": scopes,
                                                     "not_recorded": unnamed, "watch": s.watch,
-                                                    "until": s.until.isoformat() if s.until else None}
+                                                    "until": s.until.isoformat() if s.until else None,
+                                                    RUN_SCOPE: s.run_scope}
                                | ({"request_origins": sorted(request_origins)} if request_origins else {}),
                                origin=origin_.join(origins))
         # The owner's line in plain words (L11); the schedule's id stays in the journal row above
@@ -251,6 +258,8 @@ class Schedules:
                            until=s.until.isoformat() if s.until else None)
         from ferb.orchestrator.plans import SendScope
         from ferb.policy import confirm
+        if s.run_scope is not None:          # decision 14: stated now, so the owner can correct it
+            said += "\n" + confirm.from_task_lines(scope_said(s.run_scope))
         if scopes:
             said += "\n" + confirm.from_task_lines("Each run will send these without asking each time:\n" + "\n".join(
                 "- " + SendScope.model_validate(scope).line() for scope in scopes))

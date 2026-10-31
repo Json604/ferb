@@ -22,6 +22,13 @@ def owner_fact(d: Any, key: str, content: str, kind: str = "fact", subject: str 
     return run(d, lambda: d.daemon.memory.propose(kind, subject, key, content, "owner_stated", [("journal", src)], 1.0))
 
 
+def understood(d: Any, key: str, content: str, kind: str = "fact", subject: str = "owner") -> Any:
+    """FERB's understanding of a fact, not yet holding up: found by search, never in the always-on profile (the owner's
+    own words, about anything, join it at once: memory decision 18)."""
+    src = journal(d, "chat.message", {"text": content})
+    return run(d, lambda: d.daemon.memory.propose(kind, subject, key, content, "inferred", [("journal", src)]))
+
+
 def today(d: Any) -> str:
     return str(d.daemon.clock.now().astimezone().date().isoformat())
 

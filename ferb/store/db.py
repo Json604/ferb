@@ -3,8 +3,9 @@
 import hashlib
 import shutil
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from ferb.core.errors import FerbError
 
@@ -18,6 +19,10 @@ JOURNAL_SIZE_LIMIT = 64 * 1024 * 1024
 # (4 KB each) with the loop free between slices; only on a store compacted with incremental auto-vacuum
 VACUUM_SLICE_PAGES = 512
 VACUUM_PASS_PAGES = 8192
+# Ruling (storage fix, 2026-11-01): the free disk a compaction needs, as a multiple of the bytes the database uses.
+# VACUUM in WAL mode writes the whole new database into the WAL (measured 1.85 GB for a 1.66 GB result, 1.11 times)
+# while its temporary copy (the same size) still exists: twice the used bytes, and a quarter more as margin.
+COMPACT_ROOM = 2.25
 
 
 class MigrationError(FerbError):
@@ -49,6 +54,23 @@ class Database:
         # Told when the WAL couldn't be emptied after a forget (the daemon journals it)
         self.on_wal_kept: Callable[[str, dict[str, Any]], None] = lambda after, details: None
 
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """One write transaction (`BEGIN IMMEDIATE`: the write lock first, so no read inside it goes stale): committed
+        when the block ends, rolled back whole when it raises. The connection is autocommit, so `with conn:` alone
+        opens none. Inside a transaction already, the block is part of that one."""
+        if self.conn.in_transaction:
+            yield
+            return
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+            self.conn.execute("COMMIT")
+        except BaseException:
+            if self.conn.in_transaction:          # SQLite may have rolled back already; keep the real error
+                self.conn.execute("ROLLBACK")
+            raise
+
     def truncate_wal(self, after: str) -> bool:
         """Empty the WAL, so no copy of what `after` (e.g. a forget) erased stays on disk. When a reader keeps it from
         finishing within the busy timeout, `on_wal_kept` is told what was left; returns whether it was emptied."""
@@ -58,9 +80,16 @@ class Database:
         return not busy
 
     def checkpoint(self) -> bool:
-        """The routine WAL checkpoint after an hourly pass, cutting the file back (TRUNCATE); a reader in the way only
-        means it waits for the next pass. Returns whether the WAL was emptied."""
-        return not self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+        """The routine WAL checkpoint after an hourly pass, cutting the file back (TRUNCATE) without waiting: it runs on
+        the event loop, where the busy timeout would hold the loop up to 5 s while a reader finishes. With a reader or
+        writer in the way it copies what it can (as PASSIVE) and the next pass tries again; the WAL stays bounded
+        either way (`journal_size_limit` cuts it back once it restarts). Returns whether the WAL was emptied."""
+        wait = int(self.conn.execute("PRAGMA busy_timeout").fetchone()[0])
+        self.conn.execute("PRAGMA busy_timeout=0")
+        try:
+            return not self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+        finally:
+            self.conn.execute(f"PRAGMA busy_timeout={wait}")
 
     def incremental(self) -> bool:
         """Whether the store hands free pages back to the disk on its own (`auto_vacuum` INCREMENTAL: a store created
@@ -76,12 +105,12 @@ class Database:
     def compact(self, free: Callable[[Path], int] = lambda folder: shutil.disk_usage(folder).free) -> dict[str, Any]:
         """Shrink the file to what it holds, and from then on let it give free pages back by itself: the WAL
         checkpointed, `auto_vacuum` set to INCREMENTAL, VACUUM (which makes that setting take effect), the WAL
-        checkpointed again. Only on a connection nothing else shares (setup, with the daemon stopped). VACUUM writes a
-        full copy of the database, so it runs only when the disk has at least the database and its WAL free (`free`:
-        the free bytes of the folder's volume); otherwise nothing is written. Returns whether it compacted, the bytes
-        it needed and those free."""
+        checkpointed again. Only on a connection nothing else shares (setup, with the daemon stopped). VACUUM writes the
+        database twice (a temporary copy, then all of it into the WAL), so it runs only when the disk has
+        `compaction_needs` free (`free`: the free bytes of the folder's volume); otherwise nothing is written. Returns
+        whether it compacted, the bytes it needed and those free."""
         self.truncate_wal("store.compact")
-        needed, room = store_size(self.path), free(self.path.parent)
+        needed, room = compaction_needs(self.conn), free(self.path.parent)
         if room < needed:
             return {"compacted": False, "needed": needed, "free": room}
         self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
@@ -134,7 +163,7 @@ class Database:
         for version, f in files.items():
             if version in recorded:
                 continue
-            self.conn.execute("BEGIN")
+            self.conn.execute("BEGIN IMMEDIATE")       # the write lock first: no read in a migration goes stale
             try:
                 for statement in _split_sql(f.read_text()):
                     self.conn.execute(statement)
@@ -148,6 +177,14 @@ class Database:
 
     def close(self) -> None:
         self.conn.close()
+
+
+def compaction_needs(conn: Any) -> int:
+    """The free disk `Database.compact` needs: COMPACT_ROOM times the bytes the database uses (its pages less the free
+    ones). Read-only, so the clean-up's preview shows the same figure."""
+    pages, free_pages, size = (int(conn.execute(f"PRAGMA {p}").fetchone()[0])
+                               for p in ("page_count", "freelist_count", "page_size"))
+    return int((pages - free_pages) * size * COMPACT_ROOM)
 
 
 Row = tuple[Any, ...]

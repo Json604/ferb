@@ -143,6 +143,9 @@ Claude Code and Codex files were inspected for structure only (key names and rec
 - [x] Readers for ChatGPT, claude.ai, Claude Code, Codex CLI, Gemini → one normalized form, last 3 months.
 - [x] Recall → verification → merge (newer wins) → saved as FERB's understanding; one summary notice; memory page source.
 - [x] Background job: estimate, progress, resume after restart, cancel, never on the owner's turn.
+- [x] Each model call waits for the owner's turn, not only a chunk's first: a turn that began after a chunk's recall
+      call let its verify calls run during it. (2026-11-01: `_wait_idle` moved into `_call`; tests/test_memory_import.py
+      `test_every_import_call_waits_for_the_owners_turn_not_only_the_first`.)
 - [x] Measured quality on labelled fixtures (offline); live score with step 13.
 - [ ] Live checks (step 13): import each real source once; read the notice, the memory page filter and a sample of
       facts against the owner's memory of them; run `-m real tests/test_memory_import.py::test_quality_live`.

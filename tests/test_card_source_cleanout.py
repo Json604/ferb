@@ -220,19 +220,20 @@ def test_a_stop_request_ends_the_run_between_cards_and_the_next_run_finishes(sto
     assert learning.prune_card_sources()["cleaned"] == 4 and _rows(db) == pruned
 
 
-def test_compaction_runs_only_with_free_disk_for_the_database_and_its_wal(store: Any, tmp_path: Path) -> None:
+def test_compaction_runs_only_with_free_disk_for_what_vacuum_writes(store: Any, tmp_path: Path) -> None:
+    from ferb.store.db import compaction_needs
     db, spans, learning = store
     _three_tasks(db, spans, learning)
     learning.prune_card_sources()
     db.truncate_wal("test")
     path = tmp_path / "ferb.db"
-    size = store_size(path)
+    size, needed = store_size(path), compaction_needs(db.conn)
     statements: list[str] = []
     db.conn.set_trace_callback(statements.append)
-    skipped = db.compact(free=lambda folder: size - 1)
-    assert skipped == {"compacted": False, "needed": size, "free": size - 1}
+    skipped = db.compact(free=lambda folder: needed - 1)
+    assert skipped == {"compacted": False, "needed": needed, "free": needed - 1}
     assert "VACUUM" not in statements and store_size(path) == size
-    done = db.compact(free=lambda folder: size)
+    done = db.compact(free=lambda folder: needed)
     assert done["compacted"] is True and "VACUUM" in statements
     assert store_size(path) < size
     assert db.conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"

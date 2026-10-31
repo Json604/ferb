@@ -165,9 +165,10 @@ class Card:
         return True
 
     def show(self, part: Part, state: str, **fields: Any) -> None:
-        """A live state of a row that hasn't posted in this run (asks, paused, working again): an event, never
-        recorded. A posted row keeps its answer."""
-        if self.records().get(part.id, {}).get("request_id") == self.request_id:
+        """A live state of a row that hasn't posted an answer in this run (asks, paused, working again): an event, never
+        recorded. A posted answer keeps its row; a row that failed in this run shows its rerun after a correction."""
+        posted = self.records().get(part.id, {})
+        if posted.get("request_id") == self.request_id and posted.get("state") in DONE:
             return
         event = {"type": "part", "task_id": self.task_id, "request_id": self.request_id, "part": part.id,
                  "label": part.label, "state": state, "seq": self._next_seq(),

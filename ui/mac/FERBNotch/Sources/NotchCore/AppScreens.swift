@@ -333,6 +333,8 @@ public struct CleanupPlan: Equatable {
     public let rows: Int
     public let compact: Bool
     public let bytes: Int
+    /// The free disk the compaction needs (about twice what the database holds; older builds: the file's size).
+    public let needed: Int
     public let free: Int
     /// The digest the OK carries; nil when there is nothing to do.
     public let ok: String?
@@ -345,6 +347,7 @@ public struct CleanupPlan: Equatable {
         rows = number(reply["rows"])
         compact = flag(reply["compact"])
         bytes = number(reply["bytes"])
+        needed = reply["needed"] == nil ? bytes : number(reply["needed"])
         free = number(reply["free"])
         ok = (reply["ok"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
@@ -362,6 +365,9 @@ public struct CleanupResult: Equatable {
     public let compacted: Bool
     public let before: Int
     public let after: Int
+    /// When it didn't compact for want of disk: the free disk it needed and what there was.
+    public let needed: Int
+    public let free: Int
     public let refused: Bool
     public let stopped: Bool
     public let problem: String?
@@ -372,6 +378,8 @@ public struct CleanupResult: Equatable {
         compacted = flag(reply["compacted"])
         before = number(reply["bytes_before"])
         after = number(reply["bytes_after"])
+        needed = number(reply["needed"])
+        free = number(reply["free"])
         refused = flag(reply["refused"])
         stopped = flag(reply["stopped"])
         let why = text(reply["error"]).isEmpty ? text(reply["not_run"]) : text(reply["error"])
@@ -383,6 +391,10 @@ public struct CleanupResult: Equatable {
         if let problem { return "The clean-up didn't finish: \(problem). Running it again finishes it." }
         if stopped { return "The clean-up stopped after removing \(removed) rows; running it again finishes it." }
         if compacted { return "Removed \(removed) rows; FERB's database went from \(shownBytes(before)) to \(shownBytes(after))." }
+        if needed > 0 {
+            return "Removed \(removed) rows. Not compacted: that needs \(shownBytes(needed)) free and the disk has "
+                + "\(shownBytes(free)); running the clean-up again compacts it."
+        }
         return "Removed \(removed) rows."
     }
 }

@@ -32,6 +32,17 @@ def test_a_report_only_problem_gets_its_answer_fixed_not_a_redo(daemon: RunningD
     assert result["answer"] == "Booked a table for 4 at 7pm at Nopa."
 
 
+def test_a_retry_with_every_outcome_verified_fixes_the_answer_instead(daemon: RunningDaemon) -> None:
+    """Decision 9: when every outcome condition is verified, only the answer can be wrong; a retry the checker chose
+    anyway becomes fix-only-the-answer (its edits applied, the unproven detail marked), never a worker redo."""
+    script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
+        "worker": [done(BOOKED), done("Booked again.")],
+        "worker.verify": verdict(True, False, next="retry", edits=((" The restaurant confirmed by email.", ""),))})
+    result = outcome(chat(daemon, "book a table for 4 at 7pm"))
+    assert script.calls("worker") == ["worker"] and len(_checks(script)) == 1
+    assert result["status"] == "done" and result["answer"] == "Booked a table for 4 at 7pm at Nopa."
+
+
 def test_an_unverifiable_side_detail_is_marked_inline_and_the_task_is_done(daemon: RunningDaemon) -> None:
     script = install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
         "worker": done("The library is at 100 Larkin St. It opens at 10am."),
@@ -247,7 +258,7 @@ def test_every_per_role_report_schema_fits_the_providers_limits() -> None:
     from ferb.orchestrator.schemas import CHECKER_SCHEMA, WORKER_SCHEMA, worker_schema
     from ferb.runtimes.schema_shape import (ANTHROPIC_MAX_OPTIONAL, ANTHROPIC_MAX_UNIONS, complexity, for_anthropic,
                                             for_gemini)
-    flags = ("inputs", "proposals", "conversation", "watch", "loop", "parts")
+    flags = ("inputs", "proposals", "conversation", "watch", "loop", "parts", "scheduled")
     schemas = [worker_schema(**dict(zip(flags, on))) for on in product((False, True), repeat=len(flags))]
     for schema in [*schemas, CHECKER_SCHEMA]:
         unions, optional = complexity(for_anthropic(schema).wire)

@@ -137,12 +137,14 @@ class Perception:
             cap.on_write = mark_clipboard_write
 
     def purge_text(self) -> int:
-        """D14/P8: typed/clipboard text expires at seven days even without a daily summary. Keep source IDs. Notice
-        text derived from any expired row (this pass's, or one expired before notices were purged too) expires with
-        it, wherever it was copied (I3); that reconciliation is idempotent. Returns the rows this pass expired."""
+        """D14/P8: typed/clipboard text expires at `retention.TYPED_DAYS` (7; its row of the retention table) even without
+        a daily summary. Keep source IDs. Notice text derived from any expired row (this pass's, or one expired before
+        notices were purged too) expires with it, wherever it was copied (I3); that reconciliation is idempotent.
+        Returns the rows this pass expired."""
         from ferb.orchestrator.attention import expire_derived
+        from ferb.store.retention import TYPED_DAYS
         d = self.daemon
-        cutoff = (d.clock.now() - timedelta(days=7)).isoformat()
+        cutoff = (d.clock.now() - timedelta(days=TYPED_DAYS)).isoformat()
         rows = d.db.conn.execute("SELECT id,data_json FROM trail WHERE source IN ('typed_text','clipboard') AND at < ? AND json_extract(data_json,'$.content_expired') IS NULL", (cutoff,)).fetchall()
         for row in rows:
             data = json.loads(row["data_json"])
@@ -158,8 +160,8 @@ class Perception:
             "SELECT id FROM trail WHERE source IN ('typed_text','clipboard') "
             "AND json_extract(data_json,'$.content_expired') IS NOT NULL")}
         if expired:
-            expire_derived(d.db, expired, "This notice came from typed or copied text, which expires after 7 days.",
-                           d.clock.now().isoformat())
+            expire_derived(d.db, expired, "This notice came from typed or copied text, which expires after "
+                           f"{TYPED_DAYS} days.", d.clock.now().isoformat())
         return len(rows)
 
     def status(self) -> dict[str, Any]:

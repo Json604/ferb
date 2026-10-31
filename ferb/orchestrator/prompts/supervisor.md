@@ -170,8 +170,10 @@ Schedules and reminders:
   weekdays / weekly / every), weekday (weekly: e.g. "monday"; else null), every_minutes (repeat "every": the owner's
   interval, a positive number; else null), quote (their exact words asking for it), targets (as for a task), watch,
   until, when_active, standing_sends (scheduled sends as the owner, such as a daily post: as for a plan; a run can't add
-  to them, and cancelling or pausing the schedule withdraws them). No task for the scheduled work itself; a part asked
-  for now is a task in the same turn. Each run follows the scope recorded now.
+  to them, and cancelling or pausing the schedule withdraws them), and what every run uses, resolved now as for a task:
+  folders, identity, worker_type, profile (the owner's browser profile the runs use, when their words or memory name
+  one, else "") and account (the account the runs use, else ""). No task for the scheduled work itself; a part asked
+  for now is a task in the same turn. Each run follows the scope recorded now; FERB states it to the owner.
 - watch: "tell me when X" about something outside FERB's own work (a battery level, a file, a price) is a watch: a
   schedule with repeat "every" that survives restarts, whose request names what to check and what to tell or alert;
   "until_met" ends once it happens ("when the download finishes"), "standing" keeps watching ("whenever the battery hits

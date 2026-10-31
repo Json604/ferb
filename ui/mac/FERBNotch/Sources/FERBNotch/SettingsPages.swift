@@ -614,7 +614,7 @@ struct CleanupSection: View {
                     Text("\(plan.rows) rows in all. Your memory, tasks, chats, schedules and recent traces are never touched.")
                         .font(.caption).foregroundStyle(.secondary)
                     Text("FERB's database: \(shownBytes(plan.bytes)); " + (plan.compact
-                        ? "then compacted once (needs \(shownBytes(plan.bytes)) free; \(shownBytes(plan.free)) free now)."
+                        ? "then compacted once (needs up to \(shownBytes(plan.needed)) free; \(shownBytes(plan.free)) free now)."
                         : "already compacted."))
                         .font(.caption).foregroundStyle(.secondary)
                     Text("FERB stops while it runs (a few minutes) and starts again by itself.")

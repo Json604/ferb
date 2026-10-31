@@ -137,6 +137,10 @@ SCHEDULE_SCHEMA = _obj({
     # decision 22: the end the owner's words give it ("until Nov 3", "for 2 weeks"); null = runs until stopped
     "until": {"anyOf": [{"type": "null"}, SCHEDULE_UNTIL_SCHEMA]},
     "when_active": WHEN_ACTIVE_SCHEMA,          # decision 17: each run waits until the owner is at the Mac
+    # orchestration decision 14: what every run uses, resolved now (as for a task) and fixed for every run, never
+    # re-guessed: its folders, whose identity, the worker type, the owner's browser profile and the account ("" none)
+    "folders": _strings(), "identity": {"type": "string", "enum": ["owner", "ferb"]},
+    "worker_type": {"type": "string"}, "profile": {"type": "string"}, "account": {"type": "string"},
 })
 SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
                                "action": {"type": "string", "enum": ["cancel", "pause", "resume", "set_end"]},
@@ -405,6 +409,19 @@ class ScheduleRequest(BaseModel):
     watch: Literal["none", "until_met", "standing"] = "none"      # a spec written before watches is ordinary work
     until: ScheduleUntil | None = None     # decision 22: its end in the owner's words; None runs until stopped
     when_active: bool = False              # decision 17: each run fires when the owner is at the Mac
+    # decision 14: what every run uses, fixed now; identity None = a spec written before it (its runs re-plan as before)
+    folders: list[str] = []
+    identity: Literal["owner", "ferb"] | None = None
+    worker_type: str = ""
+    profile: str = ""
+    account: str = ""
+
+    def run_scope(self) -> dict[str, Any] | None:
+        """What every run uses (decision 14), as the schedule records it; None when the planner stated none."""
+        if self.identity is None:
+            return None
+        return {"folders": list(self.folders), "identity": self.identity, "worker_type": self.worker_type or "default",
+                "profile": self.profile.strip(), "account": self.account.strip()}
 
 
 class ScheduleChange(BaseModel):

@@ -50,7 +50,7 @@ from ferb.orchestrator.plans import (DONE, SINGLE, Part, Plan, SendScope, Step, 
                                      problems as plan_problems)
 from ferb.orchestrator.parts import Card, composed, done_line
 from ferb.orchestrator import cards as cards_
-from ferb.orchestrator.attempts import (KEEP_GOING, STOP_HERE, Attempts, check_in_question,
+from ferb.orchestrator.attempts import (CHECK_IN_AFTER, KEEP_GOING, STOP_HERE, Attempts, check_in_question,
                                         stopped_after)
 from ferb.orchestrator.plan_store import EARLIER, PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
@@ -150,8 +150,8 @@ ATTEMPTS_TOKENS = 2000      # this chat's ended tasks in the planner's task bloc
 # Roles that run without tools (the planner, decision 10; the question router; attention): their instructions name no
 # lookup tool or catalog (notes/memory.md fix list, notes/prompts.md)
 TOOLLESS_ROLES = frozenset({"supervisor.md", "question.md", "attention.md"})
-RECENT_EXCHANGES = 20               # owner decision: at least the last 20 exchanges, always
-RECENT_CONVERSATION_TOKENS = 15_000  # safety cap on what counts as "the last 20": beyond it, older exchanges may fold
+RECENT_EXCHANGES = 20               # owner decision: the last 20 exchanges, always, never folded or dropped
+RECENT_CONVERSATION_TOKENS = 15_000  # with FOLD_CHUNK_TOKENS, a whole tail past both folds what lies beyond the 20
 FOLD_CHUNK_TOKENS = 20_000          # the unfolded tail folds once it holds this much beyond them; one summary call
                                     # folds at most this much
 SUMMARY_TOKENS = 2_000              # FERB's running summary is kept within this (asked of its writer, enforced on show)
@@ -605,6 +605,8 @@ class _Tree:
     conversation_proposals: list[dict[str, Any]] = field(default_factory=list)
     watch_met: bool | None = None        # a watch run's worker: whether the watched condition holds now (fix wave 6c)
     nothing_to_tell: bool = False        # a scheduled run's worker: it found nothing to tell and did nothing (dec. 17)
+    # a check-in or runtime-switch question this step waited on when FERB restarted: asked again first (`_restored`)
+    restored_wait: dict[str, Any] = field(default_factory=dict)
     watch: bool = False                  # a watch's run: its check judges watch_met; its start isn't published
     loop_action: str | None = None       # a loop round's worker: continue / finished / blocked (L31)
     probe: Any = None                    # and the probe it chose for between rounds (probes.Probe | None)
@@ -631,6 +633,7 @@ class _Tree:
     asks_in_place: bool = True           # needing the owner pauses this attempt loop and asks (a loop round and a
                                          # conversation turn hand it to their own runner instead)
     schedule_id: str | None = None       # the schedule whose run this tree is (its runs never overlap)
+    schedule_facts: dict[str, Any] = field(default_factory=dict)   # what its worker reads of the schedule (fix 5)
     # answers in steps (decision 19)
     part_updates: list[dict[str, Any]] = field(default_factory=list)   # a step's corrections to posted answers
     card: Card | None = None             # the root of a multi-part task: its rows
@@ -644,6 +647,8 @@ LOOP_STOP, LOOP_KEEP = "Stop", "Keep watching"
 # A task's own question goes out as a plan question (`plan.ask`), which the planner may also answer from the owner's
 # chat words; a paused loop's keeps its own capability (LOOP_ASK) so a reply in chat stays a correction of the task.
 TASK_ASK = "plan.ask"
+# Waits a restart asks again as themselves (`_mark_waiting` saves the kind): a check-in, a runtime switch
+RESTORED_WAITS = ("check_in", "runtime_switch")
 # Owner decision 16: the offer of another runtime after a usage limit or sign-in failure. Only the owner answers it
 # (a tap, or `runtimes.switch_task`): it isn't routable, so the planner can't choose a runtime from chat words.
 RUNTIME_ASK = "runtime.switch"
@@ -674,6 +679,7 @@ class _Wait:
     capability: str = TASK_ASK
     approval: Any = None
     extra: dict[str, Any] = field(default_factory=dict)   # more for the app with the question (runtime_switch)
+    attempts: int = 0                    # a check-in: the failed attempts it asks about (kept for a restart)
     opened: bool = False                 # its first waiter asked; later ones wait for its reply
     reply: OwnerReply | None = None
     done: asyncio.Event = field(default_factory=asyncio.Event)
@@ -1067,6 +1073,16 @@ class Supervisor(WorkerRuns):
                 problems.extend(f"part {part.id}: its quote must be the owner's own words from this message: "
                                 f"{json.dumps(part.quote, ensure_ascii=False)}"
                                 for part in task_.parts if not quoted(turn.typed, part.quote))
+        if candidate.schedule is not None:  # decision 14: what every run uses is checked as a task's is
+            sched = candidate.schedule
+            if sched.worker_type and sched.worker_type not in (types := self.worker_types()):
+                problems.append(f"schedule worker_type {sched.worker_type!r} isn't one of the worker types available "
+                                f"now: {', '.join(types)}.")
+            folders, broad = self._folders(sched.folders)
+            sched.folders = folders
+            if broad:
+                problems.append("schedule folders must each name one specific folder, never the whole disk, the home "
+                                "folder, /Volumes or iCloud Drive itself: " + json.dumps(broad))
         if candidate.task and candidate.task.plan:
             plan = candidate.task.plan
             paths = list(dict.fromkeys(normalize_path(p, self.workspace) for p in [*plan.input_paths, *turn.input_paths]))
@@ -1112,6 +1128,10 @@ class Supervisor(WorkerRuns):
         # a watch (fix wave 6c): what its latest finished check that reported the condition found, stored with the
         # schedule (true: the owner was told then)
         watched = {} if sched.watch == "none" else {"last_reported_met": sched.last_reported_met}
+        # decision 14: what every run uses, recorded when the schedule was made (None for one made before)
+        recorded_run = {"recorded_scope": sched.run_scope} if sched.run_scope is not None else {}
+        ran_before = {"ran_at": previous["ran_at"], "status": previous["status"],
+                      "later_runs_without_answer": previous["skipped"]} if previous else None
         note = "\n\n" + load_prompt(self._approach() + "/scheduled.md") + "\nSchedule facts (data): " + json.dumps({
             "rule": sched.rule.describe(), "watch": sched.watch, "late": late, "overdue_s": overdue_s,
             **({"retry_of_failed_run": True} if retry else {}),
@@ -1119,8 +1139,12 @@ class Supervisor(WorkerRuns):
             # D30: the standing scope the owner was shown when making the schedule, in force for every run
             "standing_sends": [scope.model_dump() for scope in recorded_scopes],
             # when the last run that answered ran, and how it ended; its answer is its own block, with its origins
-            "previous_run": {"ran_at": previous["ran_at"], "status": previous["status"],
-                             "later_runs_without_answer": previous["skipped"]} if previous else None} | watched)
+            "previous_run": ran_before} | watched | recorded_run)
+        # what the run's worker reads of them (its role blocks name them): the watch's last report, the previous run
+        # with its answer (data, with that answer's origins), the recorded scope
+        worker_facts = {"rule": sched.rule.describe(), "watch": sched.watch, **watched, **recorded_run,
+                        "previous_run": ran_before and {**ran_before, "answer": str(previous["entry"].data.get(
+                            "text", "")), "answer_origin": previous["entry"].origin}}
         session = ChatSession(SCHEDULE_SESSION + sched.id)
         turn = _Turn(request_id, session, words=sched.request, payload=sched.request + note,
                      message_origin=self._schedule_origins(sched.id),
@@ -1144,6 +1168,8 @@ class Supervisor(WorkerRuns):
                                    {origins_.INFERRED} | turn.turn_origins)
                 return {"task_id": request_id, "request_id": request_id, "status": status, "answer": out.text,
                         "goal": sched.request}
+            if sched.run_scope is not None:
+                self._apply_run_scope(sched, out.task)
             recorded = Targets.from_json(sched.targets)
             self.state.requests.record(Request(request_id, sched.own_words, recorded, payload=sched.request))
             self.state.approvals.unattended.add(request_id)
@@ -1158,7 +1184,7 @@ class Supervisor(WorkerRuns):
                                           start_grant=(recorded_scopes, SCHEDULE_GRANT + sched.id),
                                           watch=sched.watch != "none",
                                           schedule={"id": sched.id, "overdue_s": overdue_s, "retry": retry,
-                                                    "watch": sched.watch != "none"}):
+                                                    "watch": sched.watch != "none", "facts": worker_facts}):
                 if ev.get("type") == "outcome":
                     final = ev
             if final.get("answer") == NO_OUTCOME and self._suspending:
@@ -1166,6 +1192,26 @@ class Supervisor(WorkerRuns):
             return final
         finally:
             self._turns.pop(request_id, None)
+
+    def _apply_run_scope(self, sched: Any, spec: TaskSpec) -> None:
+        """Decision 14: a scheduled run's task uses what the schedule recorded when it was made (its folders, identity
+        and worker type, for every step too), whatever this run's plan proposed: unattended runs never re-guess them.
+        What the plan proposed otherwise is journaled (`schedule.scope_applied`)."""
+        scope = sched.run_scope or {}
+        worker_type = str(scope.get("worker_type") or "default")
+        steps = spec.plan.steps if spec.plan else []
+        proposed = {"folders": list(spec.folders), "identity": spec.identity,
+                    "worker_type": sorted({spec.worker_type, *(step.worker_type for step in steps)})}
+        spec.folders = [str(f) for f in scope.get("folders") or []]
+        if scope.get("identity") in ("owner", "ferb"):
+            spec.identity = scope["identity"]
+        spec.worker_type = worker_type
+        for step in steps:
+            step.worker_type = worker_type
+        applied = {"folders": spec.folders, "identity": spec.identity, "worker_type": [worker_type]}
+        if proposed != applied:
+            self.journal.append("schedule.scope_applied", {"schedule_id": sched.id, "proposed": proposed,
+                                                           "recorded": applied})
 
     def _previous_run(self, schedule_id: str) -> dict[str, Any] | None:
         """This schedule's most recent earlier run that left an answer (a task's answer, or the planner's reply), from
@@ -1426,8 +1472,14 @@ class Supervisor(WorkerRuns):
             self._set_status(task.id, 'paused')
             self._set_status(tree.id, 'paused')
             if step_id in self._plan_steps(tree.id):
+                # which wait it is (a check-in, a runtime switch), so a restart asks the same again, not a pause
+                kind = wait.extra.get('question_kind')
+                restored = {'question_kind': kind, 'attempts': wait.attempts,
+                            'runtime_switch': wait.extra.get('runtime_switch')} \
+                    if kind in RESTORED_WAITS and wait is not self._pauses.get(tree.id) else {}
                 self.plans.finish(tree.id, step_id, {'status': 'paused', 'question': wait.question,
-                                                     'options': list(wait.options), 'origin': wait.origin})
+                                                     'options': list(wait.options), 'origin': wait.origin,
+                                                     **restored})
             self._tell_tree(tree.id, {'type': 'subtask', 'id': step_id, 'status': 'paused', 'role': 'worker',
                                       'summary': wait.question or 'Paused.'})
             return
@@ -2293,6 +2345,17 @@ class Supervisor(WorkerRuns):
                         lines.append('- ' + confirm.from_task(" ".join(printable(planner_asked).split())))
                     return 'clarify', WHICH_ONE.format(words=printable(text)) + '\n' + '\n'.join(lines)
             text = ap.options[choice - 1]
+        elif ap.options:
+            # any other question with options (a check-in, a paused task's mention, a closed tab's "continue?", a
+            # step's choice): the owner's words count as one option only when they are exactly it; else the planner's
+            # reading picks the option when it is exactly one; else FERB asks which, as for its own checks. Free text
+            # never counts as an answer with no option (a check-in reads that as "keep going")
+            choice = ap.option_for(_bare(text))
+            if choice is None:
+                choice = ap.option_for(_bare(routed.answer))
+            if choice is None:
+                self._answer_focus[turn.session.id] = _Focus(None, frozenset({ap.id}), seen, displaced)
+                return 'clarify', _plain_choice(ap)
         self.state.approvals.resolve(ap.id, True, choice=choice, text=text)
         self.journal.append('approval.resolved', {'approval_id': ap.id, 'state': ap.state, 'capability': ap.capability})
         self.publish('approval.resolved', {'approval_id': ap.id, 'state': ap.state})
@@ -2789,20 +2852,15 @@ class Supervisor(WorkerRuns):
     @staticmethod
     def _recent_entries(entries: list[Any]) -> list[Any]:
         """The last RECENT_EXCHANGES exchanges (decision 4: an owner message and what FERB said after it, until the
-        owner's next; messages read together are one), oldest first; over RECENT_CONVERSATION_TOKENS the oldest
-        exchanges go first. The newest exchange always. What a fold leaves unfolded (`_keep_recent`)."""
+        owner's next; messages read together are one), oldest first, however long they are: what a fold never takes
+        (`_keep_recent`). No token figure shortens them (owner, 2026-10-30: always at least the last 20 exchanges)."""
         groups: list[list[Any]] = []
         for entry in entries:
             if entry.opens or not groups:
                 groups.append([entry])
             else:
                 groups[-1].append(entry)
-        groups = groups[-RECENT_EXCHANGES:]
-        sizes = [sum(count_tokens(e.text) for e in group) for group in groups]
-        while len(groups) > 1 and sum(sizes) > RECENT_CONVERSATION_TOKENS:
-            groups.pop(0)
-            sizes.pop(0)
-        return [entry for group in groups for entry in group]
+        return [entry for group in groups[-RECENT_EXCHANGES:] for entry in group]
 
     def _keep_recent(self, conversation: str) -> None:
         """Decision 4, target design 5: the planner reads the running summary and every entry after what it covers
@@ -2810,8 +2868,9 @@ class Supervisor(WorkerRuns):
         one chunk (FOLD_CHUNK_TOKENS; owner, 2026-10-31: about every 20-40 exchanges) beyond the last RECENT_EXCHANGES
         exchanges, or the whole tail passes RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS, the entries beyond those
         exchanges fold into the summary in the background after the reply, a bounded chunk per call, and the tail drops
-        back to about the last 20 exchanges; the same call drops what is older than SUMMARY_DAYS unless it is still
-        open. One fold per chat at a time; the planner only reads the latest summary (no model call per turn)."""
+        back to the last 20 exchanges; the same call drops what is older than SUMMARY_DAYS unless it is still open.
+        The token figures only decide when what lies beyond the last 20 exchanges folds: those 20 never fold. One fold
+        per chat at a time; the planner only reads the latest summary (no model call per turn)."""
         if conversation in self._summarizing:
             return
         entries = self._timeline("", conversation, self._summary(conversation))[0]
@@ -2997,7 +3056,8 @@ class Supervisor(WorkerRuns):
         worker = Task(f"{tree_id}.{WORKER}", tree_id, spec.goal, self.device_id, identity, scopes, "worker",
                       request_id, [c.text for c in spec.success_conditions], None)
         tree = _Tree(tree_id, spec, worker, prior_task=prior_task, unattended_scopes=unattended_scopes, watch=watch,
-                     schedule_id=str(schedule['id']) if schedule else None)
+                     schedule_id=str(schedule['id']) if schedule else None,
+                     schedule_facts=dict(schedule.get('facts') or {}) if schedule else {})
         turn = self._turns.get(request_id)
         tree.intake_receipts = list(turn.intake_receipts) if turn is not None else []
         front = turn.front_window if turn is not None else None
@@ -3477,12 +3537,17 @@ class Supervisor(WorkerRuns):
                 self._post_part(tree, step.id, None, str(result.get('status') or 'failed'), result)
                 return result
             previous = prior.get('previous_attempt') or {}
-            if previous.get('status') == 'paused' and tree.id not in self._pauses:
-                # it waited for the owner when FERB restarted: it pauses again and asks again (rule 9)
+            # a check-in or runtime switch it waited on when FERB restarted is asked again as itself (`_restored`)
+            restored = previous if previous.get('status') == 'paused' and \
+                previous.get('question_kind') in RESTORED_WAITS else {}
+            if previous.get('status') == 'paused' and not restored and tree.id not in self._pauses:
+                # it waited for the owner when FERB restarted: it pauses again and asks again (rule 9); a step saved
+                # before waits recorded their kind comes back this way too
                 self._pauses[tree.id] = _Wait(tree.id, str(previous.get('question') or ''),
                                               tuple(previous.get('options') or ()),
                                               str(previous.get('origin') or origins_.FERB))
             if single:
+                tree.restored_wait = dict(restored)
                 try:
                     out = await self._worker(tree, span)
                 except Exception as exc:
@@ -3517,6 +3582,7 @@ class Supervisor(WorkerRuns):
                     **self._answer_context(tree, step, answering, prior),
                     **({'requirement': 'Write one input_notes entry per input with the complete note and evidence '
                                        'references.'} if inputs else {})}))
+            member.restored_wait = dict(restored)
             self._tree_of[child.id] = member
             self.tasks.add(TaskRecord(child, self.clock.now(), span, tree.id), status='planned')
             await queue.put({'type': 'subtask', 'id': step.id, 'task_id': child.id, 'status': 'started', 'role': 'worker'})
@@ -4381,6 +4447,11 @@ class Supervisor(WorkerRuns):
         instructions = ""
         attempts = Attempts()
         tree.confirmed = {}
+        if tree.restored_wait:               # asked when FERB restarted: the same question first
+            again = await self._restored(tree, task, attempts)
+            if isinstance(again, Outcome):
+                return again
+            instructions = again or ""
         while not tree.stop:
             if self._is_paused(tree):        # owner decision 8: the step waits here; resuming starts a fresh attempt
                 reply = await self._hold_pause(tree, task, tree.step_id)
@@ -4473,6 +4544,32 @@ class Supervisor(WorkerRuns):
                     return Outcome(task.id, "failed", tree.stop_reason, out.artifacts, [])
                 instructions += keep
         return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, [], [])
+
+    async def _restored(self, tree: _Tree, task: Task, attempts: Attempts) -> str | Outcome | None:
+        """The check-in or runtime switch this step waited on when FERB restarted, asked again as itself (never as an
+        owner pause, whose answers mean other things: a No to a check-in stops). What the first attempt is told, or the
+        step's end (a No, nobody there, stopped)."""
+        saved, tree.restored_wait = tree.restored_wait, {}
+        if saved.get('question_kind') == 'check_in':
+            attempts.failed = attempts.allowed = max(1, int(saved.get('attempts') or CHECK_IN_AFTER))
+            keep = await self._check_in(tree, task, attempts)
+            if keep is None:
+                return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, [], [])
+            if keep is False:
+                return Outcome(task.id, "failed", tree.stop_reason, [], [])
+            return keep
+        offer = saved.get('runtime_switch')
+        if not isinstance(offer, dict) or not offer.get('runtime'):
+            return None
+        down = ServiceDown(task.id + ('.verify' if offer.get('role') == 'checker' else ''), "failed",
+                           account_problem(str(offer['runtime']), str(offer.get('problem') or '')), [], [],
+                           runtime=str(offer['runtime']), problem=str(offer.get('problem') or ''))
+        switched = await self._service_down(tree, task, down)
+        if switched is None:
+            return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, [], [])
+        if not switched:
+            return Outcome(task.id, "failed", down.summary, [], [])
+        return f"\nThe owner chose to carry on this task with {label(tree.runtime)}." if tree.runtime else ""
 
     def _new_attempt(self, tree: _Tree) -> None:
         """Everything an attempt reports starts empty, so an attempt whose report fails validation reports nothing of
@@ -4593,6 +4690,8 @@ class Supervisor(WorkerRuns):
         outcome = [r for r in tree.verification if r.index < planned]
         report = next((r for r in tree.verification if r.index == planned), None)
         action = checked.next
+        if action == "retry" and planned and len(outcome) == planned and all(r.met is True for r in outcome):
+            action = "fix_answer"        # decision 9: every outcome verified, so only the answer can be wrong: no redo
         if action in ("accept", "fix_answer", "accept_unconfirmed"):
             unapplied = self._apply_edits(tree, checked)
             refuted = [r for r in outcome if r.met is False]
@@ -4713,7 +4812,7 @@ class Supervisor(WorkerRuns):
         unattended = self._unattended(task)
         if not unattended:
             wait = _Wait(tree.id, check_in_question(attempts.failed, short_label(tree.spec.goal)),
-                         (KEEP_GOING, STOP_HERE), extra={'question_kind': 'check_in'})
+                         (KEEP_GOING, STOP_HERE), extra={'question_kind': 'check_in'}, attempts=attempts.failed)
             reply = await self._wait_for_owner(tree, task, wait, step_id=tree.step_id)
             if reply.kind == 'stopped' or tree.stop:
                 return None
@@ -4793,6 +4892,9 @@ class Supervisor(WorkerRuns):
             parts.append(ContextBlock("Completed intake operations (chat-layer receipts, not worker actions):\n" +
                                        wrap_untrusted(json.dumps(tree.intake_receipts)), "task.evidence kind=task.intake",
                                        protected=True))
+        root = self._tree_of.get(tree.id)
+        if root is not None and root.schedule_facts:
+            parts.append(self._schedule_block(tree, root.schedule_facts))
         attempts = None
         if tree.reports:             # model-written from what the attempts read (MP2), as task.evidence labels them
             reports_origin = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id))
@@ -4915,6 +5017,19 @@ class Supervisor(WorkerRuns):
                                    input={'source_refs': _stored_refs(record['source_refs']),
                                           'reference': record['reference']})
             self.spans.finish(span, output=_exposure_output(record), origin=record['origin'])
+
+    def _schedule_block(self, tree: _Tree, facts: dict[str, Any]) -> ContextBlock:
+        """A scheduled run's facts for the roles that run and judge it (its role blocks name them): the rule, the watch
+        and what its last finished check reported (`last_reported_met`), the previous run with its answer, and what
+        every run uses (`recorded_scope`, decision 14). Data: the previous answer keeps the origins of what it read."""
+        previous = facts.get("previous_run")
+        shown = dict(facts) | {"previous_run": {k: v for k, v in previous.items() if k != "answer_origin"}
+                               if isinstance(previous, dict) else None}
+        made = {origins_.FERB, origins_.INFERRED} | (origins_.split(str(previous.get("answer_origin") or ""))
+                                                     if isinstance(previous, dict) else set())
+        block = self._source_block(tree, "Schedule facts (data; chat.history lists every earlier run)",
+                                   wrap_untrusted(json.dumps(shown, ensure_ascii=False)), origins_.join(made))
+        return dataclasses.replace(block, protected=True)
 
     def _source_block(self, tree: _Tree, label: str, text: str, origin: str,
                       source_refs: tuple[str, ...] = (), *, payload: str | None = None) -> ContextBlock:
@@ -5323,7 +5438,9 @@ class Supervisor(WorkerRuns):
                 {"how": src.how} if status in ("done", "done_unverified") and src.how.strip() else {}) | (
                 {"runtime_switch": switch} if switch and status == "failed" else {}) | (
                 {"watch_met": tree.watch_met} if tree.watch and tree.watch_met is not None else {}) | (
-                {"nothing_to_tell": True} if src.nothing_to_tell and status in ("done", "done_unverified") else {}) | (
+                # decision 17: nothing to tell only when the worker says so and no call of the run acted (a fact)
+                {"nothing_to_tell": True} if src.nothing_to_tell and status in ("done", "done_unverified")
+                and not cards_.acted(self.spans, tree.id) else {}) | (
                 {"cards": cards} if cards else {})
 
     def _final_card(self, tree: _Tree) -> dict[str, Any]:

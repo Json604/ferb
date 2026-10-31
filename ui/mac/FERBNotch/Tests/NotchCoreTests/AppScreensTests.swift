@@ -52,8 +52,10 @@ final class AppScreensTests: XCTestCase {
     func testTheCleanupPlanAndResultComeFromTheCommandsJSONLines() {
         let preview = ["{\"steps\": [{\"table\": \"decisions\", \"rows\": 131567, \"what\": \"Jev's decisions\"}, "
                        + "{\"table\": \"owner_questions\", \"rows\": 0, \"what\": \"never used; the table is dropped\", \"drop\": true}], "
-                       + "\"compact\": true, \"rows\": 131567, \"ok\": \"abc123\", \"bytes\": 3000000000, \"free\": 90000000000}"]
+                       + "\"compact\": true, \"rows\": 131567, \"ok\": \"abc123\", \"bytes\": 3000000000, "
+                       + "\"needed\": 5000000000, \"free\": 90000000000}"]
         let plan = CleanupPlan(FerbJSON.last(preview))
+        XCTAssertEqual(plan?.needed, 5000000000)
         XCTAssertEqual(plan?.steps.count, 2)
         XCTAssertEqual(plan?.steps.last?.dropped, true)
         XCTAssertEqual(plan?.applyArguments, ["setup", "--cleanup", "--ok", "abc123"])
@@ -69,6 +71,10 @@ final class AppScreensTests: XCTestCase {
         XCTAssertTrue(refused.refused)
         XCTAssertNil(refused.problem)
         XCTAssertNotNil(CleanupResult(["not_run": "a FERB daemon still answers"], status: 1).problem)
+        let roomless = CleanupResult(["removed": ["decisions": 7], "stopped": false, "compacted": false,
+                                      "needed": 5000000000, "free": 1000], status: 0)
+        XCTAssertFalse(roomless.compacted)
+        XCTAssertEqual(roomless.needed, 5000000000)
     }
 
     func testTheIdentityStateListsOnlyProfilesHoldingFERBsAccountAlone() {

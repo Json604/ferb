@@ -187,6 +187,42 @@ def test_yes_at_the_check_in_allows_five_more_attempts(daemon: RunningDaemon) ->
     assert len(script.calls("worker")) == 10
 
 
+def _pending(d: RunningDaemon, capability: str = "plan.ask") -> Any:
+    """FERB's open question of this capability, once it is asked (left unanswered)."""
+    import asyncio
+
+    async def go() -> Any:
+        while True:
+            for ap in d.daemon.state.approvals.pending():
+                if ap.capability == capability:
+                    return ap
+            await asyncio.sleep(0.02)
+    return d.run(go(), timeout=20)
+
+
+def _routed(approval_id: str, reading: str) -> str:
+    return json.dumps({"kind": "reply", "text": "", "task": None,
+                       "answer_question": {"approval_id": approval_id, "answer": reading}})
+
+
+def test_free_text_in_chat_answers_the_check_in_only_as_one_of_its_options(daemon: RunningDaemon) -> None:
+    """A chat answer to an option question counted as "carry on" whatever it said ("stop it" kept going). Now words
+    that aren't an option count only through the planner's reading when that is exactly an option; otherwise FERB asks
+    which option it is, and the check-in stays open."""
+    script, turn = _failing(daemon, [])
+    asked = _pending(daemon)
+    script.sup.append(_routed(asked.id, "they want it to stop"))       # not an option: FERB asks which
+    told = chat(daemon, "hmm, stop it I guess")
+    assert [e["type"] for e in told] == ["clarify"]
+    assert run(daemon, lambda: daemon.daemon.state.approvals.get(asked.id)).state == "pending"
+    script.sup.append(_routed(asked.id, "No"))                          # the planner's reading is an option
+    chat(daemon, "stop it")
+    result = turn.result()
+    assert result["status"] == "failed" and len(script.calls("worker")) == CHECK_IN_AFTER
+    ap = run(daemon, lambda: daemon.daemon.state.approvals.get(asked.id))
+    assert ap is None or (ap.choice == "No" and ap.answer == "stop it")
+
+
 def _scheduled(daemon: RunningDaemon, workers: dict[str, Any]) -> dict[str, Any]:
     first = daemon.daemon.clock.now() + timedelta(minutes=5)
     sched = make_schedule(daemon, "check the visa page", "check the visa page every day", Targets.of(), first)
@@ -248,6 +284,43 @@ def test_a_loop_survives_a_restart_and_reruns_the_round_cut_short(home: Any, mon
         assert run(second, lambda: sv.loops.digest(tree, "keep"))["recent"] == ["done: Playing."]
         run(second, lambda: sv.stop_tree(tree))
         _until(second, lambda: run(second, lambda: tree not in sv._tree_of))
+    finally:
+        second.stop()
+
+
+def test_a_check_in_asked_before_a_restart_is_asked_again_and_no_stops(home: Any, monkeypatch: Any) -> None:
+    """A check-in waiting when FERB restarted came back as an owner pause, whose "No" resumed the work. Now the same
+    check-in is asked again, and No stops with what it found; no further attempt runs."""
+    monkeypatch.setattr("ferb.sanitize.images.recognize_text", lambda _image: [])
+    first = own_daemon(home, "a")
+    try:
+        install(first, [sup("task", "On it.", task("Book the table"))],
+                {"worker": _report("failed", "The site errored."), "worker.verify": RETRY})
+        turn = Turn(first, "book the table")
+        asked = _pending(first)
+        assert asked.options == ("Yes", "No") and "Keep going?" in asked.reason
+        tree = asked.task_id.split(".", 1)[0]
+    finally:
+        first.stop()
+    turn.thread.join(10)
+    import ferb.orchestrator.supervisor as supervisor_module
+    resume = supervisor_module.Supervisor.resume_plans
+
+    async def held(self: Any) -> None:                   # resumed below, once the scripted model is in place
+        return None
+    monkeypatch.setattr(supervisor_module.Supervisor, "resume_plans", held)
+    second = own_daemon(home, "b")
+    try:
+        monkeypatch.setattr(supervisor_module.Supervisor, "resume_plans", resume)
+        sv = second.daemon.supervisor
+        script = install(second, [], {"worker": done("Booked."), "worker.verify": verdict(True)})
+        second.loop.call_soon_threadsafe(lambda: second.loop.create_task(sv.resume_plans()))
+        again = answer_question(second, choice="No")
+        assert again.options == ("Yes", "No") and "Keep going?" in again.reason
+        _until(second, lambda: _row(second, tree) == "failed")
+        assert script.calls("worker") == []
+        assert run(second, lambda: second.daemon.journal.of_kind("task.check_in", "task_id", tree))[-1].data[
+            "keep_going"] is False
     finally:
         second.stop()
 
