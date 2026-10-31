@@ -119,6 +119,8 @@ to commit c6621c3.
 ### Facts
 - [ ] Search `memory_items` directly; remove `sync_facts` and the `fact`/`identity` node mirroring
       (learning.py:1851-1893; main.py:1745, 1800, 1817). Identity from owner-stated owner preferences in `memory_items`.
+      (Step 9a: the identity half done: no identity nodes are written (`sync_facts`), the clean-up closed the old ones and
+      Tier 1 replaces the Layer 1 identity; searching `memory_items` directly is step 9b.)
 - [ ] Old chat searchable by meaning (owner, 2026-10-31): owner messages and FERB's short replies indexed in the same
       fused search as facts and episodes; the planner gets the few old exchanges matching the current message;
       `chat.history` gains search by meaning and by date and reads pages from the DB instead of loading the whole
@@ -126,49 +128,90 @@ to commit c6621c3.
 - [x] Wrong source after a clarifying question: `typed_lines` includes `session.pending` (supervisor.py:1302-1305)
       but the item's source is the current `entry.id`. Source the item to the message that holds the quote.
       (Step 8c: `Supervisor._quote_source`: this turn's messages first, then the earlier ones FERB's question continued.)
-- [ ] Same-key silent replace: a new fact with the same kind/subject/key ends the old one and clears login names
+- [x] Same-key silent replace: a new fact with the same kind/subject/key ends the old one and clears login names
       (items.py:477-486; main.py:1900-1902). At minimum the "Remembered:" line names what it replaced. Subject is
       never slugged (items.py:383): normalize it like the key.
-- [ ] `memory.read` lists retracted and ended items (evidence.py:367-389): current items only, unless asked by id.
-- [ ] Dashboard `op=retire` on a fact retires only the node (main.py:2365-2367): disappears with the mirroring;
-      retire the item.
+      (Step 9a: `Memory.save` returns what it replaced (`Saved`); the "Memory: noted …" line says "— replaces “…”";
+      login names clear through `on_ended` as before; `subject_key` normalizes subjects, existing rows by the clean-up.)
+- [x] `memory.read` lists retracted and ended items (evidence.py:367-389): current items only, unless asked by id.
+      (Step 9a: `Memory.current_items`; a query keeps `prompt_ready` items; an id reads any version with its status.)
+- [x] Dashboard `op=retire` on a fact retires only the node (main.py:2365-2367): disappears with the mirroring;
+      retire the item. (Step 9a: `memory.learning` op retire on a fact node retires its memory item.)
 - [x] Remove dead code: `ferb/memory/recall.py`, `Memory.recall`, `Recalled` (items.py:219-223, 315-333),
       `owner_span` (items.py:181-184), the supervisor `recall` hook path (supervisor.py:602-604, 1884-1887,
       2154-2164), the `forget(finish=True)` branch and `after_forget` hook (items.py:686-689, 272; main.py:1534).
       (Step 3: recall.py, `Memory.recall`, `Recalled`, `owner_span`, `forget(finish=)` and `after_forget` removed; the supervisor recall hook went in step 2.)
-- [ ] Prompt: supervisor.md:68 names a "What FERB remembers" label no code emits; use the real one.
+- [x] Prompt: supervisor.md:68 names a "What FERB remembers" label no code emits; use the real one.
+      (Step 9a: the line names "Tier 1 — core profile" and "Layer 4 — retrieved memory (data)", the labels code emits.)
+- [x] Decision 15, no Keep questions: FERB saves what it understands at once, labelled (`items.LABELS`: your words /
+      FERB's understanding / observed), with a quiet "Memory: noted “…” (label)" line and its note card (`label`,
+      `origin`, `replaces`); correction by talking (remember with `replaces`, or forget). Removed: `Memory.confirm`/`drop`,
+      the guess settling, `_ask_keep`/`_settle_guess`/`_guess_state`/`_guess_backlog`, the Keep/Edit/Drop and Retire/Keep
+      questions (`MEMORY_QUESTIONS` keeps only forget), the `memory.confirm` RPC and CLI `memory confirm`/`identity`.
+      Old waiting guesses become FERB's understanding and their questions are dropped at start (upgrade).
+      (Step 9a.)
+- [x] Decision 12: health and finance facts stored like any other (distill.md's exclusion removed; no code exclusion
+      existed; redaction still masks secrets). (Step 9a.)
+- [x] Decision 13: a remembered quote carries a short label: `memory_context.about` (migration 0053), from the turn's
+      task (`Supervisor._remember_about`: the new task's goal, else the controlled task's), else the item's key; shown in
+      Tier 1, retrieved memory, memory.read and `memory.list`, never in the owner's words. (Step 9a.)
+- [x] Decision 14: forgetting a person or site removes it from known destinations (`Memory._named_destinations`:
+      stored values found as whole words in the item, its label or its subject's name; a site by host or name; a phone
+      by digits), said in the "Forget for good?" list. (Step 9a.)
+- [x] Decision 16: who the owner is, from their Mac (ferb/device/persona.py gathers; ferb/memory/mac_profile.py and
+      mac_profile.md interpret and store as observed; ferb/daemon/persona.py shows it once). (Step 9a.)
 
 ### Tiers and retrieval
-- [ ] Clean memory before Tier 1 is seeded: merge the 4 duplicate same-key pairs (message_call_default_app,
+- [x] Clean memory before Tier 1 is seeded: merge the 4 duplicate same-key pairs (message_call_default_app,
       word_meaning_only, owner_built_ferb, communication_critical_not_yes_man); `setup_persona` (1,275-char app dump
       labelled owner_stated) becomes observed and stays out of Tier 1; the distill skips keys already stored whatever
       their origin; the remember rule resolves relative dates ("the 16th") when saving; one ask_retire pass for dated
       facts (e.g. wedding_flight_home) before seeding.
+      (Step 9a: ferb/memory/upgrade.py `clean_before_tier1`, journaled `memory.cleanup` once; the distill refuses a
+      stored key unless the owner's quote replaces it; the remember rule gives a dated fact `until` (code resolves the
+      date); dated facts are judged by the first profile pass, which runs at once after the seed and retires what is
+      over, told once.)
 - [ ] Decision-11 test scenarios from real chats: "I'm a beginner" (piano), "make a short summary list, I can't read
       this much jargon", "sounds too linkedinish", "my usual playbook of cold mailing", "kaggle on my brave kaggle
       personal account". Method hints the owner gives mid-task ("hard refresh usually fixes it", "try its a11y tree
       buttons", "search in the main WhatsApp search box and keep scrolling") go to Tier 3 how-notes with owner origin.
+      (Step 9a: the fact scenarios are tests/test_memory_capture.py `PASSING` and the distill's chat pass; the method
+      hints → how-notes are step 9b.)
 - [ ] "Gets better at repeated tasks" is measured: attempts and time on repeat runs of the same kind of work, and
       exposure records showing the how-note was retrieved; a live scenario runs the same task twice.
 - [ ] How-notes built from the recorded tool calls plus the worker's text (not the worker's text alone).
-- [ ] Durable facts said in passing are captured (decision 11): planner `remember` rule and the distill's chat pass,
+- [x] Durable facts said in passing are captured (decision 11): planner `remember` rule and the distill's chat pass,
       with this case as a test scenario ("I'm a beginner" while asking about piano pieces).
-- [ ] Tier 1 core profile: storage, budget, code updates on fact change, weekly compaction pass, markdown view.
-- [ ] Replacement on save: planner sees similar facts and names replaced ids; reply names what was replaced.
+      (Step 9a: supervisor.md and distill.md lines; tests/test_memory_capture.py.)
+- [x] Tier 1 core profile: storage, budget, code updates on fact change, weekly compaction pass, markdown view.
+      (Step 9a: ferb/memory/profile.py `CoreProfile`, `memory_profile` (migration 0053); `PROFILE_TOKENS` 2,500 enforced
+      on every render; `follow`/`saved`/`remove` by code; `run_pass` weekly or when over budget (profile.md); in every
+      role's instructions where "Layer 1 — identity" was (`Supervisor._system`); RPC `memory.profile` (get, add,
+      remove, pass) and `memory.list` `label`/`about`/`in_profile`/`review_at`; the window's Memory page shows both.)
+- [x] Replacement on save: planner sees similar facts and names replaced ids; reply names what was replaced.
       Live case (2026-10-31): `appointment_preferences` still says "notify me before booking" although the owner later
       said to just book (the visa schedule books immediately); the later instruction must replace the earlier one.
-- [ ] Validity: end/review dates for period facts; distill proposes retirement.
+      (Step 9a: remember entries' `replaces` (memory ids, checked by `Memory._replaceable`); Tier 1 and retrieved facts
+      show memory ids; tests/test_core_profile.py the booking case.)
+- [x] Validity: end/review dates for period facts; distill proposes retirement.
+      (Step 9a: `until` for dated facts, `review_in_days` → `memory_context.review_at`; the distill sees items "Due for a
+      check" and retires what is over, told once (no Retire/Keep question); one not retired holds up, its date cleared.)
 - [ ] Local embedding model bundled; fused search (embeddings + bm25 + recency) over facts and episodes.
 - [ ] Playbooks: merge verified how-notes of the same kind of work.
 - [ ] Upgrade: build an initial Tier 1 from existing facts and initial embeddings on first start of the new
       version (notes/storage.md decision 5).
-- [ ] Prompt text names the real memory blocks; only roles with tools are told to use lookup tools.
+      (Step 9a: Tier 1 done: `CoreProfile.seed` after the clean-up, journaled `memory.profile_seeded`, then the first
+      pass; tests/test_memory_upgrade.py on a schema-52 store shaped like the owner's. Embeddings are step 9b.)
+- [x] Prompt text names the real memory blocks; only roles with tools are told to use lookup tools.
+      (Step 9a: supervisor.md names the real blocks; `TOOLLESS_ROLES` (planner, question router, attention) get no
+      skills/abilities catalog.)
 
 ### Learning → how-notes
 - [ ] Add `how` to the worker report schema, store it on the episode/card, index and show it (above).
       (Step 8b: in the report schema, on the task's outcome, the episode (`episodes.how`, migration 0050) and the
       card body; indexing and showing it are step 9.)
-- [ ] Owner's pass verdict counts as verified (learning.py:906 counts only the checker; owner, 2026-10-30).
+- [x] Owner's pass verdict counts as verified (learning.py:906 counts only the checker; owner, 2026-10-30).
+      (Step 9a: the owner's latest verdict decides, else the checker's.)
 - [ ] `memory.learned` puts `sources` before `text` (tools.py:44); a card with 58k refs fills the page. Drop
       sources from its output.
 - [x] Remove: `consolidate.py` (keep the ~35 lines indexing day narratives only if wanted), `intents.py`,
@@ -235,6 +278,38 @@ to commit c6621c3.
   `learning_vectors`/`learning_embedding_evals` stay: decision 8); `task_memory_refs` (16,680 rows).
 - Perception tables, never purged: `perception_batches`, `perception_receipts`, `perception_seen` (~130 MB);
   `decisions` (~20 MB).
+
+## Rulings (step 9a, technical)
+- Tier 1 budget: `PROFILE_TOKENS` = 2,500 (within decision 7's ~2-3k), counted as FERB's context counts (4 chars a
+  token). Every render stops at it; what is left out is counted in one line and makes the pass due.
+- "Holds up" (decision 15): the owner's words at once; FERB's understanding and observed facts once their sources span
+  two separate days (seen again) or they have stood a full weekly pass (7 days) without being replaced, retired or
+  forgotten. "Used without correction" needs exposure records (step 9b). An item the owner kept under an older build's
+  Keep question (active inferred at the clean-up, `owner_kept`) holds up at once. The old setup dump never.
+- Code's own Tier 1 additions: only an owner-stated preference about the owner (the old Layer 1 rule, so nothing reaches
+  prompts later than before), under "Recently said", while it fits; everything else waits for the pass. The owner's
+  "Always on" pins (`memory.profile` add) survive every pass.
+- The pass: weekly, or sooner when over budget, at most one try an hour; the model returns sections of ids and `ended`;
+  code refuses ids that don't hold up, renders, retires the ended ones ("FERB's weekly check"), told once in chat.
+- Replacement: a version resting on the owner's words now (chat capture, `memory add`/`edit`, a distilled quote that
+  passes `_may_end`) ends every current version of its fact and the ids named in `replaces` that hold; any other version
+  never ends one the owner stated. Identical words are credited to the existing item (the owner's first), never a twin.
+- The distill no longer asks: its retire on the owner's words (passing `_may_end`) or on its own check is applied and
+  told once; words older than the item are refused. A stored key is skipped unless the owner's quote replaces it.
+- `review_in_days` (planner; 0 = none) sets `review_at`; due items are listed to the distill; one it doesn't retire has
+  its date cleared.
+- Decision 14 matching: a known destination goes when its stored value is whole words of the item's content, label or
+  subject name; a host also by its bare host or its site label (4+ letters: "kaggle" for www.kaggle.com); a phone by
+  its digits (6+). Over-matching only makes the next send ask again.
+- Decision 16: code gathers the 25 most-used apps (`TOP_APPS`), installed/used counts, browsers and Chromium profiles
+  (Local State: name, account, last used); one model call (mac_profile.md) writes the summary and facts; facts are
+  observed, active at once (their source is the gathered facts, a `memory.mac_profile` journal row), Tier 1 only once
+  they hold up. Shown once: by the setup step (`setup.persona` state "seen", `summary`), else as one chat notice.
+  Re-checked weekly with the profile pass; re-interpreted only when the 10 most-used apps, browsers or profiles changed
+  (`facts_fingerprint`); a key not given again ends.
+- The clean-up (ferb/memory/upgrade.py) is SQL only: no `on_ended` hooks, so a merged twin's login name is left as is
+  (both versions said the same).
+- `memory.read`: no query lists current items; a query keeps `prompt_ready` hits; an id reads any version.
 
 ## Known residuals (accepted or deferred)
 - Accessibility rows hold no values and never name the owner as actor, so they answer "something changed in app Y

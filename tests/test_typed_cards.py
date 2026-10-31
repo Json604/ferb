@@ -56,7 +56,7 @@ def test_a_reply_carries_note_and_event_cards_from_the_rows_code_wrote(daemon: R
     [note] = _cards(reply, "note")
     item = run(daemon, lambda: daemon.daemon.memory.get(note["item_id"]))
     assert item is not None and " ".join(item.content.split()) == note["text"] and note["state"] == "saved"
-    assert note["line"] in lines and note["line"].startswith("Remembered: ")
+    assert note["line"] in lines and note["line"].startswith("Memory: noted")
     [event] = _cards(reply, "event")
     timer = run(daemon, lambda: list(daemon.daemon.timers.pending()))[0]
     assert event["kind"] == "reminder" and event["id"] == timer.id and event["what"] == "call Mom"

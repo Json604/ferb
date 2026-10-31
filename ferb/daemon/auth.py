@@ -31,7 +31,7 @@ METHODS: dict[Role, frozenset[str]] = {
                          "chat.approve", "chat.answer", "identity.check", "identity.pair", "browsers.list",
                          "browsers.pair",
                          "browsers.unpair", "browsers.installed", "ps.list", "ps.kill", "ps.attach", "ps.send", "sense.pause", "sense.resume", "sense.status",
-                         "memory.learning", "memory.list", "memory.show", "memory.add", "memory.confirm", "memory.edit",
+                         "memory.learning", "memory.list", "memory.show", "memory.add", "memory.profile", "memory.edit",
                          "memory.retract", "memory.forget", "timeline.get",
                          "jev.stats", "jev.enable", "jev.reload", "runtimes.check", "reminders.list", "reminders.cancel",
                          "reminders.unseen", "chat.status", "results.ack", "chat.attach", "task.stop", "schedules.list", "schedules.change",

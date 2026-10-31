@@ -496,30 +496,6 @@ final class SetupModel: ObservableObject {
         } catch { message = Self.notAnswering }
     }
 
-    func savePersona() async {
-        guard case .pending(let id, _, _, true) = persona else { return }
-        await answerPersona("chat.approve", ["approval_id": id, "granted": true, "choice": 1])
-    }
-
-    func editPersona(_ text: String) async {
-        guard case .pending(let id, _, _, _) = persona,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        await answerPersona("chat.answer", ["approval_id": id, "text": text])
-    }
-
-    func skipPersona() async {
-        guard case .pending(let id, _, _, _) = persona else { return }
-        await answerPersona("chat.approve", ["approval_id": id, "granted": false])
-    }
-
-    private func answerPersona(_ method: String, _ params: [String: Any]) async {
-        do {
-            _ = try await rpc.call(method, params: params)
-            persona = .finished
-            personaMessage = nil
-        } catch { personaMessage = error.localizedDescription }
-    }
-
     // MARK: Done
 
     func finish() async {

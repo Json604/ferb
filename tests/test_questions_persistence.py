@@ -7,7 +7,6 @@ from typing import Any, Callable
 
 from ferb.cli.client import Client
 from ferb.core.types import Identity
-from ferb.device.persona import persona_proposal
 from tests.conftest import RunningDaemon, gateway_request, gateway_setup
 from pathlib import Path
 from tests.support.claude_home import signed_in_home
@@ -87,78 +86,6 @@ def test_a_question_closes_when_its_task_ends(daemon: RunningDaemon) -> None:
     daemon.run(task_ends())
     assert asked.result(5)["content"].get("declined") is True
     assert _pending(daemon) == []
-
-
-def _persona_daemon(daemon: RunningDaemon) -> tuple[list[tuple[str, dict[str, Any]]], list[tuple[str, str]]]:
-    def collect(home: Any, device: Any, activity: Any, excluded: Any) -> dict[str, Any]:
-        return persona_proposal([{'bundle_id': 'code', 'app': 'Code', 'uses': 7}], '2026-10-11')
-    daemon.daemon.persona_scan = collect
-    published: list[tuple[str, dict[str, Any]]] = []
-    banners: list[tuple[str, str]] = []
-    real_publish = daemon.daemon._publish
-
-    def publish(topic: str, data: dict[str, Any]) -> None:
-        published.append((topic, data))
-        real_publish(topic, data)
-
-    async def banner(title: str, text: str) -> None:
-        banners.append((title, text))
-    daemon.daemon._publish = publish                     # type: ignore[method-assign]
-    daemon.daemon.notify = banner
-    return published, banners
-
-
-def test_one_hundred_status_polls_show_one_profile_question_published_once_with_no_banner(
-        daemon: RunningDaemon) -> None:
-    published, banners = _persona_daemon(daemon)
-    client = Client(daemon.sock)
-    try:
-        client.call("chat.attach")
-
-        async def scanned() -> None:
-            await daemon.daemon.persona.task
-            await asyncio.sleep(0)                        # a banner would be scheduled on the loop by now
-        daemon.run(scanned())
-        seen: set[str] = set()
-        for poll in range(100):
-            if poll % 10 == 0:                            # the notch polls every 5 s: well past the old 600 s
-                daemon.call_soon(daemon.daemon.clock.advance, LONGER_THAN_THE_OLD_EXPIRY)
-            approvals = client.call("chat.status", {"peek": True})["approvals"]
-            seen.update(a["approval_id"] for a in approvals if a["capability"] == "setup.persona")
-        assert len(seen) == 1, seen
-        asked = [d for topic, d in published if topic == "approval.requested" and d["capability"] == "setup.persona"]
-        assert [d["approval_id"] for d in asked] == list(seen)
-        daemon.run(asyncio.sleep(0.05))
-        assert banners == []
-    finally:
-        client.close()
-
-
-def test_the_profile_question_is_asked_once_across_status_and_start(tmp_path: Any) -> None:
-    from ferb.clock.clock import FakeClock
-    from ferb.config import Config
-    from ferb.daemon.persona import PersonaReview
-    from ferb.daemon.questions import Approvals
-
-    async def scenario() -> None:
-        clock = FakeClock()
-        approvals = Approvals()
-        events: list[tuple[str, dict[str, Any]]] = []
-        review = PersonaReview(Config(tmp_path / 'home'), approvals, lambda: persona_proposal(
-            [{'app': 'Code', 'bundle_id': 'code', 'uses': 3, 'last_used': '2026-10-10'}], '2026-10-11'),
-            remember=lambda text: None, publish=lambda topic, data: events.append((topic, data)),
-            record=lambda kind, data: None)
-        review.start()
-        assert review.task is not None
-        await review.task
-        first = review.status()['approval']['approval_id']
-        for _ in range(100):
-            clock.advance(LONGER_THAN_THE_OLD_EXPIRY)
-            assert review.status()['approval']['approval_id'] == first
-            assert review.start()['approval']['approval_id'] == first
-        assert [topic for topic, _ in events] == ['approval.requested']
-        assert [ap.id for ap in approvals.pending()] == [first]
-    asyncio.run(scenario())
 
 
 # ---------- the worker's side: the MCP shim and the daemon's view of its connection (review fix 2, owner §8.1) ----------

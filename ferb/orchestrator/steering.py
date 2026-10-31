@@ -17,21 +17,17 @@ from ferb.trace.lines import choices    # noqa: F401  (re-exported: daemon/areas
 
 CONVERSATION_ASK = 'conversation.approve'   # F9: the owner's Yes/No to a delegated conversation's scope
 FORGET_ASK = 'memory.forget'                 # memory review I2: the owner's Yes/No to a forget asked in chat
-CONFIRM_MEMORY_ASK = 'memory.confirm'        # I1, L36: the owner's Keep / Edit / Drop to one of FERB's guesses
-EDIT_MEMORY_ASK = 'memory.edit'               # L36 §2: the owner's own words for one of FERB's guesses (free text)
-RETIRE_MEMORY_ASK = 'memory.retire'           # L36 §6: the owner's Retire or Keep on an item FERB thinks is out of date
-# FERB's questions about memory, by `memory_questions.kind` (before any ':'): their capability and options
-MEMORY_QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
-    'confirm': (CONFIRM_MEMORY_ASK, ('Keep', 'Edit', 'Drop')), 'edit': (EDIT_MEMORY_ASK, ()),
-    'forget': (FORGET_ASK, ('Yes', 'No')), 'retire': (RETIRE_MEMORY_ASK, ('Retire', 'Keep'))}
-# Checks whose typed answer must be one of their options (Ruling: a stray "yes keep it" is never saved as a memory)
-OPTION_ONLY = frozenset({CONFIRM_MEMORY_ASK, RETIRE_MEMORY_ASK})
-# None of them asks for a secret, so their own words (a guess about "passwords") never hide an answer or a chat message
-# as a password question's would; secret classes are still hidden (rule 14)
+# FERB's questions about memory, by `memory_questions.kind` (before any ':'): their capability and options. Only a forget
+# asks (permanent deletion, rule 5); decision 15 removed the Keep / Edit / Drop and Retire / Keep questions
+MEMORY_QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {'forget': (FORGET_ASK, ('Yes', 'No'))}
+# Checks whose typed answer must be one of their options (none left among memory's: a forget's Yes / No is a FERB check)
+OPTION_ONLY: frozenset[str] = frozenset()
+# None of them asks for a secret, so their own words never hide an answer or a chat message as a password question's
+# would; secret classes are still hidden (rule 14)
 MEMORY_ASKS = frozenset(capability for capability, _ in MEMORY_QUESTIONS.values())
-# FERB's own consequential checks: answered only by one of their options in plain words (Yes or No; Keep, Edit or
-# Drop; Retire or Keep), never by a correction's words (L3)
-FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK, CONFIRM_MEMORY_ASK, RETIRE_MEMORY_ASK})
+# FERB's own consequential checks: answered only by one of their options in plain words (Yes or No), never by a
+# correction's words (L3)
+FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK})
 
 
 def acknowledgement(reply: str, delivered: bool, stated: str | None) -> str:

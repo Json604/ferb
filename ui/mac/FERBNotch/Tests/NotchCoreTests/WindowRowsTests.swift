@@ -48,8 +48,14 @@ final class WindowRowsTests: XCTestCase {
         XCTAssertEqual(notice.quotes, [NoticeQuote(text: "BUILD OK", origin: "external:observation")])
         XCTAssertTrue(notice.shown)
         let item = try XCTUnwrap(MemoryRow(["id": "m-1", "kind": "fact", "subject": "owner", "key": "editor",
-                                            "content": "Uses VS Code", "status": "active", "origin": "owner_stated"]))
+                                            "content": "Uses VS Code", "status": "active", "origin": "owner_stated",
+                                            "label": "your words", "in_profile": true]))
         XCTAssertEqual(item.content, "Uses VS Code")
+        XCTAssertEqual(item.label, "your words")
+        XCTAssertTrue(item.inProfile)
+        let profile = CoreProfileView(["sections": [["title": "Who you are", "items": [["id": "m-1"]]]],
+                                       "used_tokens": 40, "budget_tokens": 2500])
+        XCTAssertEqual(profile.sections, [CoreProfileView.Section(title: "Who you are", ids: ["m-1"])])
     }
 
     func testSettingValuesKeepBooleansApartFromNumbers() throws {

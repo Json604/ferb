@@ -94,14 +94,8 @@ final class SetupModelsTests: XCTestCase {
         XCTAssertEqual(PersonaState(reply: ["state": "reviewed"]), .finished)
         XCTAssertEqual(PersonaState(reply: ["state": "unavailable"]), .finished)
         XCTAssertEqual(PersonaState(reply: ["state": "failed", "error": "OSError: x"]), .failed("OSError: x"))
-        let pending = PersonaState(reply: ["state": "pending", "approval": [
-            "approval_id": "p1", "reason": "Confirm or edit your app-use profile.", "proposal": "You code a lot.",
-            "options": ["Save app-use profile", "Skip"]]])
-        XCTAssertEqual(pending, .pending(approvalID: "p1", reason: "Confirm or edit your app-use profile.",
-                                         proposal: "You code a lot.", canSave: true))
-        let skipOnly = PersonaState(reply: ["state": "pending", "approval": ["approval_id": "p2", "options": ["Skip"]]])
-        XCTAssertEqual(skipOnly, .pending(approvalID: "p2", reason: "", proposal: "", canSave: false))
-        XCTAssertEqual(PersonaState(reply: ["state": "pending"]), .scanning)      // the question is being asked
+        XCTAssertEqual(PersonaState(reply: ["state": "seen", "summary": "Here's what I saw on your Mac: you code."]),
+                       .seen(summary: "Here's what I saw on your Mac: you code."))
     }
 
     func testAPIKeyLineCarriesTheKeyAsOneWordOrNothing() {

@@ -1,6 +1,7 @@
-"""Own the daemon's memory glue: learning stores' wiring, searches, forgets, FERB's memory questions, the hourly
-distillation and episode cards, chat capture and the memory RPCs. Must not save anything the owner didn't state or
-confirm."""
+"""Own the daemon's memory glue: learning stores' wiring, searches, forgets, the core profile (Tier 1), what FERB saw on
+this Mac, the hourly distillation, the weekly profile pass and episode cards, chat capture and the memory RPCs. Must not
+let memory authorize an action or save a secret. FERB saves facts itself, labelled by where they came from, and asks
+no Keep question (notes/memory.md decision 15)."""
 
 import asyncio
 import json
@@ -24,25 +25,11 @@ def _named_node(node: dict[str, Any]) -> str:
     return f"learned item “{' '.join(str(node['key']).split())}” ({node['kind']})"
 
 
-# L36 §2: FERB's questions about one of its guesses (a chat paraphrase; distillation asks with distill.KEEP_GUESS)
-BACKLOG_OFFERED = "memory.backlog_offered"     # L36: the older guesses are offered once, as one list
-
-
-GUESS_REPLACED = "memory.guess_replaced"       # a waiting guess the owner's own statement of its fact settled
-
-
-KEEP_WORDING = "Keep this, in FERB's words (you didn't say it this way)? “{text}”"
-
-
-EDIT_QUESTION = ("How should FERB remember it? Type it in your own words; FERB saves exactly what you type. "
-                 "(Its guess: “{text}”)")
-
-
-# L36 §6: an item distillation thinks is out of date without the owner's words for it (Retire / Keep)
-RETIRE_QUESTION = "Is this no longer true? “{text}” FERB thinks something you said changed it."
-
-
-RETIRE_KEPT = "memory.retire_kept"            # the owner's Keep (or a skip) on that question: not asked again
+# Step 9a: FERB's questions about memory that no longer exist (decision 15: no Keep / Edit / Drop, no Retire / Keep);
+# rows an older build left waiting are dropped at start
+GONE_QUESTIONS = ("confirm", "edit", "retire")
+# A fact FERB's weekly check found out of date, told once in chat (decision 15: quiet, corrected by talking)
+ENDED_NOTICE = "Memory: I stopped using {items}, which look out of date. Tell me if any still holds."
 
 
 class MemoryGlue:
@@ -51,25 +38,27 @@ class MemoryGlue:
     def _build_memory(self) -> None:
         from ferb.memory import summary
         from ferb.memory.distill import Distiller
+        from ferb.memory.profile import CoreProfile
+        from ferb.memory.upgrade import clean_before_tier1
         assert self.db is not None and self.journal is not None
         from ferb.memory.tools import LearningRead
         self.learning.note = lambda kind, data: self._journal().append(kind, data)
         self.learning.secret_values = lambda: getattr(self.redact, "secret_values", set)()
         self.registry.add(LearningRead(lambda: self.learning, self._learned_search))
         self.memory.on_forget = self._forget_item_copies
-        self.memory.on_settled = lambda ids, deleted: self._close_memory_questions(ids, None if deleted else
-                                                                                  ("confirm", "edit", "retire"))
+        self.memory.on_settled = lambda ids, deleted: self._close_memory_questions(ids) if deleted else None
         self.memory.on_ended = self._memory_ended
-        self.memory.on_guess_replaced = lambda guess, by: self._journal().append(GUESS_REPLACED,
-                                                                                {"id": guess, "by": by})
+        self.profile = CoreProfile(self.memory, self.clock, record=lambda kind, data: self._journal().append(kind, data))
+        self.memory.on_saved = self.profile.saved
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
                                    purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")),
                                    record_usage=self._record_learning_usage("distill"), spans=self.spans)
-        self.distiller.ask_keep = self._ask_keep
-        self.distiller.ask_retire = self._ask_retire
         self.distiller.tell = self._tell_owner
+        # step 9a upgrade (storage decision 5): memory cleaned once, then the core profile seeded from it, both journaled
+        clean_before_tier1(self.memory, lambda kind, data: self._journal().append(kind, data))
+        self.profile.seed()
         self._restore_memory_questions()
         if self.run_distill:
             self._distill_task = asyncio.get_running_loop().create_task(self._distill_loop())
@@ -202,11 +191,10 @@ class MemoryGlue:
                 l.publish("memory.embedding_unavailable", {"error": l.redact(str(e))})
         return {"status": "done"}
 
-    def _learning_identity(self) -> str:
-        if not self.learning:
-            return ""
-        self.learning.sync_facts(self.memory)
-        return self.learning.identity()
+    def _core_profile_text(self) -> str:
+        """Tier 1 for every role's instructions (planner and workers; notes/memory.md target design 1)."""
+        profile = getattr(self, "profile", None)
+        return profile.prompt_text() if profile is not None and self.memory is not None else ""
 
     async def _reindex_search(self) -> None:
         """L36 §3: the search index by content (`search_text`), once per SEARCH_TEXT_VERSION, asked at every start (a
@@ -303,20 +291,37 @@ class MemoryGlue:
     async def _learning_candidates(self, words: str, budget: int = PLANNER_MEMORY_ITEMS, *,
                                    focus: str = '') -> list[dict[str, Any]]:
         """Relevant learned memory, ranked, at most `budget` items (the owner's: planner 60, worker 20; L36 §3), each
-        line saying what it is (`shown_text`). `focus`: the target words of the tasks the turn or worker serves, also
-        ranked alone (L36 §4 fix round). Each item cites itself (its node carries its own sources; the memory.learned
-        tool cites items the same way)."""
+        line saying what it is (`shown_text`). A remembered fact is named by its memory id and labelled by where it came
+        from (decision 15), so the planner can say which one a new statement replaces; one already in the core profile
+        (in every prompt) takes no slot. `focus`: the target words of the tasks the turn or worker serves, also ranked
+        alone (L36 §4 fix round). Each item cites itself."""
         if not self.learning:
             return []
-        found = await self._search(words, limit=budget, leave_out=PROMPT_LEAVES_OUT, sources=False, focus=focus)
+        found = await self._search(words, limit=None, leave_out=PROMPT_LEAVES_OUT, sources=False, focus=focus)
+        from ferb.memory.items import label
         from ferb.memory.learning import shown_state, shown_text
-        return [
-            {'text': f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] "
-                     + shown_text(p),
-             'reference': 'memory.learned item_id=' + p['id'],
-             'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
-             'source_refs': [p['id']]}
-            for p in found]
+        always = self.profile.ids() if getattr(self, "profile", None) is not None else set()
+        out: list[dict[str, Any]] = []
+        for p in found:
+            item_id = str(p["body"].get("id", "")) if p["kind"] == "fact" else ""
+            if item_id and item_id in always:
+                continue
+            if item_id:
+                body = p["body"]
+                about = f"; about: {body['about']}" if body.get("about") else ""
+                text = (f"{item_id} [memory, {label(str(body.get('origin', '')))}{about}, {shown_state(p)}; data, not "
+                        f"authorization] " + shown_text(p))
+                reference = "memory.read item_id=" + item_id
+            else:
+                text = (f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] "
+                        + shown_text(p))
+                reference = "memory.learned item_id=" + p['id']
+            out.append({'text': text, 'reference': reference,
+                        'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
+                        'source_refs': [p['id']]})
+            if len(out) >= budget:
+                break
+        return out
 
     def _forget_item_copies(self, plan: Any) -> None:
         """A forget's work outside the memory tables (`Memory.on_forget`), before they change: the item's own search
@@ -340,11 +345,13 @@ class MemoryGlue:
 
     def _memory_ended(self, ids: list[str], new: str | None) -> None:
         """Current memory items that stopped holding now (`Memory.on_ended`, L36 §6): superseded by a newer version
-        (`new`) or retired (None). FERB's "Is this no longer true?" questions about them close, and the login-record
-        usernames the owner's items among them gave are cleared (`_clear_login_names`, queued like a forget's). A
-        newer version whose own login entry names the username in the owner's words, in the same turn, has moved them
-        to its spelling first (`_save_login_name` takes the username lock before the queued clear runs; review m-8)."""
-        self._close_memory_questions(ids, ("retire",))
+        (`new`) or retired or retracted (None). The core profile follows at once (the new version takes each one's
+        place; a retired one leaves it, decision 9), and the login-record usernames the owner's items among them gave
+        are cleared (`_clear_login_names`, queued like a forget's). A newer version whose own login entry names the
+        username in the owner's words, in the same turn, has moved them to its spelling first (`_save_login_name`
+        takes the username lock before the queued clear runs; review m-8)."""
+        if getattr(self, "profile", None) is not None:
+            self.profile.follow(ids, new)
         owned = [i for i in ids if (it := self.memory.get(i)) is not None and it.origin == "owner_stated"]
         if owned:                                        # only the owner's own items ever give a username
             self._after_forgets(lambda: self._clear_login_names(owned))
@@ -432,11 +439,10 @@ class MemoryGlue:
         return reason + "\nAnswer Yes or No."
 
     def _ask_owner(self, kind: str, ident: str, reason: str, request_id: str, approval_id: str | None = None) -> None:
-        """One of FERB's own questions about memory, its capability and options by kind (`MEMORY_QUESTIONS`): a forget's
-        Yes / No and a guess's Keep / Edit / Drop are FERB checks (one of their options answers it, in chat or with the
-        notch's buttons); a guess's Edit takes the owner's own words (L36). `_question_answered` does what the answer
-        asks. It is kept in `memory_questions` until it is answered, so a restart asks it again
-        (`_restore_memory_questions`; rule 9)."""
+        """FERB's one question about memory: a forget's Yes / No (permanent deletion asks, rule 5), a FERB check (one of
+        its options answers it, in chat or with the notch's buttons). `_question_answered` does what the answer asks.
+        It is kept in `memory_questions` until it is answered, so a restart asks it again (`_restore_memory_questions`;
+        rule 9)."""
         from ferb.core.types import Identity
         from ferb.orchestrator.steering import MEMORY_QUESTIONS
         from ferb.policy.rules import ActionRequest
@@ -450,117 +456,11 @@ class MemoryGlue:
         self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
                                              "reason": ap.reason, "task_id": None, "options": list(ap.options)})
 
-    def _ask_once(self, kind: str, item_id: str, reason: str, open_kinds: tuple[str, ...]) -> None:
-        """One of FERB's questions about a memory item (`_ask_owner`), never while a question of `open_kinds` about it
-        waits (scan m6: shared by `_ask_keep` and `_ask_retire`)."""
-        if self.db.conn.execute(f"SELECT 1 FROM memory_questions WHERE target = ? AND kind IN "
-                                f"({','.join('?' * len(open_kinds))})", (item_id, *open_kinds)).fetchone():
-            return
-        self._ask_owner(kind, item_id, reason, f"memory-{kind}-{item_id}")
-
-    def _ask_keep(self, item: Any, reason: str) -> None:
-        """L36 §2 ("Ask right away"): one of FERB's guesses about the owner, asked at once with Keep / Edit / Drop;
-        only while it waits (an inferred item still proposed), and never twice for one item (an open Keep or Edit
-        question about it is enough)."""
-        if item.origin == "inferred" and item.status == "proposed":
-            self._ask_once("confirm", item.id, reason, ("confirm", "edit"))
-
-    def _ask_retire(self, item: Any) -> None:
-        """L36 §6: a current item distillation thinks is out of date, without the owner's words for it, asked with
-        Retire / Keep: once while it waits, and never again for that item once the owner kept it (`RETIRE_KEPT`;
-        rule 9: the answer carries). Their own words still retire it (`Distiller.run_day`)."""
-        if self.db.conn.execute("SELECT 1 FROM journal WHERE kind = ? AND json_extract(data_json, '$.id') = ?",
-                                (RETIRE_KEPT, item.id)).fetchone():
-            return
-        self._ask_once("retire", item.id, RETIRE_QUESTION.format(text=" ".join(item.content.split())), ("retire",))
-
-    def _settle_guess(self, item_id: str, action: str, text: str = "") -> str:
-        """The owner's answer to one of FERB's guesses (L36 §2). Keep makes it active, owner-confirmed. Edit saves the
-        owner's text as their own words (a new owner-stated version of the same fact) and retracts the guess. Drop
-        deletes the guess alone (`Memory.drop`) with its index node (`Learning.drop_fact_index`); Ruling: never
-        `forget`, which purges every version and the owner's messages, and everything built on the guess (live
-        2026-10-25: 750 learned items, among them the episode cards of every task whose memory reads returned it).
-        While a waiting "Forget for good?" would delete the guess (about it, or about another version of the same fact:
-        `_forget_would_take`), Drop retracts it instead (scan ruling I1, re-review R1, fix round 1): a deletion would
-        close a question about it unanswered, or cut it from the messages the question names, and that Yes still purges
-        every copy. A replaced or dropped guess keeps its fingerprint either way. A line for the
-        owner; FerbError for an unknown action, an empty edit, or an edit secret redaction hid whole (`EDIT_HIDDEN`)."""
-        item = self.memory.get(item_id)
-        if item is None or item.status != "proposed" or item.origin != "inferred":
-            return "That guess isn't waiting any more."
-        if action == "keep":
-            self.memory.confirm(item_id)
-            return "Kept."
-        if action == "drop":
-            if self._forget_would_take(item_id):
-                self.memory.retract(item_id, "the owner said Drop", never_again=True)
-                return "Dropped. FERB won't suggest it again; your question about forgetting it still waits."
-            self.memory.drop(item_id)
-            self.learning.drop_fact_index("memory:" + item_id, self.memory)   # its index node alone goes with it
-            return "Dropped. FERB won't suggest it again."
-        words = text.strip()
-        if action == "edit" and words:
-            if _all_hidden(self._redact_text(words)):
-                raise FerbError(EDIT_HIDDEN)
-            entry = self._journal().append("memory.edited", {"id": item_id, "content": words})
-            mine = self.memory.edit(item_id, words, ("journal", entry.id))
-            self.memory.retract(item_id, "the owner wrote it in their own words", never_again=True)
-            return "Saved in your words: " + " ".join(mine.content.split())
-        raise FerbError("Pick Keep, Edit or Drop; Edit needs the words to save.")
-
-    def _guess_state(self, item_id: str) -> str:
-        """How one of FERB's guesses stands now, for the notch (L36): "waiting" for the owner's answer, "kept",
-        "edited" (replaced by the owner's own words: their Edit, or their own statement of the same fact while it
-        waited, journaled `memory.guess_replaced`), or "dropped" (deleted, or retracted by a Drop while a forget
-        waits; a forget deletes it too); "not_a_guess" for a proposed item that isn't one (an observed pattern still
-        gathering days: `_settle_guess` takes only a proposed inferred item, review Q-M2). An answer that reached a
-        guess already settled, or one whose reply was lost, shows this rather than the answer the owner gave (live
-        2026-10-25: a Drop that went through was shown as not recorded)."""
-        item = self.memory.get(item_id)
-        if item is None:
-            return "dropped"
-        if item.status == "proposed":
-            return "waiting" if item.origin == "inferred" else "not_a_guess"
-        if item.status == "active":
-            return "kept"
-        journal = self._journal()
-        return "edited" if (journal.of_kind("memory.edited", "id", item_id)
-                            or journal.of_kind(GUESS_REPLACED, "id", item_id)) else "dropped"
-
-    def _guess_backlog(self) -> dict[str, Any] | None:
-        """L36 ruling ("The backlog"): FERB's guesses that were waiting before it asked about each at once, offered
-        once as one "Review N older guesses" list (each Keep / Edit / Drop, through op "guess"); a guess already asked
-        about is not in it. Marked offered whenever it is read, so it never comes back; None when there is nothing."""
-        if self._journal().of_kind(BACKLOG_OFFERED):
-            return None
-        asked = {r["target"] for r in self.db.conn.execute("SELECT target FROM memory_questions")}
-        waiting = [i for i in self.memory.items("proposed") if i.origin == "inferred" and i.id not in asked]
-        entry = self._journal().append(BACKLOG_OFFERED, {"count": len(waiting)})
-        if not waiting:
-            return None
-        return {"id": entry.id, "text": f"Review {len(waiting)} older guess{'' if len(waiting) == 1 else 'es'}",
-                "proposals": [{"id": i.id, "text": " ".join(i.content.split())} for i in waiting]}
-
-    def _forget_would_take(self, item_id: str) -> bool:
-        """Whether a waiting "Forget for good?" about a memory would delete this item: its target, another version of the
-        same fact, or an item built on the same sources (`plan_forget`, worked out as its Yes would)."""
-        from ferb.memory.items import MemoryRefused
-        for row in self.db.conn.execute("SELECT target FROM memory_questions WHERE kind = 'forget:memory'").fetchall():
-            try:
-                if item_id in self.memory.plan_forget(row["target"]).items:
-                    return True
-            except MemoryRefused:                        # its memory went another way
-                continue
-        return False
-
     def _close_memory_questions(self, targets: Any, kinds: tuple[str, ...] | None = None) -> None:
         """FERB's questions about memory that stopped waiting (re-review NEW-1): of `kinds` (None: every kind) about
-        `targets`. A memory confirmed or retracted another way closes its "Keep this?" (Keep / Edit / Drop), Edit and
-        "Is this no longer true?" (Retire / Keep) questions only, and one superseded or retired the last of these
-        (`_memory_ended`, L36 §6); a memory or learned item deleted closes every question about it, the owner's "Forget
-        for good?" too, which nothing else closes (re-review R1). Each is closed (superseded: never a No or a Drop),
-        dropped from what its answer would do, and deleted from `memory_questions`, so no later turn or restart shows
-        its words again."""
+        `targets`, which were deleted (a forget's "Forget for good?" about another version, a learned item built on it).
+        Each is closed (superseded: never a No), dropped from what its answer would do, and deleted from
+        `memory_questions`, so no later turn or restart shows its words again."""
         gone = set(targets)
         if not gone:
             return
@@ -575,62 +475,30 @@ class MemoryGlue:
                              [*sorted(gone), *(kinds or ())])
 
     def _restore_memory_questions(self) -> None:
-        """At start: FERB's questions about memory that were still waiting (a forget's Yes / No, a guess's Keep / Edit /
-        Drop and its Edit, an out-of-date item's Retire / Keep) are asked again, with their ids, words and options; one
-        whose memory has gone, stopped waiting or stopped holding meanwhile is dropped."""
-        from ferb.memory.items import current
+        """At start: a forget's Yes / No still waiting is asked again, with its id, words and options; one whose memory
+        has gone meanwhile is dropped. Keep / Edit / Drop and Retire / Keep questions an older build left waiting are
+        dropped (decision 15: FERB asks none; the guess they were about is already saved as FERB's understanding)."""
+        marks = ",".join("?" * len(GONE_QUESTIONS))
+        self.db.conn.execute(f"DELETE FROM memory_questions WHERE kind IN ({marks})", GONE_QUESTIONS)
         for row in self.db.conn.execute("SELECT * FROM memory_questions ORDER BY at").fetchall():
             if row["kind"] == "forget:learning":
                 gone = self.learning is None or self.learning.get(row["target"]) is None
             else:
-                item = self.memory.get(row["target"]) if self.memory is not None else None
-                gone = item is None or (row["kind"] in ("confirm", "edit") and item.status != "proposed") or (
-                    row["kind"] == "retire" and (item.status != "active" or not current(item, self.clock.now())))
+                gone = self.memory is None or self.memory.get(row["target"]) is None
             if gone:
                 self.db.conn.execute("DELETE FROM memory_questions WHERE approval_id = ?", (row["approval_id"],))
             elif self.state.approvals.get(row["approval_id"]) is None:
                 self._ask_owner(row["kind"], row["target"], row["reason"], row["request_id"], row["approval_id"])
 
     def _question_answered(self, ap: Any) -> str:
-        """FERB's own follow-up to an answered question: a chat forget on its Yes (I2); a guess's Keep, Edit (which asks
-        for the owner's words) or Drop (`_settle_guess`, L36); an out-of-date item's Retire, or its Keep (a skip too:
-        nothing changes, and FERB doesn't ask about it again, L36 §6). A line for the owner, or ''."""
+        """FERB's own follow-up to an answered question: a chat forget on its Yes (I2). A line for the owner, or ''."""
         followup = self._owner_followups.pop(ap.id, None)
         if followup is None:
             return ""
         self.db.conn.execute("DELETE FROM memory_questions WHERE approval_id = ?", (ap.id,))
         what, ident = followup
         from ferb.memory.items import MemoryRefused
-        yes = ap.state == "granted" and ap.choice == "Yes"
-        if what == "retire":
-            if ap.state == "granted" and ap.choice == "Retire":
-                try:
-                    self.memory.retire(ident, "the owner said so")
-                except MemoryRefused:
-                    return "That memory isn't current any more."
-                return "Retired: FERB won't use it any more."
-            self._journal().append(RETIRE_KEPT, {"id": ident})
-            return "Kept as it is."
-        if what == "confirm":
-            # Ruling: a declined question is Drop (skipping FERB's own check is a No, L3)
-            choice = ap.choice if ap.state == "granted" else "Drop"
-            if choice == "Edit":
-                item = self.memory.get(ident)
-                if item is None or item.status != "proposed":
-                    return "That guess isn't waiting any more."
-                self._ask_owner("edit", ident, EDIT_QUESTION.format(text=" ".join(item.content.split())),
-                                "memory-edit-" + ident)
-                return ""
-            return self._settle_guess(ident, "keep" if choice == "Keep" else "drop")
-        if what == "edit":
-            if ap.state != "granted" or not ap.answer:
-                return self._settle_guess(ident, "drop")
-            try:
-                return self._settle_guess(ident, "edit", ap.answer)
-            except FerbError as e:      # e.g. words routed from chat already hidden (rule 14): asked again, never saved
-                self._ask_owner("edit", ident, ap.reason, "memory-edit-" + ident)
-                return str(e)
-        if not yes:
+        if not (ap.state == "granted" and ap.choice == "Yes"):
             return "Kept: nothing was forgotten."
         kind = what.removeprefix("forget:")
         try:
@@ -652,13 +520,11 @@ class MemoryGlue:
         if l is None:
             raise LearningRefused("learning store unavailable")
         op, ident = params.get("op", "inventory"), str(params.get("id", ""))
-        if op == "backlog":
-            return {"backlog": self._guess_backlog()}
-        if op == "guess":
-            line = self._settle_guess(ident, str(params.get("action", "")), str(params.get("text") or ""))
-            return {"line": line, "state": self._guess_state(ident)}
-        if op == "guess_state":
-            return {"state": self._guess_state(ident)}
+        if op == "backlog":                # decision 15: FERB keeps no guesses waiting (an older app asks)
+            return {"backlog": None}
+        if op in ("guess", "guess_state"):
+            raise LearningRefused("FERB no longer asks about its guesses: it saves what it understands, labelled as "
+                                  "its understanding; correct it by telling FERB or on the memory page")
         if op == "inventory":
             l.sync_facts(self.memory)
             return {"items": [n | {"confirmable": not n["confirmed"] and (
@@ -673,10 +539,8 @@ class MemoryGlue:
                     if node and n["kind"] == node["kind"] and n["key"] == node["key"]]}
         if op == "confirm":
             node = l.get(ident)
-            if node and node["kind"] == "fact":           # a memory item waiting for the owner (I1): confirm it there
-                self.memory.confirm(str(node["body"]["id"]))
-                l.sync_facts(self.memory)
-                return {"item": self._item_dict(self.memory.get(str(node["body"]["id"])))}
+            if node and node["kind"] == "fact":           # decision 15: a memory item is never waiting for a Keep
+                raise LearningRefused("memories need no confirming; correct one with edit or forget")
             return {"item": l.confirm(ident)}
         if op == "edit":
             node = l.get(ident)
@@ -687,6 +551,16 @@ class MemoryGlue:
                 return {"items": l.search(node["key"])}
             return {"item": l.edit(ident, str(params.get("text", "")))}
         if op == "retire":
+            node = l.get(ident)
+            if node and node["kind"] == "fact":           # fix list: the owner's "Not right" on a fact retires the item
+                from ferb.memory.items import MemoryRefused
+                item_id = str(node["body"]["id"])
+                try:
+                    self.memory.retire(item_id, "the owner, on the memory page")
+                except MemoryRefused:
+                    raise LearningRefused("that memory no longer holds") from None
+                l.sync_facts(self.memory)
+                return {"item": self._item_dict(self.memory.get(item_id))}
             return {"item": l.retire(ident)}
         if op == "forget":
             node = l.get(ident)
@@ -706,9 +580,6 @@ class MemoryGlue:
             return {"invalidated": l.rollback(str(params.get("batch", "")))}
         if op == "digest":
             return {"digest": l.digest()}
-        if op == "identity":
-            return {"item": l.put("identity", str(params.get("key", "owner")), {"text": str(params["text"])}, [],
-                    origin_label="owner", made_by="owner:identity/1", owner=True, state="active")}
         if op == "eval_export":
             from ferb.eval.memory import history_queries
             return history_queries(l)
@@ -765,14 +636,16 @@ class MemoryGlue:
             await asyncio.sleep(3600)
 
     async def _memory_pass(self) -> None:
-        """One hourly pass: distill, refresh episode cards, restore the memory embedding. No intent labels or
-        consolidation (procedure learning was removed, notes/memory.md). Each job has its own error scope, so one
-        failing never stops the others (L16); a failure never takes the daemon down and is tried again next hour."""
+        """One hourly pass: distill, refresh episode cards, restore the memory embedding, then (when due) the weekly
+        core-profile pass and the weekly re-check of what FERB saw on this Mac. Each job has its own error scope, so
+        one failing never stops the others (L16); a failure never takes the daemon down and is tried again next hour."""
         assert self.distiller is not None
         jobs: list[tuple[str, Callable[[], Awaitable[Any]]]] = [("memory.distill_failed", self.distiller.catch_up)]
         if self.learning is not None:
             jobs.append(("memory.cards_failed", self._refresh_cards))
             jobs.append(("memory.embedding_restore_failed", self._restore_memory_embedding))
+        jobs.append(("memory.profile_failed", self._profile_pass))
+        jobs.append(("memory.mac_profile_failed", self._refresh_mac_profile))
         for failed, job in jobs:
             try:
                 await job()
@@ -780,6 +653,38 @@ class MemoryGlue:
                 raise
             except Exception as e:
                 self._journal().append(failed, {"error": f"{type(e).__name__}: {e}"})
+
+    async def _profile_pass(self, *, force: bool = False) -> dict[str, Any] | None:
+        """The weekly core-profile pass (decision 9), when due (`CoreProfile.due`: a week since the last, or the profile
+        over its budget) or forced (the `memory.profile` RPC's op "pass"). Facts it found out of date are told once,
+        quietly (decision 15)."""
+        profile = getattr(self, "profile", None)
+        if profile is None or not (force or profile.due()):
+            return None
+        out = await profile.run_pass(self._make_runtime, device_id=str(self.config.get("device", "id", "dev")),
+                                     spans=self.spans, usage=self._record_learning_usage("profile"))
+        ended = out.get("ended_items") or []
+        if ended:
+            text = ENDED_NOTICE.format(items=", ".join(f"“{e['text']}”" for e in ended))
+            await self._tell_owner(f"memory-profile-ended-{self.clock.now().isoformat()}",
+                                   ["memory:" + e["id"] for e in ended], text,
+                                   origin_.join({origin_.FERB, origin_.INFERRED}))
+        return out
+
+    async def _refresh_mac_profile(self) -> None:
+        """Decision 16, "refreshed as usage changes": weekly, with the profile pass's cadence (Ruling), FERB gathers the
+        Mac's facts again and re-interprets them only when they changed; quiet."""
+        from ferb.memory.profile import PASS_DAYS
+        if self._shutting_down:
+            return
+        review = self._mac_profile_service()
+        seen = review.state.seen() if review is not None else {}
+        if not seen:
+            return
+        checked = seen.get("checked_at") or seen.get("at")
+        if checked and self.clock.now() - datetime.fromisoformat(str(checked)) < timedelta(days=PASS_DAYS):
+            return
+        await review.refresh()
 
     async def _restore_memory_embedding(self) -> None:
         if self.learning.embedder is not None:
@@ -801,20 +706,22 @@ class MemoryGlue:
 
     async def _remember(self, items: list[Any], own_words: str, source_id: str,
                         sites: frozenset[str] = frozenset(),
-                        elsewhere: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
+                        elsewhere: frozenset[str] = frozenset(), about: str = "") -> list[dict[str, Any]]:
         """Chat capture (memory review I1, MP2; the check is `items.capture`, shared with distillation's quotes, L36).
         `own_words`: what the owner typed (pasted parts left out). The quote must be whole words of it. Saved as
-        owner_stated is only the owner's own text: the whole sentence(s) of their words that hold the planner's content
-        (`owner_sentences`), so a slice never drops a negation or a condition. Any other content is FERB's wording of
-        what they said: an inferred proposal, out of every prompt until they answer Keep to the question that offers
-        it (`_ask_keep`); one whose quote shares no word with it rests on nothing the owner said and is refused. A
-        preference in the owner's typed words joins their identity whatever was on screen (owner decision 2026-10-20:
-        "No hold for my typed words"). Per saved item: its receipt and the line code adds to the reply; per refused
-        item: why, in plain words for the owner's line (owner 2026-10-24: the reason, never "a problem on my side").
-        An entry with `login_origin` also gives that site's login record its username (`_save_login_name`, in a worker
-        thread; `sites`: the sites the turn's task names, L36 §5; `elsewhere`: those the owner typed only for a task of
-        another chat, which a refusal names)."""
-        from ferb.memory.items import CAPTURE_TOLD, capture
+        owner_stated ("your words") is only the owner's own text: the whole sentence(s) of their words that hold the
+        planner's content (`owner_sentences`), so a slice never drops a negation or a condition. Any other content is
+        FERB's wording of what they said, saved at once as FERB's understanding (decision 15: no Keep question); one
+        whose quote shares no word with it rests on nothing the owner said and is refused. Either rests on the owner's
+        words now, so it replaces every current version of its fact (same kind, subject and key) and the items the
+        planner named in `replaces` (code checks each holds), and FERB's line names what it replaced. `about`: what the
+        words are about (decision 13: the turn's task, else the item's key), stored next to them. Per saved item: its
+        receipt, the quiet "Memory: noted …" line code adds to the reply and its note card; per refused item: why, in
+        plain words (owner 2026-10-24). An entry with `login_origin` also gives that site's login record its username
+        (`_save_login_name`, in a worker thread; `sites`: the sites the turn's task names, L36 §5; `elsewhere`: those
+        the owner typed only for a task of another chat, which a refusal names). A `review_in_days` puts a check date on
+        a period fact without an end date in the owner's words."""
+        from ferb.memory.items import CAPTURE_TOLD, capture, label
         from ferb.orchestrator import cards
         saved: list[dict[str, Any]] = []
         for it in items:
@@ -823,29 +730,44 @@ class MemoryGlue:
                 self._journal().append("memory.capture_refused", {"key": it.key, "why": got.refused})
                 saved.append({"refused": CAPTURE_TOLD[got.refused]})
                 continue
+            topic = " ".join(str(about or str(it.key).replace("_", " ").replace("-", " ")).split())
             try:
-                m = self.memory.propose(it.kind, it.subject, it.key, got.content, got.origin,
-                                        [("journal", source_id)], 1.0 if got.origin == "owner_stated" else 0.7)
+                done = self.memory.save(it.kind, it.subject, it.key, got.content, got.origin,
+                                        [("journal", source_id)], 1.0 if got.origin == "owner_stated" else 0.7,
+                                        replaces=[self._memory_id(r) for r in getattr(it, "replaces", None) or []],
+                                        about=topic, from_owner=True)
             except FerbError as e:
                 self._journal().append("memory.capture_refused", {"key": it.key, "why": str(e)})
                 saved.append({"refused": reason(e, self.redact)})
                 continue
+            m = done.item
+            if done.not_replaced:
+                self._journal().append("memory.replace_refused", {"item": m.id, "ids": done.not_replaced})
+            days = int(getattr(it, "review_in_days", 0) or 0)
+            if days > 0 and m.valid_to is None:
+                self.memory.set_review(m.id, self.clock.now() + timedelta(days=days))
             text = " ".join(m.content.split())
             ends = (" " + self._until(it.until, m.id, own_words)) if getattr(it, "until", None) is not None else ""
             told = (await self._save_login_name(it, m.id, own_words, sites, m.origin, elsewhere)
                     if getattr(it, "login_origin", None) else "")
+            replaced = "; ".join(f"“{' '.join(o.content.split())}”" for o in done.replaced)
+            line = (f"Memory: noted “{text}” ({label(m.origin)}){ends}"
+                    + (f" — replaces {replaced}" if replaced else ""))
+            receipt = (f"remembered ({m.id}, {label(m.origin)}): {m.content}"
+                       + (f" (replaces {', '.join(o.id for o in done.replaced)})" if done.replaced else ""))
             # step 8e: each saved item's note card, from the stored item (its id is what Correct / Forget act on)
-            if m.origin == "owner_stated" or m.status == "active":      # active: FERB's wording the owner kept before
-                line = f"Remembered: {text}{ends}"
-                saved.append({"receipt": f"remembered ({m.id}): {m.content}",
-                              "line": line + (f"\n{told}" if told else ""),
-                              "card": cards.note(m.id, text, "saved", line)})
-            else:
-                self._ask_keep(m, KEEP_WORDING.format(text=text))
-                line = f"Saved in my words, not yours, so I won't use it until you answer Keep: “{text}”.{ends}"
-                saved.append({"receipt": f"proposed ({m.id}): {m.content} (FERB's wording; waits for the owner's Keep)",
-                              "line": line, "card": cards.note(m.id, text, "proposed", line)})
+            card = cards.note(m.id, text, "saved", line) | {"label": label(m.origin), "origin": m.origin,
+                                                          "replaces": [o.id for o in done.replaced]}
+            saved.append({"receipt": receipt, "line": line + (f"\n{told}" if told else ""), "card": card})
         return saved
+
+    def _memory_id(self, ident: str) -> str:
+        """A memory id the planner named: a memory item's id, or the fact node it was shown as."""
+        ident = str(ident).strip()
+        if self.memory is not None and self.memory.get(ident) is not None:
+            return ident
+        node = self.learning.get(ident) if self.learning is not None and ident else None
+        return str(node["body"].get("id", ident)) if node and node["kind"] == "fact" else ident
 
     def _until(self, until: Any, item_id: str, own_words: str) -> str:
         """A remembered item's last day from the owner's own date words (L36 §6): the quote must be whole words of what
@@ -930,12 +852,37 @@ class MemoryGlue:
         return " ".join(lines)
 
     def _item_dict(self, it: Any, conflict: bool = False) -> dict[str, Any]:
+        from ferb.memory.items import label
+        in_profile = self.profile.ids() if getattr(self, "profile", None) is not None else set()
         return {"id": it.id, "kind": it.kind, "subject": it.subject, "key": it.key, "content": it.content,
-                "origin": it.origin, "status": it.status, "valid_from": it.valid_from.isoformat(),
+                "origin": it.origin, "label": label(it.origin), "about": it.about, "status": it.status,
+                "valid_from": it.valid_from.isoformat(),
                 "valid_to": it.valid_to.isoformat() if it.valid_to else None, "supersedes": it.supersedes,
+                "review_at": it.review_at.isoformat() if it.review_at else None, "in_profile": it.id in in_profile,
                 "sources": it.source_ids, "evidence_days": self.memory.evidence_days(it.id), "conflict": conflict}
 
+    async def _memory_profile(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """The app's memory page (decision 15: it shows and edits everything): the core profile as markdown and as
+        sections, its budget and use. op "add" (an item into the profile, the owner's choice), "remove" (out of it; the
+        memory stays), "pass" (run the weekly pass now). Facts themselves change through memory.edit / retract /
+        forget."""
+        op, ident = str(params.get("op") or "get"), str(params.get("id") or "")
+        if op == "add":
+            try:
+                self.profile.add(ident, str(params.get("section") or ""), by="owner")
+            except ValueError as e:
+                raise FerbError(str(e)) from None
+        elif op == "remove":
+            self.profile.remove([ident], by="owner")
+        elif op == "pass":
+            await self._profile_pass(force=True)
+        elif op != "get":
+            raise FerbError("unknown memory.profile op: get, add, remove or pass")
+        return self.profile.view()
+
     async def _memory_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Every memory item for the memory page and the CLI, each with its label and whether it is in the core
+        profile; `history` also lists ended versions; "all" every status."""
         status = params.get("status", "active")
         items = self.memory.items(None if status == "all" else status, params.get("subject"),
                                   valid_now=not params.get("history"))
@@ -955,10 +902,11 @@ class MemoryGlue:
                                  [("journal", entry.id)], 1.0)
         return self._item_dict(it)
 
-    async def _memory_confirm(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        return self._item_dict(self.memory.confirm(str(params["id"])))
-
     async def _memory_edit(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """The owner's correction (the note card's Correct, the memory page): their words become a new version, saved
+        as theirs; words redaction would hide whole are refused, never saved."""
+        if _all_hidden(self._redact_text(str(params["content"]))):
+            raise FerbError(EDIT_HIDDEN)
         entry = self._journal().append("memory.edited", {"id": params["id"], "content": params["content"]})
         return self._item_dict(self.memory.edit(str(params["id"]), str(params["content"]), ("journal", entry.id)))
 
@@ -983,40 +931,56 @@ class MemoryGlue:
         rows = self._journal().entries(since)
         return {"entries": [{"at": e.at.isoformat(), "kind": e.kind, "data": e.data} for e in rows]}
 
-    def _remember_persona(self, content: str) -> None:
-        content = self._redact_text(content)
-        entry = self._journal().append('memory.added', {'content': content})
-        from ferb.device.persona import PERSONA_KEY
-        self.memory.propose('preference', 'owner', PERSONA_KEY, content, 'owner_stated',
-                            [('journal', entry.id)], 1.0)
+    def _mac_profile_service(self) -> Any:
+        """What FERB saw on this Mac (decision 16): built once per daemon, its collector reading only owner-attributed
+        app names and counts (no window titles or content) on the database thread."""
+        if self.persona is None:
+            from ferb.daemon.persona import PersonaReview
+            self.persona = PersonaReview(self.config, None, build=self._build_mac_profile,
+                                         record=lambda kind, data: self._journal().append(kind, data),
+                                         tell=self._tell_mac_profile, redact=self.redact,
+                                         clock=lambda: self.clock.now().isoformat())
+        if self.persona_scan is not None and self.persona.collect is None:
+            scan = self.persona_scan
 
-    def _prepare_persona(self, refresh: bool = False) -> dict[str, Any]:
+            def collect() -> Any:
+                # read when FERB gathers (not at every chat attach): owner-attributed focus counts, on the loop
+                activity = [dict(r) for r in self.db.conn.execute(
+                    "SELECT json_extract(data_json,'$.bundle_id') AS bundle_id, "
+                    "json_extract(data_json,'$.app') AS app, COUNT(*) AS focus_events, MAX(at) AS last_used "
+                    "FROM trail WHERE source='app_focus' AND actor='owner' GROUP BY bundle_id")]
+                device = self.config.get('device', 'id')
+                if not device:
+                    device = self.ids.new_id()
+                    self.config.set('device', 'id', device)
+                    self.device_id = str(device)
+                return scan(self.home, device, activity, self.config.exclude_apps())
+            self.persona.collect = collect
+        return self.persona
+
+    def _prepare_persona(self, refresh: bool = False, shown_by: str = "chat") -> dict[str, Any]:
         if self._shutting_down:
             return {'state': 'closed'}
-        from ferb.daemon.persona import PersonaReview
-        if self.persona is None:
-            self.persona = PersonaReview(self.config, self.state.approvals, None,
-                remember=self._remember_persona, publish=self._publish,
-                record=lambda kind, data: self._journal().append(kind, data), redact=self.redact)
-        if self.persona_scan is not None:
-            # Snapshot only owner-attributed app names/counts on the database thread; no window titles/content.
-            activity = [dict(r) for r in self.db.conn.execute(
-                "SELECT json_extract(data_json,'$.bundle_id') AS bundle_id, "
-                "json_extract(data_json,'$.app') AS app, COUNT(*) AS focus_events, MAX(at) AS last_used "
-                "FROM trail WHERE source='app_focus' AND actor='owner' GROUP BY bundle_id")]
-            device = self.config.get('device', 'id')
-            if not device:
-                device = self.ids.new_id()
-                self.config.set('device', 'id', device)
-                self.device_id = str(device)
-            excluded = self.config.exclude_apps()
-            self.persona.collect = lambda: self.persona_scan(self.home, device, activity, excluded)
-        return self.persona.start(refresh=refresh)
+        return dict(self._mac_profile_service().start(refresh=refresh, shown_by=shown_by))
+
+    async def _build_mac_profile(self, facts: dict[str, Any]) -> dict[str, Any]:
+        """Decision 16: a model interprets the gathered facts; code stores them as observed memory."""
+        from ferb.memory.mac_profile import interpret, store
+        answer = await interpret(self._make_runtime, facts, device_id=str(self.config.get("device", "id", "dev")),
+                                 spans=self.spans, usage=self._record_learning_usage("mac_profile"))
+        return store(self.memory, lambda kind, data: self._journal().append(kind, data), facts, answer)
+
+    async def _tell_mac_profile(self, text: str) -> None:
+        """Shown once in chat when the setup step didn't show it (decision 16: "here's what I saw", no yes/no)."""
+        await self._tell_owner(f"memory-mac-profile-{self.clock.now().isoformat()}", [], text,
+                               origin_.join({origin_.FERB, origin_.PRIVATE}))
 
     async def _setup_persona(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """The setup step (decision 16): {} starts what FERB saw on this Mac, once; {"refresh": true} again;
+        {"status": true} only reads it. The answer's state "seen" carries the summary to show and the facts saved."""
         if params.get('status') and self.persona is not None:
-            return self.persona.status()
-        return self._prepare_persona(refresh=params.get('refresh') is True)
+            return dict(self.persona.status())
+        return self._prepare_persona(refresh=params.get('refresh') is True, shown_by="setup")
 
     def _time_meanings(self) -> list[tuple[str, str]]:
         """The owner's own meanings of fuzzy time words ("next friday", "evening"), stored when they corrected FERB."""

@@ -508,7 +508,9 @@ class Learning:
                            | ({'declared': inp['declared']} if inp.get('declared') else {}))
         feedback = [dict(r) for r in self.db.conn.execute(
             'SELECT verdict,note,at FROM owner_verdicts WHERE task_id=? ORDER BY seq', (task_id,))]
-        valid = ep['verified'] is True and not (feedback and feedback[-1]['verdict'] == 'fail')
+        # notes/memory.md decision 5: the owner's latest verdict decides (their pass counts as verified, as the checker's
+        # does; their fail overrides); without one, the checker's
+        valid = (feedback[-1]['verdict'] == 'pass') if feedback else ep['verified'] is True
         body = {'task_id': task_id, 'request': ep['request_text'], 'intent': ep['goal'], 'slots': {},
                 'apps': {a: (apps or {}).get(a, 'unknown') for a in used_apps},
                 'app_versions_captured': apps is not None, 'app_version_scope': 'identified apps and browser inventory', 'surfaces': ep['tools'], 'actions': actions,
@@ -1033,9 +1035,9 @@ class Learning:
     def sync_facts(self, memory: Any) -> None:
         """Index the memory items as fact nodes: those that may shape prompts (`prompt_ready`; an unconfirmed hint says
         so in its body), and inferred ones waiting for the owner's Confirm in state 'proposed', which search (so every
-        prompt) leaves out but the dashboard lists and confirms. Close the nodes of items that are neither. Only an
-        owner_stated preference about the owner becomes identity (whatever was on screen when they typed it: owner
-        decision 2026-10-20)."""
+        prompt) leaves out but the dashboard lists and confirms. Close the nodes of items that are neither. No item
+        becomes an identity node any more: the core profile (Tier 1, profile.py) replaced the "Layer 1 identity" rule
+        (step 9a; the clean-up closed the old identity nodes)."""
         from ferb.memory.items import current, prompt_ready
         now = self.clock.now()                        # an item with an end date holds until then (L36 §6)
 
@@ -1070,9 +1072,6 @@ class Learning:
                 # owner's Retire, a rollback or a closed version is never undone here.
                 if node['state'] in ('active', 'proposed') and node['state'] != state and node['valid_to'] is None:
                     self.db.conn.execute('UPDATE learning_nodes SET state=? WHERE id=?', (state, node['id']))
-                if item.origin == 'owner_stated' and item.kind == 'preference' and item.subject == 'owner':
-                    self.put('identity', item.key, {'text': item.content}, ['memory:' + item.id],
-                             origin_label=origin.OWNER, made_by='owner:durable-preference/1', state='active', owner=True)
             except LearningRefused:
                 pass  # a forgotten derived item is deliberately never reconstructed
 

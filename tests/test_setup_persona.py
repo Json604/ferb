@@ -1,156 +1,173 @@
-"""P28 existing installs discover locally, then wait for explicit owner review."""
+"""Decision 16 (owner 2026-10-31): FERB works out who the owner is from their Mac and shows it once, as "here's what I
+saw", with no yes/no (decision 15). Code gathers the facts (installed apps, their use, browsers and profiles), a model
+interprets them, and they are stored as observed memory, never as the owner's words; a refresh re-interprets only when
+the facts changed. The old setup question's Save / Edit / Skip flow is gone."""
 import asyncio
-from pathlib import Path
+import json
+from datetime import timedelta
 from types import SimpleNamespace
 
-from ferb.clock.clock import FakeClock
 from ferb.config import Config
-from ferb.daemon.questions import Approvals
-from ferb.device.persona import PersonaState, persona_proposal
 from ferb.daemon.persona import PersonaReview
+from ferb.device.persona import PersonaState, facts_fingerprint, mac_facts, with_activity
+from tests.conftest import FakeDistillRuntime
+
+FACTS = mac_facts([{'bundle_id': 'com.microsoft.VSCode', 'app': 'Code', 'uses': 5162, 'last_used': '2026-10-30'},
+                   {'bundle_id': 'com.brave.Browser', 'app': 'Brave Browser', 'uses': 10652,
+                    'last_used': '2026-10-31'},
+                   {'bundle_id': 'org.blender', 'app': 'Blender', 'uses': 0, 'last_used': 'unknown'}],
+                  '2026-10-31T10:00:00+05:30', ['brave', 'google chrome'],
+                  [{'browser': 'Brave', 'name': 'Personal', 'email': 'owner@example.com', 'last_used': True}])
+ANSWER = {"summary": "You seem to spend most of your time coding in VS Code, and Brave is your main browser.",
+          "facts": [{"kind": "fact", "key": "main_activity", "content": "The owner mostly codes on this Mac."},
+                    {"kind": "env", "key": "main_browser",
+                     "content": "The owner's main browser is Brave, profile Personal (owner@example.com)."}]}
+
+
+def notices(daemon):
+    async def read():
+        return daemon.daemon.journal.entries_of('chat.notice')
+    return daemon.run(read())
 
 
 def harness(tmp_path, collector):
     config = Config(tmp_path / 'home')
-    clock = FakeClock()
-    approvals = Approvals()
-    saved, events = [], []
-    review = PersonaReview(config, approvals, collector,
-        remember=lambda text: saved.append(text),
-        publish=lambda topic, data: events.append((topic, data)),
-        record=lambda kind, data: events.append((kind, data)))
-    return review, config, approvals, saved, events, clock
+    built, events = [], []
+
+    async def build(facts):
+        built.append(facts)
+        return {'summary': 'You code a lot.', 'shown': "Here's what I saw on your Mac: You code a lot.",
+                'facts': [{'id': 'm1', 'text': 'The owner codes.'}]}
+    review = PersonaReview(config, collector, build=build, record=lambda kind, data: events.append((kind, data)))
+    return review, config, built, events
 
 
-def test_pending_scan_is_reused_across_reconnect_expiry_and_restart(tmp_path):
-    async def scenario():
-        calls = []
-        def collect():
-            calls.append(True)
-            return persona_proposal([{'app': 'Code', 'bundle_id': 'code', 'uses': 3733,
-                                     'last_used': '2026-10-10', 'source': 'spotlight'}], '2026-10-11')
-        review, config, approvals, saved, events, clock = harness(tmp_path, collect)
-        assert review.start()['state'] == 'scanning'
-        assert review.start()['state'] == 'scanning'
-        await review.task
-        pending = review.status()
-        ident = pending['approval']['approval_id']
-        assert len(calls) == 1 and not saved and not PersonaState(config).reviewed()
-        assert '3733' in pending['approval']['evidence'][1]
-        assert review.start()['approval']['approval_id'] == ident
-        clock.advance(601)
-        assert review.status()['approval']['approval_id'] == ident      # never expires, never asked again (L3)
-        again, _, approvals_again, saved_again, events_again, _ = harness(
-            tmp_path, lambda: (_ for _ in ()).throw(AssertionError('rescan')))
-        restarted = again.start()                     # a restart asks about the stored scan once
-        assert restarted['state'] == 'pending'
-        assert [ap.id for ap in approvals_again.pending()] == [restarted['approval']['approval_id']]
-        assert again.start()['approval'] == again.status()['approval'] == restarted['approval']
-        assert [topic for topic, _ in events_again] == ['approval.requested']
-        assert not saved_again
-    asyncio.run(scenario())
-
-
-def test_confirm_edit_and_skip_are_exact_owner_actions(tmp_path):
-    async def scenario():
-        for answer, expected in [('yes', 'Apps you use: Code (7 recorded uses)'),
-                                 ('I code and make music', 'I code and make music'), ('skip', None)]:
-            root = tmp_path / answer.replace(' ', '-')
-            review, config, approvals, saved, events, _ = harness(root, lambda: persona_proposal(
-                [{'app': 'Code', 'uses': 7, 'last_used': 'unknown'}], '2026-10-11'))
-            review.start(); await review.task
-            ap = approvals.resolve(review.status()['approval']['approval_id'], True, text=answer)
-            review.resolve(ap)
-            assert saved == ([] if expected is None else [expected])
-            assert PersonaState(config).reviewed() is True
-            assert review.start()['state'] == 'reviewed'
-    asyncio.run(scenario())
-
-
-def test_decline_does_not_store_profile_and_scan_errors_are_retryable(tmp_path):
-    async def scenario():
-        attempts = []
-        def collect():
-            attempts.append(True)
-            if len(attempts) == 1: raise OSError('Spotlight unavailable')
-            return persona_proposal([], '2026-10-11')
-        review, config, approvals, saved, events, _ = harness(tmp_path, collect)
-        review.start(); await review.task
-        assert review.status()['state'] == 'failed'
-        assert not PersonaState(config).reviewed()
-        review.start(); await review.task
-        ap = approvals.resolve(review.status()['approval']['approval_id'], False)
-        review.resolve(ap)
-        assert not saved and PersonaState(config).reviewed()
-    asyncio.run(scenario())
-
-
-def test_owner_focus_is_fallback_not_agent_focus_or_false_usage_count():
-    from ferb.device.persona import with_activity
+def test_gathered_facts_keep_the_most_used_apps_and_owner_focus_only_as_a_fallback():
     rows = [{'bundle_id': 'code', 'app': 'Code', 'uses': None, 'last_used': 'unknown'},
             {'bundle_id': 'blender', 'app': 'Blender', 'uses': 0, 'last_used': 'unknown'}]
     evidence = with_activity(rows, [{'bundle_id': 'code', 'app': 'Code', 'focus_events': 12,
                                     'last_used': '2026-10-11'}])
-    result = persona_proposal(evidence, '2026-10-11')
-    assert 'Code (12 recorded focus events)' in result['summary']
-    assert '12 recorded uses' not in result['summary'] and 'Blender' not in result['summary']
-    assert len(result['evidence']) == 3  # timestamp plus complete two-app evidence
+    facts = mac_facts(evidence, '2026-10-11', [], [])
+    assert facts['apps'] == [{'app': 'Code', 'bundle_id': 'code', 'focus_events': 12, 'last_used': '2026-10-11'}]
+    assert (facts['installed_apps'], facts['apps_with_use']) == (2, 1)
+    assert [a['app'] for a in FACTS['apps']] == ['Brave Browser', 'Code']          # most used first, unused left out
 
 
-def test_chat_attach_exposes_one_review_and_confirmation_enters_identity(daemon):
+def test_a_refresh_is_worth_interpreting_only_when_the_apps_browsers_or_profiles_changed():
+    busier = json.loads(json.dumps(FACTS))
+    busier['apps'][0]['uses'] += 400                                            # counts move every day
+    assert facts_fingerprint(busier) == facts_fingerprint(FACTS)
+    other = json.loads(json.dumps(FACTS))
+    other['profiles'][0]['last_used'] = False
+    assert facts_fingerprint(other) != facts_fingerprint(FACTS)
+
+
+def test_what_ferb_saw_is_built_once_shown_once_in_chat_and_stored_as_observed(daemon):
     from ferb.cli.client import Client
-    captured = []
+    calls = []
+
     def collect(home, device, activity, excluded):
-        captured.append(activity)
-        return persona_proposal([{'bundle_id': 'code', 'app': 'Code', 'uses': 7}], '2026-10-11')
+        calls.append(activity)
+        return FACTS
     daemon.daemon.persona_scan = collect
+    rt = FakeDistillRuntime(ANSWER)
+    daemon.daemon._make_runtime = lambda *a, **k: rt
     client = Client(daemon.sock)
-    client.call('chat.attach')
-    async def wait_for_scan():
+    try:
+        client.call('chat.attach')
+
+        async def wait_for_scan():
+            await daemon.daemon.persona.task
+        daemon.run(wait_for_scan())
+        status = client.call('setup.persona', {'status': True})
+        assert status['state'] == 'seen' and status['summary'].startswith("Here's what I saw on your Mac: ")
+        assert 'Brave' in status['summary'] and len(status['facts']) == 2
+        assert not client.call('chat.status', {'peek': True})['approvals']            # no yes/no (decision 15)
+        items = client.call('memory.list')['items']
+        assert sorted(i['key'] for i in items) == ['main_activity', 'main_browser']
+        assert {i['origin'] for i in items} == {'observed'} and not any(i['in_profile'] for i in items)
+        shown = [e for e in notices(daemon) if "Here's what I saw" in e.data['text']]
+        assert len(shown) == 1
+        client.call('chat.attach')                                                   # never built or shown twice
+        assert len(calls) == 1
+        assert len([e for e in notices(daemon) if "Here's what I saw" in e.data['text']]) == 1
+        assert rt.contexts and 'Brave Browser' in str(rt.contexts[0])
+    finally:
+        client.close()
+
+
+def test_the_setup_step_shows_it_so_chat_does_not(daemon):
+    from ferb.cli.client import Client
+    daemon.daemon.persona_scan = lambda *args: FACTS
+    daemon.daemon._make_runtime = lambda *a, **k: FakeDistillRuntime(ANSWER)
+    client = Client(daemon.sock)
+    try:
+        assert client.call('setup.persona', {})['state'] == 'scanning'
+
+        async def wait_for_scan():
+            await daemon.daemon.persona.task
+        daemon.run(wait_for_scan())
+        assert client.call('setup.persona', {'status': True})['state'] == 'seen'
+        assert not [e for e in notices(daemon) if "Here's what I saw" in e.data['text']]
+    finally:
+        client.close()
+
+
+def test_mac_facts_join_the_core_profile_only_once_they_hold_up(daemon):
+    daemon.daemon.persona_scan = lambda *args: FACTS
+    daemon.daemon._make_runtime = lambda *a, **k: FakeDistillRuntime(ANSWER)
+
+    async def go():
+        daemon.daemon._prepare_persona(shown_by='setup')
         await daemon.daemon.persona.task
-    daemon.run(wait_for_scan())
-    pending = client.call('chat.status', {'peek': True})['approvals']
-    assert len(pending) == 1 and pending[0]['capability'] == 'setup.persona'
-    assert pending[0]['evidence'] and pending[0]['task_id'] is None
-    assert not client.call('memory.list')['items']
-    client.call('chat.attach')
-    assert len(captured) == 1
-    client.call('chat.answer', {'approval_id': pending[0]['approval_id'], 'text': 'I code and make music'})
-    assert client.call('setup.persona', {'status': True})['state'] == 'reviewed'
-    async def identity():
-        return daemon.daemon._learning_identity()
-    assert 'I code and make music' in daemon.run(identity())
-    assert not client.call('chat.status', {'peek': True})['approvals']
-    client.close()
+        items = daemon.daemon.memory.items('active')
+        fresh = [daemon.daemon.profile.holds_up(it) for it in items]
+        daemon.daemon.clock.advance(timedelta(days=8).total_seconds())
+        later = [daemon.daemon.profile.holds_up(it) for it in daemon.daemon.memory.items('active')]
+        return fresh, later
+    fresh, later = daemon.run(go())
+    assert fresh == [False, False] and later == [True, True]
 
 
-def test_service_redacts_scan_errors_and_owner_edits_before_persistence(tmp_path):
+def test_a_refresh_replaces_what_changed_quietly(daemon):
+    other = json.loads(json.dumps(FACTS))
+    other['browsers'] = ['arc']
+    facts = [FACTS]
+    daemon.daemon.persona_scan = lambda *args: facts[-1]
+    answers = [ANSWER, {"summary": "You moved to Arc.", "facts": [
+        {"kind": "env", "key": "main_browser", "content": "The owner's main browser is Arc."}]}]
+    daemon.daemon._make_runtime = lambda *a, **k: FakeDistillRuntime(answers.pop(0))
+
+    async def go():
+        daemon.daemon._prepare_persona(shown_by='setup')
+        await daemon.daemon.persona.task
+        unchanged = await daemon.daemon.persona.refresh()
+        facts.append(other)
+        changed = await daemon.daemon.persona.refresh()
+        return unchanged, changed, [(i.key, i.content) for i in daemon.daemon.memory.items('active')]
+    unchanged, changed, items = daemon.run(go())
+    assert (unchanged, changed) == (False, True)
+    assert items == [('main_browser', "The owner's main browser is Arc.")]   # main_activity no longer given: ended
+
+
+def test_scan_errors_are_redacted_and_can_be_retried(tmp_path):
     async def scenario():
         secret = 'PRIVATE_SENTINEL'
+
         def collect():
             raise RuntimeError('scan failed ' + secret)
-        review, config, approvals, saved, events, _ = harness(tmp_path, collect)
+        review, config, built, events = harness(tmp_path, collect)
         review.redact = lambda value: value.replace(secret, '[redacted]') if isinstance(value, str) else value
-        review.start(); await review.task
-        assert secret not in str(review.status()) and secret not in str(events)
-        review.collect = lambda: persona_proposal([{'app': 'Code', 'uses': 1}], '2026-10-11')
-        review.start(); await review.task
-        ap = approvals.resolve(review.status()['approval']['approval_id'], True, text='My profile ' + secret)
-        review.resolve(ap)
-        assert saved == ['My profile [redacted]']
-        persisted = [p.read_text() for p in (config.path, config.home / 'persona.json') if p.exists()]
-        assert persisted and not any(secret in text for text in persisted)
-    asyncio.run(scenario())
-
-
-def test_option_label_answer_confirms_profile_instead_of_storing_button_text(tmp_path):
-    async def scenario():
-        review, config, approvals, saved, _, _ = harness(tmp_path, lambda: persona_proposal(
-            [{'app': 'Code', 'uses': 7}], '2026-10-11'))
-        review.start(); await review.task
-        ap = approvals.resolve(review.status()['approval']['approval_id'], True, text='Save app-use profile')
-        review.resolve(ap)
-        assert saved == ['Apps you use: Code (7 recorded uses)']
+        review.start()
+        await review.task
+        assert review.status()['state'] == 'failed' and secret not in str(review.status()) + str(events)
+        review.collect = lambda: FACTS
+        review.start()
+        await review.task
+        assert review.status()['state'] == 'seen' and len(built) == 1
+        assert review.start()['state'] == 'seen' and len(built) == 1               # once
+        persisted = (config.home / 'persona.json').read_text()
+        assert secret not in persisted and PersonaState(config).seen()
     asyncio.run(scenario())
 
 
@@ -187,14 +204,14 @@ def test_shutdown_cancels_and_reaps_owned_blocked_metadata_process(tmp_path):
             return process
         async def collect():
             return await app_usage_async([SimpleNamespace(path='/controlled/Code.app')], spawn=spawn)
-        review, config, _, saved, events, _ = harness(tmp_path, collect)
+        review, config, built, events = harness(tmp_path, collect)
         review.start()
         await spawned.wait()
         await asyncio.wait_for(review.close(), 2)
         assert processes[0].returncode is not None and processes[0].returncode < 0
         assert review.status() == {'state': 'closed'}
         assert review.start(refresh=True) == {'state': 'closed'}
-        assert not saved and not PersonaState(config).reviewed() and not events
+        assert not built and not PersonaState(config).seen() and not events
     asyncio.run(scenario())
 
 

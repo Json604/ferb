@@ -1,109 +1,101 @@
-"""One local P28 proposal shared by setup and chat; only owner review creates memory.
+"""What FERB saw on this Mac (notes/memory.md decision 16), shared by the app's setup step and chat. It replaces the P28
+persona question: nothing waits for the owner's yes.
 
-Its question ("Getting to know you") is asked once (L3): when the scan finishes, or when FERB starts with a scan still
-unreviewed. `status()` (polled by `chat.status`) only reads it; the question never expires, so nothing re-asks it."""
+`start()` gathers the facts (`collect`: code only, ferb/device/persona.py), has a model interpret them and stores the
+conclusions as observed memory (`build`: the daemon's, ferb/memory/mac_profile.py), once; `status()` (polled by
+`setup.persona` and `chat.status`) only reads it. The summary is presented once: the setup step shows it when it asked
+for it; otherwise (an older install, chat opening first) it is posted in chat once (`tell`). A refresh (`refresh`, the
+weekly memory pass) gathers again and re-interprets only when the gathered facts changed (`facts_fingerprint`), quietly."""
 import asyncio
 import inspect
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
-from ferb.core.types import Identity
-from ferb.device.persona import PersonaState, confirm_persona
-from ferb.policy.rules import ActionRequest
+from ferb.device.persona import PersonaState, facts_fingerprint
 
 
 class PersonaReview:
-    def __init__(self, config: Any, approvals: Any, collect: Callable[[], Any] | None,
-                 *, remember: Callable[[str], None], publish: Callable[[str, dict[str, Any]], None],
-                 record: Callable[[str, dict[str, Any]], None], redact: Callable[[Any], Any] = lambda x: x) -> None:
-        self.config, self.approvals, self.collect = config, approvals, collect
+    def __init__(self, config: Any, collect: Callable[[], Any] | None, *,
+                 build: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]],
+                 record: Callable[[str, dict[str, Any]], None],
+                 tell: Callable[[str], Awaitable[None]] | None = None,
+                 redact: Callable[[Any], Any] = lambda x: x, clock: Callable[[], str] = lambda: "") -> None:
+        self.config, self.collect, self.build, self.record, self.tell = config, collect, build, record, tell
         self.state = PersonaState(config)          # persona.json in FERB's home, not config.toml
-        self.remember, self.publish, self.record = remember, publish, record
-        self.redact = redact
+        self.redact, self.clock = redact, clock
         self.task: asyncio.Task[None] | None = None
-        self.approval_id: str | None = None
         self.error: str | None = None
         self.closed = False
 
-    def start(self, *, refresh: bool = False) -> dict[str, Any]:
+    def start(self, *, refresh: bool = False, shown_by: str = "chat") -> dict[str, Any]:
+        """Build what FERB saw once (or again with `refresh`); `shown_by` "setup": the setup step presents it, so chat
+        doesn't."""
         if self.closed:
             return {'state': 'closed'}
         if self.task is not None and not self.task.done():
             return self.status()
         if self.collect is None:
             return {'state': 'unavailable'}
-        if refresh:
-            self.approvals.forget_request('setup-persona')
-            self.approval_id = None
-            self.state.set_reviewed(False)
-            self.state.set_pending({})
-        if not self.state.reviewed():
-            if not self._proposal():
-                self.error = None
-                self.task = asyncio.create_task(self._discover())
-            elif self.approval_id is None:              # a scan this daemon hasn't asked about yet (a restart)
-                self._ask()
+        if refresh or not self.state.seen():
+            self.error = None
+            self.task = asyncio.create_task(self._discover(shown_by, quiet=False))
         return self.status()
 
-    async def _discover(self) -> None:
+    async def refresh(self) -> bool:
+        """The weekly re-check: gather again; interpret and store again only when the facts changed. Quiet (the memory
+        page shows it). True when it changed what FERB remembers."""
+        if self.closed or self.collect is None or (self.task is not None and not self.task.done()):
+            return False
+        seen = self.state.seen()
+        if not seen:
+            return False
+        facts = await self._gather()
+        if facts_fingerprint(facts) == seen.get("fingerprint"):
+            self.state.set_seen(seen | {"checked_at": self.clock()})
+            return False
+        await self._store(facts, "quiet", quiet=True)
+        return True
+
+    async def _gather(self) -> dict[str, Any]:
+        assert self.collect is not None
+        collected = self.collect()
+        facts = await collected if inspect.isawaitable(collected) else collected
+        return dict(self.redact(facts))
+
+    async def _discover(self, shown_by: str, *, quiet: bool) -> None:
         try:
-            assert self.collect is not None
-            # Production collection is async and owns its subprocess. Quick synchronous fixture collectors
-            # remain injectable without a thread that could outlive daemon shutdown.
-            collected = self.collect()
-            proposal = self.redact(await collected if inspect.isawaitable(collected) else collected)
-            self.state.set_pending(proposal)
-            self.record('setup.persona_scanned', {k: proposal[k] for k in ('scanned_at', 'apps', 'used_apps')})
-            self._ask()
+            facts = await self._gather()
+            self.record('setup.persona_scanned', {k: facts.get(k) for k in ('scanned_at', 'installed_apps',
+                                                                          'apps_with_use')})
+            await self._store(facts, shown_by, quiet=quiet)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             self.error = str(self.redact(f'{type(exc).__name__}: {exc}'))
             self.record('setup.persona_failed', {'error': self.error})
 
-    def _proposal(self) -> dict[str, Any]:
-        return self.state.pending()
-
-    def _ask(self) -> None:
-        """The one question for this proposal, published once."""
-        proposal = self._proposal()
-        options = (['Save app-use profile'] if proposal['used_apps'] else []) + ['Skip']
-        action = ActionRequest('setup.persona', 'owner_question', Identity.OWNER, frozenset(),
-                               '', '', 'setup-persona', frozenset())
-        ap = self.approvals.question(action, proposal['reason'], options)
-        self.approval_id = ap.id
-        self.publish('approval.requested', self.describe(ap))
-
-    def describe(self, ap: Any) -> dict[str, Any]:
-        return {'approval_id': ap.id, 'capability': ap.capability, 'kind': ap.kind,
-                'reason': ap.reason, 'task_id': None, 'options': list(ap.options),
-                'evidence': self._proposal().get('evidence', []), 'title': 'Getting to know you',
-                'proposal': self._proposal().get('summary', '')}
+    async def _store(self, facts: dict[str, Any], shown_by: str, *, quiet: bool) -> None:
+        stored = await self.build(facts)
+        seen = {'summary': stored.get('summary', ''), 'shown': stored.get('shown', ''), 'facts': stored.get('facts', []),
+                'at': self.clock(), 'checked_at': self.clock(), 'fingerprint': facts_fingerprint(facts),
+                'shown_by': shown_by if not quiet else self.state.seen().get('shown_by', shown_by)}
+        self.state.set_seen(seen)
+        self.state.set_reviewed(True)
+        self.record('memory.mac_profile_seen', {'facts': len(seen['facts']), 'quiet': quiet, 'shown_by': shown_by})
+        if not quiet and shown_by != 'setup' and self.tell is not None and seen['shown']:
+            await self.tell(str(seen['shown']))
 
     def status(self) -> dict[str, Any]:
         if self.closed:
             return {'state': 'closed'}
-        if self.state.reviewed():
-            return {'state': 'reviewed'}
-        if self._proposal():
-            ap = self.approvals.get(self.approval_id) if self.approval_id else None
-            return {'state': 'pending', **({'approval': self.describe(ap)} if ap is not None else {})}
+        if self.task is not None and not self.task.done():
+            return {'state': 'scanning'}
+        seen = self.state.seen()
+        if seen:
+            return {'state': 'seen', 'summary': seen.get('shown') or seen.get('summary', ''),
+                    'facts': seen.get('facts', []), 'at': seen.get('at', '')}
         if self.error:
             return {'state': 'failed', 'error': self.error}
-        return {'state': 'scanning' if self.task is not None and not self.task.done() else 'not_started'}
-
-    def resolve(self, ap: Any) -> None:
-        if ap.capability != 'setup.persona':
-            return
-        proposal = self._proposal()
-        answer = ('yes' if ap.choice == 'Save app-use profile' else 'skip' if ap.choice == 'Skip'
-                  else ap.answer or 'yes')
-        if ap.state == 'granted' and answer.strip().lower() in ('yes', 'y') and not proposal['used_apps']:
-            raise ValueError('There is no app-use evidence to confirm. Describe how you use this Mac, or skip.')
-        confirmed = confirm_persona(proposal['summary'], answer) if ap.state == 'granted' else None
-        if confirmed is not None:
-            confirmed = str(self.redact(confirmed))
-            self.remember(confirmed)
-        self.state.set_reviewed(True)
-        self.record('setup.persona_reviewed', {'confirmed': confirmed is not None,
-                                            'scanned_at': proposal['scanned_at']})
+        return {'state': 'not_started'}
 
     async def close(self) -> None:
         self.closed = True

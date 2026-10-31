@@ -32,7 +32,7 @@ from ferb.device.install import (BUNDLE_CLI, MARKER, NATIVE_HOST_MANIFEST, Insta
                                  designated_requirement, repo_root, trusted_requirement, voice_app)
 from ferb.device.profile import ProfileStore, diff, summarize
 from ferb.device.scan import scan
-from ferb.device.persona import app_usage, setup_persona
+from ferb.device.persona import app_usage
 from ferb.identity import seed
 
 Connect = Callable[[], Client]
@@ -414,6 +414,7 @@ def persona_setup(env: Env) -> int:
 
 
 def _review_persona(env: Env, client: Any, *, refresh: bool = False) -> int:
+    """What FERB saw on this Mac (decision 16): started, waited for, and shown once; nothing to answer (decision 15)."""
     from ferb.sanitize.terminal import printable
     result = client.call('setup.persona', {'refresh': refresh})
     if result['state'] == 'scanning':
@@ -423,31 +424,10 @@ def _review_persona(env: Env, client: Any, *, refresh: bool = False) -> int:
         result = client.call('setup.persona', {'status': True})
     if result['state'] == 'failed':
         env.say('App-use scan failed: ' + printable(result.get('error', 'unknown error')))
-        env.say('Retry with `ferb setup --persona`. Your profile was not confirmed.')
+        env.say('Retry with `ferb setup --persona`.')
         return 1
-    if result['state'] != 'pending':
-        return 0
-    approval = result['approval']
-    env.say(printable(approval['reason']))
-    if approval.get('proposal'):
-        env.say(printable(approval['proposal']))
-    while True:
-        try:
-            answer = env.ask('Does that describe you? yes, edit in your own words, evidence, or skip: ').strip()
-        except EOFError:
-            env.say('Profile review is still pending; open FERB or run `ferb setup --persona`.')
-            return 0
-        if answer.lower() != 'evidence':
-            break
-        for line in approval.get('evidence', []):
-            env.say('  ' + printable(line))
-    if not answer:
-        env.say('Profile review is still pending; no memory was saved.')
-    elif answer.lower() in {'skip', 'no'}:
-        client.call('chat.approve', {'approval_id': approval['approval_id'], 'granted': False})
-    else:
-        client.call('chat.answer', {'approval_id': approval['approval_id'], 'text': answer})
-        env.say('Saved your confirmed profile.')
+    if result['state'] == 'seen' and result.get('summary'):
+        env.say(printable(result['summary']))
     return 0
 
 

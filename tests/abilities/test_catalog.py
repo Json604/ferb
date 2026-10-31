@@ -21,7 +21,7 @@ from ferb.registry import build
 from tests.conftest import chat, install, sup, task, tool
 
 
-def test_fresh_daemon_exposes_metadata_to_planner_and_worker_and_reads_on_demand(daemon):
+def test_fresh_daemon_exposes_metadata_to_the_worker_and_reads_on_demand(daemon):
     assert not (daemon.daemon.home / 'skills').exists()
     results = {}
 
@@ -49,7 +49,8 @@ def test_fresh_daemon_exposes_metadata_to_planner_and_worker_and_reads_on_demand
     for role in ('supervisor', 'worker'):
         request = next(request for _, key, request in script.requests if key == role)
         context = request.system + request.context
-        assert DEFINITION.description in context
+        # only roles with tools are told about lookup tools (notes/prompts.md; the planner has none, memory decision 10)
+        assert (DEFINITION.description in context) == (role == 'worker')
         assert body not in context
     assert 'abilities.run' not in daemon.daemon.registry.capabilities
 

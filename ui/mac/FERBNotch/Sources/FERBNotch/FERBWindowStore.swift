@@ -48,8 +48,8 @@ final class FERBWindowStore: ObservableObject {
     @Published var schedules: [ScheduleRow] = []
     @Published var reminders: [ReminderRow] = []
     @Published var notices: [NoticeRow] = []
-    @Published var proposedMemory: [MemoryRow] = []
     @Published var activeMemory: [MemoryRow] = []
+    @Published var coreProfile = CoreProfileView()
     @Published var settings = SettingsSnapshot()
     @Published var banners: [String: Bool] = [:]
     @Published var health: [HealthLine] = []
@@ -172,16 +172,15 @@ final class FERBWindowStore: ObservableObject {
     // MARK: Memory
 
     func loadMemory() async {
-        if let reply = await ask("memory.list", ["status": "proposed"]) {
-            proposedMemory = (reply["items"] as? [[String: Any]] ?? []).compactMap(MemoryRow.init)
-        }
         if let reply = await ask("memory.list", ["status": "active"]) {
             activeMemory = (reply["items"] as? [[String: Any]] ?? []).compactMap(MemoryRow.init)
         }
+        if let reply = await ask("memory.profile", [:]) { coreProfile = CoreProfileView(reply) }
     }
 
-    func confirm(_ item: MemoryRow) async {
-        guard await ask("memory.confirm", ["id": item.id]) != nil else { return }
+    /// The core profile (always in FERB's prompts): add an item to it or take one out; the memory itself stays.
+    func setInProfile(_ item: MemoryRow, _ on: Bool) async {
+        guard await ask("memory.profile", ["op": on ? "add" : "remove", "id": item.id]) != nil else { return }
         await loadMemory()
     }
 

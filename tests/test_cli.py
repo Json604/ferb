@@ -115,9 +115,10 @@ def test_daemon_process_lifecycle_writes_journal(home: Path) -> None:
         unknown = 0
     except Unsupported:
         unknown = 3
-    # and the one-time chat continuity upgrade (step 8c), journaled once
-    assert [e.kind for e in entries] == ["config.upgraded", "store.upgraded", "daemon.started", *["runtime.limits_unknown"] * unknown,
-                                         "daemon.stopped"]
+    # and the one-time chat continuity upgrade (step 8c) and memory clean-up and core-profile seed (step 9a), each
+    # journaled once
+    assert [e.kind for e in entries] == ["config.upgraded", "store.upgraded", "memory.cleanup", "memory.profile_seeded",
+                                         "daemon.started", *["runtime.limits_unknown"] * unknown, "daemon.stopped"]
     assert entries[0].data["changes"] == []
 
 

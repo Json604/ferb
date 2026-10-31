@@ -112,7 +112,7 @@ def _everywhere(d: RunningDaemon, word: str) -> list[tuple[str, str]]:
 
 
 def _paraphrased(d: RunningDaemon, content: str = "Owner's boss is Quentarr Vexley") -> Any:
-    """FERB's wording of what the owner said (an inferred item) with its pending Yes/No question."""
+    """FERB's wording of what the owner said, saved as its understanding (decision 15)."""
     from ferb.orchestrator.schemas import Remember
     dd = d.daemon
     said = "my manager is Quentarr"
@@ -124,13 +124,14 @@ def _paraphrased(d: RunningDaemon, content: str = "Owner's boss is Quentarr Vexl
 
 def _memory_questions(d: RunningDaemon) -> list[Any]:
     return _on_loop(d, lambda: [q for q in d.daemon.state.approvals.pending()
-                                if q.capability in ("memory.confirm", "memory.forget")])
+                                if q.capability == "memory.forget"])
 
 
 def test_a_forget_closes_the_pending_question_about_that_memory(daemon: RunningDaemon) -> None:
-    """Re-review NEW-1 (probe a2): the owner forgot FERB's wording from the dashboard/CLI instead of answering its
-    question; the question stayed, kept the forgotten text, and every later planner turn read it again."""
+    """Re-review NEW-1 (probe a2): the owner forgot a memory from the dashboard/CLI while FERB's chat "Forget for good?"
+    about it waited; the question stayed, kept the forgotten text, and every later planner turn read it again."""
     item = _paraphrased(daemon)
+    _on_loop(daemon, lambda: daemon.daemon._chat_forget(item.id, "r-forget"))
     assert len(_memory_questions(daemon)) == 1
     from ferb.cli.client import Client
     c = Client(daemon.sock)
@@ -143,20 +144,6 @@ def test_a_forget_closes_the_pending_question_about_that_memory(daemon: RunningD
     chat(daemon, "what's on today?")
     assert "Vexley" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
     assert _everywhere(daemon, "Vexley") == []
-
-
-def test_a_dashboard_confirm_closes_the_chat_question(daemon: RunningDaemon) -> None:
-    """The owner confirmed FERB's wording on the dashboard: the chat question goes, so a later No can't retract it."""
-    from ferb.cli.client import Client
-    item = _paraphrased(daemon)
-    c = Client(daemon.sock)
-    try:
-        [node] = [n for n in c.call("memory.learning", {"op": "inventory"})["items"] if n["kind"] == "fact"]
-        c.call("memory.learning", {"op": "confirm", "id": node["id"]})
-    finally:
-        c.close()
-    assert _memory_questions(daemon) == []
-    assert _on_loop(daemon, lambda: daemon.daemon.memory.get(item.id)).status == "active"
 
 
 def _pending_rows(d: RunningDaemon) -> int:

@@ -306,46 +306,42 @@ def test_doctor_shows_the_protection_lists_and_why_a_malformed_one_stops_ferb(wo
     assert "✗ protection: protection.never_read in config.toml must be a list of paths" in out.getvalue()
 
 
-def test_update_reviews_missing_profile_once_without_repeating_permission_flow(world):
+def test_update_shows_what_ferb_saw_without_asking_or_repeating_permission_flow(world):
+    """Decision 16: setup shows "here's what I saw" once; nothing to answer (decision 15)."""
     world['inst'].install()
     env, out = make_env(world, [])
-    calls, answers = [], iter(['evidence', 'I code and make music'])
-    class ReviewClient(FakeClient):
-        reviewed = False
+    calls = []
+
+    class SeenClient(FakeClient):
         def call(self, method, params=None):
             calls.append((method, params))
             if method == 'setup.persona':
-                return {'state': 'reviewed'} if self.reviewed else {'state': 'pending', 'approval': {
-                    'approval_id': 'profile', 'reason': 'I found recorded use for 2 apps.',
-                    'evidence': ['Code: 3733 Spotlight uses; last used 2026-10-10.']}}
-            if method == 'chat.answer':
-                self.reviewed = True
-                return {'state': 'granted'}
+                return {'state': 'seen', 'summary': "Here's what I saw on your Mac: you code a lot in VS Code."}
             return super().call(method, params)
-    client = ReviewClient(world['daemon'])
+    client = SeenClient(world['daemon'])
     env.connect = lambda: client
-    env.ask = lambda _: next(answers)
+    env.ask = lambda _: (_ for _ in ()).throw(AssertionError('setup asked about the profile'))
     assert S.setup(env, update=True) == 0
-    assert ('chat.answer', {'approval_id': 'profile', 'text': 'I code and make music'}) in calls
-    assert '3733 Spotlight uses' in out.getvalue()
+    assert "Here's what I saw on your Mac" in out.getvalue()
+    assert not [m for m, _ in calls if m in ('chat.answer', 'chat.approve')]
     assert world['panes'] == [] and world['daemon'].automation_requests == []
-    assert S.setup(env, update=True) == 0  # already reviewed; no second question
 
 
-def test_persona_only_review_does_not_install_restart_or_confirm_empty_input(world):
+def test_persona_only_review_does_not_install_or_restart(world):
     env, out = make_env(world, [])
     calls = []
+
     class Client:
         def call(self, method, params):
             calls.append((method, params))
-            return {'state': 'pending', 'approval': {'approval_id': 'profile', 'reason': 'Review local use.'}}
+            return {'state': 'seen', 'summary': "Here's what I saw on your Mac: you code."}
+
         def close(self): pass
     env.connect = Client
-    env.ask = lambda _: ''
     assert S.persona_setup(env) == 0
     assert calls == [('setup.persona', {'refresh': True})]
     assert world['runner'].ran('uv', 'python', 'install') == 0
-    assert 'still pending' in out.getvalue() and world['panes'] == []
+    assert "you code" in out.getvalue() and world['panes'] == []
 
 
 # ---------- L26: FERB.app hears app sound during tasks (Speech Recognition only, unless --voice) ----------

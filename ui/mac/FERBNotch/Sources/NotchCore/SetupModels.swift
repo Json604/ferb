@@ -246,27 +246,20 @@ public enum APIKeyEntry {
     }
 }
 
-/// Getting to know you (`setup.persona`): the one profile question, as the daemon holds it.
+/// Getting to know you (`setup.persona`, notes/memory.md decision 16): what FERB saw on this Mac, shown once as
+/// "here's what I saw"; nothing to answer (decision 15).
 public enum PersonaState: Equatable {
     case loading                 // not asked for yet: the window calls `setup.persona {}` to start the scan
     case scanning
-    case pending(approvalID: String, reason: String, proposal: String, canSave: Bool)
-    case finished                // reviewed, closed or unavailable: nothing to ask
+    case seen(summary: String)   // what FERB saw and saved as observed memory
+    case finished                // closed or unavailable: nothing to show
     case failed(String)
 
     public init(reply: [String: Any]) {
         switch reply["state"] as? String {
         case "scanning": self = .scanning
         case "not_started": self = .loading
-        case "pending":
-            if let approval = reply["approval"] as? [String: Any], let id = approval["approval_id"] as? String {
-                let options = approval["options"] as? [String] ?? []
-                self = .pending(approvalID: id, reason: approval["reason"] as? String ?? "",
-                                proposal: approval["proposal"] as? String ?? "",
-                                canSave: options.contains("Save app-use profile"))
-            } else {
-                self = .scanning
-            }
+        case "seen": self = .seen(summary: reply["summary"] as? String ?? "")
         case "failed": self = .failed(reply["error"] as? String ?? "The app-use scan failed.")
         default: self = .finished
         }

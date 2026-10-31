@@ -225,47 +225,24 @@ struct BrowsersStepView: View {
 
 struct PersonaStep: View {
     @ObservedObject var model: SetupModel
-    @State private var words = ""
-    @State private var editing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            StepHeader(title: "Getting to know you", lines: ["FERB looked at which apps you use, on this Mac only.",
-                                                             "Save what it found, say it in your own words, or skip."])
+            StepHeader(title: "Getting to know you", lines: ["FERB looked at which apps you use, on this Mac only."])
             switch model.persona {
             case .loading, .scanning:
                 ProgressView("Looking at your apps…")
-            case .pending(_, let reason, let proposal, let canSave):
-                if !reason.isEmpty { Text(reason) }
-                if !proposal.isEmpty { Text(proposal).font(.callout).textSelection(.enabled) }
-                if editing {
-                    TextField("How you use this Mac, in your words", text: $words, axis: .vertical).lineLimit(3...6)
-                        .onSubmit(saveWords)
-                    HStack {
-                        Button("Save", action: saveWords)
-                            .disabled(words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        Button("Cancel") { editing = false }
-                    }
-                } else {
-                    HStack {
-                        if canSave { Button("Save") { Task { await model.savePersona() } } }
-                        Button("Edit") { editing = true }
-                        Button("Skip") { Task { await model.skipPersona() } }
-                    }
-                }
+            case .seen(let summary):
+                Text(summary).textSelection(.enabled)
+                Text("Tell FERB if any of it is wrong; you can see and change it on the Memory page.")
+                    .foregroundStyle(.secondary)
             case .finished:
-                Text("Done. FERB keeps this in its memory; you can change it later.").foregroundStyle(.secondary)
+                Text("Done.").foregroundStyle(.secondary)
             case .failed(let why):
                 Text("FERB couldn't look at your apps: \(why)").foregroundStyle(.secondary)
             }
             if let line = model.personaMessage { Text(line).font(.callout) }
         }
-    }
-
-    private func saveWords() {
-        let text = words
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        Task { await model.editPersona(text) }
     }
 }
 

@@ -98,6 +98,15 @@ A small suite that guards what live use can't show: the safety floor, plus a han
       end and the expiry line, end words the owner didn't type refused, set_end, a pre-0052 schedule unchanged (upgrade);
       tests/test_typed_cards.py: the countdown field on a run's card, a payment naming its saved card / none for a
       one-time hidden input, no card digits.)
+      Step 9a (memory): tests/test_core_profile.py (the booking replacement and its line, same-key replace, the
+      profile in every role's instructions, the hard budget, what joins at once and what waits to hold up, forget and
+      retire leave it, the weekly pass, the memory page RPCs); tests/test_memory_capture.py rewritten for no Keep
+      (FERB's understanding saved at once, decision-11 real chats through the chat path, the distill's chat pass, the
+      distill never re-proposing a stored key, correction by talking, an unknown replaced id); tests/test_memory_upgrade.py
+      (the clean-up and seed on a schema-52 store shaped like the owner's, idempotent on a second start);
+      tests/test_setup_persona.py rewritten for decision 16 (observed, shown once, setup vs chat, refresh only on
+      change, holds up before Tier 1); test_memory.py (pass verdict verified, forget leaves known destinations);
+      test_memory_retirement.py (retire told, not asked; a due check). Keep/Edit/Drop and Retire/Keep tests deleted.
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.

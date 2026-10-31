@@ -256,7 +256,7 @@ def kill(client: Client, proc_id: str, out: TextIO) -> int:
 
 # ---------- memory ----------
 
-ORIGIN = {"owner_stated": "you said", "observed": "observed", "inferred": "inferred", "third_party": "third-party"}
+from ferb.memory.items import LABELS as ORIGIN
 
 
 def _last_day(stamp: str) -> str:
@@ -269,8 +269,8 @@ def _item_line(i: dict[str, Any]) -> str:
     extra = ""
     if i["status"] == "proposed" and i["origin"] == "observed":
         extra = f" — seen on {i['evidence_days']} of 3 days"
-    elif i["status"] == "proposed":
-        extra = f" — unconfirmed hint; `ferb memory confirm {i['id']}` to confirm"
+    if i.get("in_profile"):
+        extra += " — in the core profile"
     until = f" (until {_last_day(i['valid_to'])})" if i.get("valid_to") else ""
     return (f"  {i['id']}  [{i['kind']} · {i['subject']} · {i['key']}] {i['content']}  "
             f"({ORIGIN[i['origin']]}, {i['status']}{until}){extra}")
@@ -286,13 +286,16 @@ def memory(client: Client, args: Any, ask: Any, out: TextIO) -> int:
         client.set_timeout(None)
         print(json.dumps(client.call("memory.learning", params), ensure_ascii=False, indent=2), file=out)
         return 0
-    if c in ("digest", "search", "identity", "rollback"):
+    if c == "profile":
+        print(client.call("memory.profile", {})["markdown"], file=out)
+        return 0
+    if c in ("digest", "search", "rollback"):
         import json
         params = {"op": c}
         params.update({k: getattr(args, k) for k in ("query", "kind", "app", "person", "text", "key", "batch")
                        if getattr(args, k, None) is not None})
         print(json.dumps(client.call("memory.learning", params), ensure_ascii=False, indent=2), file=out)
-    elif c in ("confirm", "edit", "forget") and args.id.startswith("m-"):
+    elif c in ("edit", "forget") and args.id.startswith("m-"):
         import json
         params = {"op": c, "id": args.id}
         if c == "edit":
@@ -318,8 +321,6 @@ def memory(client: Client, args: Any, ask: Any, out: TextIO) -> int:
         i = client.call("memory.add", {"content": args.content, "kind": args.kind, "subject": args.subject,
                                        "key": args.key})
         print("Remembered:\n" + _item_line(i), file=out)
-    elif c == "confirm":
-        print("Confirmed:\n" + _item_line(client.call("memory.confirm", {"id": args.id})), file=out)
     elif c == "edit":
         print("Updated (the old version stays as history):\n" +
               _item_line(client.call("memory.edit", {"id": args.id, "content": args.content})), file=out)

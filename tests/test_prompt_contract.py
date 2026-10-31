@@ -42,15 +42,6 @@ SENTENCES = [
      'as they typed it ("Asha Rao"), and login_origin: the site\'s https:// address; FERB saves their whole line as '
      'the memory and the username for that site. Passwords and other secrets go through the hidden-input path. '
      'Otherwise login_origin is null.'),
-    # scan m4: the remember bullet's empty-list rule reads as about remember, before the login sentence
-    ("supervisor.md",
-     'any rewording waits for their Yes. When nothing is worth remembering, remember is an empty list. When the owner '
-     'tells you a login name or username'),
-    # L36 §6: dated facts (the 10-11 wedding flight) never retired
-    ("supervisor.md",
-     'When the owner\'s words give the item an end ("until Sunday", "till the 31st"), add until: quote, the owner\'s '
-     'exact date words, and only what they said in day (today, tomorrow, a weekday …), date ("MM-DD" or "YYYY-MM-DD") '
-     'or in_days; FERB works out the date, and the item leaves memory after that day. Otherwise until is null.'),
     # live 2026-10-24 12:34: "pause the visa task for now, I'll say when to continue" stopped the task and left its
     # daily schedule active
     ("supervisor.md",

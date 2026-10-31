@@ -7,10 +7,7 @@ longer have items are removed."""
 import os
 from pathlib import Path
 
-from ferb.memory.items import Memory, slug
-
-LABEL = {"owner_stated": "you said", "observed": "observed", "inferred": "inferred (you confirmed)",
-         "third_party": "from third-party content"}
+from ferb.memory.items import Memory, label, slug
 
 
 def export(memory: Memory, folder: Path) -> list[Path]:
@@ -19,7 +16,7 @@ def export(memory: Memory, folder: Path) -> list[Path]:
     by_subject: dict[str, list[str]] = {}
     for it in memory.items("active"):
         by_subject.setdefault(it.subject, []).append(
-            f"- **{it.kind} · {it.key}**: {it.content}  \n  _{LABEL[it.origin]}, since {it.valid_from:%Y-%m-%d}, "
+            f"- **{it.kind} · {it.key}**: {it.content}  \n  _{label(it.origin)}, since {it.valid_from:%Y-%m-%d}, "
             f"{len(it.source_ids)} source(s), id {it.id}_")
     written = []
     for subject, lines in sorted(by_subject.items()):

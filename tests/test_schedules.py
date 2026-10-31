@@ -491,7 +491,7 @@ def test_a_schedule_made_before_ends_existed_runs_on_unchanged(tmp_path: Path, d
                     "created_at) VALUES ('sc-old', 'check the build', 'every hour check the build', '{}', ?, ?, "
                     "'active', ?)", (json.dumps(rule.__dict__ | {"first": first.isoformat()}), first.isoformat(),
                                      clock.now().isoformat()))
-    assert db.migrate() == [52]
+    assert db.migrate()[0] == 52                                    # and any later ones
     for statement in dbmod._split_sql((dbmod.MIGRATIONS / "0052_schedule_ends.sql").read_text()):
         db.conn.execute(statement)                                   # re-runnable
     old = Schedules(db, clock, SequentialIds("x")).get("sc-old")

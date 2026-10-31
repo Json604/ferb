@@ -127,7 +127,8 @@ public struct NoticeRow: Identifiable, Equatable {
     }
 }
 
-/// A memory item (`memory.list`).
+/// A memory item (`memory.list`): its words, where it came from (`label`: your words / FERB's understanding / observed,
+/// notes/memory.md decision 15), what it is about, and whether it is in the core profile (always on).
 public struct MemoryRow: Identifiable, Equatable {
     public let id: String
     public let kind: String
@@ -136,6 +137,9 @@ public struct MemoryRow: Identifiable, Equatable {
     public let content: String
     public let status: String
     public let origin: String
+    public let label: String
+    public let about: String
+    public let inProfile: Bool
 
     public init?(_ row: [String: Any]) {
         guard let id = row["id"] as? String, !id.isEmpty else { return nil }
@@ -146,7 +150,32 @@ public struct MemoryRow: Identifiable, Equatable {
         content = text(row["content"])
         status = text(row["status"])
         origin = text(row["origin"])
+        label = text(row["label"])
+        about = text(row["about"])
+        inProfile = flag(row["in_profile"])
     }
+}
+
+/// The core profile (`memory.profile`): its sections of memory ids in order, and its budget.
+public struct CoreProfileView: Equatable {
+    public struct Section: Equatable {
+        public let title: String
+        public let ids: [String]
+    }
+    public let sections: [Section]
+    public let usedTokens: Int
+    public let budgetTokens: Int
+
+    public init(_ reply: [String: Any]) {
+        sections = (reply["sections"] as? [[String: Any]] ?? []).map { section in
+            Section(title: text(section["title"]),
+                    ids: (section["items"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
+        }
+        usedTokens = reply["used_tokens"] as? Int ?? 0
+        budgetTokens = reply["budget_tokens"] as? Int ?? 0
+    }
+
+    public init() { sections = []; usedTokens = 0; budgetTokens = 0 }
 }
 
 /// One setting's value (`settings.get`). JSON's booleans are told apart from its numbers.

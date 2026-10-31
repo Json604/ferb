@@ -67,7 +67,8 @@ def test_chat_capture_needs_the_owners_own_words(daemon: RunningDaemon) -> None:
 # ---------- memory review I1 (MP2): only the owner's own words become owner_stated ----------
 
 def _identity(d: RunningDaemon) -> str:
-    return str(run(d, d.daemon._learning_identity))
+    """The core profile (Tier 1) every role's instructions carry."""
+    return str(run(d, d.daemon._core_profile_text))
 
 
 def test_planner_wording_on_a_trivial_quote_never_becomes_the_owners_rule(daemon: RunningDaemon) -> None:
@@ -98,29 +99,29 @@ def test_the_owners_own_words_are_saved_as_theirs(daemon: RunningDaemon) -> None
                     quote="my dentist is Dr. Rao")
     saved = daemon.run(daemon.daemon._remember([item], said, src))
     # the whole clause of the owner's words that holds it (fix round, review Q3): never a slice of it
-    assert [s["line"] for s in saved] == ["Remembered: remember that my dentist is Dr. Rao"]
+    [line] = [s["line"] for s in saved]
+    assert line.startswith("Memory: noted") and "remember that my dentist is Dr. Rao" in line
     it = run(daemon, lambda: mem(daemon).items("active"))[0]
     assert (it.origin, it.status, it.content) == ("owner_stated", "active", "remember that my dentist is Dr. Rao")
 
 
-def test_a_paraphrase_waits_for_the_owners_confirm_before_it_shapes_prompts(daemon: RunningDaemon) -> None:
-    """FERB's wording of what the owner said is not the owner's words: it is kept as an inferred proposal, out of the
-    identity and the planner's memory until the owner confirms it."""
+def test_a_paraphrase_is_saved_at_once_as_ferbs_understanding(daemon: RunningDaemon) -> None:
+    """Decision 15: FERB's wording of what the owner said is saved at once, labelled FERB's understanding, with a quiet
+    "Memory: noted" line; it reaches retrieved memory with its label, but not the core profile until it holds up."""
     said = "I prefer Brave for work"
     src = journal(daemon, "chat.message", {"text": said})
     item = Remember(kind="preference", subject="owner", key="work_browser",
                     content="Always use Brave for work and never Safari", quote="I prefer Brave for work")
     saved = daemon.run(daemon.daemon._remember([item], said, src))
-    assert len(saved) == 1 and "answer Keep" in saved[0]["line"] and "Remembered" not in saved[0]["line"]
-    assert "ferb memory" not in saved[0]["line"] and "id-" not in saved[0]["line"]   # no command, no id (fix round)
+    assert len(saved) == 1 and saved[0]["line"].startswith("Memory: noted") and "FERB's understanding" in saved[0]["line"]
+    assert "Keep" not in saved[0]["line"] and "id-" not in saved[0]["line"]
     it = run(daemon, lambda: mem(daemon).items(None, valid_now=False))[0]
-    assert (it.origin, it.status) == ("inferred", "proposed")
+    assert (it.origin, it.status) == ("inferred", "active")
+    assert run(daemon, lambda: daemon.daemon.state.approvals.pending()) == []          # no question
     candidates = daemon.run(daemon.daemon._learning_candidates("Brave for work"))
-    assert "Safari" not in _identity(daemon) and not [c for c in candidates if "Safari" in c["text"]]
-    run(daemon, lambda: mem(daemon).confirm(it.id))
-    candidates = daemon.run(daemon.daemon._learning_candidates("Brave for work"))
-    assert [c for c in candidates if "Safari" in c["text"]]
-    assert "Safari" not in _identity(daemon)                  # a confirmed inference is still not the owner's rule
+    [line] = [c["text"] for c in candidates if "Safari" in c["text"]]
+    assert line.startswith(it.id) and "FERB's understanding" in line
+    assert "Safari" not in _identity(daemon)                  # FERB's understanding waits to hold up for Tier 1
 
 
 def test_owner_words_are_saved_as_their_whole_sentence_never_a_slice_dropping_a_negation(daemon: RunningDaemon) -> None:
@@ -131,7 +132,8 @@ def test_owner_words_are_saved_as_their_whole_sentence_never_a_slice_dropping_a_
     item = Remember(kind="preference", subject="owner", key="links", content="share my links publicly",
                     quote="share my links publicly")
     saved = daemon.run(daemon.daemon._remember([item], own, src))
-    assert [s["line"] for s in saved] == ["Remembered: never share my links publicly, just summarize the page"]
+    [line] = [s["line"] for s in saved]
+    assert "“never share my links publicly, just summarize the page”" in line
     stored = run(daemon, lambda: [i.content for i in mem(daemon).items(None, valid_now=False)])
     assert stored == ["never share my links publicly, just summarize the page"]
     assert "never share my links publicly" in _identity(daemon)
@@ -150,40 +152,6 @@ def test_a_preference_in_the_owners_typed_words_joins_identity_whatever_was_on_s
     assert run(daemon, lambda: mem(daemon).items("active"))[0].origin == "owner_stated"
     assert "I prefer Brave for work" in _identity(daemon)
     assert run(daemon, lambda: daemon.daemon.learning.items("identity_proposal")) == []
-
-
-def test_a_paraphrase_can_be_confirmed_from_chat_with_a_plain_keep(daemon: RunningDaemon) -> None:
-    import json as _json
-    install(daemon, [_json.dumps({"kind": "reply", "text": "Okay.", "remember": [
-        {"kind": "preference", "subject": "owner", "key": "work_browser",
-         "content": "Always use Brave for work", "quote": "I prefer Brave for work"}]})])
-    chat(daemon, "I prefer Brave for work")
-    question = run(daemon, lambda: next(q for q in daemon.daemon.state.approvals.pending()
-                                        if q.capability == "memory.confirm"))
-    assert "Always use Brave for work" in question.reason and question.options == ("Keep", "Edit", "Drop")
-    install(daemon, [_json.dumps({"kind": "reply", "text": "", "answer_question": {"approval_id": question.id,
-                                                                                     "answer": "Keep"}})])
-    chat(daemon, "Keep")
-    it = run(daemon, lambda: mem(daemon).items(None, valid_now=False))[0]
-    assert (it.origin, it.status) == ("inferred", "active")
-
-
-def test_the_dashboard_lists_and_confirms_a_pending_paraphrase(daemon: RunningDaemon) -> None:
-    from ferb.cli.client import Client
-    said = "I prefer Brave for work"
-    src = journal(daemon, "chat.message", {"text": said})
-    item = Remember(kind="preference", subject="owner", key="work_browser", content="Always use Brave for work",
-                    quote="I prefer Brave for work")
-    daemon.run(daemon.daemon._remember([item], said, src))
-    c = Client(daemon.sock)
-    try:
-        inventory = c.call("memory.learning", {"op": "inventory"})["items"]
-        [node] = [n for n in inventory if n["kind"] == "fact"]
-        assert node["state"] == "proposed"
-        c.call("memory.learning", {"op": "confirm", "id": node["id"]})
-    finally:
-        c.close()
-    assert run(daemon, lambda: mem(daemon).items(None, valid_now=False))[0].status == "active"
 
 
 def test_an_unconfirmed_observed_pattern_is_labelled_unconfirmed_for_the_planner(daemon: RunningDaemon) -> None:
@@ -229,13 +197,12 @@ def test_observed_needs_the_owners_own_activity_on_three_days(daemon: RunningDae
     assert again.id == it.id and again.status == "active"                 # third day: active
 
 
-def test_inferred_waits_for_the_owner_and_third_party_is_never_about_the_owner(daemon: RunningDaemon) -> None:
+def test_inferred_is_active_at_once_and_third_party_is_never_about_the_owner(daemon: RunningDaemon) -> None:
     m = mem(daemon)
     src = journal(daemon, "chat.message", {"text": "x"})
     inf = run(daemon, lambda: m.propose("project", "project:ferb", "stage", "FERB is at build step 11", "inferred",
                                         [("journal", src)]))
-    assert inf.status == "proposed"
-    assert run(daemon, lambda: m.confirm(inf.id)).status == "active"
+    assert inf.status == "active"
     for kind, subject in (("preference", "person:ana"), ("fact", "owner")):
         with pytest.raises(MemoryRefused, match="third-party"):
             run(daemon, lambda: m.propose(kind, subject, "k", "x", "third_party", [("journal", src)]))
@@ -263,10 +230,9 @@ def test_updates_keep_history_and_recall_sees_only_what_is_valid(daemon: Running
     assert [i.content for i in run(daemon, lambda: m.history(v2.id))] == ["Dentist is Dr. Rao", "Dentist is Dr. Mehta"]
 
 
-def test_a_non_owner_version_never_overrides_what_the_owner_said_until_they_keep_it(daemon: RunningDaemon) -> None:
-    """Only the owner's own statement, or their Keep, ends a version they stated. A pattern FERB saw on three days
-    becomes active by itself and never overrides it (both hold, flagged as conflicting); the owner's Keep of FERB's
-    guess makes the guess the current version and ends theirs (final review I2: both stayed current, theirs first)."""
+def test_a_version_not_from_the_owners_words_never_overrides_what_they_said(daemon: RunningDaemon) -> None:
+    """Only a version resting on the owner's words now (their statement, or FERB's wording of what they just said) ends
+    one they stated. A pattern FERB saw on three days, or a distilled conclusion, becomes active beside it."""
     m = mem(daemon)
     s = journal(daemon, "memory.added", {"content": "a"})
     zed = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses Zed", "owner_stated", [("journal", s)],
@@ -274,66 +240,13 @@ def test_a_non_owner_version_never_overrides_what_the_owner_said_until_they_keep
     rows = [trail_row(daemon, f"2026-09-0{i}") for i in (1, 2, 3)]
     seen = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses VS Code daily", "observed",
                                          [("trail", r) for r in rows]))
-    assert seen.status == "active"
-    held = run(daemon, lambda: [m.get(zed.id).valid_to, m.get(seen.id).valid_to])
-    assert held == [None, None]                                           # both hold: the owner's isn't ended
+    assert run(daemon, lambda: [m.get(i).valid_to for i in (zed.id, seen.id)]) == [None, None]
     inf = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses VS Code", "inferred", [("journal", s)]))
-    run(daemon, lambda: m.confirm(inf.id))
-    ended = run(daemon, lambda: [m.get(zed.id).valid_to, m.get(seen.id).valid_to])
-    assert None not in ended
+    assert run(daemon, lambda: (m.get(zed.id).valid_to, m.get(seen.id).valid_to is not None)) == (None, True)
     assert run(daemon, lambda: m.get(inf.id)).status == "active"
-
-
-def test_keep_never_ends_a_version_made_after_the_guess(daemon: RunningDaemon) -> None:
-    """Coordinator ruling (final fix, concern 2), defense in depth: the owner's Keep ends the versions the guess
-    updates (final review I2), never one made after the guess was proposed (here a pattern FERB saw on three days
-    since); the owner's own older statement still ends."""
-    m = mem(daemon)
-    s = journal(daemon, "memory.added", {"content": "a"})
-    older = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses Sublime", "owner_stated",
-                                          [("journal", s)], 1.0))
-    guessed = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses VS Code", "inferred",
-                                            [("journal", s)]))
-    rows = [trail_row(daemon, f"2026-09-0{i}") for i in (1, 2, 3)]
-    newer = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses Zed daily", "observed",
-                                          [("trail", r) for r in rows]))
-    assert newer.status == "active"
-    run(daemon, lambda: m.confirm(guessed.id))
-    assert run(daemon, lambda: [m.get(i).valid_to is None for i in (older.id, guessed.id, newer.id)]) == \
-        [False, True, True]
-
-
-def test_keep_counts_the_owners_latest_restatement_as_their_versions_time(daemon: RunningDaemon) -> None:
-    """Scoped re-review P7, defense in depth: Keep never ends a version made after the guess, and the owner's words
-    stated again (credited to their existing item, `propose`) date their version from that restatement, by its
-    journal entry's time, not from the item's first insertion."""
-    m, c = mem(daemon), daemon.daemon.clock
-    s1 = journal(daemon, "memory.added", {"content": "a"})
-    mehta = run(daemon, lambda: m.propose("person", "owner", "dentist", "Dentist is Dr. Mehta", "owner_stated",
-                                          [("journal", s1)], 1.0))
-    daemon.call_soon(c.advance, 60)
-    guessed = run(daemon, lambda: m.propose("person", "owner", "dentist", "Dentist is Dr. Rao", "inferred",
-                                            [("journal", s1)]))
-    assert run(daemon, lambda: m._made_after(guessed.id, [mehta.id])) == set()      # stated before the guess
-    daemon.call_soon(c.advance, 60)
-    s2 = journal(daemon, "memory.added", {"content": "b"})
-    again = run(daemon, lambda: m.propose("person", "owner", "dentist", "dentist is Dr. Mehta", "owner_stated",
-                                          [("journal", s2)], 1.0))
-    assert again.id == mehta.id
-    assert run(daemon, lambda: m._made_after(guessed.id, [mehta.id])) == {mehta.id}  # stated again since
-
-
-def test_keep_ends_an_older_version_of_another_kind_with_the_same_subject_and_key(daemon: RunningDaemon) -> None:
-    """Scoped re-review P5: the owner's version is kind person, FERB's guess kind fact, with the same subject and key.
-    Keep ends the older version whatever its kind, as the I2 ruling says ("the same subject and key")."""
-    m = mem(daemon)
-    s = journal(daemon, "memory.added", {"content": "a"})
-    mehta = run(daemon, lambda: m.propose("person", "owner", "dentist", "my dentist is Dr. Mehta", "owner_stated",
-                                          [("journal", s)], 1.0))
-    rao = run(daemon, lambda: m.propose("fact", "owner", "dentist", "Your dentist is Dr. Rao", "inferred",
-                                        [("journal", s)]))
-    run(daemon, lambda: m.confirm(rao.id))
-    assert run(daemon, lambda: (m.get(mehta.id).valid_to is not None, m.get(rao.id).supersedes)) == (True, mehta.id)
+    told = run(daemon, lambda: m.save("preference", "owner", "editor", "I use Helix now", "inferred", [("journal", s)],
+                                      from_owner=True))
+    assert sorted(o.id for o in told.replaced) == sorted([zed.id, inf.id])
 
 
 # ---------- forget (safety test 17; notes/memory.md decision 2: simple forget) ----------
@@ -355,7 +268,6 @@ def test_forget_deletes_the_item_its_versions_and_its_trail_rows_and_nothing_com
                                         [("journal", chat_src)], 1.0))
     inf = run(daemon, lambda: m.propose("fact", "owner", "club_member", f"Member of {secret}", "inferred",
                                         [("journal", chat_src)] + [("trail", r) for r in rows]))
-    run(daemon, lambda: m.confirm(inf.id))
     tea = run(daemon, lambda: m.propose("preference", "owner", "drink", "Likes tea", "owner_stated",
                                         [("journal", chat_src)], 1.0))
     run(daemon, lambda: daemon.daemon.learning.sync_facts(daemon.daemon.memory))
@@ -401,10 +313,8 @@ def test_a_trail_row_another_fact_stands_on_stays_with_that_fact(daemon: Running
     shared = trail_row(daemon, day, data={"host": "chess.example", "browser": "chrome", "profile": "Default",
                                           "url": "https://chess.example/"}, hour=9)
     a = run(daemon, lambda: m.propose("fact", "owner", "plays_chess", "Plays chess", "inferred", [("trail", shared)]))
-    run(daemon, lambda: m.confirm(a.id))
     b = run(daemon, lambda: m.propose("fact", "owner", "chess_site", "Uses chess.example", "inferred",
                                       [("trail", shared)]))
-    run(daemon, lambda: m.confirm(b.id))
     assert run(daemon, lambda: m.plan_forget(a.id)).trail == []
     run(daemon, lambda: daemon.daemon._forget_memory(a.id))
     db = daemon.daemon.db
@@ -524,80 +434,22 @@ def test_secrets_never_reach_memory_or_its_export(daemon: RunningDaemon) -> None
 
 # ---------- round 2 (re-review F3, F4, F5) ----------
 
-def test_no_prompt_path_shows_an_unconfirmed_inferred_item(daemon: RunningDaemon) -> None:
-    """Re-review F3 (probe c): a pending inferred item reached an active entity rollup that search returned, and
-    `memory.learned item_id` returned the pending node itself. Until the owner says Yes, nothing a prompt or a worker
-    can read holds it."""
-    import asyncio as _asyncio
-    import json as _json
-    from ferb.memory.tools import LearningRead
-    d = daemon.daemon
-    src = journal(daemon, "chat.message", {"text": "my manager is Quentarr"})
-    run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
-                                            [("journal", src)], 0.7))
-    run(daemon, lambda: d.learning.sync_facts(d.memory))
-    assert not run(daemon, lambda: d.learning.search("who is my boss Quentarr"))
-    [pending] = [n for n in run(daemon, lambda: d.learning.items("fact")) if n["state"] == "proposed"]
-    read = daemon.run(LearningRead(lambda: d.learning).run(LearningRead.Input(item_id=pending["id"]), None))
-    assert read.is_error and "Quentarr" not in _json.dumps(read.content)
-    script = install(daemon, [_json.dumps({"kind": "reply", "text": "Hi."})])
-    chat(daemon, "who is my boss?")
-    assert "Quentarr" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
-    assert _asyncio
-
-
-def _indexed_before_proposed_state(daemon: RunningDaemon, item: Any) -> dict[str, Any]:
-    """The fact node of a pending inferred item as the index stored it before pending items were indexed 'proposed'
-    (1655472): the same body and maker, state 'active'."""
-    from dataclasses import asdict
-    from ferb.memory.learning import memory_origin
-    d = daemon.daemon
-    return dict(run(daemon, lambda: d.learning.put(
-        "fact", f"{item.subject}/{item.key}", asdict(item) | {"unconfirmed_hint": True}, ["memory:" + item.id],
-        origin_label=memory_origin("inferred"), made_by="code:fact-index/1", state="active")))
-
-
-def test_a_pending_inferred_item_indexed_active_earlier_leaves_every_prompt(daemon: RunningDaemon) -> None:
-    """Live 2026-10-24: 25 fact nodes of inferred items still waiting for the owner's Yes were stored 'active' before
-    the index gave pending items state 'proposed'. The index's write found each node already there and returned it
-    unchanged, so search kept them and 11 of 13 planner turns showed them as unconfirmed hints (I1, MP2)."""
-    import json as _json
-    from ferb.memory.tools import LearningRead
-    d = daemon.daemon
-    src = journal(daemon, "chat.message", {"text": "my manager is Quentarr"})
-    item = run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
-                                                   [("journal", src)], 0.7))
-    old = _indexed_before_proposed_state(daemon, item)
-    assert old["state"] == "active"
-    run(daemon, lambda: d.learning.sync_facts(d.memory))
-    [node] = run(daemon, lambda: d.learning.items("fact"))          # the index found the same node, still current
-    assert node["id"] == old["id"]
-    assert not run(daemon, lambda: d.learning.search("who is my boss Quentarr"))
-    planner = daemon.run(d._learning_candidates("who is my boss Quentarr"))
-    assert "Quentarr" not in _json.dumps(planner)
-    read = daemon.run(LearningRead(lambda: d.learning).run(LearningRead.Input(item_id=old["id"]), None))
-    assert read.is_error and "Quentarr" not in _json.dumps(read.content)
-    script = install(daemon, [_json.dumps({"kind": "reply", "text": "Hi."})])
-    chat(daemon, "who is my boss?")
-    assert "Quentarr" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
-    assert run(daemon, lambda: d.learning.get(old["id"]))["state"] == "proposed"   # the dashboard offers its Confirm
-
-
-def test_the_fact_index_never_brings_back_a_node_the_owner_retired(daemon: RunningDaemon) -> None:
-    """The index sets a fact node's state from its item, but never over the owner's Retire (I1)."""
+def test_the_memory_pages_not_right_on_a_fact_retires_the_memory_itself(daemon: RunningDaemon) -> None:
+    """Fix list: the dashboard's op=retire on a fact retired only its index node; the item kept reaching prompts."""
     from ferb.cli.client import Client
     d = daemon.daemon
     src = journal(daemon, "chat.message", {"text": "my manager is Quentarr"})
     item = run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
                                                    [("journal", src)], 0.7))
-    old = _indexed_before_proposed_state(daemon, item)
+    run(daemon, lambda: d.learning.sync_facts(d.memory))
+    [node] = [n for n in run(daemon, lambda: d.learning.items("fact")) if n["body"].get("id") == item.id]
     c = Client(daemon.sock)
     try:
-        c.call("memory.learning", {"op": "retire", "id": old["id"]})
+        c.call("memory.learning", {"op": "retire", "id": node["id"]})
     finally:
         c.close()
-    run(daemon, lambda: d.learning.sync_facts(d.memory))
-    assert run(daemon, lambda: d.learning.get(old["id"]))["state"] == "retired"
+    assert run(daemon, lambda: mem(daemon).get(item.id)).valid_to is not None
+    assert not [c for c in daemon.run(d._learning_candidates("Quentarr")) if "Quentarr" in c["text"]]
 
 
 def test_owner_words_are_saved_as_their_whole_sentence_whatever_its_commas(daemon: RunningDaemon) -> None:
@@ -615,28 +467,6 @@ def test_owner_words_are_saved_as_their_whole_sentence_whatever_its_commas(daemo
             ("my dentist is Dr. Rao, he's great\nalso book me in", "my dentist is Dr. Rao",
              "my dentist is Dr. Rao, he's great")]:
         assert owner_sentences(own, part) == saved, own
-
-
-def test_the_dashboard_offers_confirm_for_a_pending_memory(daemon: RunningDaemon) -> None:
-    """Re-review F5: the dashboard showed Confirm only for identity proposals and procedures, not for FERB's wording
-    of a memory waiting for the owner's Yes. The daemon says what each record can be confirmed, and the page shows it."""
-    from pathlib import Path as _Path
-    from ferb.cli.client import Client
-    import ferb.memory as memory_package
-    said = "I prefer Brave for work"
-    src = journal(daemon, "chat.message", {"text": said})
-    item = Remember(kind="preference", subject="owner", key="work_browser", content="Always use Brave for work",
-                    quote="I prefer Brave for work")
-    daemon.run(daemon.daemon._remember([item], said, src))
-    c = Client(daemon.sock)
-    try:
-        inventory = c.call("memory.learning", {"op": "inventory"})["items"]
-    finally:
-        c.close()
-    [node] = [n for n in inventory if n["kind"] == "fact"]
-    assert node["confirmable"] is True
-    script = (_Path(memory_package.__file__).parent / "dashboard.js").read_text()
-    assert "if(r.confirmable)" in script
 
 
 def test_a_memory_question_waits_across_a_restart(home) -> None:
@@ -672,7 +502,6 @@ def test_a_memory_question_waits_across_a_restart(home) -> None:
         again.stop()
 
 
-
 def test_no_mark_inside_the_owners_words_ends_a_saved_sentence(daemon: RunningDaemon) -> None:
     """Re-review R5 (controller rulings: correctness over brevity, never drop a negation). A lowercase abbreviation's
     dot ("prof.", "vs.", "approx.") ended the sentence and dropped the "Never" before it; so did a "!" or "?" ("never!
@@ -706,22 +535,6 @@ def test_a_line_break_ends_a_saved_sentence(daemon: RunningDaemon) -> None:
     from ferb.memory.items import owner_sentences
     assert owner_sentences("never share my links\nAlso I like tea", "I like tea") == "Also I like tea"
     assert owner_sentences("Don't share my links!\nunless I ask", "unless I ask") == "unless I ask"
-
-
-def test_memory_read_neither_lists_nor_reads_a_pending_inferred_item(daemon: RunningDaemon) -> None:
-    """Re-review minor (test gap for F3): the worker's memory.read tool omits FERB's unconfirmed wording from its
-    lists and searches, and refuses it by id."""
-    import json as _json
-    from ferb.orchestrator.evidence import MemoryRead
-    src = journal(daemon, "chat.message", {"text": "my manager is Quentarr"})
-    item = run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
-                                                   [("journal", src)], 0.7))
-    reader = MemoryRead(lambda: daemon.daemon.memory, search=daemon.daemon._memory_item_search)
-    by_id = daemon.run(reader.run(MemoryRead.Input(item_id=item.id), None))
-    searched = daemon.run(reader.run(MemoryRead.Input(query="Quentarr"), None))
-    listed = daemon.run(reader.run(MemoryRead.Input(), None))
-    assert by_id.is_error and "Quentarr" not in _json.dumps(by_id.content)
-    assert "Quentarr" not in _json.dumps(searched.content) + _json.dumps(listed.content)
 
 
 def test_a_question_whose_memory_went_while_ferb_was_down_is_not_asked_again(home) -> None:
@@ -776,3 +589,53 @@ def test_the_planner_still_reads_the_owners_words_as_one_line(daemon: RunningDae
     m = mark(f"Book my flight.\nI prefer  aisle seats {PASTE_START}pasted{PASTE_END} thanks")
     assert m.own_words == "Book my flight. I prefer aisle seats thanks"
     assert m.typed_lines == "Book my flight.\nI prefer aisle seats\nthanks"
+
+
+def test_the_owners_pass_verdict_counts_as_verified(daemon: RunningDaemon) -> None:
+    """notes/memory.md decision 5: the owner's pass counts as verified for memory, as the checker's does; their fail
+    overrides; their latest verdict decides."""
+    from tests.conftest import done, outcome, task
+    install(daemon, [sup("task", "On it.", task("Say hello"))], {"worker": done("Said hello.")})
+    tree = outcome(chat(daemon, "say hello"))["task_id"]
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+    d = daemon.daemon
+
+    def verified_after(verdict: str | None) -> Any:
+        if verdict is not None:
+            d.db.conn.execute("INSERT INTO owner_verdicts (id, task_id, verdict, note, at) VALUES (?, ?, ?, '', 'now')",
+                              (f"v-{verdict}-{d.clock.now().timestamp()}", tree, verdict))
+            d.clock.advance(1)
+        prepared = d.learning.prepare_episode(tree)
+        return prepared["body"]["verified"] if prepared and "body" in prepared else prepared
+    run(daemon, lambda: d.db.conn.execute("UPDATE episodes SET verified = 0 WHERE task_id = ?", (tree,)))
+    assert run(daemon, lambda: verified_after(None)) is False                   # the checker didn't confirm it
+    assert run(daemon, lambda: verified_after("pass")) is True                   # the owner's pass counts
+    assert run(daemon, lambda: verified_after("fail")) is False                  # their fail overrides
+
+
+def test_forgetting_a_person_or_site_removes_it_from_known_destinations(daemon: RunningDaemon) -> None:
+    """Decision 14: a send to someone FERB forgot asks again."""
+    d = daemon.daemon
+
+    def known() -> list[str]:
+        return [r[0] for r in d.db.conn.execute("SELECT value FROM known_destinations ORDER BY value")]
+
+    def record() -> None:
+        from ferb.policy.destinations import KnownDestinations
+        dest = KnownDestinations(d.db, d.clock, d.ids, d.redact)
+        for kind, value in (("name", "Asmit Banik Scaler"), ("host", "www.kaggle.com"), ("email", "ana@example.com"),
+                            ("phone", "+91 82641 96438")):
+            dest.record(kind, value, "confirmed")
+    run(daemon, record)
+    asmit = journal(daemon, "memory.added", {"content": "x"})
+    item = run(daemon, lambda: mem(daemon).propose("person", "person:asmit-banik", "role", "Asmit Banik is my mentor",
+                                                   "owner_stated", [("journal", asmit)], 1.0))
+    kaggle = run(daemon, lambda: mem(daemon).propose("preference", "owner", "kaggle_account",
+                                                     "do kaggle on my brave kaggle personal account", "owner_stated",
+                                                     [("journal", asmit)], 1.0))
+    plan = run(daemon, lambda: mem(daemon).plan_forget(item.id))
+    assert plan.destinations == [("name", "asmit banik scaler")]
+    assert any("asmit banik scaler" in line for line in run(daemon, lambda: plan.describe(d.db)))
+    run(daemon, lambda: d._forget_memory(item.id))
+    run(daemon, lambda: d._forget_memory(kaggle.id))
+    assert run(daemon, known) == ["918264196438", "ana@example.com"]       # the others stay

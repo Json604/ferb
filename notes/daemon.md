@@ -157,6 +157,8 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       plan topics cached per executor and plan revision. Topic filtering for the notch not done: needs the app.)
 - [x] Config cache with mtime reload; persona proposal out of config.toml. (Step 2: reparse on file/owner/mode change;
       `persona.json`, moved from `[setup]` on first read.)
+      (Step 9a: the persona step is replaced by memory decision 16: `persona.json` keeps `seen` (summary, facts,
+      fingerprint, when); `setup.persona` answers state "seen" with `summary` and `facts`; no approval.)
 - [x] Exception handler; fire-and-forget tasks tracked; timers isolate a failing consumer. (Step 2: `daemon.unhandled`,
       `daemon.background_failed`, `daemon.loop_failed`, `timer.failed` journal rows.)
 - [ ] Blocking calls to threads (codesign, sandbox check, retention, profile discovery, TCC checks). (Step 2: all but

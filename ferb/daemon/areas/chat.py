@@ -9,7 +9,6 @@ from typing import Any, AsyncIterator
 from ferb.act.fs.files import normalize_path
 from ferb.core import origin as origin_
 from ferb.core.errors import FerbError, Refused
-from ferb.daemon.areas.shared import EDIT_HIDDEN, _all_hidden
 from ferb.daemon.server import Session
 from ferb.orchestrator import acks
 from ferb.orchestrator.worker import couldnt
@@ -77,9 +76,6 @@ class Chat:
                     **({"source_task_id": ap.task_id} if ap.task_id else {}),
                     **({"part": ap.part} if ap.part else {}),
                     **({"runtime_switch": ap.runtime_switch} if ap.runtime_switch else {})} for ap in approvals]
-        if persona.get('approval'):
-            pending = [persona['approval'] if p['approval_id'] == persona['approval']['approval_id'] else p
-                       for p in pending]
         running = [{"task_id": t, "goal": g}                  # a watch check isn't listed: no client adopts it (I3)
                    for t, g in (self.supervisor.running_trees(watches=False) if self.supervisor else [])]
         for r in running:                                     # the notch's elapsed timer (2026-10-27)
@@ -239,8 +235,6 @@ class Chat:
                     # FERB's memory questions never ask for a secret: only secret classes are hidden (L36)
                     text = (self.redact.text(text) if ap.capability in MEMORY_ASKS
                             else self.redact.answer(text, question=ap.reason))
-                if ap is not None and ap.capability == "memory.edit" and _all_hidden(text):
-                    raise FerbError(EDIT_HIDDEN)
                 if ap is not None and ap.kind == "owner_login_code" and text:
                     self._add_secret_value(text)
         try:
@@ -248,12 +242,6 @@ class Chat:
             followed = self._question_answered(ap)          # a chat forget answered with the notch's buttons (I2)
             if followed and ap.capability == "memory.forget":
                 self._publish("memory.forgot", {"approval_id": ap.id, "text": followed})
-            if ap.capability == 'setup.persona' and self.persona is not None:
-                try:
-                    self.persona.resolve(ap)
-                except Exception:
-                    ap.state, ap.choice, ap.answer = 'pending', None, None
-                    raise
         except BaseException as e:
             if retained is not None and isinstance(self.redact, Redactor):
                 if isinstance(e, Exception) and not isinstance(e, FerbError):

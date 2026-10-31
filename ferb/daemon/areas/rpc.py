@@ -135,7 +135,7 @@ class Rpc:
             "task.stop": self._task_stop, "reminders.list": self._reminders_list,
             "reminders.cancel": self._reminders_cancel, "reminders.unseen": self._reminders_unseen,
             "memory.learning": self._memory_learning, "memory.list": self._memory_list,
-            "memory.show": self._memory_show, "memory.add": self._memory_add, "memory.confirm": self._memory_confirm,
+            "memory.show": self._memory_show, "memory.add": self._memory_add, "memory.profile": self._memory_profile,
             "memory.edit": self._memory_edit, "memory.retract": self._memory_retract,
             "memory.forget": self._memory_forget, "jev.stats": self._jev_stats, "jev.enable": self._jev_enable,
             "jev.reload": self._jev_reload, "runtimes.check": self._runtimes_check, "timeline.get": self._timeline,

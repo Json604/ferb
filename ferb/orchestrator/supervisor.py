@@ -42,7 +42,7 @@ from ferb.memory.lineage import ENTRY, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.context_layers import target_words
 from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
 from ferb.orchestrator.reply_stream import ReplyDraft
-from ferb.orchestrator.steering import (CONVERSATION_ASK, EDIT_MEMORY_ASK, FERB_CHECKS, JUST_ENDED, Steering,
+from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, JUST_ENDED, Steering,
                                        apply as apply_steering, choices, grant_stated, not_covered, not_typed)
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
@@ -152,6 +152,9 @@ ATTEMPTS_TOKENS = 2000      # this chat's ended tasks in the planner's task bloc
 # Decision 4 (owner, 2026-10-30, "Recent + summary"): the planner reads the last RECENT_EXCHANGES exchanges word for word
 # (an owner message and FERB's replies to it) plus FERB's running summary of everything older. The token caps are
 # technical rulings (step 8c), all here:
+# Roles that run without tools (the planner, decision 10; the question router; attention): their instructions name no
+# lookup tool or catalog (notes/memory.md fix list, notes/prompts.md)
+TOOLLESS_ROLES = frozenset({"supervisor.md", "question.md", "attention.md"})
 RECENT_EXCHANGES = 20               # owner decision: at least the last 20 exchanges, always
 RECENT_CONVERSATION_TOKENS = 15_000  # safety cap on what counts as "the last 20": beyond it, older exchanges may fold
 FOLD_CHUNK_TOKENS = 20_000          # the unfolded tail folds once it holds this much beyond them; one summary call
@@ -165,7 +168,7 @@ CONVERSATION_KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer
 SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older conversation (L28)
 # L3: what the owner's chat message can answer, by the question's id from the planner's context, and FERB's own words
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
-ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask", EDIT_MEMORY_ASK}) | FERB_CHECKS
+ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
 ANSWERED = "Got your answer."
 FORGET_NEEDS_WORDS = ("A forget needs your own words asking for it (a whole sentence or clause), so I didn't ask about "
                       "deleting anything.")
@@ -847,10 +850,16 @@ class Supervisor(WorkerRuns):
         if "{capabilities}" in text:                          # built in code: only what's usable right now
             text = text.replace("{capabilities}", self.availability().text)
         text += (f"\n\nFacts about this FERB:\n{facts}\n" if facts else "")
-        text += '\n\nLayer 1 — identity and owner rules:\n' + self.identity_context()
-        text += '\nOwner-written skills (read bodies with skills.read only when relevant):\n' + json.dumps(self.skills_catalog())
-        text += ('\nBuilt-in FERB abilities (abilities.list reports availability; read a relevant procedure with '
-                 'abilities.read; unavailable abilities cannot execute):\n' + json.dumps(self.abilities_catalog()))
+        # Tier 1, the core profile (notes/memory.md target design 1): always on in every role's prompt, in the stable
+        # position the old "Layer 1 — identity" held (orchestration 8c: part of the cacheable instructions)
+        profile = self.identity_context()
+        if profile:
+            text += '\n\n' + profile
+        if name not in TOOLLESS_ROLES:                # only roles with tools are told about lookup tools
+            text += ('\nOwner-written skills (read bodies with skills.read only when relevant):\n'
+                     + json.dumps(self.skills_catalog()))
+            text += ('\nBuilt-in FERB abilities (abilities.list reports availability; read a relevant procedure with '
+                     'abilities.read; unavailable abilities cannot execute):\n' + json.dumps(self.abilities_catalog()))
         return text
 
     def _default_availability(self) -> Availability:
@@ -2302,6 +2311,20 @@ class Supervisor(WorkerRuns):
                 return entry.id
         return turn.entries[0].id if turn.entries else ''
 
+    def _remember_about(self, out: SupervisorOutcome, session_id: str) -> str:
+        """Decision 13: what a remembered quote is about, from the task: the turn's new task's goal, else the goal of
+        the task it controls (a rating said while that task runs); "" for none (memory then uses the item's key)."""
+        if out.task is not None and out.task.goal.strip():
+            return out.task.goal
+        if out.control is not None:
+            tree = self._tree_of.get(out.control.task_id)
+            if tree is not None:
+                return tree.spec.goal
+            saved = self.continuity.load(out.control.task_id, session_id)
+            if saved is not None:
+                return str(saved[0].goal)
+        return ""
+
     async def _side_entries(self, turn: _Turn, out: SupervisorOutcome, named: frozenset[str] = frozenset()) -> _Side:
         """A turn's side entries, applied once by the path the turn ends on (`_exit` or `_start`), in this order, each
         with the one quote check (`items.quoted`) against what the owner typed (never pasted text). `named`: the sites a
@@ -2327,9 +2350,10 @@ class Supervisor(WorkerRuns):
         unsaved: list[tuple[str, str]] = []
         sites = self._turn_sites(out, turn, named) if out.remember else frozenset()
         elsewhere = (self._sites_named_elsewhere(out, turn) - sites) if out.remember else frozenset()
+        about = self._remember_about(out, session_id) if out.remember else ""
         for item in out.remember:           # one at a time, so a refused one is known by name, with code's reason
             answers = await _value(self.remember([item], turn.typed_lines, self._quote_source(turn, item.quote),
-                                                 sites, elsewhere))
+                                                 sites, elsewhere, about=about))
             saved_now = [r for r in answers if "receipt" in r]
             receipts += [r["receipt"] for r in saved_now]
             saved += [r["line"] for r in saved_now]

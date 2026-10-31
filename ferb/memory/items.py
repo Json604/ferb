@@ -2,28 +2,33 @@
 
 Memory items: SQLite is the source of truth; every rule about where an item may come from is here.
 
+No Keep questions (notes/memory.md decision 15): FERB saves facts itself, each labelled by where it came from
+(`LABELS`), and the owner corrects by talking or on the memory page. Memory never authorizes an action.
 Origins, enforced in code:
-- `owner_stated`: the owner's own words (`ferb memory add`, `edit`, or chat capture whose saved text appears word for
-  word in what the owner typed, `contains_words`) -> active on commit; it supersedes any earlier version of the same
-  fact.
-- `observed`: from the owner's own activity. Its sources must all be trail rows with actor "owner" (FERB's own
-  activity never becomes the owner's habits); it activates once that evidence spans 3 separate days.
-- `inferred`: stays proposed until the owner confirms it (FERB's own wording of what the owner said is inferred); until
-  then it never reaches a prompt (`prompt_ready`).
+- `owner_stated` ("your words"): the owner's own words (`ferb memory add`, `edit`, or chat capture whose saved text
+  appears word for word in what the owner typed, `contains_words`) -> active on commit.
+- `inferred` ("FERB's understanding"): FERB's wording of what the owner said, or a conclusion the daily distill drew
+  from their day -> active on commit too; it reaches the core profile (Tier 1, profile.py) only once it holds up.
+- `observed` ("observed"): from the owner's own activity. Its sources are trail rows with actor "owner" (FERB's own
+  activity never becomes the owner's habits), active once that evidence spans 3 separate days; or the code-gathered
+  facts of the owner's Mac (installed apps, their use, browsers and profiles: a `MAC_PROFILE_KIND` journal row,
+  decision 16), active at once.
 - `third_party`: pages, emails, pasted text. A fact about the world only: never a preference, never about the owner.
 
-Versions: kind + subject + key name one fact. A newer version closes the old one (`valid_to`) and links to it
-(`supersedes`); nothing is overwritten. An observed / inferred / third-party item never supersedes something the owner
-stated: both stay active (the owner's wins). An item also ends at the end of a day the
-owner's words give it (`expire_at`) or when their words say it no longer holds (`retire`); it stays as history, and
-`items` and `prompt_ready` treat it as current until then (L36 §6).
+Versions: kind + subject + key name one fact (subject and key normalized alike, `subject_key` / `slug`). A newer version
+closes the old one (`valid_to`) and links to it (`supersedes`); nothing is overwritten. A version that rests on the
+owner's words now (`from_owner`: chat capture, `memory add`/`edit`, a distilled quote of theirs) ends every current
+version of its fact and the items the planner names it `replaces` (code checks each exists and holds); any other
+version never ends something the owner stated (both stay; the owner's wins). `save` returns what it replaced, so FERB's
+line names it. An item also ends at the end of a day the owner's words give it (`expire_at`) or when it no longer holds
+(`retire`); it stays as history, and `items` and `prompt_ready` treat it as current until then (L36 §6).
 
 `forget` is simple (notes/memory.md decision 2): the item, all its versions, their source links and the
 watcher-captured trail rows they came from (unless the owner keeps them), the search index, the WAL; days whose trail
 rows went are re-summarized (or their summary deleted once the raw rows are gone). The owner's chat message that stated
 it stays (chat history is the owner's own record), other facts from the same message stay, and FERB's past answers and
-traces are not scrubbed. A one-way fingerprint stops distillation from proposing it again. `drop` (the owner's Drop on one of FERB's guesses, L36) deletes that proposal
-alone and keeps the same fingerprint."""
+traces are not scrubbed. A person or site the item names leaves the known destinations too, so a send there asks again
+(decision 14). A one-way fingerprint stops distillation from proposing it again."""
 
 import hashlib
 import json
@@ -41,7 +46,12 @@ from ferb.store.db import Database
 
 KINDS = ("fact", "preference", "person", "project", "env")
 ORIGINS = ("owner_stated", "observed", "inferred", "third_party")
+# Decision 15: how each origin is named to the owner and to every role (the memory page, FERB's lines, the prompts)
+LABELS = {"owner_stated": "your words", "inferred": "FERB's understanding", "observed": "observed",
+          "third_party": "from outside content"}
 OBSERVED_DAYS = 3
+# Decision 16: the journal row holding the code-gathered facts of the owner's Mac an observed item may rest on
+MAC_PROFILE_KIND = "memory.mac_profile"
 Source = tuple[Literal["journal", "trail"], str]
 # Stamps are compared as text in SQL; their UTC offsets can differ by 26 hours, so a bound there is this much wider
 # and the exact comparison is made on datetimes (`current`)
@@ -202,10 +212,35 @@ def current(item: MemoryItem, now: datetime | None = None) -> bool:
 
 def prompt_ready(item: MemoryItem, now: datetime | None = None) -> bool:
     """Whether an item may shape FERB's prompts: a current active item (one with an end date, until then: L36 §6), or
-    an observed pattern still gathering days (shown as an unconfirmed hint). An inferred item (model wording: a
-    paraphrase of the owner, a distilled guess) waits for the owner's Keep (I1, MP2)."""
+    an observed pattern still gathering days (shown as an unconfirmed hint). Each carries its label (`LABELS`)."""
     return current(item, now) and (item.status == "active"
                                    or (item.status == "proposed" and item.origin == "observed"))
+
+
+def label(origin: str) -> str:
+    return LABELS.get(origin, origin)
+
+
+def subject_key(subject: str) -> str:
+    """A subject as memory stores it, normalized like the key (fix list: "project:us-b1b2-visa" and
+    "Project:US b1b2 visa" name one subject): "owner" when empty; a "<kind>:<name>" subject keeps its kind and slugs its
+    name."""
+    subject = subject.strip()
+    if not subject:
+        return "owner"
+    head, sep, rest = subject.partition(":")
+    if not sep:
+        return slug(subject)
+    return f"{slug(head)}:{slug(rest)}" if rest.strip() else slug(head)
+
+
+@dataclass(frozen=True)
+class Saved:
+    """What `Memory.save` stored: the item, the current items it replaced (FERB's line names them), and the ids the
+    planner named that weren't replaced (no such current item), with code's reason."""
+    item: MemoryItem
+    replaced: list[MemoryItem] = field(default_factory=list)
+    not_replaced: list[str] = field(default_factory=list)
 
 
 def fingerprint(kind: str, subject: str, key: str, content: str) -> str:
@@ -228,6 +263,8 @@ class ForgetPlan:
     rebuild_days: list[str] = field(default_factory=list)     # summaries rebuilt from the rows that remain
     delete_summaries: list[str] = field(default_factory=list)  # days whose raw rows are gone: summary deleted
     kept: int = 0                                              # the owner's own messages it came from (they stay)
+    # decision 14: known destinations (people, sites, addresses) the item names: a send to them asks again
+    destinations: list[tuple[str, str]] = field(default_factory=list)   # (kind, value)
 
     def describe(self, db: Database) -> list[str]:
         """Exactly what the forget deletes, and what it keeps."""
@@ -242,6 +279,9 @@ class ForgetPlan:
             out.append("daily summaries rebuilt without them: " + ", ".join(self.rebuild_days))
         if self.delete_summaries:
             out.append("daily summaries deleted (raw rows already gone): " + ", ".join(self.delete_summaries))
+        if self.destinations:
+            out.append("FERB's record of having sent to " + ", ".join(v for _, v in self.destinations)
+                       + " (sending there asks you again)")
         return out
 
     def keeps(self) -> str:
@@ -257,16 +297,14 @@ class Memory:
         self.redact = redact                         # secrets never reach memory or its export
         self.rebuild_summary: Callable[[str], bool] = lambda day: False   # summary.py (True: rebuilt)
         self.on_forget: Callable[[ForgetPlan], None] = lambda plan: None
-        # told the items that stopped waiting for the owner's Yes (confirmed or retracted: False) or were deleted
-        # (forgotten: True), by any path. A confirm or retract closes only FERB's "Keep this?" questions about them; a
-        # deletion closes every question about them, the owner's "Forget for good?" too (re-review NEW-1, R1)
+        # told the items that were deleted (forgotten: True) or retracted (False), by any path: FERB's questions about
+        # them close (a deletion closes the owner's "Forget for good?" too)
         self.on_settled: Callable[[list[str], bool], None] = lambda ids, deleted: None
         # told the current items that stopped holding now (L36 §6): superseded by a newer version (its id) or retired
         # (None); an end date reached is not told
         self.on_ended: Callable[[list[str], str | None], None] = lambda ids, new: None
-        # told a waiting guess the owner's own statement of the same subject and key replaced (the guess, their item),
-        # just before it is retracted (`_settle_waiting_guesses`)
-        self.on_guess_replaced: Callable[[str, str], None] = lambda guess, by: None
+        # told an item that became current (a new fact, or a new version of one): the core profile follows its fact
+        self.on_saved: Callable[[MemoryItem], None] = lambda item: None
 
     # ---------- reads ----------
 
@@ -277,10 +315,14 @@ class Memory:
     def _item(self, r: Any) -> MemoryItem:
         srcs = [f"{s['kind']}:{s['source_id']}" for s in self.db.conn.execute(
             "SELECT kind, source_id FROM memory_sources WHERE item_id = ? ORDER BY kind, source_id", (r["id"],))]
+        extra = self.db.conn.execute("SELECT about, review_at FROM memory_context WHERE item_id = ?",
+                                     (r["id"],)).fetchone()
         return MemoryItem(r["id"], r["kind"], r["subject"], r["key"], r["content"], srcs,
                           datetime.fromisoformat(r["observed_at"]), datetime.fromisoformat(r["valid_from"]),
                           datetime.fromisoformat(r["valid_to"]) if r["valid_to"] else None, r["supersedes"],
-                          float(r["confidence"]), r["origin"], r["status"])
+                          float(r["confidence"]), r["origin"], r["status"],
+                          str(extra["about"]) if extra else "",
+                          datetime.fromisoformat(extra["review_at"]) if extra and extra["review_at"] else None)
 
     def items(self, status: str | None = "active", subject: str | None = None, valid_now: bool = True) -> list[MemoryItem]:
         q, args = "SELECT * FROM memory_items WHERE 1=1", list[Any]()
@@ -294,6 +336,11 @@ class Memory:
         found = [self._item(r) for r in self.db.conn.execute(q + " ORDER BY subject, kind, key, seq", args)]
         return [it for it in found if not valid_now or current(it, now)]
 
+    def current_items(self) -> list[MemoryItem]:
+        """What holds now and may shape FERB's prompts (`prompt_ready`): what memory.read lists without an id."""
+        now = self.clock.now()
+        return [it for it in self.items(None) if prompt_ready(it, now)]
+
     def history(self, item_id: str) -> list[MemoryItem]:
         """Every version of this fact, oldest first."""
         it = self.get(item_id)
@@ -305,8 +352,8 @@ class Memory:
 
     def telling_words(self, text: str, at: datetime | None = None) -> list[str]:
         """The words of `text` that carry weight among the active items valid now (or at `at`): `weighted`, the one
-        search's rule (a word in more than half of them says nothing about any one). `recall` ranks by them; a distilled
-        quote that ends or replaces an item must share one with it (L36 §6, review fix round 1)."""
+        search's rule (a word in more than half of them says nothing about any one). A distilled quote that ends or
+        replaces an item must share one with it (L36 §6, review fix round 1)."""
         when = (at or self.clock.now()).isoformat()
         terms = query_terms(text)
         valid = "m.status = 'active' AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)"
@@ -330,15 +377,12 @@ class Memory:
         return {r["id"] for r in self.db.conn.execute(q, args)
                 if not r["valid_to"] or datetime.fromisoformat(r["valid_to"]) > now}
 
-    def _versions(self, kind: str, subject: str, key: str, at: datetime | None = None, *,
-                  any_kind: bool = False) -> list[MemoryItem]:
-        """The current active versions of a fact: of this kind, subject and key; `any_kind`: of this subject and key,
-        whatever their kind (what the owner's Keep ends, scoped re-review P5)."""
+    def _versions(self, kind: str, subject: str, key: str, at: datetime | None = None) -> list[MemoryItem]:
+        """The current active versions of a fact: of this kind, subject and key."""
         when = (at or self.clock.now()).isoformat()
         rows = self.db.conn.execute(
-            "SELECT * FROM memory_items WHERE (? OR kind = ?) AND subject = ? AND key = ? AND status = 'active' "
-            "AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)",
-            (any_kind, kind, subject, key, when, when)).fetchall()
+            "SELECT * FROM memory_items WHERE kind = ? AND subject = ? AND key = ? AND status = 'active' "
+            "AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)", (kind, subject, key, when, when)).fetchall()
         return [self._item(r) for r in rows]
 
     def evidence_days(self, item_id: str) -> int:
@@ -346,19 +390,37 @@ class Memory:
             "SELECT COUNT(DISTINCT day) AS n FROM memory_sources WHERE item_id = ? AND kind = 'trail' "
             "AND actor = 'owner'", (item_id,)).fetchone()["n"])
 
+    def _mac_sources_only(self, item_id: str) -> bool:
+        """Whether every source of an item is the code-gathered facts of the owner's Mac (decision 16)."""
+        rows = self.db.conn.execute(
+            "SELECT s.kind, j.kind AS jkind FROM memory_sources s LEFT JOIN journal j ON j.id = s.source_id "
+            "AND s.kind = 'journal' WHERE s.item_id = ?", (item_id,)).fetchall()
+        return bool(rows) and all(r["kind"] == "journal" and r["jkind"] == MAC_PROFILE_KIND for r in rows)
+
     # ---------- writes ----------
 
     def propose(self, kind: str, subject: str, key: str, content: str, origin: str, sources: Iterable[Source],
                 confidence: float = 0.7) -> MemoryItem:
-        """Every item enters here. Enforces the origin rules; observed evidence accumulates on one proposal."""
-        kind, subject, key = kind.strip(), self.redact(subject.strip()) or "owner", slug(self.redact(key))
+        """`save`, for callers that need only the item."""
+        return self.save(kind, subject, key, content, origin, sources, confidence).item
+
+    def save(self, kind: str, subject: str, key: str, content: str, origin: str, sources: Iterable[Source],
+             confidence: float = 0.7, *, replaces: Iterable[str] = (), about: str = "",
+             from_owner: bool | None = None) -> Saved:
+        """Every item enters here. Enforces the origin rules; observed evidence accumulates on one proposal.
+        `from_owner` (default: owner_stated): the version rests on the owner's words now, so it ends every current
+        version of its fact and the current items it `replaces` (ids the planner named, checked here). `about`: what the
+        owner's words are about (decision 13), stored next to them, never in them."""
+        kind, subject, key = kind.strip(), subject_key(self.redact(subject)), slug(self.redact(key))
         content = self.redact(content.strip())
         srcs = list(dict.fromkeys(sources))
+        owner_now = origin == "owner_stated" if from_owner is None else from_owner
         self._check(kind, subject, key, content, origin, srcs)
         now = self.clock.now()
-        same = self.db.conn.execute(             # identical content is always the same item and is credited first
+        same = self.db.conn.execute(             # identical content is the same item: credited, never a twin
             "SELECT id FROM memory_items WHERE kind = ? AND subject = ? AND key = ? AND lower(content) = lower(?) "
-            "AND origin = ? AND status != 'retracted' AND valid_to IS NULL",
+            "AND (origin = ? OR origin = 'owner_stated') AND status != 'retracted' AND valid_to IS NULL "
+            "ORDER BY origin = 'owner_stated' DESC, seq DESC",
             (kind, subject, key, content, origin)).fetchone()
         if same is None and origin == "observed":  # a pending pattern: same key = same pattern, any wording
             same = self.db.conn.execute(
@@ -375,17 +437,35 @@ class Memory:
                  now.isoformat()))
             self.publish("memory.proposed", {"id": item_id, "kind": kind, "subject": subject, "origin": origin})
         self._add_sources(item_id, srcs)
-        if origin == "owner_stated" or (origin == "observed" and self.evidence_days(item_id) >= OBSERVED_DAYS):
-            self.commit([item_id], "owner stated" if origin == "owner_stated" else f"seen on {OBSERVED_DAYS}+ days")
-        elif origin == "third_party":
-            self.commit([item_id], "a fact about the world")
+        if about.strip():
+            self.set_about(item_id, about)
+        wanted = [i for i in dict.fromkeys(replaces) if i and i != item_id]
+        named, refused = self._replaceable(wanted) if owner_now else ([], [(i, "") for i in wanted])
+        replaced: list[MemoryItem] = []
+        if origin in ("owner_stated", "inferred", "third_party") or (
+                origin == "observed" and (self.evidence_days(item_id) >= OBSERVED_DAYS
+                                          or self._mac_sources_only(item_id))):
+            reason = {"owner_stated": "owner stated", "inferred": "FERB's understanding",
+                      "third_party": "a fact about the world"}.get(origin, "observed")
+            replaced = self._commit(item_id, reason, owner_now, named)
+            if same is not None and named:        # already current: the facts it was named to replace still end
+                replaced += self._end([o for o in named if o.id not in {r.id for r in replaced}], item_id)
         it = self.get(item_id)
         assert it is not None
-        if origin == "owner_stated" and same is not None:
-            # the owner's words again, credited to their item (already active, so `commit` skipped it): they still
-            # settle FERB's guesses waiting on this subject and key (scoped re-review P7)
-            self._settle_waiting_guesses(it)
-        return it
+        return Saved(it, replaced, [i for i, _ in refused])
+
+    def _replaceable(self, ids: list[str]) -> tuple[list[MemoryItem], list[tuple[str, str]]]:
+        """The current items of `ids` (what a new version may replace), and the others with why not."""
+        now, ok, refused = self.clock.now(), list[MemoryItem](), list[tuple[str, str]]()
+        for i in ids:
+            it = self.get(i)
+            if it is None:
+                refused.append((i, "no such memory"))
+            elif it.status != "active" or not current(it, now):
+                refused.append((i, "it no longer holds"))
+            else:
+                ok.append(it)
+        return ok, refused
 
     def _check(self, kind: str, subject: str, key: str, content: str, origin: str, srcs: list[Source]) -> None:
         if kind not in KINDS or origin not in ORIGINS:
@@ -400,7 +480,11 @@ class Memory:
             raise MemoryRefused("a trail source doesn't exist")
         actors = {r["actor"] for r in rows}
         if origin == "observed":
-            if not trail or len(trail) != len(srcs) or actors != {"owner"}:
+            journal = [s[1] for s in srcs if s[0] == "journal"]
+            mac = journal and len(journal) == len(srcs) and all(
+                (r := self.db.conn.execute("SELECT kind FROM journal WHERE id = ?", (j,)).fetchone()) is not None
+                and r["kind"] == MAC_PROFILE_KIND for j in journal)
+            if not mac and (not trail or len(trail) != len(srcs) or actors != {"owner"}):
                 raise MemoryRefused("an observed item needs the owner's own trail rows only (never FERB's activity)")
         if origin in ("observed", "inferred") and "ferb" in actors and (kind == "preference" or subject == "owner"):
             raise MemoryRefused("FERB's own activity never becomes the owner's habits or preferences")
@@ -430,106 +514,80 @@ class Memory:
             self.db.conn.execute("INSERT OR IGNORE INTO memory_sources (item_id, kind, source_id, day, actor) "
                                  "VALUES (?, ?, ?, ?, ?)", (item_id, kind, sid, day, actor))
 
-    def commit(self, ids: list[str], reason: str, *, owner_confirmed: bool = False) -> None:
-        """proposed -> active. A newer version of the same fact supersedes the old (history kept), except that only
-        the owner's own statement, or a version the owner confirmed (`owner_confirmed`: their Keep, final review I2),
-        may supersede one the owner stated. A version the owner confirmed ends the current versions of its subject and
-        key whatever their kind (scoped re-review P5), never one made after it was proposed (`_made_after`: a stale
-        Keep, coordinator ruling on the final fix). The owner's own statement also settles FERB's guesses still waiting
-        about the same subject and key (`_settle_waiting_guesses`; `propose` too, for words credited to their existing
-        item)."""
-        now = self.clock.now().isoformat()
-        settled: list[str] = []
+    def commit(self, ids: list[str], reason: str) -> None:
+        """proposed -> active (an observed pattern whose evidence now spans enough days, by any path)."""
         for item_id in ids:
             it = self.get(item_id)
-            if it is None or it.status == "active":
-                continue
-            settled.append(item_id)
-            prev = [o for o in self._versions(it.kind, it.subject, it.key, any_kind=owner_confirmed) if o.id != it.id]
-            closes = [o for o in prev
-                      if owner_confirmed or it.origin == "owner_stated" or o.origin != "owner_stated"]
-            if owner_confirmed and it.origin != "owner_stated":
-                newer = self._made_after(it.id, [o.id for o in closes])
-                closes = [o for o in closes if o.id not in newer]
-            for o in closes:
-                self.db.conn.execute("UPDATE memory_items SET valid_to = ? WHERE id = ?", (now, o.id))
-            self.db.conn.execute("UPDATE memory_items SET status = 'active', valid_from = ?, supersedes = ? "
-                                 "WHERE id = ?", (now, closes[-1].id if closes else None, item_id))
-            self.publish("memory.committed", {"id": item_id, "reason": reason})
-            if closes:
-                self.on_ended([o.id for o in closes], item_id)
-            if it.origin == "owner_stated":
-                self._settle_waiting_guesses(it)
-        if settled:
-            self.on_settled(settled, False)
-        self.on_change()
+            if it is not None and it.status != "active":
+                self._commit(item_id, reason, it.origin == "owner_stated", [])
 
-    def _made_after(self, item_id: str, others: list[str]) -> set[str]:
-        """Those of `others` made after `item_id` was proposed: recorded after it (the store's insertion order), or,
-        for the owner's own item, stated again since (a journal source journaled after it was proposed: `propose`
-        credits the owner's identical words to their existing item, scoped re-review P7)."""
-        if not others:
-            return set()
-        marks = ",".join("?" * len(others))
-        row = self.db.conn.execute("SELECT seq, created_at FROM memory_items WHERE id = ?", (item_id,)).fetchone()
-        later = {r[0] for r in self.db.conn.execute(
-            f"SELECT id FROM memory_items WHERE id IN ({marks}) AND seq > ?", [*others, row["seq"]])}
-        proposed = datetime.fromisoformat(row["created_at"])
-        restated = self.db.conn.execute(
-            f"SELECT s.item_id, j.at FROM memory_sources s JOIN memory_items i ON i.id = s.item_id "
-            f"JOIN journal j ON j.id = s.source_id WHERE s.kind = 'journal' AND i.origin = 'owner_stated' "
-            f"AND s.item_id IN ({marks})", others)
-        return later | {r["item_id"] for r in restated if datetime.fromisoformat(r["at"]) > proposed}
-
-    def _settle_waiting_guesses(self, stated: MemoryItem) -> None:
-        """The owner stated a fact in their own words: FERB's guesses still waiting about the same subject and key are
-        settled, so a late Keep can never end the owner's newer words (coordinator ruling on the final fix, concern 2).
-        Each is told first (`on_guess_replaced`: the daemon journals it, and the notch reads it as replaced by the
-        owner's words), then retracted with its fingerprint kept, as an Edit's replaced guess is, which closes its
-        question (`on_settled`)."""
-        waiting = [r[0] for r in self.db.conn.execute(
-            "SELECT id FROM memory_items WHERE subject = ? AND key = ? AND status = 'proposed' AND origin = 'inferred' "
-            "AND id != ? ORDER BY seq", (stated.subject, stated.key, stated.id))]
-        for guess in waiting:
-            self.on_guess_replaced(guess, stated.id)
-            self.retract(guess, "the owner stated it in their own words", never_again=True)
-
-    def confirm(self, item_id: str) -> MemoryItem:
-        """The owner's Keep (or Confirm) of a proposed item: it becomes the current version of its fact, so the versions
-        it updates end and are superseded, the owner's own statement included, exactly as a new owner-stated version
-        would end them (L36 §2, §6; final review I2: a kept guess left the owner's older version current, ranked
-        first)."""
+    def _commit(self, item_id: str, reason: str, owner_now: bool, named: list[MemoryItem]) -> list[MemoryItem]:
+        """Make a proposed item the current version of its fact; returns the current items it ended. Its fact's
+        current versions end when it rests on the owner's words now, else only those the owner didn't state; the
+        named items end only on the owner's words (`save`). An item already active ends nothing here."""
         it = self.get(item_id)
-        if it is None or it.status != "proposed":
-            raise MemoryRefused(f"no proposed item {item_id}")
-        self.commit([item_id], "confirmed by the owner", owner_confirmed=True)
-        out = self.get(item_id)
-        assert out is not None
-        return out
+        if it is None or it.status == "active":
+            return []
+        now = self.clock.now().isoformat()
+        prev = [o for o in self._versions(it.kind, it.subject, it.key) if o.id != it.id]
+        closes = [o for o in prev if owner_now or o.origin != "owner_stated"]
+        closes += [o for o in named if o.id not in {c.id for c in closes}]
+        for o in closes:
+            self.db.conn.execute("UPDATE memory_items SET valid_to = ? WHERE id = ?", (now, o.id))
+        same_fact = [o for o in closes if (o.kind, o.subject, o.key) == (it.kind, it.subject, it.key)]
+        self.db.conn.execute("UPDATE memory_items SET status = 'active', valid_from = ?, supersedes = ? WHERE id = ?",
+                             (now, (same_fact or closes)[-1].id if closes else None, item_id))
+        self.publish("memory.committed", {"id": item_id, "reason": reason})
+        if closes:
+            self.on_ended([o.id for o in closes], item_id)
+        saved = self.get(item_id)
+        assert saved is not None
+        self.on_saved(saved)
+        self.on_change()
+        return closes
+
+    def _end(self, items: list[MemoryItem], by: str) -> list[MemoryItem]:
+        """End these current items now in favour of `by` (an already-current item the owner's words named)."""
+        if not items:
+            return []
+        now = self.clock.now().isoformat()
+        for o in items:
+            self.db.conn.execute("UPDATE memory_items SET valid_to = ? WHERE id = ?", (now, o.id))
+        self.on_ended([o.id for o in items], by)
+        self.on_change()
+        return items
+
+    def set_about(self, item_id: str, about: str) -> None:
+        """Decision 13: what the owner's words are about, next to them (redacted; one line)."""
+        text = " ".join(self.redact(about).split())[:200]
+        self.db.conn.execute("INSERT INTO memory_context (item_id, about) VALUES (?, ?) "
+                             "ON CONFLICT(item_id) DO UPDATE SET about = excluded.about", (item_id, text))
+
+    def set_review(self, item_id: str, at: datetime | None) -> None:
+        """When FERB checks a period fact still holds (None: no check due)."""
+        stamp = at.astimezone(self.clock.now().tzinfo).isoformat() if at is not None else None
+        self.db.conn.execute("INSERT INTO memory_context (item_id, review_at) VALUES (?, ?) "
+                             "ON CONFLICT(item_id) DO UPDATE SET review_at = excluded.review_at", (item_id, stamp))
+
+    def due_for_review(self) -> list[MemoryItem]:
+        """Current items whose check date has come."""
+        now = self.clock.now()
+        rows = self.db.conn.execute("SELECT item_id FROM memory_context WHERE review_at IS NOT NULL").fetchall()
+        due = [it for r in rows if (it := self.get(r["item_id"])) is not None and it.review_at is not None
+               and it.review_at <= now and it.status == "active" and current(it, now)]
+        return sorted(due, key=lambda it: it.review_at or now)
 
     def retract(self, item_id: str, reason: str, *, never_again: bool = False) -> None:
         """Soft: kept for history, never recalled. `never_again`: its fingerprint is kept too, so distillation never
-        proposes these words for this fact again (the owner replaced or dropped one of FERB's guesses, L36)."""
+        proposes these words for this fact again."""
         it = self.get(item_id)
         if it is None:
             raise MemoryRefused(f"no item {item_id}")
         self.db.conn.execute("UPDATE memory_items SET status = 'retracted' WHERE id = ?", (item_id,))
         if never_again:
             self._never_again(it)
+        self.on_ended([item_id], None)
         self.on_settled([item_id], False)
-        self.on_change()
-
-    def drop(self, item_id: str) -> None:
-        """The owner's Drop on one of FERB's guesses (L36 §2): this proposal alone is deleted and its fingerprint kept,
-        so distillation never proposes it again. The owner's messages it came from and every other version of the fact
-        stay: a guess never reached a prompt, and `forget` would purge every version of its key with their sources."""
-        it = self.get(item_id)
-        if it is None or it.status != "proposed":
-            raise MemoryRefused(f"no proposed item {item_id}")
-        self.db.conn.execute("DELETE FROM memory_sources WHERE item_id = ?", (item_id,))
-        self.db.conn.execute("DELETE FROM memory_items WHERE id = ?", (item_id,))
-        self._never_again(it)
-        self.on_settled([item_id], True)
         self.on_change()
 
     def expire_at(self, item_id: str, at: datetime) -> None:
@@ -540,8 +598,8 @@ class Memory:
         self.on_change()
 
     def retire(self, item_id: str, reason: str) -> None:
-        """The owner's words say this current item no longer holds (L36 §6): it stops being valid now, kept as
-        history."""
+        """This current item no longer holds (the owner's words, FERB's check of a stale fact, the memory page): it
+        stops being valid now, kept as history (L36 §6)."""
         it, now = self.get(item_id), self.clock.now()
         if it is None or it.status != "active" or not current(it, now):
             raise MemoryRefused(f"no current item {item_id}")
@@ -559,7 +617,8 @@ class Memory:
         it = self.get(item_id)
         if it is None:
             raise MemoryRefused(f"no item {item_id}")
-        return self.propose(it.kind, it.subject, it.key, content, "owner_stated", [source], 1.0)
+        return self.save(it.kind, it.subject, it.key, content, "owner_stated", [source], 1.0,
+                         replaces=[item_id], about=it.about).item
 
     # ---------- forget = purge ----------
 
@@ -584,7 +643,44 @@ class Memory:
         if plan.trail:
             summarized = self._summary_days()
             plan.rebuild_days = [d for d in sorted({r["day"] for r in self._trail_rows(plan.trail)}) if d in summarized]
+        plan.destinations = self._named_destinations(items)
         return plan
+
+    def _named_destinations(self, items: list[str]) -> list[tuple[str, str]]:
+        """Decision 14: the known destinations these items name (as stored values: whole words of what they say, their
+        label, or their subject's name; a site by its host or its name, "kaggle" for www.kaggle.com; a phone number by
+        its digits). Structural matching of stored values, never a judgment of intent; one matched too eagerly only
+        makes the next send ask again."""
+        marks = ",".join("?" * len(items))
+        texts = []
+        for r in self.db.conn.execute(
+                f"SELECT m.subject, m.key, m.content, c.about FROM memory_items m LEFT JOIN memory_context c "
+                f"ON c.item_id = m.id WHERE m.id IN ({marks})", items):
+            name = str(r["subject"]).partition(":")[2].replace("_", " ").replace("-", " ")
+            texts.append("\n".join(part for part in (str(r["content"]), str(r["about"] or ""), name,
+                                                    str(r["key"]).replace("_", " ")) if part.strip()))
+        text = "\n".join(texts)
+        digits = re.sub(r"[\s\-().+]", "", text)
+        found: list[tuple[str, str]] = []
+        for r in self.db.conn.execute("SELECT kind, value FROM known_destinations ORDER BY at").fetchall():
+            kind, value = str(r["kind"]), str(r["value"])
+            if value.startswith("sha256:") or not value:
+                continue
+            if kind == "phone":
+                hit = len(value) >= 6 and value in digits
+            elif kind == "host":
+                bare = value.removeprefix("www.")
+                labels = bare.split(".")
+                site = labels[-2] if len(labels) >= 2 else bare
+                hit = any(contains_words(text, v) for v in {value, bare} | ({site} if len(site) >= 4 else set()))
+            else:
+                hit = contains_words(text, value) or any(
+                    len(n) >= 4 and contains_words(value, n) for n in
+                    (str(x["subject"]).partition(":")[2].replace("_", " ") for x in self.db.conn.execute(
+                        f"SELECT subject FROM memory_items WHERE id IN ({marks}) AND subject LIKE 'person:%'", items)))
+            if hit:
+                found.append((kind, value))
+        return found
 
     def _summary_days(self) -> set[str]:
         return {str(json.loads(r["data_json"]).get("day")) for r in self.db.conn.execute(
@@ -606,7 +702,11 @@ class Memory:
         c.execute("BEGIN")
         try:
             c.execute(f"DELETE FROM memory_sources WHERE item_id IN ({marks})", plan.items)
+            c.execute(f"DELETE FROM memory_context WHERE item_id IN ({marks})", plan.items)
+            c.execute(f"DELETE FROM memory_profile WHERE item_id IN ({marks})", plan.items)
             c.execute(f"DELETE FROM memory_items WHERE id IN ({marks})", plan.items)
+            for kind, value in plan.destinations:          # decision 14: a send there asks again
+                c.execute("DELETE FROM known_destinations WHERE kind = ? AND value = ?", (kind, value))
             for tid in plan.trail:
                 c.execute("DELETE FROM trail WHERE id = ?", (tid,))
                 # another item that also cited the row keeps no link to a row that is gone

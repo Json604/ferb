@@ -18,7 +18,7 @@ def plural(n: int, one: str, many: str) -> str:
 
 
 def choices(options: Any) -> str:
-    """Options as the owner reads them: "Keep, Edit or Drop" (L36; steering and the CLI's question line share it)."""
+    """Options as the owner reads them: "Yes or No", "A, B or C" (steering and the CLI's question line share it)."""
     opts = [str(o) for o in options]
     if len(opts) < 2:
         return "".join(opts)

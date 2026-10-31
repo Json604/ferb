@@ -17,8 +17,13 @@ final class FERBWindowViewTests: XCTestCase {
         store.reminders = [ReminderRow(["id": "tm-1", "kind": "reminder", "message": "Call the bank"])!]
         store.notices = [NoticeRow(["id": "n-1", "text": "Your build finished.",
                                     "quotes": [["text": "BUILD OK", "origin": "external:observation"]]])!]
-        store.proposedMemory = [MemoryRow(["id": "m-1", "content": "Prefers mornings", "status": "proposed"])!]
-        store.activeMemory = [MemoryRow(["id": "m-2", "content": "Uses VS Code", "status": "active"])!]
+        store.activeMemory = [MemoryRow(["id": "m-1", "content": "Prefers mornings", "status": "active",
+                                         "label": "your words", "in_profile": true])!,
+                              MemoryRow(["id": "m-2", "content": "Uses VS Code", "status": "active",
+                                         "label": "observed"])!]
+        store.coreProfile = CoreProfileView(["sections": [["title": "How you like things done",
+                                                            "items": [["id": "m-1"]]]],
+                                             "used_tokens": 12, "budget_tokens": 2500])
         store.settings = SettingsSnapshot(["values": ["sense.window_titles": true, "retention.trace_days": 30,
                                                       "privacy.exclude_apps": ["com.1password.1password"]]])
         store.banners = ["question": true, "reminder": false]

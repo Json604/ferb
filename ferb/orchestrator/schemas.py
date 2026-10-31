@@ -100,6 +100,10 @@ REMEMBER_SCHEMA = _obj({
     # L36 §5: this entry's content is the owner's username for this https:// site; null otherwise
     "login_origin": _nullable("string"),
     "until": {"anyOf": [{"type": "null"}, UNTIL_SCHEMA]},
+    # step 9a: the memory ids of current facts this one replaces (code checks each holds); [] for none
+    "replaces": _strings(),
+    # step 9a: a period fact without an end date in the owner's words: days until FERB checks it still holds; 0 = none
+    "review_in_days": {"type": "integer"},
 })
 # Decision 22: a schedule's end, the remembered item's `until` with a time of day or a span from now as well ("until 6
 # pm", "for the next 2 hours"); code works out the time (`when.end_at`). Unused fields are "" / 0, not null: the
@@ -315,6 +319,8 @@ class Remember(BaseModel):
     quote: str
     login_origin: str | None = None   # L36 §5: this entry's content is the username for this https:// site
     until: Until | None = None        # L36 §6: the item's last day, in the owner's words
+    replaces: list[str] = []          # step 9a: memory ids of the current facts this one replaces
+    review_in_days: int = 0           # step 9a: when FERB checks a period fact still holds (0: no check)
 
 
 class ForgetRequest(BaseModel):

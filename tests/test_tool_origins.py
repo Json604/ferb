@@ -306,7 +306,9 @@ def test_chat_history_and_memory_read_pass_stored_origins_through() -> None:
         return MemoryItem(i, "fact", "dentist", "dentist", "Dr. Rao, Tuesdays", [], at, at, None, None, 0.9,
                           made, "active")                                            # type: ignore[arg-type]
     items = {"m1": item("m1", "owner_stated"), "m2": item("m2", "third_party")}
-    memory = SimpleNamespace(items=lambda status, valid_now: list(items.values()), get=items.get)
+    memory = SimpleNamespace(items=lambda status, valid_now: list(items.values()), get=items.get,
+                             current_items=lambda: list(items.values()),
+                             clock=SimpleNamespace(now=lambda: datetime(2026, 10, 9, tzinfo=timezone.utc)))
     async def no_hits(query: str) -> list[str]:
         return []
     reader = MemoryRead(lambda: memory, search=no_hits)

@@ -224,42 +224,13 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.aiMessage, "Claude didn't answer: not logged in")
     }
 
-    func testPersonaSaveEditAndSkipAnswerTheOneQuestion() async {
-        let pending: [String: Any] = ["state": "pending", "approval": [
-            "approval_id": "p1", "reason": "Confirm or edit your app-use profile.", "proposal": "You code a lot.",
-            "options": ["Save app-use profile", "Skip"]]]
-        for action in ["save", "edit", "skip"] {
-            let rig = SetupRig()
-            rig.rpc.replies["setup.persona"] = pending
-            let model = rig.model()
-            await model.refreshPersona()
-            switch action {
-            case "save":
-                await model.savePersona()
-                let p = rig.rpc.params(of: "chat.approve").first
-                XCTAssertEqual(p?["approval_id"] as? String, "p1")
-                XCTAssertEqual(p?["granted"] as? Bool, true)
-                XCTAssertEqual(p?["choice"] as? Int, 1)
-            case "edit":
-                await model.editPersona("I write Python and edit video")
-                XCTAssertEqual(rig.rpc.params(of: "chat.answer").first?["text"] as? String, "I write Python and edit video")
-            default:
-                await model.skipPersona()
-                XCTAssertEqual(rig.rpc.params(of: "chat.approve").first?["granted"] as? Bool, false)
-            }
-            XCTAssertEqual(model.persona, .finished, action)
-        }
-    }
-
-    func testAPersonaAnswerFERBRefusesKeepsTheQuestionAndSaysWhy() async {
+    func testPersonaShowsWhatFERBSawWithNothingToAnswer() async {
         let rig = SetupRig()
-        rig.rpc.replies["setup.persona"] = ["state": "pending", "approval": ["approval_id": "p1", "options": ["Skip"]]]
-        rig.rpc.failures["chat.answer"] = DaemonRPCError.remote("There is no app-use evidence to confirm.")
+        rig.rpc.replies["setup.persona"] = ["state": "seen", "summary": "Here's what I saw on your Mac: you code a lot."]
         let model = rig.model()
         await model.refreshPersona()
-        await model.editPersona("yes")
-        XCTAssertEqual(model.personaMessage, "There is no app-use evidence to confirm.")
-        XCTAssertEqual(model.persona, .pending(approvalID: "p1", reason: "", proposal: "", canSave: false))
+        XCTAssertEqual(model.persona, .seen(summary: "Here's what I saw on your Mac: you code a lot."))
+        XCTAssertTrue(rig.rpc.params(of: "chat.approve").isEmpty && rig.rpc.params(of: "chat.answer").isEmpty)
     }
 
     func testAddToChromeAsksTheDaemonToOpenThatProfile() async {

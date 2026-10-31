@@ -110,6 +110,9 @@ Basis: a read of every line (2026-10-30) and read-only queries of the live DB (`
 - [ ] Incremental vacuum + `journal_size_limit`; WAL truncate after the hourly pass.
 - [ ] One-time cleanup step (decision 4).
 - [ ] Upgrade path from any older build (decision 5), tested on copies of real older databases and configs.
+      (Step 9a: migration 0053 (`memory_context`, `memory_profile`, re-runnable tables beside `memory_items`); the
+      one-time memory clean-up and Tier 1 seed at first start (ferb/memory/upgrade.py, journaled); old waiting Keep
+      questions dropped; `persona.json` gains `seen`; tests/test_memory_upgrade.py on a schema-52 fixture.)
 - [x] Migration runner: checksums, newer-DB refusal, numbering check, duplicate numbers (step 1; tests/test_migrations.py;
       accepted the live DB's 44 versions with gaps and backfilled their checksums).
 - [ ] Continued-tree episodes; non-ASCII search; exposure origins in episodes.

@@ -48,7 +48,7 @@ def test_a_username_in_the_owners_words_for_the_tasks_site_is_saved(daemon: Any)
     [item] = run(daemon, lambda: daemon.daemon.memory.items("active"))
     assert (item.origin, item.content) == ("owner_stated", "the username is asha rao")
     assert username(daemon) == "asha rao"                            # the owner's own spelling
-    assert lines[0]["line"] == ("Remembered: the username is asha rao\n"
+    assert lines[0]["line"] == ("Memory: noted “the username is asha rao” (your words)\n"
                                 "Saved as your login name for www.usvisascheduling.com.")
     record = run(daemon, lambda: OwnerSecrets(daemon.daemon.home).records()[VISA])
     assert record["username_source"] == "memory:" + item.id
@@ -112,8 +112,8 @@ def test_a_failed_login_name_write_never_stops_the_turn(daemon: Any, monkeypatch
                        quote="my dentist is Dr. Rao")
     lines = remember(daemon, [entry(), dentist], "the username is Asha Rao\nmy dentist is Dr. Rao",
                      frozenset({"usvisascheduling.com"}))
-    assert [line["line"] for line in lines] == ["Remembered: the username is Asha Rao",
-                                                "Remembered: my dentist is Dr. Rao"]
+    assert [line["line"] for line in lines] == ["Memory: noted “the username is Asha Rao” (your words)",
+                                                "Memory: noted “my dentist is Dr. Rao” (your words)"]
     [why] = refusals(daemon)
     assert why.startswith("OSError: ")
     monkeypatch.undo()
@@ -170,17 +170,17 @@ def test_a_new_version_for_a_site_not_named_now_still_updates_the_record_it_repl
     remember(daemon, [entry()], "the username is Asha Rao", frozenset({"usvisascheduling.com"}))
     lines = remember(daemon, [entry(content="Asha R Rao", quote="my username is Asha R Rao")],
                      "my username is Asha R Rao", frozenset())
-    assert lines[0]["line"] == ("Remembered: my username is Asha R Rao\n"
+    assert lines[0]["line"] == ("Memory: noted “my username is Asha R Rao” (your words) — replaces “the username is Asha Rao”\n"
                                 "Updated your login name for www.usvisascheduling.com.")
     assert username(daemon) == "Asha R Rao"
     assert refusals(daemon) == []                                         # the entry's own place was written
 
 
-@pytest.mark.parametrize("change", ["no-login-entry", "hidden", "edit", "kept-guess"])
+@pytest.mark.parametrize("change", ["no-login-entry", "hidden", "edit", "understanding"])
 def test_a_new_version_that_names_no_usable_username_clears_it(daemon: Any, change: str) -> None:
     """Review m-8: a new version of the fact whose username FERB can't take from the owner's words (the planner gave no
     login entry, redaction hid it, an edit in the dashboard or `ferb memory edit`, whose words name no username, or
-    FERB's guess the owner kept, final review I2: FERB's wording, never their spelling) clears the record's username
+    FERB's understanding of what they just said: FERB's wording, never their spelling) clears the record's username
     instead of leaving the replaced spelling."""
     remember(daemon, [entry()], "the username is Asha Rao", frozenset({"usvisascheduling.com"}))
     [first] = run(daemon, lambda: daemon.daemon.memory.items("active"))
@@ -194,10 +194,9 @@ def test_a_new_version_that_names_no_usable_username_clears_it(daemon: Any, chan
         daemon.run(daemon.daemon._memory_edit(None, {"id": first.id, "content": "the username is asha.rao"}))
     else:
         src = journal(daemon, "chat.message", {"text": "I changed the visa username", "untrusted_parts": 0})
-        guess = run(daemon, lambda: daemon.daemon.memory.propose(
+        run(daemon, lambda: daemon.daemon.memory.save(
             "fact", "owner", "usvisascheduling-username", "The owner's visa username is now asha.rao", "inferred",
-            [("journal", src)], 0.6))
-        assert run(daemon, lambda: daemon.daemon._settle_guess(guess.id, "keep")) == "Kept."
+            [("journal", src)], 0.6, from_owner=True))
     daemon.run(daemon.daemon._settle_forgets())
     assert run(daemon, lambda: daemon.daemon.memory.get(first.id)).valid_to is not None
     assert username(daemon) is None
@@ -493,7 +492,7 @@ def test_a_username_given_as_the_answer_to_the_tasks_question_is_saved_for_the_s
     assert got["answer"] == {"answer": "Kartikey Attri"}
     assert username(daemon, SITE) == "Kartikey Attri"
     said = "\n".join(str(e.get("text", "")) for e in events)
-    assert "Remembered: Kartikey Attri\nSaved as your login name for usvisascheduling.com." in said
+    assert "Memory: noted “Kartikey Attri” (your words)\nSaved as your login name for usvisascheduling.com." in said
     assert refusals(daemon) == []
 
 
@@ -506,7 +505,7 @@ def test_an_answer_from_another_chat_says_the_site_wasnt_named_in_this_chat(daem
     assert got["answer"] == {"answer": "Kartikey Attri"} and username(daemon, SITE) is None
     assert refusals(daemon) == ["the site isn't one you named"]
     said = "\n".join(str(e.get("text", "")) for e in events)
-    assert ("Remembered: Kartikey Attri\nNot saved as your username for usvisascheduling.com: you didn't name that "
+    assert ("Memory: noted “Kartikey Attri” (your words)\nNot saved as your username for usvisascheduling.com: you didn't name that "
             "site in this chat." in said)
 
 
@@ -519,7 +518,7 @@ def test_an_answer_naming_a_site_only_outside_content_gave_is_refused_and_said(d
     assert username(daemon, EVIL) is None
     assert refusals(daemon) == ["the site isn't one you named"]
     said = "\n".join(str(e.get("text", "")) for e in events)
-    assert ("Remembered: Kartikey Attri\nNot saved as your username for evil.example: you didn't name that site."
+    assert ("Memory: noted “Kartikey Attri” (your words)\nNot saved as your username for evil.example: you didn't name that site."
             in said)
     assert [i.content for i in run(daemon, lambda: daemon.daemon.memory.items("active"))] == ["Kartikey Attri"]
 
@@ -587,7 +586,7 @@ def test_a_username_said_in_a_live_correction_reaches_the_next_tasks_login(daemo
         worker.release.set()
         thread.join(5)
     reply = [e for e in events if e["type"] == "reply"][-1]["text"]
-    assert reply.endswith("Remembered: the username is Asha Rao\nSaved as your login name for usvisascheduling.com.")
+    assert reply.endswith("Memory: noted “the username is Asha Rao” (your words)\nSaved as your login name for usvisascheduling.com.")
     assert username(daemon, SITE) == "Asha Rao"
 
     shown: list[str] = []

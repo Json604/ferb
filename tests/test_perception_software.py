@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from ferb.sense.software import app_security_facts
-from ferb.device.persona import usage_summary, confirm_persona
+from ferb.device.persona import mac_facts
 
 
 def test_software_facts_are_observations_not_suspicion_labels(tmp_path: Path) -> None:
@@ -21,14 +21,11 @@ def test_software_facts_are_observations_not_suspicion_labels(tmp_path: Path) ->
     assert "suspicious" not in facts and all(command[0] != "open" for command in calls)
 
 
-def test_persona_uses_usage_counts_not_installed_app_stereotypes() -> None:
+def test_mac_facts_use_usage_counts_not_installed_app_stereotypes() -> None:
     rows = [{"app": "Code", "bundle_id": "code", "uses": 3733}, {"app": "Blender", "bundle_id": "blender", "uses": 0}]
-    text = usage_summary(rows)
-    assert "Code" in text and "3733" in text and "Blender" not in text
-    assert "developer" not in text
-    assert confirm_persona(text, "I code and make music") == "I code and make music"
-    assert confirm_persona(text, "yes") == text
-    assert confirm_persona(text, "skip") is None
+    facts = mac_facts(rows, "2026-10-31", [], [])
+    assert [a["app"] for a in facts["apps"]] == ["Code"] and facts["apps"][0]["uses"] == 3733
+    assert "developer" not in str(facts)
 
 
 def test_login_item_association_uses_exact_identifiers_and_bundle_paths(tmp_path: Path) -> None:
@@ -43,20 +40,6 @@ Parent Identifier: other
 '''
     facts = login_items(tmp_path / 'OwnerTool.app', 'owner.tool', inventory=dump)
     assert [item['UUID'] for item in facts['items']] == ['one']
-
-
-def test_persona_confirmation_is_once_and_preserves_the_owners_edit(tmp_path: Path) -> None:
-    from ferb.config import Config
-    from ferb.device.persona import PersonaState, setup_persona
-    config = Config(tmp_path / 'home')
-    calls, messages = [], []
-    env = SimpleNamespace(say=messages.append, ask=lambda prompt: 'I code and make music')
-    profile = SimpleNamespace(apps=[])
-    client = SimpleNamespace(call=lambda method, params: calls.append((method, params)))
-    setup_persona(env, config, profile, client, usage=lambda apps: [{'app': 'Code', 'uses': 3733}])
-    setup_persona(env, config, profile, client, usage=lambda apps: [])
-    assert len(calls) == 1 and calls[0][1]['content'] == 'I code and make music'
-    assert PersonaState(config).reviewed() and '3733' in messages[0]
 
 
 def test_macos_binary_xattr_uses_argument_vector(monkeypatch, tmp_path):

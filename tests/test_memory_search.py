@@ -416,7 +416,7 @@ def test_an_identity_preference_never_takes_a_slot_of_the_ranked_budget(daemon: 
         owner_fact(daemon, f"chain_{i}", f"bicycle chain note {i}")
     tone = owner_fact(daemon, "visa_email_tone", "reply to visa emails in a formal tone", kind="preference")
     other = owner_fact(daemon, "visa_email_signature", "visa email replies are signed Kartikey")
-    assert "reply to visa emails in a formal tone" in run(daemon, d._learning_identity)
+    assert "reply to visa emails in a formal tone" in run(daemon, d._core_profile_text)     # Tier 1, every role
     worker = [c["text"] for c in daemon.run(d._learning_candidates("draft the visa email reply", WORKER_MEMORY_ITEMS))]
     assert any("signed Kartikey" in t for t in worker) and not any("formal tone" in t for t in worker)
     found = [n["body"].get("id") for n in daemon.run(d._search("draft the visa email reply")) if n["kind"] == "fact"]
@@ -531,9 +531,9 @@ def test_memory_read_refuses_a_query_with_no_words_and_finds_nothing_for_common_
 
 
 def test_memory_read_without_a_query_shows_an_ended_fact_as_ended(daemon: Any) -> None:
-    """Final review M2: the no-query listing pages every item, history included, and showed a superseded, retired or
-    date-ended item as "active" (those set only `valid_to`): after "book anywhere" replaced "Chennai, notify first" a
-    worker paging memory.read saw both as active. Each listed item now has its real status and `valid_to`."""
+    """Final review M2 and the step-9a fix list: after "book anywhere" replaced "Chennai, notify first" a worker paging
+    memory.read saw both as active. The no-query listing now shows current items only (a dated one until its end);
+    an ended one is read by its id, with its real status."""
     from datetime import timedelta
 
     from ferb.orchestrator.evidence import MemoryRead
@@ -548,8 +548,9 @@ def test_memory_read_without_a_query_shows_an_ended_fact_as_ended(daemon: Any) -
     reader = MemoryRead(lambda: d.memory, search=d._memory_item_search)
     listed = {i["id"]: (i["status"], i["valid_to"] is not None)
               for i in daemon.run(reader.run(MemoryRead.Input(), None)).content["items"]}
-    assert listed == {chennai.id: ("ended", True), anywhere.id: ("active", False), gone.id: ("ended", True),
-                      dated.id: ("active", True)}                       # until its end date it still holds
+    assert listed == {anywhere.id: ("active", False), dated.id: ("active", True)}   # until its end date it holds
+    by_id = daemon.run(reader.run(MemoryRead.Input(item_id=chennai.id), None))
+    assert not by_id.is_error and "notify me first" in str(by_id.content)
 
 
 def test_memory_read_query_leaves_out_a_retired_item(daemon: Any) -> None:

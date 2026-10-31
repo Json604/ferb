@@ -136,33 +136,18 @@ struct MemoryPage: View {
 
     var body: some View {
         List {
-            Section("Waiting for you to confirm") {
-                if store.proposedMemory.isEmpty { Text("Nothing waiting.").foregroundStyle(.secondary) }
-                ForEach(store.proposedMemory) { item in
-                    HStack {
-                        Text(item.content).textSelection(.enabled)
-                        Spacer()
-                        Button("Confirm") { Task { await store.confirm(item) } }
-                        Button("Not right") { Task { await store.retract(item) } }
+            Section("Always on (core profile, \(store.coreProfile.usedTokens) of \(store.coreProfile.budgetTokens) tokens)") {
+                if store.coreProfile.sections.isEmpty { Text("Nothing yet.").foregroundStyle(.secondary) }
+                ForEach(store.coreProfile.sections, id: \.title) { section in
+                    Text(section.title).font(.headline)
+                    ForEach(section.ids, id: \.self) { id in
+                        if let item = store.activeMemory.first(where: { $0.id == id }) { row(item) }
                     }
                 }
             }
-            Section("What FERB knows") {
+            Section("Everything FERB remembers") {
                 if store.activeMemory.isEmpty { Text("FERB doesn't know anything about you yet.").foregroundStyle(.secondary) }
-                ForEach(store.activeMemory) { item in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(item.content).textSelection(.enabled)
-                            Text("\(item.kind) · \(item.subject)").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button("Forget…") {
-                            Task {
-                                if let list = await store.forgetPreview(item) { willDelete = list; forgetting = item }
-                            }
-                        }
-                    }
-                }
+                ForEach(store.activeMemory.filter { !$0.inProfile }) { item in row(item) }
             }
         }
         .alert("Forget this for good?", isPresented: Binding(get: { forgetting != nil },
@@ -172,6 +157,28 @@ struct MemoryPage: View {
             Button("Cancel", role: .cancel) { forgetting = nil }
         } message: { _ in
             Text(willDelete.isEmpty ? "FERB deletes this memory." : "FERB deletes: " + willDelete.joined(separator: "; "))
+        }
+    }
+
+    /// One memory: its words, where it came from, what it is about; Always on / Not always on, Not right (stops using
+    /// it, kept as history), Forget… (asks with the daemon's list first). Correct it by telling FERB.
+    @ViewBuilder private func row(_ item: MemoryRow) -> some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text(item.content).textSelection(.enabled)
+                Text([item.label, item.about].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(item.inProfile ? "Not always on" : "Always on") {
+                Task { await store.setInProfile(item, !item.inProfile) }
+            }
+            Button("Not right") { Task { await store.retract(item) } }
+            Button("Forget…") {
+                Task {
+                    if let list = await store.forgetPreview(item) { willDelete = list; forgetting = item }
+                }
+            }
         }
     }
 }

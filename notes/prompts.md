@@ -142,12 +142,21 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       (Step 8d added the parts lines: several asks as `parts`, direct or answer_step, conditions per part, no summing-up
       step, a one-ask plan ends in one step.)
       (Step 8e follow-up added schedule `until` and schedule_changes `set_end`, decision 22.)
+      (Step 9a, memory: supervisor.md's remember rule covers facts said in passing, saves rewording as FERB's
+      understanding (no Yes), names replaced facts (`replaces`, or the same key), gives a dated fact `until` and a period
+      fact `review_in_days`; the forget line says how to correct a wrong fact by talking; the memory line names the real
+      blocks ("Tier 1 — core profile", "Layer 4 — retrieved memory (data)") and that memory not shown becomes a task; the
+      FERB-check options lost "Keep/Edit/Drop" and "Retire/Keep". distill.md: inferred items are saved as FERB's
+      understanding, facts said in passing included, retire without asking (quote or null), never re-propose a stored
+      fact, "Due for a check" items, and the health/finances exclusion removed (memory decision 12). New runtime prompts:
+      ferb/memory/profile.md (the weekly core-profile pass) and ferb/memory/mac_profile.md (decision 16).)
 - [ ] Live re-test list adds prompt-only behaviours: the pause trigger, asking only what/who/which, asking before
       installing a named tool (the 10-14 Mole task failed with "not installed" instead of asking), how-note quality.
 - [ ] One foreground contract: code asks Yes/No once per task per app (30-minute option); remove "now / when idle /
       skip" and "never plan it" (problem 8).
 - [ ] Rewrite interaction.md as the shared prefix; move worker method rules to worker.md or tool descriptions.
-- [ ] The planner's remember rule covers durable facts said in passing (notes/memory.md decision 11).
+- [x] The planner's remember rule covers durable facts said in passing (notes/memory.md decision 11).
+      (Step 9a: minimal line in supervisor.md; the step-10 rewrite keeps it.)
 - [ ] Rewrite supervisor.md to the skeleton; drop steer, procedures, notification rules, map/reduce kinds; add pause/resume.
 - [ ] Rewrite worker.md to the skeleton; role blocks appended by code from step_context (supervisor.py:2606, 2785, 2937).
 - [x] Merge verifier.md + dispatch.md into one checker prompt. (Step 8b: minimal merge so the role works: the next-step
@@ -160,7 +169,8 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       never owner" and "no health or finances").
 - [ ] attention.md: not loaded while Jev is off.
 - [ ] Code: remove the Layer 3 catalog copy (main.py:3943); EFFECT_HELP/DESTINATION_SCHEMA once, not per tool if the
-      runtime allows; catalogs and tool-fetch lines only to roles with tools (supervisor.py:654-656); worker types
+      runtime allows; catalogs and tool-fetch lines only to roles with tools (supervisor.py:654-656) (step 9a: done,
+      `TOOLLESS_ROLES`); worker types
       out of the droppable activity block (main.py:3943-3946) into a fixed planner block; per-role schemas; remove
       `steer` from TaskControl (schemas.py:277); procedure/notification/map fields out of the schemas.
 - [ ] Code-written context strings (REFUSED_PASS, CHANGED_FILES, CHECK_DIDNT_LOOK, NOTHING_TO_RECHECK, REPORT_*):

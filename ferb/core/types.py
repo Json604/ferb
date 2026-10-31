@@ -108,6 +108,8 @@ class MemoryItem:
     confidence: float
     origin: Literal["owner_stated", "observed", "inferred", "third_party"]
     status: Literal["proposed", "active", "retracted"]
+    about: str = ""                           # decision 13: what the owner's words are about (from the task)
+    review_at: datetime | None = None         # when FERB checks a period fact still holds (no end in their words)
 
 
 # ---------- actions (descriptive execution metadata) ----------
