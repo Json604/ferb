@@ -6,6 +6,6 @@
     </linearGradient>
   </defs>
   <rect x="16" y="16" width="96" height="96" rx="22" fill="url(#bg)"/>
-  <text x="56" y="90" text-anchor="middle" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700" font-size="74" fill="#FFFFFF">f</text>
+  <path d="M49.969 58.772L49.969 90L60.477 90L60.477 58.772L67.729 58.772L67.729 51.742L60.477 51.742L60.477 49.448Q60.477 47.08 61.402 46.081Q62.327 45.082 64.473 45.082Q66.471 45.082 68.321 45.304L68.321 37.46Q66.989 37.386 65.583 37.275Q64.177 37.164 62.771 37.164Q56.333 37.164 53.151 40.42Q49.969 43.676 49.969 48.782L49.969 51.742L43.679 51.742L43.679 58.772Z" fill="#FFFFFF"/>
   <circle cx="82" cy="85" r="8" fill="#F5A524"/>
 </svg>

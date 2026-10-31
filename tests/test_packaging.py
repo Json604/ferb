@@ -42,6 +42,29 @@ def test_ferb_app_info_plist_names_ferb_and_declares_its_usage_descriptions() ->
     assert voice["CFBundleIdentifier"] != info["CFBundleIdentifier"]        # the nested voice helper keeps its own id
 
 
+# The bundles macOS shows as FERB: the app, its daemon helper (Privacy lists, Activity Monitor) and the voice helper
+BUNDLES = {"FERB.app": NOTCH_PLIST, "Helpers/FERB.app": ROOT / "ui" / "mac" / "FERBAgent" / "Info.plist",
+           "Helpers/FERB Voice.app": ROOT / "macapp" / "FERB" / "Info.plist"}
+APP_ICON = ROOT / "assets" / "logo" / "AppIcon.icns"
+
+
+def _icon_file(info: dict[str, Any]) -> str:
+    name = info["CFBundleIconFile"]
+    return name if name.endswith(".icns") else name + ".icns"
+
+
+def test_every_bundle_names_ferbs_icon_and_the_icon_holds_every_size(tmp_path: Path) -> None:
+    """Owner, 2026-11-01: FERB's logo everywhere. Each bundle names AppIcon, made from assets/logo/ferb-logo.svg by
+    scripts/make_logo.py, and the icon carries every size macOS asks for."""
+    for bundle, plist in BUNDLES.items():
+        assert _icon_file(plistlib.loads(plist.read_bytes())) == APP_ICON.name, bundle
+    out = tmp_path / "AppIcon.iconset"
+    done = subprocess.run(["iconutil", "-c", "iconset", "-o", str(out), str(APP_ICON)], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    sizes = {f"icon_{s}x{s}{x}.png" for s in (16, 32, 128, 256, 512) for x in ("", "@2x")}
+    assert {f.name for f in out.iterdir()} == sizes
+
+
 def test_the_development_build_keeps_its_own_identity() -> None:
     """`ui/mac/FERBNotch/build.sh` (the owner's dev notch) must not take the packaged app's bundle id, or macOS would
     mix up the two apps' permissions."""
@@ -189,9 +212,14 @@ exit 0
 STUB_HDIUTIL = r"""#!/bin/zsh
 print -r -- "hdiutil|${(j:|:)@}" >> "$STUB_LOG"
 if [[ "$1" == create ]]; then
-  for (( i = 1; i < $#; i++ )); do [[ "${@[i]}" == -srcfolder ]] && ls -l "${@[i+1]}" >> "$STUB_DIR/staging.txt"; done
+  for (( i = 1; i < $#; i++ )); do [[ "${@[i]}" == -srcfolder ]] && ls -lA "${@[i+1]}" >> "$STUB_DIR/staging.txt"; done
   print "fake dmg" > "${@[-1]}"
 fi
+for (( i = 1; i < $#; i++ )); do
+  [[ "$1" == attach && "${@[i]}" == -mountpoint ]] && mkdir -p "${@[i+1]}"
+  [[ "$1" == convert && "${@[i]}" == -o ]] && cp "$2" "${@[i+1]}"
+done
+if [[ "$1" == detach ]]; then xattr -px com.apple.FinderInfo "$2" | tr -d ' \n' >> "$STUB_DIR/volume-flags.txt"; rmdir "$2"; fi
 exit 0
 """
 
@@ -403,8 +431,13 @@ def test_dmg_holds_the_app_and_an_applications_link_and_is_notarized_only_with_a
     staging = (tmp_path / "staging.txt").read_text()
     assert "Applications -> /Applications" in staging and "FERB.app" in staging
     calls = (tmp_path / "calls.log").read_text().splitlines()
-    assert any(c.startswith("hdiutil|create|") and "|-volname|FERB|" in c and c.endswith(str(dmg)) for c in calls)
+    assert any(c.startswith("hdiutil|create|") and "|-volname|FERB|" in c for c in calls)
+    assert any(c.startswith("hdiutil|convert|") and "|-format|ULMO|" in c and c.endswith(str(dmg)) for c in calls)
     assert not any(c.startswith(("codesign", "xcrun")) for c in calls) and dmg.is_file()
+    # The volume shows FERB's logo: the icon is in the image and its root carries Finder's custom-icon flag
+    assert ".VolumeIcon.icns" in staging
+    assert (tmp_path / "volume-flags.txt").read_text()[16:18] == "04"
+    assert sorted(p.name for p in dmg.parent.iterdir()) == ["FERB.app", "FERB.dmg"]   # nothing left behind
 
     (tmp_path / "calls.log").unlink()
     (tmp_path / "staging.txt").unlink()
@@ -517,6 +550,10 @@ def test_real_bundle_structure_signature_and_embedded_cli(real_bundle: Path, tmp
     agent = plistlib.loads((c / "Helpers/FERB.app/Contents/Info.plist").read_bytes())
     assert (agent["CFBundleIdentifier"], agent["CFBundleName"]) == ("com.ferb.daemon", "FERB")   # what macOS shows
     assert agent["LSBackgroundOnly"] is True and agent["NSAppleEventsUsageDescription"]
+    for bundle in BUNDLES:                                                   # each shows FERB's logo, not a blank app
+        root = app if bundle == "FERB.app" else c / bundle
+        icon = root / "Contents/Resources" / _icon_file(plistlib.loads((root / "Contents/Info.plist").read_bytes()))
+        assert icon.read_bytes() == APP_ICON.read_bytes(), bundle
     assert not list((c / "Resources/python/lib").glob("python3.12/EXTERNALLY-MANAGED"))
     verify = subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], capture_output=True, text=True)
     assert verify.returncode == 0, verify.stderr

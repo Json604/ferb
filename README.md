@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo/ferb-logo.svg" width="128" height="128" alt="FERB logo"></p>
+
 # FERB
 
 FERB is a personal assistant for your Mac. You ask it in plain words, from the notch at the top of your screen, and it

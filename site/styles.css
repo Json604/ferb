@@ -12,6 +12,8 @@ body {
 
 main { max-width: 520px; margin: 0 auto; padding: 4rem 1.5rem; }
 
+.brand { display: block; margin-bottom: 1.25rem; }
+
 h1 {
   font-family: 'Silkscreen', monospace;
   font-size: 1.75rem;

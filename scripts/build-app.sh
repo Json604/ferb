@@ -81,6 +81,8 @@ plist "Set :CFBundleVersion $BUILD" "$CONTENTS/Info.plist"
 plist "Add :FERBVersion string $VERSION" "$CONTENTS/Info.plist"
 plist "Add :FERBSourceRevision string $REVISION" "$CONTENTS/Info.plist"
 cp "$NOTCH/ThirdPartyNotices.txt" "$CONTENTS/Resources/ThirdPartyNotices.txt"
+ICON="$ROOT/assets/logo/AppIcon.icns"     # FERB's logo (scripts/make_logo.py makes it from assets/logo/ferb-logo.svg)
+cp "$ICON" "$CONTENTS/Resources/AppIcon.icns"                     # Info.plist CFBundleIconFile
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$CONTENTS/Resources/THIRD_PARTY_NOTICES.md"
 
 print "==> Sparkle (automatic updates, L34 Phase G)"
@@ -153,8 +155,9 @@ for name in sys.argv[2:]:
 
 print "==> FERB agent app (runs the daemon; embeds the app's Python)"
 AGENT="$CONTENTS/Helpers/FERB.app"
-mkdir -p "$AGENT/Contents/MacOS"
+mkdir -p "$AGENT/Contents/MacOS" "$AGENT/Contents/Resources"
 cp "$ROOT/ui/mac/FERBAgent/Info.plist" "$AGENT/Contents/Info.plist"
+cp "$ICON" "$AGENT/Contents/Resources/AppIcon.icns"   # macOS shows it for "FERB" in Privacy lists and Activity Monitor
 plist "Set :CFBundleShortVersionString $SHORT_VERSION" "$AGENT/Contents/Info.plist"
 plist "Set :CFBundleVersion $BUILD" "$AGENT/Contents/Info.plist"
 xcrun clang -O2 -arch "$ARCH" -mmacosx-version-min=14.2 -ffile-prefix-map="$ROOT=." \

@@ -74,6 +74,9 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
     deleted and recreated; the owner's data that can't be read is **moved aside with a timestamp, never deleted**, and
     the owner is told once; a database from a newer FERB is not broken (FERB says it needs the newer build and changes
     nothing).
+12. **The extension's logo is FERB's logo everywhere** (owner, 2026-11-01: "i want the current extension logo as the
+    main ferb logo everywhere. the app, site, everywhere."): the dark rounded square with the white "f" and the orange
+    dot, unchanged in look. Where it lives and how each place gets it: "Logo" below.
 
 ## What exists today (verified)
 
@@ -368,6 +371,33 @@ Rulings (technical):
   sign-in checks and the owner signs in again in Settings → AI); extension files an older build had and the new one
   dropped stay in the folder (unreferenced). Not covered offline: an SMAppService registration made by a FERB.app at
   another path (registering this app's service over it is the step-13 check below).
+
+## Logo (2026-11-01, decision 12)
+
+- **One master**: `assets/logo/ferb-logo.svg` (128-unit canvas, the 96-unit rounded square inset 16, Chrome's icon
+  margin). Its "f" is Helvetica Neue Bold's outline converted to a path, so no file depends on installed fonts; it
+  renders the same as the old `<text>` version (0 differing pixels at 128 px). Change the logo only there, then run
+  `uv run python scripts/make_logo.py`: it rewrites every derived file from the master with macOS's own SVG renderer
+  (AppKit via the checkout's PyObjC) and `iconutil`; nothing to install. Derived files are committed, so builds don't
+  render.
+- **Derived**: `assets/logo/ferb-logo-1024.png` (the master at 1024 px; README uses the SVG);
+  `assets/logo/AppIcon.icns` (all ten sizes, on Apple's macOS grid: the square is 824 of 1024 px, centered, soft drop
+  shadow); `extensions/store/src/icon.svg` and `ui/mac/FERBNotch/Sources/FERBNotch/Resources/ferb-mark.svg` (copies
+  of the master; the notch's handle draws ferb-mark.svg); `extensions/store/src/icon-small.svg` and `site/logo.svg`
+  (the square without the margin); the extension's `icon{16,32,48}.png` (cropped) and `icon128.png` (with margin) in
+  `extensions/chromium/icons` and `extensions/store/src`; `site/favicon.ico` (16/32/48) and
+  `site/apple-touch-icon.png` (180 px, full-bleed).
+- **Mac**: FERB.app, its daemon helper `Helpers/FERB.app` (what Privacy & Security lists and Activity Monitor show
+  as "FERB") and `Helpers/FERB Voice.app` each name `CFBundleIconFile` AppIcon in their Info.plist; build-app.sh copies
+  the icns into the app's and the helper's Resources, macapp/FERB/build.sh into FERB Voice's (and the dev notch build
+  into its own). Dock, Finder, Launchpad, notifications, Login Items, alerts and Sparkle's update dialog take the
+  bundle's icon. build-dmg.sh puts the icns on the disk image as `.VolumeIcon.icns` and sets the volume's custom-icon
+  flag (a writable image, then compressed). The menu-bar item keeps its state symbols (a status indicator, not a
+  brand mark); no other Swift view drew a logo.
+- **Site**: favicon (SVG, ICO fallback, apple-touch-icon) and the mark above the page heading on both pages.
+- **Not done**: an Icon Composer `.icon` (macOS 26+ Liquid Glass layers) compiled by `actool` into `Assets.car` with
+  `CFBundleIconName`. The build uses SwiftPM, not Xcode's asset pipeline, so the icns is the shipped format; macOS
+  26+ shows it in its rounded-square frame. The step-13 check confirms it doesn't sit in a grey frame.
 
 ## Report relay (2026-11-01, decision 10)
 Rulings (technical):

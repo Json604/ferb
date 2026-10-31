@@ -28,12 +28,8 @@ rule 15); a passing offline test never accepts any of these.
 Run in order; each sitting can be a separate session. `[source]` names the notes file with the detail.
 
 ### Before step 13
-- [x] Toolchain (2026-11-01): the owner updated Command Line Tools to 27.2; the active Xcode 26.3's linker can't read
-      that SDK, and the Command Line Tools alone lack SwiftUI's macro plugin (the app won't build with them). Until
-      Xcode is updated to 27.x, build with Xcode pinned to its own SDK: prefix the build with
-      `SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk`
-      (swift build checked; `tests/test_packaging.py` passes with `DEVELOPER_DIR=/Library/Developer/CommandLineTools`).
-      Don't switch `xcode-select` to the Command Line Tools. [step 14a finding]
+- [x] Toolchain (2026-11-01): Command Line Tools 27.2 and Xcode 27.2 installed (license accepted); `swift build`/`swift test`
+      and the packaging tests work with no workaround. [step 14a finding]
 - [ ] Checkout validation on the final commit: `nice -n 10 uv run pytest -q`, `uv run mypy ferb/core`,
       `git diff --check` (the safety suite). [tests.md]
 - [ ] Fresh start (owner, 2026-11-01: "every old ferb build removed … except its data … i wanna start fresh"), done
@@ -59,6 +55,10 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       `identity.json`). Before deleting, list again (anything new since 2026-11-01 is shown to the owner first).
 
 ### Sitting 1: build, install, upgrade
+- [ ] FERB's logo (owner, 2026-11-01, daemon.md decision 12): the new build shows the dark "f." icon in the Dock,
+      Finder and Launchpad, Login Items, Privacy & Security lists (FERB and FERB Voice), Activity Monitor (FERB),
+      notifications, Sparkle's update dialog and the mounted DMG's volume; on macOS 26+ it isn't shrunk into a grey
+      frame. The site's tab shows the favicon and both pages show the mark. [daemon.md Logo]
 - [ ] Build FERB.app (`source scripts/swiftpm-anonymous.sh; SIGN_IDENTITY=release scripts/build-app.sh --arch arm64
       build/app-arm64`), install it in /Applications, open it. Launch decides `.update` (or asks "Set up FERB from this
       app?" if the old LaunchAgent runs a checkout); the old `~/Library/LaunchAgents/com.ferb.daemon.plist` is gone;

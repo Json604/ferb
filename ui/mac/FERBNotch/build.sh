@@ -25,5 +25,6 @@ for key value in CFBundleIdentifier dev.ferb.notch CFBundleName "FERB Notch" CFB
   /usr/libexec/PlistBuddy -c "Set :$key $value" "$APP_DIR/Contents/Info.plist"
 done
 cp "$PROJECT_DIR/ThirdPartyNotices.txt" "$APP_DIR/Contents/Resources/ThirdPartyNotices.txt"
+cp "${PROJECT_DIR:h:h:h}/assets/logo/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"   # Info.plist CFBundleIconFile
 codesign --force --sign - "$APP_DIR"
 print "Built: $APP_DIR"

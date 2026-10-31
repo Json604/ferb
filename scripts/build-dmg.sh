@@ -15,8 +15,11 @@ source "$ROOT/scripts/signing.sh"
 die() { print -u2 "build-dmg.sh: $*"; exit 1 }
 DMG_DIR="${${FERB_DMG_DIR:-$ROOT/build}:A}"
 FIRST_OPEN="First open — System Settings → Privacy & Security → Open Anyway.txt"
-STAGE=""
-trap 'if [[ -n "$STAGE" ]]; then rm -rf "$STAGE"; fi' EXIT
+VOLUME_ICON="$ROOT/assets/logo/AppIcon.icns"   # FERB's logo (scripts/make_logo.py) as the image's volume icon
+STAGE="" MOUNT="" RW=""
+trap 'if [[ -n "$MOUNT" ]]; then hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true; fi
+      if [[ -n "$STAGE" ]]; then rm -rf "$STAGE"; fi
+      if [[ -n "$RW" ]]; then rm -f "$RW"; fi' EXIT
 
 dmg_name() {                          # $1: an architecture, as lipo names it
   case ${1:-} in
@@ -38,9 +41,21 @@ make_dmg() {                          # $1: an assembled FERB.app, $2: the image
     "1. Drag FERB to Applications and open it from there." \
     "2. Open System Settings → Privacy & Security, scroll to Security and click Open Anyway next to FERB." \
     "3. Enter your password. FERB opens, and macOS remembers your choice." > "$STAGE/$FIRST_OPEN"
-  hdiutil create -volname FERB -srcfolder "$STAGE" -fs HFS+ -format ULMO -ov "$dmg" >/dev/null
+  cp "$VOLUME_ICON" "$STAGE/.VolumeIcon.icns"
+  # The volume shows that icon only with the custom-icon flag on its root, which a writable image can take: build
+  # one, set the flag, then compress it into the read-only image
+  RW="${dmg:h}/.dmg-rw.dmg"
+  MOUNT="${dmg:h}/.dmg-mount"
+  hdiutil create -volname FERB -srcfolder "$STAGE" -fs HFS+ -format UDRW -ov "$RW" >/dev/null
   rm -rf "${STAGE:?}"
   STAGE=""
+  hdiutil attach -nobrowse -noautoopen -noverify -mountpoint "$MOUNT" "$RW" >/dev/null
+  xattr -wx com.apple.FinderInfo 0000000000000000040000000000000000000000000000000000000000000000 "$MOUNT"
+  hdiutil detach "$MOUNT" >/dev/null
+  MOUNT=""
+  hdiutil convert "$RW" -format ULMO -ov -o "$dmg" >/dev/null
+  rm -f "${RW:?}"
+  RW=""
   if ferb_developer_id; then
     codesign --force --sign "$SIGN_IDENTITY" --timestamp "$dmg"
     ferb_notarize "$dmg" "$dmg"
