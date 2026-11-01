@@ -153,6 +153,8 @@ final class OrbController: OrbControlling {
         }
     }
 
+    /// Stops only what the orb schedules (motion, tracking, its panel, its waiters). The sound engine is shared with
+    /// everyday sounds, so what is already playing is IntroController.end's to stop (a skip) or let ring (the end).
     func tearDown() {
         stopTracking()
         clock.stop()
@@ -160,7 +162,6 @@ final class OrbController: OrbControlling {
         fade = nil
         hopElapsed = nil
         hold = 0
-        sound.stopAll()
         surface.setDragItem(nil)
         surface.setInstruction(nil)
         surface.setWaiting(false)

@@ -101,11 +101,12 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     }
 
     /// The repair wins over a tour: the tour is skipped (its own teardown: orb, sound, lines), then one compact
-    /// window shows on Welcome, and the tour's end doesn't move it.
+    /// window shows on Welcome, and the tour's end doesn't move it. A "Do it for real" the owner tapped waits in the
+    /// composer: nothing is sent while the service is down.
     func repair(_ action: AppSetupAction) {
         if let intro {
             repairing = true
-            intro.skip()
+            intro.skip(forRepair: true)
         }
         show(.welcome, action: action)
     }

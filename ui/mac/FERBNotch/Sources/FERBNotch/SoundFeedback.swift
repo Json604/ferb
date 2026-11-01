@@ -26,6 +26,8 @@ final class SoundFeedback: ObservableObject {
     var postingBanners = false
     /// How long a notification the daemon also banners waits for its banner: past the poster's settle (1 s).
     var noticeWait: Duration = .milliseconds(1500)
+    /// How that wait passes (tests end it themselves instead of racing a clock).
+    var sleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     private let defaults: UserDefaults
     /// Which side sounded each recent item (by key): a banner, the app (with which sound), or no banner will.
     private var sounded: [String: (by: Carrier, at: Date)] = [:]
@@ -80,8 +82,8 @@ final class SoundFeedback: ObservableObject {
         guard bannerMayFollow, postingBanners, !keys.contains(where: { sounded[$0]?.by == .noBanner }) else {
             return soundInNotch(keys)
         }
-        let wait = Task { [weak self, noticeWait] in
-            do { try await Task.sleep(for: noticeWait) } catch { return }
+        let wait = Task { [weak self, noticeWait, sleep] in
+            do { try await sleep(noticeWait) } catch { return }
             guard !Task.isCancelled else { return }
             self?.soundInNotch(keys)
         }

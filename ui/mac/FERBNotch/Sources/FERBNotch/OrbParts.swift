@@ -14,7 +14,8 @@ protocol OrbControlling: AnyObject {
     func hop()
     /// Flies back and melts into the notch; returns once it is home.
     func flyHome() async
-    /// Everything stops at once and the orb is gone; safe mid-flight and safe twice.
+    /// Its motion, tracking and waits stop at once and the orb is gone; safe mid-flight and safe twice. Sounds already
+    /// playing are left to the caller (IntroController.end), since the engine is shared with everyday sounds.
     func tearDown()
     /// The orb has melted back into the notch (the intro swells the notch once: NotchModel.pulseIntro).
     var onHomeArrival: (@MainActor () -> Void)? { get set }

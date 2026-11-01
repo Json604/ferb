@@ -180,6 +180,9 @@ final class FakeOrb: OrbControlling {
     var onFlyHome: (() -> Void)?
     private(set) var hops = 0
     private(set) var flyHomes = 0
+    /// Flights home that have returned to their caller (the caller's code up to its next wait has run by the time a
+    /// test sees this count).
+    private(set) var flightsLanded = 0
     private(set) var tearDowns = 0
     var holdFlyHome = false
     private var inFlight: CheckedContinuation<Void, Never>?
@@ -191,6 +194,7 @@ final class FakeOrb: OrbControlling {
     func flyHome() async {
         flyHomes += 1
         onFlyHome?()
+        defer { flightsLanded += 1 }
         guard holdFlyHome else { return }
         await withCheckedContinuation { inFlight = $0 }
     }

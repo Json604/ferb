@@ -77,8 +77,10 @@ final class IntroControllerTests: XCTestCase {
     static let besideFinder = CGPoint(x: 384, y: 600)      // left of Finder's window (AppKit 400…1000, 400…800)
     static let resting = CGPoint(x: 720, y: 600)           // below the notch, a third of the way down
 
+    /// `realOrb`: the tour flies a real OrbController (on a fake surface and clock) sharing the tour's sound player,
+    /// instead of the fake orb.
     func tour(_ action: AppSetupAction = .none, background: BackgroundServiceRegistering? = nil,
-              clipSeconds: Double = 7.3, apps: IntroAppLocating? = nil) -> Tour {
+              clipSeconds: Double = 7.3, apps: IntroAppLocating? = nil, realOrb: Bool = false) -> Tour {
         let rig = SetupRig()
         rig.rpc.replies["runtimes.status"] = Self.connected
         rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
@@ -95,7 +97,11 @@ final class IntroControllerTests: XCTestCase {
         let sound = FakeSoundPlayer()
         let sleeper = FakeIntroSleeper()
         let controls = FakeControlFeed()
-        let controller = IntroController(setup: setup, orb: orb, sound: sound, notch: notch,
+        let flown: OrbControlling = realOrb
+            ? OrbController(surface: FakeOrbSurface(), sound: sound, clock: ManualClock(), home: { CGPoint(x: 720, y: 888) },
+                            reduceMotion: { false }, makeTracker: { FakeTracker() })
+            : orb
+        let controller = IntroController(setup: setup, orb: flown, sound: sound, notch: notch,
                                          progress: IntroProgress(defaults: defaults), controls: controls,
                                          apps: apps ?? Self.mac(), sleeper: sleeper, clipSeconds: clipSeconds)
         let log = LineLog()
@@ -117,6 +123,10 @@ final class IntroControllerTests: XCTestCase {
             await eventually { t.rig.runner.isRunning }                  // installed silently, nothing asked
             t.rig.runner.finish(0)
             if needsOK {
+                await eventually { t.notch.introLine?.choices.contains { $0.id == "openLoginItems" } == true }
+                XCTAssertEqual(service.openedSettings, 0)                 // System Settings opens only on the owner's tap
+                XCTAssertEqual(t.orb.docks.count, 0)
+                await t.pick("openLoginItems")
                 await eventually { t.orb.docks.count == 1 }
                 XCTAssertEqual(service.openedSettings, 1)                 // the one Login Items visit
                 XCTAssertNil(t.orb.docks[0].url)                          // nothing to drag there
@@ -135,13 +145,15 @@ final class IntroControllerTests: XCTestCase {
     func testFirstLaunchClipPlaysOnceThenSilenceThenTheLogo() async {
         XCTAssertEqual(IntroController.firstLaunchClipSeconds() ?? 0, 7.34, accuracy: 0.05)   // the bundled clip
 
-        let t = tour(clipSeconds: 7.3)
+        let t = tour(.install, clipSeconds: 7.3)
         t.rig.rpc.replies["runtimes.status"] = Self.notConnected
         t.sleeper.hold(7.3)
         t.controller.start(beats: IntroBeat.allCases, firstRun: true)
         XCTAssertEqual(t.sound.played, [.firstLaunch])
         await eventually { t.sleeper.isWaiting(7.3) }
-        try? await Task.sleep(for: .milliseconds(50))
+        // Meet's install starts only once Meet has let go of the main actor: on the clip, or after the logo if it
+        // didn't wait for the clip.
+        await eventually { t.rig.runner.isRunning }
         XCTAssertEqual(t.sound.played, [.firstLaunch])                    // silence while the clip plays
         t.sleeper.release(7.3)
         await eventually { t.sound.played.contains(.intro) }
@@ -216,7 +228,7 @@ final class IntroControllerTests: XCTestCase {
         let line = t.notch.introLine
         XCTAssertTrue(((line?.text ?? "") + (line?.detail ?? "")).contains("System Settings"))
         XCTAssertEqual(t.rig.app.requests, ["microphone"])                // macOS's own prompt, where the owner is
-        try? await Task.sleep(for: .milliseconds(50))
+        // The line is shown as the beat suspends on the owner's answer: nothing moves on until they pick.
         XCTAssertEqual(t.controller.beat, .permissions)
         XCTAssertFalse(t.progress.done)
         await t.pick("openSettings")
@@ -315,7 +327,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.controller.beat, .control)
         t.notch.introAction(.stopPreview)
         await eventually { !t.notch.conversation.turns.contains { $0.status == "previewRunning" } }
-        try? await Task.sleep(for: .milliseconds(30))
+        await eventually { t.notch.introLine == IntroCopy.control(.pause) }   // waiting on the last control
         XCTAssertEqual(t.controller.beat, .control)                       // Pause FERB not seen yet
         XCTAssertFalse(t.progress.done)
         t.notch.daemonPaused = true
@@ -347,7 +359,8 @@ final class IntroControllerTests: XCTestCase {
         await eventually { finished == 1 }
         XCTAssertEqual(t.controller.remainingRequired, ["full_disk_access"])   // only required steps are left
         XCTAssertFalse(t.rig.rpc.methods().contains("setup.finish"))      // a grant is off: setup isn't done
-        try? await Task.sleep(for: .milliseconds(30))
+        // The cut flight home has returned to the beat, which ran on to its next wait or its end.
+        await eventually { t.orb.flightsLanded == 1 }
         XCTAssertFalse(t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_AllFiles") })
         XCTAssertFalse(t.rig.rpc.methods().contains("setup.browsers_pair_all"))
         XCTAssertEqual(t.orb.tearDowns, 1)
@@ -577,6 +590,64 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.orb.launches.first?.instruction, IntroCopy.pairingOrb)
         XCTAssertEqual(t.orb.launches.first?.point, CGPoint(x: 720, y: 791))    // inside a window too wide to stand beside
         XCTAssertEqual(pairedWhenHome, [true])                                  // home after the pair-all reply
+    }
+
+    // MARK: Final review
+
+    /// The sound engine is shared with everyday sounds: the real orb's teardown stops only its own motion, and only a
+    /// skip stops what is playing; the natural end lets a ringing sound finish.
+    func testOnlyASkipStopsTheSharedSoundsWithTheRealOrb() async {
+        let finished = tour(realOrb: true)
+        var ended = 0
+        finished.controller.onFinished = { ended += 1 }
+        finished.controller.start(beats: [.browsers, .home])
+        await finished.pick("browsersLater")
+        await eventually { ended == 1 }
+        XCTAssertEqual(finished.sound.warm, [true, false])
+        XCTAssertEqual(finished.sound.stops, 0)
+
+        let skipped = tour(realOrb: true)
+        skipped.controller.start(beats: [.browsers, .home])
+        await eventually { skipped.notch.introLine?.choices.contains { $0.id == "pairAll" } == true }
+        skipped.controller.skip()
+        XCTAssertEqual(skipped.sound.stops, 1)
+        XCTAssertEqual(skipped.sound.warm, [true, false])
+    }
+
+    func testDoItForRealWaitsForDictationToEndThenSends() async {
+        let t = tour()
+        t.sleeper.hold(IntroController.Timing.home)
+        var ended = 0
+        t.controller.onFinished = { ended += 1 }
+        t.controller.start(beats: [.tryIt, .home])
+        await t.pick("suggestion.1")
+        await t.pick("doItForReal")
+        await eventually { t.controller.beat == .home && t.sleeper.isWaiting(IntroController.Timing.home) }
+        t.notch.session.beginVoicePreview()                               // the owner is dictating as the tour ends
+        t.sleeper.release(IntroController.Timing.home)
+        await eventually { ended == 1 }
+        XCTAssertFalse(t.notch.conversation.turns.contains { !$0.preview && $0.request == Self.suggestions[1] })
+        t.notch.session.finishVoicePreview()
+        await eventually { t.rig.rpc.methods().contains("chat.send") }
+        XCTAssertEqual(t.rig.rpc.params(of: "chat.send").map { $0["text"] as? String }, [Self.suggestions[1]])
+    }
+
+    func testARepairSkipPutsDoItForRealInTheDraftInsteadOfSending() async {
+        for typed in ["", "Book a table for Friday"] {
+            let t = tour()
+            var ended = 0
+            t.controller.onFinished = { ended += 1 }
+            t.controller.start(beats: [.tryIt, .control, .home])
+            await t.pick("suggestion.0")
+            await t.pick("doItForReal")
+            await eventually { t.controller.beat == .control }
+            t.notch.session.draft = typed
+            t.controller.skip(forRepair: true)                             // the service is down: nothing is sent
+            await eventually { ended == 1 }
+            XCTAssertEqual(t.notch.session.draft, typed.isEmpty ? Self.suggestions[0] : typed + "\n" + Self.suggestions[0])
+            XCTAssertFalse(t.notch.conversation.turns.contains { !$0.preview && $0.request == Self.suggestions[0] })
+            XCTAssertFalse(t.rig.rpc.methods().contains("chat.send"))
+        }
     }
 }
 

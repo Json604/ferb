@@ -133,13 +133,18 @@ final class IntroController {
 
     /// Skip, at any point: everything the tour drew, played or said is gone at once; then what's still required is
     /// read again from the system and the daemon (`remainingRequired`) and `onFinished` runs.
-    /// A "Do it for real" the owner already tapped still starts, as a normal task, right after. With nothing required
-    /// left, setup is recorded as done, as at Home.
-    func skip() {
+    /// A "Do it for real" the owner already tapped still starts, as a normal task, right after; `forRepair` (the
+    /// service is down, AppSetupController.repair): it goes into the composer for them to send instead. With nothing
+    /// required left, setup is recorded as done, as at Home.
+    func skip(forRepair: Bool = false) {
         guard running else { return }
         progress.done = true
         progress.resumeBeat = nil
         end(stoppingSound: true)
+        if forRepair, let request = realTask {
+            realTask = nil
+            notch.addToDraft(request)
+        }
         Task { [weak self] in
             guard let self else { return }
             await self.setup.refreshPermissions()
@@ -205,7 +210,8 @@ final class IntroController {
 
     /// Every way the tour ends: the orb, the lines and the previews go; the app may terminate again. The engine stops
     /// being kept warm; a skip also stops what's playing at once, while the natural end lets a ringing sound (Home's, or
-    /// an everyday one on the shared engine) finish.
+    /// an everyday one on the shared engine) finish. This is the only place that decides it: the orb's teardown stops
+    /// only its own motion.
     private func end(stoppingSound: Bool) {
         running = false
         run?.cancel()
@@ -363,14 +369,26 @@ final class IntroController {
         } ?? false
     }
 
+    /// The Login Items OK: System Settings opens only when the owner taps "Open Login Items" (rule 10: the tour never
+    /// moves them to another app by itself), with the orb beside it from then on; the beat waits for the system.
     private func approveInLoginItems() async -> Bool {
+        var docked = false
+        sideChoices = [Pick.openLoginItems: { [weak self] in
+            guard let self, self.live else { return }
+            self.setup.openLoginItems()
+            if !docked {
+                docked = true
+                self.orb.dockBesideSettings(dragging: nil, instruction: IntroCopy.loginItemsOrb)
+            }
+        }]
+        defer { sideChoices = [:] }
         say(IntroCopy.loginItems)
-        setup.openLoginItems()
-        orb.dockBesideSettings(dragging: nil, instruction: IntroCopy.loginItemsOrb)
         while live && setup.background?.status != .enabled { await dwell(Timing.poll) }
         guard live else { return false }
-        orb.hop()
-        await orb.flyHome()
+        if docked {
+            orb.hop()
+            await orb.flyHome()
+        }
         guard live else { return false }
         say(IntroCopy.gettingReady)
         let ready = await setup.registerService()

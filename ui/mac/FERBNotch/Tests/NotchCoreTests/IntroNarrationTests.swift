@@ -38,7 +38,7 @@ final class IntroNarrationTests: XCTestCase {
         XCTAssertNil(model.introDisplayLine)
     }
 
-    func testTearDownDuringAFlightLeavesNoOrbAndStopsEverySound() async {
+    func testTearDownDuringAFlightLeavesNoOrbAndSchedulesNoMoreSound() async {
         let surface = FakeOrbSurface()
         let sound = FakeSoundPlayer()
         let clock = ManualClock()
@@ -57,9 +57,12 @@ final class IntroNarrationTests: XCTestCase {
         await flight.value                                   // the flight's caller is released, not left waiting
         XCTAssertFalse(surface.visible)
         XCTAssertNil(surface.dragItem)
-        XCTAssertEqual(sound.stops, 1)
+        XCTAssertEqual(sound.stops, 0)                       // the shared engine is IntroController.end's to stop
         XCTAssertFalse(clock.running)
         XCTAssertFalse(tracker.running)
+        let heard = sound.played
+        clock.advance(1)                                     // no melt is issued for the flight that was cut
+        XCTAssertEqual(sound.played, heard)
         orb.tearDown()                                       // safe twice
         XCTAssertFalse(surface.visible)
     }

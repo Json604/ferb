@@ -10,7 +10,7 @@ enum IntroCopy {
         static let claudePage = "claudePage", claudeCode = "claudeCode", retry = "retry"
         static func key(_ provider: APIProvider) -> String { "key." + provider.rawValue }
         static let allowAll = "allowAll", openSettings = "openSettings", restartToCheck = "restartToCheck"
-        static let showInFinder = "showInFinder"
+        static let showInFinder = "showInFinder", openLoginItems = "openLoginItems"
         static let pairAll = "pairAll", browsersLater = "browsersLater", next = "next"
         static let identityNow = "identityNow", identityLater = "identityLater"
         static func profile(_ index: Int) -> String { "profile.\(index)" }
@@ -24,7 +24,8 @@ enum IntroCopy {
                                  detail: "I work on your Mac in the background while you keep working. Let me show you around.")
     static let gettingReady = IntroLine(text: "Getting my background part ready…")
     static let loginItems = IntroLine(text: "macOS wants your OK before I can run in the background.",
-                                      detail: "In Login Items, switch FERB on under Allow in the Background.")
+                                      detail: "In Login Items, switch FERB on under Allow in the Background.",
+                                      choices: [IntroChoice(Pick.openLoginItems, "Open Login Items")])
     static let loginItemsOrb = IntroLine(text: "Switch FERB on here", detail: "Login Items · Allow in the Background")
     static func serviceFailed(_ why: String?) -> IntroLine {
         IntroLine(text: "I couldn't start my background part.", detail: why.flatMap(lastLine),

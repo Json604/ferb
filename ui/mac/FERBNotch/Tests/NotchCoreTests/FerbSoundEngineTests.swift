@@ -4,14 +4,14 @@ import AVFAudio
 @testable import NotchCore
 
 /// The sound engine's settings and lifetime (fix round 1). The engine under test renders offline (manual rendering
-/// mode), so nothing reaches the speakers.
+/// mode), so nothing reaches the speakers; no call is running (the Mac's real microphone users are never read).
 @MainActor
 final class FerbSoundEngineTests: XCTestCase {
     func testTheAlertVolumeScalesTheGainAndUISoundsOffSilenceIt() {
         let defaults = scratchDefaults("FerbSoundEngineTests")
         var prefs: [String: Any] = [:]
         let engine = FerbSoundEngine(defaults: defaults, preference: { prefs[$0] }, headphones: { false },
-                                     screens: { [] }, measureLatency: { 0 })
+                                     screens: { [] }, measureLatency: { 0 }, inputProcesses: { [] })
         XCTAssertEqual(engine.settingsGain, 1)               // absent: full alert volume; FERB at its default volume
         prefs["com.apple.sound.beep.volume"] = NSNumber(value: 0.5)
         XCTAssertEqual(engine.settingsGain, 0.5)
@@ -27,7 +27,7 @@ final class FerbSoundEngineTests: XCTestCase {
                                             maximumFrameCount: 4096)
         let engine = FerbSoundEngine(engine: audio, defaults: scratchDefaults("FerbSoundEngineTests"),
                                      preference: { _ in nil }, headphones: { false }, screens: { [] },
-                                     measureLatency: { 0.12 }, idleSleep: { _ in })
+                                     measureLatency: { 0.12 }, idleSleep: { _ in }, inputProcesses: { [] })
         XCTAssertEqual(engine.outputLatency, 0.12 + FerbSoundEngine.scheduleLead, accuracy: 1e-9)
         engine.play(.orbHop, at: nil)
         XCTAssertTrue(engine.isRunning)

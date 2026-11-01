@@ -36,7 +36,12 @@ struct QuestionFocus: Equatable {
 @MainActor
 final class NotchModel: ObservableObject {
     // The task list's inputs (TaskList.swift): each change drops the list built from them, so it is built again once.
-    @Published var session = NotchSession() { didSet { taskListSessionChanged(from: oldValue) } }
+    @Published var session = NotchSession() {
+        didSet {
+            taskListSessionChanged(from: oldValue)
+            if !waitingForComposer.isEmpty && canCompose { scheduleWaitingForComposer() }
+        }
+    }
     @Published private(set) var textRenderGeneration = 0
     private var textPresentationExpanded = false
     private var textRevealPending = false
@@ -650,10 +655,43 @@ final class NotchModel: ObservableObject {
     }
 
     /// A message of the owner's that isn't the composer's (the intro's "Do it for real", which they tapped): sent the
-    /// same way, while whatever they typed stays in the composer. Opened without taking focus (rule 10).
+    /// same way, while whatever they typed stays in the composer. Opened without taking focus (rule 10). While
+    /// dictation holds the composer it waits, and is sent once the composer is free.
     func send(_ text: String) {
-        guard canCompose, !introHoldsWork, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        begin(request: text, outgoing: text, sources: [], spoken: false, keepComposer: true)
+        guard !introHoldsWork, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        whenComposerFree { [weak self] in
+            guard let self, !self.introHoldsWork else { return }
+            self.begin(request: text, outgoing: text, sources: [], spoken: false, keepComposer: true)
+        }
+    }
+
+    /// Text of the owner's for them to send themselves (the intro's "Do it for real" after a repair skip, while the
+    /// service is down): put in the composer, never over what they typed (it goes after it, on a new line).
+    func addToDraft(_ text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        whenComposerFree { [weak self] in
+            guard let self else { return }
+            let draft = self.session.draft
+            self.session.draft = draft.isEmpty ? text : draft + (draft.hasSuffix("\n") ? "" : "\n") + text
+            self.preservePasteProvenance()
+        }
+    }
+
+    /// What waits for dictation to let go of the composer, in order.
+    private var waitingForComposer: [() -> Void] = []
+
+    private func whenComposerFree(_ act: @escaping () -> Void) {
+        if canCompose { act() } else { waitingForComposer.append(act) }
+    }
+
+    /// Run after the change that freed the composer has finished (dictation's own completion sets the draft first).
+    private func scheduleWaitingForComposer() {
+        Task { @MainActor [weak self] in
+            guard let self, self.canCompose else { return }
+            let waiting = self.waitingForComposer
+            self.waitingForComposer = []
+            for act in waiting { act() }
+        }
     }
 
     private func begin(request: String, outgoing: String, sources: [URL], spoken: Bool, keepComposer: Bool) {
