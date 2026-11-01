@@ -277,4 +277,3 @@ class CallHooks:
             self.gw.observer.tool_started(grant, name, args, kind, site)
         except Exception as e:
             logging.getLogger(__name__).warning("FERB live line failed: %s", error_name(e))
-

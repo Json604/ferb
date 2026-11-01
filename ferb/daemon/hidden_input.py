@@ -303,5 +303,3 @@ def login_code_question(origin: str) -> str:
 def _unfilled(state: str) -> Literal["denied", "superseded"]:
     """A hidden input's state once its wait ends without a delivered value: superseded stays superseded (L3)."""
     return "superseded" if state == "superseded" else "denied"
-
-
