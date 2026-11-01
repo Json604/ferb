@@ -44,3 +44,5 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **ORCH-330** (agent): New planner schema fields add no union or nullable types: unused fields are "" or 0, and flags are plain booleans.
 - **ORCH-331** (agent): A one-step scheduled run (not a watch) that found nothing its request asks to tell and did nothing posts nothing (nothing_to_tell). The worker's word alone never silences a run: one whose tree has an acting call that ran without an error (cards.ACTING_KINDS) posts whatever its worker reported. Multi-step scheduled plans and planner replies always post.
 - **ORCH-332** (agent): A chat.part record's seq is the UTC time to the microsecond as an ISO string, strictly increasing also across a restart.
+- **ORCH-333** (owner): There is no separate resource reviewer: code records what the task closed or left open, and the merged checker judges it with everything else.
+- **ORCH-334** (owner): A schedule's repeat interval is the owner's: code requires only a positive number, and no prompt sets a floor.

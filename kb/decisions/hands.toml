@@ -9,3 +9,13 @@ rule = "A frame whose address is a known challenge frame (Cloudflare Turnstile, 
 why = "The extension already reports each frame's address and each frame element's src: no protocol change, no extension reload."
 paths = ["ferb/act/browser/snapshot.py::CHALLENGE_FRAMES"]
 legacy = "notes/memory.md Rulings (step 9b): bot checks"
+
+[HAND-300]
+title = "The bot-check fact says a widget is present and may be only a passive badge"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "The bot_check fact states plainly that a bot-check widget's frame is on the page and that it may be only a passive badge that blocks nothing; the page's own words say whether a check is asked. No prompt or fact wording about bypasses."
+why = "A reCAPTCHA v3 or Turnstile footer badge draws in the same frames as a challenge, so the frame alone proves no block (a page with only a footer badge was read as blocked, 2026-10-14)."
+paths = ["ferb/act/browser/snapshot.py::BOT_CHECK_FACT"]
+legacy = "notes/prompts.md decision 6 (a ruling); notes/prompt-patches.md call 9"

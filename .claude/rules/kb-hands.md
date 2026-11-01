@@ -13,3 +13,4 @@ Acting on the Mac and in browsers in the background: the extension, its protocol
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
 
 - **HAND-1** (agent): A frame whose address is a known challenge frame (Cloudflare Turnstile, hCaptcha, reCAPTCHA, Arkose, DataDome, AWS WAF, GeeTest; snapshot.CHALLENGE_FRAMES) puts `bot_check` {widgets, frames, ability browser_verification, read} first in the snapshot result.
+- **HAND-300** (agent): The bot_check fact states plainly that a bot-check widget's frame is on the page and that it may be only a passive badge that blocks nothing; the page's own words say whether a check is asked. No prompt or fact wording about bypasses.

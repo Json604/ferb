@@ -9,17 +9,21 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 2 | 0 | 0 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 0 | 0 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 0 | 0 | 0 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 1 | 0 | 0 |
-| memory | Memory and memory import | `ferb/memory` | 34 | 2 | 2 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 32 | 2 | 0 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 2 | 0 | 0 |
+| memory | Memory and memory import | `ferb/memory` | 44 | 3 | 2 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 34 | 2 | 0 |
 | perception | Perception | `ferb/sense` | 5 | 1 | 0 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `notes`, `kb`, `tools`, `spikes` | 0 | 0 | 0 |
-| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 0 | 0 | 0 |
+| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 8 | 0 | 0 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 0 | 0 | 0 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 0 | 0 | 0 |
 | storage | Storage | `ferb/store` | 0 | 1 | 0 |
 | tests | Tests | `tests` | 0 | 0 | 0 |
 | voice | Voice | `ferb/voice` | 0 | 0 | 0 |
+
+## Waiting on the owner
+
+- T-302 (memory): Your approved memory items (M1-M9 and the address for "email me") were to be seeded into FERB's memory by the build, but that seed was deleted on 2026-11-01 to keep personal data out of the repo. Should they still reach your store automatically, from a file that stays only on your Mac, or will you tell FERB each one yourself (and the decision is updated to say so)?
 
 ## Terms
 

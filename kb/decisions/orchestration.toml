@@ -349,3 +349,25 @@ rule = "A chat.part record's seq is the UTC time to the microsecond as an ISO st
 why = "A millisecond integer was masked by the journal's redactor as a long number and crashed the read-back."
 paths = ["ferb/orchestrator/parts.py"]
 legacy = "notes/orchestration.md Rulings (step 8d): records"
+
+[ORCH-333]
+title = "The resource reviewer folds into the merged checker"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/prompts.md owner decision 1: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "There is no separate resource reviewer: code records what the task closed or left open, and the merged checker judges it with everything else."
+paths = ["ferb/orchestrator/prompts/verifier.md"]
+legacy = "notes/prompts.md decision 1"
+
+[ORCH-334]
+title = "No minimum repeat interval"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words = "make it what I choose"
+words_source = "notes/prompts.md owner decision 3; the rule around the quote is an agent's paraphrase"
+rule = "A schedule's repeat interval is the owner's: code requires only a positive number, and no prompt sets a floor."
+rejected = ["\"every_minutes at least 15\" (a limit only in the prompt)"]
+paths = ["ferb/orchestrator/schedules.py", "ferb/orchestrator/prompts/supervisor.md"]
+legacy = "notes/prompts.md decision 3"
