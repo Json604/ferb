@@ -139,6 +139,10 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       footer reads "N of M done"; a part that needs the owner pauses only its row. [orchestration.md decisions 19-20]
 - [ ] A message sent before FERB's first reply restarts the planner once and both are read; a later message waits its
       turn; 4 quick messages → 2 turns. [orchestration.md decisions 10, 18]
+- [ ] A question waiting for the owner is never answered by an unrelated message: with a FERB question open (e.g. a
+      choice), send a different request; FERB answers the new request alone and the open question stays open (the
+      10-28 build replied "Your input: <its own question> / <new answer>" in one message, owner 2026-11-01).
+      [orchestration.md decision 18; option answers]
 - [ ] "Pause the visa task" / a doubt about a running task: the task pauses (shells and listening stop, tabs and
       progress kept, the schedule's next runs paused); resume continues in place. [orchestration.md decisions 8, 13;
       tests.md 28]
