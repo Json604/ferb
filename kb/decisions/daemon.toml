@@ -1,0 +1,20 @@
+# Decisions of area `daemon` (kb/areas.toml). Moved from notes/voice.md on 2026-11-02.
+
+[DMN-400]
+title = "Hearing's signature pin is FERB.app's own designated requirement"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "The daemon trusts a hearing process only if it matches FERB.app's own designated requirement (`Installer.own_requirement`, read after the bundle's signature checked out). An older pin naming `com.ferb.app` is replaced by the next app setup or update, with no owner step."
+paths = ["ferb/device/install.py::Installer.own_requirement"]
+legacy = "notes/voice.md Rulings that carry the merge 2"
+
+[DMN-401]
+title = "Updates end only idle hearing processes, found by a process scan"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "A transcription in flight that no listed task covers holds `update.prepare` like a running task. Quitting before an update does nothing while one runs; otherwise one `ps` scan finds processes running FERB.app's executable with `transcribe`/`status` on a file in FERB's audio folder and sends SIGTERM (`request-speech` is left to end when the owner answers). Never by bundle id. On Quit and Install the daemon's shutdown cancels the ask, which deletes the lease."
+why = "`com.ferb.FERB` is also the running notch; `com.ferb.app` stays in FERB_APPS and APP_PREFERENCE_DOMAINS for an older build running during an update."
+paths = ["ferb/daemon/areas/voice.py::VoiceGlue._quit_voice_app", "ferb/sense/transcribe.py"]
+legacy = "notes/voice.md Rulings that carry the merge 4 and Rulings (step 11) 8"

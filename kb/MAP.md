@@ -6,20 +6,20 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 0 | 0 | 0 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 0 | 0 | 0 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 3 | 0 | 0 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 2 | 0 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 0 | 0 | 0 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 1 | 0 | 0 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 3 | 0 | 0 |
 | memory | Memory and memory import | `ferb/memory` | 34 | 2 | 2 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 1 | 0 | 0 |
-| perception | Perception | `ferb/sense` | 5 | 1 | 0 |
+| perception | Perception | `ferb/sense` | 6 | 1 | 0 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `notes`, `kb`, `tools`, `spikes` | 0 | 0 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 0 | 0 | 0 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 1 | 0 | 0 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 14 | 3 | 8 |
 | storage | Storage | `ferb/store` | 18 | 5 | 5 |
 | tests | Tests | `tests` | 0 | 0 | 0 |
-| voice | Voice | `ferb/voice` | 0 | 0 | 0 |
+| voice | Voice | `ferb/voice` | 8 | 0 | 6 |
 
 ## Waiting on the owner
 

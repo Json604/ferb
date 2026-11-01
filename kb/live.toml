@@ -143,3 +143,57 @@ request = "Run a Codex task and read its trace; run a Claude task twice and read
 pass = "Codex runs go over HTTP and the tool catalog is observed (a WebSocket run would fail closed); Claude cache reads still happen without the prompt-caching-scope beta; no effort is sent unless asked."
 decisions = ["RUN-405", "RUN-409"]
 sitting = "step 13"
+
+[LIVE-413]
+title = "Send on release: a dictated question is sent and answered aloud"
+area = "voice"
+surface = "FERB.app notch, Settings → General \"Send dictation when I let go of the keys\" on"
+request = "Hold Right Command + Option, say \"what time is it\", release."
+pass = "The message sends and the reply is spoken in the Mac's voice; `voice.said` appears in `ferb logs`."
+decisions = ["VOICE-403", "VOICE-405", "APP-402"]
+sitting = "step 13"
+
+[LIVE-414]
+title = "A dictated task speaks its plan line and answer, not code's lines"
+area = "voice"
+surface = "FERB.app notch, send on release on"
+request = "Dictate \"make a note called test with hi in it\"."
+pass = "The plan line is spoken as it starts and the answer when it ends; \"Sites contacted\"/\"Left open\" lines are not read out."
+decisions = ["VOICE-405"]
+sitting = "step 13"
+
+[LIVE-415]
+title = "Stop and a new message cut speech off at once"
+area = "voice"
+surface = "FERB.app notch while FERB is speaking a reply"
+request = "Press the notch's stop; in another turn, type a new message while it speaks."
+pass = "Speech stops at once each time."
+decisions = ["VOICE-404"]
+sitting = "step 13"
+
+[LIVE-416]
+title = "Send on release off: dictation stays a draft and is still answered aloud"
+area = "voice"
+surface = "FERB.app notch, send on release off"
+request = "Dictate a message, send it with Return; then type and send a message."
+pass = "The dictation stays in the draft until Return and its reply is spoken; the typed message's reply is not."
+decisions = ["APP-402"]
+sitting = "step 13"
+
+[LIVE-417]
+title = "Voice settings apply to the next reply; a bad provider speaks nothing"
+area = "voice"
+surface = "~/.ferb config.toml [voice], edited by the owner"
+request = "Set `voice = \"Daniel\"`, `rate = 220`, ask something by voice; then set `tts = \"nope\"` and ask again."
+pass = "The next reply uses Daniel at 220; with `nope` nothing is spoken and `voice.failed` names the value."
+decisions = ["VOICE-407", "VOICE-408"]
+sitting = "step 13"
+
+[LIVE-418]
+title = "A long listen transcribes in time; an excluded site's sound isn't recorded"
+area = "voice"
+surface = "FERB.app, a tab playing several minutes of speech; a site on the owner's exclusion list"
+request = "Ask FERB to listen to the long speech; then ask for a recording with sound on the excluded site."
+pass = "The listen returns a transcript within the limit; the recording is refused."
+decisions = ["SENSE-400"]
+sitting = "step 13"

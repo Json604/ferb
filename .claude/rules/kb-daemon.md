@@ -20,3 +20,6 @@ paths:
 The background service, its RPC areas, setup/install/update commands, device facts, permissions, traces, failure-report relay.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **DMN-400** (agent): The daemon trusts a hearing process only if it matches FERB.app's own designated requirement (`Installer.own_requirement`, read after the bundle's signature checked out). An older pin naming `com.ferb.app` is replaced by the next app setup or update, with no owner step.
+- **DMN-401** (agent): A transcription in flight that no listed task covers holds `update.prepare` like a running task. Quitting before an update does nothing while one runs; otherwise one `ps` scan finds processes running FERB.app's executable with `transcribe`/`status` on a file in FERB's audio folder and sends SIGTERM (`request-speech` is left to end when the owner answers). Never by bundle id. On Quit and Install the daemon's shutdown cancels the ask, which deletes the lease.

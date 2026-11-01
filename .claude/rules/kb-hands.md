@@ -13,3 +13,5 @@ Acting on the Mac and in browsers in the background: the extension, its protocol
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
 
 - **HAND-1** (agent): A frame whose address is a known challenge frame (Cloudflare Turnstile, hCaptcha, reCAPTCHA, Arkose, DataDome, AWS WAF, GeeTest; snapshot.CHALLENGE_FRAMES) puts `bot_check` {widgets, frames, ability browser_verification, read} first in the snapshot result.
+- **HAND-400** (owner): FERB does not recognise music by its sound. Workers keep being told so: asked what a song is, they listen on the tab the owner means and, hearing no lyrics they can identify, say so, never naming something else as the song.
+- **HAND-401** (owner): While FERB listens to an app or tab, the owner hears it too: FERB captures the app's audio unmuted (a tab listen hears the whole browser).

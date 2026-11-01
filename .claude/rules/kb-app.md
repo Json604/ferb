@@ -10,3 +10,7 @@ paths:
 The Mac app the owner uses: notch, chat, settings, setup intro, orb, sounds, preview window, playground. The owner's side; talks to the daemon only through its RPC.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **APP-400** (agent): Before it starts the app, FERB.app's executable answers `transcribe`, `status` and `request-speech` with the old helper's arguments, answer files, lease and exit codes (no window, no microphone). The daemon runs it with `open -g -n -W --env FERB_HOME=… <FERB.app> --args <mode> …`. `request-speech` stays but setup no longer calls it. The home rule is NotchCore/FerbHomeRule.swift.
+- **APP-401** (agent): Setup has no separate hearing row: the microphone row covers Microphone and Speech Recognition (one grant for dictation and hearing); `ferb doctor` still probes hearing.
+- **APP-402** (agent): Settings → General "Send dictation when I let go of the keys" (`voice.sendOnRelease`) is off by default. A sent draft that still holds the last dictated words goes with `speak: true`, so a dictated message lightly edited and sent with Return is still answered aloud; a typed message isn't.

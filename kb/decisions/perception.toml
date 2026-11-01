@@ -1,4 +1,4 @@
-# Decisions of area `perception` (kb/areas.toml). Moved from notes/memory.md on 2026-11-02.
+# Decisions of area `perception` (kb/areas.toml). Moved from notes/memory.md and notes/voice.md on 2026-11-02.
 
 [SENSE-1]
 title = "Accessibility events stay recorded, pull-only, 7 days"
@@ -46,3 +46,13 @@ status = "active"
 rule = "A browser's accessibility events keep no window title. Text typed or copied in a browser carries its page's host and incognito flag from the last tab observation, so the incognito and excluded-domain rules drop it; text typed or copied in a browser page FERB hasn't seen is not recorded (it can't be checked)."
 paths = ["ferb/sense/trail.py::Trail._in_browser_page"]
 legacy = "notes/memory.md fix list, Perception (privacy); Rulings (step 9b)"
+
+[SENSE-400]
+title = "Transcription time limit: 60 s plus 2 s per second of sound"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A transcription may take `LIMIT_S` (60 s) plus `PER_AUDIO_S` (2 s) for each second of captured sound; past it the ask is cancelled, the lease deleted (the hearing process exits) and the tool says hearing is unavailable. The status probe has the 60 s base. A listen's length stays the model's choice (no cap on `seconds`). Redaction alignment runs in a worker thread, off the event loop."
+why = "Covers FERB.app's launch and the recognizer's set-up, and scales because on-device recognition time grows with the sound."
+paths = ["ferb/sense/transcribe.py::LIMIT_S", "ferb/sense/transcribe.py::PER_AUDIO_S"]
+legacy = "notes/voice.md Rulings (step 11) 1"

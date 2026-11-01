@@ -1,0 +1,30 @@
+# Decisions of area `app` (kb/areas.toml). Moved from notes/voice.md on 2026-11-02.
+
+[APP-400]
+title = "FERB.app's own executable answers the hearing modes"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Before it starts the app, FERB.app's executable answers `transcribe`, `status` and `request-speech` with the old helper's arguments, answer files, lease and exit codes (no window, no microphone). The daemon runs it with `open -g -n -W --env FERB_HOME=… <FERB.app> --args <mode> …`. `request-speech` stays but setup no longer calls it. The home rule is NotchCore/FerbHomeRule.swift."
+why = "It carries the owner's merge of FERB Voice into FERB.app (VOICE-403) without changing the daemon's hearing protocol."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift", "ui/mac/FERBNotch/Sources/NotchCore/FerbHomeRule.swift"]
+legacy = "notes/voice.md Rulings that carry the merge 1"
+
+[APP-401]
+title = "Setup's microphone row also asks for Speech Recognition"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Setup has no separate hearing row: the microphone row covers Microphone and Speech Recognition (one grant for dictation and hearing); `ferb doctor` still probes hearing."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch"]
+legacy = "notes/voice.md Rulings that carry the merge 3"
+
+[APP-402]
+title = "Send dictation on release is off by default; a dictated draft is answered aloud"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Settings → General \"Send dictation when I let go of the keys\" (`voice.sendOnRelease`) is off by default. A sent draft that still holds the last dictated words goes with `speak: true`, so a dictated message lightly edited and sent with Return is still answered aloud; a typed message isn't."
+why = "Sending on release changes when a message leaves, so the owner turns it on."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+legacy = "notes/voice.md Rulings (step 11) 7"

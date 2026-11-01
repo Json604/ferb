@@ -1,5 +1,7 @@
 # Hashes of each owner decision's words and rule (kb.py lock). A change here is a reworded or
 # deleted owner decision: check that the owner asked for it.
+HAND-400 c1f79dbcb24f16da
+HAND-401 c0608f51414ca46a
 MEM-1 2e94408358edf79e
 MEM-2 aa628a72616c200a
 MEM-3 410ab3e3ea2d3d1c
@@ -29,3 +31,7 @@ STORE-401 fa2484f5d69df542
 STORE-402 cd68bcd7ae78e0a1
 STORE-403 8d8afc60e0818823
 STORE-404 e2c2b2596c9a233a
+VOICE-400 a84d4d13107119d2
+VOICE-401 cbedfb23211fb811
+VOICE-402 0bae336628051da1
+VOICE-403 f24ca0256eddbd2f
