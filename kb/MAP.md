@@ -15,8 +15,8 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | perception | Perception | `ferb/sense` | 5 | 1 | 0 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `notes`, `kb`, `tools`, `spikes` | 0 | 0 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 0 | 0 | 0 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 0 | 0 | 0 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 0 | 0 | 0 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 1 | 0 | 0 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 14 | 3 | 8 |
 | storage | Storage | `ferb/store` | 18 | 5 | 5 |
 | tests | Tests | `tests` | 0 | 0 | 0 |
 | voice | Voice | `ferb/voice` | 0 | 0 | 0 |
@@ -25,6 +25,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 - T-401 (storage): Should the audit-like journal records (security alignment, shell network use, escape used, clipboard access) be kept forever, or deleted 90 days after their task ends like the other operational records?
 - T-402 (storage): Perception receipts and batches, the loop wake-up queue, notices and learned-node change rows have no retention period, so they are kept forever. Should any of them be deleted after a period, and after how long?
+- T-404 (runtimes): When a worker's long tool loop overflows the model's context window, should Codex compact the conversation and carry on (today), or should the worker fail instead?
 
 ## Terms
 

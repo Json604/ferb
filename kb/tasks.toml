@@ -72,3 +72,27 @@ kind = "bug"
 status = "open"
 why = "notes/storage.md Rulings (step 12a), \"Not covered\": installs made on 10-08, 10-09 or 10-21, when those migrations were edited in place, never got the added columns; SQL migrations can't add a column only when it is missing. STORE-403 asks that any older build upgrade safely."
 decisions = ["STORE-403"]
+
+[T-404]
+title = "Codex workers on context overflow: compact (today) or fail?"
+area = "runtimes"
+kind = "question"
+status = "open"
+why = "notes/runtimes.md Step 4 findings: workers keep Codex's automatic compaction (RUN-402), \"owner's call whether workers should fail on overflow instead\"."
+decisions = ["RUN-402"]
+ask = "When a worker's long tool loop overflows the model's context window, should Codex compact the conversation and carry on (today), or should the worker fail instead?"
+
+[T-405]
+title = "Turn planner caching (P20) on by default once the injection test passes"
+area = "runtimes"
+kind = "build"
+status = "blocked"
+why = "RUN-401: on by default only after the owner's run of tests/security/test_planner_injection_real.py passes (LIVE-405); `codex_planner_cache` defaults to false today (catalog.py:163)."
+decisions = ["RUN-401"]
+
+[T-406]
+title = "gpt-6.1-terra has no OpenAI limits or price"
+area = "runtimes"
+kind = "chore"
+status = "open"
+why = "notes/runtimes.md Pin move 2026-11-01: Codex 0.166.0's bundled catalog adds gpt-6.1-terra, but FERB knows no OpenAI max output for it; openai_api.py and prices.py list gpt-6.1-sol only."

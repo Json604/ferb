@@ -14,3 +14,5 @@ paths:
 Building and signing FERB.app and DMGs, versions, appcasts, release checks, the logo assets and the public site.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **REL-401** (owner): FERB.app stays within 720 MB (arm64) and 750 MB (Intel), in MB of 10^6 bytes, checked by tests/test_packaging.py MAX_APP_MB.

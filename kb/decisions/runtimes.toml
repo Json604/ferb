@@ -1,0 +1,139 @@
+# Decisions of area `runtimes` (kb/areas.toml). Moved from notes/runtimes.md on 2026-11-02.
+
+[RUN-400]
+title = "Keep every model runtime and fix each"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words = "all major options so people can choose and try anything"
+words_source = "notes/runtimes.md owner decision 1: the quote is the owner's; the rest of the decision is an agent's summary"
+rule = "FERB keeps Codex, the Claude Agent SDK, and its own loop over the Anthropic, OpenAI and Gemini APIs, each fixed. Core output schemas are provider-neutral so any adapter can run any role. Each is live tested on real calls one by one (Codex, Claude SDK on the owner's subscription, Anthropic API and Gemini API on the owner's keys); the OpenAI API is checked offline only until the owner has a key."
+paths = ["ferb/runtimes"]
+legacy = "notes/runtimes.md decision 1"
+
+[RUN-401]
+title = "Planner caching (P20) becomes the default once the live injection test passes"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/runtimes.md owner decision 2: an agent's summary; no verbatim quote recorded in the doc"
+rule = "The owner runs tests/security/test_planner_injection_real.py once after the rebuild; if it passes, the Codex planner's stable per-role cache key (`[runtimes] codex_planner_cache`) is on by default. Until then it stays off. It works with the smaller prompts: caching reuses their stable part."
+why = "Without it every planner call is a new app-server and thread, so a new cache key: 2.0% cached input on 300 planner turns (workers 91.9%), 2026-10-30."
+paths = ["ferb/runtimes/catalog.py", "ferb/runtimes/codex_stream.py", "tests/security/test_planner_injection_real.py"]
+legacy = "notes/runtimes.md decision 2"
+
+[RUN-402]
+title = "Codex compaction: off for supervisor runs, Codex's default for workers"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Supervisor (one-turn) Codex runs set `model_auto_compact_token_limit` out of reach, so an over-window prompt comes back as an overflow. Codex workers keep Codex's automatic compaction: a long tool loop compacts rather than fails (owner question T-404)."
+why = "FERB already fits one-turn prompts to the window, so compaction could only rewrite FERB's context (36 planner prompts went over 244.8k tokens)."
+paths = ["ferb/runtimes/codex_exec.py::NO_AUTO_COMPACT"]
+legacy = "notes/runtimes.md Rulings (step 4) and Step 4 findings: auto-compaction"
+
+[RUN-403]
+title = "worker_type is validated per call, not an enum in the planner schema"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "The planner's `worker_type` is a string checked against the runtimes available now; an unknown one goes back to the planner's repair loop naming the available types, and the dispatcher is told once and asked again. Worker types live in the planner's fixed Layer 1. Nothing blames config.toml."
+why = "An enum would change SUPERVISOR_SCHEMA per call, and the P20 cache keys on it."
+rejected = ["An enum of available runtimes in the planner schema"]
+legacy = "notes/runtimes.md Rulings (step 4) and fix list: worker_type"
+
+[RUN-404]
+title = "One runtime table: availability means model set and signed in (or key present)"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "ferb/runtimes/catalog.py `CATALOG` is the one list of runtimes: name, default model, sign-in kind, billing, factory, limits. A runtime is available only when its model is set and FERB's own sign-in or key is present; every former list (and `ferb setup --key`) reads it. Prices stay per model in prices.py, shared by Codex and the OpenAI API. Model defaults live only here."
+why = "Runtime names were listed in five places and a Claude runtime with no model was offered to the planner and failed every call."
+paths = ["ferb/runtimes/catalog.py::CATALOG", "ferb/runtimes/prices.py"]
+legacy = "notes/runtimes.md target design 1 and fix list (step 4)"
+
+[RUN-405]
+title = "Codex containment fails closed; FERB's gateway stays the hard boundary"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Codex runs only on the app-server path with every model-visible extra disabled (`DISABLED`), a locked model catalog (`CATALOG_LOCKDOWN`), a read-only sandbox with approval never, a tool-catalog check of the request trace that fails closed, and an item gate that stops a run on an unexpected item or server→client request, recording kind, tool and server. Any new tool Codex offers is a stop."
+why = "A kill after an extra tool appears happens after the request reached OpenAI, so containment only limits damage: tools run only through the gateway."
+paths = ["ferb/runtimes/codex_exec.py::DISABLED", "ferb/runtimes/codex_exec.py::CATALOG_LOCKDOWN", "ferb/runtimes/tooltrace.py", "ferb/runtimes/codex_stream.py"]
+legacy = "notes/runtimes.md What exists today: Codex adapter; fix list: item gate"
+
+[RUN-406]
+title = "Call time limits: planner 90 s, other non-worker calls 900 s, workers none"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "`catalog.call_limit` gives one deadline across start and answer, applied by every adapter: the planner's call 90 s (orchestration owner decision 11), every other non-worker call 900 s beside the 180 s silence guard, a worker none (it may wait on the owner as long as the owner takes)."
+rejected = ["Codex's doubled 900 s start plus 900 s events timeouts"]
+paths = ["ferb/runtimes/catalog.py::call_limit", "ferb/runtimes/catalog.py::CALL_LIMIT_S"]
+legacy = "notes/runtimes.md fix list (step 4): timeouts"
+
+[RUN-407]
+title = "Codex MCP timeouts: 120 s to start, 7 days per tool call"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "The Codex MCP config sets `startup_timeout_sec` 120 and `tool_timeout_sec` 7 days; FERB's stall watchdog and stop end real hangs. Codex's version check and the locked catalog run once at daemon start, the catalog rewritten only when Codex's own catalog file changes."
+why = "A FERB tool call can wait on an owner confirmation or a long shell command; Codex abandoned such calls, and one worker had no FERB tools loaded (suspected startup timeout)."
+paths = ["ferb/runtimes/codex_exec.py::MCP_STARTUP_TIMEOUT_S", "ferb/runtimes/codex_exec.py::MCP_TOOL_TIMEOUT_S"]
+legacy = "notes/runtimes.md fix list (step 4): MCP timeouts, version check once"
+
+[RUN-408]
+title = "Provider limits are met by reshaping schemas in the adapter; core schemas stay unchanged"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "ferb/runtimes/schema_shape.py reshapes core schemas per provider and maps answers back before FERB's check. Anthropic API and Claude SDK: a nullable object becomes a list of at most one item, a nested nullable scalar an optional property while the 24-optional budget lasts, the rest stay unions (at most 16). Gemini: an enum holding null becomes anyOf. Core schemas in ferb/core never change for a provider."
+why = "The Anthropic API refused SUPERVISOR_SCHEMA (\"too many parameters with union types\"); Claude Code marks tools strict when a request carries structured output, so Claude runs need it too."
+paths = ["ferb/runtimes/schema_shape.py"]
+legacy = "notes/runtimes.md fix list (step 4): provider-neutral schemas"
+
+[RUN-409]
+title = "Claude runs use only FERB's own sign-in and bundled Claude Code, with no hidden tools"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "A Claude SDK run uses FERB's own sign-in (never the owner's ~/.claude login), blanks inherited ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/CLAUDE_CODE_OAUTH_TOKEN, passes the run token as a 0600 file (`FERB_RUN_TOKEN_FILE`) in an owner-only folder, runs the bundled Claude Code (`cli_path`, no `claude` on PATH; missing, the run is refused), and sets `ENABLE_TOOL_SEARCH=false`. Sign-out removes FERB's marker."
+why = "A token in argv is visible in `ps`; since 2.1.304 tool search adds a DeferredToolPlaceholder tool behind a custom base URL that FERB's tool check would stop on every run."
+paths = ["ferb/runtimes/claude_sdk.py", "ferb/runtimes/claude_login.py"]
+legacy = "notes/runtimes.md fix list (step 4) and Pin move 2026-11-01: Claude"
+
+[RUN-410]
+title = "Codex workers get FERB's worker system prompt as their base instructions"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "thread/start's `baseInstructions` is FERB's system prompt for every Codex run, workers included, with empty developer instructions, replacing Codex's coding-agent base prompt."
+paths = ["ferb/runtimes/codex_stream.py"]
+legacy = "notes/runtimes.md Step 4 findings: worker base prompt"
+
+[RUN-411]
+title = "Moving the Codex and Claude pins"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "`ferb runtimes pins` only reports. A pin moves to the newest release at least two days old, checked offline (never ~/.ferb, a login or a model request). Codex: package.json, package-lock.json (`npm install --package-lock-only`, `npm ci`), CODEX_VERSION and INPUT_CHARS_SOURCE, spikes/01_codex_mcp/codex_run.py last. Claude: pyproject.toml, `uv lock`, SDK_VERSION and CLAUDE_CODE_VERSION. Then the suite, mypy, and live real tests (Codex `-m real`, one owner-run `-m real_claude`)."
+paths = ["ferb/runtimes/codex_exec.py::CODEX_VERSION", "ferb/runtimes/claude_sdk.py::SDK_VERSION", "package.json", "package-lock.json"]
+legacy = "notes/runtimes.md Moving the Codex/Claude pins, steps 1, 4, 5"
+
+[RUN-412]
+title = "What a Codex pin move checks offline"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "With HOME and CODEX_HOME temporary: `codex features list` against DISABLED (a new default-on feature that adds a model-visible tool joins it); `codex debug models --bundled` against CATALOG_LOCKDOWN and limits_for; `codex app-server generate-ts` old vs new against what codex_stream.py uses and the recorded test messages; `--print-startup-config --strict-config` with FERB's flags; the input cap; the trace format tooltrace.py reads. Strongest: the adapter against a local Responses stand-in under sandbox-exec, including a lockdown-off run that must stop."
+paths = ["ferb/runtimes/codex_exec.py", "ferb/runtimes/codex_stream.py", "ferb/runtimes/tooltrace.py"]
+legacy = "notes/runtimes.md Moving the Codex/Claude pins, step 2"
+
+[RUN-413]
+title = "What a Claude pin move checks offline"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Read Claude Code's changelog since the old version; find the behaviours claude_sdk.py names (cache breakpoints, tool search, the too-long text, the MCP idle timeout, the cost field, the structured-output subtype, the auth commands) in the bundled binary's strings. Strongest: `ClaudeRuntime._options` against a local Messages API stand-in, the CLI under sandbox-exec with only localhost and no Keychain, a made-up API key, comparing the request's tools and cache_control with the old CLI's."
+paths = ["ferb/runtimes/claude_sdk.py"]
+legacy = "notes/runtimes.md Moving the Codex/Claude pins, step 3"

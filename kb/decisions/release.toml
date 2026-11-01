@@ -1,0 +1,25 @@
+# Decisions of area `release` (kb/areas.toml). Moved from notes/runtimes.md on 2026-11-02.
+
+[REL-400]
+title = "FERB.app size target: 600 MB arm64, 630 MB Intel"
+by = "owner"
+date = 2026-10-25
+status = "superseded"
+superseded_by = "REL-401"
+words_source = "notes/runtimes.md names \"the owner's 600 / 630 MB targets\" (tests/test_packaging.py: L34 answer A2); no verbatim quote in the doc"
+rule = "FERB.app stays within 600 MB (arm64) and 630 MB (Intel), in MB of 10^6 bytes, checked by tests/test_packaging.py MAX_APP_MB."
+paths = ["tests/test_packaging.py::MAX_APP_MB"]
+legacy = "notes/runtimes.md Pin move 2026-11-01: App size (the earlier targets)"
+
+[REL-401]
+title = "FERB.app size cap raised to 720 MB arm64, 750 MB Intel after the runtime upgrades"
+by = "owner"
+date = 2026-11-01
+status = "active"
+supersedes = ["REL-400"]
+words = "yeah ofc raise the cap"
+rule = "FERB.app stays within 720 MB (arm64) and 750 MB (Intel), in MB of 10^6 bytes, checked by tests/test_packaging.py MAX_APP_MB."
+why = "The Codex 0.166.0 binary (238 → 269 MB) and bundled Claude Code 2.1.310 (225 → 274 MB) added about 80 MB."
+evidence = "Step-13 arm64 build, 2026-11-01: 705.6 MB (Claude Code 274.1, Codex 273.0)."
+paths = ["tests/test_packaging.py::MAX_APP_MB"]
+legacy = "notes/runtimes.md Pin move 2026-11-01: App size"
