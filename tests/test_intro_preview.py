@@ -101,6 +101,7 @@ def _latest_task(daemon: RunningDaemon) -> str | None:
 
 
 # decision: ORCH-500, ORCH-1
+# decision: APP-513
 def test_preview_runs_no_worker_and_issues_no_run_token(daemon: RunningDaemon) -> None:
     script = _planned(daemon)
     issued: list[Any] = []
@@ -132,6 +133,7 @@ def test_preview_runs_no_worker_and_issues_no_run_token(daemon: RunningDaemon) -
 
 
 # decision: ORCH-500
+# decision: APP-513
 def test_preview_shows_the_planned_steps_as_parts(daemon: RunningDaemon) -> None:
     _planned(daemon)
     events = _preview(daemon)

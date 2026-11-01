@@ -68,6 +68,7 @@ final class ChatDetailsTests: XCTestCase {
         }
     }
 
+    // decision: APP-573
     func testArtifactPrimaryActionUsesQuickLookNotDefaultApp() {
         let model = NotchModel(preferences: scratchDefaults())
         let url = URL(fileURLWithPath: "/tmp/report.md")
@@ -102,6 +103,7 @@ final class ChatDetailsTests: XCTestCase {
         XCTAssertEqual(model.bodyHeight, emptyBody)
     }
 
+    // decision: APP-571
     func testFreshRepliesAndErrorsRevealWithoutFocusAndDuplicatesStayClosed() {
         for type in ["reply", "error"] {
             let model = NotchModel(preferences: scratchDefaults())
@@ -120,6 +122,7 @@ final class ChatDetailsTests: XCTestCase {
         }
     }
 
+    // decision: APP-571
     func testFreshExternalOutcomesOpenButHistoryAndRepeatedEventsDoNot() {
         for status in ["done", "failed"] {
             let model = NotchModel(preferences: scratchDefaults())
@@ -134,6 +137,7 @@ final class ChatDetailsTests: XCTestCase {
         }
     }
 
+    // decision: APP-571, APP-577
     func testBackgroundBoundCompletionExpandsForegroundWithoutReplacingDraft() {
         for status in ["done", "failed"] {
             let model = NotchModel(preferences: scratchDefaults())

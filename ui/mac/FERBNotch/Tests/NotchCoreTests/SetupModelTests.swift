@@ -92,6 +92,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.step, .ai)
     }
 
+    // decision: APP-510
     func testGrantAsksTheDaemonForTheRequestThenOpensThatPane() async {
         let rig = SetupRig()
         rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()
@@ -104,6 +105,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertFalse(model.offersRestart)                      // Accessibility applies without a restart
     }
 
+    // decision: APP-510
     func testFullDiskAccessShowsTheAgentAppAndOffersARestartToCheck() async {
         let rig = SetupRig()
         rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()
@@ -131,6 +133,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertTrue(rig.opener.opened.isEmpty && rig.opener.revealed.isEmpty)
     }
 
+    // decision: APP-510, APP-401
     func testFERBAppsOwnRowsAskMacOSWhenUndecidedAndOpenThePaneWhenOff() async {
         let rig = SetupRig()
         rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()
@@ -163,6 +166,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(SetupModel.allowAllSequence.suffix(2), ["notifications", "screen_recording"])
     }
 
+    // decision: APP-510
     func testComingBackFromSystemSettingsRestartsOnceToCheckTheSwitch() async {
         // A friend's Screen Recording never ticked until the service restarted (2026-10-27)
         let rig = SetupRig()
@@ -183,6 +187,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertTrue(model.offersRestart)                              // the button stays for that
     }
 
+    // decision: APP-510
     func testARowStillOffAfterItsGrantOffersFERBToDragIn() async {
         // A friend's newer macOS didn't list FERB in its pane (2026-10-27): the agent app can be dragged in
         let rig = SetupRig()
@@ -196,6 +201,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(rig.opener.revealed, [SetupReplies.agent])
     }
 
+    // decision: APP-401, APP-536
     func testSetupPermissionsHaveNoSeparateHearingRow() async {
         // Hearing is the same Speech Recognition grant as dictation: the microphone row covers both
         XCTAssertEqual(SetupModel.askedAtSetup.count, 7)
@@ -210,6 +216,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertTrue(model.allRows.filter { $0.id == "hearing" }.isEmpty)
     }
 
+    // decision: APP-508
     func testAutomationAllowAsksMacOSThroughTheDaemonOrOpensThePaneWhenOff() async {
         let rig = SetupRig()
         rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()
@@ -223,6 +230,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(rig.opener.opened.last?.absoluteString, SetupReplies.pane + "Privacy_Automation")
     }
 
+    // decision: APP-507
     func testAPIKeyGoesOnlyToTheKeychainThenThatServiceIsChosenAndChecked() async {
         let rig = SetupRig()
         rig.rpc.replies["runtimes.check"] = ["ok": true, "detail": "answered"]
@@ -246,6 +254,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertTrue(rig.rpc.calls.isEmpty)
     }
 
+    // decision: APP-507
     func testSignInWithChatGPTRunsFERBsOwnCodexLoginThenChoosesCodex() async {
         let rig = SetupRig()
         let model = rig.model()
@@ -259,6 +268,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertTrue(rig.rpc.params(of: "runtimes.check").isEmpty)    // signing in already proved it
     }
 
+    // decision: APP-507
     func testUseClaudeChoosesItAndSaysWhetherItAnswered() async {
         let rig = SetupRig()
         rig.rpc.replies["runtimes.check"] = ["ok": false, "detail": "not logged in"]
@@ -277,6 +287,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertTrue(rig.rpc.params(of: "chat.approve").isEmpty && rig.rpc.params(of: "chat.answer").isEmpty)
     }
 
+    // decision: APP-511
     func testAddToChromeAsksTheDaemonToOpenThatProfile() async {
         let rig = SetupRig()
         rig.rpc.replies["setup.browsers"] = ["store_url": NSNull(), "extension_dir": "/x", "browsers": [

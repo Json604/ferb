@@ -28,6 +28,7 @@ final class SettingsWindowTrackerTests: XCTestCase {
         RawWindow(pid: 1, bounds: CGRect(x: x, y: 100, width: 600, height: 400), layer: 0)
     }
 
+    // decision: APP-510
     func testOpeningAnimationIsIgnoredUntilSettledThenMovesAreFollowed() {
         let (t, seen) = makeTracker()
         for x in [300.0, 340, 380] { windows = [raw(x: x)]; t.poll() }
@@ -41,6 +42,7 @@ final class SettingsWindowTrackerTests: XCTestCase {
         XCTAssertEqual(seen().compactMap { $0?.x }, [384, 484, 504])
     }
 
+    // decision: APP-510
     func testHidesWhenNotFrontmost() {
         let (t, seen) = makeTracker()
         windows = [raw(x: 400)]; t.poll(); t.poll()
@@ -49,6 +51,7 @@ final class SettingsWindowTrackerTests: XCTestCase {
         XCTAssertNil(seen().last!)
     }
 
+    // decision: APP-510
     func testReportsNilWhenTheWindowClosesOrIsMinimised() {
         let (t, seen) = makeTracker()
         windows = [raw(x: 400)]; t.poll(); t.poll()
@@ -59,6 +62,7 @@ final class SettingsWindowTrackerTests: XCTestCase {
         XCTAssertNil(seen().last!)
     }
 
+    // decision: APP-510
     func testStopForgetsStateSoStartReportsAgainWithoutEmittingNil() {
         let (t, seen) = makeTracker()
         windows = [raw(x: 400)]; t.poll(); t.poll()
@@ -71,6 +75,7 @@ final class SettingsWindowTrackerTests: XCTestCase {
         XCTAssertEqual(seen().last!?.x, 384)
     }
 
+    // decision: APP-510
     func testWindowOnADisplayAboveThePrimary() {
         let (t, seen) = makeTracker()
         // Quartz y -600 on a 900-tall primary: AppKit y 1100..1500, midY 1300.

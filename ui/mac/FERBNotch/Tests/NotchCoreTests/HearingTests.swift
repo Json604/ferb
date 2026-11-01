@@ -30,12 +30,14 @@ final class HearingTests: XCTestCase {
         return path
     }
 
+    // decision: APP-537
     func testAnUnknownOrMissingFirstArgumentStartsTheNormalApp() {
         XCTAssertNil(Hearing.run(["FERBNotch"], givenHome: nil, account: home))
         XCTAssertNil(Hearing.run(["FERBNotch", "--service"], givenHome: nil, account: home))
         XCTAssertNil(Hearing.run(["FERBNotch", "-NSDocumentRevisionsDebugMode", "YES"], givenHome: nil, account: home))
     }
 
+    // decision: APP-537
     func testAForeignFerbHomeIsRefusedBeforeAnythingIsAnswered() throws {
         let foreign = root + "/x"
         try FileManager.default.createDirectory(atPath: foreign + "/workspace/audio", withIntermediateDirectories: true)
@@ -47,11 +49,13 @@ final class HearingTests: XCTestCase {
         XCTAssertEqual(Hearing.run(["FERBNotch", "status", answer], givenHome: nil, account: nil), 64)   // no account
     }
 
+    // decision: APP-537
     func testAModeWithoutItsArgumentsDoesNothing() {
         XCTAssertEqual(Hearing.run(["FERBNotch", "status"], givenHome: nil, account: home), 64)
         XCTAssertEqual(Hearing.run(["FERBNotch", "transcribe", "a.wav"], givenHome: nil, account: home), 64)
     }
 
+    // decision: APP-537
     func testOnlyTheDaemonsEmptyAnswerFileInTheAudioFolderIsAccepted() throws {
         let ok = lease()
         let fd = try XCTUnwrap(Hearing.answerFile(ok, home: home))
@@ -70,6 +74,7 @@ final class HearingTests: XCTestCase {
         XCTAssertNil(Hearing.answerFile(symlink, home: home))                   // never through a link
     }
 
+    // decision: APP-537
     func testDeletingTheAnswerFileStopsHearingAndNothingIsLeftBehind() throws {
         let stopped = expectation(description: "stopped")
         stopped.assertForOverFulfill = false
@@ -82,6 +87,7 @@ final class HearingTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
     }
 
+    // decision: APP-537
     func testASoundOutsideTheAudioFolderIsRefusedBeforeSpeechIsTouched() throws {
         let path = lease()
         let stray = root + "/stray.wav"

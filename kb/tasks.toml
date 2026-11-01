@@ -394,3 +394,27 @@ kind = "build"
 status = "open"
 why = "relay/test.mjs checks the Worker's protocol, limits and refusals, but its name matches no test_globs pattern and no gate check runs it, so kb sees no test for DMN-32. Both fixes touch protected gate files (Gate-change)."
 decisions = ["DMN-30", "DMN-32"]
+
+[T-1000]
+title = "Write the test for APP-502: the tour's lines are never read aloud"
+area = "app"
+kind = "build"
+status = "open"
+why = "No test checks that the intro never reaches speech output; IntroControllerTests only assert which family sounds play. An IntroController test can run the whole tour with a fake speech path and assert it is never called."
+decisions = ["APP-502"]
+
+[T-1001]
+title = "Write the test for APP-515: a resumed tour waits while the service is down"
+area = "app"
+kind = "build"
+status = "open"
+why = "No test resumes a tour with the daemon down; testAllowAllWaitsForTheDaemonsAnswer shows the same \"Getting my background part ready…\" wait only at the Allow all beat of a fresh tour."
+decisions = ["APP-515"]
+
+[T-1002]
+title = "Write the test for APP-575 once the owner settles the transcript height"
+area = "app"
+kind = "build"
+status = "open"
+why = "APP-575 says 240 points growing with content to 320; the code (NotchModel.swift chatTranscriptHeight) has an owner-resizable height, default 300, minimum 260, and ContinuousChatTests expects 300 and a resize to 380. The owner decides which stands first."
+decisions = ["APP-575"]

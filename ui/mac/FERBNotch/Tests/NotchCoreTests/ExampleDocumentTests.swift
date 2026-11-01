@@ -4,6 +4,7 @@ import PDFKit
 
 final class ExampleDocumentTests: XCTestCase {
     @MainActor
+    // decision: APP-573
     func testExampleIsARealSinglePagePDFAndDoesNotReadSources() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

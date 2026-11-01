@@ -3,6 +3,7 @@ import CoreGraphics
 @testable import NotchCore
 
 final class OrbMotionTests: XCTestCase {
+    // decision: APP-504
     func testRetargetMidFlightKeepsVelocity() {
         var orb = OrbMotion(origin: CGPoint(x: 100, y: 100))
         orb.retarget(CGPoint(x: 600, y: 300), spec: .open)
@@ -14,6 +15,7 @@ final class OrbMotionTests: XCTestCase {
         XCTAssertEqual(orb.velocity.dy, before.dy, accuracy: 1e-9)
     }
 
+    // decision: APP-504
     func testCloseSpringNeverOvershoots() {
         for dt in [1.0 / 60, 1.0 / 120] {
             var orb = OrbMotion(origin: CGPoint(x: 0, y: 0))
@@ -27,6 +29,7 @@ final class OrbMotionTests: XCTestCase {
         }
     }
 
+    // decision: APP-504
     func testOpenSpringOvershootsSlightlyThenSettles() {
         var orb = OrbMotion(origin: .zero)
         orb.retarget(CGPoint(x: 400, y: 0), spec: .open)
@@ -36,6 +39,7 @@ final class OrbMotionTests: XCTestCase {
         XCTAssertTrue(orb.settled)
     }
 
+    // decision: APP-518
     func testOrbLaunchesFromTheVirtualNotchOnANotchlessScreen() {
         let frame = CGRect(x: 1000, y: 0, width: 1440, height: 900)
         XCTAssertEqual(OrbOrigin.notchCentre(screenFrame: frame, cutout: nil), CGPoint(x: 1720, y: 888))
@@ -43,6 +47,7 @@ final class OrbMotionTests: XCTestCase {
                        CGPoint(x: 1720, y: 880))
     }
 
+    // decision: APP-501
     func testOrbLaunchesFromTheCutoutCentreOnANotchedScreen() {
         let frame = CGRect(x: 0, y: 0, width: 1512, height: 982)
         let cutout = CGRect(x: 656, y: 950, width: 200, height: 32)

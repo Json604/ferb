@@ -5,6 +5,7 @@ import AppKit
 
 final class ShortcutStateTests: XCTestCase {
     @MainActor
+    // decision: APP-552
     func testNativeModifierFlagsPreserveTheCommandKeySide() {
         let right = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.command.rawValue
                                           | NSEvent.ModifierFlags.option.rawValue | 0x10 | 0x40)
@@ -14,6 +15,7 @@ final class ShortcutStateTests: XCTestCase {
         XCTAssertEqual(NotchShortcutMonitor.modifiers(from: left), [.leftCommand, .rightOption])
     }
 
+    // decision: APP-552
     func testRightOptionDoubleTapOnlyOpensTyping() {
         var state = NotchShortcutState()
         XCTAssertEqual(state.update([.rightOption], at: 0, keyCount: 0), [])
@@ -22,12 +24,14 @@ final class ShortcutStateTests: XCTestCase {
         XCTAssertEqual(state.update([], at: 0.3, keyCount: 0), [.togglePanel])
     }
 
+    // decision: APP-552
     func testHoldingOptionAloneNeverStartsVoice() {
         var state = NotchShortcutState()
         XCTAssertEqual(state.update([.rightOption], at: 0, keyCount: 0), [])
         XCTAssertEqual(state.update([], at: 3, keyCount: 0), [])
     }
 
+    // decision: APP-552
     func testVoiceStartsImmediatelyInEitherPressOrderAndEndsOnce() {
         for option: ShortcutModifiers in [.rightOption, .leftOption] {
             for first: ShortcutModifiers in [option, .rightCommand] {
@@ -42,12 +46,14 @@ final class ShortcutStateTests: XCTestCase {
         }
     }
 
+    // decision: APP-552
     func testLeftCommandAndOptionDoNotStartVoice() {
         var state = NotchShortcutState()
         XCTAssertEqual(state.update([.leftCommand, .rightOption], at: 0, keyCount: 0), [])
         XCTAssertEqual(state.update([], at: 1, keyCount: 0), [])
     }
 
+    // decision: APP-552
     func testAnOrdinaryKeyboardChordCancelsVoiceAndCannotBecomeADoubleTap() {
         var state = NotchShortcutState()
         _ = state.update([.rightOption], at: 0, keyCount: 0)
@@ -58,6 +64,7 @@ final class ShortcutStateTests: XCTestCase {
         XCTAssertEqual(state.update([], at: 0.4, keyCount: 1), [])
     }
 
+    // decision: APP-552
     func testAdditionalModifierCancelsVoiceWithoutRestartingUntilReleased() {
         var state = NotchShortcutState()
         XCTAssertEqual(state.update([.rightOption, .rightCommand], at: 0, keyCount: 0), [.startVoice])

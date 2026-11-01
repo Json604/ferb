@@ -128,6 +128,7 @@ final class PillShoulderTests: XCTestCase {
 }
 
 extension NotchDockingTests {
+    // decision: APP-553
     func testHoverIncludesExactPhysicalTopBoundary() {
         XCTAssertTrue(NotchDocking.accepts(CGPoint(x: notch.midX, y: notch.maxY), cutout: notch, hasHardwareNotch: true))
     }

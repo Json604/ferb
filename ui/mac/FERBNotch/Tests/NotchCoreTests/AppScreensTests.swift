@@ -26,6 +26,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(about.cost.map(\.value), ["$1.50", "$4.25"])
     }
 
+    // decision: APP-4
     func testTheAppGuideNamesWhereEverySettingLives() {
         let keys = ["privacy.exclude_apps", "privacy.exclude_domains", "sense.window_titles", "sense.trail_retention_days",
                     "retention.trace_days", "retention.decision_days", "retention.evidence_days", "retention.recovery_days",
@@ -36,6 +37,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual((payload["shortcuts"] as? [[String: String]])?.count, AppGuide.shortcuts.count)
     }
 
+    // decision: APP-2
     func testRestoreRowsAndSavedSecretsCarryNamesNeverValues() {
         let trash = RestoreRow(["id": "r1", "kind": "trash", "original": "~/Desktop/a.txt", "reason": "trash",
                                 "at": "2026-10-31T10:00:00+00:00"])
@@ -77,6 +79,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(roomless.needed, 5000000000)
     }
 
+    // decision: APP-1
     func testTheIdentityStateListsOnlyProfilesHoldingFERBsAccountAlone() {
         let state = IdentityState(["current": ["address": "", "browser": "", "profile": "", "paired": false,
                                                "owner_profile": "chrome/Default"],
@@ -89,6 +92,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(state.ownerProfile, "chrome/Default")
     }
 
+    // decision: APP-1
     func testChoosingFERBsProfileWritesItThroughTheDaemonThenPairs() async {
         let rig = SetupRig()
         rig.rpc.replies["identity.find"] = ["current": ["address": ""], "candidates": [
@@ -111,6 +115,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(set?["value"] as? String, "chrome/Default")
     }
 
+    // decision: APP-2
     func testDataPageCallsRestoreAndDeleteWithTheRowsIdentity() async {
         let rpc = ScriptedRPC()
         rpc.replies["recovery.list"] = ["days": 7, "total": 1, "records": [["id": "r1", "kind": "trash",
@@ -129,6 +134,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(deleted?["name"] as? String, "password")
     }
 
+    // decision: APP-5, APP-2
     func testUninstallingEverythingRunsThePurgeTheOwnerConfirmedInTheApp() {
         XCTAssertEqual(FerbOutput.uninstallArguments(purge: false), ["uninstall"])
         XCTAssertEqual(FerbOutput.uninstallArguments(purge: true), ["uninstall", "--purge", "--yes"])
@@ -153,6 +159,7 @@ final class AppScreensTests: XCTestCase {
 
     // MARK: What FERB saw (step 12e)
 
+    // decision: APP-3
     func testWhatFerbSawReadsTheDaemonsCapturesNewestFirst() {
         let list = SeenList(["captures": [
             ["id": "e2", "at": "2026-10-31T10:00:05.123456+00:00", "kind": "screenshot", "task_id": "t1",
@@ -172,6 +179,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(SeenList([:]).days, 7)
     }
 
+    // decision: APP-3
     func testWhatFerbSawAsksForAMessagesOrATasksScreenshots() {
         XCTAssertEqual(SeenScope(requestID: "r1", taskID: "t1"), .request("r1"))   // a message: by its request
         XCTAssertEqual(SeenScope(requestID: nil, taskID: "t1"), .task("t1"))       // a task this chat didn't send
@@ -181,6 +189,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertTrue(SeenScope.all.params.isEmpty)
     }
 
+    // decision: APP-3
     func testWhatFerbSawLoadsTheListThenEachImageOnce() async {
         let rpc = ScriptedRPC()
         rpc.replies["seen.list"] = ["captures": [["id": "e1", "kind": "front_window", "app": "Mail"]], "total": 1]

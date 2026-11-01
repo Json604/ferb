@@ -8,6 +8,7 @@ final class NotchYieldModelTests: XCTestCase {
         NotchModel(preferences: scratchDefaults(), microphone: microphone)
     }
 
+    // decision: APP-559
     func testReasonsOverlapAndOnlyTheLastOneEndingBringsFERBBack() {
         let model = makeModel()
         model.expand()
@@ -23,6 +24,7 @@ final class NotchYieldModelTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testYieldingToAnAppNeedsAPinnedChatAndEndsWithThePinOrTheChat() {
         let model = makeModel()
         model.expand()
@@ -39,6 +41,7 @@ final class NotchYieldModelTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testYieldingLeavesDraftAttachmentsPinAndFoldUnchanged() {
         let model = makeModel()
         let file = URL(fileURLWithPath: "/tmp/brief.txt")
@@ -58,6 +61,7 @@ final class NotchYieldModelTests: XCTestCase {
         XCTAssertTrue(model.bodyVisible)
     }
 
+    // decision: APP-559
     func testDictationBringsFERBBackAndKeepsOtherAppsFromHidingIt() {
         let model = makeModel(microphone: SilentMicrophone())
         model.expand()
@@ -75,6 +79,7 @@ final class NotchYieldModelTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-586
     func testAQuestionThatArrivesWhileYieldedKeepsItsLightButACompletionDoesNot() {
         let model = makeModel()
         model.expand()

@@ -12,6 +12,7 @@ final class MicrophoneRecoveryTests: XCTestCase {
         XCTAssertEqual(rebuilt, [2])
     }
 
+    // decision: APP-568
     func testReleaseOrCancelPreventsDelayedMicrophoneRestart() async throws {
         let recovery = MicrophoneRouteRecovery()
         var restarts = 0

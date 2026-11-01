@@ -5,6 +5,7 @@ import CoreGraphics
 
 @MainActor
 final class IntroNarrationTests: XCTestCase {
+    // decision: APP-501
     func testSettingAnIntroLineSwellsTheNotchToShowItWithoutOpeningTheChat() {
         let model = NotchModel(preferences: scratchDefaults())
         var presented: [Bool] = []
@@ -23,6 +24,7 @@ final class IntroNarrationTests: XCTestCase {
         XCTAssertLessThan(model.surfaceSize.height, oneLine.height)   // the detail line has its own room
     }
 
+    // decision: APP-501
     func testClearingTheIntroLineShrinksTheNotchBack() {
         let model = NotchModel(preferences: scratchDefaults())
         let collapsed = model.surfaceSize
@@ -38,6 +40,7 @@ final class IntroNarrationTests: XCTestCase {
         XCTAssertNil(model.introDisplayLine)
     }
 
+    // decision: APP-516
     func testTearDownDuringAFlightLeavesNoOrbAndSchedulesNoMoreSound() async {
         let surface = FakeOrbSurface()
         let sound = FakeSoundPlayer()
@@ -67,6 +70,7 @@ final class IntroNarrationTests: XCTestCase {
         XCTAssertFalse(surface.visible)
     }
 
+    // decision: APP-535
     func testEverySoundHasItsFiles() {
         for sound in FerbSound.allCases {
             for subtle in [false, true] {
@@ -130,6 +134,7 @@ final class IntroPrecedenceTests: XCTestCase {
         XCTAssertNotEqual(model.compactContent, .intro(line))
     }
 
+    // decision: APP-501
     func testThePulseSwellsTheNotchOnceAndShrinksBack() async throws {
         let model = NotchModel(preferences: scratchDefaults())
         let collapsed = model.surfaceSize

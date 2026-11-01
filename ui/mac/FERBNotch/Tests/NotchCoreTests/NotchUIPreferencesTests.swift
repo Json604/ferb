@@ -46,6 +46,7 @@ final class NotchUIPreferencesTests: XCTestCase {
         XCTAssertTrue(model.hoverEnabled)
     }
 
+    // decision: APP-564
     func testNewTaskResetsIndicatorFromAnOlderFailureToWorking() {
         let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Earlier task"

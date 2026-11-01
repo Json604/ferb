@@ -3,6 +3,7 @@ import XCTest
 @testable import FERBNotch
 
 final class CompletionGlowTests: XCTestCase {
+    // decision: APP-564
     func testCompletionHasExactlyTwoGlowsSeparatedByDarkness() {
         var wasLit = false
         var pulses = 0
@@ -18,6 +19,7 @@ final class CompletionGlowTests: XCTestCase {
         XCTAssertEqual(CompletionGlow.opacity(at: 100), 0)
     }
 
+    // decision: APP-564
     func testReducedMotionUsesOneQuietGlowThenTurnsOff() {
         XCTAssertGreaterThan(CompletionGlow.opacity(at: 0.7, reduceMotion: true), 0)
         XCTAssertGreaterThan(CompletionGlow.opacity(at: 1.7, reduceMotion: true), 0)
@@ -25,6 +27,7 @@ final class CompletionGlowTests: XCTestCase {
     }
 
     @MainActor
+    // decision: APP-558
     func testPinBlocksAutomaticDismissalButExplicitCloseStillWorks() {
         let model = NotchModel()
         model.expand()

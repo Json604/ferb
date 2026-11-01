@@ -9,6 +9,7 @@ final class NotchOverlapTests: XCTestCase {
         NotchOverlap.foreignOverlay(in: windows, ferbFrames: frames, ownPIDs: [F.ferb], menuBar: F.menuBar, display: F.display)
     }
 
+    // decision: APP-559
     func testAnotherAppsMenuOverTheNotchYields() {
         XCTAssertTrue(covers([F.clipboardMenu]))
         XCTAssertTrue(covers([F.clipboardMenu], frames: [F.openPanel]))
@@ -17,20 +18,24 @@ final class NotchOverlapTests: XCTestCase {
                                                     menuBar: F.menuBar, display: F.display), [F.clipboardMenu, F.shareBar])
     }
 
+    // decision: APP-559
     func testAPopoverAtTheStatusLayerThatReachesBelowTheMenuBarYields() {
         XCTAssertTrue(covers([F.window(F.clipboardApp, layer: 25, 700, 30, 300, 300)]))
     }
 
+    // decision: APP-559
     func testANormalWindowUnderTheNotchDoesNotYield() {
         XCTAssertFalse(covers([F.maximizedBrowser], frames: [F.openPanel]))
     }
 
+    // decision: APP-559
     func testFERBsOwnWindowsAreIgnored() {
         XCTAssertFalse(covers([F.window(F.ferb, layer: 25, 547, 0, 376, 432), F.window(F.ferb, layer: 26, 626, 0, 219, 56),
                                F.window(F.ferb, layer: 8, 579, 127, 312, 402), F.window(F.ferb, layer: 101, 860, 40, 200, 180)],
                               frames: [F.openPanel]))
     }
 
+    // decision: APP-559
     func testAlwaysPresentSystemChromeIsIgnored() {
         let chrome = [
             F.window(F.windowServer, layer: 24, 0, 0, 1470, 33),            // the menu bar
@@ -45,11 +50,13 @@ final class NotchOverlapTests: XCTestCase {
         XCTAssertTrue(covers(chrome + [F.clipboardMenu], frames: [F.openPanel]))
     }
 
+    // decision: APP-559
     func testWindowsThatOnlyTouchFERBsEdgeDoNotYield() {
         XCTAssertFalse(covers([F.window(F.clipboardApp, layer: 101, 850, 44, 260, 400)]))
         XCTAssertTrue(covers([F.window(F.clipboardApp, layer: 101, 850, 43, 260, 400)]))
     }
 
+    // decision: APP-559
     func testTheCollapsedTabOnADisplayWithoutANotchCounts() {
         let display = CGRect(x: 0, y: 0, width: 1920, height: 1080)
         let menuBar = CGRect(x: 0, y: 0, width: 1920, height: 24)
@@ -58,6 +65,7 @@ final class NotchOverlapTests: XCTestCase {
         XCTAssertTrue(NotchOverlap.foreignOverlay(in: [menu], ferbFrames: [tab], ownPIDs: [F.ferb], menuBar: menuBar, display: display))
     }
 
+    // decision: APP-559
     func testNearlyInvisibleWindowsDoNotCount() {
         XCTAssertFalse(covers([F.window(F.clipboardApp, layer: 101, 850, 33, 260, 400, alpha: 0.03)]))
         XCTAssertTrue(covers([F.window(F.clipboardApp, layer: 101, 850, 33, 260, 400, alpha: 0.05)]))
@@ -65,6 +73,7 @@ final class NotchOverlapTests: XCTestCase {
                                                        appPID: F.browser, chat: F.openSurface))
     }
 
+    // decision: APP-559
     func testSystemInputProcessesAreRecognisedByBundleIdentifier() {
         for id in ["com.apple.PressAndHold", "com.apple.CharacterPaletteIM", "com.apple.TextInputSwitcher",
                    "com.apple.TextInputUI.xpc.CursorUIViewService", "com.apple.50onPaletteIM",
@@ -77,10 +86,12 @@ final class NotchOverlapTests: XCTestCase {
         }
     }
 
+    // decision: APP-559
     func testNothingOfFERBOnScreenNeverYields() {
         XCTAssertFalse(covers([F.clipboardMenu], frames: []))
     }
 
+    // decision: APP-559
     func testAnAppWindowCountsUnderTheChatOnlyWhereTheChatIsDrawn() {
         XCTAssertTrue(NotchOverlap.appWindowUnderChat(in: [F.maximizedBrowser], appPID: F.browser, chat: F.openSurface))
         // The folded header lives in the menu bar, where no ordinary window can be.
@@ -94,6 +105,7 @@ final class NotchOverlapTests: XCTestCase {
                                                        appPID: F.browser, chat: F.openSurface))
     }
 
+    // decision: APP-559
     func testTheClickedWindowIsTheFrontmostVisibleOneThatIsNotFERBs() {
         let point = CGPoint(x: 700, y: 40)
         let ferbPanel = F.window(F.ferb, layer: 25, 547, 0, 376, 432)
@@ -134,6 +146,7 @@ final class NotchOverlapTests: XCTestCase {
 }
 
 final class NotchYieldTests: XCTestCase {
+    // decision: APP-559
     func testVisibilityChangesOnlyWhenTheReasonSetFillsOrEmpties() {
         var yield = NotchYield()
         XCTAssertTrue(yield.begin(.filePicker))
@@ -146,6 +159,7 @@ final class NotchYieldTests: XCTestCase {
         XCTAssertFalse(yield.end(.foreignOverlay))
     }
 
+    // decision: APP-559
     func testOtherAppsWindowsNeverHideFERBDuringDictation() {
         var yield = NotchYield()
         XCTAssertFalse(yield.begin(.foreignOverlay, listening: true))
@@ -154,6 +168,7 @@ final class NotchYieldTests: XCTestCase {
         XCTAssertTrue(yield.begin(.filePicker, listening: true))
     }
 
+    // decision: APP-559
     func testStartingDictationDropsOnlyTheWindowReasons() {
         var yield = NotchYield()
         yield.begin(.foreignOverlay)

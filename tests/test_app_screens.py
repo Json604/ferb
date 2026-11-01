@@ -98,6 +98,7 @@ def test_what_ferb_keeps_comes_from_the_retention_rule_table(daemon: RunningDaem
 
 
 # decision: DMN-6
+# decision: APP-4
 def test_the_app_guide_becomes_the_self_descriptions_how_tos(daemon: RunningDaemon) -> None:
     _grants(daemon)
     _as_app(daemon)
@@ -114,6 +115,7 @@ def test_the_app_guide_becomes_the_self_descriptions_how_tos(daemon: RunningDaem
 # ---------- FERB's own account (APP-1) ----------
 
 # decision: DMN-25
+# decision: APP-1
 def test_choosing_ferbs_profile_writes_config_through_the_settings_path(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
@@ -142,6 +144,7 @@ def test_choosing_ferbs_profile_writes_config_through_the_settings_path(daemon: 
 
 
 # decision: HAND-2
+# decision: APP-1
 def test_without_its_own_profile_ferb_browses_in_the_profile_the_owner_picked() -> None:
     from ferb.act.browser.pairing import Binding
     from ferb.act.browser.profiles import BrowserProfile
@@ -174,6 +177,7 @@ def _fake_keychain() -> tuple[dict[str, str], Any, Any]:
 
 
 # decision: GATE-2
+# decision: APP-2
 def test_delete_removes_the_keychain_item_and_never_returns_its_value(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     values, keychain, delete = _fake_keychain()
@@ -198,6 +202,7 @@ def test_delete_removes_the_keychain_item_and_never_returns_its_value(daemon: Ru
 # ---------- restore (APP-2) ----------
 
 # decision: DMN-33
+# decision: APP-2
 def test_the_app_lists_and_restores_a_trash_move(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     bin_ = daemon.daemon.home.parent / ".Trash"
     bin_.mkdir(parents=True, exist_ok=True)
@@ -221,6 +226,7 @@ def test_the_app_lists_and_restores_a_trash_move(daemon: RunningDaemon, monkeypa
 # decision: DMN-23, DMN-21
 @pytest.mark.parametrize("method", ["secrets.saved", "secrets.delete", "identity.find", "identity.choose",
                                     "identity.pair", "about.guide", "setup.finish"])
+# decision: APP-4
 def test_the_owner_data_methods_refuse_any_other_program(daemon: RunningDaemon, method: str) -> None:
     with pytest.raises(RpcError) as refused:
         _call(daemon, method, {"place": "https://x.example", "name": "n"})

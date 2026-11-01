@@ -20,6 +20,7 @@ final class DaemonRPCTests: XCTestCase {
         XCTAssertEqual(value["session_id"] as? String, "conversation-real")
     }
 
+    // decision: APP-570
     func testStreamingDeliversFragmentedEventThenEndsOnMatchingResponse() async throws {
         let server = try RPCFixture(notifications: [
             ["method": "unrelated.event", "params": ["type": "wrong"]],

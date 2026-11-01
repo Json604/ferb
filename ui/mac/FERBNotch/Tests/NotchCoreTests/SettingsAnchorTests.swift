@@ -10,18 +10,21 @@ final class SettingsAnchorTests: XCTestCase {
         WindowInfo(owner: SettingsAnchor.bundleID, bounds: bounds, onScreen: onScreen, isFrontmostApp: front)
     }
 
+    // decision: APP-510
     func testDocksToTheLeftOfSettingsWhenThereIsRoom() {
         let w = settings(CGRect(x: 400, y: 200, width: 700, height: 500))
         let p = SettingsAnchor.dock(for: [w], orb: orb, screen: screen)
         XCTAssertEqual(p, CGPoint(x: 384, y: 450))
     }
 
+    // decision: APP-510
     func testDocksToTheRightWhenSettingsHugsTheLeftEdge() {
         let w = settings(CGRect(x: 20, y: 200, width: 700, height: 500))
         let p = SettingsAnchor.dock(for: [w], orb: orb, screen: screen)
         XCTAssertEqual(p, CGPoint(x: 736, y: 450))
     }
 
+    // decision: APP-510
     func testClampsVerticallyAndFailsWhenNeitherSideFits() {
         let low = settings(CGRect(x: 400, y: 0, width: 700, height: 20))
         XCTAssertEqual(SettingsAnchor.dock(for: [low], orb: orb, screen: screen)?.y, 32)
@@ -29,6 +32,7 @@ final class SettingsAnchorTests: XCTestCase {
         XCTAssertNil(SettingsAnchor.dock(for: [wide], orb: orb, screen: screen))
     }
 
+    // decision: APP-510
     func testFollowsTheLargestWindowAndIgnoresOtherApps() {
         let sheet = settings(CGRect(x: 600, y: 300, width: 200, height: 100))
         let main = settings(CGRect(x: 400, y: 200, width: 700, height: 500))
@@ -37,17 +41,20 @@ final class SettingsAnchorTests: XCTestCase {
         XCTAssertEqual(SettingsAnchor.dock(for: [sheet, other, main], orb: orb, screen: screen)?.x, 384)
     }
 
+    // decision: APP-510
     func testHidesWhenSettingsIsNotFrontmost() {
         let w = settings(CGRect(x: 400, y: 200, width: 700, height: 500), front: false)
         XCTAssertNil(SettingsAnchor.dock(for: [w], orb: orb, screen: screen))
     }
 
+    // decision: APP-510
     func testHidesWhenSettingsClosedOrMinimised() {
         XCTAssertNil(SettingsAnchor.dock(for: [], orb: orb, screen: screen))
         let w = settings(CGRect(x: 400, y: 200, width: 700, height: 500), onScreen: false)
         XCTAssertNil(SettingsAnchor.dock(for: [w], orb: orb, screen: screen))
     }
 
+    // decision: APP-510
     func testSettledNeedsTwoMatchingFrames() {
         let a = CGRect(x: 100, y: 100, width: 600, height: 400)
         XCTAssertFalse(SettingsAnchor.settled(nil, a))
@@ -57,6 +64,7 @@ final class SettingsAnchorTests: XCTestCase {
         XCTAssertFalse(SettingsAnchor.settled(a, CGRect(x: 100, y: 100, width: 640, height: 400)))
     }
 
+    // decision: APP-510
     func testQuartzToAppKitFlipIncludingOtherDisplays() {
         // Primary is 900 tall. A window at the top of the primary display.
         XCTAssertEqual(SettingsAnchor.appKitRect(fromQuartz: CGRect(x: 50, y: 0, width: 300, height: 200),

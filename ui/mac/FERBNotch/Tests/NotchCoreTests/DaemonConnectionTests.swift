@@ -48,6 +48,7 @@ final class DaemonConnectionTests: XCTestCase {
         XCTAssertNil(model.session.result?.documentURL)
     }
 
+    // decision: APP-569
     func testSecretAnswerUsesOnlyDedicatedApprovalRPCAndIsNotSessionText() async throws {
         let rpc = RecordingRPC()
         let model = makeModel(rpc)
@@ -120,6 +121,7 @@ final class DaemonConnectionTests: XCTestCase {
         }
     }
 
+    // decision: APP-584
     func testEditingOneOfTwoIdenticalSubstringsNeverPromotesPastedCopy() {
         let model = makeModel(RecordingRPC())
         model.pasteProvenance.edit(NSRange(location: 0, length: 0), with: "send example ", in: "")

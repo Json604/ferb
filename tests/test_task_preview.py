@@ -86,6 +86,7 @@ def test_a_slow_capture_ends_within_the_daemon_time_limit_with_the_last_frame() 
 
 
 # decision: DMN-405
+# decision: APP-404
 def test_no_frame_after_the_task_ends_even_from_a_capture_already_running() -> None:
     async def check() -> None:
         previews, _ = _previews()
@@ -109,6 +110,7 @@ def test_no_frame_after_the_task_ends_even_from_a_capture_already_running() -> N
 
 # decision: HAND-402
 # decision: DMN-405
+# decision: APP-403
 def test_no_frame_for_a_tab_the_task_does_not_own() -> None:
     """The browser declaration resolves through the driver's ownership check with the calling task: a tab the task
     doesn't hold gives no frame, only why."""
@@ -135,6 +137,7 @@ def test_no_frame_for_a_tab_the_task_does_not_own() -> None:
 
 
 # decision: DMN-404
+# decision: APP-404, APP-405
 def test_the_preview_freezes_with_a_state_when_ferb_leaves_the_surface_or_asks() -> None:
     """Decision 2: once FERB's call leaves the window (a call on no surface), or the task asks, waits or pauses, the
     preview shows FERB's last frame of it with what FERB is doing now, and captures nothing (no new messages stream)."""
@@ -315,6 +318,7 @@ def test_mac_exact_element_preview_preserves_worker_references(monkeypatch):
     asyncio.run(check())
 
 
+# decision: APP-403
 def test_mac_preview_without_exact_element_window_never_uses_front_window(monkeypatch):
     from tests.mackit import vision
     d, ax, shots, *_ = vision(monkeypatch)

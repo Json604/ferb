@@ -71,6 +71,7 @@ def test_the_development_build_keeps_its_own_identity() -> None:
     assert "dev.ferb.notch" in script and "FERB Notch" in script
 
 
+# decision: APP-525, APP-535
 def test_the_sound_family_ships_as_lossless_alac_with_one_banner_copy() -> None:
     """The committed sounds are ALAC in .caf (lossless, about half the size of the .wav renders); the banners' sound
     lives once, at the package root build-app.sh copies into Contents/Resources, never also in the Sounds bundle; the

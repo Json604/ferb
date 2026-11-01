@@ -10,18 +10,21 @@ final class IntroPlanTests: XCTestCase {
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), IntroBeat.allCases)
     }
 
+    // decision: APP-517, APP-516
     func testFinishedSetupGetsNoTourUnlessReplayed() {
         let needs = IntroNeeds(setupDone: true, signedIn: true, missingPermissions: [], unpairedBrowsers: false, firstRun: false)
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), [])
         XCTAssertEqual(IntroPlan.beats(needs, replay: true), IntroBeat.allCases)
     }
 
+    // decision: APP-517
     func testMissingGrantsOnlyGetsThePermissionsBeatAndHome() {
         let needs = IntroNeeds(setupDone: false, signedIn: true, missingPermissions: ["screen_recording"],
                                unpairedBrowsers: false, firstRun: false)
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), [.permissions, .home])
     }
 
+    // decision: APP-517
     func testFirstRunGetsEveryBeatEvenIfAlreadySignedIn() {
         let needs = IntroNeeds(setupDone: false, signedIn: true, missingPermissions: [], unpairedBrowsers: false,
                                firstRun: true)
@@ -46,6 +49,7 @@ final class IntroPlanTests: XCTestCase {
         XCTAssertNil(IntroPlan.next(after: .home, in: plan))
     }
 
+    // decision: APP-516
     func testResumeSurvivesARelaunch() {
         let suite = Self.scratchSuiteName("IntroPlan")
         addTeardownBlock { Self.removeScratchSuite(suite) }

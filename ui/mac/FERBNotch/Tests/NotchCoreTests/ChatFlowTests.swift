@@ -6,6 +6,7 @@ import XCTest
 /// (`ack`, `plan`, `progress`, `reply`, `outcome`, each with `request_id` and `at`).
 @MainActor
 final class ChatFlowTests: XCTestCase {
+    // decision: APP-579
     func testAckRendersAtOnceBeforeAnyOtherEvent() throws {
         let model = makeModel()
         let id = begin("Find my notes from yesterday", in: model)
@@ -31,6 +32,7 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertEqual(try savedArchive(model).turns.first?.ferbLines, ["On it.", "Looking through Notes for yesterday's notes."])
     }
 
+    // decision: APP-579
     func testProgressUpdatesOneLiveLineInPlaceAndClearsOnOutcome() throws {
         let model = makeModel()
         let id = begin("Summarise the GitHub issue", in: model)
@@ -78,6 +80,7 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertNil(model.conversation.turns[0].liveLine)
     }
 
+    // decision: APP-579
     func testLiveLineElapsedTimeReadsInSecondsMinutesAndHours() {
         let start = Date(timeIntervalSince1970: 1_000)
         let line = LiveProgress(text: "reading github.com", startedAt: start)
@@ -88,6 +91,7 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertEqual(line.elapsedText(at: start - 5), "0s")
     }
 
+    // decision: APP-580
     func testAnswerToAArrivingAfterBIsABottomReplyQuotingAWithATurnMarked() throws {
         let model = makeModel()
         let a = begin("Find my notes\nfrom yesterday", in: model)
@@ -123,6 +127,7 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertEqual(model.visibleEntries.count, 3)
     }
 
+    // decision: APP-580
     func testLateConversationalReplyAlsoGoesToTheBottom() {
         let model = makeModel()
         let a = begin("Is it raining in Delhi?", in: model)
@@ -135,6 +140,7 @@ final class ChatFlowTests: XCTestCase {
         ])
     }
 
+    // decision: APP-580
     func testCheckMarkShowsOnlyForVerifiedOutcomes() throws {
         let model = makeModel()
         let verified = begin("Rename the report", in: model)
@@ -150,6 +156,7 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(savedArchive(model).turns.first { $0.id == verified }).isVerified)
     }
 
+    // decision: APP-578, APP-577
     func testTwoRequestsInFlightKeepTheirOwnAckPlanAndLiveLine() {
         let model = makeModel()
         let a = begin("Book a table for two", in: model)
@@ -175,6 +182,7 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertEqual(turnB.liveLine?.text, "writing post.md")
     }
 
+    // decision: APP-578, APP-580
     func testResultNamingARequestFindsItsTurnAfterTheStreamDroppedBeforeThePlan() {
         let model = makeModel()
         let a = begin("Export the photos", in: model)
@@ -194,6 +202,7 @@ final class ChatFlowTests: XCTestCase {
         ])
     }
 
+    // decision: APP-579
     func testLiveLineLeavesWhenTheStreamEndsWithoutAnAnswer() async throws {
         let rpc = ScriptedChatRPC(events: [
             Contract.ack("req-a", "On it."),
@@ -211,6 +220,7 @@ final class ChatFlowTests: XCTestCase {
         model.disconnectDaemon()
     }
 
+    // decision: APP-569
     func testArchivesSavedBeforeChatFlowFieldsStillDecode() throws {
         var archive = ConversationArchive()
         archive.begin(id: UUID(), request: "Older request", sources: [])

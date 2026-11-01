@@ -4,6 +4,7 @@ import XCTest
 
 @MainActor
 final class ReplyStreamingTests: XCTestCase {
+    // decision: APP-577
     func testInterleavedDraftsStayProvisionalAndFinalReplacesOnlyItsTurn() {
         let model = makeModel()
         let first = begin("First", in: model)
@@ -32,6 +33,7 @@ final class ReplyStreamingTests: XCTestCase {
         XCTAssertEqual(model.session.draft, "My next request")
     }
 
+    // decision: APP-579
     func testAuthoritativePlanClearsDraftShowsPlanLineAndRejectsLateDraftDeltas() {
         let model = makeModel()
         let id = begin("Find my notes", in: model)
@@ -78,6 +80,7 @@ final class ReplyStreamingTests: XCTestCase {
         XCTAssertFalse(model.conversation.turns.first!.isProvisional)
     }
 
+    // decision: APP-571, APP-570
     func testRestoringProvisionalDraftDoesNotPretendTheOldStreamIsStillRunning() throws {
         let defaults = scratchDefaults()
         var archive = ConversationArchive()
@@ -92,6 +95,7 @@ final class ReplyStreamingTests: XCTestCase {
         XCTAssertFalse(restored.completionTraceVisible)
     }
 
+    // decision: APP-569
     func testExistingArchiveWithoutStreamingNoticeStillDecodes() throws {
         var archive = ConversationArchive()
         archive.begin(id: UUID(), request: "Existing history", sources: [])

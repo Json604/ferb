@@ -73,6 +73,7 @@ final class AppSetupTests: XCTestCase {
     /// kb area app: a new install (or another installation, after the owner's yes) meets FERB through the
     /// whole tour, with the first-launch clip; so does an install that never finished setup nor saw the tour. A quit
     /// tour picks up its own plan, and the intro's resume wins over the old window's.
+    // decision: APP-517, APP-516
     func testNewInstallLaunchesTheIntro() {
         let fresh = needs(done: false, signedIn: false, missing: ["accessibility"], unpaired: true, firstRun: true)
         XCTAssertEqual(AppSetupPlan.atLaunch(.install, needs: fresh), .intro(IntroBeat.allCases))
@@ -95,6 +96,7 @@ final class AppSetupTests: XCTestCase {
 
     /// An existing install that has finished setup sees nothing new (Settings offers Replay intro), as before the
     /// intro, even with a grant turned off since; a replaced build still updates quietly first.
+    // decision: APP-517
     func testFinishedSetupLaunchesNothing() {
         XCTAssertFalse(AppSetupPlan.firstRun(.none, setupDone: true, introDone: false, resuming: false))
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true)), .nothing)
@@ -106,6 +108,7 @@ final class AppSetupTests: XCTestCase {
 
     /// An install missing a grant gets only that beat, then home: after a quiet update even with setup done (the old
     /// window's permissions step), and at launch while setup isn't finished.
+    // decision: APP-517, APP-508
     func testMissingGrantLaunchesOnlyThatBeat() {
         let missing = needs(done: true, missing: ["screen_recording"])
         XCTAssertEqual(AppSetupPlan.afterUpdate(missing), .intro([.permissions, .home]))
@@ -120,6 +123,7 @@ final class AppSetupTests: XCTestCase {
     }
 
     /// Replay intro (Settings → General, and the menu's Set Up FERB…): every beat, whatever is set up already.
+    // decision: APP-516, APP-505
     func testReplayFromSettingsRunsEveryBeat() {
         XCTAssertEqual(AppSetupPlan.replay(needs(done: true)), .intro(IntroBeat.allCases))
         XCTAssertEqual(AppSetupPlan.replay(needs(done: false, missing: ["accessibility"])), .intro(IntroBeat.allCases))
@@ -127,6 +131,7 @@ final class AppSetupTests: XCTestCase {
 
     /// Skipping (or a grant still off at Home) opens the compact setup window on the first required step left:
     /// the background service, then sign-in, then permissions; nothing left opens nothing.
+    // decision: APP-516
     func testSkippingTheIntroOpensTheCompactSetupOnWhatsLeft() {
         XCTAssertEqual(AppSetupPlan.afterIntro(["sign_in", "accessibility"], serviceSetUp: true), .ai)
         XCTAssertEqual(AppSetupPlan.afterIntro(["accessibility"], serviceSetUp: true), .permissions)
@@ -135,6 +140,7 @@ final class AppSetupTests: XCTestCase {
     }
 
     /// A quit tour resumes with the beats it was running (a replay's, an upgrade's, a first run's).
+    // decision: APP-516
     func testAQuitTourResumesWithItsOwnPlan() {
         var progress = IntroProgress(defaults: scratchDefaults("AppSetupTests"))
         XCTAssertNil(progress.interrupted)
@@ -181,6 +187,7 @@ final class AppSetupTests: XCTestCase {
     /// Restart's repair while a tour runs: the tour ends through its own skip (orb, sound and lines torn down) and
     /// exactly one compact window shows, on Welcome, where the tour's end leaves it.
     @MainActor
+    // decision: APP-516
     func testARepairDuringATourEndsItAndShowsOneWindowOnWelcome() async {
         _ = NSApplication.shared
         let rig = SetupRig()
@@ -207,6 +214,7 @@ final class AppSetupTests: XCTestCase {
     /// The quiet update's decision reads its needs here: a required grant is missing as in Allow all (FERB.app's own
     /// rows included, a blocked row never), and a fact the daemon didn't answer asks for nothing.
     @MainActor
+    // decision: APP-509, APP-508
     func testTheNeedsCountOnlyGrantsThatCanBeGrantedNow() async {
         let rig = SetupRig()
         rig.app.notificationStatus = .granted
