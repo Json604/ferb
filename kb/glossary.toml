@@ -31,3 +31,19 @@ see = ["SENSE-2", "SENSE-3"]
 ["daily distill"]
 meaning = "The once-a-day model pass over the day's chat and activity that saves durable facts and retires stale ones."
 see = ["MEM-8", "MEM-22"]
+
+["APP_ONLY"]
+meaning = "The daemon methods only FERB.app's own process may call, checked by code signature (auth.APP_ONLY); any other program running as the owner gets \"FERB.app only\"."
+see = ["DMN-23", "DMN-27"]
+
+["developer toolbox"]
+meaning = "The `ferb` commands kept only for debugging (trace, logs, stats, doctor, memory, restore, ps, verdict, runtimes, browsers); never presented to users."
+see = ["DMN-3", "DMN-4"]
+
+["FERB's home"]
+meaning = "~/.ferb: FERB's own folder (config, database, logs, venv or links into FERB.app) and the daemon's working folder."
+see = ["DMN-14", "STORE-1"]
+
+["report relay"]
+meaning = "The owner's Cloudflare Worker (relay/) that turns a failure report Send into one issue plus one file in the private reports repo."
+see = ["DMN-8", "DMN-30"]

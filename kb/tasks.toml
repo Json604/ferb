@@ -39,3 +39,28 @@ kind = "build"
 status = "open"
 why = "Built since 2026-11-01 for the owner's words about anything (the old MEM-19); the owner answered \"about myself\" on 2026-11-02."
 decisions = ["MEM-35", "MEM-36"]
+
+[T-6]
+title = "The daemon filters event topics for the notch instead of sending it every trail event"
+area = "daemon"
+kind = "build"
+status = "open"
+why = "notes/daemon.md: the notch subscribes with no filter and receives every trail event. Events (daemon/events.py:13) redacts once and supports topics, but topic filtering for the notch was not done; the target design wanted the daemon to filter by default, the fix list said it needs the app."
+
+[T-7]
+title = "Restore: keep it on the cli role or make it FERB.app-only?"
+area = "daemon"
+kind = "question"
+status = "open"
+why = "notes/daemon.md open owner question (step 12c). recovery.list/recovery.restore stay on the cli role (DMN-23) because the developer toolbox's `ferb restore` uses them."
+decisions = ["DMN-23"]
+ask = "Restore is reachable by the developer toolbox's `ferb restore` as well as by FERB.app. Making it FERB.app-only would remove `ferb restore`. Keep it as is, or FERB.app-only?"
+
+[T-8]
+title = "Pin FERB.app's identity for the app-only check in \"installed\" mode?"
+area = "daemon"
+kind = "question"
+status = "open"
+why = "notes/daemon.md 12e review, not built: AppPeers derives the requirement again from whatever bundle with FERB's id sits at /Applications/FERB.app, so a program running as the owner that replaces that bundle passes the APP_ONLY check."
+decisions = ["DMN-23"]
+ask = "For a daemon run outside FERB.app, should FERB pin the installed FERB.app's signing identity at setup (the certificate leaf survives updates; an ad-hoc build's code hash changes every build and would lock the notch out until setup runs again), and who records it again after an app update?"

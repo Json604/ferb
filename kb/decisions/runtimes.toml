@@ -1,0 +1,11 @@
+# Decisions of area `runtimes` (kb/areas.toml). Moved from notes/daemon.md on 2026-11-02.
+
+[RUN-1]
+title = "Runtime errors say a plain cause and point at Settings → AI"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A provider's HTTP refusal says a plain cause from the status code first, then the provider's words (api.http_cause). Runtime errors point at Settings → AI, never at a `ferb` command or config.toml."
+why = "There is no user-facing CLI (DMN-3)."
+paths = ["ferb/runtimes/api.py::http_cause"]
+legacy = "notes/daemon.md Rulings (step 12b): provider refusals"

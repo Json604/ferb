@@ -1,0 +1,319 @@
+# Decisions of area `daemon` (kb/areas.toml). Moved from notes/daemon.md on 2026-11-02.
+# notes/daemon.md mostly paraphrased the owner's decisions; where it quoted the owner, `words` holds the quote.
+
+[DMN-1]
+title = "No CLI chat; task.stop needs task ids"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words = "I stopped using it once the notch was made"
+words_source = "notes/daemon.md owner decision 1: the quote is the owner's reason; the rule is an agent's paraphrase"
+rule = "`ferb chat` and its live renderer are gone, with the dead `questions.answer` loop. Voice and any text that pointed to \"ferb chat's hidden prompt\" point to the app. `task.stop` requires task ids (the app sends them); stopping everything is the separate global stop (`stop.engage`)."
+paths = ["ferb/cli", "ferb/daemon/areas/chat.py::Chat._task_stop"]
+legacy = "notes/daemon.md decision 1"
+
+[DMN-2]
+title = "The background service is registered inside FERB.app (SMAppService)"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/daemon.md owner decision 2: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "For app installs the daemon's service definition lives in the signed FERB.app and is registered with SMAppService: nothing can edit it, deleting the app removes it, macOS lists it under Login Items. It replaces ~/Library/LaunchAgents/com.ferb.daemon.plist; a checkout (no app bundle) keeps a developer launch path."
+paths = ["ui/mac/FERBAgent/com.ferb.daemon.plist", "ferb/device/install.py::BUNDLE_SERVICE", "scripts/build-app.sh"]
+legacy = "notes/daemon.md decision 2"
+
+[DMN-3]
+title = "No user-facing CLI"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/daemon.md owner decision 3: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "The `ferb` program is only invisible plumbing (the `setup` commands the app calls, `mcp` for the models' tool bridge, `daemon run`) plus a developer toolbox (trace, logs, stats, doctor, memory, restore, ps, verdict, runtimes, browsers) used to debug and never presented to users. All user commands go; push-to-talk and identity-profile setup live in the app."
+paths = ["ferb/cli"]
+legacy = "notes/daemon.md decision 3"
+
+[DMN-4]
+title = "The CLI is trimmed to a development tool"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/daemon.md owner decision 4: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "The Mac probe and watch harness, the CLI permission walkthrough (the app does it), the old chat renderer, the duplicate trace renderer and the dormant conversations / notifications / test-mode commands are removed. Kept: trace, logs, stats, doctor, memory, restore, ps, setup/uninstall, verdict, runtimes, browsers, mcp."
+paths = ["ferb/cli/__init__.py::APP_COMMANDS", "ferb/cli", "ferb/device"]
+legacy = "notes/daemon.md decision 4"
+
+[DMN-5]
+title = "The disturbance sampler runs only around tools that can change the screen"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/daemon.md owner decision 5: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "FERB samples the screen state before and after tools that can change the owner's screen (Mac input, foreground, opening an app), never around read-only tools and never by polling. It ignores the owner's own cursor moves, records only changes FERB could have caused (front app, focus, Space, fullscreen) and gives them to the merged checker as facts about how the work was done."
+evidence = "notes/daemon.md 2026-10-30: 40,679 of 87,099 spans were disturbance.change, 74% of them cursor-only, used only in prompts and traces."
+paths = ["ferb/daemon/disturbance.py"]
+legacy = "notes/daemon.md decision 5"
+
+[DMN-6]
+title = "\"About FERB\": a self-description generated from code and config"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/daemon.md owner decision 6: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "FERB has a read-only self-description built from code and config so it never goes stale: version, models per role, permissions, current settings, what it records about the owner, where and for how long (from the retention rules), health and cost. A short summary is in every prompt; the full detail comes through a worker lookup tool. App how-tos come from a list kept with the UI. Settings stay the owner's to change in the app; FERB says where."
+paths = ["ferb/daemon/about.py", "ferb/daemon/areas/about.py"]
+legacy = "notes/daemon.md decision 6"
+
+[DMN-7]
+title = "FERB may talk about its models, settings and how it works when asked"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/daemon.md decision 6, owner addendum 2026-10-31: an agent's paraphrase; no verbatim quote recorded"
+rule = "When asked, FERB may talk about its models, its settings and how it works."
+rejected = ["P27 rule 8 (2026-10-08): FERB doesn't recite its runtime, model names or design in chat"]
+paths = ["ferb/daemon/about.py"]
+legacy = "notes/daemon.md decision 6 (2026-10-31 addendum)"
+
+[DMN-8]
+title = "Failure reports go through the developer's relay, not email"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words_source = "notes/daemon.md owner decision 10: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Failure reports and diagnostic files become issues in the private GitHub repo Json604/ferb-reports through a relay the owner owns (a Cloudflare Worker holding a fine-grained token limited to that repo's Issues and Contents, read and write). The user only presses Send in FERB: no GitHub account, browser, Mail app or extra step; they still preview the cleaned report first."
+rejected = ["The 2026-10-25 Mail compose path to a hard-coded developer address"]
+paths = ["ferb/daemon/reports.py", "relay"]
+legacy = "notes/daemon.md decision 10"
+
+[DMN-9]
+title = "Each Send is one issue plus one report file, at most 25 MB"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words_source = "notes/daemon.md decision 10 detail (owner, later on 2026-11-01): an agent's paraphrase; no verbatim quote recorded"
+rule = "Each Send files exactly one issue with a short summary (what failed, the errors and questions, FERB's version, the report id) linking the full redacted report, stored as one file in the repo (reports/YYYY/MM/<report id>….txt); no reply-comment threads. A report over 25 MB is shortened by FERB to fit (summary, every error and question and the last part of the trace kept; what was cut stated at the top); the full report stays on the Mac."
+paths = ["ferb/daemon/reports.py::MAX_REPORT_BYTES", "relay/worker.mjs"]
+legacy = "notes/daemon.md decision 10 (detail)"
+
+[DMN-10]
+title = "Reinstalling over an older FERB's files just works"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words = "confirm that the case is handled where ferb old files are left and user reinstalls ferb. so if files are broken it deletes and starts new. if nothing's broken it proceeds normally."
+rule = "A reinstall over an older FERB's leftover files proceeds normally when nothing is broken. FERB's program files and own state are recreated; the owner's data that can't be read is moved aside with a timestamp (never deleted) and the owner is told once (STORE-1, STORE-2); a database from a newer FERB is not broken (STORE-3)."
+paths = ["ferb/store/salvage.py", "ferb/device/install.py"]
+legacy = "notes/daemon.md decision 11"
+
+[DMN-11]
+title = "One composition: stores first, one gateway deps object, typed supervisor ports"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "The daemon builds its stores first, then hands the gateway one GatewayDeps (standing permissions included) and the supervisor typed ports (memory, schedules, environment, desktop, browser, notify) plus a QuestionRouter. Every field is required and missing wiring fails at construction; no hooks are set afterwards. The supervisor's observer and conversation guard reach the gateway through one Gateway.attach call."
+why = "42 supervisor hooks and 17 gateway attributes set from outside each had a silent default, so missing wiring degraded quietly (confirmations None skipped the prior-No check)."
+paths = ["ferb/daemon/areas/compose.py", "ferb/daemon/gateway.py::GatewayDeps", "ferb/orchestrator/ports.py::QuestionRouter"]
+legacy = "notes/daemon.md target design 1; Rulings (step 12d)"
+
+[DMN-12]
+title = "Config is cached and reloaded on change; settings apply without a restart"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Config is parsed once and parsed again only when the file (or its owner or mode) changes. A setting changed in the app, privacy exclusions included, reaches the Redactor, the proxy and hearing at once, without a restart."
+why = "Config.get re-parsed config.toml on every call (2.36 ms, 59 call sites, about 7% of idle daemon CPU, estimated); privacy changes waited for a restart."
+paths = ["ferb/config.py", "ferb/daemon/areas/compose.py"]
+legacy = "notes/daemon.md target design 4; fix list"
+
+[DMN-13]
+title = "Heavy and blocking work stays off the event loop"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Blocking calls (codesign, the sandbox check, profile discovery, TCC checks, image work) run in worker threads. The retention pass reads what to delete in a worker thread on a read-only connection, then deletes on the loop's connection 200 rows a transaction, leaving the loop free between batches."
+why = "A worker-thread writer would make the loop's writes wait on SQLite's lock; the batched pass kept the longest loop gap at 189 ms on a copy of the owner's store (2026-10-31)."
+paths = ["ferb/store/retention.py::plan", "ferb/store/retention.py::BATCH"]
+legacy = "notes/daemon.md target design 6; fix list (steps 2, 12a)"
+
+[DMN-14]
+title = "The installed daemon never imports a checkout's code"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Every daemon and native-host launch runs Python with -P (never prepend the working directory) and FERB's home as the working folder. FERB.app's definition runs the agent with exactly -m ferb.daemon; the daemon makes FERB's home its working folder and sends output launchd left at /dev/null to logs/daemon.{out,err}.log."
+why = "A LaunchAgent with WorkingDirectory set to the checkout ran python -m ferb.daemon, so the owner's FERB loaded the checkout's code; the rebuild deleting a file broke a scheduled run on 2026-10-31."
+paths = ["ferb/device/install.py::Installer", "ferb/daemon/main.py::service_streams"]
+legacy = "notes/daemon.md fix list: the live daemon must never import code from a checkout"
+
+[DMN-15]
+title = "FERB.app's service: the setup command does the file work, the app registers"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "FERB.app's definition is fixed and signed, so it names no user paths. `ferb setup --service` (run by the app) does the file work: retires the old user LaunchAgent (only a plist naming FERB's label) and records ~/.ferb/service.json (build, app, label). Then the app registers the service with SMAppService and shows macOS's \"needs your OK\" when asked. Launch decides from the old LaunchAgent, the service status and that record."
+why = "Python can't call SMAppService for the app's bundle, and launchd can't hold the same label twice."
+paths = ["ferb/device/install.py", "ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
+legacy = "notes/daemon.md Rulings (step 12b); fix list SMAppService"
+
+[DMN-16]
+title = "A checkout's launch path never takes over FERB.app's service"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A checkout runs under the same label as a user LaunchAgent (~/Library/LaunchAgents, -P, working folder FERB's home), loaded with launchctl; FERB.app never writes one. A checkout refuses to install or uninstall, before changing anything, while launchd runs FERB's label from a definition that isn't the checkout's (one check_not_foreign)."
+why = "Only FERB.app can unregister its service; removing the rest (native-host manifests, a purge of ~/.ferb) would break the running FERB.app install, and booting it out left the registration with nothing running."
+paths = ["ferb/device/install.py::Installer.check_not_foreign", "ferb/device/install.py::Installer.foreign_service"]
+legacy = "notes/daemon.md Rulings (step 12b; 12e review)"
+
+[DMN-17]
+title = "Stopping FERB.app's daemon is a clean kill and a kickstart"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Work that needs the daemon stopped stops FERB.app's service with launchctl kill SIGTERM, waits for its process, then kickstarts it; the registration stays untouched. If the daemon is still exiting after the 10 s wait, the work does not run (InstallError) and the daemon is started again either way."
+why = "A clean exit isn't restarted (KeepAlive SuccessfulExit false), and bootout/bootstrap can't reload a BundleProgram definition."
+paths = ["ferb/device/install.py::Installer.while_stopped", "ferb/device/install.py::Installer.exiting"]
+legacy = "notes/daemon.md Rulings (step 12b; 12e review)"
+
+[DMN-18]
+title = "A checkout update builds a fresh pinned venv and swaps it in"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A checkout install builds ~/.ferb/venv.new (uv venv --relocatable; uv export --frozen, then uv pip install --require-hashes; FERB with --no-deps), the secret helper and Codex (npm ci from package-lock.json) beside the old ones, and swaps them in only with the daemon stopped (a cut-off swap is finished next time). Any failure leaves the venv, plist and running daemon untouched."
+why = "Overwriting the venv under the running daemon left mixed code when an install step failed; checkout installs were unpinned."
+paths = ["ferb/device/install.py::Installer._swap_venv"]
+legacy = "notes/daemon.md fix list (setup); Rulings (step 12b)"
+
+[DMN-19]
+title = "Codex is installed only when a role uses it or the owner signs in to it"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Codex is (re)installed only when a role uses it (Codex when unset) or when the owner signs in to it (--codex-login installs it first); a link into FERB.app follows the same rule."
+paths = ["ferb/device/install.py::Installer.codex_wanted"]
+legacy = "notes/daemon.md Rulings (step 12b)"
+
+[DMN-20]
+title = "Purging deletes FERB's Keychain items by service, never reading a value"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Only `ferb uninstall --purge` (the owner typed delete, or answered FERB.app's one question) deletes every item of FERB's Keychain services (ferb, ferb.owner-secrets, Claude Code's item for FERB's Claude home) with security delete-generic-password -s SERVICE, repeated until none is left (at most 10,000). FERB never lists or reads a value."
+paths = ["ferb/device/install.py::Installer.uninstall"]
+legacy = "notes/daemon.md fix list (setup); Rulings (step 12b)"
+
+[DMN-21]
+title = "Setup is done only when every permission is granted, and only FERB.app records it"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Every permission row reports required (none optional); setup counts as done only when every row is granted, FERB.app's own Notifications and Microphone with Speech Recognition included, and Full Disk Access blocked by containment counts as not granted. Only FERB.app's setup.finish (APP_ONLY) records permissions_version; the CLI lists what the daemon lacks but never records it."
+why = "The CLI recorded permissions_version = 27 unconditionally, even after skipped permissions, and can't read the app's own grants."
+paths = ["ferb/daemon/areas/rpc.py::Rpc._setup_finish", "ferb/cli/setup.py"]
+legacy = "notes/daemon.md Rulings (step 12b; 12e review)"
+
+[DMN-22]
+title = "About FERB: one builder, an always-on line without live numbers"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "One builder serves three readers: FERB.app's Settings → About (about.get), workers (about.read, an observation through the gateway, redacted) and the always-on line, which rides in \"Facts about this FERB\" (_facts), the shared path every role's instructions take. The line holds version, models per role and where settings live; live numbers (size, CPU, cost) are only in the document."
+why = "The line changes only when the owner changes a model or FERB is updated, so the cacheable prompt prefix holds between calls."
+paths = ["ferb/daemon/about.py::summary", "ferb/daemon/areas/about.py"]
+legacy = "notes/daemon.md Rulings (step 12c): About"
+
+[DMN-23]
+title = "APP_ONLY methods answer only FERB.app's own process"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "RPCs whose words or data must come from or go only to FERB.app are in auth.APP_ONLY, checked by code signature: secrets.saved, secrets.delete, identity.find, identity.choose, identity.pair, about.guide, setup.finish, seen.list, seen.image and the rest listed there. recovery.list and recovery.restore stay on the cli role for the developer toolbox's `ferb restore`; the owner-uid socket check keeps FERB's own shell out."
+paths = ["ferb/daemon/auth.py::APP_ONLY"]
+legacy = "notes/daemon.md Rulings (step 12c): APP_ONLY"
+
+[DMN-24]
+title = "Uninstall and the clean-up are commands, not RPCs"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Uninstall and the store clean-up are `ferb` commands, not RPCs, because both stop the daemon. `--yes` (with `--purge`) means the owner answered FERB.app's one question; without it the CLI still asks for \"delete\". FERB's own shell can't use either: its sandbox denies FERB's home, the Keychain service, signals outside the sandbox and job creation."
+paths = ["ferb/cli", "ferb/device/install.py::Installer.uninstall"]
+legacy = "notes/daemon.md Rulings (step 12c): uninstall and clean-up"
+
+[DMN-25]
+title = "FERB's own account is written and cleared as one, only after a verified pick"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "[mailbox] provider/address and [identity] browser/profile are written only by settings.write_identity, in one atomic save, after seed.verify saw exactly that account in that profile; clearing removes the same four keys at once and detaches FERB's browser (its ferb_browser.* tools unregistered, the tabs it opened closed). Its pairing stays. The account itself is the owner's to create; FERB only finds and pairs it."
+paths = ["ferb/daemon/settings.py::write_identity", "ferb/daemon/settings.py::IDENTITY_KEYS"]
+legacy = "notes/daemon.md Rulings (step 12c; 12e review): FERB's own account"
+
+[DMN-26]
+title = "One autorelease pool per unit of work on FERB's long-lived threads"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "The daemon loop's default executor drains one pool per job (DrainingExecutor), and so do each watcher poll step, each run-loop slice of the Accessibility and workspace watchers, each FSEvents callback, the owner-input tap's text capture (not the tap callback itself), each _macos_events run-loop turn and _running_apps on the loop."
+why = "Native calls on threads that never drain a pool leak: on-device text recognition kept 210 KB a call without a pool, 2-8 KB with one (measured 2026-10-31), so every image redacted during a task stayed in memory."
+paths = ["ferb/device/autorelease.py::DrainingExecutor"]
+legacy = "notes/daemon.md Footprint (step 12d); Rulings (step 12d; 12e review)"
+
+[DMN-27]
+title = "\"What FERB saw\" serves only stored evidence copies, to FERB.app only"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "seen.list and seen.image are APP_ONLY (titles and sites are the owner's own screen). They serve only the evidence store's stored images, exactly as the model got them; nothing is captured for this. Only image/* rows inside the evidence window (retention.evidence_days, 7); an image of an app or site on the exclusion list now is never listed or served. EvidenceStore.stored_file is the one way to a file, read off the loop."
+paths = ["ferb/daemon/areas/about.py::About._seen_list", "ferb/act/evidence/store.py::EvidenceStore.stored_file"]
+legacy = "notes/daemon.md Rulings (step 12e)"
+
+[DMN-28]
+title = "A report Send sends the saved file the owner viewed, redacted once more"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "reports.build writes the redacted file; the app shows View report and Send. reports.send takes only a regular file named like a report directly in ~/.ferb/reports (no symlink, O_NOFOLLOW), passes it through the Redactor's text pass again and rewrites the saved file to match, so what is kept is what was sent. One try per press; nothing retries by itself except the file on a commit conflict (CONFLICT_TRIES = 3)."
+paths = ["ferb/daemon/reports.py::prepare", "ferb/daemon/reports.py::CONFLICT_TRIES"]
+legacy = "notes/daemon.md Report relay rulings: flow, what is sent"
+
+[DMN-29]
+title = "Shortening and the issue summary use structural facts only"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Over 25,000,000 bytes the sent copy keeps everything outside Steps, every step whose details hold an error, every question and as many last steps as fit, marking each cut and noting the total at the top; failing that, the middle is cut. The summary (at most 30,000 characters) lists Summary, Errors, Questions and FERB's recorded problems. Selection uses span kind, tool name and a non-null error, never a judgment of content."
+paths = ["ferb/daemon/reports.py::shorten", "ferb/daemon/reports.py::summarize"]
+legacy = "notes/daemon.md Report relay rulings: shorten to fit, summary"
+
+[DMN-30]
+title = "Relay protocol: the Worker streams the file it never parses, then files a ticketed issue"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "POST /file carries GitHub's exact create-file JSON built by FERB; the Worker checks headers, query and rate limit, picks reports/YYYY/MM/<id>-<8 random>.txt, streams the body to the Contents API and returns a signed 1-hour ticket (409 retry on a commit conflict). POST /report with that ticket files one issue whose path comes from the Worker; kind and id come from the ticket; every sender-supplied text sits inside a code block."
+why = "Workers free plan allows 10 ms CPU per request; the Contents API is one call, works on an empty repo and allows 100 MB files."
+evidence = "2026-11-01 docs: Workers 10 ms CPU, fetch waits not counted, 100 MB body, 128 MB memory; GitHub Contents 100 MB, 10 s processing cap. Unconfirmed: streaming costs no CPU per byte; a ~33 MB Contents request is accepted (LIVE-4)."
+paths = ["relay/worker.mjs", "ferb/daemon/reports.py::prepare"]
+live = ["LIVE-4"]
+legacy = "notes/daemon.md Report relay rulings: protocol, limits verified"
+
+[DMN-31]
+title = "The daemon alone knows the relay address and sends directly"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "The relay address is reports.RELAY_URL, overridden by [feedback] relay_url; https only (plain http only to 127.0.0.1/localhost); none means \"isn't set up yet\" and the file is kept; it never reaches the app. The daemon sends asynchronously with httpx (60 s per step, 540 s per Send, heavy work in a thread), directly, not through FERB's egress proxy. Journaled report.sent / report.send_failed, never the text."
+why = "The egress proxy is for FERB's shell commands; model APIs and other outbound daemon calls go direct too."
+paths = ["ferb/daemon/reports.py::relay_url", "ferb/daemon/reports.py::RELAY_URL"]
+legacy = "notes/daemon.md Report relay rulings: where, how"
+
+[DMN-32]
+title = "The relay takes only its two requests, rate-limited, and never echoes the issue"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "The relay accepts only POST /file and POST /report with application/json (415 otherwise; wrong method 405, other paths 404, no token 503). Per sender address, files and issues counted apart: 2 a minute per Cloudflare location plus 5 per 10 minutes per running instance (best effort). It never logs a body and never answers with the issue URL or number. Labels: the kind and the app version."
+paths = ["relay/worker.mjs", "relay/wrangler.toml"]
+legacy = "notes/daemon.md Report relay rulings: relay limits kept"

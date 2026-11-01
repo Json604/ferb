@@ -1,0 +1,42 @@
+# Decisions of area `release` (kb/areas.toml). Moved from notes/daemon.md on 2026-11-02.
+
+[REL-1]
+title = "The extension's logo is FERB's logo everywhere"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words = "i want the current extension logo as the main ferb logo everywhere. the app, site, everywhere."
+rule = "FERB's one logo is the extension's: the dark rounded square with the white \"f\" and the orange dot, unchanged in look, used by the app, the site, the extension and everywhere else."
+paths = ["assets/logo", "site", "extensions/store/src", "extensions/chromium/icons"]
+legacy = "notes/daemon.md decision 12"
+
+[REL-2]
+title = "Versions are bumped systematically; the store extension goes first"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words = "the current version is fine, but make sure there is a systematic way that it happens anyway nad not left out / we have to do it first"
+words_source = "notes/daemon.md decision 13: two quotes joined by \" / \"; the second is about the store extension going first"
+rule = "A release refuses a version that is a .dev one, not newer than the last v* tag on origin, or not the tag's, and one whose extension the Chrome Web Store doesn't serve yet (MIN_EXTENSION_VERSION). Tests keep ferb/__init__.py and pyproject.toml equal and the repo's extension at or above MIN_EXTENSION_VERSION. The version stays 0.27.0.dev1 for now."
+paths = ["scripts/release_checks.py", "scripts/release-appcast.sh", "pyproject.toml"]
+legacy = "notes/daemon.md decision 13"
+
+[REL-3]
+title = "One logo master; every derived file is generated from it and committed"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "assets/logo/ferb-logo.svg is the one master (128-unit canvas, the 96-unit square inset 16; the \"f\" an outline path, so nothing depends on installed fonts). Change the logo only there, then run `uv run python scripts/make_logo.py`, which rewrites every derived file (PNG, AppIcon.icns, extension and notch SVGs and PNGs, site favicon and touch icon) with macOS's own renderer and iconutil. Derived files are committed, so builds don't render."
+paths = ["assets/logo/ferb-logo.svg", "scripts/make_logo.py"]
+legacy = "notes/daemon.md Logo: one master, derived"
+
+[REL-4]
+title = "The app icon ships as an icns, not an Icon Composer .icon"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "FERB.app and its helper name CFBundleIconFile AppIcon; build-app.sh copies the icns into their Resources and build-dmg.sh sets it as the disk image's volume icon. No Icon Composer .icon compiled by actool into Assets.car."
+why = "The build uses SwiftPM, not Xcode's asset pipeline; macOS 26+ shows the icns in its rounded-square frame (LIVE-25 confirms it isn't a grey frame)."
+paths = ["scripts/build-app.sh", "scripts/build-dmg.sh", "assets/logo/AppIcon.icns"]
+live = ["LIVE-25"]
+legacy = "notes/daemon.md Logo: Mac, not done"

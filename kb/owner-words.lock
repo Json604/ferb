@@ -1,5 +1,18 @@
 # Hashes of each owner decision's words and rule (kb.py lock). A change here is a reworded or
 # deleted owner decision: check that the owner asked for it.
+APP-1 c6a1f8323ae7aaab
+APP-2 14c142389df635f7
+APP-3 682389abd530d15b
+DMN-1 ef8991d721d04fb2
+DMN-2 b60961fc2a271bce
+DMN-3 0122050e25f863a8
+DMN-4 1983c3de68829452
+DMN-5 e7be4d339279b31d
+DMN-6 a28c1284aacd0a65
+DMN-7 805e6b359b885f16
+DMN-8 bb76b92cc23be779
+DMN-9 30112b326c3abd3f
+DMN-10 0ff18a2b97588953
 MEM-1 2e94408358edf79e
 MEM-2 aa628a72616c200a
 MEM-3 410ab3e3ea2d3d1c
@@ -18,5 +31,8 @@ MEM-15 9709a7966c904149
 MEM-16 682c87aff10464d5
 MEM-35 33d92aec6ece9bc3
 ORCH-1 1fed31e78ffaab82
+REL-1 57da273d8453c6a5
+REL-2 1db336e3aae27973
 SENSE-1 2e854085bcec36d6
 SENSE-2 2324108efcb8b3db
+SENSE-6 be7318808232ec5b

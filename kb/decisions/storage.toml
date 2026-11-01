@@ -1,0 +1,49 @@
+# Decisions of area `storage` (kb/areas.toml). Moved from notes/daemon.md on 2026-11-02.
+
+[STORE-1]
+title = "One salvage check; unreadable owner data is moved aside, never deleted"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "salvage.py runs at daemon start in a worker thread before anything opens a file, and in every `ferb setup` before it reads config.toml (setup only reads the database's schema version). A config.toml that isn't TOML, a ferb.db SQLite reports damaged or not a database, or an owner-secret-handles.json that isn't JSON moves to <name>.broken-YYYYMMDD-HHMM (with -wal/-shm) and starts fresh. A newer build's JSON form and an insecure config are not damage."
+why = "Damaged files crash-looped the daemon and every setup; the owner's data must never be lost to a reinstall."
+paths = ["ferb/store/salvage.py::check_home", "ferb/store/salvage.py::check_files", "ferb/store/salvage.py::set_aside"]
+legacy = "notes/daemon.md Reinstall over leftovers: one check; moved aside"
+
+[STORE-2]
+title = "Each set-aside file is told to the owner once"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Each move stays in set-aside.json until the daemon has journaled it (home.set_aside: file, moved_to, why, at) and posted one notice in the owner's chat (a banner when no FERB client is connected), its id the moved file's name so it is posted once. Setup prints the same in its output."
+paths = ["ferb/store/salvage.py::told", "ferb/daemon/areas/notify.py"]
+legacy = "notes/daemon.md Reinstall over leftovers: told once"
+
+[STORE-3]
+title = "A database from a newer FERB is not damage"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "A database whose schema is newer than this FERB knows (NewerStore) is never moved: setup refuses before installing anything, saying a newer FERB is needed and nothing was changed; the daemon raises it before touching config.toml and exits with status 0, so launchd doesn't restart it until a setup does."
+why = "It used to crash-loop the daemon while the app only said it didn't start."
+paths = ["ferb/store/db.py::NewerStore", "ferb/store/salvage.py::refuse_newer"]
+legacy = "notes/daemon.md Reinstall over leftovers: a newer database"
+
+[STORE-4]
+title = "quick_check at each start, integrity_check once per build"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "The daemon runs SQLite's quick_check at each start on a read-only connection (never checkpointing the WAL into a file about to be set aside); integrity_check only confirms a failed quick_check and runs once per new build (this_build; the passing build kept in run/store-checked.json). A lock, I/O or permission error is raised as it is, never read as damage."
+evidence = "quick_check took 0.5 s on a 1.4 GB file, warm (2026-11-01)."
+paths = ["ferb/store/salvage.py::damage", "ferb/store/salvage.py::this_build"]
+legacy = "notes/daemon.md Reinstall over leftovers: cheap"
+
+[STORE-5]
+title = "The retention rule table is the one source of retention windows"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "retention.RULES is load-bearing: the hourly pass's windows (retention.windows), the retention settings' defaults (settings.py) and About's \"what FERB keeps\" rows (retention.describe) all read it. Rows with no window (forever, until deleted) and the Keychain row are in it, so what FERB keeps about the owner is one table."
+paths = ["ferb/store/retention.py::RULES", "ferb/store/retention.py::windows", "ferb/store/retention.py::describe"]
+legacy = "notes/daemon.md Rulings (step 12c): the retention rule table"

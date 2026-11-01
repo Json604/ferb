@@ -1,0 +1,20 @@
+# Decisions of area `gateway` (kb/areas.toml). Moved from notes/daemon.md on 2026-11-02.
+
+[GATE-1]
+title = "FERB's service definitions and the installed FERB.app are never-lifted protected"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "FERB's launchd definitions (the user LaunchAgent plists and FERB.app's BUNDLE_SERVICE) are FERB_SERVICE, never lifted; the shell profile denies writing them. A daemon not run from FERB.app (from ~/.ferb/venv or a checkout) also protects the installed FERB.app (/Applications, then ~/Applications, with FERB's bundle id) like the bundled one: never written or removed by FERB's tools or shell, its service definition counted as FERB's. Read at daemon start."
+paths = ["ferb/policy/protection.py::FERB_SERVICE", "ferb/policy/protection.py::NEVER_LIFTED", "ferb/paths.py::installed_app"]
+legacy = "notes/daemon.md fix list SMAppService (protection); Rulings (12e review)"
+
+[GATE-2]
+title = "Deleting a saved secret goes through the signed helper and never reads a value"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "OwnerSecrets.delete deletes the Keychain item through the signed helper that made it (its delete operation: SecItemDelete by service and account), never reading it first; an item not found counts as deleted, and an item another entry still names stays. It is journaled secret.deleted with place and name only. secrets.saved shows place, name and kind, never a value, Keychain account or username."
+why = "Going through the helper that created the item needs no extra macOS approval and reads no value."
+paths = ["ferb/identity/owner_secrets.py::OwnerSecrets.delete"]
+legacy = "notes/daemon.md Rulings (step 12c): deleting a saved secret"

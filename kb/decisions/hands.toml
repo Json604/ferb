@@ -9,3 +9,12 @@ rule = "A frame whose address is a known challenge frame (Cloudflare Turnstile, 
 why = "The extension already reports each frame's address and each frame element's src: no protocol change, no extension reload."
 paths = ["ferb/act/browser/snapshot.py::CHALLENGE_FRAMES"]
 legacy = "notes/memory.md Rulings (step 9b): bot checks"
+
+[HAND-2]
+title = "Without FERB's own profile, owner tasks browse in the owner's chosen profile"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "browsing.owner_profile (\"browser/folder\", the owner's pick in the app) is used by the browser resolver for an owner task with no profile named only while FERB has no profile of its own and that profile is paired. With FERB's own profile configured nothing changes: it stays the default."
+paths = ["ferb/act/browser/resolver.py"]
+legacy = "notes/daemon.md Rulings (step 12c): browsing as the owner"

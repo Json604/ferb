@@ -11,3 +11,6 @@ paths:
 Boundaries code enforces: confirmations, protection lists, terminal typing, redaction, secrets and the sealed fill path, owner identity.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **GATE-1** (agent): FERB's launchd definitions (the user LaunchAgent plists and FERB.app's BUNDLE_SERVICE) are FERB_SERVICE, never lifted; the shell profile denies writing them. A daemon not run from FERB.app (from ~/.ferb/venv or a checkout) also protects the installed FERB.app (/Applications, then ~/Applications, with FERB's bundle id) like the bundled one: never written or removed by FERB's tools or shell, its service definition counted as FERB's. Read at daemon start.
+- **GATE-2** (agent): OwnerSecrets.delete deletes the Keychain item through the signed helper that made it (its delete operation: SecItemDelete by service and account), never reading it first; an item not found counts as deleted, and an item another entry still names stays. It is journaled secret.deleted with place and name only. secrets.saved shows place, name and kind, never a value, Keychain account or username.

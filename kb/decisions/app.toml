@@ -1,0 +1,50 @@
+# Decisions of area `app` (kb/areas.toml). Moved from notes/daemon.md on 2026-11-02.
+
+[APP-1]
+title = "FERB's own email account is an optional setup step in the app"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/daemon.md owner decision 7 (owner confirmed the proposal): an agent's paraphrase; no verbatim quote recorded"
+rule = "FERB.app's setup offers \"Give FERB its own Google account (recommended)\": the owner creates the account (creation needs human verification) and signs it into a browser profile; FERB finds and pairs it. If skipped, FERB browses as the owner in a profile the owner picks, and features that need FERB's own inbox say they aren't set up."
+paths = ["ui/mac/FERBNotch", "ferb/daemon/settings.py::write_identity"]
+legacy = "notes/daemon.md decision 7"
+
+[APP-2]
+title = "The app gains Restore, Delete saved secret/card and Uninstall"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/daemon.md owner decision 8: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "FERB.app has, functional only (the owner polishes the UI later): Restore, listing FERB's Trash moves, backup copies and snapshots and restoring one; Delete, removing a stored owner secret or card; Uninstall, removing FERB fully, Keychain items included. Daemon RPCs plus minimal app screens."
+paths = ["ui/mac/FERBNotch", "ferb/identity/owner_secrets.py::OwnerSecrets.delete"]
+legacy = "notes/daemon.md decision 8"
+
+[APP-3]
+title = "\"What FERB saw\": the screenshots FERB kept, per message and in Settings"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/daemon.md fix list (owner, 2026-10-31, step 12e): an agent's paraphrase; no verbatim quote recorded"
+rule = "A button on each message in the notch opens the screenshot taken when it was sent and the images its task captured, each exactly as the model got it, with time and app or site. Settings → Data lists every saved screenshot of the last 7 days, newest first."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SeenViewer.swift", "ferb/daemon/areas/about.py::About._seen_list"]
+legacy = "notes/daemon.md fix list: \"What FERB saw\""
+
+[APP-4]
+title = "The app guide lives in NotchCore and reaches the daemon on each connection"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "FERB.app's how-tos, shortcuts and setting places are one list kept in NotchCore (AppGuide), beside the screens it names. FERB.app sends it with about.guide (APP_ONLY: only FERB.app's words become FERB's guide) on every connection; the daemon keeps it in memory and, until the app connects after a daemon start, the About document says so."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppScreens.swift", "ferb/daemon/about.py"]
+legacy = "notes/daemon.md Rulings (step 12c): the app guide"
+
+[APP-5]
+title = "Uninstall waits for the service to unregister"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "FERB.app's Uninstall (plain or delete everything) awaits SMAppService.unregister() and checks the status; only not-registered or not-found goes on to `ferb uninstall [--purge --yes]`. A throw or a service macOS still lists shows why in the output lines and nothing is uninstalled."
+why = "A fire-and-forget unregister let the uninstall start while the service was still registered."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
+legacy = "notes/daemon.md Rulings (12e review): uninstall waits"

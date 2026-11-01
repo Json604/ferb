@@ -10,3 +10,9 @@ paths:
 The Mac app the owner uses: notch, chat, settings, setup intro, orb, sounds, preview window, playground. The owner's side; talks to the daemon only through its RPC.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **APP-1** (owner): FERB.app's setup offers "Give FERB its own Google account (recommended)": the owner creates the account (creation needs human verification) and signs it into a browser profile; FERB finds and pairs it. If skipped, FERB browses as the owner in a profile the owner picks, and features that need FERB's own inbox say they aren't set up.
+- **APP-2** (owner): FERB.app has, functional only (the owner polishes the UI later): Restore, listing FERB's Trash moves, backup copies and snapshots and restoring one; Delete, removing a stored owner secret or card; Uninstall, removing FERB fully, Keychain items included. Daemon RPCs plus minimal app screens.
+- **APP-3** (owner): A button on each message in the notch opens the screenshot taken when it was sent and the images its task captured, each exactly as the model got it, with time and app or site. Settings → Data lists every saved screenshot of the last 7 days, newest first.
+- **APP-4** (agent): FERB.app's how-tos, shortcuts and setting places are one list kept in NotchCore (AppGuide), beside the screens it names. FERB.app sends it with about.guide (APP_ONLY: only FERB.app's words become FERB's guide) on every connection; the daemon keeps it in memory and, until the app connects after a daemon start, the About document says so.
+- **APP-5** (agent): FERB.app's Uninstall (plain or delete everything) awaits SMAppService.unregister() and checks the status; only not-registered or not-found goes on to `ferb uninstall [--purge --yes]`. A throw or a service macOS still lists shows why in the output lines and nothing is uninstalled.

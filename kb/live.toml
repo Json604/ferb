@@ -28,3 +28,218 @@ request = "Install the build, let the daemon run for a few minutes, then ask abo
 pass = "The journal shows one `memory.embedded` backfill with counts and CPU seconds, no turn waits on it, and the old exchange is found by meaning."
 decisions = ["MEM-6", "MEM-25", "MEM-26"]
 sitting = "step 13"
+
+[LIVE-3]
+title = "Send a failure report to the developer"
+area = "daemon"
+surface = "FERB.app installed by the owner; the deployed report relay and the private ferb-reports repo"
+request = "Make a task fail, press Send to developer in the notch, view the report, press Send; then Settings → Advanced → Send diagnostics to developer."
+pass = "Each Send shows \"Sent\" and files exactly one issue whose summary lists the errors and questions and links the full report as one file under reports/YYYY/MM/; with the network off it says why and Send again works."
+decisions = ["DMN-8", "DMN-9", "DMN-28"]
+sitting = "step 13 (notes/test-tasks.md sitting 3)"
+
+[LIVE-4]
+title = "A report near 25 MB goes through the relay"
+area = "daemon"
+surface = "FERB.app and the deployed report relay; a disposable large report"
+request = "Send a report whose redacted file is close to 25 MB (or one over it, which FERB shortens)."
+pass = "The issue is filed with the linked file; the Worker shows no CPU-limit error (streaming costs no CPU per byte) and GitHub accepts the ~33 MB Contents request; an over-limit report says at the top what was cut."
+decisions = ["DMN-29", "DMN-30"]
+sitting = "step 13"
+
+[LIVE-5]
+title = "Settings → About tells the truth, and FERB cites it"
+area = "daemon"
+surface = "FERB.app on the owner's Mac"
+request = "Open Settings → About; change Task traces to 20 days on the Privacy page; ask FERB \"how long do you keep my traces and where do I change it?\""
+pass = "Version and models match Settings → AI; What FERB keeps shows 20 days; Health shows the database size; Cost shows two lines. The answer cites 20 days and Settings → Privacy, with the worker's about.read in its trace."
+decisions = ["DMN-6", "DMN-22", "STORE-5"]
+sitting = "step 13"
+
+[LIVE-6]
+title = "The About line rides once in every role's instructions and keeps the cache"
+area = "daemon"
+surface = "FERB.app on the owner's Mac; `ferb trace`"
+request = "Send two turns in a row and open `ferb trace` of each."
+pass = "The planner's instructions carry the About FERB line once; both turns have the same instructions prefix (prompt cache hits in the trace's usage)."
+decisions = ["DMN-22"]
+sitting = "step 13"
+
+[LIVE-7]
+title = "FERB's own account setup step pairs its profile, or browses as the owner when skipped"
+area = "app"
+surface = "FERB.app setup window; FERB's own Google account signed into its own browser profile"
+request = "Open the setup window from the menu; at FERB's own account: type the address, Find its profile, Use this profile, turn the extension on if asked. Then Stop using it. Then Skip and pick a paired profile, and ask FERB to open example.com."
+pass = "\"set up and paired\"; config.toml has [mailbox] address and [identity] browser/profile; `ferb doctor` passes the identity profile. Stop using it removes the keys. After Skip, example.com opens in the picked profile."
+decisions = ["APP-1", "DMN-25", "HAND-2"]
+sitting = "step 13"
+
+[LIVE-8]
+title = "Restore a trashed file from Settings → Data"
+area = "app"
+surface = "FERB.app; a disposable file on the Desktop"
+request = "Ask FERB to trash a disposable Desktop file, then restore it from Settings → Data → Restore."
+pass = "The file is back where it was."
+decisions = ["APP-2"]
+sitting = "step 13"
+
+[LIVE-9]
+title = "Delete a saved secret from Settings → Data"
+area = "app"
+surface = "FERB.app; a disposable secret saved during a test login"
+request = "Save a disposable secret during a test login, then Settings → Data → Delete… it."
+pass = "Keychain Access no longer lists the item (service ferb.owner-secrets); `ferb trace`/the journal show secret.deleted with only place and name."
+decisions = ["APP-2", "GATE-2"]
+sitting = "step 13"
+
+[LIVE-10]
+title = "Clean up the live store from Settings → Data"
+area = "app"
+surface = "FERB.app on the owner's live store"
+request = "Settings → Data → Clean up: review the list, OK."
+pass = "FERB stops and comes back, the result line shows, and Health's Database line clears."
+decisions = ["DMN-17"]
+sitting = "step 13"
+
+[LIVE-11]
+title = "A memory import notice opens the Memory page on that assistant"
+area = "app"
+surface = "FERB.app after a memory import"
+request = "Press Open the Memory page on a memory import notice."
+pass = "FERB's window opens on Memory filtered to that assistant (\"Showing what FERB imported from …\" with Show everything)."
+sitting = "step 13"
+
+[LIVE-12]
+title = "Uninstall and delete everything"
+area = "app"
+surface = "A disposable install (another macOS user), never the owner's"
+request = "Settings → Advanced → Uninstall FERB and delete all its data…, answer the question."
+pass = "Login Items no longer lists FERB's service, ~/.ferb is gone and Keychain Access lists no item of FERB's services."
+decisions = ["APP-2", "APP-5", "DMN-20"]
+sitting = "step 13"
+
+[LIVE-13]
+title = "\"What FERB saw\" shows a message's redacted screenshots"
+area = "app"
+surface = "FERB.app with a browser window in front"
+request = "Send a message with a browser window in front, then one that makes a task take a screenshot; open \"What FERB saw\" under each, then Settings → Data → What FERB saw."
+pass = "The first lists the front window (time, site, page title) and shows the redacted picture (a password field painted over); the second also lists the task's screenshot. Settings lists both, newest first, nothing older than 7 days."
+decisions = ["APP-3", "DMN-27"]
+sitting = "step 13"
+
+[LIVE-14]
+title = "An excluded app disappears from \"What FERB saw\""
+area = "app"
+surface = "FERB.app; an app shown in one kept screenshot"
+request = "Add that app to Settings → Privacy → excluded apps."
+pass = "Its picture disappears from both lists."
+decisions = ["DMN-27"]
+sitting = "step 13"
+
+[LIVE-15]
+title = "Opening the viewer captures nothing, and seen.list is FERB.app only"
+area = "daemon"
+surface = "FERB.app; a terminal with the developer toolbox or a socket client"
+request = "Open the viewer; then call seen.list from a terminal."
+pass = "`ferb trace`/the journal show no new capture; the terminal call gets \"FERB.app only\"."
+decisions = ["DMN-23", "DMN-27"]
+sitting = "step 13"
+
+[LIVE-16]
+title = "Moving from the hand-edited LaunchAgent to FERB.app's registered service"
+area = "daemon"
+surface = "A FERB.app build installed by the owner in /Applications over the old LaunchAgent"
+request = "Open the new FERB.app (answer Set Up From This App if the old plist runs a checkout); allow it in Login Items if asked."
+pass = "The old plist is gone from ~/Library/LaunchAgents; Login Items lists FERB; the notch answers; launchctl print shows the definition inside FERB.app; ps shows the agent with -m ferb.daemon; service.json names the build; the daemon's cwd is ~/.ferb; logs/daemon.err.log receives output."
+decisions = ["DMN-2", "DMN-14", "DMN-15"]
+sitting = "step 13"
+
+[LIVE-17]
+title = "The registered service survives restarts and reports being switched off"
+area = "daemon"
+surface = "FERB.app installed by the owner"
+request = "Restart FERB from the menu; log out and in; then switch FERB off in Login Items and launch FERB.app."
+pass = "The daemon comes back by itself each time; when switched off, the next launch shows the setup window with the approval note and the button."
+decisions = ["DMN-2", "DMN-15"]
+sitting = "step 13"
+
+[LIVE-18]
+title = "The store clean-up with FERB.app's service keeps the registration"
+area = "daemon"
+surface = "FERB.app installed by the owner"
+request = "Run `ferb setup --cleanup --ok …`."
+pass = "The daemon stops (launchctl kill), the clean-up runs, the daemon starts again, and the registration stays."
+decisions = ["DMN-17"]
+sitting = "step 13"
+
+[LIVE-19]
+title = "A checkout refuses to take over FERB.app's service; app uninstall unregisters it"
+area = "daemon"
+surface = "FERB.app installed by the owner; the checkout"
+request = "From the checkout run `ferb setup --update` while the app's service is registered; then uninstall from Settings → Advanced."
+pass = "The checkout refuses and says why; after the uninstall Login Items no longer lists FERB's service."
+decisions = ["DMN-16", "APP-5"]
+sitting = "step 13"
+
+[LIVE-20]
+title = "A checkout update swaps in a new venv, or leaves the running daemon alone"
+area = "daemon"
+surface = "A checkout install (no FERB.app service registered)"
+request = "Run `ferb setup --update` while the daemon runs; repeat with the network off."
+pass = "~/.ferb/venv.new appears and the daemon restarts once on the new venv; with the network off it fails and the running daemon keeps working (no restart)."
+decisions = ["DMN-18"]
+sitting = "step 13"
+
+[LIVE-21]
+title = "Setup counts as done only with every permission on"
+area = "daemon"
+surface = "FERB.app setup window"
+request = "Press Done with one permission off, relaunch; then turn all on, Done, relaunch."
+pass = "With one off the window comes back at the next launch; with all on it doesn't."
+decisions = ["DMN-21"]
+sitting = "step 13"
+
+[LIVE-22]
+title = "A fresh FERB.app install reads the bundled embedding model"
+area = "memory"
+surface = "A fresh FERB.app install"
+request = "Install fresh and run `ferb memory embeddings`."
+pass = "It reports the model loaded from FERB.app; no memory.embedding_model fetched row; nothing under ~/.ferb/models."
+decisions = ["MEM-26"]
+sitting = "step 13"
+
+[LIVE-23]
+title = "Signing out of Claude from Settings → AI"
+area = "runtimes"
+surface = "FERB.app with FERB's Claude signed in"
+request = "Settings → AI → Sign out of Claude; then try a Claude sign-in that fails."
+pass = "FERB's Claude is signed out; the failed sign-in says why without naming a `ferb` command."
+decisions = ["RUN-1"]
+sitting = "step 13"
+
+[LIVE-24]
+title = "The daemon's memory footprint stays flat after a day on the rebuilt code"
+area = "daemon"
+surface = "FERB.app rebuilt code on the owner's Mac; resource_samples"
+request = "After a day on the rebuilt build, read resource_samples (idle and per-task growth)."
+pass = "Neither idle nor per-task footprint keeps growing (before: ~100-160 MB an hour idle, 200-400 MB per 5 minutes of tasks). If it still grows, a tracemalloc snapshot through a developer RPC (owner's go) names the holder."
+decisions = ["DMN-26"]
+sitting = "step 13"
+
+[LIVE-25]
+title = "FERB's icon looks right everywhere on the Mac"
+area = "release"
+surface = "A FERB.app build and its DMG installed by the owner"
+request = "Look at FERB in the Dock, Finder, Launchpad, Login Items, notifications, the DMG volume and the site's favicon."
+pass = "The dark rounded square with the white \"f\" and orange dot everywhere; on macOS 26+ it doesn't sit in a grey frame."
+decisions = ["REL-1", "REL-3", "REL-4"]
+sitting = "step 13"
+
+[LIVE-26]
+title = "Reinstalling over leftovers, including another FERB.app's registration"
+area = "daemon"
+surface = "A disposable install (another macOS user) with an older FERB's files, one deliberately broken file and a registration from a FERB.app at another path"
+request = "Install and open the new FERB.app over it."
+pass = "FERB starts; the broken file is moved aside as <name>.broken-<time> and told once in the chat; intact data is used as is; this app's service registers over the other path's."
+decisions = ["DMN-10", "STORE-1", "STORE-2"]
+sitting = "step 13"

@@ -11,3 +11,5 @@ paths:
 Codex, Claude Agent SDK and API adapters behind one interface; pinned runtime versions.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **RUN-1** (agent): A provider's HTTP refusal says a plain cause from the status code first, then the provider's words (api.http_cause). Runtime errors point at Settings → AI, never at a `ferb` command or config.toml.
