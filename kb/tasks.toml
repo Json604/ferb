@@ -314,14 +314,6 @@ why = "The rerun is a visible stopgap (flaky tests are named in the push output)
 decisions = ["TEST-508"]
 after = ["T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20", "T-21", "T-22", "T-23"]
 
-[T-25]
-title = "Require GitHub's gate check on main once it is green"
-area = "release"
-kind = "chore"
-status = "blocked"
-why = "Owner approved 2026-11-02: a clean-machine pass is the final judge; blocked until the macOS runner passes the suite."
-decisions = ["TEST-508"]
-
 [T-600]
 title = "Write the test for MEM-413: import texts are cut at a word boundary at their limits"
 area = "memory"
