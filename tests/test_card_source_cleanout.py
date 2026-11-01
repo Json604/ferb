@@ -38,6 +38,7 @@ def _rows(db: Database) -> dict[str, set[str]]:
     return out
 
 
+# decision: MEM-30
 def test_card_source_refs_are_what_a_current_card_cites(store: Any) -> None:
     """The source collection factored out of `prepare_episode` is the card rule itself: a card the current composer
     writes cites refs from `card_source_refs` only, and since step 9b one per distinct set of origins of the
@@ -81,6 +82,7 @@ def test_a_card_the_current_composer_built_loses_nothing(store: Any) -> None:
     assert _rows(db) == before and counts["rows"] == 0 and counts["cleaned"] == 0 and counts["nodes"] == 1
 
 
+# decision: MEM-30
 def test_a_card_whose_trace_aged_out_keeps_what_it_cites_with_one_activity_row_per_origin_set(store: Any) -> None:
     """Review focus 1: its lineage can't be read again, so nothing is guessed: it keeps every episode, journal and
     memory ref it cites and, of its activity rows, one per distinct set of origins (step 9b's rule, step 12a)."""
@@ -127,6 +129,7 @@ def test_a_second_run_removes_nothing(store: Any) -> None:
     assert first["rows"] > 0 and second["rows"] == 0 and second["cleaned"] == 0 and _rows(db) == after_first
 
 
+# decision: MEM-2
 def test_forgetting_a_row_an_action_used_still_forgets_the_card_and_what_was_built_on_it(store: Any) -> None:
     """Review focus 2: an action's sources stay edges, so a forget still reaches every version and its descendants."""
     db, spans, learning = store

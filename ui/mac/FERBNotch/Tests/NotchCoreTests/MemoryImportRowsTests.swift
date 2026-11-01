@@ -16,6 +16,7 @@ final class MemoryImportRowsTests: XCTestCase {
         XCTAssertNil(MemoryImportStatus(["status": "done"]))
     }
 
+    // decision: MEM-403
     func testOnlyAccountExportsNeedAFile() {
         XCTAssertEqual(MemoryImportSource.allCases.filter(\.needsFile), [.chatgpt, .claude, .gemini])
     }

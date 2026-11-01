@@ -42,6 +42,7 @@ def harness(tmp_path, collector):
     return review, config, built, events
 
 
+# decision: MEM-24
 def test_gathered_facts_keep_the_most_used_apps_and_owner_focus_only_as_a_fallback():
     rows = [{'bundle_id': 'code', 'app': 'Code', 'uses': None, 'last_used': 'unknown'},
             {'bundle_id': 'blender', 'app': 'Blender', 'uses': 0, 'last_used': 'unknown'}]
@@ -53,6 +54,7 @@ def test_gathered_facts_keep_the_most_used_apps_and_owner_focus_only_as_a_fallba
     assert [a['app'] for a in FACTS['apps']] == ['Brave Browser', 'Code']          # most used first, unused left out
 
 
+# decision: MEM-24
 def test_a_refresh_is_worth_interpreting_only_when_the_apps_browsers_or_profiles_changed():
     busier = json.loads(json.dumps(FACTS))
     busier['apps'][0]['uses'] += 400                                            # counts move every day
@@ -62,6 +64,7 @@ def test_a_refresh_is_worth_interpreting_only_when_the_apps_browsers_or_profiles
     assert facts_fingerprint(other) != facts_fingerprint(FACTS)
 
 
+# decision: MEM-13, MEM-24
 def test_what_ferb_saw_is_built_once_shown_once_in_chat_and_stored_as_observed(daemon):
     from ferb.cli.client import Client
     calls = []
@@ -96,6 +99,7 @@ def test_what_ferb_saw_is_built_once_shown_once_in_chat_and_stored_as_observed(d
         client.close()
 
 
+# decision: MEM-24
 def test_the_setup_step_shows_it_so_chat_does_not(daemon):
     from ferb.cli.client import Client
     daemon.daemon.persona_scan = lambda *args: FACTS
@@ -113,6 +117,7 @@ def test_the_setup_step_shows_it_so_chat_does_not(daemon):
         client.close()
 
 
+# decision: MEM-13, MEM-18
 def test_mac_facts_join_the_core_profile_only_once_they_hold_up(daemon):
     daemon.daemon.persona_scan = lambda *args: FACTS
     daemon.daemon._make_runtime = lambda *a, **k: FakeDistillRuntime(ANSWER)
@@ -129,6 +134,7 @@ def test_mac_facts_join_the_core_profile_only_once_they_hold_up(daemon):
     assert fresh == [False, False] and later == [True, True]
 
 
+# decision: MEM-13, MEM-24
 def test_a_refresh_replaces_what_changed_quietly(daemon):
     other = json.loads(json.dumps(FACTS))
     other['browsers'] = ['arc']

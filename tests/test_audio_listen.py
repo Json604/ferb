@@ -196,6 +196,7 @@ def test_no_sound_is_reported_as_a_fact_without_launching_ferb_app(tmp_path: Pat
     assert "no sound" in out["note"] and fake.argv == []
 
 
+# decision: SENSE-400
 def test_listen_has_no_ferb_cap_on_seconds() -> None:
     from ferb.act.listen import AudioListen
     schema = AudioListen.Input.model_json_schema()["properties"]["seconds"]
@@ -236,6 +237,7 @@ def test_the_packaged_app_is_told_ferbs_home_not_its_own_folder(tmp_path: Path) 
     assert fake.argv[0][4:7] == ["--env", f"FERB_HOME={home}", str(app)]
 
 
+# decision: VOICE-403
 def test_hearing_launches_the_app_itself(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """After the merge there is no voice helper: the daemon opens FERB.app with the hearing mode as its arguments."""
     import ferb.device.install as install

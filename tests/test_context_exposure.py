@@ -2,6 +2,7 @@
 from ferb.core.context import ContextBlock
 
 
+# decision: MEM-33
 def test_memory_always_reaches_the_planner_and_only_shown_chat_is_carried_to_the_task(daemon, monkeypatch):
     """L28: relevant memory is always in the planner's prompt; older chat that didn't fit the window was never read."""
     from ferb.core.types import ModelLimits

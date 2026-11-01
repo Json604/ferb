@@ -17,6 +17,7 @@ def _holding(d: RunningDaemon, word: str) -> tuple[list[str], list[str]]:
                                        (f"%{word}%", f"%{word}%"))]))
 
 
+# decision: MEM-2
 def test_the_forget_confirmation_names_the_items_that_go(daemon: RunningDaemon) -> None:
     """Review M4: the confirmation showed counts only, while items built on the same sources went too."""
     from ferb.cli.client import Client
@@ -36,6 +37,7 @@ def _forget_question(d: RunningDaemon) -> Any:
                                      if q.capability == "memory.forget"), None))
 
 
+# decision: MEM-2
 def test_chat_can_forget_after_a_yes_to_a_question_naming_what_goes(daemon: RunningDaemon) -> None:
     """Review live test 4: "forget my test lab colour" in the notch said it forgot, but the item stayed."""
     item = _remember(daemon, "remember that my test lab colour is violet-heron", "my test lab colour is violet-heron",
@@ -127,6 +129,7 @@ def _memory_questions(d: RunningDaemon) -> list[Any]:
                                 if q.capability == "memory.forget"])
 
 
+# decision: MEM-2
 def test_a_forget_closes_the_pending_question_about_that_memory(daemon: RunningDaemon) -> None:
     """Re-review NEW-1 (probe a2): the owner forgot a memory from the dashboard/CLI while FERB's chat "Forget for good?"
     about it waited; the question stayed, kept the forgotten text, and every later planner turn read it again."""
@@ -150,6 +153,7 @@ def _pending_rows(d: RunningDaemon) -> int:
     return _on_loop(d, lambda: d.daemon.db.conn.execute("SELECT COUNT(*) FROM memory_questions").fetchone()[0])
 
 
+# decision: MEM-2
 def test_a_yes_to_forget_a_learned_item_closes_the_question_about_one_built_on_it(daemon: RunningDaemon) -> None:
     """Probe h3c: questions waited on lesson A and on procedure B built on it; the Yes on A deletes B too, so B's
     question closes and neither text is left anywhere."""
@@ -167,6 +171,7 @@ def test_a_yes_to_forget_a_learned_item_closes_the_question_about_one_built_on_i
     assert _everywhere(daemon, "qorvex") == []
 
 
+# decision: MEM-2
 def test_forgetting_one_tasks_card_leaves_another_task_with_the_same_goal_alone(daemon: RunningDaemon) -> None:
     """Round 5 (NEW-1): a learned item's echo took the body's "intent" for every kind, and an episode card's intent is
     its task's goal, so forgetting task 1's card wiped the same goal from task 2's trace and from every planner turn

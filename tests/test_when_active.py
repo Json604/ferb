@@ -56,6 +56,7 @@ def test_a_when_active_schedule_fires_when_the_owner_is_back_and_not_while_they_
         daemon.daemon.presence.stop()
 
 
+# decision: SENSE-201
 def test_input_idleness_is_not_away_and_waking_the_mac_is_a_return(daemon: RunningDaemon) -> None:
     """The owner watching a film touches nothing for an hour: still at the Mac, so the run goes at its time. Asleep
     displays hold the next one until the screens wake."""
@@ -84,6 +85,7 @@ def test_input_idleness_is_not_away_and_waking_the_mac_is_a_return(daemon: Runni
         daemon.daemon.presence.stop()
 
 
+# decision: SENSE-201
 def test_the_daemon_starting_in_a_new_login_session_is_a_return(daemon: RunningDaemon) -> None:
     """A restart or a login brings the daemon up in a new login session: what waited for the owner's return fires;
     the same session again (an update, a crash) is no return."""
@@ -132,6 +134,7 @@ def test_a_reminder_for_when_the_owner_is_back_waits_for_their_next_return(daemo
         daemon.daemon.presence.stop()
 
 
+# decision: SENSE-201
 def test_without_the_presence_signal_a_when_active_schedule_runs_at_its_time(daemon: RunningDaemon) -> None:
     """FERB can't tell whether the Mac is in use (sensing paused): unknown counts as present."""
     words = "every day whenever I'm on my mac remind me to apply to YC"

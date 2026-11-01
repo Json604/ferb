@@ -67,12 +67,14 @@ def test_rollback_does_not_overwrite_a_later_owner_correction(learning):
     assert learning.get(newer['id'])['origin']=='owner'
 
 
+# decision: MEM-2
 def test_forgotten_logical_episode_cannot_return_as_new_revision(learning):
     a=card(learning,'a')
     learning.forget([a['id']])
     with pytest.raises(LearningRefused):card(learning,'a',version='2')
 
 
+# decision: MEM-2
 def test_missing_read_source_cannot_be_dropped_to_recreate_forgotten_content(learning):
     refs = learning._action_sources({'tool': 'memory.read', 'args': {'item_id': 'forgotten'}}, {})
     assert refs == {'memory:forgotten'}
@@ -81,6 +83,7 @@ def test_missing_read_source_cannot_be_dropped_to_recreate_forgotten_content(lea
                      refs, made_by='code:evidence-card/1')
 
 
+# decision: MEM-2
 def test_read_memory_lineage_is_forgotten_and_cannot_reappear_from_old_trace(learning):
     from ferb.orchestrator import episodes
     from ferb.trace import compose
@@ -116,6 +119,7 @@ def test_derived_external_content_keeps_private_label_for_sink_checks(learning):
         learning.db.conn.execute("UPDATE learning_nodes SET origins_json='[]' WHERE id=?", (lesson['id'],))
 
 
+# decision: MEM-2
 def test_a_later_task_that_read_a_forgotten_source_gets_no_card(learning):
     """C1: a later task read an earlier task's evidence naming a source that was then forgotten. Its card would be built
     on forgotten content, so it is never written; the forget left the source's id as a tombstone, never its text."""

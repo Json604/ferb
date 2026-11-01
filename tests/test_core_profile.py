@@ -21,6 +21,7 @@ def profile_text(d: Any) -> str:
     return str(run(d, d.daemon._core_profile_text))
 
 
+# decision: MEM-7, MEM-21
 def test_a_later_instruction_replaces_the_earlier_one_and_the_line_names_it(daemon: Any) -> None:
     """The booking case: the planner sees the earlier fact (its id in retrieved memory) and names it replaced; code
     ends it, the core profile follows at once, and FERB's line names what was replaced."""
@@ -40,6 +41,7 @@ def test_a_later_instruction_replaces_the_earlier_one_and_the_line_names_it(daem
     assert f"[{now.id}]" in text and "(your words" in text
 
 
+# decision: MEM-21
 def test_the_same_key_replaces_and_is_said_too(daemon: Any) -> None:
     """Fix list: same-key replace was silent; now the line names it whatever path saved it."""
     owner_fact(daemon, "appointment_preferences", NOTIFY, kind="project", subject="project:us-work-permit")
@@ -52,6 +54,7 @@ def test_the_same_key_replaces_and_is_said_too(daemon: Any) -> None:
     assert (now.subject, now.content) == ("project:us_work_permit", JUST_BOOK)   # subject normalized like the key
 
 
+# decision: MEM-5
 def test_the_profile_is_in_every_roles_instructions(daemon: Any) -> None:
     """Always on in the planner's and the workers' prompts (the stable position, before the conversation)."""
     owner_fact(daemon, "reply_style", "keep replies short and plain", kind="preference")
@@ -64,6 +67,7 @@ def test_the_profile_is_in_every_roles_instructions(daemon: Any) -> None:
     assert "skills.read" not in systems["supervisor"] and "skills.read" in systems["worker"]   # lookup tools: workers
 
 
+# decision: MEM-5, MEM-17
 def test_the_profile_keeps_its_hard_budget(daemon: Any) -> None:
     d = daemon.daemon
     profile = CoreProfile(d.memory, d.clock, budget_tokens=200)
@@ -83,6 +87,7 @@ def test_the_profile_keeps_its_hard_budget(daemon: Any) -> None:
     assert PROFILE_TOKENS == 2500
 
 
+# decision: MEM-15, MEM-18
 def test_a_preference_the_owner_states_joins_at_once_and_understanding_waits_to_hold_up(daemon: Any) -> None:
     d = daemon.daemon
     mine = owner_fact(daemon, "summaries", "short summary lists, no jargon", kind="preference")
@@ -113,6 +118,7 @@ def test_the_owners_words_about_anything_join_at_once_unless_placed_by_search(da
     assert placed.id not in ids and guess.id not in ids
 
 
+# decision: MEM-7
 def test_forget_and_retire_take_an_entry_out_at_once(daemon: Any) -> None:
     d = daemon.daemon
     a = owner_fact(daemon, "a", "always use dark mode", kind="preference")
@@ -123,6 +129,7 @@ def test_forget_and_retire_take_an_entry_out_at_once(daemon: Any) -> None:
     assert "dark mode" not in profile_text(daemon) and "10am" not in profile_text(daemon)
 
 
+# decision: MEM-7, MEM-14, MEM-20
 def test_the_weekly_pass_groups_what_holds_up_and_retires_what_is_over(daemon: Any) -> None:
     """MEM-7: a model chooses and groups; code checks every id (one that doesn't hold up is refused), renders
     from the facts, retires what the pass found over and tells the owner once."""
@@ -150,6 +157,7 @@ def test_the_weekly_pass_groups_what_holds_up_and_retires_what_is_over(daemon: A
     assert not run(daemon, d.profile.due)                                     # a week until the next
 
 
+# decision: MEM-12
 def test_the_memory_page_reads_and_edits_the_profile(daemon: Any) -> None:
     from ferb.cli.client import Client
     item = owner_fact(daemon, "city", "I live in Pune")
@@ -166,6 +174,7 @@ def test_the_memory_page_reads_and_edits_the_profile(daemon: Any) -> None:
         c.close()
 
 
+# decision: MEM-10
 def test_an_entry_shows_the_owners_words_their_label_and_its_id() -> None:
     from datetime import datetime, timezone
 

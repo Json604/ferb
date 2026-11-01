@@ -6,6 +6,7 @@ from ferb.sense.capture import Field, TypedFields, clipboard_observation
 from ferb.sense.watchers.accessibility import accessibility_observation
 
 
+# decision: SENSE-401
 def test_typed_text_is_grouped_per_field_redacted_and_attributed() -> None:
     events = []
     field = Field("com.whatsapp.WhatsApp", "WhatsApp", 7, "chat", "message", "AXTextArea")
@@ -21,6 +22,7 @@ def test_typed_text_is_grouped_per_field_redacted_and_attributed() -> None:
     assert "sk-ant-" not in str(events[-1].data) and events[-1].hints["actor"] == "ferb"
 
 
+# decision: SENSE-401
 def test_secure_input_during_hold_and_unknown_or_masked_fields_drop_text() -> None:
     events = []
     normal = Field("com.microsoft.VSCode", "Code", 9, "editor", "search", "AXTextField")

@@ -8,6 +8,7 @@ status = "active"
 words_source = "notes/voice.md owner decision 1: an agent's summary; no verbatim quote recorded"
 rule = "Setting up push-to-talk happens in FERB.app; there is no CLI path for it (no `ferb setup --voice`, no `ferb voice`)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch", "ferb/cli"]
+untestable = "Where a setting lives and an absence of CLI commands; TEST-500 rules out wiring tests, and the app's dictation is checked live (LIVE-413, LIVE-416)."
 legacy = "notes/voice.md decision 1"
 
 [VOICE-401]

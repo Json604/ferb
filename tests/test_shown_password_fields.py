@@ -108,6 +108,7 @@ def test_a_picked_option_to_a_question_about_passwords_is_the_owners_words(daemo
 
 # B. typed text and AX value changes -------------------------------------------------------------------------------------
 
+# decision: SENSE-401
 @pytest.mark.parametrize('attrs', [{'AXTitle': 'Enter your password'}, {'AXDescription': 'Enter your password'},
                                    {'AXPlaceholderValue': 'Password'}, {'AXIdentifier': 'Passwd'},
                                    {'AXDOMIdentifier': 'login_pwd'},
@@ -132,6 +133,7 @@ class Element:
         return element.attrs.get(name) if isinstance(element, Element) else None
 
 
+# decision: SENSE-401
 def test_value_changes_of_password_and_secure_fields_are_never_recorded() -> None:
     from ferb.sense.watchers.accessibility import element_facts
     shown = Element(AXRole='AXTextField', AXDescription='Enter your password', AXValue='Hunter2!x')

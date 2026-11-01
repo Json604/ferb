@@ -40,11 +40,13 @@ def read_fixture(tmp_path: Path, source: str) -> list[Any]:
 
 # ---------- readers ----------
 
+# decision: MEM-401
 def test_the_window_is_three_calendar_months() -> None:
     assert window_start(NOW) == datetime(2025, 10, 1, 9, tzinfo=UTC)
     assert window_start(datetime(2026, 5, 31, tzinfo=UTC)).date().isoformat() == "2026-02-28"
 
 
+# decision: MEM-401, MEM-403, MEM-405, MEM-407
 def test_chatgpt_export_roles_window_and_redaction(tmp_path: Path) -> None:
     convs = read_fixture(tmp_path, "chatgpt")
     owner = texts(convs, "owner")
@@ -56,6 +58,7 @@ def test_chatgpt_export_roles_window_and_redaction(tmp_path: Path) -> None:
     assert not any(SECRET in m.text for c in convs for m in c.messages) and any("[redacted]" in t for t in owner)
 
 
+# decision: MEM-403, MEM-407, MEM-408
 def test_claude_export_projects_and_saved_memory_as_claims(tmp_path: Path) -> None:
     convs = read_fixture(tmp_path, "claude")
     assert "Always write code with type hints." in texts(convs, "owner")
@@ -64,6 +67,7 @@ def test_claude_export_projects_and_saved_memory_as_claims(tmp_path: Path) -> No
     assert any("Great project!" == t for t in texts(convs, "assistant"))
 
 
+# decision: MEM-403, MEM-407, MEM-414
 @pytest.mark.parametrize("html", [False, True])
 def test_gemini_takeout_json_and_html(tmp_path: Path, html: bool) -> None:
     convs = read("gemini", gemini_export(tmp_path, html=html), now=NOW, redact=Redactor().text)
@@ -71,6 +75,7 @@ def test_gemini_takeout_json_and_html(tmp_path: Path, html: bool) -> None:
     assert texts(convs, "assistant") == ["Try intervals on Tuesdays."]
 
 
+# decision: MEM-403, MEM-407
 def test_claude_code_only_the_owners_typed_turns(tmp_path: Path) -> None:
     convs = read_fixture(tmp_path, "claude_code")
     chats = [c for c in convs if not c.claims]
@@ -81,6 +86,7 @@ def test_claude_code_only_the_owners_typed_turns(tmp_path: Path) -> None:
     assert [c.claims for c in convs if c.claims] == [True]                    # the saved memory note: a claim
 
 
+# decision: MEM-403, MEM-407
 def test_codex_only_interactive_sessions_and_typed_turns(tmp_path: Path) -> None:
     convs = read_fixture(tmp_path, "codex")
     assert len(convs) == 1                                                     # no `codex exec`, no subagent thread
@@ -88,6 +94,7 @@ def test_codex_only_interactive_sessions_and_typed_turns(tmp_path: Path) -> None
     assert texts(convs, "assistant") == ["Check the build logs."]
 
 
+# decision: MEM-403
 def test_codex_reads_a_zstd_compressed_rollout(tmp_path: Path) -> None:
     """A rollout Codex compressed (`rollout-*.jsonl.zst`) is read like a plain one, and its id has no suffix."""
     import zstandard
@@ -129,6 +136,7 @@ def notices(d: RunningDaemon) -> list[str]:
     return [e.data["text"] for e in run(d, lambda: d.daemon._journal().of_kind("chat.notice"))]
 
 
+# decision: MEM-400, MEM-402, MEM-405, MEM-406, MEM-412
 def test_an_import_saves_verified_facts_as_ferbs_understanding(daemon: RunningDaemon, tmp_path: Path) -> None:
     """Estimate first (no model call), then the run: redacted before any call, recall then verify, facts saved as
     FERB's understanding labelled with their source, no known destinations, not in the core profile yet, one notice."""
@@ -155,6 +163,7 @@ def test_an_import_saves_verified_facts_as_ferbs_understanding(daemon: RunningDa
     assert not imported(daemon, "gemini")                                     # the filter
 
 
+# decision: MEM-409
 def test_newer_words_win_and_the_older_stay_as_history(daemon: RunningDaemon, tmp_path: Path) -> None:
     d, exports = daemon.daemon, make_exports(tmp_path / "x")
     start(daemon, "chatgpt", exports.path("chatgpt"), ScriptedImportModel())
@@ -165,6 +174,7 @@ def test_newer_words_win_and_the_older_stay_as_history(daemon: RunningDaemon, tm
     assert old.valid_to is not None and current[0].supersedes == old.id
 
 
+# decision: MEM-409
 def test_the_owners_own_words_are_never_replaced_by_an_import(daemon: RunningDaemon, tmp_path: Path) -> None:
     mine = owner_fact(daemon, "home_city", "I live in Jaipur")
     start(daemon, "chatgpt", make_exports(tmp_path / "x").path("chatgpt"), ScriptedImportModel())
@@ -172,12 +182,14 @@ def test_the_owners_own_words_are_never_replaced_by_an_import(daemon: RunningDae
     assert [i.id for i in homes] == [mine.id] and status(daemon)["counts"]["kept_owner"] >= 1
 
 
+# decision: MEM-408
 def test_a_saved_memory_counts_only_with_the_owners_words(daemon: RunningDaemon, tmp_path: Path) -> None:
     start(daemon, "claude", make_exports(tmp_path / "x").path("claude"), ScriptedImportModel())
     contents = [i["content"] for i in imported(daemon, "claude")]
     assert any("vegetarian" in c for c in contents) and not any("guitar" in c for c in contents)
 
 
+# decision: MEM-408
 def test_a_verifier_quote_not_in_the_owners_message_is_dropped(daemon: RunningDaemon, tmp_path: Path) -> None:
     model = ScriptedImportModel()
     model.verify_override = lambda text: {"verdicts": [v | {"quote": "words nobody typed"}
@@ -186,6 +198,7 @@ def test_a_verifier_quote_not_in_the_owners_message_is_dropped(daemon: RunningDa
     assert not imported(daemon) and status(daemon)["counts"]["dropped"] >= 1
 
 
+# decision: MEM-404
 def test_nothing_raw_is_kept(daemon: RunningDaemon, tmp_path: Path) -> None:
     """MEM-404: facts only. After importing every source, no table, the database file or its WAL holds the
     conversations' raw text (assistant replies, titles, injected output, pasted text, the secret)."""
@@ -204,6 +217,7 @@ def test_nothing_raw_is_kept(daemon: RunningDaemon, tmp_path: Path) -> None:
         assert words not in stored and words.encode() not in raw_files, words
 
 
+# decision: MEM-411
 def test_an_import_waits_while_the_owner_has_a_turn(daemon: RunningDaemon, tmp_path: Path) -> None:
     d, model, busy = daemon.daemon, ScriptedImportModel(), [True]
     d._import_busy = lambda: busy[0]                                     # type: ignore[method-assign]
@@ -217,6 +231,7 @@ def test_an_import_waits_while_the_owner_has_a_turn(daemon: RunningDaemon, tmp_p
     assert model.contexts and status(daemon)["status"] == "done"
 
 
+# decision: MEM-411
 def test_every_import_call_waits_for_the_owners_turn_not_only_the_first(daemon: RunningDaemon, tmp_path: Path) -> None:
     """memory-import rulings: each model call waits while the owner has a chat turn. A turn that starts after a chunk's
     recall call holds its verify calls too."""
@@ -249,6 +264,7 @@ def test_cancel_stops_the_run_and_a_later_start_goes_on(daemon: RunningDaemon, t
     assert status(daemon)["status"] == "done" and imported(daemon, "codex")
 
 
+# decision: MEM-410
 def test_a_restart_resumes_from_the_last_finished_chunk(home: Path, tmp_path: Path,
                                                          monkeypatch: pytest.MonkeyPatch) -> None:
     """Progress is journaled per conversation part (hashes only): a restart mid-run goes on by itself, and what was
@@ -297,6 +313,7 @@ def import_all(d: RunningDaemon, exports: Any, model_for: Any) -> dict[str, Any]
     return score([i["content"] for i in imported(d)])
 
 
+# decision: MEM-400
 def test_quality_on_the_labelled_fixtures(daemon: RunningDaemon, tmp_path: Path) -> None:
     """The offline score: what code alone guarantees with a credulous model. Every true fact survives the code's
     checks; every trap code can see (assistant claims, old messages, injected output, subagents and programs, the
@@ -307,6 +324,7 @@ def test_quality_on_the_labelled_fixtures(daemon: RunningDaemon, tmp_path: Path)
     assert got["recall"] == 1.0 and got["traps_kept"] == ["pasted text"]
 
 
+# decision: MEM-400
 @pytest.mark.real
 def test_quality_live(daemon: RunningDaemon, tmp_path: Path) -> None:
     """The live eval (owner-run, `-m real`, step 13): the same fixtures through the configured Codex runtime."""
@@ -317,6 +335,7 @@ def test_quality_live(daemon: RunningDaemon, tmp_path: Path) -> None:
     assert "secret" not in got["traps_kept"] and got["recall"] >= 0.7
 
 
+# decision: MEM-403, MEM-408
 def test_chatgpt_split_files_and_memory_traces_as_claims(tmp_path: Path) -> None:
     """Larger exports split conversations-000.json, -001…; the saved memory shows only as the memory snapshot and the
     assistant's memory writes (recipient "bio"), read as claims."""
@@ -339,6 +358,7 @@ def test_chatgpt_split_files_and_memory_traces_as_claims(tmp_path: Path) -> None
     assert texts([c for c in convs if not c.claims], "owner") == ["remember that I'm vegetarian", "I live in Pune"]
 
 
+# decision: MEM-403
 def test_claude_export_in_its_2026_per_kind_zips(tmp_path: Path) -> None:
     import zipfile
     root = tmp_path / "claude-2026"
