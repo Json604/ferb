@@ -142,6 +142,10 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       footer reads "N of M done"; a part that needs the owner pauses only its row. [orchestration.md decisions 19-20]
 - [ ] A message sent before FERB's first reply restarts the planner once and both are read; a later message waits its
       turn; 4 quick messages → 2 turns. [orchestration.md decisions 10, 18]
+- [ ] A pasted secret is never stored: send a message with a fake token in a known format (e.g. a made-up `ghp_…`);
+      the chat shows the masked message and the "I hid it" notice; `sqlite3 -readonly ~/.ferb/ferb.db` finds no trace
+      of the token, nor does the app's saved chat (`defaults read com.ferb.FERB FERBConversationArchive`). [gateway.md;
+      setup-intro-plan Task 11]
 - [ ] A question waiting for the owner is never answered by an unrelated message: with a FERB question open (e.g. a
       choice), send a different request; FERB answers the new request alone and the open question stays open (the
       10-28 build replied "Your input: <its own question> / <new answer>" in one message, owner 2026-11-01).
