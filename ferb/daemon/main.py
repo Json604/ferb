@@ -42,6 +42,7 @@ from ferb.daemon.areas.compose import Compose
 from ferb.daemon.areas.desktop import Desktop
 from ferb.daemon.areas.egress import Egress
 from ferb.daemon.areas.environment import Environment
+from ferb.daemon.areas.intro import Intro
 from ferb.daemon.areas.jev import JevGlue
 from ferb.daemon.areas.memory import MemoryGlue
 from ferb.daemon.areas.memory_import import MemoryImportGlue
@@ -90,7 +91,7 @@ LOOP_RESTART_S, LOOP_RESTART_MAX_S = 1.0, 60.0    # a background loop that raise
 
 
 class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Browsers, Desktop, Egress, Sensing, Environment, Runtimes,
-             Retention, JevGlue, VoiceGlue, About, Rpc):
+             Retention, JevGlue, VoiceGlue, About, Intro, Rpc):
     """FERB's daemon: one process that owns the stores, the agents, the drivers and the socket."""
 
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,

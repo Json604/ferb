@@ -172,6 +172,9 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       (Step 9c, memory import: new runtime prompts ferb/memory/import_recall.md (candidates from another assistant's
       history, each with its message and exact quote) and ferb/memory/import_verify.md (keep what an owner line says,
       tighten, same_as, ended / until / review_in_days); notes/memory-import.md.)
+      (Setup intro Task 4, notes/setup-intro.md step 6: new runtime prompt ferb/orchestrator/prompts/intro.md, one
+      tool-less call naming a first task in the owner's voice from what FERB saw on the Mac (redacted), safe to show as a
+      plan; "" when nothing is clear, and the daemon then shows its general task.)
       (Step 10b: the rewrite keeps every one of these as one line of the field it describes: pause, cross-chat control
       and the restart rule's "messages read together", folders, keep_tabs_open, retry for identity/plan changes, parts,
       until/set_end, the remember/forget contract with login_origin (example removed), replaces, until, review_in_days and

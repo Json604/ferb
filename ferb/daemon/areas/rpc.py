@@ -161,11 +161,12 @@ class Rpc:
             "ui.click_through": self._ui_click_through, "ps.send": self._ps_send,
             "about.get": self._about_get, "about.guide": self._about_guide, "secrets.saved": self._secrets_saved,
             "secrets.delete": self._secrets_delete, "identity.find": self._identity_find,
-            "identity.choose": self._identity_choose, "seen.list": self._seen_list, "seen.image": self._seen_image
+            "identity.choose": self._identity_choose, "seen.list": self._seen_list, "seen.image": self._seen_image,
+            "intro.suggest": self._intro_suggest
         }
         streams: dict[str, Any] = {
             "notifications.subscribe": self._notifications_subscribe, "logs.subscribe": self._logs,
-            "chat.send": self._chat_send, "ps.attach": self._ps_attach
+            "chat.send": self._chat_send, "ps.attach": self._ps_attach, "intro.preview": self._intro_preview
         }
         self.server.unary.update(unary)
         self.server.streams.update(streams)

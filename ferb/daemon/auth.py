@@ -41,7 +41,7 @@ METHODS: dict[Role, frozenset[str]] = {
                          "reports.build", "reports.send", "ui.click_through", "tasks.preview",
                          "setup.browsers", "setup.browser_open", "setup.browser_pair", "setup.browsers_pair_all", "browser.show_handoff", "reports.diagnostic", "update.prepare", "tasks.list", "notices.list", "settings.get", "settings.set", "notifications.subscribe", "notifications.categories", "runtimes.sign_in", "runtimes.status", "runtimes.use", "runtimes.switch_task", "setup.permissions", "setup.permission_request", "setup.finish",
                          "about.get", "about.guide", "secrets.saved", "secrets.delete", "identity.find",
-                         "identity.choose", "seen.list", "seen.image"}),
+                         "identity.choose", "seen.list", "seen.image", "intro.suggest", "intro.preview"}),
     Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),
 }
@@ -53,10 +53,11 @@ METHODS: dict[Role, frozenset[str]] = {
 # profile, and FERB.app's guide that becomes FERB's self-description (daemon decisions 6-8).
 # Step 12e: "What FERB saw", the stored redacted screenshots and their facts; the setup window's Done, which records
 # setup as done from the grants FERB.app reports for itself (only FERB.app can read them).
+# The intro's Try beat (notes/setup-intro.md step 6): the suggested first task and its plan-only preview.
 # The server checks the peer's code signature (app_peer.py) once per connection.
 APP_ONLY: frozenset[str] = frozenset({"tasks.preview", "secrets.saved", "secrets.delete", "identity.find",
                                       "identity.choose", "identity.pair", "about.guide", "seen.list", "seen.image",
-                                      "setup.finish"})
+                                      "setup.finish", "intro.suggest", "intro.preview"})
 
 
 def allowed(role: Role, method: str) -> bool:

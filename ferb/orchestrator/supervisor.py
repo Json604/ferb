@@ -1838,6 +1838,45 @@ class Supervisor(WorkerRuns):
         finally:
             line.release(run)
 
+    async def preview(self, session_id: str, text: str) -> AsyncIterator[dict[str, Any]]:
+        """The intro's "Try" (notes/setup-intro.md step 6): the real planner turn on `text`, its prompt and context
+        assembled as for any chat message, and its plan shown as rows, without doing any of it. It cannot act by
+        construction: it runs `_supervise` alone (a runtime made with no tools, run with no token), never `_route`,
+        `_start`, `run_tree` or a worker, so no RunGrant is issued and the planner's side outputs (memory, reminders,
+        schedules) are never applied. Nothing is kept as a task or as chat: only one `intro.preview` journal row. Every
+        event is marked `preview: true`: the plan line, one `part` per planned step, then `done`."""
+        request_id = self.ids.new_id()
+        m = mark(text, self.pasted_is_data())
+        # the request is FERB's suggestion (or general task), not words the owner typed into a chat
+        turn = _Turn(request_id, ChatSession(session_id), words=m.own_words, payload=m.for_model,
+                     own_words=m.own_words, typed=m.own_words, typed_lines=m.typed_lines, for_model=m.for_model,
+                     untrusted=bool(m.untrusted), message_origin={origins_.FERB, origins_.INFERRED})
+        try:
+            async with asyncio.timeout(self.planner_limit_s):
+                turn.environment = dict(await _value(self.environment(m.own_words)) or {})
+                try:
+                    out = await self._supervise(turn)
+                except (ValidationError, InvalidAnswer) as exc:    # the schema repair a chat turn gets (_decide)
+                    out = await self._supervise(turn, repair=[str(exc)])
+        except BaseException as exc:
+            self.journal.append("intro.preview", {"request_id": request_id, "shown": False,
+                                                  "why": type(exc).__name__})
+            raise
+        spec = out.task if out.kind == "task" else None
+        steps = (spec.plan.steps if spec.plan else [Step(id=SINGLE, kind="do", goal=spec.goal)]) if spec else []
+        self.journal.append("intro.preview", {"request_id": request_id, "shown": True, "kind": out.kind,
+                                              "steps": len(steps)})
+        said = confirm.from_task_lines(self.gateway.redact(out.text))
+        yield {"type": "plan", "preview": True, "request_id": request_id, "text": said, "plan_line": said,
+               "goal": self.gateway.redact(spec.goal) if spec else "", "identity": spec.identity if spec else "",
+               "total": len(steps)}
+        for step in steps:
+            label = " ".join((step.goal or step.question or step.until or step.event or "").split())
+            yield {"type": "part", "preview": True, "request_id": request_id, "part": step.id, "step": step.id,
+                   "kind": step.kind, "label": self.gateway.redact(label), "state": "preview",
+                   "depends_on": list(step.depends_on)}
+        yield {"type": "done", "preview": True, "request_id": request_id}
+
     async def _turn(self, session_id: str, run: _Run, release: Callable[[], None]) -> AsyncIterator[dict[str, Any]]:
         """The turn: the planner thinks (restarted, at most MAX_RESTARTS times, by a message sent before its first reply,
         within one shared time limit), then the turn routes its choice and replies once (`_exit`), or starts its task."""
