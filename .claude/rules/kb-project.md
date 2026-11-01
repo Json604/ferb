@@ -20,3 +20,5 @@ paths:
 Docs, licences, agent instructions, this kb registry and gate, and historical spikes.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **PROJ-500** (owner): Examples, copy and tests in tracked files use invented data only; nothing personal to the owner is committed. Personal parts live in local untracked files (kb/local/).

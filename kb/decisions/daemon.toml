@@ -397,3 +397,12 @@ rule = "A preview frame has secure, secret, card and code fields painted over be
 why = "Rule 7: secrets never reach a trace, log or the database; the preview shows the owner's own windows."
 paths = ["ferb/daemon/task_preview.py", "ferb/sanitize/images.py"]
 legacy = "notes/preview.md What exists today (verified 2026-10-31): masking and storage"
+
+[DMN-500]
+title = "intro.suggest: two first-task suggestions from the redacted scan, with a general fallback"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "intro.suggest makes one tool-less model call on the redacted scan summary for two first-task suggestions. When the scan isn't seen, the call fails or stalls past SUGGEST_LIMIT_S (just under the app's wait), or fewer than two usable tasks come back, the general tasks fill in (GENERAL_TASKS: one Mac or files task, one browser task; the copy may change but stays general). FERB.app only."
+paths = ["ferb/daemon/areas/intro.py::GENERAL_TASKS", "ferb/daemon/areas/intro.py::SUGGEST_LIMIT_S"]
+legacy = "notes/setup-intro.md Left to the builder (Task 4); notes/setup-intro-plan.md Task 4"

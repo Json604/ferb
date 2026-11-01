@@ -6,19 +6,19 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 15 | 1 | 14 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 40 | 2 | 13 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 27 | 1 | 0 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 87 | 6 | 16 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 41 | 2 | 13 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 29 | 2 | 0 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 50 | 1 | 6 |
 | memory | Memory and memory import | `ferb/memory` | 59 | 4 | 4 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 34 | 2 | 0 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 35 | 2 | 0 |
 | perception | Perception | `ferb/sense` | 9 | 1 | 1 |
-| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `notes`, `kb`, `tools`, `spikes` | 0 | 0 | 0 |
-| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 18 | 0 | 0 |
+| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `notes`, `kb`, `tools`, `spikes` | 1 | 0 | 0 |
+| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 18 | 0 | 32 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 5 | 0 | 1 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 15 | 3 | 9 |
 | storage | Storage | `ferb/store` | 23 | 5 | 5 |
-| tests | Tests | `tests` | 0 | 0 | 0 |
+| tests | Tests | `tests` | 6 | 2 | 0 |
 | voice | Voice | `ferb/voice` | 8 | 0 | 6 |
 
 ## Waiting on the owner
@@ -29,7 +29,9 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-404 (runtimes): When a worker's long tool loop overflows the model's context window, should Codex compact the conversation and carry on (today), or should the worker fail instead?
 - T-407 (memory): Besides ChatGPT, claude.ai, Claude Code, Codex CLI and Gemini, are there other AI assistants you use (Perplexity, Cursor, Copilot, …) that FERB should import memory from?
 - T-408 (app): With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?
+- T-506 (app): ui/AGENTS.md says the camera edge lights ONLY for completion (two green pulses; the red attention segment was removed), but its later yield rule (2026-10-14) keeps an amber camera-edge light when a question arrives, and the app has that amber light today. Should a waiting question light the camera edge in amber, or should the edge light only for completion?
+- T-507 (app): ui/AGENTS.md tells agents to "Build and relaunch after edits", but AGENTS.md rule 17 says not to restart the running FERB.app without your OK (building itself is allowed). For UI work, may an agent relaunch FERB.app after an edit, or only build and leave relaunching to you?
 
 ## Terms
 
-APP_ONLY, FERB's home, Jev, Need, P19, R1-R10, Tier 1, answer step, borrowed tab, check-in, daily distill, developer toolbox, escape hatch, exchange, holds up, how-note, known destination, lift, operational records, part, playbook, prompt patch, report relay, role block, routine questions, set aside, shared prefix, sink rule, standing send, tab chain, the clean-up, typed card, unattended run, visible folders, watch (`tools/kb/run kb search <term>`)
+APP_ONLY, Crystal, FERB's home, Jev, Need, P19, Quiet notch, R1-R10, Standard / Subtle, Tier 1, answer step, beat, borrowed tab, check-in, compact window, daily distill, developer toolbox, escape hatch, exchange, holds up, how-note, known destination, lift, needs you, operational records, orb, part, playbook, prompt patch, report relay, role block, routine questions, set aside, shared prefix, sink rule, sound logo, standing send, tab chain, the clean-up, typed card, unattended run, visible folders, watch, yield (`tools/kb/run kb search <term>`)

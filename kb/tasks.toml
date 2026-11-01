@@ -170,3 +170,67 @@ status = "open"
 why = "PRM-301 (prompts decision 4) says the approved items M1-M9 and \"email me\" are seeded once on the new build's first start; commit ca4543ce (2026-11-01, personal data out of the repo) deleted seed_owner_items; the items now sit in an untracked local file. The notes still mark the seed done."
 decisions = ["PRM-301"]
 ask = "Your approved memory items (M1-M9 and the address for \"email me\") were to be seeded into FERB's memory by the build, but that seed was deleted on 2026-11-01 to keep personal data out of the repo. Should they still reach your store automatically, from a file that stays only on your Mac, or will you tell FERB each one yourself (and the decision is updated to say so)?"
+
+[T-500]
+title = "The intro's permission accepting, reopen and quit are broken"
+area = "app"
+kind = "bug"
+status = "open"
+why = "Owner's live run of the intro build, 2026-11-01 (verbatim): \"the flow is good but the permission accepting, reopen and quit is broken\". Reproduce in the intro playground or a fresh install, then fix."
+decisions = ["APP-510", "APP-516"]
+
+[T-501]
+title = "The intro's look and feel: notch on the side and not movable, orb not pretty, weak demo feedback"
+area = "app"
+kind = "build"
+status = "open"
+why = "Owner's live run, 2026-11-01 (verbatim): \"the notch was on the side, not movable, the orb was not pretty enough, ... no good feedback in the demo etc etc so many wrong things.\" Iterate in the intro playground (ui/mac/FERBNotch/PLAYGROUND.md)."
+decisions = ["APP-501", "APP-513", "APP-519"]
+
+[T-502]
+title = "The ferb-secrets Keychain prompt keeps coming back after Always Allow"
+area = "gateway"
+kind = "bug"
+status = "open"
+why = "Live run 2026-11-01: macOS kept asking for ferb-secrets' items under service ferb.owner-secrets (6 saved items) even after \"Always Allow\"; the helper's designated requirement is identifier com.ferb.secrets plus a certificate leaf hash. Cause not investigated."
+
+[T-503]
+title = "A macOS banner said FERB \"was blocked from accessing data\""
+area = "app"
+kind = "bug"
+status = "open"
+why = "Seen on the owner's live run of the intro build, 2026-11-01. Cause unknown: find which access macOS blocked and why."
+
+[T-504]
+title = "Trim the wording and wiring tests inside the kept safety files"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Step 12d kept whole files and deleted 109 others; the per-test pass removing wording and wiring tests inside the kept files (e.g. most of test_question_clarity, test_front_window_context, test_install, test_setup_flow) is not done."
+decisions = ["TEST-500"]
+
+[T-505]
+title = "An upgrade test from a copy of a real older build's database"
+area = "tests"
+kind = "build"
+status = "open"
+why = "notes/tests.md (2026-11-01): storage decision 5 asks for upgrade tests on copies of real older databases and configs; tests/test_upgrade.py still builds its stores from migration files. A tracked copy must hold no personal data (PROJ-500)."
+decisions = ["TEST-505", "PROJ-500"]
+
+[T-506]
+title = "Does a question light the camera edge in amber, or does it light only for completion?"
+area = "app"
+kind = "question"
+status = "open"
+why = "ui/AGENTS.md says the camera edge lights only for completion (the red attention segment removed); its later yield rule (2026-10-14) keeps \"the amber camera-edge light\" for a question arriving while FERB is yielded, and NotchWindowYield.swift:27 has an amber attention light."
+decisions = ["APP-564", "APP-559"]
+ask = "ui/AGENTS.md says the camera edge lights ONLY for completion (two green pulses; the red attention segment was removed), but its later yield rule (2026-10-14) keeps an amber camera-edge light when a question arrives, and the app has that amber light today. Should a waiting question light the camera edge in amber, or should the edge light only for completion?"
+
+[T-507]
+title = "May an agent relaunch FERB.app after a UI edit?"
+area = "app"
+kind = "question"
+status = "open"
+why = "ui/AGENTS.md says \"Build and relaunch after edits\"; AGENTS.md rule 17 says not to restart the running FERB.app without the owner's authorization (building is allowed)."
+decisions = ["APP-567"]
+ask = "ui/AGENTS.md tells agents to \"Build and relaunch after edits\", but AGENTS.md rule 17 says not to restart the running FERB.app without your OK (building itself is allowed). For UI work, may an agent relaunch FERB.app after an edit, or only build and leave relaunching to you?"

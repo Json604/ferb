@@ -371,3 +371,14 @@ rule = "A schedule's repeat interval is the owner's: code requires only a positi
 rejected = ["\"every_minutes at least 15\" (a limit only in the prompt)"]
 paths = ["ferb/orchestrator/schedules.py", "ferb/orchestrator/prompts/supervisor.md"]
 legacy = "notes/prompts.md decision 3"
+
+[ORCH-500]
+title = "The intro's preview is a plan-only run that cannot act"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "intro.preview runs the real planner turn alone (Supervisor.preview): no run token, no worker, no task row, no chat entry; every event (plan, one part per planned step, done) carries preview: true. Its context leaves out the owner's live state (running tasks, open questions, earlier chat, notices, schedules, reminders) and keeps the capability facts, recalled memory and today's activity, as a real plan would use. Its session prefix `preview:` is reserved, so chat.send refuses it. FERB.app only."
+why = "The intro's \"it never acts\" holds by construction, not by instruction (AGENTS.md rule 3)."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor.preview", "ferb/orchestrator/continuity.py::RESERVED_SESSIONS", "ferb/daemon/areas/intro.py"]
+live = ["LIVE-500"]
+legacy = "notes/setup-intro.md Left to the builder (Task 4); notes/setup-intro-plan.md Task 4"

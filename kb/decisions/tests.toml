@@ -1,0 +1,59 @@
+# Decisions of area `tests` (kb/areas.toml). Moved from notes/tests.md on 2026-11-02.
+
+[TEST-500]
+title = "The offline tests are a small safety suite"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/tests.md owner decision 1: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "The offline tests are a small safety suite: the safety floor and past-bug guards, 8-12 end-to-end runs with a fake model through the real daemon and gateway, an import check over every ferb module, upgrade tests and runtime adapter contract tests. No tests of exact wording, prompt text or internal wiring. Live tests (-m real) are owner-run, per area. Everything else goes; the end-to-end harness was rewritten before the old tests were deleted."
+evidence = "2026-10-30: 287 test modules, 5,659 collected items, ~14-16 min single-process; after step 12d's deletion of 109 files the suite is the target design's files plus the behaviour files of steps 8a-12c."
+paths = ["tests", "tests/test_imports.py", "tests/test_runtime_contract.py"]
+legacy = "notes/tests.md decision 1"
+
+[TEST-501]
+title = "What the safety suite covers"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Table-driven where possible: confirmations (pay, delete, new recipient, account security, foreground, browser pages, TLS-off, terminal typing, escape hatch), protected paths, the sink rule and origins, redaction (one corpus, the vendor-format table, fuzz), sandbox and proxy (real sandbox-exec), backups, the ledger, own-app refusal, owner secrets and prompt-injection scenarios."
+paths = ["tests/test_redaction_rebuild.py", "tests/test_sinks.py", "tests/test_tls_floor.py", "tests/test_shell_sandbox.py", "tests/test_own_apps.py"]
+legacy = "notes/tests.md Target design 1"
+
+[TEST-502]
+title = "The end-to-end runs"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Through the real daemon and gateway with the scripted fake runtime: a plain task; a file write checked by the checker; a send to someone new asks and a No sends nothing; an unknown outcome is never retried without the owner; stop mid-task; pause and resume; a loop survives a restart; a forget removes the item; a payment asks once with the page's amount."
+paths = ["tests/test_execution_runs.py", "tests/test_safety_runs.py", "tests/test_careful_checks.py", "tests/test_forget_in_chat.py"]
+legacy = "notes/tests.md Target design 2"
+
+[TEST-503]
+title = "Tests guarding real past bugs survive in some form"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "A past-bug guard is never deleted without a replacement: the change-record symlink race leaking ~/.ssh; FERB pressing its own notch Approve button; terminal typing routes and quoted secrets shown in the clear; the owner's terminal typing captured; a typed Yes answering a payment; sink evasion by IP spelling and homoglyphs; TLS-off wrappers; sealed words in ids, one-time codes, ReDoS; developer-role prompt injection; unknown-outcome retries; trash without backup; sandbox renames above a protected path and planted links; Mac tools refusing the packaged interpreter."
+paths = ["tests/test_changes_races.py", "tests/test_changes_protection.py", "tests/test_own_apps.py", "tests/test_terminal_input.py", "tests/test_typed_text_capture.py", "tests/test_owner_answers.py", "tests/test_sinks.py", "tests/test_tls_floor.py", "tests/security/test_planner_cache_injection.py", "tests/test_unknown_retry.py", "tests/test_ledger.py", "tests/test_recovery.py", "tests/test_shell_sandbox.py", "tests/test_front_window_context.py"]
+legacy = "notes/tests.md What exists today (past-bug guards)"
+
+[TEST-504]
+title = "The guards that keep offline runs safe stay"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "The offline suite keeps no_real_models (no paid model calls), offline_trash, network routing (network_route) and tests/support/runaway.py (a per-test timeout and memory cap) with its tests."
+why = "runaway.py came from a 110 GB hang on 2026-10-25."
+paths = ["tests/conftest.py::no_real_models", "tests/conftest.py::offline_trash", "tests/conftest.py::network_route", "tests/support/runaway.py", "tests/test_runaway_guards.py"]
+legacy = "notes/tests.md What exists today (guards)"
+
+[TEST-505]
+title = "Upgrade tests start from stores as older builds really left them"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Upgrade tests build stores and configs as older builds left them (every older schema, the pre-checksum runner, a deleted migration from git history, migrations as first written in tests/fixtures/migrations/older) and upgrade them to current with the data kept and an integrity check."
+why = "Stores built from today's migration files miss what older builds applied before checksums: some files were edited in place (2026-11-01 correction)."
+paths = ["tests/test_upgrade.py", "tests/fixtures/migrations/older"]
+legacy = "notes/tests.md Target design 4 and fix list"

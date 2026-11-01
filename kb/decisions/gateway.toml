@@ -269,3 +269,33 @@ status = "active"
 rule = "protection.BROWSER_STORES is browsers.data_folders(): each Chromium browser's user-data folder and the other browsers' data (Safari and its container, Firefox, makers' shared folders). An older config.toml gets each default it was never offered once (journal config.defaults_added), so the owner's own entries and removals stay."
 paths = ["ferb/policy/protection.py::BROWSER_STORES", "ferb/act/mac/browsers.py::data_folders"]
 legacy = "notes/gateway.md Rulings (review 2026-11-01): browser credential stores"
+
+[GATE-500]
+title = "A secret pasted into the chat is masked and FERB says revoke it"
+by = "owner"
+date = 2026-11-01
+status = "superseded"
+superseded_by = "GATE-501"
+words = "\"for secrets, have a list of secret patterns and a code check on every request; if they match, add a line: you may have leaked the secret in chat, revoke it\", \"or if we can mask it\""
+rule = "Every chat request is checked by code against a list of secret patterns; on a match the secret is masked and FERB adds a line saying it may have leaked in the chat and should be revoked."
+legacy = "notes/setup-intro-plan.md Task 11"
+
+[GATE-501]
+title = "A secret pasted into the chat is hidden and FERB reminds, without advising revoke"
+by = "owner"
+date = 2026-11-01
+status = "active"
+supersedes = ["GATE-500"]
+words_source = "notes/setup-intro-plan.md Task 11 (\"owner, 2026-11-01: hidden means nothing to change, just a reminder\"): paraphrase; no verbatim quote"
+rule = "A secret pasted into the chat is masked before any model sees it (every format in the named table plus saved secret values) and the message still runs. FERB adds one reminder under it naming each kind once: it hid it from the AI and didn't save it, and keys and passwords are best not pasted into chats. A saved secret is named as one of the owner's saved secrets. No advice to revoke: the value never left the Mac."
+paths = ["ferb/daemon/areas/chat.py", "ferb/sanitize/formats.py", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift"]
+legacy = "notes/setup-intro-plan.md Task 11"
+
+[GATE-502]
+title = "The pasted-secret notice is code-made and names kinds only"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "The notice comes from the redactor's finding, never from a model, so it always appears; it names kinds, never the value. The owner's bubble shows the masked text (the ack's message), also after a restart; the journal records chat.secret_hidden with kinds only; the planner gets the hidden kinds as one fact, so a reply never asks the owner to paste it again. The kinds are formats, not intent (AGENTS.md rule 4): nothing is refused."
+paths = ["ferb/daemon/areas/chat.py", "ferb/orchestrator/supervisor.py"]
+legacy = "notes/setup-intro-plan.md Task 11 (ruling and rules)"
