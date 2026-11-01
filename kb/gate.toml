@@ -1,0 +1,88 @@
+# The repository's checks (tools/kb/gate.py). Levels: commit (staged changes, keep it fast) < push < release.
+# Each check is `builtin = ...` or `run = "<shell command>"` (exit 0 = pass). Optional: `when = [globs]` runs it only
+# when a changed file matches; `ci = false` skips it in CI (e.g. needs a Mac); `timeout` in seconds; `args`.
+# `run` commands get GATE_LEVEL, GATE_BASE and GATE_FILES (a file listing the changed paths).
+
+[gate]
+base = "main"                 # the branch pushes are compared against
+on_commit_failure = "block"   # block | warn  (kb/setup.toml commit_failure)
+commit_budget_seconds = 30
+decisions_trailer = "present" # off | present | all: commits touching governed files say which decisions
+ci_require_trailers = true    # CI fails when a commit in the push skipped the hooks
+# protected = ["tools/kb/**", "kb/gate.toml", ...]   # changes need a `Gate-change:` trailer and show in the audit
+
+[[check]]
+name = "kb registry"
+level = "commit"
+builtin = "kb_check"
+
+[[check]]
+name = "whitespace"
+level = "commit"
+builtin = "whitespace"
+
+[[check]]
+name = "secrets"
+level = "commit"
+builtin = "secrets"
+# args = { skip = ["tests/fixtures/**"], extra = { "internal token" = "\\bint_[a-z0-9]{32}\\b" } }
+
+[[check]]
+name = "personal data"
+level = "commit"
+builtin = "personal"          # terms in kb/local/personal.txt (untracked) never enter tracked files
+
+[[check]]
+name = "forbidden files"
+level = "commit"
+builtin = "forbidden"         # .env, keys, kb/local/**, plus the size cap from kb/setup.toml
+# args = { globs = ["vendor/**"], max_file_kb = 5120 }
+
+[[check]]
+name = "local stays local"
+level = "commit"
+builtin = "local_ignored"
+
+# --- project checks (proposed 2026-11-02 from the survey; times measured on the owner's Mac) ---
+[[check]]
+name = "migrations are append-only"
+level = "commit"
+builtin = "append_only"
+args = { globs = ["ferb/store/migrations/**"] }
+
+[[check]]
+name = "lockfile matches pyproject"          # 0.01 s
+level = "commit"
+run = "uv lock --check"
+when = ["pyproject.toml", "uv.lock"]
+
+[[check]]
+name = "type check (mypy ferb/core)"         # 0.4 s
+level = "commit"
+run = "uv run mypy ferb/core"
+when = ["ferb/**", "pyproject.toml"]
+
+[[check]]
+name = "imports, versions, extension minimum" # 8 s: every module imports; version files equal; extension >= minimum
+level = "commit"
+run = "uv run pytest -q -p no:cacheprovider tests/test_imports.py tests/test_release_checks.py"
+when = ["ferb/**", "tests/**", "extensions/**", "scripts/**", "pyproject.toml", "uv.lock"]
+
+[[check]]
+name = "Python safety suite"                 # ~11 min
+level = "push"
+run = "nice -n 10 uv run pytest -q -p no:cacheprovider"
+when = ["ferb/**", "tests/**", "extensions/**", "scripts/**", "pyproject.toml", "uv.lock", "package.json", "package-lock.json"]
+timeout = 1800
+
+[[check]]
+name = "Swift tests (FERB.app)"              # ~20 s warm, minutes cold
+level = "push"
+run = ". scripts/swiftpm-anonymous.sh && swift test --package-path ui/mac/FERBNotch"
+when = ["ui/mac/FERBNotch/**"]
+timeout = 1800
+
+[[check]]
+name = "live checks recorded"
+level = "release"
+builtin = "live_checks"

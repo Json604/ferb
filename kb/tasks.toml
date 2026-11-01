@@ -1,0 +1,12 @@
+# The work list. A finished task is DELETED in the same commit as the fix, and the commit message says
+# `Tasks: T-12`; git keeps the history. `after` lists tasks that must finish first (remove an ID when it's done).
+#
+# [T-1]
+# title = "Session cookie survives a restart"
+# area = "auth"
+# kind = "bug"          # build | bug | chore | question | live
+# status = "open"       # open | doing | blocked
+# why = "Users are signed out after every deploy."
+# decisions = ["AUTH-3"]
+# after = []
+# ask = ""              # kind = "question": the exact question for the owner

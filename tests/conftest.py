@@ -872,3 +872,17 @@ async def run_direct(d: RunningDaemon, mode: str, prompt: str, tool_names: list[
     finally:
         await rt.cancel(run)
     return out
+
+
+def pytest_sessionstart(session: Any) -> None:
+    """repo-kb: a fresh clone learns about the repository's git hooks the first time it runs the tests (warning only;
+    CI runs the gate itself)."""
+    import os
+    import subprocess
+    if os.environ.get("CI"):
+        return
+    root = Path(__file__).parents[1]
+    try:
+        subprocess.run([str(root / "tools/kb/run"), "gate", "hooks-check"], cwd=root, timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass

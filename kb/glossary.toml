@@ -1,0 +1,5 @@
+# Terms a newcomer (person or agent) can't decode from the code alone.
+#
+# ["sink rule"]
+# meaning = "Data read from outside never flows to a send without the owner's Yes."
+# see = ["GATEWAY-4"]

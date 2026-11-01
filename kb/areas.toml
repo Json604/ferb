@@ -1,0 +1,86 @@
+# Areas: every tracked file belongs to exactly one (kb check). Decisions of an area live in kb/decisions/<id>.toml
+# and are named <prefix>-<number>. Proposed by the agent from the folders and the old notes/ areas, 2026-11-02.
+
+[app]
+title = "FERB.app (notch UI, intro, sounds)"
+prefix = "APP"
+paths = ["ui", "demo"]
+purpose = "The Mac app the owner uses: notch, chat, settings, setup intro, orb, sounds, preview window, playground. The owner's side; talks to the daemon only through its RPC."
+
+[memory]
+title = "Memory and memory import"
+prefix = "MEM"
+paths = ["ferb/memory"]
+purpose = "What FERB remembers about the owner, how it is recalled within limits, and importing memory from other assistants."
+
+[orchestration]
+title = "Orchestration"
+prefix = "ORCH"
+paths = ["ferb/orchestrator/*.py", "ferb/decide", "ferb/clock"]
+purpose = "Planner and workers, task lifecycle, questions, pause/stop, schedules, reminders, loops and continuity between turns."
+
+[prompts]
+title = "Prompts and abilities"
+prefix = "PRM"
+paths = ["ferb/orchestrator/prompts", "ferb/abilities"]
+purpose = "Runtime Markdown the models read (prompts, abilities). Executable input, not documentation."
+
+[gateway]
+title = "Gateway and safety"
+prefix = "GATE"
+paths = ["ferb/policy", "ferb/sanitize", "ferb/identity"]
+purpose = "Boundaries code enforces: confirmations, protection lists, terminal typing, redaction, secrets and the sealed fill path, owner identity."
+
+[runtimes]
+title = "Model runtimes"
+prefix = "RUN"
+paths = ["ferb/runtimes", "package.json", "package-lock.json"]
+purpose = "Codex, Claude Agent SDK and API adapters behind one interface; pinned runtime versions."
+
+[hands]
+title = "Hands (browser and Mac control)"
+prefix = "HAND"
+paths = ["ferb/act", "ferb/native_host", "extensions"]
+purpose = "Acting on the Mac and in browsers in the background: the extension, its protocol and store listing, native host, Mac input, downloads, tab groups."
+
+[perception]
+title = "Perception"
+prefix = "SENSE"
+paths = ["ferb/sense"]
+purpose = "Watching what happens on the Mac (apps, notifications, clipboard, typed text) and turning it into facts; notices are paused."
+
+[voice]
+title = "Voice"
+prefix = "VOICE"
+paths = ["ferb/voice"]
+purpose = "Push-to-talk, hearing and speech on the daemon side."
+
+[daemon]
+title = "Daemon, setup and plumbing"
+prefix = "DMN"
+paths = ["ferb/daemon", "ferb/cli", "ferb/device", "ferb/core", "ferb/trace", "ferb/eval", "ferb/bus.py", "ferb/config.py", "ferb/paths.py", "ferb/registry.py", "ferb/__init__.py", "relay"]
+purpose = "The background service, its RPC areas, setup/install/update commands, device facts, permissions, traces, failure-report relay."
+
+[storage]
+title = "Storage"
+prefix = "STORE"
+paths = ["ferb/store"]
+purpose = "The database, migrations, retention and upgrades from any older build."
+
+[release]
+title = "Packaging and release"
+prefix = "REL"
+paths = ["scripts", "assets", "site", "pyproject.toml", "uv.lock", ".python-version"]
+purpose = "Building and signing FERB.app and DMGs, versions, appcasts, release checks, the logo assets and the public site."
+
+[tests]
+title = "Tests"
+prefix = "TEST"
+paths = ["tests"]
+purpose = "The offline safety suite, fakes and fixtures, real-test harnesses."
+
+[project]
+title = "Project knowledge and tooling"
+prefix = "PROJ"
+paths = ["README.md", "CLAUDE.md", "AGENTS.md", "CHANGELOG.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", ".gitignore", "notes", "kb", "tools", "spikes"]
+purpose = "Docs, licences, agent instructions, this kb registry and gate, and historical spikes."

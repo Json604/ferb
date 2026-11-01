@@ -30,7 +30,9 @@ calls.log
 .env.*
 *.local.toml
 *.local.json
-.claude/
+.claude/*
+!.claude/rules/
+!.claude/settings.json
 .local/
 .ferb/
 *.keychain
@@ -49,3 +51,6 @@ tests/.distill_usage.json
 # FERB's update signing key (L34 Phase G) belongs in the owner's Keychain and an offline backup, never here
 sparkle_private*
 *.sparkle-private*
+
+# repo-kb: local-only knowledge (personal overlay, reconciliation, the visual map)
+kb/local/

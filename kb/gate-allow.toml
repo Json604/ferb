@@ -1,0 +1,17 @@
+# Visible, reasoned exceptions to the gate. Every entry needs a reason; they show up in review like any change.
+# [[secret]]
+# path = "tests/fixtures/fake_key.pem"
+# pattern = "private key"
+# reason = "a fake key used by the redaction tests"
+#
+# [[file]]
+# path = "assets/demo.mp4"
+# reason = "the demo video for the README"
+#
+# [[personal]]
+# path = "LICENSE"
+# reason = "the copyright line carries the owner's name"
+#
+# [[audit]]
+# commit = "1a2b3c4d5e"
+# reason = "pushed from the web UI during an outage; re-checked by hand"

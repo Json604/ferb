@@ -1,0 +1,25 @@
+# The setup answers (repo-kb). Filled in from the owner's own answers before anything is restructured;
+# `tools/kb/run kb setup-status` must pass before the hooks are installed or any old document is removed.
+# Use "n/a" when a question doesn't apply. Change an answer only on the owner's word.
+confirmed_by = "Kartikey (owner)"      # who answered (the owner)
+confirmed_on = "2026-11-02"      # YYYY-MM-DD
+
+# Owner, 2026-11-02: the 2026-11-01 choices (full system, in-repo tasks, delete-after-review, live checks,
+# agent commits, agent files with approval) confirmed as "aren't we just doing what my new skill says?"; repo made
+# public ("ive made the repo public so anythign can be done now"); the rest answered in the setup dialogs.
+[answers]
+mode = "full"                   # full | gates-only | knowledge-only
+docs = "delete-after-review"                   # delete-after-review | archive | keep-as-design-notes | untouched
+work_list = "in-repo"              # in-repo | github-issues | other:<name> | none
+authority = "owner: Kartikey"              # who makes owner decisions, e.g. "owner: <name>" or "team: <roles>"
+public = "public"                 # public | private | private-will-go-public
+agent_files = "edit-with-approval"            # create | edit-with-approval | leave
+path_rules = "yes"             # yes | no  (generated .claude/rules per area)
+server_enforcement = "ci-now:github-actions"     # local-only | ci-now:<provider> | ci-when-public
+commit_failure = "block"         # block | warn
+deny_bypass = "yes"            # yes | no  (deny --no-verify in the agents' settings)
+size_cap_kb = "n/a"            # largest tracked file, in KB, or n/a
+commit_budget_seconds = "30"  # how long the commit checks may take
+release_gate = "yes:scripts/release-appcast.sh"           # yes:<release command> | no | n/a
+live_checks = "yes"            # yes | no  (manual checks whose result the owner records)
+agent_commits = "yes"          # yes | ask-each-time | no

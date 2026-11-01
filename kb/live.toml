@@ -1,0 +1,12 @@
+# Live (manual) checks: things only a person can verify on the real product. The result is the owner's verdict.
+#
+# [LIVE-1]
+# title = "Sign in survives a deploy"
+# area = "auth"
+# surface = "staging, the owner's test account"
+# request = "Sign in, deploy, reload the page"
+# pass = "Still signed in; no second login prompt"
+# decisions = ["AUTH-3"]
+# sitting = "1"
+# result = ""           # "passed 2026-11-05 v1.4.0" or "failed 2026-11-05: T-14"
+# waiver = ""           # the owner's reason to skip it for a release

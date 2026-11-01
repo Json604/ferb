@@ -1,0 +1,31 @@
+# repo-kb: the push-level checks on GitHub, and a failure when any pushed commit skipped the local hooks.
+# Binding once the "gate" status check is required on main (Settings > Rules > Rulesets; free on a public repo).
+name: gate
+on:
+  push:
+  pull_request:
+jobs:
+  gate:
+    runs-on: macos-latest   # the Python suite uses macOS frameworks and the app is Swift
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+      - name: dependencies
+        run: uv sync --group dev
+      - name: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=""
+          if [ "$EVENT" = "pull_request" ]; then base="origin/$BASE_REF"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then base="$BEFORE"; fi
+          chmod +x tools/kb/run
+          if [ -n "$base" ]; then tools/kb/run gate ci --base "$base"; else tools/kb/run gate ci; fi

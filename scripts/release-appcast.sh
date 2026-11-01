@@ -15,6 +15,7 @@ DMG=${${2:?usage: release-appcast.sh TAG DMG ARCH}:A}
 ARCH=${3:?usage: release-appcast.sh TAG DMG ARCH}
 [[ "$ARCH" == (arm64|x86_64) ]] || die "ARCH is arm64 or x86_64"
 [[ -f "$DMG" ]] || die "no DMG at $DMG"
+"$ROOT/tools/kb/run" gate release || die "the repo gate refused the release (above)"   # kb/setup.toml release_gate
 SIGN=$(find "$NOTCH/.build/artifacts" -path '*/Sparkle/bin/sign_update' -type f 2>/dev/null | head -1)
 [[ -n "$SIGN" ]] || die "Sparkle's sign_update isn't here yet: swift package --package-path ui/mac/FERBNotch resolve"
 

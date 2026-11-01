@@ -1,0 +1,3 @@
+#!/bin/sh
+# repo-kb: the commit-message rules, then the Gate-commit trailer that proves the hooks ran.
+exec "$(git rev-parse --show-toplevel)/tools/kb/run" gate msg "$1"

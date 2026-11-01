@@ -1,0 +1,3 @@
+#!/bin/sh
+# repo-kb: refuses to push a commit without a passing gate note (runs the push checks on HEAD when needed).
+exec "$(git rev-parse --show-toplevel)/tools/kb/run" gate pre-push "$@"

@@ -1,0 +1,22 @@
+# kb/decisions/<area>.toml: one table per decision, named <area prefix>-<number> (`tools/kb/run kb new decision <area>`).
+# An owner decision's `words` and `rule` are never edited: supersede it with a new ID (kb/owner-words.lock is the
+# tripwire). Tests link to a decision from the code: `# decision: AUTH-3` above the test, or
+# `@pytest.mark.decision("AUTH-3")`; enforcing code may carry the same comment.
+#
+# [AUTH-3]
+# title = "Sessions survive restarts"
+# by = "owner"                     # owner | agent (an agent's technical ruling)
+# date = 2026-11-02
+# status = "active"                # active | superseded | declined
+# words = "users should never be logged out because we deployed"   # verbatim
+# words_source = ""                # when there is no verbatim quote, say so and why
+# rule = "A server restart or deploy never invalidates a valid session."
+# why = "Deploys happen daily; forced logins cost sign-ins."
+# rejected = ["Short-lived sessions only: logs everyone out daily"]
+# evidence = ""
+# paths = ["src/auth/session.py::SessionStore"]
+# supersedes = []
+# superseded_by = ""
+# live = ["LIVE-1"]
+# untestable = ""
+# legacy = "docs/auth.md decision 2"
