@@ -632,9 +632,11 @@ class KB:
         return out
 
     def counts(self, area: str) -> tuple[int, int, int]:
-        dec = sum(1 for d in self.decisions.values() if d["_area"] == area and d.get("status") == "active")
-        tasks = sum(1 for t in self.tasks.values() if t.get("area") == area)
-        live = sum(1 for v in self.live.values() if v.get("area") == area and is_pending(v))
+        """Tracked records only (the map's numbers): a clone without the local overlay must generate the same map."""
+        dec = sum(1 for d in self.decisions.values()
+                  if d["_area"] == area and d.get("status") == "active" and not d.get("_local"))
+        tasks = sum(1 for t in self.tasks.values() if t.get("area") == area and not t.get("_local"))
+        live = sum(1 for v in self.live.values() if v.get("area") == area and is_pending(v) and not v.get("_local"))
         return dec, tasks, live
 
     def gen_map(self) -> str:
