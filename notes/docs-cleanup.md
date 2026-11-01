@@ -65,9 +65,6 @@ removing, extract what matters, especially the tasks the owner wants FERB tested
 - **CLAUDE.md**: only the line naming `docs/` and `ARCHITECTURE.md` changed (now names `CHANGELOG.md` alone). It no
   longer requires `tests/test_decision_coverage.py` (checked). **AGENTS.md** rewritten: read CLAUDE.md first, notes/ is
   the source of truth, plus the owner's preferences, branch, UI and build facts a non-Claude agent lacks.
-- **CLAUDE.md, AGENTS.md and ui/AGENTS.md deleted** (owner, 2026-11-01: "everything imp is in notes now … lets keep in
-  readme and notes only. i set these hard rules when i want"). Older citations of "CLAUDE.md rule N" in code comments,
-  tests and notes point at the deleted file (git history has it).
 - **README.md** rewritten from code and notes (permissions from `ferb/device/permissions.py`, retention from
   `ferb/store/retention.py` and `ferb/sense/perception.py`, runtimes from `ferb/runtimes/catalog.py`).
 
