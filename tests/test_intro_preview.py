@@ -143,6 +143,7 @@ def test_preview_shows_the_planned_steps_as_parts(daemon: RunningDaemon) -> None
     assert events[-1]["type"] == "done"
 
 
+# decision: DMN-500
 @pytest.mark.parametrize("state", ["not_started", "failed"])
 def test_suggest_falls_back_to_the_general_task_without_a_scan(daemon: RunningDaemon, state: str) -> None:
     def no_model(*args: Any, **kwargs: Any) -> Any:
@@ -163,6 +164,7 @@ def test_suggest_falls_back_to_the_general_task_without_a_scan(daemon: RunningDa
 
 
 # decision: PRM-317
+# decision: DMN-500
 def test_suggest_uses_the_scan_when_seen(daemon: RunningDaemon) -> None:
     asked: list[dict[str, Any]] = []
     rt = FakeDistillRuntime({"requests": [
@@ -209,6 +211,7 @@ def test_a_long_suggestion_is_cut_at_a_word_boundary(daemon: RunningDaemon) -> N
     assert second == "x" * intro.REQUEST_MAX                                # one long word: cut at the bound
 
 
+# decision: DMN-500
 def test_suggest_gives_the_general_tasks_when_the_model_stalls(daemon: RunningDaemon,
                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     """The call ends just before the app stops waiting (SUGGEST_LIMIT_S, under server.LONG_WAITS): a model that never
@@ -288,6 +291,7 @@ def test_chat_send_refuses_ferbs_own_sessions(daemon: RunningDaemon) -> None:
 
 
 # decision: ORCH-500
+# decision: DMN-500
 def test_intro_methods_refuse_any_other_program(daemon: RunningDaemon) -> None:
     c = Client(daemon.sock)
     try:

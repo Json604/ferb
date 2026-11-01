@@ -7,7 +7,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 87 | 4 | 29 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 43 | 3 | 15 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 43 | 5 | 15 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 30 | 2 | 55 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 52 | 2 | 35 |
 | memory | Memory and memory import | `ferb/memory` | 60 | 3 | 9 |
@@ -17,7 +17,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 18 | 0 | 32 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 7 | 1 | 3 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 16 | 2 | 10 |
-| storage | Storage | `ferb/store` | 24 | 4 | 6 |
+| storage | Storage | `ferb/store` | 24 | 6 | 6 |
 | tests | Tests | `tests` | 9 | 15 | 0 |
 | voice | Voice | `ferb/voice` | 8 | 0 | 7 |
 

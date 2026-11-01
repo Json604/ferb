@@ -100,6 +100,7 @@ def test_the_2026_10_31_download_decision_replaces_the_old_values_and_keeps_an_o
     assert c.upgrade_downloads() == [] and c.get("browser", "download_task_max_files") == 80
 
 
+# decision: DMN-8, DMN-31
 def test_the_relay_decision_drops_the_old_feedback_address(home: Path) -> None:
     """Owner 2026-11-01: reports go to the relay; an older config's `[feedback] address` goes (its value unjournaled),
     a relay address the owner set stays, and a table left empty goes."""
@@ -130,6 +131,7 @@ def test_the_limits_ferb_wrote_take_the_decided_values_and_an_owner_value_stays(
     assert "# keep this comment" in (home / "config.toml").read_text()
 
 
+# decision: STORE-403
 def test_the_daemon_applies_the_limits_decision_once_and_journals_it() -> None:
     import shutil
     import tempfile
@@ -158,6 +160,7 @@ def test_the_daemon_applies_the_limits_decision_once_and_journals_it() -> None:
         shutil.rmtree(base, ignore_errors=True)
 
 
+# decision: STORE-403
 def test_the_upgrade_is_all_or_nothing_and_journaled_only_once_it_is_saved(monkeypatch: pytest.MonkeyPatch) -> None:
     """A failure partway (the one save raises): config.toml is unchanged and nothing is journaled; the next start
     applies the whole decision once."""
@@ -222,6 +225,7 @@ def test_the_upgrade_is_all_or_nothing_and_journaled_only_once_it_is_saved(monke
         shutil.rmtree(base, ignore_errors=True)
 
 
+# decision: DMN-12
 def test_get_parses_once_and_again_only_when_the_file_changes(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Daemon step 2: `get` used to re-read and re-parse config.toml on every call (2.36 ms, 59 call sites)."""
     import tomlkit
@@ -249,6 +253,7 @@ def test_cached_values_are_plain_copies(home: Path) -> None:
     assert c.get("privacy", "exclude_domains") == ["a.example"]
 
 
+# decision: DMN-12
 def test_a_loosened_mode_is_refused_even_with_a_cached_parse(home: Path) -> None:
     c = Config(home)
     assert c.get("policy", "autonomy") is None

@@ -30,6 +30,7 @@ def _worker(d: RunningDaemon, calls: list[tuple[str, dict[str, Any]]], seen: lis
     return act
 
 
+# decision: TEST-502
 def test_a_send_to_someone_new_asks_and_a_no_sends_nothing(daemon: RunningDaemon) -> None:
     send = FakeCap("probe.send", Kind.SEND, {"probe"})
     daemon.daemon.registry.capabilities[send.name] = send
@@ -46,6 +47,7 @@ def test_a_send_to_someone_new_asks_and_a_no_sends_nothing(daemon: RunningDaemon
     assert send.calls == 0 and seen and seen[0]["is_error"]
 
 
+# decision: TEST-502
 def test_an_action_whose_outcome_is_unknown_is_never_repeated_without_the_owner(daemon: RunningDaemon) -> None:
     """The first post loses its acknowledgement (outcome unknown); the worker's identical second post is refused with
     the fact, and nothing ran twice. Its question then waits for the owner; a No repeats nothing."""
@@ -88,6 +90,7 @@ class _Checkout(FakeCap):
         return ToolResult({"ok": True})
 
 
+# decision: TEST-502
 def test_one_payment_asks_once_with_the_pages_amount(daemon: RunningDaemon) -> None:
     """Pay, the card choice and the card form of one checkout: one question, naming the amount read on the page."""
     shop = _Checkout()

@@ -20,6 +20,7 @@ def inst(tmp_path: Path) -> Installer:
     return Installer(home, label="com.ferb.test", run=FakeRunner(home), launch_agents=tmp_path / "LaunchAgents")
 
 
+# decision: DMN-2, DMN-14
 def test_launch_definitions_never_import_from_a_working_folder_and_run_in_ferbs_home(tmp_path: Path) -> None:
     """kb area daemon (2026-10-31): `python -m` put the checkout (the old WorkingDirectory) first on sys.path, so the
     live daemon ran the checkout's code. A checkout's LaunchAgent and native host run the venv's python with `-P` and
@@ -48,6 +49,7 @@ def test_launch_definitions_never_import_from_a_working_folder_and_run_in_ferbs_
     assert definition["KeepAlive"] == {"SuccessfulExit": False} and "WorkingDirectory" not in definition
 
 
+# decision: DMN-14
 def test_the_daemon_runs_in_ferbs_home_and_writes_to_its_logs_when_launchd_gave_it_nothing(tmp_path: Path) -> None:
     """FERB.app's fixed definition can't name the owner's home: `service_streams` makes it the working folder and sends
     output launchd left at /dev/null to FERB's logs."""
@@ -63,6 +65,7 @@ def test_the_daemon_runs_in_ferbs_home_and_writes_to_its_logs_when_launchd_gave_
     assert (home / "logs" / "daemon.err.log").read_text().strip() == "to stderr"
 
 
+# decision: DMN-18
 def test_install_builds_a_new_venv_from_the_lockfile_each_time(inst: Installer) -> None:
     r: FakeRunner = inst.run  # type: ignore[assignment]
     inst.install()
@@ -79,6 +82,7 @@ def test_install_builds_a_new_venv_from_the_lockfile_each_time(inst: Installer) 
     assert r.ran("launchctl", "bootout") >= 1 and r.ran("launchctl", "bootstrap") == 2 and r.loaded
 
 
+# decision: DMN-18
 @pytest.mark.parametrize("step", [("uv", "pip", "install"), ("npm", "ci"), ("xcrun", "swiftc")])
 def test_a_failed_install_leaves_the_old_venv_and_the_running_daemon_as_they_were(inst: Installer,
                                                                                   step: tuple[str, ...]) -> None:
@@ -103,6 +107,7 @@ def test_a_failed_install_leaves_the_old_venv_and_the_running_daemon_as_they_wer
     assert not (inst.venv / "old-code").exists()                 # the new venv replaced it once everything installed
 
 
+# decision: DMN-19
 def test_codex_is_installed_only_when_a_role_uses_it(inst: Installer) -> None:
     from ferb.config import Config
     r: FakeRunner = inst.run  # type: ignore[assignment]
@@ -154,6 +159,7 @@ def test_venv_on_another_interpreter_is_replaced_by_one_on_ferbs_own(inst: Insta
     assert inst.venv_python.resolve() == inst.interpreter().resolve()
 
 
+# decision: DMN-18
 def test_update_only_reinstalls_ferb_into_a_new_venv_and_restarts(inst: Installer) -> None:
     r: FakeRunner = inst.run  # type: ignore[assignment]
     with pytest.raises(InstallError, match="run `ferb setup` first"):
@@ -166,6 +172,7 @@ def test_update_only_reinstalls_ferb_into_a_new_venv_and_restarts(inst: Installe
     assert ["launchctl", "bootout"] in [c[:2] for c in new] and ["launchctl", "bootstrap"] in [c[:2] for c in new]
 
 
+# decision: DMN-18
 def test_a_swap_cut_off_between_its_renames_is_finished_by_the_next_install(inst: Installer) -> None:
     inst.install()
     inst.venv.rename(inst.retired_venv)                          # the old venv moved aside, the new one never landed
@@ -173,6 +180,7 @@ def test_a_swap_cut_off_between_its_renames_is_finished_by_the_next_install(inst
     assert inst.venv_python.exists() and not inst.retired_venv.exists()
 
 
+# decision: DMN-18
 def test_work_that_needs_the_daemon_stopped_runs_after_the_install_and_before_the_new_start(inst: Installer) -> None:
     """Plan 2026-10-23 Task 1: setup's store clean-out runs once everything is installed, with the agent unloaded, and
     the agent is loaded again even when that work fails (M5: never left unloaded)."""
@@ -196,6 +204,7 @@ def test_work_that_needs_the_daemon_stopped_runs_after_the_install_and_before_th
     assert r.loaded
 
 
+# decision: DMN-17
 def test_unload_waits_until_the_stopped_daemons_process_has_exited(inst: Installer,
                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
     """L28, C1: launchd can drop the agent while its process is still in its shutdown tail, writing the store; unload
@@ -210,6 +219,7 @@ def test_unload_waits_until_the_stopped_daemons_process_has_exited(inst: Install
     assert inst.exiting() is None
 
 
+# decision: DMN-17
 def test_unload_stops_waiting_at_its_bound_and_names_the_process_still_running(
         inst: Installer, monkeypatch: pytest.MonkeyPatch) -> None:
     r: FakeRunner = inst.run  # type: ignore[assignment]
@@ -223,6 +233,7 @@ def test_unload_stops_waiting_at_its_bound_and_names_the_process_still_running(
     assert inst.exiting() is None
 
 
+# decision: DMN-17, DMN-18
 def test_an_update_never_swaps_the_venv_while_the_stopped_daemon_is_still_exiting(
         inst: Installer, monkeypatch: pytest.MonkeyPatch) -> None:
     """Past bug (12e review): `unload` gives up after 10 s, and the venv the old process still runs from was renamed
@@ -240,6 +251,7 @@ def test_an_update_never_swaps_the_venv_while_the_stopped_daemon_is_still_exitin
     assert (inst.venv / "marker").exists() and ran == [] and r.loaded
 
 
+# decision: DMN-16
 def test_a_checkout_never_uninstalls_over_ferb_apps_registered_service(inst: Installer) -> None:
     """Past bug (12e review): `install` refused while launchd ran FERB's label from FERB.app's definition, but
     `uninstall` booted it out. Now both refuse, and nothing is removed."""
@@ -267,6 +279,7 @@ def test_uninstall_removes_agent_and_plist_but_keeps_home(inst: Installer) -> No
     assert inst.home.exists() and len(removed) == 2
 
 
+# decision: DMN-20
 def test_purge_deletes_every_ferb_keychain_item_without_reading_one(inst: Installer) -> None:
     """kb area daemon: `uninstall --purge` left API keys, the Jev key and owner-secret items. Every item of FERB's
     services goes (FERB's own, the owner's saved secrets and cards, Claude Code's item for FERB's Claude home), deleted
@@ -380,6 +393,7 @@ def test_app_bundle_is_found_only_from_the_interpreter_inside_ferb_app(tmp_path:
     assert app_bundle() is None                                                 # this checkout's own venv
 
 
+# decision: DMN-2
 def test_the_apps_service_runs_the_daemon_as_the_nested_ferb_agent_app(tmp_path: Path) -> None:
     """launchd starts FERB's agent app (a native stub that embeds the app's Python, isolated, never writing bytecode),
     so macOS names FERB, not python3.12, in permission prompts, Privacy & Security and Login Items; its definition is
@@ -395,6 +409,7 @@ def test_the_apps_service_runs_the_daemon_as_the_nested_ferb_agent_app(tmp_path:
     assert inst.grant_target() == inst.bundle / "Contents" / "Helpers" / "FERB.app"  # type: ignore[operator]
 
 
+# decision: DMN-15
 def test_bundle_install_needs_no_uv_swiftc_or_npm_and_installs_from_the_bundle(tmp_path: Path) -> None:
     inst = bundled(tmp_path)
     r: BundleRunner = inst.run  # type: ignore[assignment]
@@ -436,6 +451,7 @@ def test_bundle_install_refuses_a_temporary_read_only_or_damaged_copy(tmp_path: 
     assert not inst.home.exists()                                             # nothing written before the checks
 
 
+# decision: DMN-15
 def test_bundle_update_records_the_new_build_and_restarts_the_registered_service(tmp_path: Path) -> None:
     import plistlib
     from ferb.device.install import InstallError
@@ -454,6 +470,7 @@ def test_bundle_update_records_the_new_build_and_restarts_the_registered_service
     assert r.ran("launchctl", "kickstart", "-k") == 1 and not r.ran("launchctl", "bootstrap")
 
 
+# decision: DMN-2, DMN-15, STORE-403
 def test_setup_from_the_app_retires_the_old_launch_agent(tmp_path: Path) -> None:
     """STORE-403: an install from before FERB.app registered its own service has
     ~/Library/LaunchAgents/com.ferb.daemon.plist; setup from the app stops it and removes it (the same label can't be
@@ -476,6 +493,7 @@ def test_setup_from_the_app_retires_the_old_launch_agent(tmp_path: Path) -> None
     assert inst.plist_path.exists()
 
 
+# decision: DMN-17
 def test_the_apps_service_is_stopped_and_started_around_work_that_needs_it_stopped(tmp_path: Path) -> None:
     """The clean-up runs with the daemon stopped; FERB.app's service stays registered: its daemon is asked to end
     (clean exit, so launchd doesn't restart it) and is started again afterwards, whatever the work does."""
@@ -619,6 +637,7 @@ def test_source_codex_install_replaces_a_link_into_ferb_app(tmp_path: Path, inst
     assert (app / "Contents" / "Resources" / "node" / CODEX_BIN).read_bytes().startswith(b"fake")   # untouched
 
 
+# decision: DMN-16
 def test_a_checkout_update_after_an_old_app_install_moves_launchd_back_to_the_checkout(tmp_path: Path) -> None:
     import plistlib
     app_inst = bundled(tmp_path)
@@ -641,6 +660,7 @@ def test_a_checkout_update_after_an_old_app_install_moves_launchd_back_to_the_ch
     assert app_inst.run.ran("launchctl", "bootstrap") == before + 1  # type: ignore[attr-defined]   # reloaded
 
 
+# decision: DMN-16
 def test_a_checkout_never_takes_over_the_apps_registered_service(tmp_path: Path) -> None:
     """Only FERB.app can unregister its own service: a checkout's setup refuses while launchd runs FERB's label from the
     app's definition, and changes nothing."""

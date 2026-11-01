@@ -7,6 +7,7 @@ date = 2026-11-01
 status = "active"
 words_source = "notes/setup-intro.md Constraints and notes/setup-intro-plan.md Global Constraints: paraphrase; no verbatim quote"
 rule = "Examples, copy and tests in tracked files use invented data only; nothing personal to the owner is committed. Personal parts live in local untracked files (kb/local/)."
+untestable = "Enforced by the commit gate's personal-data check (kb/gate.toml), not by a test."
 legacy = "notes/setup-intro.md Constraints (repo stays general)"
 
 [PROJ-501]
@@ -18,6 +19,7 @@ words = "CHANGELOG.md - remove it"
 why = "Answer to T-526: the file was stale release notes up to before the rebuild; git history and tag docs-final keep it."
 rule = "The repo has no CHANGELOG.md. Release notes, if any, are a new decision."
 rejected = ["Restarting CHANGELOG.md as user-facing release notes from the launch version."]
+untestable = "A rule about which files the repository holds (CHANGELOG.md is gone), checked in review."
 
 [PROJ-502]
 title = "Agents relaunch only development builds after a UI edit"
@@ -28,6 +30,7 @@ words = "recommeded all"
 why = "Answer to T-507: the owner accepted the recommendation for every open question."
 rule = "After a UI edit an agent may build and relaunch the development build and the playground; relaunching the installed FERB.app needs the owner's OK."
 rejected = ["Agents relaunching the installed FERB.app on their own."]
+untestable = "A rule for agents' conduct after UI edits, not FERB's behaviour."
 
 [PROJ-503]
 title = "FERB is licensed Apache-2.0"
@@ -37,6 +40,7 @@ status = "active"
 words = "recommeded all"
 why = "Answer to T-511: the owner accepted the recommendation for every open question."
 rule = "FERB is licensed Apache-2.0 (LICENSE, pyproject.toml)."
+untestable = "A licensing statement."
 
 [PROJ-504]
 title = "THIRD_PARTY_NOTICES.md stays"
@@ -46,3 +50,4 @@ status = "active"
 words = "recommeded all"
 why = "Answer to T-525: the owner accepted the recommendation for every open question."
 rule = "THIRD_PARTY_NOTICES.md keeps the license attributions for bundled third-party code."
+untestable = "A statement about a licence-attribution document."

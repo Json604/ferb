@@ -339,6 +339,7 @@ def test_the_transcript_alignment_runs_off_the_event_loop(tmp_path: Path) -> Non
     assert out["transcript"] and threads and loop_thread[0] not in threads
 
 
+# decision: DMN-401
 def test_update_quit_never_terminates_the_notch(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     """FERB.app's bundle id is the running notch's too: one process scan ends only hearing instances (FERB.app's
     executable run with a hearing mode on a file in the audio folder), by SIGTERM, and never while transcribing."""

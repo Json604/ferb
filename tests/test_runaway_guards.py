@@ -24,6 +24,7 @@ def run_pytest(tmp_path: Path, body: str, **env: str) -> subprocess.CompletedPro
                            "test_case.py"], cwd=tmp_path, env=environ, capture_output=True, text=True, timeout=60)
 
 
+# decision: TEST-504
 def test_a_hung_test_ends_the_run_with_every_threads_traceback(tmp_path: Path) -> None:
     r = run_pytest(tmp_path, """
         import time
@@ -37,6 +38,7 @@ def test_a_hung_test_ends_the_run_with_every_threads_traceback(tmp_path: Path) -
     assert "passed" not in r.stdout
 
 
+# decision: TEST-504
 def test_a_long_test_keeps_its_own_limit(tmp_path: Path) -> None:
     r = run_pytest(tmp_path, """
         import time
@@ -53,6 +55,7 @@ def test_a_long_test_keeps_its_own_limit(tmp_path: Path) -> None:
     assert "2 passed" in r.stdout
 
 
+# decision: TEST-504
 def test_a_growing_test_is_ended_by_the_memory_guard(tmp_path: Path) -> None:
     r = run_pytest(tmp_path, """
         import time
@@ -70,6 +73,7 @@ def test_a_growing_test_is_ended_by_the_memory_guard(tmp_path: Path) -> None:
     assert "in test_grows" in r.stderr                                      # and the traceback shows where
 
 
+# decision: TEST-504
 def test_memory_reads_this_process() -> None:
     used = memory_bytes()
     assert 10 << 20 < used < 64 << 30

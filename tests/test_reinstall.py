@@ -47,6 +47,7 @@ def _sha(path: Path) -> str:
 
 # ---------- the owner's data ----------
 
+# decision: STORE-1
 @pytest.mark.parametrize("damage", ["garbage", "truncated"])
 def test_a_damaged_database_is_moved_aside_with_its_wal_never_deleted(tmp_path: Path, damage: str) -> None:
     home = _home(tmp_path / ".ferb")
@@ -73,6 +74,7 @@ def test_a_damaged_database_is_moved_aside_with_its_wal_never_deleted(tmp_path: 
     assert not (home / salvage.CHECKED).exists()                                 # no build passed a check
 
 
+# decision: STORE-1
 def test_a_second_set_aside_in_the_same_minute_never_overwrites_the_first(tmp_path: Path) -> None:
     home = _home(tmp_path / ".ferb")
     for n in (1, 2):
@@ -83,6 +85,7 @@ def test_a_second_set_aside_in_the_same_minute_never_overwrites_the_first(tmp_pa
     assert len(salvage.pending(home)) == 2
 
 
+# decision: STORE-4
 def test_a_readable_database_is_kept_and_the_full_check_runs_once_per_build(tmp_path: Path,
                                                                             monkeypatch: pytest.MonkeyPatch) -> None:
     home = _home(tmp_path / ".ferb")
@@ -97,6 +100,7 @@ def test_a_readable_database_is_kept_and_the_full_check_runs_once_per_build(tmp_
     assert sqlite3.connect(path).execute("SELECT text FROM owner_note").fetchone() == ("kept",)
 
 
+# decision: STORE-4
 def test_a_locked_database_is_not_judged_damaged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Only SQLite's damage codes move a file: a lock (setup's clean-up holding it) is raised as it is."""
     home = _home(tmp_path / ".ferb")
@@ -115,6 +119,7 @@ def test_a_locked_database_is_not_judged_damaged(tmp_path: Path, monkeypatch: py
     assert path.exists() and salvage.pending(home) == []
 
 
+# decision: STORE-3, DMN-10
 def test_a_database_from_a_newer_ferb_is_refused_and_nothing_changes(tmp_path: Path) -> None:
     home = _home(tmp_path / ".ferb")
     path = _store(home)
@@ -132,6 +137,7 @@ def test_a_database_from_a_newer_ferb_is_refused_and_nothing_changes(tmp_path: P
     assert not list(home.glob("*.broken-*")) and salvage.pending(home) == []
 
 
+# decision: STORE-3
 def test_setup_refuses_a_newer_database_before_it_installs_anything(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                                     capsys: pytest.CaptureFixture[str]) -> None:
     from ferb.cli import main
@@ -149,6 +155,7 @@ def test_setup_refuses_a_newer_database_before_it_installs_anything(tmp_path: Pa
     assert {p.name for p in home.iterdir()} <= {"ferb.db", "ferb.db-wal", "ferb.db-shm"}   # SQLite's own, empty
 
 
+# decision: STORE-1, DMN-10
 def test_an_unparseable_config_and_secret_names_are_set_aside_and_persona_is_rescanned(tmp_path: Path) -> None:
     home = _home(tmp_path / ".ferb")
     (home / "config.toml").write_text("[runtimes]\nworker = \"codex\n")
@@ -168,6 +175,7 @@ def test_an_unparseable_config_and_secret_names_are_set_aside_and_persona_is_res
     assert salvage.check_files(home, lambda: NOW) == []
 
 
+# decision: STORE-1, STORE-2, DMN-10
 def test_the_daemon_sets_a_damaged_store_and_config_aside_starts_fresh_journals_and_tells_once(home: Path) -> None:
     from tests.support.schedules import own_daemon
     _home(home)
@@ -206,6 +214,7 @@ async def _set_aside_rows(d: Any) -> list[Any]:
     return list(d.daemon._journal().of_kind("home.set_aside"))
 
 
+# decision: STORE-3
 def test_the_daemon_refuses_a_newer_store_unchanged_and_exits_cleanly(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.conftest import RunningDaemon
     _home(home)
@@ -231,6 +240,7 @@ def test_the_daemon_refuses_a_newer_store_unchanged_and_exits_cleanly(home: Path
     daemon_main.main()                                                            # returns: a clean exit
 
 
+# decision: DMN-10
 def test_leftover_run_files_of_an_older_daemon_are_cleared_at_start(home: Path) -> None:
     """A socket and sandbox profiles a crashed daemon left; FERB's own catalog dump cut short."""
     from tests.support.schedules import own_daemon
@@ -269,6 +279,7 @@ def test_a_cut_short_codex_catalog_dump_is_dumped_again(tmp_path: Path) -> None:
 
 # ---------- program files ----------
 
+# decision: DMN-10
 def test_reinstall_over_an_older_builds_leftovers_rewrites_every_program_file(tmp_path: Path) -> None:
     """Uninstalled (or deleted) without purge, then a new FERB.app opened: the helper missing or not the one the app
     seals, a stale record naming the older build and app, the `ferb` link and the Codex link into the deleted app, an

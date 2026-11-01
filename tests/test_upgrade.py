@@ -83,6 +83,7 @@ def _fresh_tables(tmp_path: Path) -> set[str]:
     return names
 
 
+# decision: STORE-403, STORE-410, STORE-411, TEST-505
 @pytest.mark.parametrize("upto,with_0040", [(18, False), (30, False), (40, True), (44, False), (48, False),
                                             (48, True), (52, False), (55, False)])
 def test_a_store_from_an_older_build_reaches_the_current_schema_with_its_data(tmp_path: Path, upto: int,
@@ -117,6 +118,7 @@ def test_a_store_from_an_older_build_reaches_the_current_schema_with_its_data(tm
         db.close()
 
 
+# decision: STORE-403, TEST-505
 @pytest.mark.parametrize("with_0040", [False, True])
 def test_a_store_migrated_with_files_since_edited_upgrades_whole_and_works(tmp_path: Path, with_0040: bool) -> None:
     """A schema-48 store a build that updated on 10-23/24 left (0044, 0045, 0047 and 0048 as first written, before
@@ -160,6 +162,7 @@ def test_a_store_migrated_with_files_since_edited_upgrades_whole_and_works(tmp_p
         db.close()
 
 
+# decision: STORE-3, STORE-414
 def test_a_database_newer_than_this_build_is_still_refused(tmp_path: Path) -> None:
     path = tmp_path / "ferb.db"
     db = Database(path)
@@ -202,6 +205,7 @@ address = "reports@example.org"
 
 
 # decision: HAND-236
+# decision: STORE-403, STORE-411, TEST-505
 def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) -> None:
     """A schema-48 store (the owner's build before this rebuild) with the 0040 column and the first versions of the
     migrations edited on 10-23/24, and an older config.toml: the
@@ -251,6 +255,7 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     assert drops == {"owner_questions": 0, "notification_rules": 1, "learning_receipts": 0, "learning_jobs": 0}
 
 
+# decision: STORE-403, TEST-505
 def test_the_memory_upgrade_on_an_older_store_runs_once(home: Path) -> None:
     """Tier 1 seeded once from the facts an older store holds; a second start changes nothing (the embeddings are
     filled in the background once the model is there: tests/test_memory_search.py)."""

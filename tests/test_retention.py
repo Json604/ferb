@@ -44,6 +44,7 @@ def _tree_spans(daemon: RunningDaemon, root: str) -> int:
               root, len(root) + 1, root + ".")
 
 
+# decision: STORE-400
 def test_old_task_spans_are_purged_and_the_record_kept(daemon: RunningDaemon) -> None:
     root = _say_hi(daemon)
     _age(daemon, root, 31)
@@ -57,6 +58,7 @@ def test_old_task_spans_are_purged_and_the_record_kept(daemon: RunningDaemon) ->
     assert _q(daemon, "SELECT count(*) FROM journal WHERE kind = 'retention.purged'") == 1
 
 
+# decision: STORE-400
 def test_recent_tasks_keep_their_spans(daemon: RunningDaemon) -> None:
     root = _say_hi(daemon)
     _age(daemon, root, 29)
@@ -103,6 +105,7 @@ def _purged(daemon: RunningDaemon, roots: list[str], before: int, result: dict[s
             "episodes": [_q(daemon, "SELECT count(*) FROM episodes WHERE task_id = ?", r) for r in roots]}
 
 
+# decision: STORE-406, DMN-13
 def test_the_async_pass_purges_the_same_as_the_sync_one_and_yields_between_roots(home: Path) -> None:
     """I3 (D21): the hourly pass runs on the daemon loop one root at a time, yielding between roots; it purges and
     journals exactly what the synchronous pass does."""
@@ -144,6 +147,7 @@ def test_the_async_pass_purges_the_same_as_the_sync_one_and_yields_between_roots
     assert "tick" in order[first + 1:second]                     # the loop ran between the two roots
 
 
+# decision: STORE-400
 def test_spans_without_an_episode_are_kept_until_one_is_built(daemon: RunningDaemon) -> None:
     root = _say_hi(daemon)
     _do(daemon, "DELETE FROM episodes WHERE task_id = ?", root)
@@ -158,6 +162,7 @@ def test_spans_without_an_episode_are_kept_until_one_is_built(daemon: RunningDae
     assert _tree_spans(daemon, root) == 0
 
 
+# decision: STORE-400
 def test_running_tasks_are_never_purged(daemon: RunningDaemon) -> None:
     root = _say_hi(daemon)
     _age(daemon, root, 31)
@@ -190,6 +195,7 @@ def _spans_with_prefix(daemon: RunningDaemon, prefix: str) -> int:
     return _q(daemon, "SELECT count(*) FROM spans WHERE id LIKE ?", prefix + "%")
 
 
+# decision: STORE-400
 def test_a_large_nested_tree_is_purged_completely(daemon: RunningDaemon) -> None:
     root = _say_hi(daemon)
     _age(daemon, root, 31)
@@ -206,6 +212,7 @@ def test_a_large_nested_tree_is_purged_completely(daemon: RunningDaemon) -> None
     assert _spans_with_prefix(daemon, "z-") == 0 and _spans_with_prefix(daemon, "a-c") == 0
 
 
+# decision: STORE-400
 def test_many_old_loose_spans_with_children_are_purged(daemon: RunningDaemon) -> None:
     for i in range(300):
         _insert_span(daemon, f"z-p{i:03d}", None, None, None, _old())
@@ -433,6 +440,7 @@ def _count(daemon: RunningDaemon, table: str, where: str = "1", *params: Any) ->
     return _q(daemon, f"SELECT count(*) FROM {table} WHERE {where}", *params)
 
 
+# decision: STORE-401, STORE-404, STORE-407, STORE-408
 def test_operational_records_go_90_days_after_their_task_ends_with_what_depends_on_them(daemon: RunningDaemon) -> None:
     """STORE-401: the ledger, confirmations, plans and their steps, loop state, delivered or cancelled timers and their
     deliveries, and operational journal rows go 90 days after their task or timer ended, never before, never while the

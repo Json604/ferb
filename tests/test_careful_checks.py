@@ -100,6 +100,7 @@ def test_a_pass_with_no_look_at_a_changed_file_is_refused_rerun_once_then_unclea
     assert "without reading" in json.dumps(out["verification"])
 
 
+# decision: TEST-502
 def test_a_pass_that_read_the_changed_file_stands(daemon: Any, tmp_path: Path) -> None:
     notes = tmp_path / "notes.txt"
     notes.write_text("Student ID: ID\n")

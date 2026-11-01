@@ -31,6 +31,7 @@ def _target(scope: str, capture: Any, label: str = "Notes") -> PreviewTarget:
     return PreviewTarget(scope, label, resolve)
 
 
+# decision: DMN-403
 def test_a_request_never_queues_behind_the_worker_and_an_abandoned_one_frees_the_surface() -> None:
     """The 10-30 slow calls (kb area app): requests queued on the worker's locks and ran ahead of its next call.
     Now a request while the worker acts answers at once with the last frame (busy); a request whose caller leaves
@@ -65,6 +66,7 @@ def test_a_request_never_queues_behind_the_worker_and_an_abandoned_one_frees_the
     asyncio.run(asyncio.wait_for(check(), 5))
 
 
+# decision: DMN-403, DMN-404
 def test_a_slow_capture_ends_within_the_daemon_time_limit_with_the_last_frame() -> None:
     async def check() -> None:
         previews, _ = _previews(limit_s=0.2)
@@ -83,6 +85,7 @@ def test_a_slow_capture_ends_within_the_daemon_time_limit_with_the_last_frame() 
     asyncio.run(check())
 
 
+# decision: DMN-405
 def test_no_frame_after_the_task_ends_even_from_a_capture_already_running() -> None:
     async def check() -> None:
         previews, _ = _previews()
@@ -105,6 +108,7 @@ def test_no_frame_after_the_task_ends_even_from_a_capture_already_running() -> N
 
 
 # decision: HAND-402
+# decision: DMN-405
 def test_no_frame_for_a_tab_the_task_does_not_own() -> None:
     """The browser declaration resolves through the driver's ownership check with the calling task: a tab the task
     doesn't hold gives no frame, only why."""
@@ -130,6 +134,7 @@ def test_no_frame_for_a_tab_the_task_does_not_own() -> None:
     asyncio.run(check())
 
 
+# decision: DMN-404
 def test_the_preview_freezes_with_a_state_when_ferb_leaves_the_surface_or_asks() -> None:
     """Decision 2: once FERB's call leaves the window (a call on no surface), or the task asks, waits or pauses, the
     preview shows FERB's last frame of it with what FERB is doing now, and captures nothing (no new messages stream)."""
@@ -154,6 +159,7 @@ def test_the_preview_freezes_with_a_state_when_ferb_leaves_the_surface_or_asks()
     asyncio.run(check())
 
 
+# decision: DMN-404
 def test_parallel_steps_each_keep_their_surface_and_the_answer_names_the_step() -> None:
     async def check() -> None:
         previews, _ = _previews()
@@ -172,6 +178,7 @@ def test_parallel_steps_each_keep_their_surface_and_the_answer_names_the_step() 
     asyncio.run(check())
 
 
+# decision: DMN-404, DMN-405
 def test_a_withheld_frame_and_the_masking_note_are_said() -> None:
     async def check() -> None:
         previews, _ = _previews()
@@ -227,6 +234,7 @@ def test_a_snapshot_shows_the_window_it_reports_current_not_the_drivers_latest_t
     asyncio.run(check())
 
 
+# decision: DMN-23, DMN-402, DMN-405
 def test_only_ferb_apps_own_process_may_watch_previews_and_nothing_is_persisted(daemon: Any) -> None:
     """auth.APP_ONLY: any program running as the owner gets "unauthorized"; FERB.app's process (its code signature,
     app_peer.py; stood in for here) gets frames, and no pixel reaches the journal, the trace or a file."""
@@ -264,6 +272,7 @@ async def _counts(daemon: Any) -> tuple[int, int]:
             conn.execute("SELECT COUNT(*) FROM spans").fetchone()[0])
 
 
+# decision: DMN-402
 def test_the_app_peer_check_fails_closed_for_any_other_process() -> None:
     """The real check (Security framework, the peer's audit token): this test process is not FERB.app."""
     import ctypes
@@ -319,6 +328,7 @@ def test_mac_preview_without_exact_element_window_never_uses_front_window(monkey
         d.preview_source('Notes', element=element)
 
 
+# decision: DMN-403
 def test_the_app_leaving_mid_request_cancels_the_capture_through_the_socket(daemon: Any) -> None:
     """kb area app: an abandoned request (the app's socket closed) no longer runs on: the server ends the call and
     the capture with it, so nothing holds the surface for the worker's next call."""
@@ -397,6 +407,7 @@ def _token(n: int) -> bytes:
     return raw + b"-" * (32 - len(raw))
 
 
+# decision: DMN-402
 def test_a_daemon_run_from_ferbs_venv_checks_the_installed_ferb_app_and_follows_its_updates(tmp_path: Any,
                                                                                              monkeypatch: Any) -> None:
     """The owner's install runs the daemon from ~/.ferb/venv: it compares the peer with the installed FERB.app's own
@@ -422,6 +433,7 @@ def test_a_daemon_run_from_ferbs_venv_checks_the_installed_ferb_app_and_follows_
     assert AppPeers(prefix=venv, candidates=(other,), security=lambda: security)(_token(1)) is False
 
 
+# decision: DMN-402
 def test_only_a_checkout_daemon_falls_back_to_the_notch_identifiers(tmp_path: Any, monkeypatch: Any) -> None:
     from ferb.daemon.app_peer import AppPeers
     monkeypatch.setenv("FERB_HOME", str(tmp_path / ".ferb"))
