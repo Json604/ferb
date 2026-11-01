@@ -325,7 +325,10 @@ def run_checks(ctx: Ctx, checks: list[dict], upto: str, only_ci: bool = False) -
                 status = "FAIL" if probs else "ok"
                 detail = probs
             else:
-                env = dict(os.environ, GATE_LEVEL=upto, GATE_BASE=ctx.base or "INDEX", GATE_FILES=files_path)
+                # Hooks run with git's GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE set to this repository; a check that
+                # runs git elsewhere (a test making a temp repo) would otherwise change this repository instead.
+                env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+                env.update(GATE_LEVEL=upto, GATE_BASE=ctx.base or "INDEX", GATE_FILES=files_path)
                 try:
                     r = subprocess.run(c["run"], shell=True, cwd=ctx.root, env=env, capture_output=True, text=True,
                                        timeout=c.get("timeout", 3600))

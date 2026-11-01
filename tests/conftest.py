@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import plistlib
 import re
 import shutil
@@ -895,6 +896,12 @@ def no_machine_tokenizer() -> Iterator[None]:
         context._encoding.cache_clear()
         yield
     context._encoding.cache_clear()
+
+
+# Git's hook variables never reach a test: run from a git hook (the push check), a test that runs git in a temp folder
+# would otherwise act on this repository (a test's `git init` once turned it into a bare repo).
+for _k in [k for k in os.environ if k.startswith("GIT_")]:
+    del os.environ[_k]
 
 
 def pytest_sessionstart(session: Any) -> None:
