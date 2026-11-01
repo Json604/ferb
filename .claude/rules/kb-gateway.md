@@ -11,3 +11,6 @@ paths:
 Boundaries code enforces: confirmations, protection lists, terminal typing, redaction, secrets and the sealed fill path, owner identity.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **GATE-200** (owner): For the escape hatch and the file tools, one read question per protected folder per task covers every read of that folder in the task. Writes and admin still ask per command.
+- **GATE-201** (agent): The foreground Need is keyed by confirm.app_key: the running app's bundle id (casefolded) when the name, `pid:N` or bundle id names exactly one running app, else the argument without case or invisible marks. The question shows the app as the worker wrote it. One Yes covers every spelling and retry in the task.

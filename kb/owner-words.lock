@@ -1,5 +1,20 @@
 # Hashes of each owner decision's words and rule (kb.py lock). A change here is a reworded or
 # deleted owner decision: check that the owner asked for it.
+GATE-200 420fb2bd7341497c
+HAND-200 a3a8a7110dc513ba
+HAND-201 9075a5a5560ce0a6
+HAND-202 4f90acf45b35ebd1
+HAND-203 0fab9ace15b743a8
+HAND-204 d6f9e745dfebdb17
+HAND-205 80fcc64370f1db51
+HAND-206 0d7e7b585fe8877c
+HAND-207 42001e9456cfa588
+HAND-208 caaf20191f9ad15f
+HAND-209 a9b0eb2aa8da1564
+HAND-210 0e3dd2361460b6ed
+HAND-211 ece65f70209c0940
+HAND-212 6ab9a3a1ad17e1db
+HAND-213 2df057e4a99fe82d
 MEM-1 2e94408358edf79e
 MEM-2 aa628a72616c200a
 MEM-3 410ab3e3ea2d3d1c
@@ -20,3 +35,4 @@ MEM-35 33d92aec6ece9bc3
 ORCH-1 1fed31e78ffaab82
 SENSE-1 2e854085bcec36d6
 SENSE-2 2324108efcb8b3db
+SENSE-200 b32bb44f99216176

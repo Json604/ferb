@@ -46,3 +46,23 @@ status = "active"
 rule = "A browser's accessibility events keep no window title. Text typed or copied in a browser carries its page's host and incognito flag from the last tab observation, so the incognito and excluded-domain rules drop it; text typed or copied in a browser page FERB hasn't seen is not recorded (it can't be checked)."
 paths = ["ferb/sense/trail.py::Trail._in_browser_page"]
 legacy = "notes/memory.md fix list, Perception (privacy); Rulings (step 9b)"
+
+[SENSE-200]
+title = "\"When you're back at your Mac\" is the Mac coming back into use"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/hands.md owner decision 10 (clarifying orchestration decision 17): an agent's paraphrase; no verbatim quote recorded"
+rule = "Back at the Mac = lid opened / wake from sleep, screen unlocked, login, or restart (the daemon starting after boot). Input idleness doesn't count: watching a film without touching anything is still being at the Mac. Kept: at most once per the schedule's own rule; away for days gives one run. The paused-task mention uses the same signal; held banners show only when the notch can't."
+paths = ["ferb/sense/watchers/presence.py", "ferb/daemon/areas/schedules.py"]
+legacy = "notes/hands.md decision 10"
+
+[SENSE-201]
+title = "What counts as the Mac out of use and back"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "MacPresence: out of use while the Mac sleeps, its displays sleep, the screen is locked or the login session is switched away (workspace and distributed notifications on FERB's own run-loop thread, plus a 5 s read of session lock/console state and display sleep). Back = none of those holds after one did, journaled `mac.back_in_use`. A daemon start in a new login session is a return (\"login\"), unless locked then; a start in the same session (update, crash) isn't. Pause FERB: unknown, counted as present."
+paths = ["ferb/sense/watchers/presence.py::MacPresence"]
+live = ["LIVE-204"]
+legacy = "notes/hands.md Rulings (step 12e part 2): presence signal"

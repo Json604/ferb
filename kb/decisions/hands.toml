@@ -9,3 +9,460 @@ rule = "A frame whose address is a known challenge frame (Cloudflare Turnstile, 
 why = "The extension already reports each frame's address and each frame element's src: no protocol change, no extension reload."
 paths = ["ferb/act/browser/snapshot.py::CHALLENGE_FRAMES"]
 legacy = "notes/memory.md Rulings (step 9b): bot checks"
+
+[HAND-200]
+title = "Minimal shortcut guard"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/hands.md owner decision 2: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "In-app shortcuts go through unchanged. cmd+q and cmd+h go through FERB's safe quit/hide, which acts only on apps FERB launched and checks for unsaved work. Screen-wide combos (cmd+tab, cmd+space, ctrl+arrows, force quit) are refused."
+paths = ["ferb/act/mac/input.py", "ferb/act/mac/launched.py", "ferb/act/mac/driver.py"]
+legacy = "notes/hands.md decision 2"
+
+[HAND-201]
+title = "One collapsed tab group per task, holding only tabs FERB opened"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/hands.md owner decision 3: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "One collapsed, labelled group per task with only FERB's tabs. FERB never closes a tab it didn't open; a borrowed owner tab is never grouped or closed. A result tab is handed over (moved out, open); the rest close at task end. A tab dragged out becomes the owner's; one dragged in stays the owner's. Closing a FERB tab or the group mid-task = owner stopping that part (FERB asks to continue). \"Keep the tabs open\" ungroups them; pause keeps the group; loops keep it collapsed; after a reconnect or restart FERB re-adopts or closes it (no orphans)."
+why = "A profile with no window uses FERB's minimized window. Needs `tabGroups` and one protocol bump (manifest, JS/Python protocol, minimum versions together)."
+paths = ["extensions/chromium/background.js", "ferb/act/browser/ext_bridge.py"]
+legacy = "notes/hands.md decision 3"
+
+[HAND-202]
+title = "Shell can't delete or move files outside the workspace and named folders"
+by = "owner"
+date = 2026-10-30
+status = "superseded"
+words_source = "notes/gateway.md owner decision 3: an agent's paraphrase; no verbatim quote recorded"
+rule = "The shell can't delete or move files outside FERB's workspace and the folders named in the task (sandbox rule); deletes elsewhere go through file tools (Trash + S1 copy), so they are recoverable. No new questions."
+superseded_by = "HAND-203"
+legacy = "notes/gateway.md decision 3"
+
+[HAND-203]
+title = "Terminal commands can't change the owner's visible folders unless named"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/hands.md owner decision 4 (A): an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Terminal commands can't write, truncate, delete or rename in the owner's visible folders (non-hidden folders in home, iCloud Drive, /Volumes) unless the folder is named, in the owner's words or in the plan line FERB stated and the owner didn't correct. Hidden folders, ~/Library (minus the protection lists), temp folders and FERB's workspace stay writable. Kernel-enforced by the sandbox after shell expansion. The owner's files change through file tools (backup copies); a refused command tells the worker why."
+why = "Same pattern as Codex and Claude Code (shell writes scoped to the project) and incident write-ups (scoped access + snapshots), widened for a whole-Mac assistant."
+supersedes = ["HAND-202"]
+paths = ["ferb/act/shell/sandbox.py"]
+legacy = "notes/hands.md decision 4 A"
+
+[HAND-204]
+title = "Named folders are resolved by the planner, never fuzzy-matched by code"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/hands.md owner decision 4 (how \"named\" works): an agent's paraphrase; no verbatim quote recorded"
+rule = "Code never fuzzy-matches folder names. The planner resolves what the owner meant (typos included) into a structured `folders` task field, shown in the plan line (\"I'll work in ~/Downloads\"); code allows exactly those paths. An ambiguous name gets one which-question. Work starts at once; a wrong guess the owner doesn't correct is covered by snapshots and file-tool backups."
+paths = ["ferb/orchestrator/supervisor.py", "ferb/act/shell/sandbox.py"]
+legacy = "notes/hands.md decision 4, how named works"
+
+[HAND-205]
+title = "Hidden folders inside visible ones are writable"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/hands.md owner decision 4 (hidden folders): an agent's paraphrase; no verbatim quote recorded"
+rule = "Any path with a component starting with \".\" (e.g. ~/Desktop/repo/.git) counts as a program folder and stays writable, so git works in any repo; snapshots cover mistakes."
+paths = ["ferb/act/shell/sandbox.py"]
+legacy = "notes/hands.md decision 4, hidden folders"
+
+[HAND-206]
+title = "A fresh APFS snapshot before each terminal command"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/hands.md owner decision 4 (B): an agent's paraphrase; no verbatim quote recorded"
+rule = "A fresh APFS local snapshot is taken before each terminal command, skipped only if no command ran since the last one. FERB says so when a snapshot couldn't be taken (e.g. a nearly full disk). Snapshots last about 24 hours and don't cover external drives."
+paths = ["ferb/act/fs/recovery.py::Snapshots"]
+legacy = "notes/hands.md decision 4 B"
+
+[HAND-207]
+title = "Sound is part of background-first"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/hands.md owner decision 5: an agent's paraphrase; no verbatim quote recorded"
+rule = "FERB's own tabs are muted by default unless the task needs to listen. FERB stopping or changing playback in a tab the owner is using counts as a disturbance fact. A general \"keep a tab playing while the owner switches away\" ability comes later."
+paths = ["extensions/chromium/background.js", "ferb/act/browser/ext_bridge.py", "ferb/daemon/disturbance.py"]
+legacy = "notes/hands.md decision 5"
+
+[HAND-208]
+title = "Workers try visible bot checks with the bot-check ability"
+by = "owner"
+date = 2026-10-27
+status = "active"
+words_source = "notes/hands.md owner decision 6 (2026-10-27, recorded 2026-10-31): an agent's paraphrase; no verbatim quote recorded"
+rule = "Workers use the browser_verification ability for a visible \"verify you are human\" check; browser_handoff is the fallback. Code states the fact and names the ability; no extra prompt wording about what counts as a bypass."
+evidence = "Visa run cd80f4ee (2026-10-31): the worker never read the ability and gave up at the check; the 2026-10-30 runs with the same task read it and got through."
+paths = ["ferb/act/browser/snapshot.py", "ferb/abilities/browser_verification"]
+legacy = "notes/hands.md decision 6"
+
+[HAND-209]
+title = "Download limits of 2026-10-09"
+by = "owner"
+date = 2026-10-09
+status = "superseded"
+words_source = "notes/hands.md decision 7 names these values (512 MB per download, 50 files / 4 GB per task) as the owner's 2026-10-09 ones; no verbatim quote recorded"
+rule = "512 MB per download; 50 files and 4 GB per task; FERB's downloads folder keeps to 20 GB (oldest files to the Trash); 50 tabs per task; no time-based clearing; a browser download never opens a Save dialog."
+superseded_by = "HAND-210"
+legacy = "notes/docs-cleanup.md item 3 (old plan)"
+
+[HAND-210]
+title = "Download limits: no per-file cap, 300 files and 32 GB per task"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/hands.md owner decision 7: an agent's paraphrase; no verbatim quote recorded"
+rule = "No per-file size cap and no question (a download isn't hard to undo). Per task: 300 files and 32 GB. The 10 GB free-disk floor stays. Shell downloads (curl, brew, pip, git clone, huggingface-cli, docker pull) count against the same per-task budget and floor; a command that would break either is stopped and the worker is told plainly why (a fact, not a judgment). Unchanged: the downloads folder keeps to 20 GB (over-cap handling: HAND-211), 50 tabs per task, no time-based clearing, a browser download never opens a Save dialog."
+supersedes = ["HAND-209"]
+paths = ["ferb/act/browser/downloads.py", "ferb/act/shell/manager.py", "ferb/config.py"]
+legacy = "notes/hands.md decision 7"
+
+[HAND-211]
+title = "The downloads folder's cap asks; Yes deletes for good"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/hands.md owner decision 8: an agent's paraphrase; no verbatim quote recorded"
+rule = "When ~/.ferb/workspace/downloads goes over its 20 GB cap, FERB asks, showing how much would go and how many files (oldest first, enough to get back under). Yes deletes them permanently; No or no answer does nothing, and FERB doesn't ask again until the folder grows past the cap by a further meaningful amount. The question uses the existing owner-question path, isn't tied to a task, and is rule 5's permanent-deletion confirmation. Only files inside that folder go, never through a link; each deletion is journaled with counts and bytes, never names."
+rejected = ["Moving the oldest files to the Trash (frees no space until the Trash is emptied)"]
+paths = ["ferb/act/browser/downloads.py", "ferb/daemon/areas/retention.py"]
+legacy = "notes/hands.md decision 8"
+
+[HAND-212]
+title = "An app that comes forward by itself is let be"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/hands.md owner decision 9: an agent's paraphrase; no verbatim quote recorded"
+rule = "When an app brings itself to the front in answer to FERB's background action, FERB doesn't put the owner's app back and doesn't ask. The worker is told as a fact and the trace shows it. FERB prefers routes that open no window (mdfind, AX reads, read-only AppleScript, a quiet reopen); lessons reach how-notes and playbooks. Code never scans AppleScript for \"activate\": the after-call fact covers it."
+evidence = "Live 2026-10-31: the Slack uninstall's background \"File > Find\" press made Finder come to the front."
+paths = ["ferb/daemon/disturbance.py", "ferb/daemon/gateway.py", "ferb/act/mac/tools.py"]
+legacy = "notes/hands.md decision 9"
+
+[HAND-213]
+title = "A sound-change fact never blames FERB for the owner's own action"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/hands.md owner decision 11: an agent's paraphrase; no verbatim quote recorded"
+rule = "A tab sound change is not recorded when Chrome says the owner muted or unmuted it (mutedInfo.reason == \"user\") or when the owner's own keyboard or mouse input was under way at that moment. Only changes FERB could have caused are recorded: a structural fact, not a judgment."
+paths = ["ferb/daemon/disturbance.py", "extensions/chromium/background.js"]
+legacy = "notes/hands.md decision 11"
+
+[HAND-214]
+title = "Local servers started after a command starts are reached only through the proxy"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "A command connects directly only to FERB-sandboxed listeners that existed when it started (plus pinned ports); anything later goes through the egress proxy, which checks contained listeners too (NO_PROXY empty)."
+why = "Closes the localhost bypass of the proxy. Cost: clients that ignore proxy settings can't reach a server started in the same command."
+paths = ["ferb/act/shell/sandbox.py", "ferb/act/shell/local.py"]
+legacy = "notes/hands.md Rulings (step 5a): late localhost listeners"
+
+[HAND-215]
+title = "Files directly in home and tool folders like ~/go count as visible"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Visible folders (HAND-203) include non-hidden files directly in ~ and tool folders like ~/go. A task that needs one names it in the plan line; snapshots cover mistakes."
+paths = ["ferb/act/shell/sandbox.py"]
+legacy = "notes/hands.md Rulings (step 5a): visible folders"
+
+[HAND-216]
+title = "After a failed snapshot the next attempt waits 60 s"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "After a failed snapshot the next attempt waits 60 s (RETRY_AFTER_FAILURE_S); each result in between still states that no snapshot was taken."
+why = "A hanging tmutil must not add its timeout to every command."
+paths = ["ferb/act/fs/recovery.py::RETRY_AFTER_FAILURE_S"]
+legacy = "notes/hands.md Rulings (step 5a): failed snapshot"
+
+[HAND-217]
+title = "A command can't extend its lift or signal outside its own sandbox"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "`shell.send` into a command started with a lift is refused. The shell profile has `(deny signal)(allow signal (target same-sandbox))`: a command signals its own children and setsid descendants, never other programs or other FERB commands (so it can't kill the daemon or the proxy)."
+why = "An approved `bash` would otherwise keep the lift for anything typed later."
+paths = ["ferb/act/shell/sandbox.py", "ferb/act/shell/manager.py"]
+legacy = "notes/hands.md Rulings (step 5a): shell.send; fix list signals"
+
+[HAND-218]
+title = "A key press is refused only when it would put text into a password field"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Into a focused password field, a key press is refused only when it enters text: a character key without cmd/ctrl, Space, or a paste (cmd+V by key or the Paste menu item). Return, Tab, Escape, arrows and other shortcuts still go. The browser applies the same rule (content.js, background.js, ext_bridge)."
+why = "Submitting a login FERB didn't type isn't typing a password."
+paths = ["ferb/act/mac/input.py::enters_text", "ferb/act/browser/ext_bridge.py::enters_text", "extensions/chromium/protocol.js"]
+legacy = "notes/hands.md Rulings (step 5b): secure fields"
+
+[HAND-219]
+title = "Shortcut guard details: what counts as screen-wide"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Refused as screen-wide besides HAND-200's list: opt+cmd+H (hide others), ctrl+Space, ctrl+cmd+Q (lock), shift+cmd+Q (log out). cmd+M stays in-app. The guard also covers a menu item whose key equivalent is cmd+Q/cmd+H (mac.menu, a press or click on the item)."
+why = "Hide others hides the owner's apps."
+paths = ["ferb/act/mac/input.py::screen_wide", "ferb/act/mac/input.py::quit_or_hide"]
+legacy = "notes/hands.md Rulings (step 5b): shortcut guard"
+
+[HAND-220]
+title = "Repeat-check (P19) identity on the Mac comes from stable targets"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "mac.act: the snapshot window's window-server id + the element's AX role path, role, subrole, label (sibling index only when unlabelled), never the snapshot id or the value. mac.click/mac.pointer: the shot's window id + the element under the point; with no element or one larger than 400 pt, the point on a 24 pt grid of the window. Window titles are left out. A collision only asks the owner."
+why = "A chat window's title changes after a send, which would let a repeat escape; snapshot ids change on every re-observe."
+paths = ["ferb/act/mac/tools.py", "ferb/act/mac/driver.py"]
+legacy = "notes/hands.md Rulings (step 5b): P19 identity (Mac)"
+
+[HAND-221]
+title = "Accessibility time limits: 2 s per message, 8 s or 60,000 elements per walk"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "AX messaging timeout 2 s (macOS default 6 s), set globally and on each app element. A walk stops after 8 s or 60,000 elements, marked `budget`; it then can't tell about password fields and captures fall back to text recognition."
+why = "One hung app must not stall the daemon."
+paths = ["ferb/act/mac/accessibility.py"]
+legacy = "notes/hands.md Rulings (step 5b): responsiveness numbers"
+
+[HAND-222]
+title = "Daemon-to-extension messages are signed; a failed check gets no reply"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "welcome and cmd are {type, seq, body, mac}, HMAC-SHA256(pairing key, nonce|seq|type|body) with the hello's fresh nonce and a per-connection counter; each part of an assembled command and the envelope are verified. Unsigned replies change no page. A command that fails verification is dropped without a reply, so the daemon times out (unknown, the safe side). The extension accepts `paired` only during pairing."
+why = "Echoing an unverified id could fail a real command early."
+paths = ["extensions/chromium/background.js", "ferb/act/browser/ext_bridge.py"]
+legacy = "notes/hands.md Rulings (step 5c): signing"
+
+[HAND-223]
+title = "Same-uid processes stay trusted; the native host is checked by its browser"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "The daemon takes a native-host connection only when the host's parent process runs a browser app FERB knows (peer_refusal, the .app's bundle id via libproc), and a paired profile's hello only from that browser. Any process of the owner's user can still start a browser binary with its own profile or read a pairing key from extension storage: same-uid processes are trusted."
+paths = ["ferb/act/browser/ext_bridge.py::peer_refusal", "ferb/native_host"]
+legacy = "notes/hands.md Rulings (step 5c): native host"
+
+[HAND-224]
+title = "A browser read that fails is a known failure, never outcome unknown"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "For reads (list_tabs, snapshot, wait, screenshot(_part), record_frame, frame_origin, read_source, window_secrets, find, result_part, ping, point, dialog without a decision) an error, timeout or dropped connection is a DriverError, never OutcomeUnknown."
+why = "42 of 56 \"outcome unknown\" results were reads, which then tripped the repeat check (P19)."
+paths = ["ferb/act/browser/ext_bridge.py"]
+legacy = "notes/hands.md Rulings (step 5c): reads"
+
+[HAND-225]
+title = "Repeat-check (P19) identity in the browser: backend node id, then DOM path"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "A browser act's identity is the page origin+path (and a child frame's), role, and the backend node id, else the DOM path when the accessibility pass gave none. A re-render that replaces the node escapes the identity; a shifted DOM path can collide (only asks the owner)."
+why = "The backend node id is stable while the node lives, so a re-snapshot of the same page matches."
+paths = ["ferb/act/browser/tools.py"]
+legacy = "notes/hands.md Rulings (step 5c): P19 identity"
+
+[HAND-226]
+title = "Local socket facts come from libproc in FERB's process, with nettop for the rest"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Sockets are read with libproc in FERB's own process (no subprocess; an answer of any size other than 792 bytes is no reading). The proxy route uses only it: the connected server socket must belong to an inspectable process. The profile route's direct ports need every user's listeners: nettop adds the uninspectable ones (unnamed, never pinned), counted only when it lists every listener libproc found and every line parses. Shared sockets are checked once per process."
+why = "From macOS 27.2 the kernel's socket lists hold only the caller's own sockets for an ad-hoc-signed Python and its children, so netstat printed nothing and FERB refused every local port."
+evidence = "2026-10-31, Darwin 27.2.0: netstat -anv exits 0 and prints nothing from FERB's venv; 6 shell/proxy tests failed on clean 41ef7dff. libproc ~2 ms, nettop ~9 ms per reading."
+paths = ["ferb/act/shell/sockets.py", "ferb/act/shell/local.py"]
+legacy = "notes/hands.md Rulings (regression 2026-10-31, macOS 27.2)"
+
+[HAND-227]
+title = "A queued local connection is waited for at most 30 s"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "LocalAccess.connected re-reads while a visible listener on that port has a queued connection, at most ACCEPT_WAIT = 30 s (the proxy's own connect timeout), then refuses; with nothing queued on a visible listener it refuses at once."
+why = "A connection the server hasn't accepted yet is in no descriptor table, only counted in its listener's queue (libproc, measured)."
+paths = ["ferb/act/shell/local.py::ACCEPT_WAIT"]
+legacy = "notes/hands.md Rulings (regression 2026-10-31): accept wait"
+
+[HAND-228]
+title = "FERB's proxies listen with the kernel's maximum backlog"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "The shell's egress proxy and the Claude runtime's tool-list relay listen with socket.SOMAXCONN (capped by kern.ipc.somaxconn, 128 here), not socketserver's default 5."
+why = "macOS resets a connect past a full backlog, so a busy accept loop or a burst (parallel package downloads, a flood) reset legitimate clients."
+evidence = "One busy thread, 8 runs each: backlog 5 reset 8 of 8; backlog 128 none (25 of 25 alone)."
+paths = ["ferb/act/shell/proxy.py", "ferb/runtimes/proxy.py"]
+legacy = "notes/hands.md Rulings (step 12d)"
+
+[HAND-229]
+title = "FERB mutes with the browser's tab mute and only its own tabs"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Muting is chrome.tabs.update({muted}), never the page's media. A tab FERB opens (and a popup a FERB tab opens) is muted before anything loads. The owner's tabs are never muted or unmuted (`mute_tab` refuses them). audio.listen, browser.record with_audio or the worker's browser_media unmute unmutes that FERB tab for the rest of the task. A tab that becomes the owner's gets its sound back only when FERB's extension muted it. Results carry `tab_muted`, never failing the call."
+why = "The page is untouched and can't tell."
+paths = ["extensions/chromium/background.js", "ferb/act/browser/ext_bridge.py"]
+legacy = "notes/hands.md Rulings (step 14b)"
+
+[HAND-230]
+title = "Sound changes count near FERB calls (5 s) and not near owner input (3 s)"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A sound change in a tab that isn't FERB's is recorded for each active task with an acting call in flight or ended within SOUND_NEAR_S = 5 s, and not when the owner's input is under way or ended within OWNER_NEAR_S = 3 s. Attribution stays temporal correlation only; no URL or title is kept."
+why = "Chrome drops `audible` about 2 s after sound stops."
+paths = ["ferb/daemon/disturbance.py"]
+legacy = "notes/hands.md Rulings (step 14b; step 12e part 2): sound windows"
+
+[HAND-231]
+title = "One download budget per task tree, browser and shell together"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Downloads owns one byte budget per task tree: files the tree's tabs took + transfers arriving + bytes its shell commands received through the egress proxy (shell_downloads, survives a restart). Only received bytes count. The 300-file count is the browser's only: the proxy sees connections, not files; the byte budget and the floor cover the shell."
+paths = ["ferb/act/browser/downloads.py::Downloads"]
+legacy = "notes/hands.md Rulings (step 12e): one budget; 300-file count"
+
+[HAND-232]
+title = "A shell download is stopped within a second, and only a downloading command"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "While any FERB command runs, every WATCH_S = 1 s the bytes each command received go to the daemon; past the tree's budget or under the free-disk floor (or free space unreadable) that command's group is stopped with `stopped_by_ferb` and `shell.download_stopped` journaled. Only a command that received bytes in that second is stopped: unzipping or building isn't a download."
+paths = ["ferb/act/shell/manager.py::WATCH_S", "ferb/act/browser/downloads.py"]
+legacy = "notes/hands.md Rulings (step 12e): how a shell download is stopped"
+
+[HAND-233]
+title = "A browser download ends only on a 60 s stall; parts of 512 KiB"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A transfer fails only when no byte arrives for STALL_S = 60 s; a slow download that keeps moving is never cut. Parts are 512 KiB, sent whole (never split into result parts)."
+why = "The old 10-minute ceiling capped a download at a few GB. Chrome allows 64 MiB extension-to-host; FERB's host and the daemon socket take 1 MiB per message, so 512 KiB keeps a margin."
+paths = ["ferb/act/browser/downloads.py::STALL_S", "extensions/chromium/protocol.js"]
+legacy = "notes/hands.md Rulings (step 12e): stall; download parts"
+
+[HAND-234]
+title = "The tab cap counts every open FERB tab of the tree and refuses with a fact"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "browser.task_max_tabs (50) counts the still-open tabs FERB opened for the task tree in every driver (worker's, a link's, a page's popup, tabs opened from a borrowed tab) plus opens in flight; never the borrowed tab, a handed-over tab or a closed one. Past it: the open is refused, a link isn't handed to the browser, a popup is closed while blank (popup_refused)."
+why = "Handing a link to the browser would let its download skip every limit and land in ~/Downloads."
+paths = ["ferb/act/browser/ext_bridge.py", "ferb/config.py"]
+legacy = "notes/hands.md Rulings (step 12e): tab cap"
+
+[HAND-235]
+title = "Page saves past the hold caps are dropped but always reported"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A page's saves past the hold caps (20 per tab, 100 in all) are dropped (never the browser's), and every drop is reported: the first of a document at once, then those within the minute in one event with `count`."
+why = "A flood becomes a few facts, not one per save. Still unreported: a tab no task drives, or no daemon connected."
+paths = ["extensions/chromium/content.js", "extensions/chromium/background.js"]
+legacy = "notes/hands.md Rulings (step 12e): nothing dropped silently"
+
+[HAND-236]
+title = "Download limits are in decimal GB"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "browser.download_task_max_gb (32), download_total_gb (20), download_min_free_gb (10), in decimal GB as the owner and Finder count. A one-time journaled upgrade (download-limits-2026-10-31) removes the MB keys; an owner's own MB value carries over converted; a removed key is never read."
+paths = ["ferb/config.py"]
+legacy = "notes/hands.md Rulings (step 12e): decimal GB"
+
+[HAND-237]
+title = "The worker moves a finished download where the owner wants it"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "browser_downloads tells the worker to move the file (mv, not cp) where the owner asked, else ~/Downloads, and name that path. HAND-203's scope still applies to the destination."
+why = "Same destination as before without a second copy on disk."
+paths = ["ferb/act/browser/tools.py"]
+legacy = "notes/hands.md Rulings (step 12e): copy becomes a move"
+
+[HAND-238]
+title = "Foreground input goes through right after the owner's Yes"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "No pre-activation refusal because a FERB app is in front (right after a Yes in the notch FERB is in front). Input stays out of FERB's own apps by: waiting for the owner to be quiet, activating the target, posting each event only while the target is front (PointerInterrupted otherwise); `_own_point` refusing a real click/scroll a FERB window would take, before and right before each event; every Mac tool refusing to target FERB's apps."
+evidence = "Live 2026-10-31 clean-up task: Terminal never came forward and every foreground action after the Yes was refused."
+paths = ["ferb/act/mac/driver.py"]
+legacy = "notes/hands.md Rulings (step 12e part 2): foreground after Yes"
+
+[HAND-239]
+title = "Background launch uses open -g without -j"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "apps.launch uses `open -g -b` (not -j). An app the owner hid is not unhidden."
+why = "-j launches hidden, and a hidden app's windows are ordered out, so window capture and posted pointer events can't reach them; -g alone doesn't activate. Reasoned, not measured on the owner's Mac; unhide() changes the owner's arrangement."
+paths = ["ferb/act/mac/apps.py"]
+live = ["LIVE-201"]
+legacy = "notes/hands.md Rulings (step 12e part 2): background launch"
+
+[HAND-240]
+title = "mac.open opens files and web addresses in the background, never an app bundle"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "mac.open takes a path or an http/https url and opens it with NSWorkspace, activates = false. The file goes through the protection lists as a read; a url is an OPEN_TAB to its site (address checks apply). A path Launch Services counts an application is refused; installed apps open by bundle_id. A windowless running app gets the reopen Apple Event without kAECanSwitchLayer, only when it shows no window."
+why = "Other url schemes start programs or send mail; opening an app the shell wrote would start a program outside the shell's sandbox."
+paths = ["ferb/act/mac/apps.py", "ferb/act/mac/tools.py"]
+live = ["LIVE-202", "LIVE-203"]
+legacy = "notes/hands.md Rulings (step 12e part 2): fix 4, fix 5"
+
+[HAND-241]
+title = "Opening a file that can run asks with its exact contents, unless an editor gets it"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "A file whose Launch Services type conforms to executable, script, installer package, configuration profile, shortcut/workflow, or is a package directory (unknown or unreadable type counts) goes through the terminal question with path, hash and text; the Yes covers those bytes, re-hashed before the open. It applies to mac.open and to every open by default app via FERB's input. Skipped when the receiving app declares itself the file's Editor (CFBundleDocumentTypes role); a configuration profile always asks; a file a script names keeps the type-only rule."
+why = "Some default openers run the file (.jar in Java Launcher, .py, .pkg, .mobileconfig, .shortcut): a structural type fact, not an app list."
+paths = ["ferb/act/mac/apps.py::runs_when_opened", "ferb/act/mac/apps.py::edits", "ferb/act/mac/driver.py"]
+legacy = "notes/hands.md Rulings (step 12e part 2): a file that can run when opened (+ refinement 2026-11-01)"
+
+[HAND-242]
+title = "The downloads cap is asked again only 10% of the cap later"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "After a No, or while the question waits, the downloads-cap question (HAND-211) is asked again only once the folder is a further 10% of the cap (2 GB of 20 GB) past the size it was asked at; the newer question replaces the waiting one. After a Yes the next pass over the cap asks afresh. Yes deletes only regular files the question counted, through the open folder (O_NOFOLLOW)."
+paths = ["ferb/daemon/areas/retention.py", "ferb/act/browser/downloads.py"]
+legacy = "notes/hands.md Rulings (step 12e part 2): downloads cap re-ask threshold"
+
+[HAND-243]
+title = "Shell commands can't reach the window server"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "The shell profile denies mach-lookup of com.apple.windowserver.active and com.apple.windowserver, so no command can post input events or capture the screen around the always-ask rules. Full Disk Access is kept for the shell; mac.applescript's profile is unchanged."
+why = "Commands run with the grants of the app that started them."
+evidence = "2026-10-30, from a granted parent: a sandboxed child could post a 1 px cursor move and read the screen; with the rule, neither, while git, python and ordinary commands worked."
+paths = ["ferb/act/shell/sandbox.py::WINDOW_SERVER"]
+legacy = "notes/hands.md Measurements (step 0): shell commands and FERB's permissions"
+
+[HAND-244]
+title = "The visible-folder scope uses deny file-write*, hidden components re-allowed"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "HAND-203 is enforced with `deny file-write*` on visible folders and a later `allow file-write*` regex for any path component starting with \".\" (last match wins)."
+why = "`deny file-write-unlink` alone still allows creating, moving a new file in, truncating and appending."
+evidence = "sandbox-exec on scratch folders, 2026-10-30: file-write* blocked all ten operations; .git/index.lock creation and its rename onto .git/index were allowed by the hidden-component allow."
+paths = ["ferb/act/shell/sandbox.py"]
+legacy = "notes/hands.md Measurements (step 0): sandbox semantics"

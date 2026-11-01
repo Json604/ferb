@@ -39,3 +39,11 @@ kind = "build"
 status = "open"
 why = "Built since 2026-11-01 for the owner's words about anything (the old MEM-19); the owner answered \"about myself\" on 2026-11-02."
 decisions = ["MEM-35", "MEM-36"]
+
+[T-200]
+title = "Keep a tab playing while the owner switches away (a general ability)"
+area = "hands"
+kind = "build"
+status = "open"
+why = "HAND-207 names it as later; notes/hands.md step 14b left it unbuilt. Its timing is the owner's call (launch scope puts it after launch)."
+decisions = ["HAND-207"]

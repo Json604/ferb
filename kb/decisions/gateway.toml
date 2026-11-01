@@ -1,0 +1,22 @@
+# Decisions of area `gateway` (kb/areas.toml). Moved from notes/hands.md and notes/gateway.md on 2026-11-02.
+
+[GATE-200]
+title = "One read question per protected folder per task"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/hands.md owner decision 1: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "For the escape hatch and the file tools, one read question per protected folder per task covers every read of that folder in the task. Writes and admin still ask per command."
+evidence = "Live: 11 questions in one visa task and 6 in another for the same folder; the old per-command shell rule asked 46 and 19 times on 2026-10-13/14."
+paths = ["ferb/policy/confirm.py::read_lift_key"]
+legacy = "notes/hands.md decision 1"
+
+[GATE-201]
+title = "One foreground question per app, however the worker spells it"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "The foreground Need is keyed by confirm.app_key: the running app's bundle id (casefolded) when the name, `pid:N` or bundle id names exactly one running app, else the argument without case or invisible marks. The question shows the app as the worker wrote it. One Yes covers every spelling and retry in the task."
+evidence = "Live 2026-10-31: asked about \"Terminal\", then again about \"pid:9040\"."
+paths = ["ferb/policy/confirm.py::app_key"]
+legacy = "notes/hands.md Rulings (step 12e part 2): one foreground question per app"

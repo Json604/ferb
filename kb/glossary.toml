@@ -31,3 +31,23 @@ see = ["SENSE-2", "SENSE-3"]
 ["daily distill"]
 meaning = "The once-a-day model pass over the day's chat and activity that saves durable facts and retires stale ones."
 see = ["MEM-8", "MEM-22"]
+
+["visible folders"]
+meaning = "The owner's own places terminal commands can't change unless named: non-hidden folders and files in home, iCloud Drive, /Volumes."
+see = ["HAND-203", "HAND-215"]
+
+["borrowed tab"]
+meaning = "An owner tab FERB works in: never grouped, muted, moved or closed by FERB, and left where the work finished."
+see = ["HAND-201", "HAND-229"]
+
+["P19"]
+meaning = "The repeat check: an action whose outcome is unknown can't run again unasked; its identity comes from stable targets, not snapshot ids."
+see = ["HAND-220", "HAND-225"]
+
+["lift"]
+meaning = "Lifting a protection rule for a task after the owner's Yes: reads once per protected folder per task, writes per command."
+see = ["GATE-200"]
+
+["escape hatch"]
+meaning = "A shell command run with a protection rule lifted after the owner's Yes; FERB state, its service definitions and the network rule are never lifted."
+see = ["HAND-217"]

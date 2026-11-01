@@ -28,3 +28,73 @@ request = "Install the build, let the daemon run for a few minutes, then ask abo
 pass = "The journal shows one `memory.embedded` backfill with counts and CPU seconds, no turn waits on it, and the old exchange is found by meaning."
 decisions = ["MEM-6", "MEM-25", "MEM-26"]
 sitting = "step 13"
+
+[LIVE-200]
+title = "Notch hover and resize work on macOS 27.2"
+area = "app"
+surface = "FERB.app build installed by the owner on macOS 27.2"
+request = "Hover the notch's source pill and the panel to open them; resize the panel by its edge; watch the FERB indicator's hover."
+pass = "Hover-to-open and resize work. If not, PanelCoordinator.swift, FerbIndicator.swift and PanelResizeOverlay.swift get the self-managed tracking-area pattern the source pill already uses."
+sitting = "step 13"
+
+[LIVE-201]
+title = "A background launch stays behind the owner's window and can be captured"
+area = "hands"
+surface = "The owner's Mac: TextEdit, Notes, Reminders, Calendar; a disposable app for the -j comparison"
+request = "Have FERB open each app in the background (open -g) while the owner works in another app; then take a window screenshot and click in it. On a disposable app compare a hidden (-j) launch, and whether unhide() activates."
+pass = "The first window lands behind the owner's front window on the current Space with no front-app or focus change; screenshot and pointer input work with -g."
+decisions = ["HAND-239"]
+sitting = "step 13"
+
+[LIVE-202]
+title = "The reopen Apple Event opens a window without coming forward"
+area = "hands"
+surface = "The owner's Mac: TextEdit, Notes, Finder with no window open"
+request = "Ask FERB to work in each app while it runs with no window (mac.open reopen=true)."
+pass = "Each app opens a window without coming to the front; note whether macOS asks for Automation permission."
+decisions = ["HAND-240"]
+sitting = "step 13"
+
+[LIVE-203]
+title = "Opening a file or address with activates = false stays behind"
+area = "hands"
+surface = "The owner's Mac: a disposable text file in TextEdit, a kartikey.xyz address in Safari"
+request = "Ask FERB to open the file in TextEdit and the address in Safari while the owner works in another app."
+pass = "Both open behind the owner's app; the owner's front app and focus don't change."
+decisions = ["HAND-240"]
+sitting = "step 13"
+
+[LIVE-204]
+title = "Each way of coming back to the Mac journals one back-in-use"
+area = "perception"
+surface = "The owner's Mac with FERB.app running"
+request = "Close and open the lid, lock and unlock the screen, let the display sleep and wake, fast-switch user and back, restart; then check the journal."
+pass = "Each journals one `mac.back_in_use` with the right signal; note whether the lock notifications reach FERB's thread or only the 5-second read catches them."
+decisions = ["SENSE-200", "SENSE-201"]
+sitting = "step 13"
+
+[LIVE-205]
+title = "A foreground click right after a Yes in the notch, hand on the mouse"
+area = "hands"
+surface = "The owner's Mac, a task that needs foreground input in a disposable app"
+request = "Answer Yes to the foreground question in the notch and keep the hand on the mouse."
+pass = "The target comes forward and the click lands; if a mouse move makes FERB give up, the trace says so plainly."
+decisions = ["HAND-238"]
+sitting = "step 13"
+
+[LIVE-206]
+title = "The owner pausing their own music while FERB works records nothing"
+area = "hands"
+surface = "The owner's browser playing music in their own tab; a FERB task running in its tab group"
+request = "While a FERB call runs, pause and resume the music by click and by the space bar."
+pass = "No `tab_sound` change is recorded for the task; the trace shows none."
+decisions = ["HAND-213", "HAND-230"]
+sitting = "step 13"
+
+[LIVE-207]
+title = "Screen captures no longer fail with 'Failed to start stream'"
+area = "hands"
+surface = "FERB.app build on the owner's Mac, tasks that take Mac window screenshots"
+request = "Run tasks that take several window screenshots; then count mac.screenshot errors in `ferb stats`."
+pass = "No SCStreamErrorDomain -3811 failures survive the single retry after 0.3 s."
+sitting = "step 13"
