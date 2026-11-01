@@ -28,3 +28,20 @@ request = "Install the build, let the daemon run for a few minutes, then ask abo
 pass = "The journal shows one `memory.embedded` backfill with counts and CPU seconds, no turn waits on it, and the old exchange is found by meaning."
 decisions = ["MEM-6", "MEM-25", "MEM-26"]
 sitting = "step 13"
+
+[LIVE-500]
+title = "Fresh install: the whole intro"
+area = "app"
+surface = "A FERB.app build the owner installs as a fresh install; also a notchless Mac or a second display"
+request = "Run the intro through all eight beats. Quit at Screen Recording and reopen; skip once mid-flight; run it with Reduce Motion on and with sound off; on a notchless Mac or FERB's second display; then Replay intro from Settings and take \"Do it for real\" once."
+pass = "The beats run in order and the Try beat acts on nothing; reopening lands on the same beat with the same grants; a skip leaves no orb or sound and the compact window shows only the required steps left; Reduce Motion fades the orb in place; everything reads with sound off; the orb starts at the virtual notch; Replay runs every beat; the real task starts only after Home."
+decisions = ["APP-505", "APP-510", "APP-513", "APP-516", "APP-518", "ORCH-500"]
+sitting = "1"
+
+[LIVE-501]
+title = "Living with FERB's sound family"
+area = "app"
+surface = "FERB.app on the owner's Mac in daily use, and 2-3 beta friends' Macs"
+request = "Use FERB daily for about a week with the default sounds, including one call in another app; ask each friend to say what each sound means without looking at the screen."
+pass = "Each sound is matched to its meaning without looking, none annoys by the tenth hearing, summon and paused stay silent by default, and during the call only needs you plays, at Subtle."
+decisions = ["APP-520", "APP-526", "APP-528", "APP-531"]

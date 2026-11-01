@@ -1,0 +1,10 @@
+# Decisions of area `project` (kb/areas.toml).
+
+[PROJ-500]
+title = "The repository stays general: no personal data in tracked files"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words_source = "notes/setup-intro.md Constraints and notes/setup-intro-plan.md Global Constraints: paraphrase; no verbatim quote"
+rule = "Examples, copy and tests in tracked files use invented data only; nothing personal to the owner is committed. Personal parts live in local untracked files (kb/local/)."
+legacy = "notes/setup-intro.md Constraints (repo stays general)"

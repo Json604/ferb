@@ -20,3 +20,5 @@ paths:
 The background service, its RPC areas, setup/install/update commands, device facts, permissions, traces, failure-report relay.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **DMN-500** (agent): intro.suggest makes one tool-less model call on the redacted scan summary for two first-task suggestions. When the scan isn't seen, the call fails or stalls past SUGGEST_LIMIT_S (just under the app's wait), or fewer than two usable tasks come back, the general tasks fill in (GENERAL_TASKS: one Mac or files task, one browser task; the copy may change but stays general). FERB.app only.

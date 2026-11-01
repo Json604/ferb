@@ -39,3 +39,33 @@ kind = "build"
 status = "open"
 why = "Built since 2026-11-01 for the owner's words about anything (the old MEM-19); the owner answered \"about myself\" on 2026-11-02."
 decisions = ["MEM-35", "MEM-36"]
+
+[T-500]
+title = "The intro's permission accepting, reopen and quit are broken"
+area = "app"
+kind = "bug"
+status = "open"
+why = "Owner's live run of the intro build, 2026-11-01 (verbatim): \"the flow is good but the permission accepting, reopen and quit is broken\". Reproduce in the intro playground or a fresh install, then fix."
+decisions = ["APP-510", "APP-516"]
+
+[T-501]
+title = "The intro's look and feel: notch on the side and not movable, orb not pretty, weak demo feedback"
+area = "app"
+kind = "build"
+status = "open"
+why = "Owner's live run, 2026-11-01 (verbatim): \"the notch was on the side, not movable, the orb was not pretty enough, ... no good feedback in the demo etc etc so many wrong things.\" Iterate in the intro playground (ui/mac/FERBNotch/PLAYGROUND.md)."
+decisions = ["APP-501", "APP-513", "APP-519"]
+
+[T-502]
+title = "The ferb-secrets Keychain prompt keeps coming back after Always Allow"
+area = "gateway"
+kind = "bug"
+status = "open"
+why = "Live run 2026-11-01: macOS kept asking for ferb-secrets' items under service ferb.owner-secrets (6 saved items) even after \"Always Allow\"; the helper's designated requirement is identifier com.ferb.secrets plus a certificate leaf hash. Cause not investigated."
+
+[T-503]
+title = "A macOS banner said FERB \"was blocked from accessing data\""
+area = "app"
+kind = "bug"
+status = "open"
+why = "Seen on the owner's live run of the intro build, 2026-11-01. Cause unknown: find which access macOS blocked and why."

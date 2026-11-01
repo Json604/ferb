@@ -31,3 +31,31 @@ see = ["SENSE-2", "SENSE-3"]
 ["daily distill"]
 meaning = "The once-a-day model pass over the day's chat and activity that saves durable facts and retires stale ones."
 see = ["MEM-8", "MEM-22"]
+
+["beat"]
+meaning = "One step of the first-run intro tour (meet, signIn, permissions, browsers, identity, tryIt, control, home); IntroPlan picks which beats an install gets."
+see = ["APP-505", "APP-517"]
+
+["orb"]
+meaning = "The small glass orb that drips off the notch in the intro, flies to the place FERB is pointing at, docks beside System Settings with the drag card, and melts back."
+see = ["APP-501", "APP-534"]
+
+["compact window"]
+meaning = "The plain setup window that shows only the required setup steps still missing (service, sign-in, permissions); used after a skip and for repairs, never the tour."
+see = ["APP-516"]
+
+["sound logo"]
+meaning = "FERB's full signature sound (the Open-fifth motif in Crystal glass), played only in the tour; every everyday cue is cut down from it."
+see = ["APP-520", "APP-530"]
+
+["Crystal"]
+meaning = "The decided sound family: modal-synthesised bright glass for good news, the same glass finger-damped for paused and error."
+see = ["APP-524", "APP-530"]
+
+["needs you"]
+meaning = "The sound and state for a wait on the owner (a question, an approval, a human check handed over); the loudest everyday cue."
+see = ["APP-531"]
+
+["Standard / Subtle"]
+meaning = "The two intensities every everyday sound is rendered in; Standard is the default, Subtle the choice in Settings and the level used during calls."
+see = ["APP-526", "APP-528"]
