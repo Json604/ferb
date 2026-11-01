@@ -56,7 +56,8 @@ current image illustrates the notch UI.
 
 **Official URL / Homepage:** https://ferb.kartikey.xyz
 
-**Support URL:** https://github.com/Json604/ferb/issues
+**Support URL:** the owner's support email as a `mailto:` link (set in the dashboard, kept out of the repo) until the
+GitHub repository is public, then its Issues page
 
 ## Privacy practices tab
 
