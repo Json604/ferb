@@ -51,6 +51,7 @@ from typing import Any, Callable, Protocol
 from urllib.parse import urlsplit
 
 from ferb.act.shell.local import LocalAccess, LocalPeer, LocalRefused
+from ferb.core.local_http import LocalHTTPServer
 
 Allow = Callable[[str, str, int], tuple[bool, str]]
 Address = tuple[int, tuple[Any, ...]]                       # (family, sockaddr) as getaddrinfo gives it
@@ -476,7 +477,7 @@ class EgressProxy:
             def log_message(self, *a: object) -> None:      # never log requests
                 pass
 
-        class Server(http.server.ThreadingHTTPServer):
+        class Server(LocalHTTPServer):
             daemon_threads = True
             # The listen backlog. socketserver's default is 5, and macOS answers a connect past a full backlog with a
             # reset: a burst of connections (a package manager's parallel downloads, or an unauthenticated flood)

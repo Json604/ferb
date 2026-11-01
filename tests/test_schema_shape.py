@@ -247,5 +247,3 @@ def test_haiku_5_5_has_a_price_with_its_long_prompt_rate() -> None:
     from ferb.runtimes.usage import cost_usd
     assert cost_usd("claude-haiku-5-5", 50_000, 0, 0, 50_000) == pytest.approx(0.03)
     assert cost_usd("claude-haiku-5-5", 200_000, 0, 0, 0) == pytest.approx(0.10)       # over 100k: 5x input
-
-

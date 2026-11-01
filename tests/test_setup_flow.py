@@ -985,3 +985,23 @@ def test_ferb_setup_service_runs_the_quiet_step(monkeypatch: pytest.MonkeyPatch,
     assert cli_main(["setup", "--service", "--update"]) == 0
     assert cli_main(["setup", "--service"]) == 0
     assert ran == [True, False]
+
+
+def test_the_device_profile_commits_to_its_own_repo_under_an_inherited_git_dir(tmp_path: Path,
+                                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    """Past bug (2026-11-02): the suite run by the pre-push hook inherited git's GIT_DIR, and the device profile's
+    `git -C <its folder> add` staged the profile into the checkout's own index (as a root-level file). FERB's private
+    profile repo is found from its folder only, whatever git variables the process inherited."""
+    from ferb.device.profile import AppInfo, DeviceProfile, ProfileStore
+    other = tmp_path / "other"
+    clean = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}
+    subprocess.run(["git", "init", "-q", str(other)], check=True, capture_output=True, env=clean)
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(other / ".git" / "index"))
+    store = ProfileStore(tmp_path / "home")
+    profile = DeviceProfile("dev-1", "macOS", "26.0", "2026-11-02T00:00:00", [
+        AppInfo("com.example.notes", "Notes", "1.0", "/Applications/Notes.app", True)], [])
+    assert store.save(profile)
+    assert store.history() == ["device scan"]
+    outside = subprocess.run(["git", "ls-files"], cwd=other, capture_output=True, text=True, check=True, env=clean)
+    assert outside.stdout == ""                                               # nothing staged in the other repo

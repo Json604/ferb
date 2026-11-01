@@ -19,6 +19,8 @@ import threading
 
 import httpx
 
+from ferb.core.local_http import LocalHTTPServer
+
 UPSTREAM = "https://api.anthropic.com"
 _HOP = {"host", "content-length", "connection", "accept-encoding", "transfer-encoding", "content-encoding"}
 
@@ -83,7 +85,7 @@ class ToolListProxy:
             def log_message(self, *a: object) -> None:       # never log requests
                 pass
 
-        class Server(http.server.ThreadingHTTPServer):
+        class Server(LocalHTTPServer):
             daemon_threads = True
             request_queue_size = socket.SOMAXCONN          # macOS resets a connect past a full backlog (default 5)
 

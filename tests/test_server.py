@@ -4,6 +4,7 @@ Ported from spike 8: socket/folder permissions, stale socket replaced, second da
 import asyncio
 import io
 import json
+import os
 import socket
 import stat
 from pathlib import Path
@@ -17,7 +18,10 @@ from ferb.clock.clock import FakeClock
 from ferb.core.errors import AlreadyRunning, NotRunning
 from ferb.core.ids import SequentialIds
 from ferb.core.types import Identity
-from ferb.daemon.server import INTERNAL, INTERNAL_ERROR, MAX_MESSAGE, SLOW_CALL, TOO_LARGE, UNAUTHORIZED
+from ferb.daemon.auth import RunTokens
+from ferb.daemon.server import INTERNAL, INTERNAL_ERROR, MAX_MESSAGE, SLOW_CALL, TOO_LARGE, UNAUTHORIZED, Server
+from ferb.memory.dashboard import Dashboard
+from ferb.runtimes.proxy import ToolListProxy
 from tests.conftest import RunningDaemon, raw, send
 
 
@@ -25,6 +29,46 @@ def test_socket_and_folder_are_owner_only(daemon: RunningDaemon) -> None:       
     assert stat.S_IMODE(daemon.sock.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(daemon.sock.stat().st_mode) == 0o600
     assert stat.S_IMODE(daemon.daemon.home.stat().st_mode) == 0o700
+
+
+def test_starting_the_socket_never_changes_the_process_umask(home: Path) -> None:
+    """Past bug (first CI run, 2026-11-01): the socket was made 0600 through the process-wide umask, held across the
+    server start's yield. A start stalled there left every folder the process created afterwards 0600 (no search
+    bit), so the whole suite failed with EACCES. Other work on the loop and other threads keep the umask."""
+    async def main() -> list[int]:
+        seen: list[int] = []
+
+        async def probe() -> None:
+            for _ in range(5):
+                mask = os.umask(0o022)
+                os.umask(mask)
+                seen.append(mask)
+                await asyncio.sleep(0)
+
+        server = Server(home / "run" / "ferb.sock", RunTokens(FakeClock()))
+        await asyncio.gather(server.start(), probe())
+        try:
+            assert stat.S_IMODE((home / "run" / "ferb.sock").stat().st_mode) == 0o600
+        finally:
+            await server.close()
+        return seen
+
+    mask = os.umask(0o022)
+    os.umask(mask)
+    assert set(asyncio.run(main())) == {mask}
+
+
+def test_the_daemon_and_its_local_servers_start_without_asking_the_resolver(home: Path,
+                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """Past bug (first CI run, 2026-11-01): http.server's bind looked 127.0.0.1 up for a host name (socket.getfqdn),
+    on the daemon's loop while it built the shell's egress proxy; on a Mac with a slow resolver the start stalled for
+    seconds. No FERB listener asks the resolver anything to start."""
+    def lookup(*_a: Any) -> str:
+        raise AssertionError("a reverse DNS lookup while starting")
+    monkeypatch.setattr(socket, "getfqdn", lookup)
+    RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False).stop()
+    ToolListProxy(upstream="http://127.0.0.1:9").close()
+    Dashboard(lambda params: {}).server.server_close()       # never served: shutdown() would wait for it
 
 
 def test_cli_ping(daemon: RunningDaemon) -> None:
