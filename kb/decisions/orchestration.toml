@@ -23,6 +23,7 @@ status = "active"
 words_source = "notes/orchestration.md owner decision 1: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
 rule = "FERB has no notification rules: no planner field, side entry, RPC, CLI command or policy hook for them."
 why = "0 uses, and they depended on the paused perception."
+untestable = "An absence: no notification-rule field, side entry, RPC, command or policy hook exists, so there is no behaviour to test; review keeps them out."
 legacy = "notes/orchestration.md decision 1"
 
 [ORCH-301]
@@ -329,6 +330,7 @@ status = "active"
 rule = "New planner schema fields add no union or nullable types: unused fields are \"\" or 0, and flags are plain booleans."
 why = "SUPERVISOR_SCHEMA sits at Anthropic's limit of union-typed parameters (ferb/runtimes/schema_shape.py); a nullable object costs none."
 paths = ["ferb/orchestrator/schemas.py", "ferb/runtimes/schema_shape.py"]
+untestable = "A rule for writing future planner schema fields, applied in review when a field is added; today's schemas are checked against provider limits by RUN-408's tests."
 legacy = "notes/orchestration.md Rulings (step 8e follow-up, 14b, 2026-11-01)"
 
 [ORCH-331]
@@ -370,6 +372,7 @@ words_source = "notes/prompts.md owner decision 3; the rule around the quote is 
 rule = "A schedule's repeat interval is the owner's: code requires only a positive number, and no prompt sets a floor."
 rejected = ["\"every_minutes at least 15\" (a limit only in the prompt)"]
 paths = ["ferb/orchestrator/schedules.py", "ferb/orchestrator/prompts/supervisor.md"]
+live = ["LIVE-514"]
 legacy = "notes/prompts.md decision 3"
 
 [ORCH-500]
@@ -429,6 +432,7 @@ status = "active"
 words = "recommeded all"
 why = "Answer to T-521: the owner accepted the recommendation for every open question."
 rule = "A loop with no stated end runs until the owner says stop, across restarts and updates; when fixes don't last it backs off and tells the owner once; constants: backup round 1,800 s; didn't last within 120 s; 3 such in 600 s start back-off at 120 s doubling to 3,600 s; reset after 1,800 s; look-only rounds skip the check; held tabs return between rounds."
+live = ["LIVE-626"]
 
 [ORCH-506]
 title = "Code watchers: watches without AI calls"

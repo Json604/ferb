@@ -106,6 +106,7 @@ def test_a_code_needs_a_waiting_sign_in_and_is_one_word(tmp_path: Path) -> None:
     asyncio.run(asyncio.wait_for(run(), 10))
 
 
+# decision: RUN-1
 def test_a_missing_bundled_claude_code_says_so_plainly(tmp_path: Path) -> None:
     def missing() -> Path:
         raise Unsupported("the Claude Agent SDK's bundled Claude Code is missing")
@@ -114,6 +115,7 @@ def test_a_missing_bundled_claude_code_says_so_plainly(tmp_path: Path) -> None:
     assert "ferb " not in status["why"] and "SDK" not in status["why"]          # no command, no internals
 
 
+# decision: RUN-409
 def test_only_a_saved_subscription_login_counts_and_no_key_takes_over(tmp_path: Path) -> None:
     assert CL.signed_in('{"loggedIn": true, "authMethod": "claude.ai", "apiProvider": "firstParty"}')
     assert not CL.signed_in('{"loggedIn": false, "authMethod": "none"}')
@@ -130,6 +132,7 @@ def test_only_a_saved_subscription_login_counts_and_no_key_takes_over(tmp_path: 
 
 # ---------- runs, status and the terminal ----------
 
+# decision: RUN-409
 def test_runs_use_only_ferbs_own_claude_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     proxy = type("P", (), {"base_url": lambda self, run_id: "http://unused"})()
     rt = ClaudeRuntime("supervisor", proxy, str(tmp_path))                          # type: ignore[arg-type]

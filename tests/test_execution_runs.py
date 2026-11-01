@@ -75,6 +75,7 @@ def _published(d: RunningDaemon) -> list[tuple[str, dict[str, Any]]]:
     return seen
 
 
+# decision: ORCH-322, ORCH-323
 def test_a_plain_task_is_a_one_step_plan_and_finishes_once(daemon: RunningDaemon) -> None:
     published = _published(daemon)
     script = install(daemon, [sup("task", "On it.", task("Say hello"))], {"worker": done("Said hello.")})
@@ -89,6 +90,7 @@ def test_a_plain_task_is_a_one_step_plan_and_finishes_once(daemon: RunningDaemon
     assert script.calls("worker") == ["worker"] and script.calls("checker") == ["worker.verify"]
 
 
+# decision: ORCH-323
 def test_stop_mid_task_ends_every_row_as_stopped(daemon: RunningDaemon) -> None:
     install(daemon, [sup("task", "On it.", task("Wait for the build"))], {"worker": STALL})
     turn = Turn(daemon, "wait for the build")
@@ -101,6 +103,7 @@ def test_stop_mid_task_ends_every_row_as_stopped(daemon: RunningDaemon) -> None:
     assert run(daemon, lambda: daemon.daemon.supervisor.plans.steps(tree))["worker"]["status"] == "cancelled"
 
 
+# decision: ORCH-308
 def test_pause_keeps_everything_in_place_and_the_owners_reply_resumes_it(daemon: RunningDaemon) -> None:
     """ORCH-308: pause ends the current attempt and marks the task paused, not cancelled: nothing is released
     (the browser keeps the task's tab group: `task_paused`), no answer is given, and the owner's reply (the planner's
@@ -142,6 +145,7 @@ def test_pause_keeps_everything_in_place_and_the_owners_reply_resumes_it(daemon:
     assert "keep the headings" in resumed
 
 
+# decision: ORCH-323
 def test_a_plan_step_that_needs_the_owner_asks_once_and_carries_on_with_the_answer(daemon: RunningDaemon) -> None:
     """The endless relaunch (kb area orchestration): a plan step that needed the owner was relaunched forever and the
     owner never asked. Now it pauses in place, asks once, and the answer carries it on."""
@@ -174,6 +178,7 @@ def _failing(daemon: RunningDaemon, answers: list[str | None]) -> tuple[Any, Tur
     return script, turn
 
 
+# decision: ORCH-307
 def test_after_five_failed_attempts_ferb_asks_and_no_stops_with_what_it_found(daemon: RunningDaemon) -> None:
     script, turn = _failing(daemon, ["No"])
     result = turn.result()
@@ -181,6 +186,7 @@ def test_after_five_failed_attempts_ferb_asks_and_no_stops_with_what_it_found(da
     assert result["status"] == "failed" and "You asked me to stop after 5 attempts." in result["answer"]
 
 
+# decision: ORCH-307
 def test_yes_at_the_check_in_allows_five_more_attempts(daemon: RunningDaemon) -> None:
     script, turn = _failing(daemon, ["Yes", "No"])
     turn.result()
@@ -205,6 +211,7 @@ def _routed(approval_id: str, reading: str) -> str:
                        "answer_question": {"approval_id": approval_id, "answer": reading}})
 
 
+# decision: ORCH-328, ORCH-301
 def test_free_text_in_chat_answers_the_check_in_only_as_one_of_its_options(daemon: RunningDaemon) -> None:
     """A chat answer to an option question counted as "carry on" whatever it said ("stop it" kept going). Now words
     that aren't an option count only through the planner's reading when that is exactly an option; otherwise FERB asks
@@ -230,6 +237,7 @@ def _scheduled(daemon: RunningDaemon, workers: dict[str, Any]) -> dict[str, Any]
     return daemon.run(daemon.daemon.supervisor.run_scheduled(sched, late=False), timeout=60)
 
 
+# decision: ORCH-323
 def test_a_scheduled_run_declines_a_question_at_once(daemon: RunningDaemon) -> None:
     """Nobody attends a scheduled run: needing the owner ends it at once, reported, never a wait."""
     final = _scheduled(daemon, {"worker": _report("needs_user", "Which account?")})
@@ -237,12 +245,14 @@ def test_a_scheduled_run_declines_a_question_at_once(daemon: RunningDaemon) -> N
     assert not daemon.daemon.state.approvals.pending()
 
 
+# decision: ORCH-307
 def test_a_scheduled_run_stops_at_five_failed_attempts_and_reports(daemon: RunningDaemon) -> None:
     final = _scheduled(daemon, {"worker": _report("failed", "The page didn't load."), "worker.verify": RETRY})
     assert final["status"] == "failed" and "nobody was there to ask" in final["answer"]
     assert not daemon.daemon.state.approvals.pending()
 
 
+# decision: ORCH-505, ORCH-322
 def test_a_loop_survives_a_restart_and_reruns_the_round_cut_short(home: Any, monkeypatch: Any) -> None:
     """L31 with ORCH-308: FERB's shutdown suspends a loop mid-round; after the restart the tree resumes by
     itself (no "pick it up again?" result), the round cut short runs again, and the loop's saved state carries on."""
@@ -288,6 +298,7 @@ def test_a_loop_survives_a_restart_and_reruns_the_round_cut_short(home: Any, mon
         second.stop()
 
 
+# decision: ORCH-307
 def test_a_check_in_asked_before_a_restart_is_asked_again_and_no_stops(home: Any, monkeypatch: Any) -> None:
     """A check-in waiting when FERB restarted came back as an owner pause, whose "No" resumed the work. Now the same
     check-in is asked again, and No stops with what it found; no further attempt runs."""
@@ -381,6 +392,7 @@ def test_a_clean_shutdown_runs_no_task_end_clean_up_for_a_tree_that_resumes(daem
     assert finished == [] and run(daemon, sv.plans.pending) == [tree]
 
 
+# decision: ORCH-323
 def test_a_resumed_scheduled_run_stays_unattended_and_reports_to_its_schedule(daemon: RunningDaemon) -> None:
     """`approvals.unattended` lives in memory: a scheduled run resumed after a restart waited for the owner forever, and
     its result skipped the schedule's bookkeeping (its failure count, retry and watch)."""
@@ -425,6 +437,7 @@ def _mentions(daemon: RunningDaemon) -> list[Any]:
     return [ap for ap in run(daemon, daemon.daemon.state.approvals.pending) if "Resume" in ap.options]
 
 
+# decision: ORCH-312, ORCH-317
 def test_a_paused_task_is_mentioned_once_a_day_when_the_owner_is_back_and_resume_resumes_it(
         daemon: RunningDaemon) -> None:
     """ORCH-312: FERB mentions a paused task once a day, from its record, in its chat, with a Resume that goes the
@@ -460,6 +473,7 @@ def test_a_paused_task_is_mentioned_once_a_day_when_the_owner_is_back_and_resume
         daemon.daemon.presence.stop()
 
 
+# decision: ORCH-312
 def test_pause_stops_the_tasks_listening_and_running_commands_and_keeps_the_rest(daemon: RunningDaemon,
                                                                                  tmp_path: Any) -> None:
     """ORCH-312: a paused task keeps only its tabs and progress: its listening and its commands still running stop;
@@ -492,6 +506,7 @@ def test_pause_stops_the_tasks_listening_and_running_commands_and_keeps_the_rest
     daemon.run(shells.kill_all())
 
 
+# decision: ORCH-312, PRM-309
 def test_pausing_a_scheduled_run_pauses_its_schedule_and_resuming_it_resumes_the_schedule(
         daemon: RunningDaemon) -> None:
     sv = daemon.daemon.supervisor

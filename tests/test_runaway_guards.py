@@ -75,6 +75,7 @@ def test_memory_reads_this_process() -> None:
     assert 10 << 20 < used < 64 << 30
 
 
+# decision: ORCH-307
 def test_a_scripted_retry_that_goes_off_its_path_ends_the_task(daemon: RunningDaemon, unattended: None) -> None:
     """A script whose one choice says "retry" for a worker that keeps failing ran forever (2026-10-25, test_supervisor:
     a 1.7 GB test database). The check-in now bounds it (ORCH-307): a run nobody attends stops after

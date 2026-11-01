@@ -396,6 +396,7 @@ def test_the_profile_and_so_the_cached_prefix_change_only_when_a_profile_entry_c
     assert system() == changed
 
 
+# decision: ORCH-325
 def test_a_browser_connecting_or_disconnecting_leaves_the_cached_prefix_alone(daemon: Any) -> None:
     """ORCH-325: what's usable (`{capabilities}` in the instructions) holds only stable facts, the
     paired profiles; whether one is connected right now is a live fact after the conversation."""

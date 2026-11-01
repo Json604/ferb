@@ -43,6 +43,7 @@ def _chat_status(d: RunningDaemon) -> dict[str, Any]:
 
 # ---------- side entries: reminders, schedules, remembered facts ----------
 
+# decision: ORCH-329
 def test_a_reply_carries_note_and_event_cards_from_the_rows_code_wrote(daemon: RunningDaemon) -> None:
     """A remembered fact is a note card naming the stored item (what Correct / Forget act on); a reminder set is an
     event card with the timer's own time and id. Each names the exact line it stands for, and the text keeps it."""
@@ -64,6 +65,7 @@ def test_a_reply_carries_note_and_event_cards_from_the_rows_code_wrote(daemon: R
     assert event["line"] in lines
 
 
+# decision: ORCH-329
 def test_a_new_schedule_is_an_event_card_with_its_rule(daemon: RunningDaemon) -> None:
     install(daemon, [schedule_reply(daemon, "write report.md", "every day at 9 write report.md",
                                     daemon.daemon.clock.now() + timedelta(minutes=5), repeat="daily")])
@@ -75,6 +77,7 @@ def test_a_new_schedule_is_an_event_card_with_its_rule(daemon: RunningDaemon) ->
     assert event["line"].startswith("🗓 Scheduled: ") and event["line"] in reply["text"].split("\n")
 
 
+# decision: ORCH-329
 def test_a_refused_side_entry_has_no_card(daemon: RunningDaemon) -> None:
     install(daemon, [json.dumps({"kind": "reply", "text": "Okay.", "remember": [
         {"kind": "person", "subject": "owner", "key": "dentist", "content": "Your dentist is Dr. Rao",
@@ -83,6 +86,7 @@ def test_a_refused_side_entry_has_no_card(daemon: RunningDaemon) -> None:
     assert "cards" not in reply
 
 
+# decision: ORCH-329
 def test_a_one_ask_task_carries_its_receipt_cards_in_the_outcome(daemon: RunningDaemon) -> None:
     plan = json.loads(sup("task", "Checking.", task("check the gate number")))
     plan["timers"] = [{"when": mins(timedelta(minutes=10)), "message": "stretch",
@@ -93,6 +97,7 @@ def test_a_one_ask_task_carries_its_receipt_cards_in_the_outcome(daemon: Running
     assert event["what"] == "stretch" and event["line"] in final["lines"]
 
 
+# decision: ORCH-329, ORCH-319
 def test_a_multi_part_first_reply_carries_its_receipt_cards_once(daemon: RunningDaemon) -> None:
     spec = _spec("Permit news and Trump's term", ["Permit news is reported", "The end of Trump's term is given"],
                  [_part("p1", "any news about the work permit", "work permit news", step="permit", conds=(0,)),
@@ -120,6 +125,7 @@ YC = ("While YC Winter 2027 applications remain open, remind me that I want to a
       "Nov 3, 9:30 AM IST.")
 
 
+# decision: ORCH-329
 def test_a_repeating_schedules_run_is_a_reminder_card_counting_down_to_its_next_run(daemon: RunningDaemon) -> None:
     """The countdown is to the next run FERB recorded; the deadline in the request's words is not read."""
     now = daemon.daemon.clock.now()
@@ -135,6 +141,7 @@ def test_a_repeating_schedules_run_is_a_reminder_card_counting_down_to_its_next_
     assert result["answer"].startswith("Reminder: you wanted to apply")                    # FERB's text under it
 
 
+# decision: ORCH-320, ORCH-329
 def test_a_schedule_with_an_end_has_its_cards_count_down_to_it(daemon: RunningDaemon) -> None:
     """Decision 22: the run's reminder card carries the recorded end (`until`, the notch counts down to it) beside the
     next run; once its end leaves it no run, the last run's card has neither."""
@@ -153,6 +160,7 @@ def test_a_schedule_with_an_end_has_its_cards_count_down_to_it(daemon: RunningDa
     assert "until" not in card and "next_run" not in card and "🗓 Schedule ended: " in last["answer"]
 
 
+# decision: ORCH-329
 def test_a_one_time_schedules_run_has_no_countdown(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     s = make_schedule(daemon, YC, YC, Targets.of(), now + timedelta(minutes=1), repeat="none")
@@ -185,6 +193,7 @@ class _Checkout(FakeCap):
         return ToolResult({"ok": True})
 
 
+# decision: ORCH-329
 def test_a_payment_is_an_expense_row_from_the_page_facts_never_the_report(ferb_yes: FerbAnswers,
                                                                          daemon: RunningDaemon) -> None:
     ferb_yes.expect("floor:pay")
@@ -222,6 +231,7 @@ class _CardFill(FakeCap):
         return ToolResult({"ok": True, "detail": "filled", "handle": args.secret})
 
 
+# decision: ORCH-321
 @pytest.mark.parametrize("how,entry", [("secret", "Personal Visa"), ("remember", "Work Amex"), ("", None)])
 def test_a_payment_names_the_saved_card_that_filled_it_and_never_a_digit(ferb_yes: FerbAnswers,
                                                                         daemon: RunningDaemon, how: str,
@@ -251,6 +261,7 @@ def test_a_payment_names_the_saved_card_that_filled_it_and_never_a_digit(ferb_ye
     assert "4111" not in json.dumps(final["cards"]) + "".join(recorded)
 
 
+# decision: ORCH-329
 def test_a_payment_the_owner_refused_has_no_card(daemon: RunningDaemon) -> None:
     daemon.daemon.registry.capabilities["probe.checkout"] = _Checkout()
 
@@ -263,6 +274,7 @@ def test_a_payment_the_owner_refused_has_no_card(daemon: RunningDaemon) -> None:
     assert not _cards(final, "payment")
 
 
+# decision: ORCH-329
 def test_a_send_is_a_contact_card_from_the_calls_checked_destination(ferb_yes: FerbAnswers,
                                                                     daemon: RunningDaemon) -> None:
     ferb_yes.expect("floor:new_recipient")
@@ -280,6 +292,7 @@ def test_a_send_is_a_contact_card_from_the_calls_checked_destination(ferb_yes: F
 
 # ---------- sites and files ----------
 
+# decision: ORCH-329
 def test_sites_and_files_are_link_cards_and_file_chips_from_the_records(daemon: RunningDaemon) -> None:
     """A site the records say the task reached is a link card standing for the "Sites contacted" line; a site only
     named in the answer is not; the task's file is a file chip."""

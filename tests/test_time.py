@@ -100,6 +100,7 @@ def test_19_a_claim_left_by_a_crash_is_delivered_exactly_once(daemon: RunningDae
     assert {run(daemon, lambda: t.get(x)).state for x in (a.id, b.id)} == {"delivered"}
 
 
+# decision: ORCH-324
 def test_reminders_from_chat_need_the_owners_own_words_and_a_future_time(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     ok = {"when": mins(120), "message": "call Mom", "quote": "remind me in two hours"}
@@ -366,6 +367,7 @@ def test_a_reminder_asked_over_a_clarified_chain_is_set_from_the_owners_messages
     "remind me about ths show on oct30 anytime\n\nany time at all\n\n7pm",           # words the owner never typed
     "remind me about ths show on oct30 anytime\n\nanytime 7pm",                      # a segment that isn't one message
 ])
+# decision: ORCH-324
 def test_every_segment_of_a_joined_quote_must_be_one_of_the_owners_messages(daemon: RunningDaemon, quote: str) -> None:
     install(daemon, [_clarify("What time on October 30?"), _oct30(quote)])
     chat(daemon, "remind me about ths show on oct30 anytime")
@@ -376,6 +378,7 @@ def test_every_segment_of_a_joined_quote_must_be_one_of_the_owners_messages(daem
     assert run(daemon, daemon.daemon.timers.pending) == []
 
 
+# decision: ORCH-324
 def test_a_joined_quote_never_reaches_outside_the_request_chain(daemon: RunningDaemon) -> None:
     """Owner messages from an earlier, finished request don't join this one's quote."""
     install(daemon, [json.dumps({"kind": "reply", "text": "Okay.", "plan": None, "remember": [], "timers": []})])

@@ -48,6 +48,7 @@ def _stamped(event: dict[str, Any], request_id: str) -> bool:
     return event.get('request_id') == request_id and datetime.fromisoformat(event['at']).tzinfo is not None
 
 
+# decision: ORCH-504
 def test_ack_arrives_before_the_planner_is_called(daemon):
     called, release = threading.Event(), threading.Event()
 
@@ -78,6 +79,7 @@ def test_ack_arrives_before_the_planner_is_called(daemon):
     assert message_row['request_id'] == first['request_id'] and ack_seq < message_seq
 
 
+# decision: ORCH-318
 def test_two_sends_on_one_session_each_get_their_own_ack_and_request_id(daemon):
     release, called = threading.Event(), threading.Event()
 
@@ -156,6 +158,7 @@ def test_a_result_names_its_request_even_after_the_stream_dropped_before_the_pla
     assert again['request_id'] == ack['request_id'] and datetime.fromisoformat(again['at']).tzinfo is not None
 
 
+# decision: ORCH-504
 def test_pick_never_repeats_one_of_the_last_eight():
     from ferb.orchestrator import acks
     said: list[str] = []
@@ -166,6 +169,7 @@ def test_pick_never_repeats_one_of_the_last_eight():
     assert len(set(said)) > 8
 
 
+# decision: ORCH-504
 def test_daemon_acks_never_repeat_one_of_the_last_eight_said(daemon):
     """The daemon's window is what it journaled, across messages and chats (the CLI no longer keeps its own)."""
     async def acknowledge() -> list[str]:

@@ -23,6 +23,7 @@ NY = ZoneInfo("America/New_York")
 
 # ---------- rules ----------
 
+# decision: ORCH-334
 def test_recurrence_keeps_local_time_across_daylight_saving() -> None:
     first = datetime(2026, 10, 30, 9, 0, tzinfo=NY)
     daily = Rule.build("daily", first, tz=NY)
@@ -44,6 +45,7 @@ def test_recurrence_keeps_local_time_across_daylight_saving() -> None:
 
 # ---------- schedules from chat ----------
 
+# decision: ORCH-324
 def test_a_schedule_needs_the_owners_words_and_a_future_first_run(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     install(daemon, [schedule_reply(daemon, "write report.md", "tomorrow at 9 write report.md",
@@ -105,6 +107,7 @@ def test_scheduled_run_receives_original_request_and_its_answer_waits(daemon: Ru
     assert (daemon.daemon.home / "workspace/report.md").read_text() == "updated"
 
 
+# decision: ORCH-323
 def test_a_scheduled_run_never_asks_the_owner_a_question(daemon: RunningDaemon) -> None:
     """Nobody is at chat during a scheduled run: owner_ask is declined at once, with a note for the worker."""
     now = daemon.daemon.clock.now()
@@ -154,6 +157,7 @@ def test_owner_can_pause_and_cancel_a_schedule_after_failures(daemon: RunningDae
         c.close()
 
 
+# decision: ORCH-314
 def test_repeated_failure_does_not_silently_pause_a_recurring_task(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     scheduled = make_schedule(daemon, 'Check source', 'Check source every day', Targets(),
@@ -410,6 +414,7 @@ def _ending(d: RunningDaemon, request: str, said: str, until: dict[str, Any], ev
     return json.dumps(reply)
 
 
+# decision: ORCH-320
 def test_a_schedule_ends_on_the_date_the_owners_words_give(daemon: RunningDaemon) -> None:
     """The planner states the date in a typed field; code works out the end (the end of that local day) and stores it;
     the scheduling line, the event card, the planner's facts and the schedule list show it."""
@@ -433,6 +438,7 @@ def test_a_schedule_ends_on_the_date_the_owners_words_give(daemon: RunningDaemon
         c.close()
 
 
+# decision: ORCH-320
 def test_no_run_is_booked_after_a_schedules_end_and_its_last_run_says_it_ended(daemon: RunningDaemon) -> None:
     """"for the next 3 hours", every hour from a minute on: runs at +1, +61 and +121 minutes; the one at +181 would be
     past the end, so the run at +121 is the last, says so, and nothing is booked after it."""
@@ -457,6 +463,7 @@ def test_no_run_is_booked_after_a_schedules_end_and_its_last_run_says_it_ended(d
     assert len(run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.ended", "schedule_id", s.id))) == 1
 
 
+# decision: ORCH-320, ORCH-324
 def test_end_date_words_the_owner_did_not_type_refuse_the_schedule(daemon: RunningDaemon) -> None:
     said = "every hour check the build"
     install(daemon, [_ending(daemon, "check the build", said, _until("until Friday", day="friday"))])
@@ -465,6 +472,7 @@ def test_end_date_words_the_owner_did_not_type_refuse_the_schedule(daemon: Runni
     assert run(daemon, daemon.daemon.schedules.all) == []
 
 
+# decision: ORCH-320
 def test_a_schedule_change_gives_an_existing_schedule_an_end(daemon: RunningDaemon) -> None:
     first = daemon.daemon.clock.now() + timedelta(minutes=1)
     s = make_schedule(daemon, "check the build", "every hour check the build", Targets.of(), first, "every", 60)
@@ -527,6 +535,7 @@ def _scoped_schedule(d: RunningDaemon, words: str, folders: list[str], identity:
     return json.dumps(reply)
 
 
+# decision: ORCH-313
 def test_a_scheduled_run_uses_the_folders_and_identity_recorded_when_it_was_made(daemon: RunningDaemon) -> None:
     """ORCH-313 (owner, 2026-10-30): folders, profile/identity and worker type are fixed when the schedule is made
     and stated then; an unattended run never re-guesses them. The run's plan proposes other folders and FERB's own

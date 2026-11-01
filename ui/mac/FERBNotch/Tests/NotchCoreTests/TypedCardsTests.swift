@@ -41,6 +41,7 @@ final class TypedCardsTests: XCTestCase {
         XCTAssertNil(ResultCard.list([["type": "hologram"]]))
     }
 
+    // decision: ORCH-329
     func testACardStandsForExactlyItsLineAndNothingElseInTheTextIsRead() {
         let note = ResultCard(["type": "note", "item_id": "m", "text": "x", "line": "Remembered: my dentist is Dr. Rao"])!
         let text = "Okay.\nRemembered: my dentist is Dr. Rao\nYou said Remembered: my dentist is Dr. Rao earlier."
@@ -60,6 +61,7 @@ final class TypedCardsTests: XCTestCase {
         XCTAssertEqual(Countdown.text(to: now.addingTimeInterval(-5), now: now), "now")
     }
 
+    // decision: ORCH-320
     func testACardCountsDownToTheSchedulesEndWhenItHasOneElseToTheNextRun() throws {
         let end = "2026-11-03T18:30:00+00:00", next = "2026-10-31T12:00:00+00:00"
         let cards = try XCTUnwrap(ResultCard.list([
@@ -79,6 +81,7 @@ final class TypedCardsTests: XCTestCase {
         XCTAssertNil(CountdownTarget.lastDay(of: endDate, calendar: utc))           // 18:30 shows as itself
     }
 
+    // decision: ORCH-321
     func testAPaymentCardNamesTheSavedCardAndNothingElse() throws {
         let cards = try XCTUnwrap(ResultCard.list([
             ["type": "payment", "amount": "₹248.75", "merchant": "Orderly", "card": "Personal Visa"],

@@ -100,6 +100,7 @@ def _latest_task(daemon: RunningDaemon) -> str | None:
     return daemon.run(read())  # type: ignore[no-any-return]
 
 
+# decision: ORCH-500, ORCH-1
 def test_preview_runs_no_worker_and_issues_no_run_token(daemon: RunningDaemon) -> None:
     script = _planned(daemon)
     issued: list[Any] = []
@@ -130,6 +131,7 @@ def test_preview_runs_no_worker_and_issues_no_run_token(daemon: RunningDaemon) -
     assert len(_journal(daemon, "intro.preview")) == 1
 
 
+# decision: ORCH-500
 def test_preview_shows_the_planned_steps_as_parts(daemon: RunningDaemon) -> None:
     _planned(daemon)
     events = _preview(daemon)
@@ -160,6 +162,7 @@ def test_suggest_falls_back_to_the_general_task_without_a_scan(daemon: RunningDa
     assert _journal(daemon, "intro.suggested")[-1].data == {"fits": True, "from_scan": 1, "why": "topped up"}
 
 
+# decision: PRM-317
 def test_suggest_uses_the_scan_when_seen(daemon: RunningDaemon) -> None:
     asked: list[dict[str, Any]] = []
     rt = FakeDistillRuntime({"requests": [
@@ -218,6 +221,7 @@ def test_suggest_gives_the_general_tasks_when_the_model_stalls(daemon: RunningDa
     assert _journal(daemon, "intro.suggested")[-1].data == {"fits": False, "from_scan": 0, "why": "timed out"}
 
 
+# decision: ORCH-500
 def test_preview_leaves_out_the_owners_running_tasks_and_open_questions(daemon: RunningDaemon) -> None:
     """On "Replay intro" with work under way, the preview's planner turn sees none of it (no running task, open
     question or earlier chat), so it plans the demo request and can't answer or control the owner's task."""
@@ -243,6 +247,7 @@ def test_preview_leaves_out_the_owners_running_tasks_and_open_questions(daemon: 
         turn.join(10)
 
 
+# decision: ORCH-500
 def test_preview_leaves_out_the_owners_notices_schedules_and_reminders(daemon: RunningDaemon) -> None:
     """The preview's planner turn sees none of the owner's live state: a notice FERB posted to the owner, a schedule and
     a reminder stay out of it, while an owner chat's turn still gets all three."""
@@ -271,6 +276,7 @@ def test_preview_leaves_out_the_owners_notices_schedules_and_reminders(daemon: R
     assert not [part for part in owners if part in context]                 # the preview's turn gets none
 
 
+# decision: ORCH-500
 def test_chat_send_refuses_ferbs_own_sessions(daemon: RunningDaemon) -> None:
     c = Client(daemon.sock)
     try:
@@ -281,6 +287,7 @@ def test_chat_send_refuses_ferbs_own_sessions(daemon: RunningDaemon) -> None:
         c.close()
 
 
+# decision: ORCH-500
 def test_intro_methods_refuse_any_other_program(daemon: RunningDaemon) -> None:
     c = Client(daemon.sock)
     try:
