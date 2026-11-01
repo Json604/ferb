@@ -99,10 +99,37 @@ def test_a_process_can_only_use_its_own_credentials(daemon: RunningDaemon, origi
     assert _Origin.seen == []                                                 # nothing was forwarded
 
 
+def _kernel_shows_other_processes_environments() -> bool:
+    """Whether this Mac's kernel gives a process another (same-user) process's environment through KERN_PROCARGS2,
+    outside any sandbox. macOS withholds it while System Integrity Protection is on; with SIP off (GitHub's macOS
+    runners, measured 2026-11-01: plain, under `(allow default)` and with process-info or the procargs2 sysctl denied,
+    every read returned the other process's environment) it doesn't, and no profile rule tried takes it away."""
+    import ctypes
+    import os
+    import subprocess
+    marker = b"FERB_PROCARGS_PROBE=" + os.urandom(8).hex().encode()
+    child = subprocess.Popen(["/bin/sleep", "5"], env={"FERB_PROCARGS_PROBE": marker.split(b"=", 1)[1].decode()})
+    try:
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+        mib = (ctypes.c_int * 3)(1, 49, child.pid)                              # CTL_KERN, KERN_PROCARGS2
+        size = ctypes.c_size_t(262144)
+        buf = ctypes.create_string_buffer(size.value)
+        if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+            return False
+        return marker in buf.raw[:size.value]
+    finally:
+        child.kill()
+        child.wait()
+
+
 def test_a_sandboxed_process_cannot_read_another_processs_credentials(daemon: RunningDaemon) -> None:
     """The credential lives in the process's environment. Another contained process can't read it: `ps eww` and
     KERN_PROCARGS2 return no environment for it (they do for the process itself: the probe works). Printed values
-    would be redacted, so the probe prints hashes of what it found."""
+    would be redacted, so the probe prints hashes of what it found. This rests on macOS withholding other processes'
+    environments (SIP on); on a Mac where any process can read them the test says so instead of passing."""
+    if _kernel_shows_other_processes_environments():
+        pytest.skip("this Mac's kernel shows any process another process's environment (System Integrity Protection "
+                    "is off), so no sandbox profile keeps a shell command's proxy credential from another command")
     g = task(daemon, "r", Identity.OWNER, SHELL)
     a = call(daemon, g, "shell.start", command="sleep 30")["content"]["id"]
     pid = daemon.daemon.shells._procs[a][0].proc.pid                          # type: ignore[union-attr]
