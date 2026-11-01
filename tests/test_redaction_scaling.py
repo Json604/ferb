@@ -41,19 +41,21 @@ def _superlinear(run: Callable[[str], object], make: Callable[[int], str], unit:
                  max_chars: int = MAX_CHARS) -> str | None:
     """None when the time of `run(make(n))` grows about in proportion to n as the run of n units doubles from one
     unit; else what grew. A doubling may cost at most 8 times the size before (an exponential blows past that within a
-    step or two, while the calls are still cheap), and a quadrupling at most 8 times (a quadratic costs 16)."""
+    step or two, while the calls are still cheap), and a quadrupling at most 12 times (a quadratic costs 16; a slow
+    3-core machine measured 8.5-9 times for a linear step that is 3.8 here, TEST-508)."""
     times: dict[int, float] = {}
     n = 1
     while n * unit <= max_chars:
         text = make(n)
         times[n] = t = _best(lambda: run(text), 1)
         for back in (2, 4):
-            if n // back in times and n % back == 0 and t > FLOOR and t > 8 * times[n // back]:
+            bound = 8 if back == 2 else 12
+            if n // back in times and n % back == 0 and t > FLOOR and t > bound * times[n // back]:
                 small = make(n // back)
                 for _ in range(3):
                     t = times[n] = _best(lambda: run(text), 5)
                     before = times[n // back] = _best(lambda: run(small), 5)
-                    if t <= FLOOR or t <= 8 * before:
+                    if t <= FLOOR or t <= bound * before:
                         break
                 else:
                     return f"{n // back} -> {n} units: {before * 1000:.3f} ms -> {t * 1000:.3f} ms"
