@@ -12,7 +12,8 @@ final class SettingsWindowTracker {
     private let rawWindows: () -> [RawWindow]
     private let bundleID: (Int32) -> String?
     private let frontmostBundleID: () -> String?
-    private let screens: () -> [CGRect]
+    private let screens: () -> [(frame: CGRect, visible: CGRect)]
+    private let primaryHeight: () -> CGFloat
     private var timer: Timer?
     private var reported: CGPoint?
     private var previousFrame: CGRect?
@@ -23,28 +24,41 @@ final class SettingsWindowTracker {
         rawWindows: @escaping () -> [RawWindow] = SettingsWindowTracker.systemWindows,
         bundleID: @escaping (Int32) -> String? = { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier },
         frontmostBundleID: @escaping () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
-        screens: @escaping () -> [CGRect] = { NSScreen.screens.map(\.visibleFrame) }
+        screens: @escaping () -> [(frame: CGRect, visible: CGRect)] = {
+            NSScreen.screens.map { (frame: $0.frame, visible: $0.visibleFrame) }
+        },
+        primaryHeight: @escaping () -> CGFloat = {
+            NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height ?? 0
+        }
     ) {
         self.orb = orb
         self.rawWindows = rawWindows
         self.bundleID = bundleID
         self.frontmostBundleID = frontmostBundleID
         self.screens = screens
+        self.primaryHeight = primaryHeight
     }
 
     func start() {
         guard timer == nil else { return }
-        let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
+        let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                if let self { self.poll() } else { timer.invalidate() }
+            }
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t
         poll()
     }
 
+    /// Stops polling and forgets what was reported, so a later start() reports the same window again. It does not
+    /// emit nil: the caller hides the orb itself when it stops tracking.
     func stop() {
         timer?.invalidate()
         timer = nil
+        reported = nil
+        previousFrame = nil
+        opened = false
     }
 
     /// One look at the window server. The first point waits for two settled frames so the orb doesn't chase
@@ -74,11 +88,14 @@ final class SettingsWindowTracker {
 
     private func dockPoint() -> (CGPoint, CGRect)? {
         let all = screens()
-        let primary = NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height
-            ?? all.first?.height ?? 0
+        let primary = primaryHeight()
         let frontmost = frontmostBundleID() == SettingsAnchor.bundleID
+        var resolved: [Int32: Bool] = [:]  // each PID looked up once per poll
         let infos: [WindowInfo] = rawWindows().compactMap { raw in
-            guard raw.layer == 0, bundleID(raw.pid) == SettingsAnchor.bundleID else { return nil }
+            guard raw.layer == 0 else { return nil }
+            let isSettings = resolved[raw.pid] ?? (bundleID(raw.pid) == SettingsAnchor.bundleID)
+            resolved[raw.pid] = isSettings
+            guard isSettings else { return nil }
             return WindowInfo(
                 owner: SettingsAnchor.bundleID,
                 bounds: SettingsAnchor.appKitRect(fromQuartz: raw.bounds, primaryHeight: primary),
@@ -87,9 +104,17 @@ final class SettingsWindowTracker {
         }
         guard let w = SettingsAnchor.window(in: infos) else { return nil }
         let mid = CGPoint(x: w.bounds.midX, y: w.bounds.midY)
-        guard let screen = all.first(where: { $0.contains(mid) }) ?? all.first,
+        guard let screen = all.first(where: { $0.visible.contains(mid) })?.visible
+                ?? all.first(where: { $0.frame.contains(mid) })?.visible
+                ?? all.min(by: { Self.distance(from: mid, to: $0.frame) < Self.distance(from: mid, to: $1.frame) })?.visible,
               let p = SettingsAnchor.dock(for: infos, orb: orb, screen: screen) else { return nil }
         return (p, w.bounds)
+    }
+
+    private static func distance(from p: CGPoint, to r: CGRect) -> CGFloat {
+        let dx = max(r.minX - p.x, 0, p.x - r.maxX)
+        let dy = max(r.minY - p.y, 0, p.y - r.maxY)
+        return (dx * dx + dy * dy).squareRoot()
     }
 
     nonisolated static func systemWindows() -> [RawWindow] {

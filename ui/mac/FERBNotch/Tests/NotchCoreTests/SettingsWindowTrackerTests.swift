@@ -14,7 +14,11 @@ final class SettingsWindowTrackerTests: XCTestCase {
             rawWindows: { [unowned self] in self.windows },
             bundleID: { $0 == 1 ? SettingsAnchor.bundleID : "com.example.other" },
             frontmostBundleID: { [unowned self] in self.front },
-            screens: { [CGRect(x: 0, y: 0, width: 1440, height: 900)] })
+            screens: { [(frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+                         visible: CGRect(x: 0, y: 0, width: 1440, height: 900)),
+                        (frame: CGRect(x: 0, y: 900, width: 1440, height: 900),
+                         visible: CGRect(x: 0, y: 900, width: 1440, height: 900))] },
+            primaryHeight: { 900 })
         var seen: [CGPoint?] = []
         tracker.onChange = { seen.append($0) }
         return (tracker, { seen })
@@ -37,14 +41,41 @@ final class SettingsWindowTrackerTests: XCTestCase {
         XCTAssertEqual(seen().compactMap { $0?.x }, [384, 484, 504])
     }
 
-    func testHidesWhenNotFrontmostOrClosedAndStopIsSafeTwice() {
+    func testHidesWhenNotFrontmost() {
         let (t, seen) = makeTracker()
         windows = [raw(x: 400)]; t.poll(); t.poll()
         front = "com.example.other"; t.poll()
         XCTAssertEqual(seen().count, 2)
         XCTAssertNil(seen().last!)
-        front = SettingsAnchor.bundleID; windows = []; t.poll()
+    }
+
+    func testReportsNilWhenTheWindowClosesOrIsMinimised() {
+        let (t, seen) = makeTracker()
+        windows = [raw(x: 400)]; t.poll(); t.poll()
+        XCTAssertEqual(seen().count, 1)
+        XCTAssertNotNil(seen().last!)
+        windows = []; t.poll()
         XCTAssertEqual(seen().count, 2)
-        t.start(); t.stop(); t.stop()
+        XCTAssertNil(seen().last!)
+    }
+
+    func testStopForgetsStateSoStartReportsAgainWithoutEmittingNil() {
+        let (t, seen) = makeTracker()
+        windows = [raw(x: 400)]; t.poll(); t.poll()
+        t.stop(); t.stop()
+        XCTAssertEqual(seen().count, 1)
+        t.start(); t.stop()
+        XCTAssertEqual(seen().count, 1)
+        t.poll(); XCTAssertEqual(seen().count, 1)
+        t.poll(); XCTAssertEqual(seen().count, 2)
+        XCTAssertEqual(seen().last!?.x, 384)
+    }
+
+    func testWindowOnADisplayAboveThePrimary() {
+        let (t, seen) = makeTracker()
+        // Quartz y -600 on a 900-tall primary: AppKit y 1100..1500, midY 1300.
+        windows = [RawWindow(pid: 1, bounds: CGRect(x: 400, y: -600, width: 600, height: 400), layer: 0)]
+        t.poll(); t.poll()
+        XCTAssertEqual(seen().last!, CGPoint(x: 384, y: 1300))
     }
 }
