@@ -20,7 +20,8 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 
 ## Global Constraints
 - Beats, in order: meet, signIn, permissions, browsers, identity (optional), tryIt, control, home.
-- All eight permissions stay required (`SetupModel.askedAtSetup`); Automation stays per app at first use.
+- Every permission stays required (`SetupModel.askedAtSetup`: seven after Task 3 folds hearing into the dictation row,
+  the same Speech Recognition grant); Automation stays per app at first use.
 - A grant counts only when the system confirms it; never inferred from a drop. Poll every 1.5 s during a grant.
 - The demo never acts: the preview run issues no `RunGrant`, runs no worker, and emits only plan/part events marked
   `preview: true`.
@@ -39,13 +40,13 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 ## Review Focus
 - Screen Recording's "Quit & Reopen" mid-tour: FERB relaunches into the same beat with the same grants (Task 1 test).
 - System Settings moved, minimised, closed or covered while the orb is docked: the orb follows, hides, or flies home;
-  never floats over another app (Task 5 test).
-- Sign-in cancelled or failing (no network): the scan never starts; the Try beat uses the general task (Task 3 test).
+  never floats over another app (Task 6 test).
+- Sign-in cancelled or failing (no network): the scan never starts; the Try beat uses the general task (Task 4 test).
 - A prompt denied or a grant revoked mid-tour: the beat stays open with a plain way forward; finishing reports what's
-  missing and setup returns next launch (Task 7 test).
+  missing and setup returns next launch (Task 8 test).
 - Skip pressed mid-flight: the orb, its sound and the drag card are torn down at once; the compact path shows only the
-  required steps left (Task 7 test).
-- Notchless Mac or FERB on a second display: the orb launches from the virtual notch on FERB's screen (Task 4 test).
+  required steps left (Task 8 test).
+- Notchless Mac or FERB on a second display: the orb launches from the virtual notch on FERB's screen (Task 5 test).
 
 ---
 
@@ -94,7 +95,71 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 - [ ] **Step 4: Run** → PASS; then `uv run mypy ferb/core`.
 - [ ] **Step 5: Commit** `git commit -m "Permissions: confirm grants with real reads; Privacy & Security deep links"`.
 
-### Task 3: Suggested task and plan-only preview (daemon)
+### Task 3: FERB Voice merges into FERB.app (owner, 2026-11-01: "ok lets merge it")
+
+Why: `macapp/FERB` (FERB Voice, `Helpers/FERB Voice.app`, id `com.ferb.app`) is the 10-01 FERB.app kept as a helper
+when the notch became the app on 10-14, "nested until it merges". It holds a second Speech Recognition grant that the
+notch (`com.ferb.FERB`) already has for dictation, so the intro would guide one grant twice.
+
+**Files:**
+- Create: `S/Hearing.swift` (the three hearing modes and the lease protocol, ported from `macapp/FERB/main.swift`),
+  `C/FerbHomeRule.swift` (`resolveFerbHome(_ given: String?, account: String?) -> FerbHome`, from `macapp/FERB/home.swift`)
+- Modify: `S/Application.swift` (`main()`), `ferb/device/install.py` (`BUNDLE_VOICE_APP`, `voice_app`),
+  `ferb/daemon/areas/voice.py` (`voice_bundle`, `_quit_voice_app`), `ferb/sense/transcribe.py`, `ferb/cli/setup.py`
+  (`_build_app`, `_shipped_app`, `_voice_helper`), `ferb/device/permissions.py` (the hearing row),
+  `S/SetupModel.swift` + `C/SetupModels.swift` (`askedAtSetup`, `allowAllSequence`, `answeredInPopup`, the "voice"
+  process), `scripts/build-app.sh`, `scripts/signing.sh`, README.md (permissions table), notes/voice.md,
+  notes/daemon.md, notes/test-tasks.md, and every test that names `macapp/` or `FERB Voice`
+- Delete: `macapp/` (plain `rm -r`, then `git add macapp`)
+- Test: the existing hearing, setup, packaging and permissions tests, moved to the new paths; `T/FerbHomeRuleTests.swift`
+
+**Interfaces:**
+- Produces: FERB.app's own executable answers `transcribe <audio> <out> [locale]`, `status <out>` and
+  `request-speech` exactly as FERB Voice did (same arguments, same answer files, same lease, same exit codes), started by
+  the daemon with `open -g -n -W --env FERB_HOME=… <FERB.app> --args <mode> …`. `install.voice_app(home, bundle)`
+  returns the bundle itself.
+- Rules for this task:
+  - `main()` checks `CommandLine.arguments` first: a hearing mode runs and exits before `NSApplication`, the
+    delegate, Sparkle, login items, the daemon connection or any window. No microphone in these modes. An unknown
+    first argument starts the normal app.
+  - The home rule and the lease behaviour are unchanged (a foreign `FERB_HOME` is refused before anything else;
+    deleting the answer file stops the process with nothing written).
+  - Quitting before an update targets only the hearing instances FERB itself launched (by process id), never by
+    bundle id: `com.ferb.FERB` is also the running notch (`voice.py:77` terminates every `com.ferb.app` today). A
+    transcription in flight is still spared (notes/voice.md decision 8).
+  - Hearing's signature pin (`[hearing] requirement`) becomes FERB.app's own sealed requirement. An older pin naming
+    `com.ferb.app` is replaced by the first app setup after the update, with no owner step (storage decision 5).
+  - Permissions: hearing is the same Speech Recognition grant as dictation, so the separate "hearing" row goes. The
+    microphone row (Microphone + Speech Recognition, `GrantStatus.both`) covers it and `askedAtSetup` drops to
+    seven. Hearing's errors still say plainly when Speech Recognition is off.
+  - Owner-facing text says "FERB", never "FERB Voice". `com.ferb.app` stays in the "is this FERB's own process"
+    lists (`front_window.py` `FERB_APPS`, `sandbox.py` `APP_PREFERENCE_DOMAINS`), because an older build may still be
+    running during an update.
+  - A checkout install (`_build_app`) builds the notch with `ui/mac/FERBNotch/build.sh` (tests fake `run`; agents
+    never run it).
+  - notes/test-tasks.md's fresh-start list gains `tccutil reset SpeechRecognition com.ferb.app`, and Privacy &
+    Security lists only FERB.
+
+- [ ] **Step 1: Write the failing tests**:
+  - `test_hearing_launches_the_app_itself`: `voice_app(home, bundle) == bundle`; the transcriber's `open` argv names
+    the bundle with `--args transcribe`.
+  - `test_update_quit_never_terminates_the_notch`: a running notch plus one idle hearing instance → only the hearing pid
+    is ended; one transcribing → nothing is ended.
+  - `test_an_old_voice_pin_is_replaced_by_app_setup`: config `[hearing] requirement` naming `com.ferb.app` → after
+    app setup it is the app's sealed requirement.
+  - `test_the_bundle_has_no_voice_helper`: packaging/bundle checks list no `Helpers/FERB Voice.app`; signing has
+    no `voice` piece.
+  - `test_setup_permissions_have_no_separate_hearing_row` (Python), plus `askedAtSetup` == seven ids (Swift).
+  - `T/FerbHomeRuleTests.swift`: unset, empty or same-inode `FERB_HOME` → `.home`; another folder → `.refused`.
+- [ ] **Step 2: Run** the focused pytest files and `swift test --filter 'FerbHomeRuleTests|SetupModelTests'
+  --scratch-path <scratch>` → FAIL.
+- [ ] **Step 3: Implement** the merge, then delete `macapp/` and sweep every reference (`git grep -n -e macapp -e
+  "FERB Voice"` returns only CHANGELOG.md and the old-build lists above).
+- [ ] **Step 4: Run** `swift build` and `swift test` (scratch path), then `nice -n 10 uv run pytest -q`,
+  `uv run mypy ferb/core`, `git diff --check` → PASS.
+- [ ] **Step 5: Commit** `git commit -m "FERB Voice merges into FERB.app: one app, one Speech Recognition grant"`.
+
+### Task 4: Suggested task and plan-only preview (daemon)
 
 **Files:**
 - Create: `ferb/daemon/areas/intro.py`
@@ -123,7 +188,7 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 - [ ] **Step 4: Run** → PASS; `uv run mypy ferb/core`.
 - [ ] **Step 5: Commit** `git commit -m "Intro: suggested task and plan-only preview that cannot act"`.
 
-### Task 4: Orb motion, spatial mapping and sound policy (NotchCore)
+### Task 5: Orb motion, spatial mapping and sound policy (NotchCore)
 
 **Files:**
 - Create: `C/OrbMotion.swift`, `C/SoundPolicy.swift`
@@ -150,7 +215,7 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 - [ ] **Step 4: Run** → PASS.
 - [ ] **Step 5: Commit** `git commit -m "Intro: orb motion, spatial mapping and sound policy"`.
 
-### Task 5: Docking beside System Settings (NotchCore + FERBNotch)
+### Task 6: Docking beside System Settings (NotchCore + FERBNotch)
 
 **Files:**
 - Create: `C/SettingsAnchor.swift`, `S/SettingsWindowTracker.swift`
@@ -172,7 +237,7 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 - [ ] **Step 4: Run** → PASS.
 - [ ] **Step 5: Commit** `git commit -m "Intro: dock beside System Settings, follow it, hide when it isn't in front"`.
 
-### Task 6: The orb, the notch narration and the sound engine (FERBNotch)
+### Task 7: The orb, the notch narration and the sound engine (FERBNotch)
 
 **Files:**
 - Create: `S/OrbPanel.swift` (NSPanel, level `.mainMenu + 2`, `overlayBehavior`, click-through except the drag card),
@@ -186,7 +251,7 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 - Test: `T/IntroNarrationTests.swift` (model state only; no rendering tests)
 
 **Interfaces:**
-- Consumes: `OrbMotion`, `OrbOrigin`, `SpringSpec`, `SoundPolicy`, `FerbSound` (Task 4); `SettingsAnchor` (Task 5).
+- Consumes: `OrbMotion`, `OrbOrigin`, `SpringSpec`, `SoundPolicy`, `FerbSound` (Task 5); `SettingsAnchor` (Task 6).
 - Produces: `final class OrbController { func launch(to target: CGPoint, instruction: IntroLine?) async; func dockBesideSettings(dragging url: URL); func hop(); func flyHome() async; func tearDown() }`;
   `public struct IntroLine: Equatable { var text: String; var detail: String? }`;
   `final class FerbSoundEngine { func play(_ s: FerbSound, at point: CGPoint?) ; func stopAll() }`.
@@ -198,7 +263,7 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 - [ ] **Step 4: Run** → PASS; `swift build`.
 - [ ] **Step 5: Commit** `git commit -m "Intro: the orb, notch narration and one sound engine"`.
 
-### Task 7: IntroController drives the eight beats (FERBNotch)
+### Task 8: IntroController drives the eight beats (FERBNotch)
 
 **Files:**
 - Create: `S/IntroController.swift`
@@ -206,8 +271,8 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 - Test: `T/IntroControllerTests.swift`
 
 **Interfaces:**
-- Consumes: Tasks 1–6; `SetupModel` actions (`continueFromWelcome`, `signInWithChatGPT`, `signInWithClaude`,
-  `saveAPIKey`, `grantAndConfirm`, `pairAll`, `useIdentity`, `refreshPersona`), RPCs `intro.suggest`, `intro.preview`.
+- Consumes: Tasks 1–7 (after Task 3, hearing is the dictation row's grant); `SetupModel` actions
+  (`continueFromWelcome`, `signInWithChatGPT`, `signInWithClaude`, `saveAPIKey`, `grantAndConfirm`, `pairAll`, `useIdentity`, `refreshPersona`), RPCs `intro.suggest`, `intro.preview`.
 - Produces: `@MainActor final class IntroController { init(setup: SetupModel, orb: OrbController, sound: FerbSoundEngine, notch: NotchModel, progress: IntroProgress); func start(beats: [IntroBeat]); func skip(); var onFinished: (() -> Void)? }`
 
 - [ ] **Step 1: Write the failing tests** (SetupRig + ScriptedRPC fakes):
@@ -227,7 +292,7 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 - [ ] **Step 4: Run** → PASS; `swift test` (whole suite).
 - [ ] **Step 5: Commit** `git commit -m "Intro: the eight beats, guided grants, preview demo, controls, skip and resume"`.
 
-### Task 8: Launch, replay and notes (FERBNotch + notes)
+### Task 9: Launch, replay and notes (FERBNotch + notes)
 
 **Files:**
 - Modify: `S/AppSetupController.swift` (`startAtLaunch` ~50: `.window(.welcome)` and missing grants → `IntroController`
