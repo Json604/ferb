@@ -351,3 +351,38 @@ Owner, 2026-11-01: the decided family goes into this plan; big events only; the 
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement**, deleting the magnetic sound and its setting.
 - [ ] **Step 4: Run** `swift build`, `swift test` (scratch path) → PASS.
 - [ ] **Step 5: Commit** `git commit -m "Sound: FERB's family replaces the system sounds; one notification cue; magnetic sound removed"`.
+
+### Task 11: A secret pasted into the chat: hidden, and FERB says so (daemon + FERBNotch)
+
+Owner, 2026-11-01: "for secrets, have a list of secret patterns and a code check on every request; if they match, add
+a line: you may have leaked the secret in chat, revoke it", "or if we can mask it". Masking already exists: the owner's
+message is redacted in `chat.send` (ferb/daemon/areas/chat.py `_chat_send`, `self.redact`) against the named format
+table (ferb/sanitize/formats.py `TABLE`: vendor keys and tokens, private keys, bearer and Authorization headers,
+database passwords, cards with expiry and CVV) plus saved secret values, so the model sees `[REDACTED]`, never the
+value. What's missing is telling the owner. Ruling: the line is code-made (a fact the redactor found), not left to a
+model, so it always appears.
+
+**Files:**
+- Modify: `ferb/daemon/areas/chat.py` (`_chat_send` and the answer path: each hidden kind via `Redactor.hit`-style
+  detection over the raw text, by name only, never the value), the ack event (`hidden: [kind, …]`), the journal entry
+  (`chat.secret_hidden {session_id, request_id, kinds}`), `S/DaemonConnection.swift` + `S/Conversation.swift` (a notice
+  under the owner's message), notes/gateway.md (decision + what exists)
+- Test: `tests/test_chat_secret_notice.py`, the nearest Swift conversation test
+
+**Rules:**
+- Every format the table names counts, plus a saved secret's value; one notice per message listing each kind once.
+- Copy (code-made): "That looked like a <kind>. I hid it from the AI and didn't save it. If you pasted it by mistake,
+  revoke it and make a new one." For a card: "…If you didn't mean to share it, tell your bank." For a saved secret:
+  "That's one of your saved secrets. I hid it from the AI."
+- The owner's own message bubble shows the masked text (the ack's `message`), never the raw value, also after restart.
+- The planner's context gets one fact line ("The owner's message held a <kind>; FERB hid it."), so a reply never asks
+  the owner to paste it again; no value, ever (rule 7).
+- No intent judgement: the kinds are formats (rule 4); nothing is refused, the message still runs.
+
+- [ ] **Step 1: Write the failing tests**: `test_a_pasted_token_is_hidden_and_named` (a fake GitHub-format token in
+  `chat.send` → the model's context holds `[REDACTED]`, the ack carries `hidden: ["GitHub token"]`, the journal has the
+  kind and no value), `test_a_saved_secret_is_named_as_saved`, `test_a_plain_message_has_no_notice`, and a Swift test
+  that an ack with `hidden` adds the notice under that message.
+- [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** focused, then `nice -n 10 uv run pytest -q`,
+  `uv run mypy ferb/core`, `swift test` → PASS.
+- [ ] **Step 5: Commit** `git commit -m "Chat: a pasted secret is hidden and FERB says which kind, so the owner can revoke it"`.
