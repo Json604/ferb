@@ -76,6 +76,24 @@ public enum SettingsAnchor {
         return CGPoint(x: x, y: y)
     }
 
+    /// The layer-0 windows of the processes `owns` accepts, flipped to AppKit coordinates (`appKitRect`), as `owner`'s.
+    /// Shared by the Settings tracker and the intro's app targets.
+    public static func windows(_ raw: [RawWindow], owner: String, primaryHeight: CGFloat, frontmost: Bool,
+                               owns: (Int32) -> Bool) -> [WindowInfo] {
+        raw.compactMap { r in
+            guard r.layer == 0, owns(r.pid) else { return nil }
+            return WindowInfo(owner: owner, bounds: appKitRect(fromQuartz: r.bounds, primaryHeight: primaryHeight),
+                              onScreen: true, isFrontmostApp: frontmost)
+        }
+    }
+
+    /// The visible frame of the screen holding the window's centre (by visible frame, then by whole frame); nil when no
+    /// screen holds it, and each caller picks its own fallback.
+    public static func screen(holding w: WindowInfo, in screens: [(frame: CGRect, visible: CGRect)]) -> CGRect? {
+        let mid = CGPoint(x: w.bounds.midX, y: w.bounds.midY)
+        return screens.first { $0.visible.contains(mid) }?.visible ?? screens.first { $0.frame.contains(mid) }?.visible
+    }
+
     /// True when both frames exist and every edge moved by at most 1 pt.
     public static func settled(_ a: CGRect?, _ b: CGRect?) -> Bool {
         guard let a, let b else { return false }

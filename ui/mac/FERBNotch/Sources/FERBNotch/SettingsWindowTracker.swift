@@ -91,21 +91,16 @@ final class SettingsWindowTracker {
         let primary = primaryHeight()
         let frontmost = frontmostBundleID() == SettingsAnchor.bundleID
         var resolved: [Int32: Bool] = [:]  // each PID looked up once per poll
-        let infos: [WindowInfo] = rawWindows().compactMap { raw in
-            guard raw.layer == 0 else { return nil }
-            let isSettings = resolved[raw.pid] ?? (bundleID(raw.pid) == SettingsAnchor.bundleID)
-            resolved[raw.pid] = isSettings
-            guard isSettings else { return nil }
-            return WindowInfo(
-                owner: SettingsAnchor.bundleID,
-                bounds: SettingsAnchor.appKitRect(fromQuartz: raw.bounds, primaryHeight: primary),
-                onScreen: true,
-                isFrontmostApp: frontmost)
+        let infos = SettingsAnchor.windows(rawWindows(), owner: SettingsAnchor.bundleID, primaryHeight: primary,
+                                           frontmost: frontmost) { pid in
+            let isSettings = resolved[pid] ?? (bundleID(pid) == SettingsAnchor.bundleID)
+            resolved[pid] = isSettings
+            return isSettings
         }
         guard let w = SettingsAnchor.window(in: infos) else { return nil }
         let mid = CGPoint(x: w.bounds.midX, y: w.bounds.midY)
-        guard let screen = all.first(where: { $0.visible.contains(mid) })?.visible
-                ?? all.first(where: { $0.frame.contains(mid) })?.visible
+        // Fallback: Settings off every screen (mid-drag between displays) docks on the nearest screen.
+        guard let screen = SettingsAnchor.screen(holding: w, in: all)
                 ?? all.min(by: { Self.distance(from: mid, to: $0.frame) < Self.distance(from: mid, to: $1.frame) })?.visible,
               let p = SettingsAnchor.dock(for: infos, orb: orb, screen: screen) else { return nil }
         return (p, w.bounds)

@@ -552,6 +552,17 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.orb.launches.count, 2)
     }
 
+    func testATapWhileTheOrbFliesHomeStillPicks() async {
+        let t = tour()
+        t.orb.holdFlyHome = true                                                // the flight home is still in the air
+        t.controller.start(beats: [.tryIt, .home])
+        await t.pick("suggestion.0")
+        await eventually { t.orb.flying }
+        await t.pick("doItForReal")
+        await eventually { t.lines.all.contains(IntroCopy.willDoIt) }
+        await eventually { t.rig.rpc.methods().contains("chat.send") }          // the tap was kept: the task starts after
+    }
+
     func testTheBrowsersBeatPointsTheOrbWhilePairing() async {
         let t = tour(apps: Self.mac(browser: true))
         t.rig.rpc.replies["setup.browsers"] = ["browsers": [["browser": "example", "label": "Example Browser",
@@ -563,7 +574,7 @@ final class IntroControllerTests: XCTestCase {
         await eventually { t.progress.done }
         XCTAssertEqual(t.orb.launches.count, 1)
         XCTAssertEqual(t.orb.launches.first?.instruction, IntroCopy.pairingOrb)
-        XCTAssertEqual(t.orb.launches.first?.point, CGPoint(x: 720, y: 809))    // inside a window too wide to stand beside
+        XCTAssertEqual(t.orb.launches.first?.point, CGPoint(x: 720, y: 791))    // inside a window too wide to stand beside
         XCTAssertEqual(pairedWhenHome, [true])                                  // home after the pair-all reply
     }
 }
@@ -581,7 +592,7 @@ final class IntroAppTargetsTests: XCTestCase {
     func testTheDefaultBrowserIsResolvedFromLaunchServices() {
         let target = IntroControllerTests.mac(browser: true).target(app: "")
         XCTAssertEqual(target.name, "Example Browser")
-        XCTAssertEqual(target.point, CGPoint(x: 720, y: 809))
+        XCTAssertEqual(target.point, CGPoint(x: 720, y: 791))
         XCTAssertEqual(target.iconPath, "/Applications/Example Browser.app")
         let closed = IntroControllerTests.mac().target(app: "")                 // installed, not running
         XCTAssertEqual(closed.point, IntroControllerTests.resting)
@@ -598,6 +609,18 @@ final class IntroAppTargetsTests: XCTestCase {
         XCTAssertNil(unknown.iconPath)                                          // not installed: no icon
     }
 
+    func testAModelNamedAppIsNeverAPath() {
+        var probed: [String] = []
+        let exists: (String) -> Bool = { probed.append($0); return true }
+        for name in ["../x", "a/b", ".hidden", "Notes:x", "No\0tes", ""] {
+            XCTAssertNil(IntroAppResolver.installedApp(named: name, folders: ["/Applications"], exists: exists), name)
+        }
+        XCTAssertEqual(probed, [])                                              // refused before anything is looked at
+        XCTAssertEqual(IntroAppResolver.installedApp(named: "Notes", folders: ["/Applications", "/System/Applications"],
+                                                     exists: { $0 == "/System/Applications/Notes.app" }),
+                       "/System/Applications/Notes.app")
+    }
+
     func testTheFrontmostWindowOfThoseAppsIsPicked() {
         var resolver = IntroControllerTests.mac(browser: true)
         resolver.windows = {                                                    // front to back
@@ -606,7 +629,7 @@ final class IntroAppTargetsTests: XCTestCase {
              RawWindow(pid: 20, bounds: CGRect(x: 0, y: 25, width: 1440, height: 875), layer: 0)]
         }
         XCTAssertEqual(resolver.frontWindow(of: ["Example Browser", "Finder"]), IntroControllerTests.besideFinder)
-        XCTAssertEqual(resolver.frontWindow(of: ["Example Browser"]), CGPoint(x: 720, y: 809))
+        XCTAssertEqual(resolver.frontWindow(of: ["Example Browser"]), CGPoint(x: 720, y: 791))
         XCTAssertNil(resolver.frontWindow(of: ["Notes"]))
     }
 }

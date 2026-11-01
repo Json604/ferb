@@ -60,9 +60,9 @@ class Intro:
         this Mac (decision 16, state "seen"), one model call with no tools reads its summary and facts, redacted, and
         names two tasks in the owner's voice, of different kinds where it can, each with the one main app it would use
         (as macOS names it; "" for the default browser), so the intro's orb can point there; fewer than two usable are
-        topped up from GENERAL_TASKS (with GENERAL_APPS). `fits`: at least one came from the scan. Without a scan (not started, scanning, failed, closed),
-        or when the call fails, stalls or names nothing, the two general tasks: it never fails the app. Each outcome is
-        journaled (`intro.suggested`, with why; never the summary)."""
+        topped up from GENERAL_TASKS (with GENERAL_APPS). `fits`: at least one came from the scan. Without a scan (not
+        started, scanning, failed, closed), or when the call fails, stalls or names nothing, the two general tasks: it
+        never fails the app. Each outcome is journaled (`intro.suggested`, with why; never the summary)."""
         from_scan: list[tuple[str, str]] = []
         why = ""
         seen = self._mac_profile_service().status()

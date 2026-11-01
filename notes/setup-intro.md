@@ -142,6 +142,8 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   - Sound only for big events and where it's needed (owner: "i dont want too much noise everywhere").
 
 ## Constraints
+- A resumed tour whose background service is down waits on "Getting my background part ready…" until the daemon
+  answers or the owner skips (ruling, 2026-11-01: intended; the tour never claims a grant it couldn't read).
 - CLAUDE.md rules: the app is the product (rule 13); background first after setup (rule 10: the tour is the user's own
   explicit flow, but nothing in it moves the user's cursor or types for them); trust follows origin (rule 9); code
   enforces boundaries, never a model (rule 3): the demo in step 6 runs without any acting tool available, so "it never

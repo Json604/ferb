@@ -32,10 +32,13 @@ extension IntroController {
         var failure = await preview(offered[shown])
         while live {
             let line = failure.map(IntroCopy.previewFailed) ?? IntroCopy.previewed(otherShown: otherShown)
-            say(line)
-            await orbTrip?.value                     // the plan is shown: the orb comes back
+            // The plan is shown: the orb comes back while the owner may already answer (a tap is never lost).
+            let trip = orbTrip
             orbTrip = nil
-            await orb.flyHome()
+            orbHoming = Task { [orb] in
+                await trip?.value
+                await orb.flyHome()
+            }
             switch await ask(line) {
             case .choice(Pick.otherSuggestion)? where !otherShown:
                 shown = 1 - shown
@@ -76,7 +79,9 @@ extension IntroController {
         say(IntroCopy.previewing)
         openChat()
         let target = apps.target(app: suggestion.app)
+        let homing = orbHoming
         orbTrip = Task { [orb] in
+            await homing?.value                      // the last trip home lands first
             await orb.launch(to: target.point, instruction: IntroCopy.wouldUse(target, browser: suggestion.app.isEmpty))
         }
         do {

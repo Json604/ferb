@@ -62,6 +62,8 @@ final class IntroController {
     var controlWaiter: (() -> Void)?
     /// The orb on its way to an app (Try's preview): the flight home waits for it to have arrived.
     var orbTrip: Task<Void, Never>?
+    /// The orb on its way home after a preview: the next trip out leaves once it has landed.
+    var orbHoming: Task<Void, Never>?
     private var activation: NSObjectProtocol?
 
     var rpc: DaemonRPCTransport { setup.rpc }

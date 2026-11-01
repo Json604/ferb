@@ -18,7 +18,8 @@ struct IntroAppTarget: Equatable {
 protocol IntroAppLocating {
     /// `app`: the name macOS shows ("Finder"), or "" for the owner's default browser.
     func target(app: String) -> IntroAppTarget
-    /// The frontmost on-screen window of any of `apps` (named as macOS shows them), as a point beside it.
+    /// The app owning the frontmost on-screen layer-0 window among `apps` (named as macOS shows them): a point beside
+    /// that app's largest window.
     func frontWindow(of apps: [String]) -> CGPoint?
 }
 
@@ -32,8 +33,6 @@ struct IntroAppResolver: IntroAppLocating {
         var bundlePath: String?
     }
 
-    static let orb = CGSize(width: 44, height: 44)
-
     var running: () -> [RunningApp] = {
         NSWorkspace.shared.runningApplications.map {
             RunningApp(pid: $0.processIdentifier, name: $0.localizedName ?? "", bundleID: $0.bundleIdentifier,
@@ -46,11 +45,7 @@ struct IntroAppResolver: IntroAppLocating {
     var defaultBrowser: () -> URL? = { NSWorkspace.shared.urlForApplication(toOpen: URL(string: "https://example.com")!) }
     var bundleID: (URL) -> String? = { Bundle(url: $0)?.bundleIdentifier }
     /// "<name>.app" in /Applications, /System/Applications or ~/Applications.
-    var installed: (String) -> String? = { name in
-        let folders = ["/Applications", "/System/Applications",
-                       FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path]
-        return folders.map { "\($0)/\(name).app" }.first { FileManager.default.fileExists(atPath: $0) }
-    }
+    var installed: (String) -> String? = { IntroAppResolver.installedApp(named: $0) }
     var screens: () -> [(frame: CGRect, visible: CGRect)] = {
         NSScreen.screens.map { (frame: $0.frame, visible: $0.visibleFrame) }
     }
@@ -91,18 +86,36 @@ struct IntroAppResolver: IntroAppLocating {
     /// Beside the largest on-screen layer-0 window of these processes (SettingsAnchor's window rules and flip); a
     /// window too wide to stand beside gets the orb just inside its top edge.
     private func beside(windowOf pids: Set<Int32>) -> CGPoint? {
-        let primary = primaryHeight()
-        let infos = windows().filter { $0.layer == 0 && pids.contains($0.pid) }.map {
-            WindowInfo(owner: "app", bounds: SettingsAnchor.appKitRect(fromQuartz: $0.bounds, primaryHeight: primary),
-                       onScreen: true, isFrontmostApp: false)
+        let orb = OrbController.size
+        let infos = SettingsAnchor.windows(windows(), owner: "app", primaryHeight: primaryHeight(), frontmost: false) {
+            pids.contains($0)
         }
         guard let w = SettingsAnchor.largestWindow(of: "app", in: infos) else { return nil }
-        let mid = CGPoint(x: w.bounds.midX, y: w.bounds.midY)
-        let all = screens()
-        let screen = all.first { $0.visible.contains(mid) }?.visible ?? all.first { $0.frame.contains(mid) }?.visible
-            ?? w.bounds
-        return SettingsAnchor.beside(w, orb: Self.orb, screen: screen)
-            ?? CGPoint(x: w.bounds.midX, y: w.bounds.maxY - Self.orb.height * 1.5)
+        // Fallback: a window on no known screen is its own bounds (the orb then stands just inside its top edge).
+        let screen = SettingsAnchor.screen(holding: w, in: screens()) ?? w.bounds
+        return SettingsAnchor.beside(w, orb: orb, screen: screen)
+            ?? CGPoint(x: w.bounds.midX, y: w.bounds.maxY - orb.height * 1.5)
+    }
+
+    /// The app folders an installed app is looked for in, by name.
+    nonisolated static let appFolders = ["/Applications", "/System/Applications",
+                                         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path]
+
+    /// "<name>.app" directly inside one of `folders`, or nil. The name comes from a model (rule 9: data, never a path):
+    /// one with "/", ":" or NUL, or starting with ".", is refused before anything is probed, and the candidate must sit
+    /// directly in its folder.
+    nonisolated static func installedApp(named name: String, folders: [String] = appFolders,
+                                         exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })
+        -> String? {
+        guard !name.isEmpty, !name.hasPrefix("."), !name.contains("/"), !name.contains(":"),
+              !name.contains("\0") else { return nil }
+        for folder in folders {
+            let base = URL(fileURLWithPath: folder).standardizedFileURL
+            let candidate = base.appendingPathComponent(name + ".app").standardizedFileURL
+            guard candidate.deletingLastPathComponent().path == base.path else { continue }
+            if exists(candidate.path) { return candidate.path }
+        }
+        return nil
     }
 
     /// Below the notch, about a third of the way down FERB's screen.
