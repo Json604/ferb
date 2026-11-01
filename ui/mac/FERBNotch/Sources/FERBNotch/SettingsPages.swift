@@ -51,7 +51,8 @@ struct SettingsView: View {
             switch selection.settingsTab {
             case .general:
                 GeneralSettingsPage(feedback: actions.feedback, cursor: actions.cursor, loginItems: actions.loginItems,
-                                    updates: actions.updates, onHoverEnabledChange: actions.setHoverEnabled)
+                                    updates: actions.updates, onHoverEnabledChange: actions.setHoverEnabled,
+                                    onReplayIntro: actions.replayIntro)
             case .ai: AISettingsPage(store: store, actions: actions, output: aiOutput)
             case .permissions: PermissionsSettingsPage(actions: actions)
             case .browsers: BrowsersSettingsPage(actions: actions)
@@ -67,7 +68,7 @@ struct SettingsView: View {
 }
 
 /// Settings → General: the notch's shortcuts, FERB's pointer and sounds (moved here from the old sound window). Plans
-/// F and G add "Startup" (open at login) and "Updates".
+/// F and G add "Startup" (open at login) and "Updates"; the installed app offers "Replay intro" (notes/setup-intro.md).
 struct GeneralSettingsPage: View {
     @ObservedObject var feedback: SoundFeedback
     let cursor: CursorController
@@ -77,9 +78,17 @@ struct GeneralSettingsPage: View {
     @AppStorage("notch.hoverEnabled") private var hoverEnabled = true
     @AppStorage(NotchModel.sendOnReleaseKey) private var sendOnRelease = false
     var onHoverEnabledChange: ((Bool) -> Void)?
+    var onReplayIntro: (() -> Void)? = nil
 
     var body: some View {
         Form {
+            if let onReplayIntro {
+                Section("Intro") {
+                    Button("Replay intro") { onReplayIntro() }
+                    Text("Meet FERB again: every step of the first-run tour. Nothing you've set up changes.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             if let loginItems {
                 Section("Startup") { LoginItemRow(loginItems: loginItems) }
             }

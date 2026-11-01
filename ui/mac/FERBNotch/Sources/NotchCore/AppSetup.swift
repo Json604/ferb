@@ -12,11 +12,12 @@ public enum AppSetupAction: Equatable {
     case confirmReplace(current: String)    // another installation (a checkout, or a FERB.app elsewhere): ask first
 }
 
-/// What launch shows (L34 C).
+/// What launch shows (L34 C, notes/setup-intro.md).
 public enum SetupLaunch: Equatable {
     case nothing                 // this app's build runs and setup is finished
-    case window(SetupStep)       // the setup window at that step
-    case quietUpdate             // `ferb setup --service --update`, no window unless it fails or a grant is missing
+    case intro([IntroBeat])      // the first-run intro: every beat, or only those for what is missing
+    case window(SetupStep)       // the compact setup window at that step (a Grant it left before macOS restarted FERB)
+    case quietUpdate             // `ferb setup --service --update`, then the intro only if a grant is missing
 }
 
 /// The background service's status as macOS reports it (SMAppService.Status).
@@ -75,17 +76,54 @@ public enum AppSetupPlan {
         }
     }
 
-    /// At launch: the setup window for a new install or another installation (after the owner's yes), a quiet update for
-    /// a replaced build or a stopped service, and otherwise the window only while setup isn't finished. `resume`: the
-    /// step a Grant left when macOS restarted FERB (Screen Recording's "Quit & Reopen"), reopened done or not.
-    public static func atLaunch(_ action: AppSetupAction, setupDone: Bool, resume: SetupStep? = nil) -> SetupLaunch {
+    /// At launch: the whole intro for a new install or another installation (after the owner's yes), a quiet update
+    /// for a replaced build or a stopped service, and otherwise what `needs` still asks for. `tour`: the beats of a
+    /// tour a quit interrupted (IntroProgress.interrupted), picked up where it was; it wins over `resume`, the step a
+    /// Grant in the compact window left when macOS restarted FERB (Screen Recording's "Quit & Reopen"), reopened done
+    /// or not.
+    public static func atLaunch(_ action: AppSetupAction, needs: IntroNeeds, tour: [IntroBeat]? = nil,
+                                resume: SetupStep? = nil) -> SetupLaunch {
         switch action {
-        case .install, .confirmReplace: return .window(.welcome)
+        case .install, .confirmReplace: return .intro(IntroBeat.allCases)
         case .update: return .quietUpdate
-        case .none:
-            if let resume { return .window(resume) }
-            return setupDone ? .nothing : .window(.welcome)
+        case .none: return settled(needs, tour: tour, resume: resume)
         }
+    }
+
+    /// After a quiet update: as at launch, except that a required grant missing brings back its beat even when setup
+    /// was finished before (the old window reopened on Permissions there).
+    public static func afterUpdate(_ needs: IntroNeeds, tour: [IntroBeat]? = nil,
+                                   resume: SetupStep? = nil) -> SetupLaunch {
+        var needs = needs
+        if !needs.missingPermissions.isEmpty { needs.setupDone = false }
+        return settled(needs, tour: tour, resume: resume)
+    }
+
+    private static func settled(_ needs: IntroNeeds, tour: [IntroBeat]?, resume: SetupStep?) -> SetupLaunch {
+        if let tour, !tour.isEmpty { return .intro(tour) }
+        if let resume { return .window(resume) }
+        let beats = IntroPlan.beats(needs, replay: false)
+        return beats.isEmpty ? .nothing : .intro(beats)
+    }
+
+    /// Whether this launch is the install's first run (the tour opens with the first-launch clip): a new install or
+    /// another installation, or an install that has neither finished setup nor seen the tour and isn't resuming one.
+    public static func firstRun(_ action: AppSetupAction, setupDone: Bool, introDone: Bool, resuming: Bool) -> Bool {
+        switch action {
+        case .install, .confirmReplace: return true
+        case .update, .none: return !setupDone && !introDone && !resuming
+        }
+    }
+
+    /// Replay intro (Settings → General, the menu's Set Up FERB…): every beat. It resets no setup, sign-in or grant.
+    public static func replay(_ needs: IntroNeeds) -> SetupLaunch { .intro(IntroPlan.beats(needs, replay: true)) }
+
+    /// After the intro (skipped, or a grant still off at Home): the compact setup window's step for the first required
+    /// thing left (`remaining`: "sign_in", then permission ids), the background service first; nil when nothing is.
+    public static func afterIntro(_ remaining: [String], serviceSetUp: Bool) -> SetupStep? {
+        if !serviceSetUp { return .welcome }
+        guard let first = remaining.first else { return nil }
+        return first == "sign_in" ? .ai : .permissions
     }
 
     /// FERB's own Codex sign-in (C2): Choose your AI's Sign in with ChatGPT runs it.

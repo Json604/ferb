@@ -90,7 +90,8 @@ public enum MenuEntry: Equatable {
 
 public enum StatusMenu {
     /// The menu (spec: Open FERB, Open FERB Window, Pause FERB, Settings…, Quit): the state line first, then what the
-    /// state needs. `hasWindow`: Phase E's FERB window exists. `canSetUp`: the packaged FERB.app (Set Up FERB…).
+    /// state needs. `hasWindow`: Phase E's FERB window exists. `canSetUp`: the packaged FERB.app (Set Up FERB…,
+    /// which replays the first-run intro: notes/setup-intro.md).
     public static func entries(state: MenuBarState, paused: Bool, stopped: Bool, appName: String, canSetUp: Bool,
                                hasWindow: Bool, updateOffer: String? = nil) -> [MenuEntry] {
         var entries: [MenuEntry] = [.status(state.statusLine), .separator, .item("Open FERB", .openFERB, key: "")]

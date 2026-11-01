@@ -85,11 +85,27 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
 - [ ] From the checkout while the app's service is registered, `ferb setup --update` refuses and says why. A checkout
       `ferb setup --update` (dev LaunchAgent case): `~/.ferb/venv.new` appears, the daemon restarts once; with the
       network off it fails and the running daemon keeps working. [daemon.md 12b]
-- [ ] Setup window Done with one permission off: the window comes back next launch; with all on it doesn't.
-      [daemon.md 12b]
+- [ ] Setup window Done with one permission off: next launch brings back only that beat of the intro (Allow all,
+      then home); with all on nothing comes back. [daemon.md 12b, setup-intro]
 - [ ] Intro: typing into a field on FERB's line in the compact notch (an API key, FERB's address) isn't interrupted
       when the notch re-presents in the background (a line update, a status refresh); the text stays and the caret
       stays in the field. [setup-intro.md]
+- [ ] Fresh install: the intro runs all eight beats; quit at Screen Recording and reopen → same beat; skip mid-flight
+      → compact path; Reduce Motion → orb fades in place; sound off → everything readable; notchless Mac → virtual
+      notch; Replay intro from Settings. [setup-intro]
+- [ ] The answer buttons and fields on FERB's line work by click and by keyboard. [setup-intro]
+- [ ] The orb points at the previewed app's window (or rests below the notch with the app's icon), and at the
+      browser's window while pairing. [setup-intro]
+- [ ] Try shows two suggestions, one previewed; "Show the other one" previews it; "Do it for real" starts after
+      Home. [setup-intro]
+- [ ] At the default volume the sounds are as loud as the auditioned levels (gain = volume / 0.18; owner by ear).
+      [setup-intro]
+- [ ] With AirPods, the orb's sounds land with its motion (latency lead). [setup-intro]
+- [ ] On a non-English macOS, app names the orb can't match fall back to the resting point. [setup-intro]
+- [ ] The sign-in line about secrets reads right. [setup-intro]
+- [ ] A packaged build launches: the resource bundle (ferb-mark, Sounds) is found in Contents/Resources.
+      [setup-intro]
+- [ ] After the fresh start, the old FERB Voice entry is gone from Privacy & Security. [setup-intro]
 - [ ] Fresh FERB.app install: `ferb memory embeddings` reports the model loaded from FERB.app; no
       `memory.embedding_model fetched` row; nothing under `~/.ferb/models`. The embedding model's first fill on the live
       store (`memory.embeddings` count rises once). [daemon.md 12b, storage.md, memory.md]

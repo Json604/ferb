@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator = PanelCoordinator()
         coordinator?.poster = poster
         if appSetup.isPackaged {
-            coordinator?.onSetUp = { [appSetup] in appSetup.runSetupFromMenu() }
+            coordinator?.onSetUp = { [appSetup] in appSetup.replayIntro() }   // Set Up FERB…: the intro again
         }
         appSetup.onFinished = { [weak self] in self?.coordinator?.showFromMenu() }   // Done: into the notch
         if let coordinator {
@@ -85,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if appSetup.isPackaged {
                 let setup = appSetup.model
                 actions.setup = setup
-                actions.openSetup = { [appSetup] in appSetup.runSetupFromMenu() }
+                actions.replayIntro = { [appSetup] in appSetup.replayIntro() }
                 actions.runFerb = { [setup] arguments, line, done in setup.runner.run(arguments, line: line, done: done) }
             }
             let window = FERBWindowController(store: FERBWindowStore(rpc: coordinator.model.rpc), actions: actions)
@@ -98,8 +98,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             seenWindow = seen
             ferbWindow = window
         }
+        appSetup.notch = coordinator?.model
+        appSetup.introControls = coordinator?.introControls
         coordinator?.start()
-        appSetup.startAtLaunch()                 // packaged FERB.app only: the setup window or a quiet update
+        appSetup.startAtLaunch()                 // packaged FERB.app only: the intro or a quiet update
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

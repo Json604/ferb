@@ -49,6 +49,7 @@ public enum IntroPlan {
 public struct IntroProgress {
     public static let beatKey = "FERBIntroBeat"
     public static let doneKey = "FERBIntroDone"
+    public static let planKey = "FERBIntroPlan"
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults) { self.defaults = defaults }
@@ -69,8 +70,23 @@ public struct IntroProgress {
         set { defaults.set(newValue, forKey: Self.doneKey) }
     }
 
+    /// The beats of the tour running now (written when it starts), so a quit tour resumes with its own plan.
+    public var plan: [IntroBeat]? {
+        get { (defaults.array(forKey: Self.planKey) as? [Int])?.compactMap(IntroBeat.init(rawValue:)) }
+        set {
+            if let newValue { defaults.set(newValue.map(\.rawValue), forKey: Self.planKey) }
+            else { defaults.removeObject(forKey: Self.planKey) }
+        }
+    }
+
+    /// The beats of a tour a quit interrupted (every beat if its plan wasn't kept); nil when none was.
+    public var interrupted: [IntroBeat]? {
+        resumeBeat == nil ? nil : (plan ?? IntroBeat.allCases)
+    }
+
     public mutating func clear() {
         defaults.removeObject(forKey: Self.beatKey)
         defaults.removeObject(forKey: Self.doneKey)
+        defaults.removeObject(forKey: Self.planKey)
     }
 }

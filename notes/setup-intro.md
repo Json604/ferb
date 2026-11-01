@@ -1,7 +1,8 @@
 # First-run intro and setup (design, 2026-11-01)
 
 Status: design agreed in conversation with the owner on 2026-11-01; the sound family was decided the same day over
-nine listening rounds (notes/sound.md). Replaces today's setup window flow (fix-order step 15; it comes before step
+nine listening rounds (notes/sound.md). Built 2026-11-01 (notes/setup-intro-plan.md Tasks 1–9); live checks pending
+(step 13). Replaces today's setup window flow (fix-order step 15; it comes before step
 13's fresh install). Visual polish happens in the Swift app (owner: "needs polishing and that we'll do in the swift app").
 
 ## Intent (owner's words, condensed)
@@ -160,6 +161,12 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   everything the tour drew or said. The app stays alive during the tour (opt out of automatic termination).
 - Upgrades: an existing install that has finished setup doesn't see the tour (it is offered in Settings as "Replay
   intro"); an install missing grants gets only the missing beats.
+- Launch (built, Task 9; AppSetupPlan.atLaunch/afterUpdate): a new install or another installation → every beat; a
+  quit tour → its own plan at its beat (IntroProgress keeps the plan; it wins over the compact window's Grant resume);
+  setup done → nothing, except that a quiet update finding a required grant off runs that beat and home; setup not done
+  → the missing beats (browsers count as unpaired only when profiles exist and none is paired). Set Up FERB… and
+  Settings → General → Replay intro run every beat. A skip, or a grant still off at Home, opens the compact window on
+  the first required step left (service, sign-in, permissions).
 - The repo stays general (no personal data in examples, copy or tests).
 - The owner polishes visuals in Swift; this design fixes behaviour, flow, motion rules and the sound system.
 
