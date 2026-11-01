@@ -185,7 +185,7 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   suggestions; the two general tasks when the scan isn't "seen" or the call fails or stalls past `SUGGEST_LIMIT_S`,
   just under the app's wait) and the stream `intro.preview` (`Supervisor.preview`: the real planner turn alone, no run
   token, worker, task row or chat entry; its context leaves out the owner's live state: running tasks, open questions,
-  earlier chat, notices, schedules and reminders, keeping only the capability facts such as paired browsers;
+  earlier chat, notices, schedules and reminders, keeping the capability facts (paired browsers, worker types), recalled memory and today's activity, as a real plan would use;
   its session prefix `preview:` is one `chat.send` refuses; events `plan`, `part` per step, `done`, all
   `preview: true`), both FERB.app only.
 - Which of today's seven permissions are list panes vs prompts, and their deep links on macOS 14–27.
