@@ -5,9 +5,11 @@ import hashlib
 import hmac
 import json
 import secrets
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Callable
+
+from ferb.core.local_http import LocalHTTPServer
 
 ALLOWED = frozenset({'inventory', 'search', 'get', 'confirm', 'edit', 'forget', 'rollback', 'digest', 'identity', 'retire'})
 
@@ -69,7 +71,7 @@ class Dashboard:
                 except Exception as e:
                     # Do not reflect arbitrary request bytes or daemon exception internals into the page.
                     self.reply(400, json.dumps({'error': str(e)}).encode(), 'application/json')
-        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.server = LocalHTTPServer(('127.0.0.1', 0), Handler)
         self.host = '127.0.0.1:' + str(self.server.server_address[1])
         self.origin = 'http://' + self.host
         self.url = self.origin + '/#' + self.token

@@ -172,12 +172,21 @@ class Server:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(self.path.parent, 0o700)
         ensure_socket_free(self.path)
-        old = os.umask(0o177)                       # socket file created 0600
+        # The socket file is made 0600 between bind and listen, before anyone can connect. Never through the umask:
+        # it is process-wide, so every other thread (and this loop, while the server start yields) would create its
+        # files and folders under it too (a 0600 folder can't be entered).
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        bound = False
         try:
-            self._server = await asyncio.start_unix_server(self._connection, path=str(self.path),
-                                                           limit=MAX_MESSAGE)
-        finally:
-            os.umask(old)
+            sock.bind(str(self.path))
+            bound = True
+            os.chmod(self.path, 0o600)
+            self._server = await asyncio.start_unix_server(self._connection, sock=sock, limit=MAX_MESSAGE)
+        except BaseException:
+            sock.close()
+            if bound:                               # only the file this start made
+                self.path.unlink(missing_ok=True)
+            raise
 
     async def close(self) -> None:
         """Stop accepting, then close open connections (e.g. a running `ferb logs`); since Python 3.12
