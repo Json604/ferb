@@ -365,3 +365,24 @@ rule = "The orb's drip-off (the old flight sound: one singing-glass swell, about
 rejected = ["A flight sound (a tonal trail or an air layer following the orb's speed)", "A landing tick", "Round 3's drip-off (\"nothing gave the leaving feel\")"]
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/OrbController.swift"]
 legacy = "notes/sound.md after round 4, round 6/7"
+
+[APP-536]
+title = "FERB Voice merges into FERB.app: one app, one Speech Recognition grant"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words = "ok lets merge it"
+rule = "The old FERB Voice helper (com.ferb.app) is merged into FERB.app: one app and one Speech Recognition grant, so the separate hearing permission row is gone and the microphone row (Microphone + Speech Recognition) covers hearing. Owner-facing text says FERB, never FERB Voice."
+why = "The helper held a second Speech Recognition grant that the notch already had for dictation, so the intro would have guided one grant twice."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift", "ferb/device/install.py", "ferb/device/permissions.py"]
+legacy = "notes/setup-intro-plan.md Task 3"
+
+[APP-537]
+title = "Hearing runs as FERB.app's own command-line modes"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "FERB.app's executable answers transcribe, status and request-speech as FERB Voice did (same arguments, answer files, lease and exit codes). A hearing mode runs and exits before NSApplication, Sparkle, login items, the daemon connection or any window, with no microphone; an unknown first argument starts the normal app; a foreign FERB_HOME is refused first. Quitting before an update ends only the hearing instances FERB launched, by process id, never by bundle id, and spares a transcription in flight."
+why = "com.ferb.FERB is also the running notch, so a bundle-id quit would end it. com.ferb.app stays in the own-process lists while an older build may run; an old [hearing] pin naming it is replaced by the first app setup after an update."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Application.swift", "ui/mac/FERBNotch/Sources/NotchCore/FerbHomeRule.swift", "ferb/daemon/areas/voice.py"]
+legacy = "notes/setup-intro-plan.md Task 3 (rules for this task)"

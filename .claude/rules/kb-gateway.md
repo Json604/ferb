@@ -11,3 +11,6 @@ paths:
 Boundaries code enforces: confirmations, protection lists, terminal typing, redaction, secrets and the sealed fill path, owner identity.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **GATE-501** (owner): A secret pasted into the chat is masked before any model sees it (every format in the named table plus saved secret values) and the message still runs. FERB adds one reminder under it naming each kind once: it hid it from the AI and didn't save it, and keys and passwords are best not pasted into chats. A saved secret is named as one of the owner's saved secrets. No advice to revoke: the value never left the Mac.
+- **GATE-502** (agent): The notice comes from the redactor's finding, never from a model, so it always appears; it names kinds, never the value. The owner's bubble shows the masked text (the ack's message), also after a restart; the journal records chat.secret_hidden with kinds only; the planner gets the hidden kinds as one fact, so a reply never asks the owner to paste it again. The kinds are formats, not intent (AGENTS.md rule 4): nothing is refused.
