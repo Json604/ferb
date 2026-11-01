@@ -51,6 +51,7 @@ def _icon_file(info: dict[str, Any]) -> str:
     return name if name.endswith(".icns") else name + ".icns"
 
 
+# decision: REL-4
 def test_every_bundle_names_ferbs_icon_and_the_icon_holds_every_size(tmp_path: Path) -> None:
     """Owner, 2026-11-01: FERB's logo everywhere. Each bundle names AppIcon, made from assets/logo/ferb-logo.svg by
     scripts/make_logo.py, and the icon carries every size macOS asks for."""
@@ -456,6 +457,7 @@ def test_build_app_refuses_an_unknown_architecture_and_intel_without_rosetta(tmp
     assert not out.exists()                                                   # refused before anything was written
 
 
+# decision: REL-4
 def test_dmg_holds_the_app_and_an_applications_link_and_is_notarized_only_with_a_developer_id(tmp_path: Path) -> None:
     app = _fake_app(tmp_path / "out")
     env = _stubs(tmp_path)
@@ -648,6 +650,7 @@ def test_real_bundle_structure_signature_and_embedded_cli(real_bundle: Path, tmp
 MAX_APP_MB = {"arm64": 720, "x86_64": 750}
 
 
+# decision: REL-401
 def test_real_bundle_holds_only_what_ferb_runs(real_bundle: Path, tmp_path: Path) -> None:
     from ferb.runtimes.codex_exec import native_bin
     app = real_bundle
@@ -863,6 +866,7 @@ def _runtime_packages(arch: str) -> list[dict[str, Any]]:
     return list(seen.values())
 
 
+# decision: REL-402
 def test_every_locked_runtime_package_installs_on_both_architectures() -> None:
     """FERB.app ships for Apple silicon and Intel (L34), so each package its Python loads needs a wheel for both; a
     source-only package would need a compiler toolchain at release time (cryptography 49 dropped Intel Mac wheels)."""

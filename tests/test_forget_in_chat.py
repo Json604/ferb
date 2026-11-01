@@ -36,6 +36,7 @@ def _forget_question(d: RunningDaemon) -> Any:
                                      if q.capability == "memory.forget"), None))
 
 
+# decision: TEST-502
 def test_chat_can_forget_after_a_yes_to_a_question_naming_what_goes(daemon: RunningDaemon) -> None:
     """Review live test 4: "forget my test lab colour" in the notch said it forgot, but the item stayed."""
     item = _remember(daemon, "remember that my test lab colour is violet-heron", "my test lab colour is violet-heron",

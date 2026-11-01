@@ -117,6 +117,7 @@ class _Interleaved:
         return out
 
 
+# decision: STORE-415
 def test_the_first_starts_memory_cleanup_survives_a_write_between_its_read_and_its_write(tmp_path: Path) -> None:
     """Fix 1 (2026-11-01): the search re-index worker commits batches while the first start cleans memory; the
     clean-up's transaction holds the write lock from its start, so its first write never fails on a stale read."""
@@ -150,6 +151,7 @@ def _filled(tmp_path: Path, rows: int = 400) -> Database:
     return db
 
 
+# decision: STORE-416
 def test_compaction_asks_for_twice_what_the_database_holds_and_says_so(tmp_path: Path) -> None:
     """Fix 2 (2026-11-01): VACUUM in WAL mode writes the new database into the WAL beside its temporary copy, so the
     free disk it needs is at least twice the used bytes, not the file's size; the refusal says the figure."""
@@ -169,6 +171,7 @@ def test_compaction_asks_for_twice_what_the_database_holds_and_says_so(tmp_path:
     db.close()
 
 
+# decision: STORE-409
 def test_the_hourly_checkpoint_never_waits_for_a_reader(tmp_path: Path) -> None:
     """Fix 3 (2026-11-01): the routine checkpoint runs on the event loop; a reader holding an older snapshot used to
     hold it for the whole busy timeout (5 s). Now it copies what it can, says the WAL wasn't emptied, and leaves the
@@ -189,6 +192,7 @@ def test_the_hourly_checkpoint_never_waits_for_a_reader(tmp_path: Path) -> None:
     db.close()
 
 
+# decision: STORE-415
 def test_a_plan_rewrite_that_fails_halfway_leaves_the_plan_as_it_was(tmp_path: Path) -> None:
     """Fix 5 (2026-11-01): the connection is autocommit, so `with conn:` opened no transaction and a replace that failed
     after moving the old steps left them moved under the old plan. It is one transaction now."""
@@ -214,6 +218,7 @@ def test_a_plan_rewrite_that_fails_halfway_leaves_the_plan_as_it_was(tmp_path: P
     db.close()
 
 
+# decision: STORE-5
 def test_typed_and_copied_text_goes_by_its_row_of_the_retention_table(tmp_path: Path) -> None:
     """Fix 6 (2026-11-01): the seven days typed and copied text is kept are a row of `retention.RULES` (what the About
     page and FERB's self-description show), and the expiry reads its window from there."""

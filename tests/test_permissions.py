@@ -92,6 +92,7 @@ def test_every_permission_has_a_settings_pane() -> None:
     assert set(P.PANES) >= {"accessibility", "screen_recording", "input_monitoring", "full_disk_access", "automation"}
 
 
+# decision: DMN-13
 def test_cancelled_permission_wait_does_not_block_loop_exit_or_duplicate_native_check(monkeypatch):
     entered, release = threading.Event(), threading.Event()
     calls = []
@@ -203,6 +204,7 @@ from ferb.device.profile import AppInfo
 PANE = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?"
 
 
+# decision: DMN-21
 def test_rows_name_whose_grant_and_the_exact_pane() -> None:
     rows = {r["id"]: r for r in P.rows({"accessibility": "granted", "screen_recording": "denied",
                                         "full_disk_access": "denied", "input_monitoring": "not_determined"},
@@ -223,6 +225,7 @@ def test_rows_name_whose_grant_and_the_exact_pane() -> None:
     assert P.rows({}, {"profile_ok": True, "shell": True, "proxy": True})[0]["status"] == "unknown"   # not reported
 
 
+# decision: DMN-21
 def test_full_disk_access_waits_for_containment() -> None:
     for containment in ({}, {"profile_ok": True, "shell": True},
                         {"profile_ok": True, "shell": True, "proxy": True, "proxy_alive": False}):

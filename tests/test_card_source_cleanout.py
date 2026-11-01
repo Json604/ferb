@@ -220,6 +220,7 @@ def test_a_stop_request_ends_the_run_between_cards_and_the_next_run_finishes(sto
     assert learning.prune_card_sources()["cleaned"] == 4 and _rows(db) == pruned
 
 
+# decision: STORE-416
 def test_compaction_runs_only_with_free_disk_for_what_vacuum_writes(store: Any, tmp_path: Path) -> None:
     from ferb.store.db import compaction_needs
     db, spans, learning = store

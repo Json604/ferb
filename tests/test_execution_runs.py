@@ -75,6 +75,7 @@ def _published(d: RunningDaemon) -> list[tuple[str, dict[str, Any]]]:
     return seen
 
 
+# decision: TEST-502
 def test_a_plain_task_is_a_one_step_plan_and_finishes_once(daemon: RunningDaemon) -> None:
     published = _published(daemon)
     script = install(daemon, [sup("task", "On it.", task("Say hello"))], {"worker": done("Said hello.")})
@@ -89,6 +90,7 @@ def test_a_plain_task_is_a_one_step_plan_and_finishes_once(daemon: RunningDaemon
     assert script.calls("worker") == ["worker"] and script.calls("checker") == ["worker.verify"]
 
 
+# decision: TEST-502
 def test_stop_mid_task_ends_every_row_as_stopped(daemon: RunningDaemon) -> None:
     install(daemon, [sup("task", "On it.", task("Wait for the build"))], {"worker": STALL})
     turn = Turn(daemon, "wait for the build")
@@ -101,6 +103,7 @@ def test_stop_mid_task_ends_every_row_as_stopped(daemon: RunningDaemon) -> None:
     assert run(daemon, lambda: daemon.daemon.supervisor.plans.steps(tree))["worker"]["status"] == "cancelled"
 
 
+# decision: TEST-502
 def test_pause_keeps_everything_in_place_and_the_owners_reply_resumes_it(daemon: RunningDaemon) -> None:
     """ORCH-308: pause ends the current attempt and marks the task paused, not cancelled: nothing is released
     (the browser keeps the task's tab group: `task_paused`), no answer is given, and the owner's reply (the planner's
@@ -243,6 +246,7 @@ def test_a_scheduled_run_stops_at_five_failed_attempts_and_reports(daemon: Runni
     assert not daemon.daemon.state.approvals.pending()
 
 
+# decision: TEST-502
 def test_a_loop_survives_a_restart_and_reruns_the_round_cut_short(home: Any, monkeypatch: Any) -> None:
     """L31 with ORCH-308: FERB's shutdown suspends a loop mid-round; after the restart the tree resumes by
     itself (no "pick it up again?" result), the round cut short runs again, and the loop's saved state carries on."""

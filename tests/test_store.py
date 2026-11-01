@@ -20,6 +20,7 @@ def db(tmp_path: Path) -> Database:
     return d
 
 
+# decision: STORE-414
 def test_migrations_apply_once_and_rerun_is_a_no_op(tmp_path: Path) -> None:
     from ferb.store.db import MIGRATIONS
     expected = sorted(int(f.name[:4]) for f in MIGRATIONS.glob("[0-9][0-9][0-9][0-9]_*.sql"))
@@ -31,6 +32,7 @@ def test_migrations_apply_once_and_rerun_is_a_no_op(tmp_path: Path) -> None:
     assert {"spans", "journal", "action_ledger", "schema_version"} <= tables
 
 
+# decision: STORE-417
 def test_wal_secure_delete_foreign_keys_and_owner_only_file(db: Database) -> None:
     assert db.conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     assert db.conn.execute("PRAGMA secure_delete").fetchone()[0] == 1

@@ -310,6 +310,7 @@ def test_an_unknown_task_is_refused(daemon: RunningDaemon) -> None:
         _build(daemon)
 
 
+# decision: DMN-8, DMN-9, DMN-28, DMN-31
 def test_send_posts_the_previewed_text_and_no_secret_reaches_the_relay(daemon: RunningDaemon, relay: Relay) -> None:
     """The owner's Send: the relay gets exactly the file they previewed, as GitHub's "create a file" JSON, then the
     issue's short summary built from the same text, with the relay's ticket; the secrets planted in a span (a sealed
@@ -343,6 +344,7 @@ def test_send_posts_the_previewed_text_and_no_secret_reaches_the_relay(daemon: R
     assert sent_rows == [{"file": built["path"], "kind": "failure", "report_id": "from-relay", "shortened": False}]
 
 
+# decision: DMN-28
 def test_a_value_sealed_after_the_build_is_hidden_at_send_and_in_the_kept_file(daemon: RunningDaemon,
                                                                               relay: Relay) -> None:
     _failed_task(daemon)
@@ -380,6 +382,7 @@ def test_a_diagnostic_file_is_sent_the_same_way(daemon: RunningDaemon, relay: Re
     assert all(SEALED not in body.decode() for _, _, body in relay.received)
 
 
+# decision: DMN-28, DMN-31
 @pytest.mark.parametrize("step,status,answer,why", [
     ("file", 502, {"ok": False, "error": "GitHub refused the file (HTTP 401)"}, "HTTP 502: GitHub refused the file"),
     ("file", 200, {"ok": False, "error": "odd"}, "HTTP 200: odd"),
@@ -404,6 +407,7 @@ def test_a_refused_send_keeps_the_file_and_says_why(daemon: RunningDaemon, relay
     assert len(failed) == 1 and failed[0]["file"] == built["path"] and why in failed[0]["why"]
 
 
+# decision: DMN-28
 def test_a_commit_conflict_sends_the_file_again_and_files_one_issue(daemon: RunningDaemon, relay: Relay,
                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
     """Two reports committed at the same moment: GitHub's Contents API answers 409 to one, the relay passes that on
@@ -432,6 +436,7 @@ def test_an_unreachable_relay_keeps_the_file_and_says_so(daemon: RunningDaemon, 
     assert Path(built["path"]).exists()
 
 
+# decision: DMN-31
 def test_without_a_relay_address_the_report_is_written_and_send_says_it_isnt_set_up(daemon: RunningDaemon) -> None:
     _failed_task(daemon)
     built = _build(daemon, "t-fail")
@@ -441,6 +446,7 @@ def test_without_a_relay_address_the_report_is_written_and_send_says_it_isnt_set
     assert Path(built["path"]).exists()
 
 
+# decision: DMN-31
 @pytest.mark.parametrize("url", ["http://relay.example.org/report", "ftp://127.0.0.1/report", "not a url",
                                  "https://user:pw@relay.example.org/report"])
 def test_a_relay_address_that_isnt_https_is_refused(daemon: RunningDaemon, url: str) -> None:
@@ -451,6 +457,7 @@ def test_a_relay_address_that_isnt_https_is_refused(daemon: RunningDaemon, url: 
     assert r["sent"] is False and "isn't a valid https address" in r["error"]
 
 
+# decision: DMN-31
 def test_the_relay_address_is_its_base_and_the_first_relays_report_address_still_works() -> None:
     assert RELAY_URL.startswith("https://")              # the deployed relay, built in (tests never reach it)
     assert relay_url("https://ferb-reports.example.workers.dev") == "https://ferb-reports.example.workers.dev"
@@ -458,6 +465,7 @@ def test_the_relay_address_is_its_base_and_the_first_relays_report_address_still
     assert relay_url("https://ferb-reports.example.workers.dev/") == "https://ferb-reports.example.workers.dev"
 
 
+# decision: DMN-28
 def test_send_takes_only_a_file_ferb_wrote_in_its_reports_folder(daemon: RunningDaemon, relay: Relay,
                                                                 tmp_path: Path) -> None:
     _failed_task(daemon)
@@ -498,6 +506,7 @@ def _steps_seed(daemon: RunningDaemon, count: int) -> None:
     _on_loop(daemon, seed)
 
 
+# decision: DMN-9, DMN-29
 def test_a_report_over_the_cap_is_sent_shortened_and_kept_whole(daemon: RunningDaemon, relay: Relay,
                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     """Owner, 2026-11-01: a report over 25 MB goes shortened to fit (here the cap is lowered to 40 KB): the note at the
@@ -524,6 +533,7 @@ def test_a_report_over_the_cap_is_sent_shortened_and_kept_whole(daemon: RunningD
     assert summary.startswith("[Shortened to fit ") and "Which folder holds the invoices? → Documents/Invoices" in summary
 
 
+# decision: DMN-29
 def test_shortening_keeps_errors_questions_and_the_last_steps_and_respects_the_byte_cap() -> None:
     def block(i: int, extra: str = "") -> str:
         return f"12:00:{i % 60:02d}  tool.call  browser.read  [0.1s]\n    {{\n      \"error\": null,{extra}\n" \
@@ -696,6 +706,7 @@ def _loop_gaps(daemon: RunningDaemon, fn: Any) -> tuple[Any, float]:
     return result, max(gaps)
 
 
+# decision: DMN-29, DMN-31
 def test_a_30_mb_trace_leaves_the_event_loop_responsive(daemon: RunningDaemon, relay: Relay) -> None:
     """Review 1, M1: redaction ran as one pass over the whole multi-MB text, holding the GIL in long regex calls (a
     35.9 MB build stalled the loop up to 2.77 s). It now runs per span and per section, off the loop; Send's second

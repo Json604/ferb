@@ -24,6 +24,7 @@ print(json.dumps({"seen": len(seen), "failed": failed}))
 """
 
 
+# decision: TEST-500
 def test_every_ferb_module_imports(tmp_path: Path) -> None:
     env = {**os.environ, "FERB_HOME": str(tmp_path / "home"), "HOME": str(tmp_path)}
     out = subprocess.run([sys.executable, "-c", SWEEP], capture_output=True, text=True, timeout=300, env=env,

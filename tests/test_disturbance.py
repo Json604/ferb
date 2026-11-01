@@ -19,6 +19,7 @@ def _facts(context: str) -> dict:
     return json.loads(context[context.index("{"):])
 
 
+# decision: DMN-5, DMN-501
 @pytest.mark.anyio
 async def test_samples_task_and_links_changes_to_action_without_claiming_causation():
     state = {"frontmost_app": {"pid": 1}, "cursor": [10, 20], "active_space_epoch": 0,
@@ -48,6 +49,7 @@ async def test_samples_task_and_links_changes_to_action_without_claiming_causati
     assert summary[2]["screen_changes"] == [{"tool": "mac.open", "span_id": "action-1", "changes": facts}]
 
 
+# decision: DMN-5
 @pytest.mark.anyio
 async def test_no_timer_and_no_samples_around_read_only_calls():
     reads = []
@@ -92,6 +94,7 @@ async def test_a_sample_error_is_recorded_and_the_task_goes_on():
     assert not sentinel.active
 
 
+# decision: DMN-5
 @pytest.mark.anyio
 async def test_a_cursor_move_alone_records_nothing():
     state = {"frontmost_app": {"pid": 1}, "cursor": [0, 0]}
@@ -171,6 +174,7 @@ def _changes(records: list) -> list[dict]:
     return [d for _, kind, d in records if kind == "disturbance.change"]
 
 
+# decision: DMN-501
 @pytest.mark.anyio
 async def test_a_front_app_change_with_no_ferb_on_screen_action_names_the_app_and_ferbs_processes():
     state = {"frontmost_app": {"pid": 1, "bundle_id": "com.brave.Browser", "name": "Brave Browser"}, "cursor": [0, 0]}
@@ -214,6 +218,7 @@ async def test_a_change_during_or_just_after_an_on_screen_ferb_action_is_near_it
     assert _facts(context)["front_or_space_changes_with_no_ferb_on_screen_action"] == 1
 
 
+# decision: DMN-501
 @pytest.mark.anyio
 async def test_a_change_after_the_window_says_how_long_before_the_last_on_screen_action_ended():
     """Controller ruling (2026-10-09): a FERB effect can land after the 0.5 s window (an app finishing its launch), so

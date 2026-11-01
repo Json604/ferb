@@ -387,6 +387,7 @@ def test_the_retention_pass_purges_recovery_past_recovery_days_and_journals_it(d
 
 # ---------- ferb restore ----------
 
+# decision: DMN-33
 def test_ferb_restore_lists_and_restores_in_the_owners_words(daemon: RunningDaemon, trash: Path) -> None:
     f = _ws(daemon) / "notes.txt"
     f.write_text("the original")

@@ -183,6 +183,7 @@ def test_refuses_while_a_foreground_dev_daemon_holds_the_socket(world: dict[str,
     assert world["runner"].ran("uv", "python", "install") == 0
 
 
+# decision: DMN-21
 def test_plain_setup_asks_for_no_permission_and_never_records_setup_done(world: dict[str, Any]) -> None:
     """The CLI permission walkthrough is gone (DMN-4: FERB's setup window asks); `ferb setup`
     opens no pane, requests nothing, and never records setup as done: every row decides that, FERB.app's own
@@ -235,6 +236,7 @@ def test_doctor_says_jev_is_off_and_where_a_key_comes_from(world: dict[str, Any]
     assert "ferb setup --jev" not in out.getvalue()
 
 
+# decision: DMN-24
 def test_uninstall_purge_needs_typed_confirmation(world: dict[str, Any]) -> None:
     world["inst"].install()
     env, out = make_env(world, ["yes please"])
@@ -257,6 +259,7 @@ def test_update_reports_missing_permissions_without_opening_settings_or_promptin
     assert ('doctor.check', {'selftest': False, 'hearing': True}) in world['daemon'].calls
 
 
+# decision: DMN-21
 def test_update_recognizes_existing_grants_despite_an_older_setup_marker(world):
     world['inst'].install()
     config = Config(world['home'])
@@ -270,6 +273,7 @@ def test_update_recognizes_existing_grants_despite_an_older_setup_marker(world):
     assert world['panes'] == [] and world['daemon'].automation_requests == []
 
 
+# decision: DMN-21
 def test_update_does_not_treat_a_missing_permission_status_as_a_grant(world):
     world['inst'].install()
     world['daemon'].perms = {name: 'granted' for name in S.SETUP_PERMISSIONS if name != 'full_disk_access'}
@@ -487,6 +491,7 @@ def test_doctor_from_the_app_checks_the_bundled_interpreter_not_a_venv(app_world
 
 # ---------- packaged FERB.app × hearing (L26 + L27 integration) ----------
 
+# decision: DMN-400
 def test_plain_setup_from_the_app_hears_through_the_app_itself_without_building(app_world: dict[str, Any]) -> None:
     env, out = make_env(app_world, [], daemon_up=False)
     assert S.setup(env) == 0, out.getvalue()
@@ -497,6 +502,7 @@ def test_plain_setup_from_the_app_hears_through_the_app_itself_without_building(
     assert not (app_world["home"] / "FERB.app").exists()
 
 
+# decision: DMN-400
 def test_an_old_voice_pin_is_replaced_by_app_setup(app_world: dict[str, Any]) -> None:
     """The first app setup after the merge pins FERB.app's own sealed requirement over the old helper's (no owner step)."""
     Config(app_world["home"]).set("hearing", "requirement", 'identifier "com.ferb.app" and certificate leaf = H"old"')
@@ -513,6 +519,7 @@ def test_an_old_voice_pin_is_replaced_by_app_setup(app_world: dict[str, Any]) ->
     assert Config(app_world["home"]).get("hearing", "requirement") == PINNED
 
 
+# decision: DMN-400
 def test_setup_from_the_app_refuses_an_app_signature_that_names_no_code(app_world: dict[str, Any]) -> None:
     runner = app_world["runner"]
 
@@ -733,6 +740,7 @@ def _apply(world: dict[str, Any], ok: str, daemon_up: bool = False) -> tuple[int
     return code, out.getvalue(), json.loads(out.getvalue().strip().splitlines()[-1])
 
 
+# decision: STORE-402, STORE-412
 def test_an_update_never_cleans_the_database_on_its_own(world: dict[str, Any]) -> None:
     """STORE-402: the clean-up waits for the owner's OK; installing or updating FERB removes nothing."""
     world["inst"].install()
@@ -745,6 +753,7 @@ def test_an_update_never_cleans_the_database_on_its_own(world: dict[str, Any]) -
     assert old["versions"]
 
 
+# decision: STORE-402, STORE-411
 def test_the_preview_lists_what_the_cleanup_removes_and_changes_nothing(world: dict[str, Any]) -> None:
     world["inst"].install()
     old = _old_store(world["home"])
@@ -764,6 +773,7 @@ def test_the_preview_lists_what_the_cleanup_removes_and_changes_nothing(world: d
     assert "! database: " in out.getvalue() and "waits for your OK" in out.getvalue()
 
 
+# decision: STORE-402, STORE-412
 def test_the_cleanup_refuses_without_the_owners_ok_and_starts_the_daemon_again(world: dict[str, Any]) -> None:
     world["inst"].install()
     _old_store(world["home"])
@@ -776,6 +786,7 @@ def test_the_cleanup_refuses_without_the_owners_ok_and_starts_the_daemon_again(w
     assert _journal_kinds(world["home"]) == [] and world["runner"].loaded
 
 
+# decision: STORE-412
 def test_the_ok_holds_while_the_hourly_pass_trims_rows_and_not_when_a_row_only_the_cleanup_removes_changes(
         world: dict[str, Any]) -> None:
     """The owner's OK covers the steps and the rows only the clean-up changes; the running daemon's hourly pass ages
@@ -802,6 +813,7 @@ def test_the_ok_holds_while_the_hourly_pass_trims_rows_and_not_when_a_row_only_t
     assert _q(world["home"], "SELECT COUNT(*) FROM decisions") == 0
 
 
+# decision: STORE-402, STORE-409, STORE-411
 def test_the_cleanup_runs_with_the_daemon_stopped_removes_only_what_was_shown_and_journals_it(
         world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.store import cleanup
@@ -850,6 +862,7 @@ def test_the_cleanup_runs_with_the_daemon_stopped_removes_only_what_was_shown_an
     assert "✓ database: " in out.getvalue()
 
 
+# decision: DMN-17
 def test_the_cleanup_waits_while_another_daemon_answers_or_the_stopped_one_hasnt_exited(
         world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     import math
@@ -870,6 +883,7 @@ def test_the_cleanup_waits_while_another_daemon_answers_or_the_stopped_one_hasnt
     assert _q(world["home"], "SELECT COUNT(*) FROM decisions") == 0
 
 
+# decision: STORE-402
 def test_quitting_during_the_cleanup_stops_it_starts_the_daemon_and_the_next_run_finishes(
         world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     import os
@@ -897,6 +911,7 @@ def test_quitting_during_the_cleanup_stops_it_starts_the_daemon_and_the_next_run
     assert _q(world["home"], "SELECT COUNT(*) FROM decisions") == 0 and old["versions"]
 
 
+# decision: STORE-416
 def test_without_room_to_compact_the_rows_go_and_a_later_run_compacts(world: dict[str, Any],
                                                                      monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.store.db import Database
@@ -918,6 +933,7 @@ def test_without_room_to_compact_the_rows_go_and_a_later_run_compacts(world: dic
 
 # ---------- FERB.app's setup window (L34 C): `ferb setup --service` ----------
 
+# decision: DMN-15
 def test_the_setup_window_installs_the_service_without_asking_anything(app_world: dict[str, Any]) -> None:
     env, out = make_env(app_world, [], daemon_up=False)        # no answers: any question would fail the test
     assert S.service_setup(env) == 0, out.getvalue()

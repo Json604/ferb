@@ -30,6 +30,7 @@ status = "active"
 words_source = "notes/daemon.md owner decision 3: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
 rule = "The `ferb` program is only invisible plumbing (the `setup` commands the app calls, `mcp` for the models' tool bridge, `daemon run`) plus a developer toolbox (trace, logs, stats, doctor, memory, restore, ps, verdict, runtimes, browsers) used to debug and never presented to users. All user commands go; push-to-talk and identity-profile setup live in the app."
 paths = ["ferb/cli"]
+untestable = "Which commands the developer CLI keeps is a scope decision; a test of the command list would be a wiring test (TEST-500)."
 legacy = "notes/daemon.md decision 3"
 
 [DMN-4]
@@ -40,6 +41,7 @@ status = "active"
 words_source = "notes/daemon.md owner decision 4: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
 rule = "The Mac probe and watch harness, the CLI permission walkthrough (the app does it), the old chat renderer, the duplicate trace renderer and the dormant conversations / notifications / test-mode commands are removed. Kept: trace, logs, stats, doctor, memory, restore, ps, setup/uninstall, verdict, runtimes, browsers, mcp."
 paths = ["ferb/cli/__init__.py::APP_COMMANDS", "ferb/cli", "ferb/device"]
+untestable = "A removal of CLI commands; a test of the command list would be a wiring test (TEST-500)."
 legacy = "notes/daemon.md decision 4"
 
 [DMN-5]
@@ -72,6 +74,7 @@ words_source = "notes/daemon.md decision 6, owner addendum 2026-10-31: an agent'
 rule = "When asked, FERB may talk about its models, its settings and how it works."
 rejected = ["P27 rule 8 (2026-10-08): FERB doesn't recite its runtime, model names or design in chat"]
 paths = ["ferb/daemon/about.py"]
+live = ["LIVE-5"]
 legacy = "notes/daemon.md decision 6 (2026-10-31 addendum)"
 
 [DMN-8]

@@ -8,6 +8,7 @@ status = "active"
 words = "i want the current extension logo as the main ferb logo everywhere. the app, site, everywhere."
 rule = "FERB's one logo is the extension's: the dark rounded square with the white \"f\" and the orange dot, unchanged in look, used by the app, the site, the extension and everywhere else."
 paths = ["assets/logo", "site", "extensions/store/src", "extensions/chromium/icons"]
+live = ["LIVE-25"]
 legacy = "notes/daemon.md decision 12"
 
 [REL-2]
@@ -28,6 +29,7 @@ date = 2026-11-01
 status = "active"
 rule = "assets/logo/ferb-logo.svg is the one master (128-unit canvas, the 96-unit square inset 16; the \"f\" an outline path, so nothing depends on installed fonts). Change the logo only there, then run `uv run python scripts/make_logo.py`, which rewrites every derived file (PNG, AppIcon.icns, extension and notch SVGs and PNGs, site favicon and touch icon) with macOS's own renderer and iconutil. Derived files are committed, so builds don't render."
 paths = ["assets/logo/ferb-logo.svg", "scripts/make_logo.py"]
+live = ["LIVE-25"]
 legacy = "notes/daemon.md Logo: one master, derived"
 
 [REL-4]
@@ -83,3 +85,4 @@ status = "active"
 words = "recommeded all"
 why = "Answer to T-512: the owner accepted the recommendation for every open question."
 rule = "One FERB.app shipped as two DMGs (Apple silicon, Intel), signed without a Developer ID or notarization for now; updates install by themselves; the notch is the main interface with detail in a regular window; installing from source stays supported."
+live = ["LIVE-636", "LIVE-637"]

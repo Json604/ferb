@@ -33,6 +33,7 @@ def _as_app(daemon: RunningDaemon) -> Client:
     return Client(daemon.sock)
 
 
+# decision: DMN-23, DMN-27
 def test_only_ferb_apps_own_process_may_list_or_see_the_screenshots(daemon: RunningDaemon) -> None:
     eid = _keep(daemon, "req-1", "front_window", JPEG, {"app": "Safari", "bundle_id": "com.apple.Safari"})
     c = Client(daemon.sock)
@@ -45,6 +46,7 @@ def test_only_ferb_apps_own_process_may_list_or_see_the_screenshots(daemon: Runn
         c.close()
 
 
+# decision: DMN-27
 def test_a_messages_screenshots_are_its_front_window_and_its_tasks_images_newest_first(daemon: RunningDaemon) -> None:
     grant, _ = gateway_setup(daemon, {"shell"}, gateway_request("look at this"), [])    # task-1 of request req-1
     front = _keep(daemon, "req-1", "front_window", JPEG,
@@ -74,6 +76,7 @@ def test_a_messages_screenshots_are_its_front_window_and_its_tasks_images_newest
     assert _rows(daemon) == before                                       # nothing captured anew
 
 
+# decision: DMN-27
 def test_an_excluded_apps_image_is_never_listed_or_served_and_old_ones_age_out(daemon: RunningDaemon) -> None:
     secret = _keep(daemon, "req-1", "front_window", JPEG, {"app": "Vault", "bundle_id": "com.example.vault"})
     site = _keep(daemon, "req-1", "screenshot", SHOT, {"tool": "browser.screenshot", "url": "https://bank.example/x"})

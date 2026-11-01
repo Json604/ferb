@@ -22,6 +22,7 @@ def _journal(d: RunningDaemon, kind: str) -> list[dict[str, Any]]:
     return d.run(read())
 
 
+# decision: DMN-11
 def test_the_supervisor_ports_and_gateway_deps_name_every_dependency() -> None:
     """Missing wiring fails where it is built (no silent lambda default for the daemon)."""
     from ferb.daemon.gateway import GatewayDeps
@@ -34,6 +35,7 @@ def test_the_supervisor_ports_and_gateway_deps_name_every_dependency() -> None:
         ports.BrowserPort(browser_context=lambda t: "", task_tabs=lambda t: [])      # type: ignore[call-arg]
 
 
+# decision: DMN-11
 def test_the_daemon_hands_the_supervisor_its_ports_and_the_gateway_its_router(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     sup, gw = d.supervisor, d.gateway
@@ -176,6 +178,7 @@ def test_chat_status_only_reads_and_results_ack_marks(daemon: RunningDaemon) -> 
         c.close()
 
 
+# decision: DMN-12
 def test_privacy_exclusions_set_in_settings_apply_at_once(daemon: RunningDaemon) -> None:
     """They used to reach the Redactor (and through it the egress proxy and hearing) only at the next start."""
     d = daemon.daemon
@@ -289,6 +292,7 @@ def _autoreleasing_job() -> None:
     del probe
 
 
+# decision: DMN-26
 def test_work_on_the_daemons_threads_drains_its_autorelease_pool(daemon: RunningDaemon) -> None:
     """Step 12d (footprint): an object a worker-thread job autoreleases is freed when the job ends, never kept by the
     long-lived thread: asyncio.to_thread jobs and a watcher's poll step alike."""

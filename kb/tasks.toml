@@ -208,3 +208,35 @@ area = "orchestration"
 kind = "build"
 status = "open"
 decisions = ["ORCH-506"]
+
+[T-900]
+title = "Write the test for DMN-1: task.stop without task ids is refused and stops nothing"
+area = "daemon"
+kind = "build"
+status = "open"
+why = "No test checks that an empty or missing task_ids is refused (ferb/daemon/areas/chat.py Chat._task_stop) rather than stopping everything; the global stop is stop.engage."
+decisions = ["DMN-1"]
+
+[T-901]
+title = "Write the test for STORE-413: a composed episode is never rewritten by a later pass"
+area = "storage"
+kind = "build"
+why = "No test checks that a composed episode stays byte-identical through a retention pass (only that one row exists)."
+status = "open"
+decisions = ["STORE-413"]
+
+[T-902]
+title = "Write the test for STORE-418: audit-like journal kinds survive the 90-day pass"
+area = "storage"
+kind = "build"
+status = "open"
+why = "test_retention's operational-records test checks bookkeeping rows go and chat/owner rows stay, but no test plants security.alignment, shell.network, escape.used or clipboard.access rows past 90 days."
+decisions = ["STORE-418", "STORE-408"]
+
+[T-903]
+title = "Count relay/test.mjs as the test of DMN-30 and DMN-32 and run it in the gate"
+area = "daemon"
+kind = "build"
+status = "open"
+why = "relay/test.mjs checks the Worker's protocol, limits and refusals, but its name matches no test_globs pattern and no gate check runs it, so kb sees no test for DMN-32. Both fixes touch protected gate files (Gate-change)."
+decisions = ["DMN-30", "DMN-32"]

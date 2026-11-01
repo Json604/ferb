@@ -44,6 +44,7 @@ def _grants(d: RunningDaemon) -> None:
 
 # ---------- About FERB (DMN-6) ----------
 
+# decision: DMN-6, DMN-22
 def test_the_about_summary_is_built_from_code_and_config_and_stays_the_same(daemon: RunningDaemon) -> None:
     import ferb
     d = daemon.daemon
@@ -59,6 +60,7 @@ def test_the_about_summary_is_built_from_code_and_config_and_stays_the_same(daem
     assert d._about_summary() != first and d._models()["worker"].startswith("Claude")
 
 
+# decision: DMN-6, DMN-22
 def test_the_lookup_tool_only_reads_and_hides_secrets(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     _grants(daemon)
@@ -78,6 +80,7 @@ def test_the_lookup_tool_only_reads_and_hides_secrets(daemon: RunningDaemon) -> 
     assert list(one) == ["records"]
 
 
+# decision: DMN-6, STORE-5
 def test_what_ferb_keeps_comes_from_the_retention_rule_table(daemon: RunningDaemon,
                                                             monkeypatch: pytest.MonkeyPatch) -> None:
     d = daemon.daemon
@@ -94,6 +97,7 @@ def test_what_ferb_keeps_comes_from_the_retention_rule_table(daemon: RunningDaem
     assert doc["records"][-1]["records"] == "a record kind added later" and doc["records"][-1]["days"] == 5
 
 
+# decision: DMN-6
 def test_the_app_guide_becomes_the_self_descriptions_how_tos(daemon: RunningDaemon) -> None:
     _grants(daemon)
     _as_app(daemon)
@@ -109,6 +113,7 @@ def test_the_app_guide_becomes_the_self_descriptions_how_tos(daemon: RunningDaem
 
 # ---------- FERB's own account (APP-1) ----------
 
+# decision: DMN-25
 def test_choosing_ferbs_profile_writes_config_through_the_settings_path(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
@@ -190,6 +195,7 @@ def test_delete_removes_the_keychain_item_and_never_returns_its_value(daemon: Ru
 
 # ---------- restore (APP-2) ----------
 
+# decision: DMN-33
 def test_the_app_lists_and_restores_a_trash_move(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     bin_ = daemon.daemon.home.parent / ".Trash"
     bin_.mkdir(parents=True, exist_ok=True)
@@ -210,6 +216,7 @@ def test_the_app_lists_and_restores_a_trash_move(daemon: RunningDaemon, monkeypa
 
 # ---------- FERB.app only ----------
 
+# decision: DMN-23, DMN-21
 @pytest.mark.parametrize("method", ["secrets.saved", "secrets.delete", "identity.find", "identity.choose",
                                     "identity.pair", "about.guide", "setup.finish"])
 def test_the_owner_data_methods_refuse_any_other_program(daemon: RunningDaemon, method: str) -> None:
@@ -220,6 +227,7 @@ def test_the_owner_data_methods_refuse_any_other_program(daemon: RunningDaemon, 
 
 # ---------- uninstall (APP-2) ----------
 
+# decision: DMN-24
 def test_uninstall_everything_asks_only_in_the_app(tmp_path: Path) -> None:
     from types import SimpleNamespace
     from ferb.cli import setup as setup_cmd
