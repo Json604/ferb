@@ -90,13 +90,13 @@ public enum AppSetupPlan {
         }
     }
 
-    /// After a quiet update: as at launch, except that a required grant missing brings back its beat even when setup
-    /// was finished before (the old window reopened on Permissions there).
+    /// After a quiet update: as at launch, except that on a finished setup a required grant missing brings back
+    /// Allow all and home, and nothing else (the old window reopened on Permissions there).
     public static func afterUpdate(_ needs: IntroNeeds, tour: [IntroBeat]? = nil,
                                    resume: SetupStep? = nil) -> SetupLaunch {
-        var needs = needs
-        if !needs.missingPermissions.isEmpty { needs.setupDone = false }
-        return settled(needs, tour: tour, resume: resume)
+        if let tour, !tour.isEmpty { return .intro(tour) }
+        if needs.setupDone && !needs.missingPermissions.isEmpty { return .intro([.permissions, .home]) }
+        return settled(needs, tour: nil, resume: resume)
     }
 
     private static func settled(_ needs: IntroNeeds, tour: [IntroBeat]?, resume: SetupStep?) -> SetupLaunch {

@@ -32,7 +32,17 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     private var intro: IntroController?
     private var orb: OrbController?
     private var sound: FerbSoundEngine?
-    private var progress: IntroProgress { IntroProgress(defaults: .standard) }
+    /// Where the intro stands (IntroProgress) and the setup window's Grant resume (SetupModel.resumeKey) live here.
+    private let defaults: UserDefaults
+    private var progress: IntroProgress { IntroProgress(defaults: defaults) }
+    private let injectedModel: SetupModel?
+
+    /// `model` and `defaults` are for tests: the app uses its own setup model and the standard defaults.
+    init(model: SetupModel? = nil, defaults: UserDefaults = .standard) {
+        injectedModel = model
+        self.defaults = defaults
+        super.init()
+    }
 
     private var python: URL { bundle.appendingPathComponent("Contents/Resources/python/bin/python3.12") }
     private var agentExecutable: URL { bundle.appendingPathComponent("Contents/Helpers/FERB.app/Contents/MacOS/FERB") }
@@ -47,10 +57,10 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     }
     let background = AppServiceAgent()
 
-    lazy var model = SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
-                                        app: SystemAppPermissions(), system: SystemOpener(),
-                                        keys: KeychainAPIKeyStore(), service: DaemonService(),
-                                        background: isPackaged ? background : nil)
+    lazy var model = injectedModel ?? SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
+                                                 app: SystemAppPermissions(), system: SystemOpener(),
+                                                 keys: KeychainAPIKeyStore(), service: DaemonService(),
+                                                 background: isPackaged ? background : nil)
 
     var isPackaged: Bool {
         FileManager.default.isExecutableFile(atPath: launcher.path) && FileManager.default.fileExists(atPath: python.path)
@@ -60,14 +70,25 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     func startAtLaunch() {
         guard isPackaged else { return }
         let action = currentAction()
-        Task { @MainActor in
-            // Only this build's running service is asked what's still missing: a new install has nothing to read
-            // yet, and an update reads after it has run (quietUpdate).
-            let needs = action == .none ? await self.readNeeds(action) : Self.newInstall(action)
-            let decision = AppSetupPlan.atLaunch(action, needs: needs, tour: self.progress.interrupted,
-                                                 resume: SetupModel.pendingResume(.standard))
-            self.launch(decision, action: action, firstRun: needs.firstRun)
-        }
+        Task { @MainActor in await self.decideAtLaunch(action) }
+    }
+
+    /// The launch decision for `action`. Only this build's running service is asked what's still missing: a new
+    /// install has nothing to read yet, and an update reads after it has run (quietUpdate).
+    func decideAtLaunch(_ action: AppSetupAction) async {
+        let needs = action == .none ? await readNeeds(action) : Self.newInstall(action)
+        let decision = AppSetupPlan.atLaunch(action, needs: needs, tour: progress.interrupted,
+                                             resume: SetupModel.pendingResume(defaults))
+        await launch(decision, action: action, needs: needs)
+    }
+
+    /// FERB isn't running and Restart couldn't start it: the service is set up again from the setup window, as
+    /// Set Up FERB… did before the intro. A repair never starts a tour.
+    func repairService() {
+        guard isPackaged else { return }
+        let action = currentAction()
+        if case .confirmReplace(let current) = action, !confirmReplacing(current) { return }
+        show(.welcome, action: action)
     }
 
     /// Set Up FERB… and Settings → General → Replay intro: every beat again, ignored while a tour runs. It resets no
@@ -82,14 +103,19 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         startTour(beats, action: action, firstRun: false)
     }
 
-    private func launch(_ decision: SetupLaunch, action: AppSetupAction, firstRun: Bool) {
+    /// The one path every launch decision runs through. Nothing to do, with the tour behind it and every grant read,
+    /// but setup never recorded (a skip or Home whose `setup.finish` didn't land): it is recorded quietly now; the
+    /// daemon checks every row again before it counts setup as done.
+    func launch(_ decision: SetupLaunch, action: AppSetupAction, needs: IntroNeeds) async {
         switch decision {
-        case .nothing: onSettled?()
+        case .nothing:
+            if !needs.setupDone && progress.done && model.permissions != nil { await model.recordFinished() }
+            onSettled?()
         case .quietUpdate: quietUpdate()
         case .window(let step): show(step, action: action)
         case .intro(let beats):
             if case .confirmReplace(let current) = action, !confirmReplacing(current) { return }
-            startTour(beats, action: action, firstRun: firstRun)
+            startTour(beats, action: action, firstRun: needs.firstRun)
         }
     }
 
@@ -99,7 +125,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         guard let notch, let introControls else { show(.welcome, action: action); return }
         if !model.serviceRunning { model.serviceAction = action }
         window?.close()                                       // the compact window gives way to the tour
-        UserDefaults.standard.removeObject(forKey: SetupModel.resumeKey)   // the intro's own resume wins
+        defaults.removeObject(forKey: SetupModel.resumeKey)   // the intro's own resume wins
         var progress = self.progress
         if firstRun { progress.resumeBeat = nil }            // a new install starts at Meet, whatever a quit left
         progress.plan = beats
@@ -124,7 +150,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         sound = nil
         var progress = self.progress
         progress.plan = nil
-        UserDefaults.standard.removeObject(forKey: SetupModel.resumeKey)   // the tour's grants left it
+        defaults.removeObject(forKey: SetupModel.resumeKey)   // the tour's grants left it
         let serviceSetUp = model.serviceAction == .none && !model.serviceRunning
         if let step = AppSetupPlan.afterIntro(left, serviceSetUp: serviceSetUp) {
             show(step, action: model.serviceAction)
@@ -133,25 +159,34 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// What this install still needs, read from the daemon and the system.
+    /// What this install still needs, read from the daemon and the system: only what the decision depends on. A
+    /// quit tour or a first run needs nothing more; a finished setup needs nothing more at launch and only its grants
+    /// after an update. The launch's reads leave no "isn't answering" line behind on the shared model (the daemon
+    /// may only be slow to start; the setup window's own polling says so if it lasts).
     private func readNeeds(_ action: AppSetupAction) async -> IntroNeeds {
         let done = await model.setupDone()
         let progress = self.progress
         let firstRun = AppSetupPlan.firstRun(action, setupDone: done, introDone: progress.done,
                                              resuming: progress.resumeBeat != nil)
-        await model.refreshAI()
-        await model.refreshPermissions()
-        await model.refreshBrowsers()
+        if progress.interrupted == nil && !firstRun {
+            if !done || action == .update { await model.refreshPermissions() }
+            if !done {
+                await model.refreshAI()
+                await model.refreshBrowsers()
+            }
+            model.clearNotAnswering()
+        }
         return snapshotNeeds(setupDone: done, firstRun: firstRun)
     }
 
-    /// IntroNeeds from the setup model's last reads. A fact the daemon didn't answer asks for nothing: no grant
-    /// counts as missing and browsers as unpaired only when some were found and none is paired.
-    private func snapshotNeeds(setupDone: Bool, firstRun: Bool) -> IntroNeeds {
+    /// IntroNeeds from the setup model's last reads. A fact the daemon didn't answer (or that wasn't read) asks for
+    /// nothing: signed in, no grant missing, browsers unpaired only when some were found and none is paired. A grant
+    /// counts as missing as in Allow all: every setup row not on, FERB.app's own included, a blocked one never.
+    func snapshotNeeds(setupDone: Bool, firstRun: Bool) -> IntroNeeds {
         let missing = model.permissions == nil ? [] : SetupModel.allowAllOrder(model.setupRows)
         let profiles = model.browsers?.browsers.flatMap(\.profiles) ?? []
         let unpaired = !profiles.isEmpty && !profiles.contains { $0.state == .paired }
-        return IntroNeeds(setupDone: setupDone, signedIn: IntroController.connected(model.ai),
+        return IntroNeeds(setupDone: setupDone, signedIn: model.ai == nil || IntroController.connected(model.ai),
                           missingPermissions: missing, unpairedBrowsers: unpaired, firstRun: firstRun)
     }
 
@@ -193,7 +228,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
             Task { @MainActor in
                 let needs = await self.readNeeds(.update)
                 let decision = AppSetupPlan.afterUpdate(needs, tour: self.progress.interrupted)
-                self.launch(decision, action: .none, firstRun: needs.firstRun)
+                await self.launch(decision, action: .none, needs: needs)
             }
         }
     }

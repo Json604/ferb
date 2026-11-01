@@ -1,8 +1,8 @@
 # First-run intro and setup (design, 2026-11-01)
 
 Status: design agreed in conversation with the owner on 2026-11-01; the sound family was decided the same day over
-nine listening rounds (notes/sound.md). Built 2026-11-01 (notes/setup-intro-plan.md Tasks 1–9); live checks pending
-(step 13). Replaces today's setup window flow (fix-order step 15; it comes before step
+nine listening rounds (notes/sound.md). Tasks 1–9 built 2026-11-01 (notes/setup-intro-plan.md); Tasks 10–11 next; live
+checks pending (step 13). Replaces today's setup window flow (fix-order step 15; it comes before step
 13's fresh install). Visual polish happens in the Swift app (owner: "needs polishing and that we'll do in the swift app").
 
 ## Intent (owner's words, condensed)
@@ -163,10 +163,14 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   intro"); an install missing grants gets only the missing beats.
 - Launch (built, Task 9; AppSetupPlan.atLaunch/afterUpdate): a new install or another installation → every beat; a
   quit tour → its own plan at its beat (IntroProgress keeps the plan; it wins over the compact window's Grant resume);
-  setup done → nothing, except that a quiet update finding a required grant off runs that beat and home; setup not done
-  → the missing beats (browsers count as unpaired only when profiles exist and none is paired). Set Up FERB… and
-  Settings → General → Replay intro run every beat. A skip, or a grant still off at Home, opens the compact window on
-  the first required step left (service, sign-in, permissions).
+  setup done → nothing, except that a quiet update finding a required grant off runs Allow all and home only; setup
+  not done → the missing beats (a fact the daemon didn't answer asks for nothing; browsers count as unpaired only
+  when profiles exist and none is paired), and with none missing after the tour, launch records setup quietly
+  (`setup.finish`; the daemon checks every row). Set Up FERB… and Settings → General → Replay intro run every beat;
+  the menu's Restart finding no service repairs it in the compact window, never the tour. A skip, or a grant still
+  off at Home, opens the compact window on the first required step left (service, sign-in, permissions).
+- A required grant counts as missing after an update for FERB.app's own rows too (Notifications, Microphone): every
+  permission is required (owner 2026-10-26) and the daemon's `setup.finish` checks them all (ruling, 2026-11-01).
 - The repo stays general (no personal data in examples, copy or tests).
 - The owner polishes visuals in Swift; this design fixes behaviour, flow, motion rules and the sound system.
 

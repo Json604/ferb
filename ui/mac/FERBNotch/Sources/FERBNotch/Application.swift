@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator?.poster = poster
         if appSetup.isPackaged {
             coordinator?.onSetUp = { [appSetup] in appSetup.replayIntro() }   // Set Up FERB…: the intro again
+            coordinator?.onRepair = { [appSetup] in appSetup.repairService() }   // Restart found no service
         }
         appSetup.onFinished = { [weak self] in self?.coordinator?.showFromMenu() }   // Done: into the notch
         if let coordinator {

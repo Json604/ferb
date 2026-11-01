@@ -332,21 +332,6 @@ final class SetupModelTests: XCTestCase {
         XCTAssertTrue(away)                                      // FERB isn't answering: never nag at launch
     }
 
-    func testAQuietUpdateOpensPermissionsOnlyWhenARequiredGrantIsMissing() async {
-        let rig = SetupRig()
-        let model = rig.model()
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
-        let fine = await model.needsPermissions()
-        XCTAssertFalse(fine)
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "denied", fda: "granted")
-        let missing = await model.needsPermissions()
-        XCTAssertTrue(missing)
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "denied",
-                                                                        fdaBlocked: "not yet")
-        let blocked = await model.needsPermissions()
-        XCTAssertFalse(blocked)                                   // a blocked row can't be granted yet
-    }
-
     func testAnExistingInstallIsAskedForNotificationsOnceWhileMacOSHasntAsked() async {
         // owner decision 6: set up before this window existed, so its Permissions step never offered Notifications
         let rig = SetupRig()

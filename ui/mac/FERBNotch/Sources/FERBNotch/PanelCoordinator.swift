@@ -168,14 +168,15 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// five times a second costs far below a percent of one core. A responsiveness detail, not a behaviour cap.
     /// A pinned FERB is always on screen, so it polls continuously while the displays are awake.
     private static let yieldPollInterval: Duration = .milliseconds(200)
-    var onSetUp: (() -> Void)?                   // set by the packaged FERB.app: run `ferb setup` again
+    var onSetUp: (() -> Void)?                   // set by the packaged FERB.app: Set Up FERB… replays the intro
+    var onRepair: (() -> Void)?                  // set by the packaged FERB.app: the service set up again, no tour
     var poster: NotificationPoster?              // set by AppDelegate before start() (L34 D)
     var hasWindow = false                        // Phase E: the FERB window exists ("Open FERB Window")
     var onOpenWindow: (() -> Void)?              // Phase E
     var updateOffer: String?                     // L34 Phase G: an update waiting for the owner's click
     var onInstallUpdate: (() -> Void)?
     var onOpenSettings: (() -> Void)?            // the FERB window at Settings (L34 Phase E): ⌘, and Settings…
-    private let service = DaemonService()
+    var service: DaemonServicing = DaemonService()
     private var statusRefresh: AnyCancellable?
     private var statusRefreshQueued = false
     private var isStarted = false
@@ -1455,14 +1456,14 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     /// FERB isn't running — Restart: launchd starts the installed background service again; with none installed, the
-    /// packaged app opens Set Up FERB… and a development build says how.
+    /// packaged app sets it up again in the setup window (never the intro's tour) and a development build says how.
     private func restartDaemon() {
         Task { [weak self] in
             guard let self else { return }
             if await self.service.restart() {
                 self.model.daemonLink.restarting()
-            } else if let setUp = self.onSetUp {
-                setUp()
+            } else if let repair = self.onRepair {
+                repair()
             } else {
                 let alert = NSAlert()
                 alert.messageText = "FERB's background service isn't installed."

@@ -279,7 +279,7 @@ final class SetupModel: ObservableObject {
         }
     }
 
-    private func clearNotAnswering() { if message == Self.notAnswering { message = nil } }
+    func clearNotAnswering() { if message == Self.notAnswering { message = nil } }
 
     // MARK: Choose your AI
 
@@ -471,12 +471,6 @@ final class SetupModel: ObservableObject {
         message = ok ? nil : "FERB's background service couldn't be restarted."
         if ok { askedRestart.removeAll() }
         await refreshPermissions()
-    }
-
-    /// After a quiet update: whether a required grant that can be granted now is missing.
-    func needsPermissions() async -> Bool {
-        await refreshPermissions()
-        return permissions?.rows.contains { Self.askedAtSetup.contains($0.id) && $0.status != .granted && $0.blocked.isEmpty } ?? false
     }
 
     /// Whether setup was finished (by this window or `ferb setup`), asked of the daemon at launch.
