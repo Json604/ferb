@@ -172,6 +172,7 @@ async def _journal(d: RunningDaemon, kind: str) -> list[dict[str, Any]]:
     return [e.data for e in d.daemon.journal.of_kind(kind)]                   # type: ignore[union-attr]
 
 
+# decision: HAND-214
 def test_servers_started_in_the_shell_are_reachable_and_other_local_servers_are_not(daemon: RunningDaemon,
                                                                                    origin: int) -> None:
     """The loopback width: a contained command reaches FERB's proxy and servers started inside FERB's shell (a dev
@@ -201,6 +202,7 @@ def test_servers_started_in_the_shell_are_reachable_and_other_local_servers_are_
     call(daemon, g, "shell.kill", id=sid)
 
 
+# decision: HAND-214
 def test_a_server_that_starts_listening_after_the_command_began_is_reached_only_through_the_proxy(
         daemon: RunningDaemon) -> None:
     """Hands fix list: the profile is fixed when a command starts, so a port another program opens later must not be
@@ -374,6 +376,7 @@ def test_the_proxy_environment_names_the_process_and_keeps_loopback_direct() -> 
 
 # ---------- the loopback width in the profile ----------
 
+# decision: HAND-214
 def test_a_server_inside_ferbs_sandbox_counts_as_contained_and_others_do_not(tmp_path: Path) -> None:
     """sandbox_check: FERB's profile is the one that denies FERB's run folder and allows its workspace."""
     home, ferb = tmp_path / "h", tmp_path / "h" / ".ferb"

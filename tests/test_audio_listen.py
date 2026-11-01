@@ -170,6 +170,7 @@ def test_task_end_ends_a_listen_in_progress(tmp_path: Path) -> None:
     assert fake.argv == []                                            # nobody is left to read a transcript
 
 
+# decision: HAND-401
 def test_a_tab_listen_hears_the_browser_app_showing_that_task_tab(tmp_path: Path) -> None:
     from ferb.act.listen import AudioListen
     hearing, _, capture = _hearing(tmp_path)

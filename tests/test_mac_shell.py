@@ -316,6 +316,7 @@ def test_foreground_input_always_yields_to_the_owner(daemon: RunningDaemon) -> N
     assert real_input.owner_active() is True
 
 
+# decision: HAND-212
 def test_opening_an_app_does_not_restore_a_stale_owner_app(daemon: RunningDaemon, monkeypatch: Any) -> None:
     """The owner may choose the launched app during startup; never reactivate an old foreground app."""
     from tests.mackit import _fake_mac

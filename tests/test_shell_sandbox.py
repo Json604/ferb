@@ -580,6 +580,7 @@ def test_a_missing_guarded_parent_cant_be_planted_as_a_link_or_renamed(tmp_path:
     assert run_under(sb, ["cat", str(cargo / "credentials.toml")]).returncode != 0
 
 
+# decision: GATE-1
 def test_ferb_app_stays_closed_to_the_shell_even_when_its_folder_is_lifted(tmp_path: Path) -> None:
     """FERB.app holds the daemon's code: a lifted never-write entry for its folder (an approved escape) still leaves
     the app closed, wherever it is, and the app rule itself is never lifted."""

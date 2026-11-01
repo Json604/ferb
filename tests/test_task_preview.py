@@ -104,6 +104,7 @@ def test_no_frame_after_the_task_ends_even_from_a_capture_already_running() -> N
     asyncio.run(check())
 
 
+# decision: HAND-402
 def test_no_frame_for_a_tab_the_task_does_not_own() -> None:
     """The browser declaration resolves through the driver's ownership check with the calling task: a tab the task
     doesn't hold gives no frame, only why."""
@@ -188,6 +189,7 @@ def test_a_withheld_frame_and_the_masking_note_are_said() -> None:
     asyncio.run(check())
 
 
+# decision: HAND-402
 def test_a_failing_declaration_never_touches_the_call() -> None:
     """A capability's declaration that raises is no surface; the hook never raises, so a successful call's result is
     never lost (kb area app: gateway.py:1446, 1457)."""

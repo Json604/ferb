@@ -85,6 +85,7 @@ VENDOR_TABLE = [
 ]
 
 
+# decision: GATE-212
 @pytest.mark.parametrize("kind,text,secret,kept", VENDOR_TABLE, ids=[f"{k}:{i}" for i, (k, *_) in
                                                                       enumerate(VENDOR_TABLE)])
 def test_every_vendor_format_is_masked_and_named(kind, text, secret, kept) -> None:
@@ -95,10 +96,12 @@ def test_every_vendor_format_is_masked_and_named(kind, text, secret, kept) -> No
     assert r.text(out) == out
 
 
+# decision: GATE-206, GATE-212
 def test_the_cvv_after_a_card_and_its_expiry_is_masked() -> None:
     assert Redactor().text("4111 1111 1111 1111 12/27 737 thanks") == "[redacted] [redacted] [redacted] thanks"
 
 
+# decision: GATE-212
 @pytest.mark.parametrize("text", ["the basic plan costs 499", "Order #405-1234567 shipped", "valid until Monday",
                                   "exp(2) = 7.389", "a public key -----BEGIN PUBLIC KEY-----", "mkdir -p logs",
                                   "ssh git@github.com", "https://git@github.com/org/repo", "sk-short", "AIza-short",
@@ -296,12 +299,14 @@ def test_excluded_hosts_and_apps_still_read_excluded() -> None:
 
 # ---------- the registry preloaded at start; the process exception hooks ----------
 
+# decision: GATE-213
 def test_preloaded_values_are_known_from_the_start() -> None:
     r = Redactor()
     assert r.preload(["Fake-Keychain-Value-1", "pizza", "Fake-Keychain-Value-1"]) == 2
     assert r.text("echo Fake-Keychain-Value-1") == "echo [redacted]" and r.hit("x Fake-Keychain-Value-1") is not None
 
 
+# decision: GATE-213
 def test_the_daemon_preloads_its_keychain_and_owner_values_through_the_stores(daemon, monkeypatch) -> None:
     """Fake stores only: the daemon reads FERB's [secrets], the owner's saved secrets and the API keys through their
     stores in a thread, registers the values and journals counts, never values."""
@@ -321,6 +326,7 @@ def test_the_daemon_preloads_its_keychain_and_owner_values_through_the_stores(da
     assert asked == [{d._runtime_for(role) for role in ("orchestrator", "worker", "checker")}]   # only those used
 
 
+# decision: GATE-213
 def test_api_keys_are_read_only_for_providers_the_runtime_table_uses(monkeypatch) -> None:
     import subprocess
     import ferb.runtimes.keys as keys

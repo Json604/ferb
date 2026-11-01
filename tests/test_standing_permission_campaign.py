@@ -117,6 +117,7 @@ def test_a_scope_names_its_site_as_people_write_it(daemon: RunningDaemon) -> Non
 
 # ---------- anything outside the scope still asks ----------
 
+# decision: GATE-221
 def test_a_post_to_another_site_still_asks(daemon: RunningDaemon) -> None:
     grant, browser = campaign_grant(daemon, WORDS)
     stand(daemon, grant.task_id, X_SCOPE)
@@ -246,6 +247,7 @@ def test_only_a_generic_input_is_checked_as_its_declared_effect() -> None:
 
 # ---------- messages and emails: the declared recipients are what the floor and the scope check ----------
 
+# decision: GATE-221
 def test_a_webmail_send_inside_its_recipient_scope_runs_and_another_recipient_asks(daemon: RunningDaemon) -> None:
     grant, browser = campaign_grant(daemon, "email the launch note to my FERB inbox every morning")
     stand(daemon, grant.task_id, SendScope(capability="browser.act", identity="owner", site="mail.google.com",

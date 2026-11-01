@@ -36,6 +36,7 @@ def _mutes(ext: Any) -> list[dict[str, Any]]:
     return [c["args"] for c in cmds if c["op"] == "mute_tab"]
 
 
+# decision: HAND-207, HAND-229
 def test_a_ferb_tab_opens_muted_a_listen_unmutes_it_and_the_owners_tab_is_left_alone(bd: Any, tmp_path: Path) -> None:
     d, launched = bd
     ext, g = _setup(d, launched, tmp_path)
@@ -66,6 +67,7 @@ def _sound_facts(d: Any) -> list[dict[str, Any]]:
     return d.run(go())
 
 
+# decision: HAND-207, HAND-230
 def test_sound_stopping_in_the_owners_tab_near_a_ferb_call_is_a_disturbance_fact(bd: Any, tmp_path: Path,
                                                                                  monkeypatch: Any) -> None:
     d, launched = bd

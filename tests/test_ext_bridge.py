@@ -386,6 +386,7 @@ console.log(JSON.stringify(p.cdpFilter("Page.captureScreenshot", {{data: "x", ex
     assert json.loads(out[1]) == {"data": "x"}
 
 
+# decision: HAND-403
 def test_a_profile_is_woken_with_no_window_first(bd: Any) -> None:
     """Spike 19 (owner watching): loading the profile with no window never moved them and its extension came online.
     That's tried first; no wake page, nothing to close."""
@@ -448,6 +449,7 @@ def test_listing_every_profile_skips_a_closed_one_and_names_it(bd: Any) -> None:
     assert [c["profile"] for c in closed] == ["chrome/Profile 1"] and "browser_open" in closed[0]["why"]
 
 
+# decision: HAND-403
 def test_disconnected_profile_does_not_open_a_visible_wake_tab(
         bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Neither the quiet start nor the profile's window brought its extension: a known failure that names both, and
@@ -471,6 +473,7 @@ def test_disconnected_profile_does_not_open_a_visible_wake_tab(
     assert not any("/wake/" in arg for argv in launched[before:] for arg in argv)
 
 
+# decision: HAND-403
 def test_a_profile_the_quiet_start_cant_reach_gets_its_window_and_the_task_goes_on(
         bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """The owner's rule (2026-10-26): "see if the browser is closed or open; if open then keep using through the

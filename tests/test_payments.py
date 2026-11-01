@@ -65,6 +65,7 @@ def _pay(d: RunningDaemon, grant: Any, **args: Any) -> dict[str, Any]:
 
 # ---------- the Orderly flow, through the gateway ----------
 
+# decision: GATE-204, GATE-216
 def test_the_orderly_flow_asks_once_and_the_otp_question_repeats_the_bank_page(daemon: RunningDaemon) -> None:
     """Pay click → card choice → card form (in the gateway's frame) → bank page (navigated) with its OTP → its submit:
     one FERB question showing the page's ₹248.75 and Orderly, one hidden code question repeating the bank page's
@@ -96,6 +97,7 @@ def test_the_orderly_flow_asks_once_and_the_otp_question_repeats_the_bank_page(d
         owner.stop()
 
 
+# decision: GATE-204, GATE-217
 def test_a_bank_page_with_another_amount_stops_and_asks_showing_both(daemon: RunningDaemon) -> None:
     tab = _Tab()
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food"), [tab])
@@ -114,6 +116,7 @@ def test_a_bank_page_with_another_amount_stops_and_asks_showing_both(daemon: Run
         owner.stop()
 
 
+# decision: GATE-204, GATE-217
 def test_a_changed_amount_on_the_checkout_asks_again_and_an_unread_one_says_so(daemon: RunningDaemon) -> None:
     tab = _Tab()
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("buy it"), [tab])
@@ -130,6 +133,7 @@ def test_a_changed_amount_on_the_checkout_asks_again_and_an_unread_one_says_so(d
         owner.stop()
 
 
+# decision: GATE-204, GATE-216
 def test_the_question_never_shows_the_workers_number(daemon: RunningDaemon) -> None:
     tab = _Tab()
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food"), [tab])
@@ -144,6 +148,7 @@ def test_the_question_never_shows_the_workers_number(daemon: RunningDaemon) -> N
     assert "₹248.75" in question and "INR 1" not in question
 
 
+# decision: GATE-204, GATE-217
 def test_a_payment_yes_lapses_after_ten_minutes_and_a_no_is_final(daemon: RunningDaemon) -> None:
     tab = _Tab()
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food on www.orderly.example"), [tab])
@@ -165,6 +170,7 @@ def test_a_payment_yes_lapses_after_ten_minutes_and_a_no_is_final(daemon: Runnin
         owner.stop()
 
 
+# decision: GATE-202, GATE-214
 def test_a_card_form_submitted_is_a_payment_without_any_declaration(daemon: RunningDaemon) -> None:
     """Decision 1: the facts raise the question; the worker's declaration (here: none, then `navigate`) only adds."""
     tab = _Tab()
@@ -181,6 +187,7 @@ def test_a_card_form_submitted_is_a_payment_without_any_declaration(daemon: Runn
 
 # ---------- the rule on its own ----------
 
+# decision: GATE-217
 def test_amounts_compare_by_currency_and_number() -> None:
     assert payments.amount_key("₹248.75") == payments.amount_key("INR 248.75") == ("INR", "248.75")
     assert payments.amount_key("Pay $1,020.50 now") == ("USD", "1020.5")
@@ -189,6 +196,7 @@ def test_amounts_compare_by_currency_and_number() -> None:
     assert payments._same("₹248.75", "$248.75", payments.amount_key) is False
 
 
+# decision: GATE-216, GATE-217
 def test_the_rule_covers_a_tab_chain_and_completes_after_the_bank_page() -> None:
     now = {"t": datetime(2026, 10, 30, 12, 0)}
     p = payments.Payments(lambda: now["t"])
@@ -215,6 +223,7 @@ def test_the_rule_covers_a_tab_chain_and_completes_after_the_bank_page() -> None
     assert not p._by
 
 
+# decision: GATE-204
 def test_an_otp_line_repeats_the_bank_page_or_says_it_couldnt_read_it() -> None:
     a = payments.Approval("c", "t1", "shop.example", "₹248.75", "Orderly", datetime(2026, 10, 30))
     assert "couldn't read the amount on this page" in payments.otp_line(a) and "₹248.75 to Orderly" in \
@@ -237,6 +246,7 @@ def test_ask_login_code_without_a_payment_adds_nothing(daemon: RunningDaemon) ->
     assert code.summary == "For login.example: a login code — used once"
 
 
+# decision: GATE-217
 def test_a_one_click_checkout_yes_covers_that_one_paying_submit(daemon: RunningDaemon) -> None:
     """Coordinator ruling (step 6b): a paying form submit with no card form and no bank page in the chain is the
     payment itself; the next one asks again. Its bank verification page, if it opens one, is still covered."""
@@ -271,6 +281,7 @@ class _MacPay(FakeCap):
         return {"at": {"window": args.window, "point": [args.point, 0]}}
 
 
+# decision: GATE-216
 def test_a_mac_payment_is_scoped_to_its_app_window(daemon: RunningDaemon) -> None:
     """Coordinator ruling (step 6b): like a tab, one Yes covers that app window for 10 minutes."""
     mac = _MacPay()

@@ -201,6 +201,7 @@ address = "reports@example.org"
 """
 
 
+# decision: HAND-236
 def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) -> None:
     """A schema-48 store (the owner's build before this rebuild) with the 0040 column and the first versions of the
     migrations edited on 10-23/24, and an older config.toml: the

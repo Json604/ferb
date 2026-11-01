@@ -119,6 +119,7 @@ def owners() -> dict[int, tuple[str, str]]:
 
 # ---------- (a) the front window is the topmost window that isn't FERB's ----------
 
+# decision: GATE-504
 def test_with_the_notch_frontmost_above_brave_the_capture_is_brave() -> None:
     windows = [NOTCH, Window(3, 11, (0.0, 0.0, 300.0, 200.0), "FERB settings"),
                Window(4, DAEMON, (0.0, 0.0, 300.0, 200.0), ""), Window(5, 31, (0.0, 0.0, 200.0, 100.0), "dialog"),
@@ -368,6 +369,7 @@ def test_parent_pid_is_the_kernels_answer() -> None:
     assert fw.parent_pid(os.getpid()) == os.getppid()
 
 
+# decision: GATE-504
 def test_an_excluded_site_is_still_seen_under_the_excluded_label() -> None:
     """Owner ruling (fix round 2, "no exceptions"): the exclusion list governs perception recording only. The window
     is captured with its title and pixels; its origin never names the host (the gateway's convention), and its URL is
@@ -381,6 +383,7 @@ def test_an_excluded_site_is_still_seen_under_the_excluded_label() -> None:
     assert origin == "external:web:excluded" and facts["url"] == "[excluded]" and image == JPEG
 
 
+# decision: GATE-504
 def test_an_excluded_app_is_neither_named_nor_looked_at() -> None:
     """Controller rulings (fix rounds 2 and 3): an app on the owner's exclusion list (password managers by default)
     shows secrets field masking can't reliably cover (rule 14): no title, tab or pixels. The planner is told an app
@@ -399,6 +402,7 @@ def test_an_excluded_app_is_neither_named_nor_looked_at() -> None:
 
 # ---------- (d) a redaction failure withholds only the image ----------
 
+# decision: GATE-504
 def test_a_redaction_failure_gives_no_image_but_keeps_the_text_facts() -> None:
     screen = Screen([NOTCH, BRAVE], owners())
     screen.fail_redaction = True
@@ -462,6 +466,7 @@ def planner_requests(script: Any) -> list[ModelRequest]:
     return [r for _, key, r in script.requests if key == "supervisor"]
 
 
+# decision: GATE-504
 def test_the_planner_gets_the_front_window_block_and_its_image_with_every_message(daemon: RunningDaemon) -> None:
     calls = screen_at_send(daemon, lambda rid: brave(ref="ev-" + rid))
     script = install(daemon, [sup("reply", "It says “learning Korean”."), sup("reply", "That one says hello.")])
@@ -888,6 +893,7 @@ def test_a_whatsapp_front_window_counts_as_outside_content_for_the_url_check(dae
 
 # ---------- (c) the worker for that message reuses the image ----------
 
+# decision: GATE-504
 def test_the_worker_for_that_message_starts_from_the_same_image_with_no_second_capture(
         daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_mac(daemon, monkeypatch)                                   # the Mac the worker reads, faked

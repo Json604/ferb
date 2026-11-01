@@ -73,6 +73,7 @@ def _taken(daemon: RunningDaemon, task: str, size: int) -> None:
     daemon.run(go())
 
 
+# decision: HAND-210, HAND-232
 @SANDBOX
 def test_a_shell_download_is_stopped_at_the_tasks_budget_and_says_why(daemon: RunningDaemon, origin: int,
                                                                       quick_watch: None) -> None:
@@ -86,6 +87,7 @@ def test_a_shell_download_is_stopped_at_the_tasks_budget_and_says_why(daemon: Ru
     assert 1_000_000 < received < CHUNK * CHUNKS                             # stopped well before the end
 
 
+# decision: HAND-210, HAND-232
 @SANDBOX
 def test_a_shell_download_is_stopped_at_the_free_disk_floor(daemon: RunningDaemon, origin: int,
                                                             quick_watch: None) -> None:
@@ -95,6 +97,7 @@ def test_a_shell_download_is_stopped_at_the_free_disk_floor(daemon: RunningDaemo
     assert "browser.download_min_free_gb" in content["stopped_by_ferb"] and content["running"] is False
 
 
+# decision: HAND-231
 @SANDBOX
 def test_the_budget_is_one_counter_for_the_browser_and_the_shell(daemon: RunningDaemon, origin: int,
                                                                 quick_watch: None) -> None:
@@ -119,6 +122,7 @@ def test_the_budget_is_one_counter_for_the_browser_and_the_shell(daemon: Running
     assert why is not None and "browser.download_task_max_gb" in why
 
 
+# decision: HAND-232
 @SANDBOX
 def test_a_command_that_isnt_downloading_is_never_stopped_even_under_the_floor(daemon: RunningDaemon,
                                                                                quick_watch: None) -> None:
@@ -129,6 +133,7 @@ def test_a_command_that_isnt_downloading_is_never_stopped_even_under_the_floor(d
     assert result["content"]["output"] == "done"
 
 
+# decision: HAND-231
 def test_a_trees_shell_count_is_kept_across_a_restart(daemon: RunningDaemon) -> None:
     grant = _grant(daemon)
 

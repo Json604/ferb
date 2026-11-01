@@ -97,6 +97,7 @@ def test_unknown_listener_identity_is_refused(tmp_path: Path, monkeypatch: pytes
         access.before_connect(("127.0.0.1", 8765))
 
 
+# decision: HAND-227
 def test_the_proxy_waits_for_the_server_to_accept_its_queued_connection(tmp_path: Path,
                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
     """Until the server accepts, the connected socket is in no process's descriptor table, only counted in its
@@ -110,6 +111,7 @@ def test_the_proxy_waits_for_the_server_to_accept_its_queued_connection(tmp_path
     assert access.connected(("127.0.0.1", 8765), ("127.0.0.1", 54321)).executable == "/usr/bin/python3"
 
 
+# decision: HAND-227
 @pytest.mark.parametrize("rows", [[row(("127.0.0.1", 8765), None, "LISTEN")],      # nothing queued on it
                                   [row(("127.0.0.1", 9999), None, "LISTEN", queued=1)],   # queued elsewhere
                                   []])                                    # a server FERB can't inspect
@@ -124,6 +126,7 @@ def test_a_connection_no_inspectable_server_holds_or_queues_is_refused_at_once(
     assert len(calls) == 1
 
 
+# decision: HAND-227
 def test_a_server_that_never_accepts_is_refused_after_the_wait(tmp_path: Path,
                                                                monkeypatch: pytest.MonkeyPatch) -> None:
     access = local.LocalAccess(protection(tmp_path, [{"port": 8765, "executable": "/usr/bin/python3"}]))

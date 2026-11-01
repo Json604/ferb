@@ -501,6 +501,7 @@ def test_an_agent_asks_for_a_snapshot_and_it_is_recorded(daemon: RunningDaemon) 
     assert daemon.run(ledger()) == 0                                        # reversible: no ledger row
 
 
+# decision: HAND-206
 def test_the_last_snapshot_is_reused_only_while_no_command_ran_since(daemon: RunningDaemon) -> None:
     """HAND-206: a fresh snapshot before each shell command, skipped only when no command ran since the
     last one (replacing "at most one per 15 minutes"); an agent's own request follows the same rule."""
@@ -524,6 +525,7 @@ def test_the_last_snapshot_is_reused_only_while_no_command_ran_since(daemon: Run
     assert len(_snapshot_rows(daemon)) == 4
 
 
+# decision: HAND-206
 def test_a_shell_call_takes_a_snapshot_first_and_trash_and_writes_take_none(daemon: RunningDaemon, trash: Path) -> None:
     """F5a (carried item 6): code can't tell a shell delete from a build (rule 6), so a shell command gets a snapshot
     first; a trash and a write are recoverable by themselves (S1) and take none."""
@@ -555,6 +557,7 @@ def test_a_permanent_delete_takes_a_snapshot_first(ferb_yes: FerbAnswers, daemon
     assert len(_snapshot_rows(daemon)) == 1
 
 
+# decision: HAND-206, HAND-216
 def test_a_failed_snapshot_never_refuses_a_call_says_so_and_is_tried_again(ferb_yes: FerbAnswers,
                                                                           daemon: RunningDaemon) -> None:
     ferb_yes.expect("floor:delete_permanent")   # FERB's own question(s) on the way (F5a floor)

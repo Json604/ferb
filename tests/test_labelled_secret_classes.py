@@ -34,6 +34,7 @@ PROVIDER_CORPUS = [
 ]
 
 
+# decision: GATE-211
 @pytest.mark.parametrize("message,code", PROVIDER_CORPUS)
 def test_provider_codes_are_masked_with_the_code_word_on_either_side(message, code) -> None:
     out = Redactor().text(message)
@@ -409,6 +410,7 @@ def test_a_code_after_a_sentence_break_is_still_masked_by_its_own_word() -> None
 
 # Owner decision 2026-10-15: address and coupon codes are ordinary data. "PIN code", "pincode", "ZIP code", "postal
 # code", "coupon code", "promo code" (and close variants) are no code words; a login PIN or an OTP stays masked.
+# decision: GATE-210
 @pytest.mark.parametrize("message", [
     "Bangalore PIN code: 560001", "PIN code 560001", "Pincode 560001", "pin-code 560001", "pin_code: 560001",
     "ship to HSR Layout, Bangalore - 560102. PIN code 560102", "ZIP code 94107", "zip code 94103",
@@ -430,6 +432,7 @@ def test_a_login_pin_or_otp_stays_masked(message, code) -> None:
         assert "560001" in out
 
 
+# decision: GATE-210
 @pytest.mark.parametrize("label,value,kept", [
     ("PIN code", "560001", True), ("Pincode", "560001", True), ("Postal Code", "560102", True),
     ("ZIP code", "94107", True), ("Coupon code", "SAVE10", True), ("Promo code", "2024", True),
@@ -440,6 +443,7 @@ def test_typed_address_and_coupon_codes_stay_and_a_pin_hides(label, value, kept)
     assert (out == value) is kept, (label, out)
 
 
+# decision: GATE-210
 def test_form_snapshot_nodes_keep_address_codes() -> None:
     r = Redactor()
     for node in ({"role": "textbox", "name": "PIN code", "value": "560001"},
@@ -457,6 +461,7 @@ def test_ocr_keeps_an_address_pin_code() -> None:
 
 
 
+# decision: GATE-211
 @pytest.mark.parametrize("message,code", [
     ("Your verification code is:\n\n482913\n\nIt expires in 10 minutes.", "482913"),
     ("Use this code to sign in:\n482913", "482913"), ("Your OTP is\n482913", "482913"),
@@ -527,6 +532,7 @@ def test_my_secret_word_still_hides_a_plain_word_password(message, value) -> Non
     assert value not in Redactor().text(message)
 
 
+# decision: GATE-211
 @pytest.mark.parametrize("message,codes", [
     ("Backup codes: 1234 5678 9012 3456", ["1234", "5678", "9012", "3456"]),
     ("Your 2FA backup codes: 1234 5678, 9012 3456", ["1234", "5678", "9012", "3456"]),
@@ -1011,6 +1017,7 @@ MARKUP_CODES = [
 ]
 
 
+# decision: GATE-211
 @pytest.mark.parametrize("raw,code", MARKUP_CODES)
 def test_a_code_in_markup_next_to_its_label_is_masked(raw, code) -> None:
     redactor = Redactor()
@@ -1018,6 +1025,7 @@ def test_a_code_in_markup_next_to_its_label_is_masked(raw, code) -> None:
     assert _differing_splits(redactor, raw) == []
 
 
+# decision: GATE-210
 @pytest.mark.parametrize("raw", ["PIN code: **560001**\n", "Coupon code:\n`4455`\n", "> ZIP code:\n> 94107\n",
                                  "Pincode:\n<b>560001</b>\n", "Steps:\n**2024**\n", "Promo code\n· 4455\n",
                                  "> Notes:\n>\n> 2024\n", "<b>Total</b> 4999\n"])
