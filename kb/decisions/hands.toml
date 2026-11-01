@@ -402,6 +402,7 @@ rule = "browser_downloads tells the worker to move the file (mv, not cp) where t
 why = "Same destination as before without a second copy on disk."
 paths = ["ferb/act/browser/tools.py"]
 legacy = "notes/hands.md Rulings (step 12e): copy becomes a move"
+live = ["LIVE-572"]
 
 [HAND-238]
 title = "Foreground input goes through right after the owner's Yes"
@@ -498,6 +499,7 @@ rule = "FERB does not recognise music by its sound. Workers keep being told so: 
 rejected = ["Pressing Control Center's Recognize Music through accessibility (drives system UI, writes the owner's Shazam history)", "ShazamKit on FERB's captured app audio (likely needs a paid Apple Developer App ID; a new hosted destination)"]
 paths = ["ferb/act/listen.py"]
 legacy = "notes/voice.md decision 4"
+live = ["LIVE-503"]
 
 [HAND-401]
 title = "No muting while FERB listens, for now"
@@ -529,6 +531,7 @@ rule = "The bot_check fact states plainly that a bot-check widget's frame is on 
 why = "A reCAPTCHA v3 or Turnstile footer badge draws in the same frames as a challenge, so the frame alone proves no block (a page with only a footer badge was read as blocked, 2026-10-14)."
 paths = ["ferb/act/browser/snapshot.py::BOT_CHECK_FACT"]
 legacy = "notes/prompts.md decision 6 (a ruling); notes/prompt-patches.md call 9"
+live = ["LIVE-578"]
 
 [HAND-403]
 title = "A browser profile: connected, use it; not connected, start it quietly, else open its window once"
@@ -550,3 +553,4 @@ words = "recommeded all"
 why = "Answer to T-524: the owner accepted the recommendation for every open question."
 rule = "extensions/store/listing.md is kept and refreshed before each extension upload."
 rejected = ["Dropping the file."]
+untestable = "A release-process rule (refresh the store listing before an upload); no code path to test."

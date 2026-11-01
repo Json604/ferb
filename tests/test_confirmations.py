@@ -110,6 +110,7 @@ def _record(d: RunningDaemon, kind: str, value: str, how: str, **k: Any) -> None
 
 # ---------- through the gateway ----------
 
+# decision: GATE-204
 def test_a_payment_always_asks_even_when_the_owner_named_it(daemon: RunningDaemon) -> None:   # #13, SQ1
     pay = FakeCap("probe.pay", "pay", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("pay x@y.com $5"), [pay])
@@ -200,6 +201,7 @@ def test_a_first_name_the_owner_used_names_the_shown_contact(daemon: RunningDaem
     assert r["is_error"] and "Rahul Attacker, whom you didn't name" in _asked(daemon)[0]["args"]["question"]
 
 
+# decision: GATE-205
 def test_a_send_to_an_unnamed_recipient_asks_once_and_carries_across_retries(daemon: RunningDaemon) -> None:   # #3
     send = FakeCap("probe.send", "send", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("summarize my unread mail"), [send])
@@ -258,6 +260,7 @@ def test_a_value_from_outside_content_the_owner_also_named_is_fine(daemon: Runni
     assert _asked(daemon) == []
 
 
+# decision: GATE-205
 def test_private_data_to_a_new_destination_after_outside_content_asks(daemon: RunningDaemon) -> None:   # S4 (a)
     mine = FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/cv.pdf"),), content={"text": "cv"})
     web = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/p"),), content={"text": "hi"})
@@ -302,6 +305,7 @@ def test_pasted_text_in_the_request_counts_as_outside_content(daemon: RunningDae
     assert r["is_error"] and "outside content (text you pasted)." in _asked(daemon)[0]["args"]["question"]
 
 
+# decision: GATE-205
 def test_a_destination_the_owner_named_in_an_earlier_request_is_known(daemon: RunningDaemon) -> None:   # SQ6
     _record(daemon, "email", "old@x.com", "named", request_id="req-0")
     send = FakeCap("probe.send", "send", {"probe"})
@@ -310,6 +314,7 @@ def test_a_destination_the_owner_named_in_an_earlier_request_is_known(daemon: Ru
     assert _asked(daemon) == []
 
 
+# decision: GATE-202
 def test_a_declared_purpose_can_only_add_a_confirmation(daemon: RunningDaemon) -> None:        # carried item 7, W2
     declared = _Declared("probe.click_send", {"probe"}, "send", "Rahul Verma")
     plain = _Declared("probe.click", {"probe"}, None, None)
@@ -394,6 +399,7 @@ def test_the_trace_line_names_ferbs_question(daemon: RunningDaemon) -> None:
     assert daemon.run(summary()) == 'you answered: "Yes" (FERB\'s question)'
 
 
+# decision: HAND-206
 def test_a_shell_command_gets_a_snapshot_first(daemon: RunningDaemon) -> None:                 # carried item 6
     from tests.test_recovery import _Snapshots, _snaps
     fake = _Snapshots(); _snaps(daemon, fake)
@@ -406,6 +412,7 @@ def test_a_shell_command_gets_a_snapshot_first(daemon: RunningDaemon) -> None:  
     assert fake.n == 2 and again["content"]["recovery_snapshot"]["reused"] is False  # a command ran: a fresh one
 
 
+# decision: HAND-206
 def test_a_shell_command_runs_when_no_snapshot_can_be_taken(daemon: RunningDaemon) -> None:   # OPEN QUESTION 3
     from tests.test_recovery import _Snapshots, _snaps
     service = _snaps(daemon, _Snapshots(fail="none"))
@@ -833,6 +840,7 @@ def test_phone_shapes_need_eight_digits_and_dates_are_not_phones() -> None:
     assert KnownDestinations.from_words("on 2026-10-12 call 12345678, code 123456") == [("phone", "12345678")]
 
 
+# decision: GATE-218
 def test_a_secret_in_a_key_or_destination_is_never_stored_or_matched(daemon: RunningDaemon) -> None:   # rule 14
     secret = "sk-ant-" + "a" * 24
     address = f"{secret}@x.com"
@@ -1169,6 +1177,7 @@ class _Wipes(FakeCap):
         return ActionSpec(Kind.DELETE_PERMANENT, Target(path="/tmp/ferb-test-gone.txt"))
 
 
+# decision: GATE-207
 def test_dont_ask_for_30_minutes_covers_routine_questions_only(daemon: RunningDaemon) -> None:
     """Friend's feedback 2026-10-27: "add an allow all for a short time". Owner: 30 minutes, routine questions only
     (here: sending to someone new); payments, account security, permanent deletes, terminal typing, certificate checks

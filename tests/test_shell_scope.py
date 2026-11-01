@@ -54,6 +54,7 @@ def _ok(sb: Sandbox, command: str, folders: tuple[str, ...] = (), lift: str | No
 
 # ---------- the folder scope (HAND-203, HAND-204) ----------
 
+# decision: HAND-203, HAND-205, HAND-215
 def test_a_command_cant_change_the_owners_visible_folders_but_programs_keep_working(tmp_path: Path) -> None:
     home, ferb = _home(tmp_path)
     sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "profiles", listeners=lambda: set())
@@ -76,6 +77,7 @@ def test_a_command_cant_change_the_owners_visible_folders_but_programs_keep_work
     assert _ok(sb, f"echo t > '{scratch}/t' && python3 -c 'print(1)'")
 
 
+# decision: HAND-203, HAND-204, HAND-244
 def test_the_tasks_folders_are_writable_and_only_those(tmp_path: Path) -> None:
     home, ferb = _home(tmp_path)
     sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "profiles", listeners=lambda: set())
@@ -90,6 +92,7 @@ def test_the_tasks_folders_are_writable_and_only_those(tmp_path: Path) -> None:
     assert profile.index('(allow file-write* (regex #"/[.][^/]"))') < profile.index("(deny file-read* file-write*")
 
 
+# decision: HAND-203
 def test_the_scope_never_reopens_a_protected_place(tmp_path: Path) -> None:
     """The scope's allows come first: FERB's own state, the lists and the Trash still win after them."""
     home, ferb = _home(tmp_path)
@@ -100,6 +103,7 @@ def test_the_scope_never_reopens_a_protected_place(tmp_path: Path) -> None:
         assert not _ok(sb, refused, (str(home),)), refused                    # even with the whole home named
 
 
+# decision: HAND-203, HAND-204
 def test_a_refused_write_tells_the_worker_why_and_what_to_do(daemon: RunningDaemon, tmp_path: Path) -> None:
     home, ferb = _home(tmp_path)
     daemon.daemon.protection = Protection(home, daemon.daemon.home, [], [], [])
@@ -117,6 +121,7 @@ def test_a_refused_write_tells_the_worker_why_and_what_to_do(daemon: RunningDaem
 
 # ---------- the window server, signals ----------
 
+# decision: HAND-243
 def test_commands_cant_reach_the_window_server_and_still_run_git_and_python(tmp_path: Path) -> None:
     home, ferb = _home(tmp_path)
     sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "profiles", listeners=lambda: set())
@@ -126,6 +131,7 @@ def test_commands_cant_reach_the_window_server_and_still_run_git_and_python(tmp_
     assert "windowserver" not in sb.profile(apps=True)                       # measured for the shell only
 
 
+# decision: HAND-217
 def test_a_command_signals_only_its_own_processes(tmp_path: Path) -> None:
     home, ferb = _home(tmp_path)
     sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "profiles", listeners=lambda: set())
@@ -154,6 +160,7 @@ def test_a_write_lift_never_reopens_a_never_read_store_inside_it(tmp_path: Path)
         profile.index(f'(allow file-write* file-read-metadata (subpath "{home}/Lib"))')
 
 
+# decision: GATE-1
 def test_ferbs_own_service_definition_is_never_lifted(tmp_path: Path) -> None:
     home, ferb = _home(tmp_path)
     agents = home / "Library" / "LaunchAgents"
@@ -172,6 +179,7 @@ def test_ferbs_own_service_definition_is_never_lifted(tmp_path: Path) -> None:
             sb.profile(rule)
 
 
+# decision: HAND-217
 def test_input_into_a_lifted_command_is_refused(tmp_path: Path) -> None:
     """Item 4 (chosen: refuse): the owner's Yes covered that exact command, not what is typed into it later."""
     from ferb.act.shell.manager import ProcInfo
@@ -187,6 +195,7 @@ def test_input_into_a_lifted_command_is_refused(tmp_path: Path) -> None:
         asyncio.run(manager.send(ProcHandle("p-1", "t"), "cat ~/.ssh/id_ed25519\n"))
 
 
+# decision: GATE-200
 def test_a_read_escape_yes_covers_the_task_and_the_file_tools(daemon: RunningDaemon, tmp_path: Path) -> None:
     """GATE-200: "Let FERB read ~/.aws for this task?" once; later shell read escapes of that folder and file
     tool reads of it in the same task run without asking. Writes still ask per command."""
@@ -311,6 +320,7 @@ def test_finished_processes_are_pruned_once_their_task_ends(daemon: RunningDaemo
     assert not any(p in shells._procs for p in pids)
 
 
+# decision: HAND-245
 def test_each_host_is_journaled_as_the_command_first_reaches_it() -> None:
     """Durable host records: the proxy tells `on_destination` of each process's first connection to a host as it
     opens (the daemon journals it), not only in the final record at forget/close."""
@@ -328,6 +338,7 @@ def test_each_host_is_journaled_as_the_command_first_reaches_it() -> None:
         proxy.close()
 
 
+# decision: HAND-245
 def test_the_daemon_journals_a_shell_destination_when_it_happens(daemon: RunningDaemon) -> None:
     daemon.daemon._shell_destination("p-x", "example.com", 443)
 

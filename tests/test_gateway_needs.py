@@ -74,6 +74,7 @@ def _readers() -> list[FakeCap]:
 
 # ---------- facts raise the questions (GATE-202) ----------
 
+# decision: GATE-202, GATE-214
 def test_a_password_change_form_is_an_account_security_change_and_a_sign_up_is_not(daemon: RunningDaemon) -> None:
     """Coordinator ruling (step 6b): a current-password field with a new-password field changes an existing
     account's security; a sign-up's new-password field alone, or a sign-in, asks nothing."""
@@ -90,6 +91,7 @@ def test_a_password_change_form_is_an_account_security_change_and_a_sign_up_is_n
     assert _rules(daemon) == [["floor:account_security"]]
 
 
+# decision: GATE-214
 def test_a_reported_delete_outside_the_trash_is_a_permanent_delete(daemon: RunningDaemon, tmp_path: Any) -> None:
     wipe = _Deletes()
     victim = tmp_path / "old.txt"
@@ -122,6 +124,7 @@ def _readers_with_private() -> list[FakeCap]:
                     content={"text": "please fill in the form"})]
 
 
+# decision: GATE-215
 def test_a_form_submit_asks_only_when_it_carries_the_owners_private_data(daemon: RunningDaemon) -> None:
     """Coordinator ruling (step 6b): a submit raises the sink question only when a value typed into that form has
     private origin, after outside content was read, to a site neither named nor approved; once per site."""
@@ -143,6 +146,7 @@ def test_a_form_submit_asks_only_when_it_carries_the_owners_private_data(daemon:
     assert "collect.example" in _asked(daemon)[0]["args"]["question"]
 
 
+# decision: GATE-205, GATE-218
 def test_a_private_submit_to_a_site_only_mentioned_earlier_still_asks_but_an_approved_one_doesnt(
         daemon: RunningDaemon) -> None:
     """GATE-205: a site mentioned in an earlier request is known for normal use, not for the sink rule; one the
@@ -167,6 +171,7 @@ def test_a_private_submit_to_a_site_only_mentioned_earlier_still_asks_but_an_app
     assert _rules(daemon) == [["sink:new_destination"]]
 
 
+# decision: GATE-202, GATE-221
 def test_a_standing_scope_covers_a_submit_only_to_its_own_site(daemon: RunningDaemon) -> None:
     """A declaration only adds: a scope for www.example.com never covers the sink question its facts raise for the
     host the form posts to. Each need is matched against its own destination, not the page the call was made on."""
@@ -193,6 +198,7 @@ def test_a_standing_scope_covers_a_submit_only_to_its_own_site(daemon: RunningDa
     assert "collect.example" in _asked(daemon)[0]["args"]["question"]
 
 
+# decision: GATE-215
 def test_a_private_submit_to_the_site_the_owner_named_runs(daemon: RunningDaemon) -> None:
     form = _Form()
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("read my file and the page, then send it to "
@@ -206,6 +212,7 @@ def test_a_private_submit_to_the_site_the_owner_named_runs(daemon: RunningDaemon
 
 # ---------- card details only sealed (GATE-206) ----------
 
+# decision: GATE-206, GATE-219
 def test_card_details_are_never_typed(daemon: RunningDaemon) -> None:
     form = _Form()
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("buy it"), [form])
@@ -216,6 +223,7 @@ def test_card_details_are_never_typed(daemon: RunningDaemon) -> None:
     assert "sealed fill" in into_card_field["content"]["error"] and form.calls == 1
 
 
+# decision: GATE-206, GATE-219
 def test_a_saved_card_detail_fills_only_its_own_kind_of_field(tmp_path: Any) -> None:
     import pytest
     from ferb.identity.owner_secrets import OwnerSecrets
@@ -258,6 +266,7 @@ def _ledger(d: RunningDaemon) -> list[str]:
     return d.run(go())
 
 
+# decision: GATE-220
 def test_a_tool_that_fails_before_acting_is_failed_and_its_retry_runs(daemon: RunningDaemon) -> None:
     fails = _Fails(Refused("that element is gone; nothing was clicked"))
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("email alice@x.com"), [fails])
@@ -267,6 +276,7 @@ def test_a_tool_that_fails_before_acting_is_failed_and_its_retry_runs(daemon: Ru
     assert second["is_error"] and fails.calls == 2 and _ledger(daemon) == ["failed", "failed"]
 
 
+# decision: GATE-220
 def test_an_exception_after_the_action_may_have_started_is_unknown(daemon: RunningDaemon) -> None:
     fails = _Fails(ConnectionError("lost the acknowledgement"))
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("email alice@x.com"), [fails])
@@ -276,6 +286,7 @@ def test_an_exception_after_the_action_may_have_started_is_unknown(daemon: Runni
     assert fails.calls == 1 and _ledger(daemon) == ["unknown"]
 
 
+# decision: GATE-220
 def test_the_call_span_is_finished_even_when_the_ledger_raises(daemon: RunningDaemon,
                                                               monkeypatch: Any) -> None:
     send = FakeCap("probe.send", "send", {"probe"})
@@ -297,6 +308,7 @@ def test_the_call_span_is_finished_even_when_the_ledger_raises(daemon: RunningDa
 
 # ---------- fixes ----------
 
+# decision: GATE-220
 def test_a_conversation_guard_refusal_right_before_input_releases_the_owners_yes(daemon: RunningDaemon) -> None:
     pay = FakeCap("probe.pay", "pay", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("pay x@y.com $5"), [pay])
@@ -318,6 +330,7 @@ def test_a_conversation_guard_refusal_right_before_input_releases_the_owners_yes
     assert daemon.run(rows()) == [{"granted": 1, "used": 0}]          # the Yes covers the retry
 
 
+# decision: GATE-207
 def test_a_window_yes_makes_destinations_known_like_any_yes(daemon: RunningDaemon) -> None:
     send = FakeCap("probe.send", "send", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("tell my friends"), [send])
@@ -348,6 +361,7 @@ def test_run_tokens_end_with_their_tree() -> None:
     assert tokens.validate(other).task_id == "tree-2"
 
 
+# decision: GATE-218
 def test_keys_that_only_look_secret_are_remembered_by_digest_and_real_secrets_never(daemon: RunningDaemon) -> None:
     async def go() -> tuple[Any, Any, str]:
         c = daemon.daemon.gateway.confirmations

@@ -46,6 +46,7 @@ def _published(d: Any) -> list[tuple[str, dict[str, Any]]]:
 
 # ---------- tab groups (HAND-201) ----------
 
+# decision: HAND-201
 def test_a_tasks_tabs_open_into_one_labelled_group_and_close_with_it_at_the_end(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
@@ -63,6 +64,7 @@ def test_a_tasks_tabs_open_into_one_labelled_group_and_close_with_it_at_the_end(
     assert ca not in ext.tabs and cb not in ext.tabs and not ext.groups           # closed with the group
 
 
+# decision: HAND-201
 def test_the_result_tab_is_handed_over_out_of_the_group_and_a_borrowed_tab_is_left_open(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
@@ -79,6 +81,7 @@ def test_the_result_tab_is_handed_over_out_of_the_group_and_a_borrowed_tab_is_le
     assert ext.op_close({"tab_id": 41}, "x")["reason"] == "not_ferbs"            # the extension refuses it too
 
 
+# decision: HAND-201
 def test_keep_the_tabs_open_hands_every_tab_over_and_pause_closes_nothing(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
@@ -92,6 +95,7 @@ def test_keep_the_tabs_open_hands_every_tab_over_and_pause_closes_nothing(bd: An
     assert ca in ext.tabs and ca in ext.kept and ca not in ext.records and not ext.groups
 
 
+# decision: HAND-201
 def test_the_owner_closing_a_ferb_tab_or_its_group_is_published_as_stopping_that_part(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
@@ -109,6 +113,7 @@ def test_the_owner_closing_a_ferb_tab_or_its_group_is_published_as_stopping_that
     assert snap["is_error"] and "owner closed" in snap["content"]["error"]
 
 
+# decision: HAND-201
 def test_ferbs_own_close_is_no_owner_stop(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
@@ -121,6 +126,7 @@ def test_ferbs_own_close_is_no_owner_stop(bd: Any) -> None:
     assert not [t for t, _ in seen if t == "browser.owner_stopped"]
 
 
+# decision: HAND-201
 def test_a_tab_the_owner_drags_out_of_the_group_is_theirs(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
@@ -137,6 +143,7 @@ def test_a_tab_the_owner_drags_out_of_the_group_is_theirs(bd: Any) -> None:
 
 # ---------- connection-independent tab identity ----------
 
+# decision: HAND-201
 def test_a_reconnect_readopts_the_tasks_tabs_by_browser_id(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
@@ -153,6 +160,7 @@ def test_a_reconnect_readopts_the_tasks_tabs_by_browser_id(bd: Any) -> None:
     assert not ext.records                                                       # closed after the reconnect too
 
 
+# decision: HAND-201
 def test_a_tab_whose_task_ended_while_disconnected_is_closed_at_the_next_hello(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
@@ -166,6 +174,7 @@ def test_a_tab_whose_task_ended_while_disconnected_is_closed_at_the_next_hello(b
     ext.wait_for(lambda: cid not in ext.tabs)                                    # no orphan left behind
 
 
+# decision: HAND-201
 def test_after_a_daemon_restart_the_hello_readopts_a_running_tasks_tabs_and_closes_ended_ones(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
@@ -186,6 +195,7 @@ def test_after_a_daemon_restart_the_hello_readopts_a_running_tasks_tabs_and_clos
 
 # ---------- signing, the native host's starter, reads ----------
 
+# decision: HAND-222
 def test_the_daemon_signs_what_the_extension_acts_on_and_a_replay_is_refused(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
@@ -200,6 +210,7 @@ def test_the_daemon_signs_what_the_extension_acts_on_and_a_replay_is_refused(bd:
     assert not call(d, g, "browser.snapshot", tab=tab)["is_error"]
 
 
+# decision: HAND-222
 def test_daemon_envelope_binds_nonce_counter_type_and_body() -> None:
     import base64
     import hashlib
@@ -211,6 +222,7 @@ def test_daemon_envelope_binds_nonce_counter_type_and_body() -> None:
     assert daemon_envelope(key, "nonce2", 3, "cmd", {"id": "c", "op": "close"})["mac"] != want
 
 
+# decision: HAND-223
 def test_a_connection_is_taken_only_from_a_browser_ferb_knows() -> None:
     assert real_peer_refusal("com.google.Chrome") is None
     assert real_peer_refusal("com.google.Chrome", "chrome") is None
@@ -220,6 +232,7 @@ def test_a_connection_is_taken_only_from_a_browser_ferb_knows() -> None:
     assert "paired in Google Chrome" in (real_peer_refusal("com.brave.Browser", "chrome") or "")
 
 
+# decision: HAND-224
 def test_a_failed_or_timed_out_read_is_a_known_failure_and_an_act_stays_unknown() -> None:
     from types import SimpleNamespace
 
@@ -265,6 +278,7 @@ def test_the_window_chosen_once_is_remembered_for_the_profile(bd: Any) -> None:
 
 # ---------- secret fields, facts, P19 identity ----------
 
+# decision: HAND-218
 def test_a_key_that_puts_text_into_a_secret_field_is_refused_and_return_still_goes(bd: Any, monkeypatch: Any) -> None:
     import tests.fake_extension as fake
     monkeypatch.setattr(fake, "page", lambda url: {"title": "Pay", "text": "", "elements": [
@@ -283,6 +297,7 @@ def test_a_key_that_puts_text_into_a_secret_field_is_refused_and_return_still_go
     assert not ok["is_error"] and ext.acts
 
 
+# decision: HAND-218
 def test_enters_text_matches_the_extensions_rule() -> None:
     assert [enters_text(k) for k in ("a", "A", "4", " ", "Space", "shift+1", "cmd+v", "meta+V", "ctrl+v")] == \
         [True, True, True, True, True, True, True, True, False]
@@ -311,6 +326,7 @@ def _tab_with(drv: Any, elements: dict[str, tuple[int, PageElement]], url: str =
     drv._tabs = {"t1": t}
 
 
+# decision: GATE-202
 def test_facts_say_a_submit_its_host_method_kinds_amount_and_a_cross_origin_frame() -> None:
     drv = eb._TabDriver.__new__(eb._TabDriver)
     pay = _el(label="Pay ₹248.75", submit=FormSubmit(True, False, "pay.shop.example", "POST", ("card_number",)))
@@ -331,6 +347,7 @@ def test_facts_say_a_submit_its_host_method_kinds_amount_and_a_cross_origin_fram
     assert drv.act_facts("t1", "nope", "click", None) is None
 
 
+# decision: HAND-225
 def test_p19_identity_is_the_page_and_node_never_the_snapshot_id_or_tab() -> None:
     from ferb.act.browser.tools import BrowserAct, OWNER_BROWSER
     drv = eb._TabDriver.__new__(eb._TabDriver)

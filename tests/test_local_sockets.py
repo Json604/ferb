@@ -21,10 +21,12 @@ def record(name: str) -> bytes:
     return bytes.fromhex(RECORDED["records"][name])
 
 
+# decision: HAND-226
 def test_the_sdk_layout_matches_the_kernels_answer_size() -> None:
     assert sockets.SOCKET_FDINFO_SIZE == 792 == len(record("tcp4 client end"))
 
 
+# decision: HAND-226
 def test_recorded_socket_answers_decode_to_endpoints_state_queue_and_process() -> None:
     p = PORTS["listener"]
     decoded = {name: sockets.decode(record(name), 4242) for name in RECORDED["records"]}
@@ -44,11 +46,13 @@ def test_recorded_socket_answers_decode_to_endpoints_state_queue_and_process() -
         "unix socket": None}
 
 
+# decision: HAND-226
 def test_an_answer_of_another_size_is_refused() -> None:
     with pytest.raises(ValueError):
         sockets.decode(record("tcp4 client end")[:-8], 1)
 
 
+# decision: HAND-226
 def test_the_recorded_nettop_listing_parses_with_each_sockets_process() -> None:
     listed = sockets.parse_nettop((SUPPORT / "nettop_listing.txt").read_text())
     assert listed is not None
@@ -68,6 +72,7 @@ def test_the_recorded_nettop_listing_parses_with_each_sockets_process() -> None:
         (4013, "tcp", ("192.0.2.10", 49597), ("203.0.113.9", 443), "CLOSE_WAIT")]
 
 
+# decision: HAND-226
 @pytest.mark.parametrize("text", [
     "",                                                                 # nothing printed (netstat's failure)
     "state\nlaunchd.1,,\n",                                             # another header
@@ -102,6 +107,7 @@ def test_live_a_listener_queues_until_accepted_and_the_accepted_end_belongs_to_i
         client.close(); server.close()
 
 
+# decision: HAND-226
 def test_live_the_complete_listing_names_every_users_listeners_and_ours_by_process() -> None:
     import os
     server = socket.socket(); server.bind(("127.0.0.1", 0)); server.listen()
@@ -114,6 +120,7 @@ def test_live_the_complete_listing_names_every_users_listeners_and_ours_by_proce
         server.close()
 
 
+# decision: HAND-226
 def test_a_nettop_that_misses_a_known_listener_is_no_reading(monkeypatch: pytest.MonkeyPatch) -> None:
     """The netstat failure mode again: a listing that holds only some sockets, not an empty Mac."""
     server = socket.socket(); server.bind(("127.0.0.1", 0)); server.listen()

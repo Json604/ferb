@@ -136,6 +136,7 @@ def test_choosing_ferbs_profile_writes_config_through_the_settings_path(daemon: 
     assert d.identity_browser is None and not any(n.startswith("ferb_browser.") for n in d.gateway.caps)
 
 
+# decision: HAND-2
 def test_without_its_own_profile_ferb_browses_in_the_profile_the_owner_picked() -> None:
     from ferb.act.browser.pairing import Binding
     from ferb.act.browser.profiles import BrowserProfile
@@ -167,6 +168,7 @@ def _fake_keychain() -> tuple[dict[str, str], Any, Any]:
     return values, keychain, delete
 
 
+# decision: GATE-2
 def test_delete_removes_the_keychain_item_and_never_returns_its_value(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     values, keychain, delete = _fake_keychain()

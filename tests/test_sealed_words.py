@@ -43,6 +43,7 @@ def _redactor(*values: str) -> Redactor:
     return r
 
 
+# decision: GATE-210
 def test_a_word_like_sealed_value_is_hidden_as_a_word_not_inside_longer_words() -> None:
     r = Redactor()
     r.remember_hidden_secret("pen")
@@ -246,6 +247,7 @@ def test_a_value_is_classified_once_when_it_is_registered(system_words: Path) ->
     assert r.text("pizza2 sunshine2024 pen.") == "[redacted]2 [redacted]2024 [redacted]."
 
 
+# decision: GATE-210
 def test_a_word_answer_is_hidden_in_any_case_and_other_values_stay_exact() -> None:
     """Ruling 5: a site takes a security answer in any case, and the line says FERB hides the word wherever it appears;
     a password, and a word the list lacks, stay exact."""

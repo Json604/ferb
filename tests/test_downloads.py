@@ -133,6 +133,7 @@ def test_safe_name_keeps_ordinary_names_and_their_extension() -> None:
     assert safe_name("") == safe_name("...") == safe_name("\x00") == "download"
 
 
+# decision: HAND-210
 def test_a_large_download_is_never_refused_for_its_size(bd: Any) -> None:
     """HAND-210 (owner, 2026-10-31): no size cap per file. A download announcing 20 GB is taken (the old cap was
     512 MB), and an old config's per-file key is never read."""
@@ -381,6 +382,7 @@ def test_a_download_that_waits_too_long_behind_another_in_its_tab_is_refused(bd:
     assert rows["slow.bin"]["state"] == "taken"
 
 
+# decision: HAND-210
 def test_a_task_can_take_only_so_many_downloads(bd: Any) -> None:
     d, launched = bd
     d.daemon.config.set("browser", "download_task_max_files", 2)
@@ -390,6 +392,7 @@ def test_a_task_can_take_only_so_many_downloads(bd: Any) -> None:
     assert "browser.download_task_max_files" in facts[2]["reason"] and len(_kept(d)) == 2
 
 
+# decision: HAND-210
 def test_a_task_has_a_byte_budget_checked_before_and_while_bytes_arrive(bd: Any) -> None:
     d, launched = bd
     d.daemon.config.set("browser", "download_task_max_gb", 0.001)       # 1,000,000 bytes (decimal)
@@ -414,6 +417,7 @@ def _fake_clock(d: RunningDaemon, ext: FakeExtension, step_s: float) -> list[flo
     return now
 
 
+# decision: HAND-210, HAND-231
 def test_what_the_tasks_shell_received_counts_against_its_browser_downloads(bd: Any) -> None:
     """HAND-210: one budget per task tree for the browser and the shell (32 GB by default)."""
     d, launched = bd
@@ -427,6 +431,7 @@ def test_what_the_tasks_shell_received_counts_against_its_browser_downloads(bd: 
     assert rec["state"] == "refused" and "browser and shell together" in rec["reason"]
 
 
+# decision: HAND-233
 def test_a_slow_download_that_keeps_moving_is_never_cut_for_time(bd: Any) -> None:
     """Ruling (step 12e): no total time limit (the old one was 10 minutes). Parts 50 s apart, under the 60 s stall
     window, for more than 10 minutes in all: taken."""
@@ -438,6 +443,7 @@ def test_a_slow_download_that_keeps_moving_is_never_cut_for_time(bd: Any) -> Non
     assert now[0] > 600 and rec["state"] == "taken" and Path(rec["path"]).read_bytes() == data
 
 
+# decision: HAND-233
 def test_a_download_that_stops_moving_is_failed_as_stalled(bd: Any) -> None:
     d, launched = bd
     ext, g, tab, chrome_id = _task_tab(d, launched)
@@ -547,6 +553,7 @@ def _fake_trash(monkeypatch: Any, home: Path) -> Path:
     return bin_.resolve()
 
 
+# decision: HAND-210, HAND-211
 def test_downloads_stay_until_the_owner_deletes_them_however_old(bd: Any, monkeypatch: Any) -> None:
     """Owner, 2026-10-09: no time-based clearing (and, HAND-211, nothing goes without the owner's Yes)."""
     d, launched = bd
@@ -582,6 +589,7 @@ def _cap_journal(d: RunningDaemon) -> list[Any]:
     return d.run(go())
 
 
+# decision: HAND-211
 def test_over_the_cap_the_owner_is_asked_and_yes_deletes_the_oldest_for_good(bd: Any, monkeypatch: Any) -> None:
     """HAND-211 (owner 2026-10-31): past browser.download_total_gb nothing moves by itself; the owner is asked,
     with how many files and how much, and their Yes deletes those oldest files permanently (never to the Trash)."""
@@ -608,6 +616,7 @@ def test_over_the_cap_the_owner_is_asked_and_yes_deletes_the_oldest_for_good(bd:
     assert _cap_question(d) == []
 
 
+# decision: HAND-211, HAND-242
 def test_a_no_deletes_nothing_and_the_question_waits_for_the_folder_to_grow_further(bd: Any) -> None:
     """On No (or no answer) nothing is deleted and FERB doesn't ask again until the folder has grown past the size it
     asked at by a further tenth of the cap (ruling, step 12e): no nagging after each download or retention pass."""
@@ -630,6 +639,7 @@ def test_a_no_deletes_nothing_and_the_question_waits_for_the_folder_to_grow_furt
                                                  "downloads.cap_asked"]
 
 
+# decision: HAND-211, HAND-242
 def test_the_yes_deletes_only_files_in_the_folder_and_never_follows_a_link(bd: Any, tmp_path: Path) -> None:
     """A recorded file swapped for a link (FERB's shell can write the workspace) is never followed: the link's target
     outside the folder stays, and the record says the file was gone. A file the owner already removed is recorded
@@ -673,6 +683,7 @@ def _second_tab(d: RunningDaemon, ext: FakeExtension, g: Any, path: str = "/othe
     return opened["content"]["tab"], max(t for t, u in ext.tabs.items() if u == f"{SITE}{path}")
 
 
+# decision: HAND-210
 def test_two_concurrent_transfers_in_one_task_share_its_budget_without_breaking(bd: Any) -> None:
     """Regression (round 2, A): the first transfer to finish dropped the task's running count under the second."""
     d, launched = bd
@@ -689,6 +700,7 @@ def test_two_concurrent_transfers_in_one_task_share_its_budget_without_breaking(
     assert d.daemon.downloads._inflight == {} and d.daemon.downloads._running == {}
 
 
+# decision: HAND-231
 def test_the_budget_is_per_task_tree_not_per_step(bd: Any) -> None:
     d, launched = bd
     d.daemon.config.set("browser", "download_task_max_files", 1)
@@ -700,6 +712,7 @@ def test_the_budget_is_per_task_tree_not_per_step(bd: Any) -> None:
     assert first["state"] == "taken" and second["state"] == "refused" and "per request" in second["reason"]
 
 
+# decision: HAND-234
 def test_the_tab_cap_counts_every_open_ferb_tab_and_refuses_past_it(bd: Any) -> None:
     """Ruling (step 12e): the cap counts every tab FERB opened for the task that is still open (the worker's, links',
     popups'), frees a place when one closes, and past it refuses with a fact: no link is handed to the browser as an
@@ -725,6 +738,7 @@ def test_the_tab_cap_counts_every_open_ferb_tab_and_refuses_past_it(bd: Any) -> 
     assert not again["is_error"], again
 
 
+# decision: HAND-201
 def test_a_new_tab_from_the_owners_borrowed_tab_is_released_never_closed(bd: Any) -> None:
     d, launched = bd
     ext, g, tab, chrome_id = _task_tab(d, launched)
@@ -956,6 +970,7 @@ def test_ferb_opens_a_new_tab_link_only_when_the_extension_still_waits_for_it(bd
     assert len(ext.open_seen) == 2
 
 
+# decision: HAND-235
 def test_a_page_save_dropped_over_the_hold_caps_is_a_refused_download_fact(bd: Any) -> None:
     d, launched = bd
     ext, g, tab, chrome_id = _task_tab(d, launched)
@@ -970,6 +985,7 @@ def test_a_page_save_dropped_over_the_hold_caps_is_a_refused_download_fact(bd: A
 
 # ---------- the owner's limits (2026-10-09, HAND-210 of 2026-10-31) ----------
 
+# decision: HAND-210, HAND-236
 def test_the_limits_default_to_the_owners_decision(tmp_path: Path) -> None:
     from ferb.act.browser.downloads import Downloads, Limits
     dl = Downloads(tmp_path / "downloads", None, lambda: None, lambda s, k, v: v, lambda t: t, lambda *a: None)
@@ -977,6 +993,7 @@ def test_the_limits_default_to_the_owners_decision(tmp_path: Path) -> None:
     assert dl.limits() == Limits(300, 32 * gb, 20 * gb, 10 * gb)  # HAND-210 (2026-10-31): no per-file cap
 
 
+# decision: HAND-210
 def test_a_task_tree_may_open_fifty_tabs_by_default(bd: Any) -> None:
     from types import SimpleNamespace
     from ferb.act.browser.ext_bridge import _TabDriver
@@ -985,6 +1002,7 @@ def test_a_task_tree_may_open_fifty_tabs_by_default(bd: Any) -> None:
     assert _TabDriver(SimpleNamespace(), lambda: []).max_tabs() == 50       # type: ignore[arg-type]
 
 
+# decision: HAND-210
 def test_a_download_that_would_leave_less_than_the_free_disk_floor_is_refused_before_any_byte_moves(bd: Any) -> None:
     d, launched = bd
     floor = 10 * 1000 ** 3
@@ -997,6 +1015,7 @@ def test_a_download_that_would_leave_less_than_the_free_disk_floor_is_refused_be
     assert _kept(d) == []
 
 
+# decision: HAND-210
 def test_an_undeclared_size_stops_before_it_would_pass_the_free_disk_floor(bd: Any) -> None:
     d, launched = bd
     floor = 10 * 1000 ** 3
@@ -1010,6 +1029,7 @@ def test_an_undeclared_size_stops_before_it_would_pass_the_free_disk_floor(bd: A
     assert ext.download_parts[-1].get("abort") is True and _kept(d) == []        # the partial file is gone
 
 
+# decision: HAND-210
 def test_a_free_disk_that_cant_be_read_refuses_the_download_never_leaves_it_to_the_browser(bd: Any) -> None:
     d, launched = bd
 

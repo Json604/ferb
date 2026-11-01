@@ -10,6 +10,7 @@ from tests.chromelab import EXT, _node, worker
 from tests.test_shown_password_fields import extension
 
 
+# decision: HAND-222
 def test_a_paired_message_is_taken_only_while_this_profiles_pairing_is_pending() -> None:
     out = worker('''(async () => {
       port = {postMessage() {}};
@@ -23,6 +24,7 @@ def test_a_paired_message_is_taken_only_while_this_profiles_pairing_is_pending()
     assert out == {"ignored": None, "taken": True, "pending": None}
 
 
+# decision: HAND-224
 def test_a_failed_read_is_a_known_failure_and_a_failed_act_stays_unknown() -> None:
     out = worker('''(async () => {
       gen = 1; const sent = []; send = async (type, body) => { sent.push(body); };
@@ -74,6 +76,7 @@ GROUPS = '''
 '''
 
 
+# decision: HAND-201
 def test_a_tasks_tabs_join_one_collapsed_group_the_result_leaves_it_and_others_close() -> None:
     out = worker('''(async () => {''' + GROUPS + '''
       const a = await commands.open({url: "https://s.example/a", window_id: 7, group: g}, "c-a");
@@ -94,6 +97,7 @@ def test_a_tasks_tabs_join_one_collapsed_group_the_result_leaves_it_and_others_c
     assert out["records"] == {"tabs": {}, "groups": {}}
 
 
+# decision: HAND-201
 def test_a_borrowed_tab_is_recorded_never_grouped_and_a_tab_dragged_out_is_the_owners() -> None:
     out = worker('''(async () => {''' + GROUPS + '''
       tabs[41] = {id: 41, windowId: 7, groupId: -1};
@@ -122,6 +126,7 @@ def test_a_new_browser_session_forgets_the_records_of_the_last() -> None:
     assert out == []
 
 
+# decision: HAND-218
 def test_a_text_key_into_a_secret_field_is_refused_by_trusted_input_and_tab_still_goes() -> None:
     out = worker('''(async () => {
       const pressed = [];
@@ -138,6 +143,7 @@ def test_a_text_key_into_a_secret_field_is_refused_by_trusted_input_and_tab_stil
     assert out["pressed"] == ["Tab", "Enter", "cmd+a"]
 
 
+# decision: GATE-202
 def test_an_act_that_can_submit_reports_the_pages_own_submit_events() -> None:
     out = worker('''(async () => {
       attach = async () => tabState(1);
@@ -150,6 +156,7 @@ def test_an_act_that_can_submit_reports_the_pages_own_submit_events() -> None:
     assert out["submitted"] == [{"action_host": "pay.example", "method": "POST", "kinds": ["card_number"], "frame_id": 0}]
 
 
+# decision: GATE-206
 def test_card_fields_are_secret_take_no_login_code_and_their_kinds_are_reported() -> None:
     shown = extension(r'''
 class HTMLSelectElement {}
@@ -173,6 +180,7 @@ console.log(JSON.stringify({number: one({autocomplete: 'cc-number'}), csc: one({
     assert "4111" not in json.dumps({k: v for k, v in shown.items() if k != "name"})
 
 
+# decision: GATE-202
 def test_a_submit_controls_facts_come_from_the_forms_own_markup() -> None:
     out = extension(r'''
 const store = new WeakMap();

@@ -171,6 +171,7 @@ def test_the_software_watcher_reads_grants_and_launch_jobs_only_when_they_change
 
 # ---------- the bot-check fact (HAND-208) ----------
 
+# decision: HAND-1, HAND-208
 def test_a_bot_check_frame_is_stated_with_the_ability_that_covers_it() -> None:
     from ferb.act.browser.ext_bridge import frame_urls
     from ferb.act.browser.snapshot import BOT_CHECK_ABILITY, for_model

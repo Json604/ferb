@@ -309,6 +309,7 @@ status = "active"
 words = "recommeded all"
 why = "Answer to T-513: the owner accepted the recommendation for every open question."
 rule = "FERB may write the clipboard and may approve another agent's prompts (owner 2026-10-07: \"no, let it do this\")."
+untestable = "A permission with nothing to enforce: no code refuses clipboard writes or approving another agent's prompts."
 
 [GATE-504]
 title = "Screenshots are never refused, always redacted"

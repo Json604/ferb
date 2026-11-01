@@ -140,6 +140,7 @@ def _driver(monkeypatch: pytest.MonkeyPatch, front: RunningApp = CODE) -> tuple[
     return d, ax, posted
 
 
+# decision: HAND-238
 def test_every_mac_tool_refuses_the_notch_by_its_app(monkeypatch: pytest.MonkeyPatch) -> None:
     """`app()` refuses FERB's own apps, so a snapshot, a press on the notch's Approve button, a menu, a script or a
     secret never reaches them; the daemon's own process too."""
@@ -161,6 +162,7 @@ def test_every_mac_tool_refuses_the_notch_by_its_app(monkeypatch: pytest.MonkeyP
     assert d.app("Code").bundle_id == "com.microsoft.VSCode"                       # any other app is unaffected
 
 
+# decision: HAND-238
 def test_a_click_where_a_notch_window_would_take_it_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     """A real click (it goes to whatever window is on top there: `mac.click` foreground) addressed to VS Code at a point
     the notch covers would land on the notch: it is refused, by the system's hit test, before and right before the
@@ -176,6 +178,7 @@ def test_a_click_where_a_notch_window_would_take_it_is_refused(monkeypatch: pyte
     assert posted == [] and ax.pressed == []
 
 
+# decision: HAND-238
 def test_foreground_input_right_after_a_yes_in_the_notch_goes_through(monkeypatch: pytest.MonkeyPatch) -> None:
     """Step 12e, fix 1 (live 2026-10-31, clean-up task: every foreground action after the owner's Yes was refused,
     because the notch they had just answered in was in front): the target is brought forward and the input lands
@@ -189,6 +192,7 @@ def test_foreground_input_right_after_a_yes_in_the_notch_goes_through(monkeypatc
     assert posted == ["type yes", "key return"] and d.apps.activated == [TEXTEDIT.bundle_id, TEXTEDIT.bundle_id]
 
 
+# decision: HAND-238
 def test_foreground_input_never_lands_while_the_notch_stays_in_front(monkeypatch: pytest.MonkeyPatch) -> None:
     """The target didn't come forward (the notch is still in front): nothing is posted (M1)."""
     from ferb.act.mac.input import PointerInterrupted

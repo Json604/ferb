@@ -68,6 +68,7 @@ def test_a_mac_read_of_any_browser_is_outside_web_content() -> None:
     assert _sources("com.apple.Notes") == (("app", "com.apple.Notes"),)
 
 
+# decision: GATE-201
 def test_foreground_rule_covers_every_browser_and_one_key_per_app() -> None:
     for app in ("Arc", "Firefox", ARC, "Vivaldi", "Google Chrome Canary", "\u200eOrion"):
         need = confirm.foreground_need("mac.click", {"app": app, "mechanism": "pointer"})
@@ -175,6 +176,7 @@ def test_pointer_input_reports_the_element_under_the_point(monkeypatch: pytest.M
 
 # ---------- 3. secure fields refuse key presses that enter text ----------
 
+# decision: HAND-218
 def test_text_entering_keys_into_a_password_field_are_refused_on_every_route(monkeypatch: pytest.MonkeyPatch) -> None:
     d, ax, posted = _facts_mac(monkeypatch)
     ax.focus_el = "pw"
@@ -188,12 +190,14 @@ def test_text_entering_keys_into_a_password_field_are_refused_on_every_route(mon
     assert posted == ["key return to pid", "key tab to pid"]
 
 
+# decision: HAND-218
 def test_which_keys_enter_text() -> None:
     assert all(enters_text(k) for k in ("a", "shift+a", "1", "space", "/", "cmd+v", "alt+cmd+shift+v", "keypad5"))
     assert not any(enters_text(k) for k in ("return", "tab", "escape", "left", "delete", "cmd+a", "ctrl+c", "f5",
                                             "keypadenter"))
 
 
+# decision: HAND-218
 def test_a_paste_item_into_a_password_field_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     d, ax, posted = _facts_mac(monkeypatch)
     ax.focus_el = "pw"
@@ -238,6 +242,7 @@ def test_typing_in_an_editor_stops_when_the_focus_becomes_unreadable(monkeypatch
 
 # ---------- 5. the shortcut guard (HAND-200) ----------
 
+# decision: HAND-200, HAND-219
 def test_screen_wide_combinations() -> None:
     for combo in ("cmd+tab", "cmd+shift+tab", "cmd+space", "ctrl+space", "ctrl+left", "ctrl+up", "cmd+alt+escape",
                   "f3", "f4", "ctrl+cmd+q", "shift+cmd+q"):
@@ -258,6 +263,7 @@ def _launched(task: str, app: RunningApp, unsaved: bool | None = False) -> tuple
     return la, done
 
 
+# decision: HAND-200
 def test_screen_wide_keys_are_refused_on_every_route(monkeypatch: pytest.MonkeyPatch) -> None:
     d, apps, posted = background_mac(monkeypatch, Ax(focused="button"))
     ids(d)
@@ -269,6 +275,7 @@ def test_screen_wide_keys_are_refused_on_every_route(monkeypatch: pytest.MonkeyP
     assert posted == [] and apps.activated == []
 
 
+# decision: HAND-200
 def test_cmd_q_quits_only_an_app_ferb_opened_without_unsaved_work(monkeypatch: pytest.MonkeyPatch) -> None:
     d, apps, posted = background_mac(monkeypatch, Ax(focused="button"))
     chat = apps.find("WhatsApp")
@@ -290,6 +297,7 @@ def test_cmd_q_quits_only_an_app_ferb_opened_without_unsaved_work(monkeypatch: p
     assert done == [] and posted == []
 
 
+# decision: HAND-200, HAND-219
 def test_cmd_h_hides_a_launched_app_and_hide_others_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     d, apps, posted = background_mac(monkeypatch, Ax(focused="button"))
     chat = apps.find("WhatsApp")
@@ -305,6 +313,7 @@ def test_cmd_h_hides_a_launched_app_and_hide_others_is_refused(monkeypatch: pyte
     assert posted == []
 
 
+# decision: HAND-219
 def test_the_quit_menu_item_goes_through_the_same_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     """By any mechanism: mac.menu's path, a press on the item, a click on it all carry ⌘Q."""
     d, apps, posted = background_mac(monkeypatch, Ax(focused="button"))
@@ -322,6 +331,7 @@ def test_the_quit_menu_item_goes_through_the_same_guard(monkeypatch: pytest.Monk
     assert done == [f"quit {CHAT}"] and pressed == [["File", "Search"]]   # FERB's safe quit, not the item
 
 
+# decision: HAND-219
 def test_a_press_on_a_quit_menu_item_is_guarded(monkeypatch: pytest.MonkeyPatch) -> None:
     ax = Ax(focused="button")
     ax.read_tree = lambda *a: AxTree([AxNode("quit", "menuitem", "Quit WhatsApp", None, (0, 0, 9, 9), False,  # type: ignore[method-assign]
@@ -430,6 +440,7 @@ def test_window_by_id_breaks_a_frame_tie_by_title(monkeypatch: pytest.MonkeyPatc
 
 # ---------- 7. responsiveness ----------
 
+# decision: HAND-221
 def test_ax_elements_get_a_messaging_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
     calls: list[tuple[Any, float]] = []
@@ -443,6 +454,7 @@ def test_ax_elements_get_a_messaging_timeout(monkeypatch: pytest.MonkeyPatch) ->
     assert calls[-1] == ("app43", axm.AX_MESSAGE_TIMEOUT_S) and len(calls) == 3     # the global one is set once
 
 
+# decision: HAND-221
 def test_a_walk_stops_at_its_budget_and_says_it_cant_tell_about_passwords(monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.test_mac_snapshot import El, fake_ax
     fake_ax(monkeypatch)
@@ -553,6 +565,7 @@ def test_focus_and_select_refuse_routes_they_dont_take(monkeypatch: pytest.Monke
 
 # ---------- 10. stable P19 identity ----------
 
+# decision: HAND-220
 def test_a_new_snapshot_keeps_a_press_the_same_action(monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.act.mac.tools import MacAct
     from ferb.daemon.gateway import hashed_args
@@ -566,6 +579,7 @@ def test_a_new_snapshot_keeps_a_press_the_same_action(monkeypatch: pytest.Monkey
     assert other != second
 
 
+# decision: HAND-220
 def test_a_new_screenshot_keeps_a_click_on_the_same_control_the_same_action(monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.act.mac.tools import MacClick, MacPointer
     from ferb.daemon.gateway import hashed_args
@@ -583,6 +597,7 @@ def test_a_new_screenshot_keeps_a_click_on_the_same_control_the_same_action(monk
     assert "650" not in str(spec.content) and shot2.id not in str(spec.content)
 
 
+# decision: HAND-220
 def test_a_snapshot_elements_identity_holds_no_snapshot_id_or_value() -> None:
     n = AxNode("ref", "textbox", "", "secret draft", (0, 0, 1, 1), False, True, "AXTextField", subrole="AXSearchField",
                path=("AXWindow", "AXGroup"), index=4)

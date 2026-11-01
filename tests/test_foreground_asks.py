@@ -4,6 +4,7 @@ front asks the owner first, once per task for that app; the worker's flag alone 
 from ferb.policy import confirm
 
 
+# decision: GATE-201
 def test_foreground_input_asks_once_per_task_for_that_app() -> None:
     need = confirm.foreground_need("mac.click", {"app": "Google Chrome", "mechanism": "foreground",
                                                  "allow_foreground": True})
@@ -50,6 +51,7 @@ def test_a_browser_addressed_by_pid_still_asks(monkeypatch) -> None:
     assert confirm.foreground_need("mac.click", {"app": "pid:999", "mechanism": "pointer"}) is None
 
 
+# decision: GATE-208
 def test_the_short_question_says_the_tasks_reason() -> None:
     """Live 2026-10-26 (task 7c1eca3a): the owner said Yes to "read Chrome's files", "bring Chrome to the front" and
     "type chrome://extensions/…" without seeing that they served turning off their permit-slots extension. Owner
@@ -64,6 +66,7 @@ def test_the_short_question_says_the_tasks_reason() -> None:
     assert confirm.reason_line("  ") == ""
 
 
+# decision: GATE-201
 def test_one_question_covers_an_app_by_name_pid_or_bundle_id(monkeypatch) -> None:
     """Step 12e, fix 2 (live 2026-10-31: the clean-up task asked about "Terminal", then about "pid:9040"): the answer is
     keyed by the running app, so a retry that spells the same app another way is covered by the same Yes."""
@@ -79,6 +82,7 @@ def test_one_question_covers_an_app_by_name_pid_or_bundle_id(monkeypatch) -> Non
     assert terminal.key == confirm.foreground_need("mac.click", {"app": "Terminal", "allow_foreground": True}).key
 
 
+# decision: GATE-222
 def test_a_script_for_a_browser_asks_like_mac_input_there() -> None:
     """Review 2026-11-01: mac.applescript addressed to a web browser skipped the browser checks (it can act in any of
     the owner's tabs). It now takes the same question as Mac input in that browser, under the same key, and a script

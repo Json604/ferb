@@ -68,6 +68,7 @@ def test_missing_config_is_empty_and_first_write_creates_it_0600(tmp_path: Path)
     assert stat.S_IMODE(h.stat().st_mode) == 0o700
 
 
+# decision: HAND-210, HAND-236
 def test_fresh_defaults_are_the_owners_limits_with_no_time_based_download_clearing(home: Path) -> None:
     """HAND-210 (2026-10-31): no per-file cap, 300 files and 32 GB per task; decimal GB throughout."""
     c = Config(home)
@@ -79,6 +80,7 @@ def test_fresh_defaults_are_the_owners_limits_with_no_time_based_download_cleari
     assert c.get("retention", "download_days") is None
 
 
+# decision: HAND-236
 def test_the_2026_10_31_download_decision_replaces_the_old_values_and_keeps_an_owners_own(home: Path) -> None:
     """An older config (the 2026-10-09 values FERB wrote): the per-file key goes, 50 files becomes 300, the MB keys go;
     an owner's own MB value carries over in decimal GB. All journaled as changes."""

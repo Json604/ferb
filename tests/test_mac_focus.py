@@ -18,6 +18,7 @@ def _front(name: str, bundle: str, pid: int) -> dict[str, Any]:
 
 # ---------- HAND-212, fix 3: an app that brought itself to the front is told to the worker, never put back ----------
 
+# decision: HAND-212
 def test_a_self_activation_during_a_background_call_reaches_the_worker_and_nothing_is_put_back(
         daemon: RunningDaemon) -> None:
     """Live 2026-10-31 (Slack uninstall): a background menu press made Finder come to the front by itself; the span
@@ -88,6 +89,7 @@ def _opener(monkeypatch: Any, windows: bool = True) -> tuple[Any, Any, Any]:
     return d, MacOpen(d), fake
 
 
+# decision: HAND-240
 def test_mac_open_opens_a_file_in_an_app_without_activating_anything(monkeypatch: Any, tmp_path: Any) -> None:
     import asyncio
     from types import SimpleNamespace
@@ -111,6 +113,7 @@ def test_mac_open_opens_a_file_in_an_app_without_activating_anything(monkeypatch
     assert out.is_error and fake.opened == [("com.apple.Notes", str(note))]
 
 
+# decision: HAND-241
 def test_a_file_that_would_run_in_a_terminal_needs_the_owners_yes_to_its_contents(monkeypatch: Any,
                                                                                  tmp_path: Any) -> None:
     """A script opened in Terminal, or a .command opened through Finder, runs: the terminal question (D31) shows the
@@ -141,6 +144,7 @@ def test_a_file_that_would_run_in_a_terminal_needs_the_owners_yes_to_its_content
     assert asyncio.run(tool.terminal_input(tool.Input(bundle_id="com.apple.Notes", path=str(note)), "t1")) is None
 
 
+# decision: HAND-241
 @pytest.mark.parametrize("name,app", [("tool.jar", "com.apple.JavaLauncher"), ("run.py", "org.python.PythonLauncher"),
                                       ("setup.pkg", "com.apple.installer"), ("wifi.mobileconfig", "com.apple.finder"),
                                       ("go.shortcut", "com.apple.shortcuts")])
@@ -168,6 +172,7 @@ def test_a_file_whose_type_runs_when_opened_asks_in_any_app(monkeypatch: Any, tm
     assert fake.opened == [(app, str(f))]
 
 
+# decision: HAND-240
 def test_a_running_app_with_no_window_is_asked_for_one_in_the_background(monkeypatch: Any) -> None:
     import asyncio
     from types import SimpleNamespace
@@ -191,6 +196,7 @@ def _quick(d: Any) -> Any:
     return ensure
 
 
+# decision: HAND-240
 def test_mac_open_of_a_protected_file_asks_through_the_gateway(daemon: RunningDaemon, monkeypatch: Any) -> None:
     """The file goes through the same protection lists as the file tools (rule 10): a never-read folder asks the owner
     first, and on a No nothing opens."""
@@ -208,6 +214,7 @@ def test_mac_open_of_a_protected_file_asks_through_the_gateway(daemon: RunningDa
 
 # ---------- HAND-213: a sound change is never counted against FERB when the owner did it ----------
 
+# decision: HAND-213, HAND-230
 def test_the_owners_own_mute_or_input_coincident_change_records_no_sound_fact(daemon: RunningDaemon) -> None:
     """Only changes FERB could have caused: the owner muting a tab themselves (the browser's mutedInfo.reason "user",
     protocol 21) and a change while the owner was using the keyboard or mouse record nothing, even with a FERB call
@@ -252,6 +259,7 @@ async def _settle() -> None:
     await asyncio.sleep(0)
 
 
+# decision: HAND-241
 def test_a_runnable_file_opened_in_its_declared_editor_doesnt_ask(monkeypatch: Any, tmp_path: Any) -> None:
     """Review 2026-11-01 (side effect of the rule above): a script opened in an editor asked. Now the app that receives
     the file (the one named, or Finder's default app for it) declaring itself the file's Editor lifts the question;
@@ -277,6 +285,7 @@ def test_a_runnable_file_opened_in_its_declared_editor_doesnt_ask(monkeypatch: A
     assert fake.opened == [("com.microsoft.VSCode", str(script))]
 
 
+# decision: HAND-241
 def test_an_apps_editor_role_is_read_from_its_document_types(tmp_path: Any) -> None:
     from ferb.act.mac import apps
 

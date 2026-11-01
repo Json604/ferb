@@ -50,6 +50,7 @@ def _journal(d: RunningDaemon) -> list[tuple[str, dict[str, Any]]]:
     return d.run(go())
 
 
+# decision: GATE-501, GATE-502
 def test_a_pasted_token_is_hidden_and_named(daemon: RunningDaemon) -> None:
     script = install(daemon, [sup("reply", "Noted.")])
     events = _send(daemon, f"here is my token {FAKE_GITHUB} for the deploy")
@@ -67,6 +68,7 @@ def test_a_pasted_token_is_hidden_and_named(daemon: RunningDaemon) -> None:
     assert events[-1]["type"] == "reply"                                     # nothing refused: the message still ran
 
 
+# decision: GATE-501, GATE-502
 def test_a_saved_secret_is_named_as_saved(daemon: RunningDaemon) -> None:
     daemon.call_soon(daemon.daemon._add_secret_value, SAVED)
     script = install(daemon, [sup("reply", "Noted.")])
@@ -76,6 +78,7 @@ def test_a_saved_secret_is_named_as_saved(daemon: RunningDaemon) -> None:
     assert SAVED not in context and "FERB's note: the owner's message held a saved secret; FERB hid it." in context
 
 
+# decision: GATE-502
 def test_a_plain_message_has_no_notice(daemon: RunningDaemon) -> None:
     script = install(daemon, [sup("reply", "Done.")])
     ack = _send(daemon, "rename the Q3 report to final")[0]
@@ -84,6 +87,7 @@ def test_a_plain_message_has_no_notice(daemon: RunningDaemon) -> None:
     assert not [data for kind, data in _journal(daemon) if kind == "chat.secret_hidden"]
 
 
+# decision: GATE-501
 def test_each_kind_is_named_once_in_order() -> None:
     r = Redactor()
     text = f"{FAKE_STRIPE} then {FAKE_ANTHROPIC} and again {FAKE_STRIPE}"
@@ -92,6 +96,7 @@ def test_each_kind_is_named_once_in_order() -> None:
     assert r.kinds("call me at 5pm about the report") == []
 
 
+# decision: GATE-501
 def test_a_cards_parts_and_a_twilio_pair_are_named_as_one() -> None:
     """A card with its expiry and CVV is one payment card; a Twilio account id with its auth token is one Twilio key.
     Everything is still masked as before: only the names fold."""
@@ -102,6 +107,7 @@ def test_a_cards_parts_and_a_twilio_pair_are_named_as_one() -> None:
     assert r.kinds(f"twilio {FAKE_TWILIO}") == ["Twilio key"]
 
 
+# decision: GATE-502
 def test_an_expiry_or_cvv_without_a_card_names_nothing() -> None:
     """By kind, not by reading intent: a card's part with no card in the text gives no notice; it is still masked."""
     r = Redactor()
@@ -110,6 +116,7 @@ def test_an_expiry_or_cvv_without_a_card_names_nothing() -> None:
         assert r.text(text) != text                        # redacted as today
 
 
+# decision: GATE-502
 def test_an_answer_holding_a_token_is_named_too(daemon: RunningDaemon) -> None:
     """chat.answer: an answer to a worker's question can carry a pasted key; its kinds come back and are journaled."""
     action = ActionRequest("owner.ask", "owner_question", Identity.OWNER, frozenset(), "t", "w", "r", frozenset())
@@ -121,6 +128,7 @@ def test_an_answer_holding_a_token_is_named_too(daemon: RunningDaemon) -> None:
     assert not any(FAKE_GITHUB in repr(data) for _, data in rows)
 
 
+# decision: GATE-502
 def test_a_worker_gets_ferbs_note_beside_an_answer(daemon: RunningDaemon) -> None:
     """owner.ask: the answer the worker reads is masked, and FERB's note sits beside it, not inside it."""
     grant, _ = gateway_setup(daemon, set(), gateway_request("deploy the site"), [])
@@ -137,6 +145,7 @@ def test_a_worker_gets_ferbs_note_beside_an_answer(daemon: RunningDaemon) -> Non
     assert FAKE_GITHUB not in repr(result)
 
 
+# decision: GATE-502
 def test_the_next_attempt_gets_ferbs_note_beside_a_step_answer(daemon: RunningDaemon) -> None:
     """plan.ask: the attempt after the owner's answer is told the masked answer and FERB's note on its own line."""
     script = install(daemon, [sup("task", "Deploying.", task("Deploy the site"))],

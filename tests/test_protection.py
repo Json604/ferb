@@ -191,6 +191,7 @@ def test_entries_for_the_profile_builder(tmp_path: Path) -> None:
     assert p.write_entries() == [(home.resolve() / ".zshrc", True)]
 
 
+# decision: GATE-203
 def test_fs_tools_follow_the_never_read_and_never_write_lists(tmp_path: Path) -> None:
     """GATE-203 (2026-10-30): FERB's file tools follow both lists like the shell: a never-read store is closed
     to their reads, writes and removals, a never-write place to their writes and removals (the gateway asks the owner
@@ -211,6 +212,7 @@ def test_fs_tools_follow_the_never_read_and_never_write_lists(tmp_path: Path) ->
     assert not hasattr(p, "fs_reads_never_read")
 
 
+# decision: GATE-1
 def test_ferbs_own_service_definition_is_never_changed_or_lifted(tmp_path: Path) -> None:
     """Rule 10: FERB's launchd definitions (~/Library/LaunchAgents/com.ferb.daemon.plist and the app's login fallback)
     are FERB's own: file tools may read them, never change or remove them (nor the folder holding them), whatever
@@ -233,6 +235,7 @@ def test_ferbs_own_service_definition_is_never_changed_or_lifted(tmp_path: Path)
     assert any(r["id"] == FERB_SERVICE and r["liftable"] is False for r in p.rules())
 
 
+# decision: GATE-1
 def test_the_service_definition_inside_ferb_app_is_never_changed_or_lifted(tmp_path: Path) -> None:
     """Rule 10, DMN-2: the background service's definition FERB.app registers with macOS
     (Contents/Library/LaunchAgents/com.ferb.daemon.plist) is refused to FERB's file tools as FERB's own service, not
@@ -258,6 +261,7 @@ def test_the_service_definition_inside_ferb_app_is_never_changed_or_lifted(tmp_p
     assert f'(deny file-write* (literal "{definition.resolve()}"))' in profile
 
 
+# decision: GATE-1
 def test_a_daemon_not_run_from_ferb_app_closes_the_installed_ferb_app(tmp_path: Path,
                                                                      monkeypatch: pytest.MonkeyPatch) -> None:
     """Past bug (12e review): a daemon run from ~/.ferb/venv had no FERB.app to protect, so its tools and shell could
@@ -533,6 +537,7 @@ def test_fs_tools_check_what_they_really_opened(tmp_path: Path) -> None:
     assert go(FsRead(), path="notes.txt").content["text"] == "fine"
 
 
+# decision: GATE-200, GATE-203
 def test_a_never_read_store_asks_once_per_task_for_reads_and_per_call_for_changes(daemon: RunningDaemon,
                                                                                  tmp_path: Path) -> None:
     """GATE-203, GATE-200: a file tool's read of a protected folder asks the owner once for the task
@@ -555,6 +560,7 @@ def test_a_never_read_store_asks_once_per_task_for_reads_and_per_call_for_change
     assert r["is_error"] and "already said no" in r["content"]["error"]
 
 
+# decision: GATE-200, GATE-203
 def test_a_yes_to_reading_a_protected_folder_covers_the_task_and_changes_ask_each_time(daemon: RunningDaemon,
                                                                                      tmp_path: Path) -> None:
     fake = tmp_path / "fakehome"
@@ -580,6 +586,7 @@ def test_a_yes_to_reading_a_protected_folder_covers_the_task_and_changes_ask_eac
     assert (fake / ".aws" / "new").read_text() == "x" and (fake / ".aws" / "new2").read_text() == "y"
 
 
+# decision: GATE-203
 def test_a_never_write_place_asks_before_a_file_tool_changes_it(daemon: RunningDaemon, tmp_path: Path) -> None:
     """~/.zshrc (never-write) reads freely; a write asks first and a No leaves it as it was (no S1 copy needed)."""
     fake = tmp_path / "fakehome"
@@ -1257,6 +1264,7 @@ class _Script(_Declares):
         return ToolResult({"ok": True})
 
 
+# decision: GATE-223
 def test_a_script_naming_ferbs_own_files_is_refused_and_a_listed_place_asks(daemon: RunningDaemon, tmp_path: Path,
                                                                              monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.act.mac import applescript
@@ -1288,6 +1296,7 @@ def test_a_script_naming_ferbs_own_files_is_refused_and_a_listed_place_asks(daem
     assert len(yes.asked) == 1 and "change ~/.zshrc once" in yes.asked[0].summary   # only the listed place asked
 
 
+# decision: GATE-224
 def test_every_browsers_credential_store_is_never_read(tmp_path: Path) -> None:
     """Review 2026-11-01: the list missed Safari's container (its cookies), Chrome Beta/Canary, Opera and more. It is
     built from the one browser list now, so each browser on it is closed (GATE-203)."""
@@ -1310,6 +1319,7 @@ def test_every_browsers_credential_store_is_never_read(tmp_path: Path) -> None:
     assert all(browsers.known(owner) for owner in browsers.BROWSER_DATA)   # each entry is a browser on the list
 
 
+# decision: GATE-224
 def test_an_older_config_gets_new_browser_stores_once_and_keeps_the_owners_edits() -> None:
     import shutil
     import tempfile
