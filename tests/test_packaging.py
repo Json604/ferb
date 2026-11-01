@@ -643,8 +643,9 @@ def test_real_bundle_structure_signature_and_embedded_cli(real_bundle: Path, tmp
     assert again.returncode == 0, "running FERB changed its own bundle: " + again.stderr
 
 
-# The owner's size target (L34, packaging plan A, Task 1 answer A2), in MB of 10^6 bytes
-MAX_APP_MB = {"arm64": 600, "x86_64": 630}
+# The owner's size target in MB of 10^6 bytes (L34 answer A2: 600 / 630; raised 2026-11-01 after the runtime upgrades,
+# owner: "yeah ofc raise the cap"; the step-13 arm64 build measured 705.6 MB)
+MAX_APP_MB = {"arm64": 720, "x86_64": 750}
 
 
 def test_real_bundle_holds_only_what_ferb_runs(real_bundle: Path, tmp_path: Path) -> None:

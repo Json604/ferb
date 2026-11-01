@@ -234,7 +234,8 @@ Checked offline as above (SDK 0.2.175/0.2.176 were under 48 h old).
   request carried `medium` (2.1.283: `high`); FERB still sends none unless asked (L39); live check.
 - **Small fixes:** runs pass `cli_path` = the bundled Claude Code (no fallback to a `claude` on PATH; missing, the run
   is refused); the doctor's Claude line compares the bundled Claude Code version too.
-- **App size (owner decision needed):** the Codex binary grew 238 → 269 MB and the bundled Claude Code 225 → 274 MB
+- **App size (owner, 2026-11-01: "yeah ofc raise the cap"; MAX_APP_MB now 720 arm64 / 750 Intel; the step-13 arm64
+  build measured 705.6 MB: Claude Code 274.1, Codex 273.0):** the Codex binary grew 238 → 269 MB and the bundled Claude Code 225 → 274 MB
   (arm64), about +80 MB in FERB.app. The trimmed app measured 581 MB (arm64) and 609 MB (Intel) on 2026-10-25 against
   the owner's 600 / 630 MB targets (tests/test_packaging.py MAX_APP_MB), so the step-13 build will likely be over both.
   Codex 0.166.0 no longer ships `codex-resources/zsh` (the trim's `rm -rf` of it is now a no-op).
