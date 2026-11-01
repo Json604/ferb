@@ -179,6 +179,32 @@ final class AppSetupTests: XCTestCase {
         XCTAssertFalse(toured)
     }
 
+    /// Restart's repair while a tour runs: the tour ends through its own skip (orb, sound and lines torn down) and
+    /// exactly one compact window shows, on Welcome, where the tour's end leaves it.
+    @MainActor
+    func testARepairDuringATourEndsItAndShowsOneWindowOnWelcome() async {
+        _ = NSApplication.shared
+        let rig = SetupRig()
+        let defaults = scratchDefaults("AppSetupTests")
+        let controller = AppSetupController(model: rig.model(), defaults: defaults)
+        let orb = FakeOrb()
+        let sound = FakeSoundPlayer()
+        controller.makeTourParts = { (orb, sound) }
+        controller.notch = NotchModel(rpc: rig.rpc, preferences: defaults)
+        controller.introControls = FakeControlFeed()
+        await controller.launch(.intro(IntroBeat.allCases), action: .none, needs: needs(done: false))
+        XCTAssertTrue(controller.touring)
+        controller.repair(.none)            // a service set up but not starting: the tour's end would pick sign-in
+        await eventually { !controller.touring }
+        XCTAssertEqual(orb.tearDowns, 1)
+        XCTAssertEqual(sound.warm.last, false)
+        XCTAssertNil(controller.notch?.introLine)
+        let windows = NSApp.windows.filter { $0.delegate === controller && $0.isVisible }
+        XCTAssertEqual(windows.count, 1)
+        XCTAssertEqual(controller.model.step, .welcome)
+        controller.setupWindow?.close()
+    }
+
     /// The quiet update's decision reads its needs here: a required grant is missing as in Allow all (FERB.app's own
     /// rows included, a blocked row never), and a fact the daemon didn't answer asks for nothing.
     @MainActor

@@ -30,8 +30,17 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     var introControls: IntroControlFeeding?
     /// The running intro, with the orb and the sound engine it plays: made when a tour starts, released when it ends.
     private var intro: IntroController?
-    private var orb: OrbController?
-    private var sound: FerbSoundEngine?
+    private var orb: OrbControlling?
+    private var sound: FerbSoundPlaying?
+    /// The only place the real orb and sound engine are made (tests make fakes).
+    var makeTourParts: @MainActor () -> (orb: OrbControlling, sound: FerbSoundPlaying) = {
+        let sound = FerbSoundEngine()
+        return (OrbController(sound: sound), sound)
+    }
+    /// A repair ended the tour: its end leaves the compact window where the repair put it.
+    private var repairing = false
+    /// A tour is on, or ending.
+    var touring: Bool { intro != nil }
     /// Where the intro stands (IntroProgress) and the setup window's Grant resume (SetupModel.resumeKey) live here.
     private let defaults: UserDefaults
     private var progress: IntroProgress { IntroProgress(defaults: defaults) }
@@ -88,6 +97,16 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         guard isPackaged else { return }
         let action = currentAction()
         if case .confirmReplace(let current) = action, !confirmReplacing(current) { return }
+        repair(action)
+    }
+
+    /// The repair wins over a tour: the tour is skipped (its own teardown: orb, sound, lines), then one compact
+    /// window shows on Welcome, and the tour's end doesn't move it.
+    func repair(_ action: AppSetupAction) {
+        if let intro {
+            repairing = true
+            intro.skip()
+        }
         show(.welcome, action: action)
     }
 
@@ -129,8 +148,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         var progress = self.progress
         if firstRun { progress.resumeBeat = nil }            // a new install starts at Meet, whatever a quit left
         progress.plan = beats
-        let sound = FerbSoundEngine()
-        let orb = OrbController(sound: sound)
+        let (orb, sound) = makeTourParts()
         let controller = IntroController(setup: model, orb: orb, sound: sound, notch: notch, progress: progress,
                                          controls: introControls)
         controller.onFinished = { [weak self, weak controller] in
@@ -151,6 +169,10 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         var progress = self.progress
         progress.plan = nil
         defaults.removeObject(forKey: SetupModel.resumeKey)   // the tour's grants left it
+        if repairing {
+            repairing = false
+            return
+        }
         let serviceSetUp = model.serviceAction == .none && !model.serviceRunning
         if let step = AppSetupPlan.afterIntro(left, serviceSetUp: serviceSetUp) {
             show(step, action: model.serviceAction)
@@ -280,6 +302,9 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)          // the owner opened FERB or chose Set Up FERB…
         window?.makeKeyAndOrderFront(nil)
     }
+
+    /// The compact setup window, when it exists (tests).
+    var setupWindow: NSWindow? { window }
 
     func windowWillClose(_ notification: Notification) {
         model.stopPolling()           // a service run keeps going: stopping it halfway could leave the service unloaded
