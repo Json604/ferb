@@ -191,3 +191,16 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
 - Which of today's seven permissions are list panes vs prompts, and their deep links on macOS 14–27.
 - The internal structure of the setup code it replaces, and tests (focused: grant confirmation logic, resume/skip state,
   the preview run having no acting tools, upgrade behaviour).
+
+## Live findings (2026-11-01)
+
+The owner ran the real build (FERB.app with the intro). Open issues:
+
+- Owner's verdict, verbatim: "the notch was on the side, not movable, the orb was not pretty enough, the flow is good
+  but the permission accepting, reopen and quit is broken, no good feedback in the demo etc etc so many wrong things."
+  The look and feel is iterated in the intro playground (`ui/mac/FERBNotch/PLAYGROUND.md`, `playground.sh`), which
+  runs the real intro code with everything behind it faked.
+- Keychain prompt from `ferb-secrets` for items under service `ferb.owner-secrets` kept reappearing even after
+  "Always Allow" (6 saved items; the helper's designated requirement is `identifier "com.ferb.secrets" and
+  certificate leaf = H"…"`). Cause not investigated yet.
+- A macOS banner said FERB "was blocked from accessing data". Cause unknown.

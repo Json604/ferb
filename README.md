@@ -183,6 +183,8 @@ watching; see notes/test-tasks.md.
 - `scripts/build-app.sh [--arch arm64|x86_64] [OUT_DIR]` builds FERB.app; `scripts/build-dmg.sh` builds both apps and
   disk images. Signing is described at the top of `scripts/signing.sh`.
 - The notch app is in `ui/mac/FERBNotch` (`swift test` after `source scripts/swiftpm-anonymous.sh`).
+- `ui/mac/FERBNotch/playground.sh` opens the intro playground: the real first-run intro with everything behind it faked
+  (see `ui/mac/FERBNotch/PLAYGROUND.md`).
 - To see what happened in a task: `ferb trace TASK --full` (or `--json`), `ferb stats`, `ferb doctor`, `ferb logs`. The
   `ferb` program is development plumbing, not a user interface.
 
