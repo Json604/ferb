@@ -7,7 +7,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 5 | 0 | 9 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 32 | 3 | 13 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 34 | 2 | 13 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 27 | 1 | 0 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 46 | 1 | 6 |
 | memory | Memory and memory import | `ferb/memory` | 34 | 2 | 3 |
@@ -20,11 +20,6 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | storage | Storage | `ferb/store` | 5 | 1 | 0 |
 | tests | Tests | `tests` | 0 | 0 | 0 |
 | voice | Voice | `ferb/voice` | 0 | 0 | 0 |
-
-## Waiting on the owner
-
-- T-7 (daemon): Restore is reachable by the developer toolbox's `ferb restore` as well as by FERB.app. Making it FERB.app-only would remove `ferb restore`. Keep it as is, or FERB.app-only?
-- T-8 (daemon): For a daemon run outside FERB.app, should FERB pin the installed FERB.app's signing identity at setup (the certificate leaf survives updates; an ad-hoc build's code hash changes every build and would lock the notch out until setup runs again), and who records it again after an app update?
 
 ## Terms
 
