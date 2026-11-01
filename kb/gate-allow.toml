@@ -15,3 +15,23 @@
 # [[audit]]
 # commit = "1a2b3c4d5e"
 # reason = "pushed from the web UI during an outage; re-checked by hand"
+
+[[secret]]
+path = "tests/support/import_fixtures.py"
+pattern = "OpenAI API key"
+reason = "an invented key in the memory-import fixtures, there to prove the import redacts it before any model call"
+
+[[secret]]
+path = "tests/test_gateway_needs.py"
+pattern = "AWS access key"
+reason = "AWS's documented example key: the confirmation store must never keep a real-looking secret"
+
+[[secret]]
+path = "tests/test_intro_preview.py"
+pattern = "GitHub token"
+reason = "an invented token (ghp_ + the alphabet) the intro preview test proves is redacted"
+
+[[secret]]
+path = "tests/test_redaction_rebuild.py"
+pattern = "private key"
+reason = "PEM headers around an invented body: the redaction corpus checks private keys are hidden"
