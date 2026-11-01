@@ -25,8 +25,9 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
 - A grant counts only when the system confirms it; never inferred from a drop. Poll every 1.5 s during a grant.
 - The demo never acts: the preview run issues no `RunGrant`, runs no worker, and emits only plan/part events marked
   `preview: true`.
-- FERB's intro lines are text in the notch, never spoken; sound comes only from the sound interface (phase 1: neutral
-  placeholders; the family arrives after the audition, a later plan).
+- FERB's intro lines are text in the notch, never spoken; sound comes only from the sound interface, which plays the decided
+  family (notes/sound.md; files rendered by `demo/sound-family/render.py`). Default on: needs you, error, done,
+  notification, listening start/end and the tour; default off: summon and paused (owner, 2026-11-01).
 - Motion: open springs duration 0.35–0.5 s, bounce 0.15–0.3; close/dismiss bounce 0; decorative animations ≤ 2 s; all
   interruptible. Reduce Motion: cross-fades, the orb fades in place beside its target.
 - Spatial: pan = clamp((x / screenWidth − 0.5) × 1.2, −0.6, 0.6); distance from the notch lowers gain ≤ 3 dB and adds
@@ -245,9 +246,12 @@ notch (`com.ferb.FERB`) already has for dictation, so the intro would guide one 
   card holding an `NSDraggingSource` for the agent app's bundle URL, `PermissionSnapshot.grantTarget`),
   `S/IntroNarration.swift` (notch states: line + detail, swell/shrink using `NotchPresentation`), `S/FerbSoundEngine.swift`
   (AVAudioEngine; mono sources, `AVAudioEnvironmentNode` with `.headphones` → HRTFHQ else equal-power pan from
-  `SoundPolicy`; neutral placeholder buffers; reads `com.apple.sound.uiaudio.enabled` and `feedback.*`)
+  `SoundPolicy`; plays the decided family's dry mono files through the room IR, picking a random variant where
+  there are several; reads `com.apple.sound.uiaudio.enabled` and `feedback.*`), `S/Resources/Sounds/` (the rendered
+  files every `FerbSound` needs, Standard and Subtle, plus `ferb-room-ir.wav`, copied from `render.py`'s `out/` and
+  committed; lossless; listed in Package.swift resources)
 - Modify: `S/NotchModel.swift` (an intro presentation mode: `introLine: IntroLine?`), `S/NotchView.swift` (render it),
-  `S/SoundFeedback.swift` (route through `FerbSoundEngine`, same cues as today in phase 1)
+  `ui/mac/FERBNotch/Package.swift` (the Sounds resources)
 - Test: `T/IntroNarrationTests.swift` (model state only; no rendering tests)
 
 **Interfaces:**
@@ -257,7 +261,8 @@ notch (`com.ferb.FERB`) already has for dictation, so the intro would guide one 
   `final class FerbSoundEngine { func play(_ s: FerbSound, at point: CGPoint?) ; func stopAll() }`.
 
 - [ ] **Step 1: Write the failing tests** in `T/IntroNarrationTests.swift`: setting `introLine` expands the notch and
-  shows it; clearing it collapses; `tearDown` during a flight leaves no orb panel visible and calls `stopAll()` (fake engine).
+  shows it; clearing it collapses; `tearDown` during a flight leaves no orb panel visible and calls `stopAll()` (fake engine);
+  `testEverySoundHasItsFiles`: each `FerbSound` case resolves to at least one bundled Standard and one Subtle file.
 - [ ] **Step 2: Run** → FAIL.
 - [ ] **Step 3: Implement** the files above. Reduce Motion: `OrbController.launch` fades the orb in beside its target.
 - [ ] **Step 4: Run** → PASS; `swift build`.
@@ -277,6 +282,8 @@ notch (`com.ferb.FERB`) already has for dictation, so the intro would guide one 
 
 - [ ] **Step 1: Write the failing tests** (SetupRig + ScriptedRPC fakes):
   - `testMeetInstallsTheServiceAndGuidesLoginItemsOnlyWhenAsked`: `serviceNeedsApproval` true → one orb trip to Login Items before sign-in; false → none.
+  - `testFirstLaunchClipPlaysOnceThenSilenceThenTheLogo`: a new install plays `.firstLaunch` once at start; `.intro` plays
+    only after the clip ended and Meet is ready, never during it; a replay or resume plays no clip.
   - `testPairAllRunsOnceAndIdentityCanBeSkipped`: browsers beat sends `setup.browsers_pair_all` once; identity "Later" advances with no `identity.*` call.
   - `testTheScanLineIsShownBeforeTheSuggestion`: persona `seen(summary)` → the notch shows it, then the suggestion.
   - `testSignInStartsTheScanInTheBackground`: after a successful sign-in, `setup.persona {}` is sent before the permissions beat starts.
@@ -311,5 +318,32 @@ notch (`com.ferb.FERB`) already has for dictation, so the intro would guide one 
 
 ---
 
-Phase 2 (a separate plan after the sound audition): the chosen family replaces the placeholders and today's system
-sounds, with the context rules (owner thresholds) and per-sound settings, per notes/sound.md.
+### Task 10: Everyday sounds: the family replaces today's system sounds (FERBNotch)
+
+Owner, 2026-11-01: the decided family goes into this plan; big events only; the magnetic docking sound is removed.
+
+**Files:**
+- Modify: `S/SoundFeedback.swift` (its `Cue`s become `FerbSound`s played through `FerbSoundEngine`; per-sound on/off
+  with the defaults below), `S/NotchModel.swift` (~549, 591, 638, 823), `S/DaemonConnection.swift` (~359, 381, 741-742:
+  done → `.done`; a task that failed → `.error`; a question, approval or other wait on the owner → `.needsYou`;
+  `receiveNotices` plays `.notification`), `S/NotificationPoster.swift` (banners use
+  `UNNotificationSound(named:)` with the bundled notification file, not `.default`), `S/SettingsPages.swift` (one switch
+  per everyday sound and the Standard/Subtle choice; the "Magnetic docking sound" switch goes), the `About` or
+  acknowledgements view (the CC BY 4.0 credit from `demo/sound-family/CREDITS.md`)
+- Delete: `S/MagneticDockingAudio.swift`, the `FERBMagneticSynth*` C sources and their wiring, `feedback.magneticEnabled`
+- Test: `T/SoundFeedbackTests.swift` (or the nearest existing suite)
+
+**Rules:**
+- Defaults: on for needs you, error, done, notification, listening start and end, and the tour; off for summon and
+  paused. Every one can be switched; `feedback.enabled` and `feedback.volume` keep working as the master switch and
+  volume (existing values kept on upgrade).
+- A notice shown both as a banner and in the notch sounds once (the banner carries it; the notch stays silent for it).
+- Context rules (calls, Focus, quiet hours) are not built here: their thresholds are owner decisions still open
+  (notes/sound.md).
+
+- [ ] **Step 1: Write the failing tests**: `testAFailedTaskPlaysErrorNotNeedsYou`, `testAQuestionPlaysNeedsYou`,
+  `testSummonAndPausedAreSilentByDefault`, `testANoticeShownAsBannerAndInTheNotchSoundsOnce`,
+  `testTurningASoundOffSilencesOnlyThatSound`.
+- [ ] **Step 2: Run** → FAIL. **Step 3: Implement**, deleting the magnetic sound and its setting.
+- [ ] **Step 4: Run** `swift build`, `swift test` (scratch path) → PASS.
+- [ ] **Step 5: Commit** `git commit -m "Sound: FERB's family replaces the system sounds; one notification cue; magnetic sound removed"`.

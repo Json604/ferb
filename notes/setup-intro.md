@@ -115,13 +115,15 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   AVAudioEnvironmentNode or the simplest technique the research supports), with a stereo-pan fallback on built-in
   speakers; compensate output latency; no tight sync promised on Bluetooth.
 - **Honour the system**: the "Play user interface sound effects" setting and the alert volume; never music under the tour.
-- **Ownership**: sounds are original and owned by the project (no library loops in the signature, no game or film
-  music, no purely AI-generated signature); the production route comes from the research.
+- **Ownership** (owner, 2026-11-01): the Crystal sounds, synthesised from code under the owner's direction with no
+  samples, ship as FERB's own; a hired designer stays optional for later. The two Material clips are CC BY 4.0 and
+  ship with their credit. No library loops, no game or film music.
 - **Scope** (ruling from the owner's plan, which covers everyday sounds): the whole family is in this step, in two
-  phases: (1) the tour with one sound interface and neutral placeholders; (2) after the audition, the chosen family
-  replaces today's system sounds (SoundFeedback.swift: Tink, Pop, Bottle, Glass, Basso), with the context rules and
-  per-sound controls. The context rules' thresholds (e.g. what counts as late at night) are the owner's (rule 18),
-  asked with the audition.
+  parts in notes/setup-intro-plan.md: the tour plays the decided family (Task 7), and the family replaces today's system
+  sounds (SoundFeedback.swift: Tink, Pop, Bottle, Glass, Basso) with per-sound switches (Task 10). Defaults (owner,
+  2026-11-01): on for needs you, error, done, notification, listening start/end and the tour; off for summon and
+  paused. The magnetic docking sound is removed (owner, 2026-11-01). The context rules' thresholds (e.g. what counts
+  as late at night) are the owner's (rule 18) and still open.
 - **Process** (done 2026-11-01): four rounds of directions, then the Crystal family refined over five more rounds;
   `demo/sound-family/render.py` renders it, `demo/sound-family/index.html` plays it.
 - **The decided family** (owner, 2026-11-01; details and levels in notes/sound.md):

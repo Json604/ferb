@@ -148,14 +148,16 @@ here.
   files; 48 kHz/24-bit WAV; no third-party samples; explicit permission to publish the files in the open-source repo;
   revision rounds stated.
 
+## Owner decisions (2026-11-01, after the rounds)
+- The family ships as FERB's own sounds: the Crystal set is synthesised from code under the owner's direction, with no
+  samples; hiring a designer stays optional for later (supersedes "no purely AI-generated signature").
+- Default on: needs you, error, done, notification, listening start/end, the tour. Default off: summon, paused. Every
+  sound has its own switch.
+- The magnetic docking sound (MagneticDockingAudio.swift) is removed.
+- Integration is in notes/setup-intro-plan.md (Task 7 for the tour, Task 10 for everyday sounds).
+
 ## Owner decisions still open
-- Whether the decided family ships as is or goes to a commissioned designer as the reference.
-- Which moments make a sound by default (round 4 proposal above, not yet confirmed).
-- Ownership of code-synthesised sounds: notes/setup-intro.md says "no purely AI-generated signature" and the brief asks
-  for a human-made family; the Crystal sounds are synthesised by Claude from code under the owner's direction. Whether that can
-  ship as FERB's signature, or only serve as the reference for a human designer, is the owner's call.
-- Commission or in-house for the final family, and the budget.
 - The licence of the sound files in the public repo (the Material clips are CC BY 4.0 and need their credit; Google's
   own licence page still to confirm).
 - Context rules: quiet hours, whether calls/meetings mean silent or quieter, Focus behaviour.
-- Customisation defaults (master FERB volume, per-sound toggles, a Subtle/Standard intensity).
+- Whether Standard or Subtle is the default intensity (the master volume stays at today's 0.18).
