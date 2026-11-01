@@ -69,9 +69,9 @@ run = "uv run pytest -q -p no:cacheprovider tests/test_imports.py tests/test_rel
 when = ["ferb/**", "tests/**", "extensions/**", "scripts/**", "pyproject.toml", "uv.lock"]
 
 [[check]]
-name = "Python safety suite"                 # ~2.7 min: parallel, then the serial-only files (tests/conftest.py _SERIAL)
+name = "Python safety suite"                 # ~3 min: parallel, then serial files; a failure is rerun alone once (scripts/run_suite.py)
 level = "push"
-run = "nice -n 10 uv run pytest -q -p no:cacheprovider -n auto -m 'not real and not real_claude and not real_api and not serial' && nice -n 10 uv run pytest -q -p no:cacheprovider -m 'not real and not real_claude and not real_api and serial'"
+run = "nice -n 10 uv run python scripts/run_suite.py"
 when = ["ferb/**", "tests/**", "extensions/**", "scripts/**", "pyproject.toml", "uv.lock", "package.json", "package-lock.json"]
 timeout = 1800
 

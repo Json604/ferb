@@ -208,3 +208,108 @@ area = "orchestration"
 kind = "build"
 status = "open"
 decisions = ["ORCH-506"]
+
+[T-13]
+title = "Make test_browser_groups.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-14]
+title = "Make test_schedules.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-15]
+title = "Make test_downloads.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-16]
+title = "Make test_frontend_rpc.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-17]
+title = "Make test_audio_listen.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-18]
+title = "Make test_failure_report.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-19]
+title = "Make test_escape_hatch.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-20]
+title = "Make test_egress_proxy.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-21]
+title = "Make test_redaction_scaling.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-22]
+title = "Make test_local_direct.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-23]
+title = "Make test_shell_sandbox.py deterministic (TEST-508)"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
+decisions = ["TEST-508"]
+
+[T-24]
+title = "Remove scripts/run_suite.py's rerun-alone once the timer tests are deterministic"
+area = "tests"
+kind = "chore"
+status = "blocked"
+why = "The rerun is a visible stopgap (flaky tests are named in the push output); TEST-508's fixes make it unnecessary."
+decisions = ["TEST-508"]
+after = ["T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20", "T-21", "T-22", "T-23"]
+
+[T-25]
+title = "Require GitHub's gate check on main once it is green"
+area = "release"
+kind = "chore"
+status = "blocked"
+why = "Owner approved 2026-11-02: a clean-machine pass is the final judge; blocked until the macOS runner passes the suite."
+decisions = ["TEST-508"]

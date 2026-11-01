@@ -6,6 +6,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -904,11 +905,29 @@ for _k in [k for k in os.environ if k.startswith("GIT_")]:
     del os.environ[_k]
 
 
+_REPO = Path(__file__).parents[1]
+_GUARDED = (_REPO / ".git" / "config", _REPO / ".git" / "HEAD")
+
+
+def _guard_state() -> list[bytes]:
+    return [p.read_bytes() if p.is_file() else b"" for p in _GUARDED]
+
+
+def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
+    """TEST-508: a test never changes anything outside its own temp folders. The repository's git config and HEAD are
+    the same after the run as before, or the run fails (a test's `git init` once turned this repository bare)."""
+    before = getattr(session.config, "_ferb_guard", None)
+    if before is not None and _guard_state() != before:
+        print("\nconftest: a test changed this repository's .git/config or HEAD (TEST-508); check `git config -l`",
+              file=sys.stderr)
+        session.exitstatus = 1
+
+
 def pytest_sessionstart(session: Any) -> None:
     """repo-kb: a fresh clone learns about the repository's git hooks the first time it runs the tests (warning only;
-    CI runs the gate itself)."""
-    import os
+    CI runs the gate itself). Also records what TEST-508's guard compares at the end."""
     import subprocess
+    session.config._ferb_guard = _guard_state()
     if os.environ.get("CI"):
         return
     root = Path(__file__).parents[1]
