@@ -74,3 +74,12 @@ words_source = "CHANGELOG.md L34 phase A: \"(owner, A3)\", an answer in the L34 
 rule = "On Intel Macs FERB installs cryptography 48.0.1 (the last release with Intel Mac wheels); every other platform takes the current pin."
 paths = ["pyproject.toml", "uv.lock"]
 legacy = "CHANGELOG.md 0.27.0.dev1 FERB for everyone, phase A (L34)"
+
+[REL-403]
+title = "Distribution: one FERB.app, two DMGs, free signing, self-installing updates"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-512: the owner accepted the recommendation for every open question."
+rule = "One FERB.app shipped as two DMGs (Apple silicon, Intel), signed without a Developer ID or notarization for now; updates install by themselves; the notch is the main interface with detail in a regular window; installing from source stays supported."

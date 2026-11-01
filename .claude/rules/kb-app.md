@@ -97,3 +97,4 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **APP-583** (owner): Notices are FERB messages with a small "noticed" tag and quotes show their origin; they never expand the notch, take focus or glow, and are acknowledged with attention.ack. A notice plays the notification sound (APP-532), once even when it also shows as a banner. The app polls chat.status with peek: true and acknowledges placed results with results.ack.
 - **APP-584** (owner): There is no paste dialog: pasted ranges are tracked and sent as data with the CLI's delimiters.
 - **APP-585** (owner): Recovered tasks show on FERB's side of the chat with their goal, never as the owner's words.
+- **APP-586** (owner): A question waiting for the owner lights the camera edge amber (the yield rule, as built); completion keeps its two green pulses.

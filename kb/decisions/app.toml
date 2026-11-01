@@ -922,3 +922,13 @@ words_source = "ui/AGENTS.md 'Launch-week chat rules' (owner, 2026-10-13/14): an
 rule = "Recovered tasks show on FERB's side of the chat with their goal, never as the owner's words."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift"]
 legacy = "ui/AGENTS.md Launch-week chat rules"
+
+[APP-586]
+title = "A waiting question lights the camera edge amber"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-506: the owner accepted the recommendation for every open question."
+rule = "A question waiting for the owner lights the camera edge amber (the yield rule, as built); completion keeps its two green pulses."
+rejected = ["Lighting the camera edge only for completion."]

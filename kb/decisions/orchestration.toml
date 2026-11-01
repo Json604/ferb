@@ -393,3 +393,48 @@ rule = "The planner, workers and the orchestrator's recovery write no separate s
 rejected = ["Short by default (P30) and a concise display_text above Details (0.27.0.dev1)"]
 paths = ["ferb/orchestrator/schemas.py", "ferb/orchestrator/prompts"]
 legacy = "CHANGELOG.md 0.27.0.dev1 (2026-10-24): every answer shows its full detailed text"
+
+[ORCH-502]
+title = "Questions never expire while their task waits"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-518: the owner accepted the recommendation for every open question."
+rule = "A question stays open as long as its task waits, with no expiry; the runtimes' own per-call tool timeouts stay at their defaults."
+
+[ORCH-503]
+title = "Big jobs start at once after the plan line"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-519: the owner accepted the recommendation for every open question."
+rule = "For a big job the plan line states the plan, estimates and any standing scope, and work starts at once; the owner corrects by replying. Escape-hatch commands and retries after an unknown outcome still wait; steering never records a No; a retry the owner drives re-asks a No once."
+
+[ORCH-504]
+title = "The instant acknowledgement comes from the approved phrase list"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-520: the owner accepted the recommendation for every open question."
+rule = "The daemon sends an instant acknowledgement from the owner's approved phrase list (ferb/orchestrator/acks.py, without the starred phrase), never one of the last eight used."
+
+[ORCH-505]
+title = "Loops run until stopped and back off when fixes don't last"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-521: the owner accepted the recommendation for every open question."
+rule = "A loop with no stated end runs until the owner says stop, across restarts and updates; when fixes don't last it backs off and tells the owner once; constants: backup round 1,800 s; didn't last within 120 s; 3 such in 600 s start back-off at 120 s doubling to 3,600 s; reset after 1,800 s; look-only rounds skip the check; held tabs return between rounds."
+
+[ORCH-506]
+title = "Code watchers: watches without AI calls"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-522: the owner accepted the recommendation for every open question."
+rule = "Long-running watches run without AI calls (reload, read and view-switch clicks set up once), with a 30 s floor; FERB looks up the service's rate limits and says which interval it chose."

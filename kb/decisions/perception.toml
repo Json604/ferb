@@ -87,3 +87,21 @@ rule = "A transcription may take `LIMIT_S` (60 s) plus `PER_AUDIO_S` (2 s) for e
 why = "Covers FERB.app's launch and the recognizer's set-up, and scales because on-device recognition time grows with the sound."
 paths = ["ferb/sense/transcribe.py::LIMIT_S", "ferb/sense/transcribe.py::PER_AUDIO_S"]
 legacy = "notes/voice.md Rulings (step 11) 1"
+
+[SENSE-401]
+title = "Typed text and clipboard capture"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-516: the owner accepted the recommendation for every open question."
+rule = "Typed text is recorded per field with its content; secure fields, Secure Input, password fields (shown ones too) and terminal apps are never captured; there is no digit-shape OTP rule; typed and clipboard text are kept 7 days."
+
+[SENSE-402]
+title = "Proactivity design: offers only"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-523: the owner accepted the recommendation for every open question."
+rule = "When perception returns: FERB only offers (nothing done until the owner presses Do it), Jev is a switch, no limit on approaches, a daily brief, Mail and Calendar as sources."

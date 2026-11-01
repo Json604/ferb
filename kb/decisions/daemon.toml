@@ -406,3 +406,22 @@ status = "active"
 rule = "intro.suggest makes one tool-less model call on the redacted scan summary for two first-task suggestions. When the scan isn't seen, the call fails or stalls past SUGGEST_LIMIT_S (just under the app's wait), or fewer than two usable tasks come back, the general tasks fill in (GENERAL_TASKS: one Mac or files task, one browser task; the copy may change but stays general). FERB.app only."
 paths = ["ferb/daemon/areas/intro.py::GENERAL_TASKS", "ferb/daemon/areas/intro.py::SUGGEST_LIMIT_S"]
 legacy = "notes/setup-intro.md Left to the builder (Task 4); notes/setup-intro-plan.md Task 4"
+
+[DMN-501]
+title = "Desktop changes are stated as facts, never blame"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-514: the owner accepted the recommendation for every open question."
+rule = "FERB records which app came forward, when its last on-screen action ended and which FERB-started processes ran, never who caused a change (owner 2026-10-09: \"i dont want this hardcoded control over other agent's harness\")."
+
+[DMN-502]
+title = "Setup and doctor check FileVault; no separate database encryption"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-517: the owner accepted the recommendation for every open question."
+rule = "Setup and ferb doctor check that FileVault is on. FERB adds no whole-database encryption of its own (FileVault encrypts the disk)."
+rejected = ["Whole-database encryption through a signed helper."]

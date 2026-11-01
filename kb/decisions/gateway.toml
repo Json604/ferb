@@ -300,3 +300,21 @@ status = "active"
 rule = "The notice comes from the redactor's finding, never from a model, so it always appears; it names kinds, never the value. The owner's bubble shows the masked text (the ack's message), also after a restart; the journal records chat.secret_hidden with kinds only; the planner gets the hidden kinds as one fact, so a reply never asks the owner to paste it again. The kinds are formats, not intent (AGENTS.md rule 4): nothing is refused."
 paths = ["ferb/daemon/areas/chat.py", "ferb/orchestrator/supervisor.py"]
 legacy = "notes/setup-intro-plan.md Task 11 (ruling and rules)"
+
+[GATE-503]
+title = "FERB may write the clipboard and approve another agent's prompts"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-513: the owner accepted the recommendation for every open question."
+rule = "FERB may write the clipboard and may approve another agent's prompts (owner 2026-10-07: \"no, let it do this\")."
+
+[GATE-504]
+title = "Screenshots are never refused, always redacted"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-515: the owner accepted the recommendation for every open question."
+rule = "The front window (topmost non-FERB window) is screenshotted, redacted, with every message for the planner and reused by the worker; browser windows, task tabs and recording frames go redacted; an image is withheld only when masking fails; excluded sites are captured as excluded, excluded apps are not looked at or named; never the whole desktop."

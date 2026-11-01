@@ -21,3 +21,6 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 
 - **PROJ-500** (owner): Examples, copy and tests in tracked files use invented data only; nothing personal to the owner is committed. Personal parts live in local untracked files (kb/local/).
 - **PROJ-501** (owner): The repo has no CHANGELOG.md. Release notes, if any, are a new decision.
+- **PROJ-502** (owner): After a UI edit an agent may build and relaunch the development build and the playground; relaunching the installed FERB.app needs the owner's OK.
+- **PROJ-503** (owner): FERB is licensed Apache-2.0 (LICENSE, pyproject.toml).
+- **PROJ-504** (owner): THIRD_PARTY_NOTICES.md keeps the license attributions for bundled third-party code.

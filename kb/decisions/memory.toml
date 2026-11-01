@@ -510,3 +510,12 @@ why = "A localized record carries its marker inside the same `title` string with
 rejected = ["A per-language word list for the marker", "Guessing the marker from prefixes the titles share"]
 paths = ["ferb/memory/import_sources.py"]
 legacy = "notes/memory-import.md fix list (step 12c): localized Takeout"
+
+[MEM-415]
+title = "No further assistants to import memory from"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-407: the owner accepted the recommendation for every open question."
+rule = "Memory import covers ChatGPT, claude.ai, Claude Code, Codex CLI and Gemini; no other assistants are added for now."

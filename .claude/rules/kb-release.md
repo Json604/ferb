@@ -21,3 +21,4 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **REL-4** (agent): FERB.app and its helper name CFBundleIconFile AppIcon; build-app.sh copies the icns into their Resources and build-dmg.sh sets it as the disk image's volume icon. No Icon Composer .icon compiled by actool into Assets.car.
 - **REL-401** (owner): FERB.app stays within 720 MB (arm64) and 750 MB (Intel), in MB of 10^6 bytes, checked by tests/test_packaging.py MAX_APP_MB.
 - **REL-402** (owner): On Intel Macs FERB installs cryptography 48.0.1 (the last release with Intel Mac wheels); every other platform takes the current pin.
+- **REL-403** (owner): One FERB.app shipped as two DMGs (Apple silicon, Intel), signed without a Developer ID or notarization for now; updates install by themselves; the notch is the main interface with detail in a regular window; installing from source stays supported.

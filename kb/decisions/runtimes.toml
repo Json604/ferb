@@ -147,3 +147,13 @@ status = "active"
 rule = "Read Claude Code's changelog since the old version; find the behaviours claude_sdk.py names (cache breakpoints, tool search, the too-long text, the MCP idle timeout, the cost field, the structured-output subtype, the auth commands) in the bundled binary's strings. Strongest: `ClaudeRuntime._options` against a local Messages API stand-in, the CLI under sandbox-exec with only localhost and no Keychain, a made-up API key, comparing the request's tools and cache_control with the old CLI's."
 paths = ["ferb/runtimes/claude_sdk.py"]
 legacy = "notes/runtimes.md Moving the Codex/Claude pins, step 3"
+
+[RUN-414]
+title = "A worker's overflowing tool loop is compacted"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-404: the owner accepted the recommendation for every open question."
+rule = "When a worker's tool loop overflows the model's context window, Codex compacts the conversation and the worker carries on."
+rejected = ["Failing the worker."]

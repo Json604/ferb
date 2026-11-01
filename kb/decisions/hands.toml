@@ -540,3 +540,13 @@ words_source = "CHANGELOG.md 0.27.0.dev1 entries of 2026-10-26: two quotes joine
 rule = "Every browser tool shares one check: a connected profile is used; one that isn't connected is started quietly with no window; if the extension still doesn't come, the profile's own window opens once (the accepted focus shift) and FERB carries on through the extension. A profile with no FERB window takes a background tab in one of its own windows; nothing asks the owner first unless the extension isn't paired."
 paths = ["ferb/act/browser/ext_bridge.py", "ferb/act/browser/profiles.py"]
 legacy = "CHANGELOG.md 0.27.0.dev1 (2026-10-26): natural steer replies; background browser fixes"
+
+[HAND-404]
+title = "The Web Store listing text is kept current"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "recommeded all"
+why = "Answer to T-524: the owner accepted the recommendation for every open question."
+rule = "extensions/store/listing.md is kept and refreshed before each extension upload."
+rejected = ["Dropping the file."]
