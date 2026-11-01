@@ -6,6 +6,7 @@ Saved to ~/.ferb/device/<device_id>.json and committed to a local git repo in ~/
 Mac's changes). Never pushed: no remote is ever added."""
 
 import json
+import os
 import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -106,9 +107,19 @@ class ProfileStore:
         return self._git("remote", check=False).stdout.split()
 
     def _git(self, *args: str, check: bool = True) -> "subprocess.CompletedProcess[str]":
-        # Local identity only for this repo's commits; the owner's global git config is never touched.
+        # Local identity only for this repo's commits; the owner's global git config is never touched. Git's
+        # repository variables are left out (`git rev-parse --local-env-vars`): inherited from a git hook or a
+        # shell inside another repo, GIT_DIR made `add` stage the profile into that repository's index.
+        env = {k: v for k, v in os.environ.items() if k not in _REPO_ENV}
         return subprocess.run(["git", "-C", str(self.dir), "-c", "user.name=FERB", "-c", "user.email=ferb@localhost",
-                               "-c", "commit.gpgsign=false", *args], capture_output=True, text=True, check=check)
+                               "-c", "commit.gpgsign=false", *args], capture_output=True, text=True, check=check,
+                              env=env)
+
+
+_REPO_ENV = frozenset({"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+                       "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE",
+                       "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_PREFIX",
+                       "GIT_SHALLOW_FILE", "GIT_COMMON_DIR"})
 
 
 def _same_except_time(a: DeviceProfile, b: DeviceProfile) -> bool:
