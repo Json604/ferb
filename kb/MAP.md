@@ -7,17 +7,17 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 86 | 6 | 29 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 41 | 2 | 15 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 41 | 3 | 15 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 28 | 2 | 55 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 50 | 1 | 35 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 50 | 3 | 35 |
 | memory | Memory and memory import | `ferb/memory` | 59 | 3 | 9 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 35 | 2 | 30 |
-| perception | Perception | `ferb/sense` | 8 | 1 | 5 |
-| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `notes`, `kb`, `tools`, `spikes` | 1 | 1 | 0 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 35 | 7 | 30 |
+| perception | Perception | `ferb/sense` | 8 | 4 | 5 |
+| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `notes`, `kb`, `tools`, `spikes` | 1 | 4 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 18 | 0 | 32 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 5 | 0 | 3 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 5 | 1 | 3 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 15 | 3 | 10 |
-| storage | Storage | `ferb/store` | 22 | 5 | 6 |
+| storage | Storage | `ferb/store` | 22 | 6 | 6 |
 | tests | Tests | `tests` | 8 | 3 | 0 |
 | voice | Voice | `ferb/voice` | 8 | 0 | 7 |
 
@@ -30,6 +30,22 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-408 (app): With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?
 - T-506 (app): ui/AGENTS.md says the camera edge lights ONLY for completion (two green pulses; the red attention segment was removed), but its later yield rule (2026-10-14) keeps an amber camera-edge light when a question arrives, and the app has that amber light today. Should a waiting question light the camera edge in amber, or should the edge light only for completion?
 - T-507 (app): ui/AGENTS.md tells agents to "Build and relaunch after edits", but AGENTS.md rule 17 says not to restart the running FERB.app without your OK (building itself is allowed). For UI work, may an agent relaunch FERB.app after an edit, or only build and leave relaunching to you?
+- T-511 (project): The old plan (launch-week clarifications, 2026-10-14) says FERB is licensed Apache-2.0, and LICENSE and pyproject.toml agree. Record that as your standing decision, or drop it?
+- T-512 (release): The old plan says: one FERB.app in a DMG, free signing only (no Developer ID or notarization for now), two DMGs (Apple silicon and Intel), updates install by themselves, the notch is the main interface with detail in a regular window, and install from source stays supported. Still in force (record it), or drop or change any part?
+- T-513 (hands): On 2026-10-07 you said "no, let it do this" about FERB writing the clipboard and approving another agent's prompts. Should that stand as your decision, or drop it?
+- T-514 (daemon): The old plan records: FERB states which app came forward, when its last on-screen action ended and which FERB-started processes ran, never who caused a change (your 2026-10-09 words: "i dont want this hardcoded control over other agent's harness"). Record it as your decision, or drop it?
+- T-515 (perception): The old plan: the front window is screenshotted, redacted, with every message for the planner (the worker reuses it); browser windows, task tabs and recording frames go redacted; an image is withheld only when masking fails; excluded sites are captured as excluded, excluded apps not looked at or named; never the whole desktop. Still in force (record it), or drop or change it?
+- T-516 (perception): The old plan: typed text is recorded per field with its content; secure fields, Secure Input, password fields (shown ones too) and terminal apps are never captured; no digit-shape OTP rule; typed and clipboard text kept 7 days. The code does this. Record it as your decision, or drop or change it?
+- T-517 (storage): The old plan says setup/doctor checks FileVault, and the whole database gets encrypted once a signed helper exists. Neither is built or recorded. Keep both as your decisions (they become work), keep one, or drop them?
+- T-518 (orchestration): The launch-week design says a question stays open as long as its task waits (no expiry), while the runtimes' own per-call tool timeouts stay at their defaults. Record that as your decision, or drop it?
+- T-519 (orchestration): The old plan: for a big job the plan line states the plan, estimates and any standing scope, and work starts at once; you correct by replying. Escape-hatch commands and retries after an unknown outcome still wait; steering never records a No; a retry you drive re-asks a No once. Record it as your decision, or drop or change it?
+- T-520 (orchestration): The old plan: the daemon sends an instant acknowledgement from your approved phrase list (without the starred phrase), never one of the last eight used. The list is now only in ferb/orchestrator/acks.py. Record it as your decision, or drop it?
+- T-521 (orchestration): The loops design: a loop with no stated end runs until you say stop, across restarts and updates; when fixes don't last it backs off and tells you once; your constants (backup round 1,800 s; didn't last within 120 s; 3 such in 600 s start back-off at 120 s doubling to 3,600 s; reset after 1,800 s); look-only rounds skip the check; held tabs return between rounds. Record it, or drop or change it?
+- T-522 (orchestration): The code-watchers design: long-running watches without AI calls (reload, read and view-switch clicks set up once), a 30 s floor, and FERB looks up the service's rate limits and says which interval it chose. Decided but not built. Keep it as your decision (it becomes work), or drop it?
+- T-523 (perception): The proactivity design: FERB only offers (nothing done until you press Do it), Jev as a switch, no limit on approaches, a daily brief, Mail and Calendar as sources. Not built, and perception is paused until a Jev-free design. Keep it as your decision for that design, or drop it?
+- T-524 (hands): extensions/store/listing.md (the Chrome Web Store text) has stale lines: the repository "becomes public on 2026-10-21", and post-approval steps using `ferb browsers pair` and `ferb setup --update` from before the app's setup. Refresh it before the next extension upload, or drop the file?
+- T-525 (project): THIRD_PARTY_NOTICES.md carries the license attributions for third-party code FERB bundles (pyproject.toml lists it as a license file), so removing it may break those licenses. Keep it (recommended), or do you want it changed?
+- T-526 (project): CHANGELOG.md is stale (release notes up to before the rebuild; nothing binding left in it, git keeps the history). After launch, should it be removed, or restarted as user-facing release notes from the launch version?
 
 ## Terms
 

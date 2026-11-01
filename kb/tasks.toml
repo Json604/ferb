@@ -240,3 +240,140 @@ area = "tests"
 kind = "chore"
 status = "open"
 why = "notes/test-tasks.md Before step 13: `nice -n 10 uv run pytest -q`, `uv run mypy ferb/core` and `git diff --check` pass on the commit the step-13 FERB.app is built from."
+
+[T-511]
+title = "Keep Apache-2.0 as FERB's license?"
+area = "project"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. LICENSE and pyproject.toml say Apache-2.0."
+decisions = ["PROJ-500"]
+ask = "The old plan (launch-week clarifications, 2026-10-14) says FERB is licensed Apache-2.0, and LICENSE and pyproject.toml agree. Record that as your standing decision, or drop it?"
+
+[T-512]
+title = "Distribution: one FERB.app in two DMGs, free signing, self-installing updates?"
+area = "release"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Sources: 0.27_PLAN.md L27 (2026-10-14) and the ferb-for-everyone design (2026-10-24)."
+decisions = ["REL-2"]
+ask = "The old plan says: one FERB.app in a DMG, free signing only (no Developer ID or notarization for now), two DMGs (Apple silicon and Intel), updates install by themselves, the notch is the main interface with detail in a regular window, and install from source stays supported. Still in force (record it), or drop or change any part?"
+
+[T-513]
+title = "May FERB write the clipboard and approve another agent's prompts?"
+area = "hands"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: 0.27_PLAN.md D36, 2026-10-07, your words \"no, let it do this\"."
+ask = "On 2026-10-07 you said \"no, let it do this\" about FERB writing the clipboard and approving another agent's prompts. Should that stand as your decision, or drop it?"
+
+[T-514]
+title = "Desktop changes stated as facts, never as blame?"
+area = "daemon"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: 0.27_PLAN.md D35/P26, 2026-10-09: \"i dont want this hardcoded control over other agent's harness\". DMN-5 covers the sampler, not this rule."
+decisions = ["DMN-5", "HAND-213"]
+ask = "The old plan records: FERB states which app came forward, when its last on-screen action ended and which FERB-started processes ran, never who caused a change (your 2026-10-09 words: \"i dont want this hardcoded control over other agent's harness\"). Record it as your decision, or drop it?"
+
+[T-515]
+title = "Screenshots: never refused, always redacted, front window with every message?"
+area = "perception"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: 0.27_PLAN.md L12, L13, D29 (2026-10-13/14): \"no screenshots should be refused; go with redacted stuff\"."
+decisions = ["APP-3"]
+ask = "The old plan: the front window is screenshotted, redacted, with every message for the planner (the worker reuses it); browser windows, task tabs and recording frames go redacted; an image is withheld only when masking fails; excluded sites are captured as excluded, excluded apps not looked at or named; never the whole desktop. Still in force (record it), or drop or change it?"
+
+[T-516]
+title = "Typed text and clipboard: captured per field, never from secure fields or terminals, kept 7 days?"
+area = "perception"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: 0.27_PLAN.md D7, D11, D14, L17. In code (perception.py purge_text; retention.py:113 now has its About row, so the doc's 'no row' remark is stale)."
+decisions = ["SENSE-5"]
+ask = "The old plan: typed text is recorded per field with its content; secure fields, Secure Input, password fields (shown ones too) and terminal apps are never captured; no digit-shape OTP rule; typed and clipboard text kept 7 days. The code does this. Record it as your decision, or drop or change it?"
+
+[T-517]
+title = "FileVault check and whole-database encryption?"
+area = "storage"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: 0.27_PLAN.md P8. No record or code found (a search, not verified further)."
+ask = "The old plan says setup/doctor checks FileVault, and the whole database gets encrypted once a signed helper exists. Neither is built or recorded. Keep both as your decisions (they become work), keep one, or drop them?"
+
+[T-518]
+title = "Questions never expire while their task waits?"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: the 2026-10-13 launch-week fixes design §8.1; the runtimes' per-call tool timeouts stay at their defaults (2026-10-14)."
+ask = "The launch-week design says a question stays open as long as its task waits (no expiry), while the runtimes' own per-call tool timeouts stay at their defaults. Record that as your decision, or drop it?"
+
+[T-519]
+title = "Big jobs start at once after the plan line?"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: 0.27_PLAN.md L3/D24, 2026-10-13. HAND-204 covers folders only."
+decisions = ["HAND-204"]
+ask = "The old plan: for a big job the plan line states the plan, estimates and any standing scope, and work starts at once; you correct by replying. Escape-hatch commands and retries after an unknown outcome still wait; steering never records a No; a retry you drive re-asks a No once. Record it as your decision, or drop or change it?"
+
+[T-520]
+title = "The instant acknowledgement comes from the approved phrase list?"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: 0.27_PLAN.md P25 and L7; the list lives only in ferb/orchestrator/acks.py now."
+decisions = ["APP-579"]
+ask = "The old plan: the daemon sends an instant acknowledgement from your approved phrase list (without the starred phrase), never one of the last eight used. The list is now only in ferb/orchestrator/acks.py. Record it as your decision, or drop it?"
+
+[T-521]
+title = "Loops: run until you say stop, back off when fixes don't last, with your constants?"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: the loops design (2026-10-24/25). In code (ferb/orchestrator/loops.py), recorded nowhere."
+decisions = ["PRM-311"]
+ask = "The loops design: a loop with no stated end runs until you say stop, across restarts and updates; when fixes don't last it backs off and tells you once; your constants (backup round 1,800 s; didn't last within 120 s; 3 such in 600 s start back-off at 120 s doubling to 3,600 s; reset after 1,800 s); look-only rounds skip the check; held tabs return between rounds. Record it, or drop or change it?"
+
+[T-522]
+title = "Code watchers: watches without AI calls, 30 s floor (decided, not built)?"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: the code-watchers design, 2026-10-25. Not built."
+ask = "The code-watchers design: long-running watches without AI calls (reload, read and view-switch clicks set up once), a 30 s floor, and FERB looks up the service's rate limits and says which interval it chose. Decided but not built. Keep it as your decision (it becomes work), or drop it?"
+
+[T-523]
+title = "Proactivity: offer only, a daily brief, Mail and Calendar as sources (not built)?"
+area = "perception"
+kind = "question"
+status = "open"
+why = "An owner decision from the old docs (git b6c3d120) that no current record holds; notes/docs-cleanup.md lists it for you to confirm or drop. Source: the proactivity design, 2026-10-24. Not built; perception is paused until a Jev-free design (owner, 2026-10-27)."
+decisions = ["SENSE-2"]
+ask = "The proactivity design: FERB only offers (nothing done until you press Do it), Jev as a switch, no limit on approaches, a daily brief, Mail and Calendar as sources. Not built, and perception is paused until a Jev-free design. Keep it as your decision for that design, or drop it?"
+
+[T-524]
+title = "The Web Store listing has stale lines: refresh before the next upload, or drop it?"
+area = "hands"
+kind = "question"
+status = "open"
+why = "notes/docs-cleanup.md: extensions/store/listing.md says the repository \"becomes public on 2026-10-21\" and gives `ferb browsers pair` / `ferb setup --update` steps from before the app's setup."
+ask = "extensions/store/listing.md (the Chrome Web Store text) has stale lines: the repository \"becomes public on 2026-10-21\", and post-approval steps using `ferb browsers pair` and `ferb setup --update` from before the app's setup. Refresh it before the next extension upload, or drop the file?"
+
+[T-525]
+title = "Keep THIRD_PARTY_NOTICES.md?"
+area = "project"
+kind = "question"
+status = "open"
+why = "notes/docs-cleanup.md 'Decisions to raise': it carries license attribution for bundled third-party code (pyproject.toml lists it as a license file); removing it may break license terms. Kept in step 14a."
+ask = "THIRD_PARTY_NOTICES.md carries the license attributions for third-party code FERB bundles (pyproject.toml lists it as a license file), so removing it may break those licenses. Keep it (recommended), or do you want it changed?"
+
+[T-526]
+title = "CHANGELOG.md after launch: remove it or restart it?"
+area = "project"
+kind = "question"
+status = "open"
+why = "notes/docs-cleanup.md: CHANGELOG.md is stale release notes (2,382 lines); the owner decides after launch whether to remove or restart it. Its history is in git (tag docs-final when made)."
+ask = "CHANGELOG.md is stale (release notes up to before the rebuild; nothing binding left in it, git keeps the history). After launch, should it be removed, or restarted as user-facing release notes from the launch version?"
