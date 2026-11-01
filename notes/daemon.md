@@ -77,6 +77,13 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
 12. **The extension's logo is FERB's logo everywhere** (owner, 2026-11-01: "i want the current extension logo as the
     main ferb logo everywhere. the app, site, everywhere."): the dark rounded square with the white "f" and the orange
     dot, unchanged in look. Where it lives and how each place gets it: "Logo" below.
+13. **Versions are bumped systematically** (owner, 2026-11-01: "the current version is fine, but make sure there is a
+    systematic way that it happens anyway nad not left out"; and the store extension goes first: "we have to do it
+    first"). Built: `scripts/release_checks.py`, run by `scripts/release-appcast.sh`, refuses a release whose version
+    is a `.dev` one, not newer than the last `v*` tag on origin, or not the tag's, and one whose extension the Chrome
+    Web Store doesn't serve yet (`MIN_EXTENSION_VERSION`, read from the store's update check). Tests keep
+    `ferb/__init__.py` and `pyproject.toml` equal and the repo's extension at or above `MIN_EXTENSION_VERSION`. Steps:
+    README "Releasing". Version stays `0.27.0.dev1` for now (owner).
 
 ## What exists today (verified)
 

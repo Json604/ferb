@@ -5,8 +5,7 @@ Copy each block into the Developer Dashboard field with the same name.
 ## Package
 
 - File: `ferb-extension-<version>.zip`. The manifest is at the zip's root and there is no `key` field.
-- Build it with `ferb browsers extension package --out ~/Desktop`. Until that command is released, use the zip in the
-  submission kit.
+- Build it from a checkout with `uv run ferb browsers extension package --out build/store`.
 
 ## Store listing
 
@@ -25,7 +24,8 @@ that involves the web, the extension:
 • opens, reads and switches the tabs the task needs;
 • reads the page (its text and accessibility tree) so FERB knows what's there;
 • clicks, types, scrolls, uploads and downloads on the page as the task requires;
-• takes screenshots of the task's tab when FERB needs to see it.
+• takes screenshots of the task's tab when FERB needs to see it;
+• keeps the task's tabs together in one collapsed tab group and mutes them, so they don't get in your way.
 
 In paired profiles it also:
 • tells the FERB app when a tab is opened, loads a page, becomes active or is closed (the address, with password
@@ -35,7 +35,7 @@ In paired profiles it also:
   so FERB can paint over them. It reads their position only, never their contents.
 
 What stays private:
-• Passwords and one-time codes are filled through a sealed path. They are encrypted between the FERB app and the
+• Passwords, one-time codes and card details are filled through a sealed path. They are encrypted between the FERB app and the
   extension and never shown to the AI model.
 • The extension talks only to the FERB app on your Mac. It has no servers of its own, sends no analytics and runs no
   code from the internet.
@@ -111,6 +111,9 @@ activity history on their Mac.
   network backend.
 - **alarms:** a periodic check that reconnects to the FERB app after the browser suspends the service worker.
 - **storage:** keeps the pairing state and the list of tabs FERB is keeping open for a task.
+- **tabGroups:** puts the tabs a FERB task opens into one grey, collapsed tab group labelled with the task, so they stay
+  out of the user's way and the user can see which tabs belong to FERB. The extension only creates, labels and collapses
+  groups for tabs FERB opened; it never moves, closes or edits the user's own tabs or groups.
 - **Host permission `<all_urls>`:** tasks can involve any website the user asks about. The extension reads page
   content and acts (clicks, typing) only on tabs a FERB task opened or claimed, in profiles the user paired. In those
   profiles it also reports each tab's URL (secret-looking parameters removed) and title for the user's local activity

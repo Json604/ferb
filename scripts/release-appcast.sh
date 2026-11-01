@@ -26,8 +26,19 @@ VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO"
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO")
 MINOS=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$INFO")
 FEED=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$INFO" 2>/dev/null || true)
+FULL_VERSION=$(/usr/libexec/PlistBuddy -c "Print :FERBVersion" "$INFO")
 hdiutil detach -quiet "$MNT"
 [[ "$FEED" == *"/appcast-$ARCH.xml" ]] || die "the app in ${DMG:t} checks '${FEED:-no feed}', not appcast-$ARCH.xml"
+
+# The release checks (scripts/release_checks.py): a bumped, non-development version named by the tag, and the Chrome
+# Web Store already serving an extension this FERB accepts.
+RELEASED=(${(f)"$(git -C "$ROOT" ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/##')"})
+STORE_ID=$(sed -n 's/^STORE_EXTENSION_ID = "\([a-p]*\)".*/\1/p' "$ROOT/ferb/act/browser/autoinstall.py")
+MIN_EXT=$(sed -n 's/^MIN_EXTENSION_VERSION = "\(.*\)"$/\1/p' "$ROOT/ferb/act/browser/ext_protocol.py")
+STORE_EXT=$(curl -fsS --max-time 20 "https://clients2.google.com/service/update2/crx?response=updatecheck&acceptformat=crx3&prodversion=140.0&x=id%3D$STORE_ID%26uc" \
+  | sed -n 's/.*<updatecheck[^>]* version="\([0-9.]*\)".*/\1/p' || true)
+/usr/bin/python3 -I "$ROOT/scripts/release_checks.py" --version "$FULL_VERSION" --tag "$TAG" --released "${RELEASED[@]}" \
+  --store-extension "$STORE_EXT" --min-extension "$MIN_EXT" || die "not releasable yet (above)"
 
 SIGNATURE=$("$SIGN" "$DMG")
 mkdir -p "$ROOT/build"

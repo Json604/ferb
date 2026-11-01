@@ -186,6 +186,18 @@ watching; see notes/test-tasks.md.
 - To see what happened in a task: `ferb trace TASK --full` (or `--json`), `ferb stats`, `ferb doctor`, `ferb logs`. The
   `ferb` program is development plumbing, not a user interface.
 
+### Releasing
+
+1. If the browser extension changed: raise `version` in `extensions/chromium/manifest.json` (and
+   `MIN_EXTENSION_VERSION` in `ferb/act/browser/ext_protocol.py` when FERB needs the new one), build the store zip with
+   `uv run ferb browsers extension package --out build/store`, upload it with the listing text in
+   `extensions/store/listing.md`, and wait until the store publishes it.
+2. Set the release version in `ferb/__init__.py` and `pyproject.toml` (no `.dev`; newer than the last release tag).
+3. `SIGN_IDENTITY=release scripts/build-dmg.sh`, then `scripts/release-appcast.sh vX.Y.Z build/FERB-<arch>.dmg <arch>`
+   for each architecture. It refuses a development or unbumped version, a tag that doesn't match, and a release whose
+   extension the Chrome Web Store doesn't serve yet (`scripts/release_checks.py`).
+4. Tag `vX.Y.Z`, publish the GitHub release with both DMGs, then the appcasts.
+
 ## Where things are written down
 
 - `notes/`: one file per area (memory, orchestration, prompts, gateway, runtimes, hands, daemon, storage, tests, voice,

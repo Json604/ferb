@@ -70,7 +70,9 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       `retention.failed`; the first hourly pass journals `retention.purged` and `trail.purged`. [storage.md]
 - [ ] Daemon start journals no `runtime.codex_problem`; a run starts without a `codex --version` process. [runtimes.md]
 - [ ] Jev stays off after the upgrade even with a key present. [daemon.md decision 9]
-- [ ] Reload the browser extension once in each paired profile (protocol 21, extension 0.19.0: tab groups, card fields,
+- [ ] The Chrome Web Store serves extension 0.19.0 before FERB.app's install (FERB refuses older; the store served
+      0.15.13 on 2026-11-01, zip `build/store/ferb-extension-0.19.0.zip`, listing `extensions/store/listing.md`). Then
+      add it from the store in each paired profile (protocol 21, extension 0.19.0: tab groups, card fields,
       signing, muted FERB tabs and sound events with who muted, 512 KiB download parts, capped popups closed, dropped
       saves counted); `ferb doctor` / `ferb browsers` show the version and "connected". [hands.md 5c, 14b, 12e]
 - [ ] Config upgrade: the journal has one `config.upgraded` for `download-limits-2026-10-31`; config.toml has no
