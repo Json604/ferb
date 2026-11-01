@@ -107,7 +107,7 @@ title = "Preview frame-rate cap: decide from the step-13 measurement"
 area = "app"
 kind = "question"
 status = "blocked"
-why = "APP-405: no cap until heat is confirmed from data; LIVE-420 measures the same task with the preview open vs closed, then the owner decides."
+why = "APP-405: no cap until heat is confirmed from data. Owner 2026-11-02: \"we ahve to actually see adn then downagrade\". LIVE-420 measures the task with the preview open vs closed; the owner sees it, then decides."
 decisions = ["APP-405"]
 ask = "With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?"
 
