@@ -1,0 +1,443 @@
+<meta charset="utf-8">
+<title>FERB Sound Family</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Schibsted+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column. Kept sounds as a strip, then one row per open sound with its three options side by side; the tour stage is a mock Mac screen. */
+:root {
+  --bg: #eef0f4; --surface: #ffffff; --ink: #14161c; --muted: #5c6270; --line: #d6dae3;
+  --accent: #2b5fd9; --accent-ink: #ffffff; --playing: #e3ebff; --crystal: #2c8fb3; --picked: #e2f3ea; --picked-line: #2e8a5c;
+  --notch: #050506; --screen: #dfe4ee; --window: #f8f9fb;
+  --f-display: "Bricolage Grotesque", "Avenir Next", "Helvetica Neue", sans-serif;
+  --f-body: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #101217; --surface: #181b22; --ink: #e9ebf0; --muted: #9aa1ae; --line: #2a2f3a;
+  --accent: #7ea2ff; --accent-ink: #0b0d12; --playing: #22304f; --crystal: #6cc6e6; --picked: #17301f; --picked-line: #5cc98f;
+  --notch: #000000; --screen: #1f2430; --window: #272c38; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #101217; --surface: #181b22; --ink: #e9ebf0; --muted: #9aa1ae; --line: #2a2f3a;
+  --accent: #7ea2ff; --accent-ink: #0b0d12; --playing: #22304f; --crystal: #6cc6e6; --picked: #17301f; --picked-line: #5cc98f;
+  --notch: #000000; --screen: #1f2430; --window: #272c38; color-scheme: dark; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+main { max-width: 1120px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 36px; }
+h1, h2 { font-family: var(--f-display); font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.05; }
+h2 { font-size: 22px; }
+h3 { font-size: 15px; margin: 0; font-weight: 600; }
+p { margin: 0; max-width: 70ch; }
+.dim { color: var(--muted); }
+.small { font-size: 13px; }
+.mono { font-family: var(--f-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+section { display: flex; flex-direction: column; gap: 14px; }
+[hidden] { display: none !important; }
+.lede { display: flex; flex-direction: column; gap: 12px; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+button, select { font: inherit; font-size: 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+button.playing { background: var(--playing); border-color: var(--accent); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; }
+#now { min-height: 1.5em; font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.kept { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.kept button { text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-left: 3px solid var(--crystal); }
+.kept b { font-weight: 600; }
+.kept span { font-size: 12.5px; color: var(--muted); }
+.open { display: flex; flex-direction: column; gap: 18px; }
+.sound { display: grid; grid-template-columns: 220px 1fr; gap: 14px; padding-top: 16px; border-top: 1px solid var(--line); }
+.sound .head { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sound .head .mean { font-size: 13px; color: var(--muted); }
+.sound .head button { font-size: 13px; padding: 5px 9px; align-self: flex-start; }
+.opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.opt { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.opt.chosen { border-color: var(--picked-line); background: var(--picked); }
+.opt .name { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.opt .name .mono { color: var(--muted); font-weight: 400; }
+.opt .about { font-size: 13px; color: var(--muted); flex: 1; }
+.opt .notes { font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
+.opt .controls button { font-size: 13px; padding: 6px 10px; }
+.picks { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.picks pre { margin: 0; font-family: var(--f-mono); font-size: 13px; white-space: pre-wrap; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.map { display: grid; grid-template-columns: max-content max-content 1fr; gap: 6px 16px; font-size: 14px; align-items: baseline; }
+.map .on { color: var(--picked-line); font-weight: 600; }
+.map .off { color: var(--muted); }
+/* the tour stage: a mock Mac screen */
+.stage { position: relative; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; background: var(--screen); border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+.notch { position: absolute; left: 50%; top: 0; transform: translateX(-50%); width: 18%; height: 5.2%; background: var(--notch); border-radius: 0 0 14px 14px; transition: width .5s cubic-bezier(.3,1.4,.5,1), height .5s cubic-bezier(.3,1.4,.5,1), border-radius .5s; display: grid; place-items: center; }
+.notch.open { width: 30%; height: 12%; border-radius: 0 0 22px 22px; }
+.notch .say { color: #f2f3f6; font-size: clamp(9px, 1.4vw, 14px); opacity: 0; transition: opacity .3s; text-align: center; padding: 0 10px; }
+.notch.open .say { opacity: 1; }
+.win { position: absolute; right: 6%; top: 22%; width: 40%; height: 64%; background: var(--window); border-radius: 10px; border: 1px solid var(--line); padding: 3%; display: flex; flex-direction: column; gap: 6%; }
+.win .bar { height: 7%; display: flex; gap: 4px; }
+.win .bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.win .row { height: 11%; border-radius: 6px; background: var(--bg); position: relative; }
+.win .row.target { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.orb { position: absolute; width: 4.2%; aspect-ratio: 1; border-radius: 50%; left: 0; top: 0; opacity: 0; pointer-events: none;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.95), rgba(255,255,255,.25) 32%, rgba(120,140,255,.35) 60%, rgba(30,30,40,.85));
+  box-shadow: 0 6px 18px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.35); }
+.orb::after { content: ""; position: absolute; left: 18%; right: 18%; top: 44%; height: 14%; border-radius: 9px; background: linear-gradient(90deg, #7af, #c7f, #fa8, #7fd); filter: blur(1.5px); opacity: .9; }
+.stage .caption { position: absolute; left: 4%; bottom: 5%; font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+details summary { cursor: pointer; font-weight: 600; }
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+details[open] summary { margin-bottom: 10px; }
+.spec { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 14px; }
+.spec dt { color: var(--muted); }
+.spec dd { margin: 0; min-width: 0; }
+.warn { border: 1px solid var(--accent); background: var(--surface); padding: 10px 14px; border-radius: 10px; font-size: 14px; }
+@media (max-width: 760px) { .sound { grid-template-columns: 1fr; } .opts { grid-template-columns: 1fr; } .spec, .map { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .notch { transition: none; } }
+</style>
+
+<main>
+  <header class="lede">
+    <div class="eyebrow">FERB · sound identity · final · Crystal · 2026-11-01</div>
+    <h1>FERB Sound Family</h1>
+    <p>The decided family. FERB opens with the Material clip, played once, then silence until the Crystal logo as the notch says hello. Everyday cues are Crystal glass: bright for things that went well (summon, listening, done), damped for paused and error, and a single ringing A for needs you. Every notification (banners, reminders, schedules, notices in the notch) plays the Material notification sound. The orb plays drip-off when it sets off, melt-back when it arrives, and the hop.</p>
+  </header>
+
+  <div id="fileWarn" class="warn" hidden>This page is open from disk, so only single sounds play. For the tour, run <span class="mono">python3 -m http.server -d demo/sound-family</span> and open <span class="mono">http://localhost:8000</span>.</div>
+
+  <section>
+    <div class="controls">
+      <span class="dim small">Intensity</span>
+      <div class="seg" role="group" aria-label="Intensity">
+        <button id="intStd" aria-pressed="true">Standard</button><button id="intSub" aria-pressed="false">Subtle</button>
+      </div>
+      <span class="dim small">Mix</span>
+      <div class="seg" role="group" aria-label="Mix">
+        <button id="mixRef" aria-pressed="true">With room</button><button id="mixDry" aria-pressed="false">Dry mono</button>
+      </div>
+      <button id="stopAll">Stop</button>
+      <span id="now" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>First launch</h2>
+    <p class="dim small">Your clip plays once (7 s, untouched apart from trimming its leading silence and setting its level). Nothing plays after it while FERB loads. The logo comes when loading is done; if loading is quicker than the clip, the logo waits for the clip to finish so they never overlap. The clip is in G major, so going into the logo's D sounds settled.</p>
+    <div class="controls">
+      <label class="small dim" for="loadSecs">Loading takes</label>
+      <select id="loadSecs"><option value="4">4 s</option><option value="10" selected>10 s</option><option value="20">20 s</option></select>
+      <button id="firstBtn" class="primary">Play first launch + logo</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>The family</h2>
+    <div class="kept" id="kept"></div>
+  </section>
+
+  <section id="pickSec">
+    <h2>Needs you: pick one</h2>
+    <p class="dim small">"After Done" plays Done first, then the option, so you can hear that it doesn't sound like completion. Your pick is saved in this browser and listed below, ready to paste back to me.</p>
+    <div class="open" id="open"></div>
+  </section>
+
+  <section class="picks" id="picksSec">
+    <h3>Your pick</h3>
+    <pre id="pickText"></pre>
+    <div class="controls"><button id="copyPicks">Copy pick</button><span id="copyOut" class="small dim"></span></div>
+  </section>
+
+  <section>
+    <h2>Only where it matters</h2>
+    <p class="dim small">You asked for sound only at big events and where it's needed. Here's my proposal for which moments make a sound by default; every one stays switchable in Settings.</p>
+    <div class="map" id="map"></div>
+    <div class="controls"><button id="dayBtn" class="primary">A day with it</button><span class="small dim">plays this map over about 20 seconds</span></div>
+  </section>
+
+  <section>
+    <h2>Orb tour</h2>
+    <p class="dim small">The whole first run: the clip as FERB starts, silence until loading is done (9 s here), the logo as the notch says hello, then the orb. Drip-off plays as it sets off (from the notch and from the setting), melt-back as it arrives (at the setting and home), the hop when the step works; the flight is silent. Each orb sound is placed where the orb is. </p>
+    <div class="controls">
+      <button id="tourBtn" class="primary">Run the tour</button>
+      <button id="hpBtn" aria-pressed="false">Headphones (HRTF)</button>
+    </div>
+    <div class="stage" id="stage">
+      <div class="notch" id="notch"><div class="say" id="say">Hi, I'm FERB.</div></div>
+      <div class="win" id="win"><div class="bar"><i></i><i></i><i></i></div><div class="row"></div><div class="row target" id="target"></div><div class="row"></div><div class="row"></div></div>
+      <div class="orb" id="orb"></div>
+      <div class="caption" id="cap">System Settings (mock)</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>50 plays</h2>
+    <p class="dim small">Repeats one sound with a gap. If it grates by play 30, it fails.</p>
+    <div class="controls">
+      <select id="repRole" aria-label="Sound to repeat"></select>
+      <select id="repGap" aria-label="Gap between plays"><option value="1.2">1.2 s gap</option><option value="2.5">2.5 s gap</option></select>
+      <button id="repBtn" class="primary">Start</button>
+    </div>
+    <div id="repOut" class="mono">0 / 50</div>
+  </section>
+
+  <details>
+    <summary>How these were made, and the files</summary>
+    <dl class="spec">
+      <dt>Source</dt><dd><span class="mono">demo/sound-family/render.py</span>. Every sound is synthesised from code, with no samples. Re-rendering regenerates every variant, intensity and stem.</dd>
+      <dt>Two voices, one glass</dt><dd>Bright: a ringing note over a warm body an octave down, a strike that is gone within 40 ms, a slow shimmer. Damped: the same body and note ringing for about a third of a second, glassy overtones for only a few tens of milliseconds, a softer contact and no strike.</dd>
+      <dt>Per sound</dt><dd>Dry mono (<span class="mono">dry/</span>), room stem (<span class="mono">wet/</span>), stereo reference (<span class="mono">ref/</span>), and the room as an impulse response. 48 kHz / 24-bit WAV. Option files carry <span class="mono">-o1</span>, <span class="mono">-o2</span> or <span class="mono">-o3</span> until you pick.</dd>
+      <dt>Checks (all pass)</dt><dd>Loudness on target · true peak ≤ −1 dBTP · starts on its first sample · ends on exact zero · ≤ 2% energy below 200 Hz · ≥ 85% in 250 Hz–4 kHz · &lt; 3% above 8 kHz.</dd>
+      <dt>Notification</dt><dd>Google's Material Design sound resources (notification_high-intensity), CC BY 4.0. Changed: trimmed, leveled, a small room added; Subtle is also darker.</dd>
+      <dt>First launch</dt><dd>From Google's Material Design sound resources ("hero" sound), licensed CC BY 4.0; credited in <span class="mono">demo/sound-family/CREDITS.md</span>. Changed: silence trimmed, leveled to −24 LUFS; nothing else.</dd>
+      <dt>Levels</dt><dd>Logo −20 · Needs you −23 (1 dB lower than before) · Done, Error −26 · Summon −28 · Listening, Paused −30 · Orb −32 to −36 LUFS. Subtle is 5 dB quieter, shorter and darker.</dd>
+    </dl>
+  </details>
+</main>
+
+<script>/* manifest: written by render.py */window.FERB_SOUNDS = {"directions": {"crystal": {"key": "crystal", "title": "Crystal", "world": "Apple Pay / AirPods: bright, glassy, crisp, short", "about": "A clear ringing note with a warm body an octave below it (the structure of the Mac's payment chime, not its sound), a bright strike that is gone within 40 ms, and a slow shimmer from two strings of the note tuned a fraction of a hertz apart. Played an octave up from the motif.", "room": {"predelay": 0.008, "rt_low": 0.55, "rt_high": 0.3, "send": 0.13, "er": 0.6}, "sounds": [{"role": "logo", "subtle": false, "variant": 1, "file": "ferb-logo.wav", "dur": 2.483, "dry_dur": 2.65, "lufs": -20.0, "tp": -15.0, "band_250_4k": 100.0, "band_2_5k": 0.4}, {"role": "summon", "subtle": false, "variant": 1, "file": "ferb-summon-standard-v1.wav", "dur": 0.465, "dry_dur": 0.391, "lufs": -28.0, "tp": -25.1, "band_250_4k": 99.9, "band_2_5k": 0.2}, {"role": "summon", "subtle": false, "variant": 2, "file": "ferb-summon-standard-v2.wav", "dur": 0.513, "dry_dur": 0.392, "lufs": -28.2, "tp": -24.6, "band_250_4k": 99.9, "band_2_5k": 0.8}, {"role": "summon", "subtle": false, "variant": 3, "file": "ferb-summon-standard-v3.wav", "dur": 0.484, "dry_dur": 0.39, "lufs": -27.3, "tp": -23.0, "band_250_4k": 99.8, "band_2_5k": 1.0}, {"role": "summon", "subtle": true, "variant": 1, "file": "ferb-summon-subtle-v1.wav", "dur": 0.451, "dry_dur": 0.318, "lufs": -33.0, "tp": -29.9, "band_250_4k": 100.0, "band_2_5k": 0.3}, {"role": "summon", "subtle": true, "variant": 2, "file": "ferb-summon-subtle-v2.wav", "dur": 0.458, "dry_dur": 0.318, "lufs": -34.5, "tp": -31.1, "band_250_4k": 100.0, "band_2_5k": 0.4}, {"role": "summon", "subtle": true, "variant": 3, "file": "ferb-summon-subtle-v3.wav", "dur": 0.44, "dry_dur": 0.319, "lufs": -31.8, "tp": -27.0, "band_250_4k": 99.9, "band_2_5k": 0.2}, {"role": "lstart", "subtle": false, "variant": 1, "file": "ferb-listen-start-standard-v1.wav", "dur": 0.646, "dry_dur": 0.448, "lufs": -30.0, "tp": -30.5, "band_250_4k": 100.0, "band_2_5k": 1.1}, {"role": "lstart", "subtle": false, "variant": 2, "file": "ferb-listen-start-standard-v2.wav", "dur": 0.665, "dry_dur": 0.447, "lufs": -29.2, "tp": -28.3, "band_250_4k": 100.0, "band_2_5k": 6.0}, {"role": "lstart", "subtle": false, "variant": 3, "file": "ferb-listen-start-standard-v3.wav", "dur": 0.682, "dry_dur": 0.446, "lufs": -31.4, "tp": -31.8, "band_250_4k": 100.0, "band_2_5k": 0.5}, {"role": "lstart", "subtle": true, "variant": 1, "file": "ferb-listen-start-subtle-v1.wav", "dur": 0.648, "dry_dur": 0.4, "lufs": -34.7, "tp": -36.4, "band_250_4k": 100.0, "band_2_5k": 0.2}, {"role": "lstart", "subtle": true, "variant": 2, "file": "ferb-listen-start-subtle-v2.wav", "dur": 0.607, "dry_dur": 0.4, "lufs": -34.4, "tp": -32.9, "band_250_4k": 100.0, "band_2_5k": 0.9}, {"role": "lstart", "subtle": true, "variant": 3, "file": "ferb-listen-start-subtle-v3.wav", "dur": 0.649, "dry_dur": 0.4, "lufs": -35.9, "tp": -35.0, "band_250_4k": 100.0, "band_2_5k": 2.1}, {"role": "lend", "subtle": false, "variant": 1, "file": "ferb-listen-end-standard-v1.wav", "dur": 0.591, "dry_dur": 0.345, "lufs": -30.0, "tp": -28.6, "band_250_4k": 100.0, "band_2_5k": 2.3}, {"role": "lend", "subtle": false, "variant": 2, "file": "ferb-listen-end-standard-v2.wav", "dur": 0.607, "dry_dur": 0.344, "lufs": -29.4, "tp": -29.2, "band_250_4k": 100.0, "band_2_5k": 0.6}, {"role": "lend", "subtle": false, "variant": 3, "file": "ferb-listen-end-standard-v3.wav", "dur": 0.588, "dry_dur": 0.348, "lufs": -30.3, "tp": -29.5, "band_250_4k": 100.0, "band_2_5k": 4.2}, {"role": "lend", "subtle": true, "variant": 1, "file": "ferb-listen-end-subtle-v1.wav", "dur": 0.508, "dry_dur": 0.319, "lufs": -35.0, "tp": -35.9, "band_250_4k": 100.0, "band_2_5k": 1.9}, {"role": "lend", "subtle": true, "variant": 2, "file": "ferb-listen-end-subtle-v2.wav", "dur": 0.501, "dry_dur": 0.32, "lufs": -33.7, "tp": -35.5, "band_250_4k": 100.0, "band_2_5k": 0.5}, {"role": "lend", "subtle": true, "variant": 3, "file": "ferb-listen-end-subtle-v3.wav", "dur": 0.568, "dry_dur": 0.319, "lufs": -34.8, "tp": -34.2, "band_250_4k": 100.0, "band_2_5k": 3.3}, {"role": "done", "subtle": false, "variant": 1, "file": "ferb-done-standard-v1.wav", "dur": 0.733, "dry_dur": 0.686, "lufs": -26.0, "tp": -21.2, "band_250_4k": 99.9, "band_2_5k": 0.5}, {"role": "done", "subtle": false, "variant": 2, "file": "ferb-done-standard-v2.wav", "dur": 0.643, "dry_dur": 0.675, "lufs": -27.3, "tp": -23.6, "band_250_4k": 99.9, "band_2_5k": 0.7}, {"role": "done", "subtle": false, "variant": 3, "file": "ferb-done-standard-v3.wav", "dur": 0.657, "dry_dur": 0.675, "lufs": -27.5, "tp": -23.2, "band_250_4k": 100.0, "band_2_5k": 1.0}, {"role": "done", "subtle": true, "variant": 1, "file": "ferb-done-subtle-v1.wav", "dur": 0.622, "dry_dur": 0.553, "lufs": -31.0, "tp": -25.9, "band_250_4k": 100.0, "band_2_5k": 0.6}, {"role": "done", "subtle": true, "variant": 2, "file": "ferb-done-subtle-v2.wav", "dur": 0.607, "dry_dur": 0.553, "lufs": -31.7, "tp": -27.8, "band_250_4k": 100.0, "band_2_5k": 1.3}, {"role": "done", "subtle": true, "variant": 3, "file": "ferb-done-subtle-v3.wav", "dur": 0.624, "dry_dur": 0.555, "lufs": -31.1, "tp": -26.7, "band_250_4k": 100.0, "band_2_5k": 0.6}, {"role": "drip", "subtle": false, "variant": 1, "file": "ferb-orb-drip.wav", "dur": 1.362, "dry_dur": 1.169, "lufs": -33.0, "tp": -30.3, "band_250_4k": 100.0, "band_2_5k": 0.0}, {"role": "needs", "subtle": false, "variant": 1, "file": "ferb-needs-you-standard.wav", "dur": 1.056, "dry_dur": 1.113, "lufs": -23.0, "tp": -16.5, "band_250_4k": 99.9, "band_2_5k": 0.0}, {"role": "needs", "subtle": true, "variant": 1, "file": "ferb-needs-you-subtle.wav", "dur": 1.0, "dry_dur": 1.054, "lufs": -28.0, "tp": -21.4, "band_250_4k": 100.0, "band_2_5k": 0.0}, {"role": "notification", "subtle": false, "variant": 1, "file": "ferb-notification-standard.wav", "dur": 0.783, "dry_dur": 0.823, "lufs": -25.0, "tp": -22.5, "band_250_4k": 99.9, "band_2_5k": 2.2}, {"role": "notification", "subtle": true, "variant": 1, "file": "ferb-notification-subtle.wav", "dur": 0.776, "dry_dur": 0.816, "lufs": -30.0, "tp": -27.4, "band_250_4k": 100.0, "band_2_5k": 0.9}, {"role": "paused", "subtle": false, "variant": 1, "file": "ferb-paused-standard.wav", "dur": 0.373, "dry_dur": 0.359, "lufs": -30.0, "tp": -17.7, "band_250_4k": 98.9, "band_2_5k": 0.0}, {"role": "paused", "subtle": true, "variant": 1, "file": "ferb-paused-subtle.wav", "dur": 0.359, "dry_dur": 0.353, "lufs": -35.0, "tp": -23.6, "band_250_4k": 99.5, "band_2_5k": 0.0}, {"role": "error", "subtle": false, "variant": 1, "file": "ferb-error-standard.wav", "dur": 0.712, "dry_dur": 0.754, "lufs": -26.0, "tp": -15.7, "band_250_4k": 85.1, "band_2_5k": 0.0}, {"role": "error", "subtle": true, "variant": 1, "file": "ferb-error-subtle.wav", "dur": 0.652, "dry_dur": 0.681, "lufs": -31.0, "tp": -20.2, "band_250_4k": 91.2, "band_2_5k": 0.0}, {"role": "hop", "subtle": false, "variant": 1, "file": "ferb-orb-hop.wav", "dur": 0.438, "dry_dur": 0.365, "lufs": -32.0, "tp": -27.3, "band_250_4k": 99.9, "band_2_5k": 0.1}, {"role": "melt", "subtle": false, "variant": 1, "file": "ferb-orb-melt.wav", "dur": 0.989, "dry_dur": 0.79, "lufs": -30.0, "tp": -25.9, "band_250_4k": 100.0, "band_2_5k": 0.0}], "problems": []}}, "first_launch": {"files": {"clip": {"file": "ferb-first-launch.wav", "dur": 7.337, "lufs": -24.0, "tp": -14.5}}, "problems": []}, "roles": [{"id": "logo", "base": "logo", "label": "Sound logo", "group": "signature", "meaning": "Hello, this is FERB", "lufs": -20, "file": "ferb-logo", "variants": 1, "option": 0, "option_name": "", "about": ""}, {"id": "summon", "base": "summon", "label": "Summon", "group": "everyday", "meaning": "I'm here", "lufs": -28, "file": "ferb-summon", "variants": 3, "option": 0, "option_name": "", "about": ""}, {"id": "lstart", "base": "lstart", "label": "Listening start", "group": "everyday", "meaning": "Go ahead", "lufs": -30, "file": "ferb-listen-start", "variants": 3, "option": 0, "option_name": "", "about": ""}, {"id": "lend", "base": "lend", "label": "Listening end", "group": "everyday", "meaning": "Got it", "lufs": -30, "file": "ferb-listen-end", "variants": 3, "option": 0, "option_name": "", "about": ""}, {"id": "done", "base": "done", "label": "Done", "group": "everyday", "meaning": "Done, all good", "lufs": -26, "file": "ferb-done", "variants": 3, "option": 0, "option_name": "", "about": ""}, {"id": "drip", "base": "drip", "label": "Orb drip-off", "group": "orb", "meaning": "The orb sets off (the old flight sound)", "lufs": -33, "file": "ferb-orb-drip", "variants": 1, "option": 0, "option_name": "", "about": ""}, {"id": "needs", "base": "needs", "label": "Needs you", "group": "everyday", "meaning": "Over here", "lufs": -23, "file": "ferb-needs-you", "variants": 1, "option": 0, "option_name": "", "about": ""}, {"id": "notification", "base": "notification", "label": "Notification", "group": "everyday", "meaning": "FERB posted a notification", "lufs": -25, "file": "ferb-notification", "variants": 1, "option": 0, "option_name": "", "about": ""}, {"id": "paused", "base": "paused", "label": "Paused", "group": "everyday", "meaning": "Holding", "lufs": -30, "file": "ferb-paused", "variants": 1, "option": 0, "option_name": "", "about": ""}, {"id": "error", "base": "error", "label": "Error", "group": "everyday", "meaning": "That didn't work", "lufs": -26, "file": "ferb-error", "variants": 1, "option": 0, "option_name": "", "about": ""}, {"id": "hop", "base": "hop", "label": "Orb hop", "group": "orb", "meaning": "A tour step succeeded", "lufs": -32, "file": "ferb-orb-hop", "variants": 1, "option": 0, "option_name": "", "about": ""}, {"id": "melt", "base": "melt", "label": "Orb melt-back", "group": "orb", "meaning": "The orb arrives (at its target, and home)", "lufs": -30, "file": "ferb-orb-melt", "variants": 1, "option": 0, "option_name": "", "about": ""}], "score": [{"role": "logo", "notes": ["0.00s D5 swell", "0.30s A5 strike", "0.50s E6 strike", "0.76s D6 strike", "0.80s A6 swell", "0.86s E7 tick"]}, {"role": "summon", "notes": ["0.00s A5 strike", "0.07s E6 strike"]}, {"role": "lstart", "notes": ["0.00s A5 swell", "0.09s E6 swell"]}, {"role": "lend", "notes": ["0.00s E6 swell", "0.07s A5 swell"]}, {"role": "done", "notes": ["0.00s E6 strike", "0.12s D6 strike"]}, {"role": "drip", "notes": ["0.00s D5+A5 swell (singing glass, 1.2 s)"]}, {"role": "needs", "notes": ["0.00s A5 strike"]}, {"role": "notification", "notes": ["0.00s material/notification_high-intensity.ogg (recording)"]}, {"role": "paused", "notes": ["0.00s D5 muted"]}, {"role": "error", "notes": ["0.00s A4 muted", "0.24s F#4 muted", "0.25s B3 muted"]}, {"role": "hop", "notes": ["0.00s A5 strike", "0.07s D6 strike"]}, {"role": "melt", "notes": ["0.00s E5 swell", "0.13s D5 swell", "0.40s D5 strike"]}], "order": ["crystal"]};/* end manifest */</script>
+<script>
+"use strict";
+const M = window.FERB_SOUNDS, D = M.directions.crystal, K = "crystal";
+const $ = id => document.getElementById(id);
+const ROLE = Object.fromEntries(M.roles.map(r => [r.id, r]));
+const SCORE = Object.fromEntries(M.score.map(s => [s.role, s.notes]));
+const KEPT = ["logo", "notification", "summon", "lstart", "lend", "done", "needs", "paused", "error", "drip", "hop", "melt"];
+const OPEN = M.roles.filter(r => r.option === 1).map(r => r.base);     // sounds still being chosen (none when decided)
+const FL = M.first_launch;
+const OPTS = Object.fromEntries(OPEN.map(b => [b, M.roles.filter(r => r.base === b)]));
+let subtle = false, dry = false, fileMode = location.protocol === "file:";
+if (fileMode) $("fileWarn").hidden = false;
+
+/* ---------------- picks ---------------- */
+let picks = {};
+try { picks = JSON.parse(localStorage.getItem("ferb-round7-picks") || "{}"); } catch (e) {}
+const pickOf = b => picks[b] || `${b}-o1`;
+function savePicks() { try { localStorage.setItem("ferb-round7-picks", JSON.stringify(picks)); } catch (e) {} drawPicks(); }
+function drawPicks() {
+  $("pickText").textContent = OPEN.map(b => { const r = picks[b] ? ROLE[picks[b]] : null;
+    return `${OPTS[b][0].label}: ${r ? `option ${r.option} (${r.option_name})` : "not picked yet"}`; }).join("\n");
+  document.querySelectorAll(".opt").forEach(el => el.classList.toggle("chosen", picks[el.dataset.base] === el.dataset.role));
+  document.querySelectorAll(".opt [data-a=pick]").forEach(b => { const on = picks[b.dataset.base] === b.dataset.role; b.textContent = on ? "Picked" : "Pick this"; b.setAttribute("aria-pressed", on); });
+}
+$("copyPicks").onclick = () => {
+  const t = $("pickText").textContent;
+  navigator.clipboard.writeText(t).then(() => { $("copyOut").textContent = "Copied"; }, () => {
+    const r = document.createRange(); r.selectNodeContents($("pickText")); const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    $("copyOut").textContent = "Selected: press ⌘C"; });
+};
+
+/* ---------------- files and audio ---------------- */
+function entry(role, variant) {
+  const r = ROLE[role];
+  const list = D.sounds.filter(s => s.role === role && (r.group !== "everyday" || s.subtle === subtle));
+  if (!list.length) return null;
+  if (variant) return list.find(s => s.variant === variant) || list[0];
+  return list[Math.floor(Math.random() * list.length)];
+}
+const url = (form, file) => `out/${K}/${form}/${file}`;
+let ctx = null, master = null, session = 0;
+const buffers = new Map(), live = new Set(), htmlAudios = new Set();
+const wait = ms => new Promise(r => setTimeout(r, ms));
+function audio() {
+  if (!ctx) { ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" }); master = ctx.createGain(); master.connect(ctx.destination); }
+  if (ctx.state === "suspended") ctx.resume();
+  return ctx;
+}
+function buffer(path) {
+  if (buffers.has(path)) return buffers.get(path);
+  const p = fetch(path).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(b => audio().decodeAudioData(b));
+  buffers.set(path, p); p.catch(() => buffers.delete(path)); return p;
+}
+async function playFile(path) {
+  if (fileMode) { const a = new Audio(path); htmlAudios.add(a); a.onended = () => htmlAudios.delete(a); a.play(); return; }
+  try { const b = await buffer(path), c = audio(), s = c.createBufferSource(); s.buffer = b; s.connect(master); s.start(); live.add(s); s.onended = () => live.delete(s); }
+  catch (e) { fileMode = true; $("fileWarn").hidden = false; playFile(path); }
+}
+function stopAll() {
+  session++;
+  live.forEach(s => { try { s.stop(); } catch (e) {} }); live.clear();
+  htmlAudios.forEach(a => a.pause()); htmlAudios.clear();
+  document.querySelectorAll("button.playing").forEach(b => b.classList.remove("playing"));
+  repStop(); $("now").textContent = "";
+}
+function play(role, btn) {
+  const e = entry(role);
+  if (!e) return 0;
+  playFile(url(dry ? "dry" : "ref", e.file));
+  if (btn) { btn.classList.add("playing"); setTimeout(() => btn.classList.remove("playing"), Math.max(300, e.dur * 1000)); }
+  $("now").textContent = e.file;
+  return e.dur;
+}
+/* ---------------- kept ---------------- */
+const pretty = notes => (notes || []).map(n => n.split(" ").slice(1).join(" ")).join(" · ");
+$("kept").innerHTML = KEPT.map(id => `<button data-role="${id}"><b>${ROLE[id].label}</b><span>“${ROLE[id].meaning}”</span></button>`).join("");
+$("kept").querySelectorAll("button").forEach(b => b.onclick = () => play(b.dataset.role, b));
+
+/* ---------------- open sounds ---------------- */
+function drawOpen() {
+  $("open").innerHTML = OPEN.map(b => {
+    const first = OPTS[b][0], everyday = first.group === "everyday";
+    return `<div class="sound"><div class="head"><h3>${first.label}</h3><div class="mean">“${first.meaning}”${everyday ? "" : " · tour only"}</div>
+      <button data-a="cycle" data-base="${b}">Play all three</button></div>
+      <div class="opts">${OPTS[b].map(r => { const e = entry(r.id, 1); return `<div class="opt" data-base="${b}" data-role="${r.id}">
+        <div class="name">${r.option}. ${r.option_name}<span class="mono">${e ? e.dur.toFixed(2) + " s" : ""}</span></div>
+        <div class="about">${r.about}</div><div class="notes">${pretty(SCORE[r.id])}</div>
+        <div class="controls"><button data-a="play" data-role="${r.id}">▶ Play</button>${everyday ? `<button data-a="after" data-role="${r.id}">After Done</button>` : ""}
+        <button data-a="pick" data-base="${b}" data-role="${r.id}">Pick this</button></div></div>`; }).join("")}</div></div>`;
+  }).join("");
+  $("open").querySelectorAll("button").forEach(btn => btn.onclick = async () => {
+    const { a, role, base } = btn.dataset;
+    if (a === "play") { stopAll(); play(role, btn); }
+    if (a === "after") { stopAll(); const my = session; const d = play("done"); await wait(d * 1000 + 450); if (my === session) play(role, btn); }
+    if (a === "pick") { picks[base] = role; savePicks(); }
+    if (a === "cycle") { stopAll(); const my = session; for (const r of OPTS[base]) { if (my !== session) return;
+      const el = document.querySelector(`.opt[data-role="${r.id}"] [data-a=play]`); const d = play(r.id, el); await wait(d * 1000 + 700); } }
+  });
+  drawPicks();
+}
+drawOpen();
+$("pickSec").hidden = $("picksSec").hidden = !OPEN.length;
+function setSeg(a, b, on) { $(a).setAttribute("aria-pressed", on); $(b).setAttribute("aria-pressed", !on); }
+$("intStd").onclick = () => { subtle = false; setSeg("intStd", "intSub", true); drawOpen(); };
+$("intSub").onclick = () => { subtle = true; setSeg("intStd", "intSub", false); drawOpen(); };
+$("mixRef").onclick = () => { dry = false; setSeg("mixRef", "mixDry", true); };
+$("mixDry").onclick = () => { dry = true; setSeg("mixRef", "mixDry", false); };
+$("stopAll").onclick = stopAll;
+
+/* ---------------- the sound map (proposal) ---------------- */
+const MAP = [
+  ["Needs you", true, "FERB is blocked until you answer: the one sound that must reach you."],
+  ["Done", true, "A task you left running finished in the background."],
+  ["Notification", true, "Every notification: FERB's macOS banners and the reminders, schedules and notices that arrive in the notch chat (today: system default for banners, silent in the notch). Once per notice."],
+  ["Error", true, "A task failed, and you'd otherwise not know."],
+  ["Listening start / end", true, "Push-to-talk: tells you the mic opened and closed without looking."],
+  ["Summon", false, "You opened FERB yourself and see the notch open; the sound adds little."],
+  ["Paused", false, "You paused it yourself and see the notch dim."],
+  ["Working", false, "Silence while tasks run, as before."],
+  ["First launch, logo and orb", true, "The first-run tour only: the one big event."],
+];
+$("map").innerHTML = MAP.map(([n, on, why]) => `<b>${n}</b><span class="${on ? "on" : "off"}">${on ? "Sound" : "Silent by default"}</span><span class="dim">${why}</span>`).join("");
+const DAY = ["lstart", 1500, "lend", 3200, "needs", 3600, "done", 3200, "lstart", 1300, "lend", 3400, "error", 2600, "done"];
+$("dayBtn").onclick = async () => {
+  stopAll(); const my = session;
+  for (const step of DAY) {
+    if (my !== session) return;
+    if (typeof step === "number") { await wait(step); continue; }
+    const role = typeof step === "function" ? step() : step; const d = play(role); await wait(d * 1000);
+  }
+};
+
+/* ---------------- 50 plays ---------------- */
+const repRoles = ["done", "needs", "notification", "summon", "lstart", "lend", "paused", "error"];
+$("repRole").innerHTML = repRoles.map(id => `<option value="${id}">${ROLE[id].label}${ROLE[id].option ? ` · ${ROLE[id].option}. ${ROLE[id].option_name}` : ""}</option>`).join("");
+let repOn = false;
+function repStop() { repOn = false; $("repBtn").textContent = "Start"; }
+$("repBtn").onclick = async () => {
+  if (repOn) { stopAll(); return; }
+  stopAll(); repOn = true; $("repBtn").textContent = "Stop";
+  const my = session, r = $("repRole").value, gap = +$("repGap").value * 1000;
+  for (let i = 1; i <= 50 && repOn && my === session; i++) { $("repOut").textContent = `${i} / 50 · ${$("repRole").selectedOptions[0].textContent}`; const d = play(r); await wait(d * 1000 + gap); }
+  repStop();
+};
+
+/* ---------------- first launch ---------------- */
+// The clip once; silence while loading; the logo when loading is done (never before the clip has finished).
+async function firstLaunch(loadSecs, my) {
+  const [bc, blogo] = await Promise.all([buffer(`out/first-launch/${FL.files.clip.file}`), buffer(url("ref", entry("logo", 1).file))]);
+  if (my !== session) return 0;
+  const c = audio(), t = c.currentTime + 0.05, src = b => { const s = c.createBufferSource(); s.buffer = b; s.connect(master); live.add(s); s.onended = () => live.delete(s); return s; };
+  src(bc).start(t);
+  const tLogo = t + Math.max(loadSecs, bc.duration + 0.3);
+  src(blogo).start(tLogo);
+  $("now").textContent = `first launch: clip ${bc.duration.toFixed(1)} s, silence, logo at ${(tLogo - t).toFixed(1)} s`;
+  return tLogo - t;
+}
+$("firstBtn").onclick = async () => { stopAll(); await firstLaunch(+$("loadSecs").value, session); };
+
+/* ---------------- orb tour (spatial) ---------------- */
+let hrtf = false, room = null;
+$("hpBtn").onclick = () => { hrtf = !hrtf; $("hpBtn").setAttribute("aria-pressed", hrtf); };
+async function roomNode() {
+  if (!room) { const c = audio(), conv = c.createConvolver(); conv.normalize = false; conv.buffer = await buffer(`out/${K}/ferb-room-ir.wav`); conv.connect(master); room = { conv, send: D.room.send }; }
+  return room;
+}
+function placed(rm) {
+  const c = audio(), lp = c.createBiquadFilter(), g = c.createGain(), send = c.createGain();
+  lp.type = "lowpass"; lp.Q.value = 0.5;
+  let pan;
+  if (hrtf) { pan = c.createPanner(); pan.panningModel = "HRTF"; pan.distanceModel = "linear"; pan.rolloffFactor = 0; }
+  else pan = c.createStereoPanner();
+  lp.connect(g); g.connect(pan); pan.connect(master); pan.connect(send); send.connect(rm.conv);
+  const set = (p, d, t, tc) => {
+    t = t ?? c.currentTime; const at = (param, v) => tc ? param.setTargetAtTime(v, t, tc) : param.setValueAtTime(v, t);
+    at(lp.frequency, 18000 * Math.pow(6500 / 18000, d)); at(g.gain, Math.pow(10, -3 * d / 20)); at(send.gain, rm.send * (1 + 0.8 * d));
+    if (hrtf) { const az = p * Math.PI / 2; at(pan.positionX, Math.sin(az)); at(pan.positionY, 0); at(pan.positionZ, -Math.cos(az)); } else at(pan.pan, p);
+  };
+  return { input: lp, set, nodes: [lp, g, pan, send] };
+}
+const stage = $("stage"), orb = $("orb"), notch = $("notch");
+function geom() {
+  const s = stage.getBoundingClientRect(), n = notch.getBoundingClientRect(), t = $("target").getBoundingClientRect();
+  return { W: s.width, H: s.height, home: { x: n.left - s.left + n.width / 2, y: n.bottom - s.top + 4 }, target: { x: t.left - s.left - s.width * 0.035, y: t.top - s.top + t.height / 2 } };
+}
+const panOf = (x, W) => Math.max(-0.6, Math.min(0.6, (x - W / 2) / (W / 2) * 0.6));
+const distOf = (p, home, W) => Math.min(1, Math.hypot(p.x - home.x, p.y - home.y) / (W * 0.6));
+function putOrb(p, scale, op) { const w = orb.offsetWidth; orb.style.transform = `translate(${p.x - w / 2}px, ${p.y - w / 2}px) scale(${scale})`; orb.style.opacity = op; }
+async function sfx(role, p, g) {
+  const e = entry(role, 1), b = await buffer(url("dry", e.file)), rm = await roomNode(), c = audio();
+  const sp = placed(rm); sp.set(panOf(p.x, g.W), distOf(p, g.home, g.W));
+  const s = c.createBufferSource(); s.buffer = b; s.connect(sp.input); s.start(); live.add(s);
+  s.onended = () => { live.delete(s); setTimeout(() => sp.nodes.forEach(n => n.disconnect()), 1500); };
+}
+const ease = u => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+function bez(a, b, u, lift) { const mx = (a.x + b.x) / 2, my = Math.min(a.y, b.y) - lift, v = 1 - u; return { x: v * v * a.x + 2 * v * u * mx + u * u * b.x, y: v * v * a.y + 2 * v * u * my + u * u * b.y }; }
+async function fly(from, to, T, g, my) {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) { putOrb(from, 1, 0); await wait(T * 500); putOrb(to, 1, 1); await wait(T * 500); return; }   // the flight itself is silent
+  const t0 = performance.now();
+  await new Promise(done => {
+    const step = now => {
+      if (my !== session) { done(); return; }
+      const u = Math.min(1, (now - t0) / (T * 1000)), p = bez(from, to, ease(u), g.H * 0.12);
+      putOrb(p, 1, 1);
+      if (u < 1) requestAnimationFrame(step); else done();
+    };
+    requestAnimationFrame(step);
+  });
+}
+async function tour() {
+  if (fileMode) { $("fileWarn").hidden = false; return; }
+  stopAll(); const my = session; audio();
+  const drip = "drip";
+  await Promise.all([...["logo", drip, "hop", "melt"].map(r => buffer(url("dry", entry(r, 1).file))), roomNode()]);
+  const ok = () => my === session;
+  orb.style.opacity = 0; $("target").style.outlineStyle = "dashed";
+  // 0. FERB loads the first time: the clip, the notch breathing; then the logo as the notch opens and says hello.
+  const g = geom(), loadSecs = 9;
+  $("cap").textContent = "FERB is getting ready…";
+  const breathe = notch.animate([{ transform: "translateX(-50%) scale(1)" }, { transform: "translateX(-50%) scale(1.06, 1.18)" }, { transform: "translateX(-50%) scale(1)" }], { duration: 2400, iterations: Infinity, easing: "ease-in-out" });
+  const toLogo = await firstLaunch(loadSecs, my);
+  await wait(toLogo * 1000 + 50); breathe.cancel(); if (!ok()) return;
+  $("cap").textContent = "System Settings (mock)";
+  notch.classList.add("open"); $("say").textContent = "Hi, I'm FERB.";
+  await wait(2300); if (!ok()) return;
+  notch.classList.remove("open"); await wait(350); if (!ok()) return;
+  const g2 = geom(), w = orb.offsetWidth;
+  putOrb({ x: g2.home.x, y: g2.home.y + 14 }, 1, 1); sfx(drip, g2.home, g2);
+  orb.animate([{ transform: `translate(${g2.home.x - w / 2}px, ${g2.home.y - 10 - w / 2}px) scale(.3)`, opacity: .6 }, { transform: orb.style.transform, opacity: 1 }], { duration: 320, easing: "cubic-bezier(.3,1.5,.5,1)" });
+  await wait(420); if (!ok()) return;
+  await fly({ x: g2.home.x, y: g2.home.y + 14 }, g2.target, 1.15, g2, my); if (!ok()) return;
+  sfx("melt", g2.target, g2); $("cap").textContent = "The orb shows the setting to switch on";
+  await wait(1100); if (!ok()) return;
+  $("target").style.outlineStyle = "solid"; sfx("hop", g2.target, g2);
+  orb.animate([{ transform: orb.style.transform }, { transform: orb.style.transform + " translateY(-30%)" }, { transform: orb.style.transform }], { duration: 360, easing: "cubic-bezier(.3,1.4,.5,1)" });
+  await wait(900); if (!ok()) return;
+  sfx(drip, g2.target, g2);
+  await fly(g2.target, { x: g2.home.x, y: g2.home.y + 8 }, 1.05, g2, my); if (!ok()) return;
+  sfx("melt", g2.home, g2); notch.classList.add("open"); $("say").textContent = "";
+  orb.animate([{ transform: orb.style.transform, opacity: 1 }, { transform: `translate(${g2.home.x - w / 2}px, ${g2.home.y - 16 - w / 2}px) scale(.2)`, opacity: 0 }], { duration: 520, easing: "ease-in", fill: "forwards" });
+  await wait(420); notch.classList.remove("open"); await wait(400);
+  orb.getAnimations().forEach(a => a.cancel()); orb.style.opacity = 0; $("cap").textContent = "System Settings (mock)";
+}
+$("tourBtn").onclick = tour;
+</script>

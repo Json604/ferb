@@ -199,7 +199,7 @@ notch (`com.ferb.FERB`) already has for dictation, so the intro would guide one 
   - `public struct SpringSpec { var duration: Double; var bounce: Double; static let open = SpringSpec(duration: 0.45, bounce: 0.2); static let close = SpringSpec(duration: 0.4, bounce: 0) }`
   - `public struct OrbMotion { init(origin: CGPoint); mutating func retarget(_ p: CGPoint, spec: SpringSpec); mutating func step(dt: Double) -> CGPoint; var velocity: CGVector { get }; var settled: Bool { get } }`
   - `public enum OrbOrigin { static func notchCentre(screenFrame: CGRect, cutout: CGRect?) -> CGPoint }` (virtual notch when `cutout` is nil, matching `NotchGeometry`'s 164-wide default).
-  - `public enum FerbSound: CaseIterable { case intro, summon, listeningStart, listeningEnd, done, needsYou, paused, error, orbDrip, orbLand, orbMelt }`
+  - `public enum FerbSound: CaseIterable { case firstLaunch, intro, summon, listeningStart, listeningEnd, done, needsYou, paused, error, notification, orbDrip, orbHop, orbMelt }` (the decided family, notes/sound.md: no flight or landing sound)
   - `public enum SoundPolicy { static func shouldPlay(_ s: FerbSound, uiSoundsEnabled: Bool, feedbackEnabled: Bool) -> Bool; static func pan(x: CGFloat, screenWidth: CGFloat) -> Float; static func distanceGainDB(fromNotch d: CGFloat, screenHeight: CGFloat) -> Float }`
 
 - [ ] **Step 1: Write the failing tests**:

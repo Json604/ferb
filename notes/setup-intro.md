@@ -1,7 +1,7 @@
 # First-run intro and setup (design, 2026-11-01)
 
-Status: design agreed in conversation with the owner on 2026-11-01; sound direction pending the dedicated sound
-research and an audition with the owner. Replaces today's setup window flow (fix-order step 15; it comes before step
+Status: design agreed in conversation with the owner on 2026-11-01; the sound family was decided the same day over
+nine listening rounds (notes/sound.md). Replaces today's setup window flow (fix-order step 15; it comes before step
 13's fresh install). Visual polish happens in the Swift app (owner: "needs polishing and that we'll do in the swift app").
 
 ## Intent (owner's words, condensed)
@@ -96,7 +96,7 @@ orb flying when to show the permission thingy."
 8. **Back to the notch.** The tour ends with FERB small in the notch and one line on how to bring it back. Replay the
    intro from Settings.
 
-## Sound (owner, 2026-11-01; direction pending the dedicated sound research and audition)
+## Sound (owner, 2026-11-01; family decided, notes/sound.md)
 Owner's words, condensed: an original, recognisable family of sounds, not unrelated effects. Intro, summoning,
 listening, completion, needing attention and pausing share one sonic character while saying different things.
 Recognisable without looking at the screen. Setup plays the fuller signature; everyday sounds are shorter, quieter and
@@ -122,9 +122,20 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   replaces today's system sounds (SoundFeedback.swift: Tink, Pop, Bottle, Glass, Basso), with the context rules and
   per-sound controls. The context rules' thresholds (e.g. what counts as late at night) are the owner's (rule 18),
   asked with the audition.
-- **Process**: the research proposes 3–4 sonic directions; the owner auditions them in the browser companion; the chosen
-  direction is produced (route per the research) and placed into the app. Until then the app uses silent or neutral
-  placeholders behind one sound interface, so swapping in the final family touches no call sites.
+- **Process** (done 2026-11-01): four rounds of directions, then the Crystal family refined over five more rounds;
+  `demo/sound-family/render.py` renders it, `demo/sound-family/index.html` plays it.
+- **The decided family** (owner, 2026-11-01; details and levels in notes/sound.md):
+  - First launch: Google Material's "hero" clip (CC BY 4.0, credit ships with FERB), played once as FERB first
+    starts; then silence until the notch plays the sound logo, which never starts before the clip ends.
+  - Crystal (bright glass): the sound logo (Open fifth, tour only), summon, listening start and end, done.
+  - Crystal, finger-damped (dull, an octave lower, no strike): paused (one damped tap) and error (a sinking "uh-oh").
+    These must not sound like completion.
+  - Needs you: "One ping", a single Crystal note on A (the unresolved dominant) left to ring; the loudest everyday cue.
+  - Notification: Material's "notification, high intensity" (CC BY 4.0) for every notification FERB gives, on macOS
+    banners and on notices in the notch chat alike, played once when a notice shows in both places.
+  - The orb: drip-off when it sets off (one singing-glass swell), hop when a step succeeds, melt-back when it
+    arrives at its target and when it comes home. There is no flight sound and no separate landing sound.
+  - Sound only for big events and where it's needed (owner: "i dont want too much noise everywhere").
 
 ## Constraints
 - CLAUDE.md rules: the app is the product (rule 13); background first after setup (rule 10: the tour is the user's own

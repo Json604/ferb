@@ -1,8 +1,60 @@
 # FERB's sound (research 2026-11-01, for notes/setup-intro.md "Sound")
 
-Status: research done; next is a browser audition of four directions with the owner, then production (hybrid route,
-below). Owner decisions still open are listed at the end. Sources are cited in the research report (session of
-2026-11-01); the key ones are kept inline here.
+Status: family decided 2026-11-01 (see "Rounds so far"); rendered by `demo/sound-family/render.py` and heard on
+`demo/sound-family/index.html`. Next: wiring it into the app (SoundFeedback.swift, notifications) and the open
+decisions at the end. Sources are cited in the research report (session of 2026-11-01); the key ones are kept inline
+here.
+
+## Rounds so far
+- Round 1 (placeholder sines, E5–B5–G#5 arpeggio, noise whoosh, pitch-drop settle): owner, "not good".
+- Round 2 (`demo/sound-audition/`, modal synthesis in five directions): none liked; motif I "Open fifth" liked a bit.
+  Owner's words on why: "the swoosh sounds. sounding like cheap sounds, not premium and something with a feel to it".
+- Round 3 (`demo/sound-family/`): the owner asked to hear four product sound worlds (Apple Pay/AirPods, Google Pixel,
+  Nothing/Teenage Engineering, warm soft chords). Built from measurements of the Mac's premium cues
+  (payment_success, jbl_confirm, begin_record, Glass: one to three clean tuned partials, a strike gone within ~50 ms,
+  clean decays, at most a rhythmic echo; no noise, no wash). Directions: Crystal, Tactile, Signal, Bloom; one shared
+  score on the Open-fifth seed; error became a falling minor third ("uh-oh"), paused a single thinning note; orb flight
+  is a tonal trail, never air. Every file is rendered offline at 48 kHz/24-bit as dry mono, room stem, stereo reference
+  and room IR, Standard and Subtle, 3 variants where the brief asks, and checked against the brief's spec (loudness,
+  true peak, clean start/end, band limits). Synthesised by Claude from code: see the ownership question below.
+- Round 3 verdict (owner, 2026-11-01): **Crystal** for the logo, summon, listening start/end, done, orb flight, hop and
+  melt-back. Rejected: needs you ("needs to [tone] it down a bit to show that it needs you"); paused, error and needs you
+  "all sound like a family of completion. they shouldn't, they should sound dull"; drip-off ("nothing gave the leaving
+  feel"); landing. Also: "i dont want too much noise everywhere too. lets have it for big events and only where its
+  necessary."
+- Round 4 (`demo/sound-family/`, Crystal only): needs you, paused and error use a damped Crystal voice (same glass,
+  finger-damped: body and note only, short, an octave below the bright cues, no strike); needs you 1 dB quieter
+  (−23). Three options each for needs you, paused, error, drip-off and landing, picked on the page. Proposed default
+  sound map (owner to confirm): sound for needs you, done, error, listening start/end and the tour; summon and paused
+  silent by default; everything switchable.
+- Owner, 2026-11-01 (after round 4): no orb flight sound; the drip-off sound is what plays when the orb sets off and
+  the melt-back what plays when it lands (landing and flight cut as separate sounds). FERB's first sound is a Google
+  Material Design "hero" clip the owner chose (`demo/sound-family/source/google-material-hero.mp4`, CC BY 4.0 per a
+  redistributing project; Google's own licence page still to confirm): it plays before the sound logo while FERB loads
+  the first time (first extended to last as long as loading; replaced in round 8, below). This supersedes the
+  brief's "no third-party material / full ownership" for this one sound; CC BY needs a credit shipped with FERB
+  (`demo/sound-family/CREDITS.md`). The clip is G major; into the logo's D it is a plagal resolution, no retuning.
+- Owner, 2026-11-01 (round 6/7): drip-off *is* the old flight sound (singing glass, one 1.2 s swell), not a new
+  sound. The first-launch loop must not sound the same on long loads: it is now ~36 s of four waves of different
+  heights (level and brightness rise and fall with the clip's own build), with an optional faint-glint version.
+  Paused = round 4 option 1 (one damped tap). Error = option 1 ("uh-oh"), made duller and sadder (slower, sinking onto
+  B3 + F#4, a hollow B minor). Needs you: the installed build's sound (macOS "Basso") is "not good"; the owner asked to
+  find a better one online: three candidates from Google's Material sounds (CC BY 4.0, in D major like the family).
+- Owner, 2026-11-01 (round 8): the extended first-launch loop (waves, with or without glints) rejected as "too much
+  sound". The clip plays once at the start, then no background sound until the notch's sound logo; the logo waits for
+  the clip to finish if loading is quicker.
+- Owner, 2026-11-01 (round 9): FERB's notification sound (its macOS banners; `NotificationPoster.swift` posts them with
+  `content.sound = .default` today) is Material's "notification, high intensity" (CC BY 4.0). Needs you: the Material
+  candidates were not it either; wanted "one tone, conveying that need": three one-note options on A (the dominant,
+  unresolved): one ping, tap-tap, calling (with two echoes).
+- Owner, 2026-11-01: every notification FERB gives uses that notification sound: its macOS banners and the
+  reminders, schedules and notices that arrive through the notch chat. Today those notch notices are silent
+  (`DaemonConnection.receiveNotices` adds them without a cue) and banners use `.default` (`NotificationPoster.post`).
+  For the integration step: one notification cue for both paths, played once when a notice is shown both as a
+  banner and in the notch (the banner carries it as `UNNotificationSound(named:)` with the file in the app bundle).
+- Owner, 2026-11-01: needs you = round 9 option 1, "One ping" (one Crystal note on A, left to ring). The family is
+  decided; `demo/sound-family/render.py` renders it (`out/`, git-ignored). Integration into the app (replacing
+  SoundFeedback.swift's system sounds, the notification cue, per-sound controls) is the next step.
 
 ## Why the first placeholder sounded cheap
 - Pure sine plus harmonic partials sounds like no material. Real glass, metal and wood have inharmonic partials, a
@@ -97,8 +149,13 @@ below). Owner decisions still open are listed at the end. Sources are cited in t
   revision rounds stated.
 
 ## Owner decisions still open
-- Which direction (after the audition).
+- Whether the decided family ships as is or goes to a commissioned designer as the reference.
+- Which moments make a sound by default (round 4 proposal above, not yet confirmed).
+- Ownership of code-synthesised sounds: notes/setup-intro.md says "no purely AI-generated signature" and the brief asks
+  for a human-made family; the Crystal sounds are synthesised by Claude from code under the owner's direction. Whether that can
+  ship as FERB's signature, or only serve as the reference for a human designer, is the owner's call.
 - Commission or in-house for the final family, and the budget.
-- The licence of the sound files in the public repo.
+- The licence of the sound files in the public repo (the Material clips are CC BY 4.0 and need their credit; Google's
+  own licence page still to confirm).
 - Context rules: quiet hours, whether calls/meetings mean silent or quieter, Focus behaviour.
 - Customisation defaults (master FERB volume, per-sound toggles, a Subtle/Standard intensity).
