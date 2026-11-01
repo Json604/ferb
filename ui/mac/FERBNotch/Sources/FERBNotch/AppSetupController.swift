@@ -37,6 +37,8 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         let sound = FerbSoundEngine()
         return (OrbController(sound: sound), sound)
     }
+    /// The tour's waits (nil: real time). Only the intro playground sets it, to run the tour faster or slower.
+    var introSleeper: IntroSleeping?
     /// A repair ended the tour: its end leaves the compact window where the repair put it.
     private var repairing = false
     /// A tour is on, or ending.
@@ -64,7 +66,8 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     private var serviceRecord: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ferb/service.json")
     }
-    let background = AppServiceAgent()
+    /// Made on first use: a setup with an injected model (tests, the intro playground) never touches SMAppService.
+    lazy var background = AppServiceAgent()
 
     lazy var model = injectedModel ?? SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
                                                  app: SystemAppPermissions(), system: SystemOpener(),
@@ -151,7 +154,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         progress.plan = beats
         let (orb, sound) = makeTourParts()
         let controller = IntroController(setup: model, orb: orb, sound: sound, notch: notch, progress: progress,
-                                         controls: introControls)
+                                         controls: introControls, sleeper: introSleeper)
         controller.onFinished = { [weak self, weak controller] in
             self?.tourEnded(left: controller?.remainingRequired ?? [])
         }

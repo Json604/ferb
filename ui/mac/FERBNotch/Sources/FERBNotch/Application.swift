@@ -6,6 +6,10 @@ import UserNotifications
 @MainActor
 struct FERBNotchApp {
     static func main() {
+        #if FERB_PLAYGROUND
+        // The intro playground (PLAYGROUND.md): debug builds only, and only under its own bundle id
+        if PlaygroundMode.requested { PlaygroundMode.run() }
+        #endif
         // A hearing mode (L26) runs and exits here, before NSApplication, the delegate or any window
         if let code = Hearing.run(CommandLine.arguments) { exit(code) }
         let app = NSApplication.shared
