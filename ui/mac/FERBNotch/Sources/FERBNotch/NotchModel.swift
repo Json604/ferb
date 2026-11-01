@@ -276,6 +276,13 @@ final class NotchModel: ObservableObject {
     /// The notch's single swell as it takes the orb back (`pulseIntro()`).
     @Published var introPulsing = false
     var introPulseTask: Task<Void, Never>?
+    /// What the owner did on an intro line (a choice, a typed entry, Skip, Stop on the replayed preview); set by the
+    /// intro controller while the tour runs. Set, the line also offers Skip.
+    var onIntroAction: ((IntroAction) -> Void)?
+    /// While the tour runs, a request typed or spoken stays in the composer instead of starting a task: the tour runs
+    /// no real work (notes/setup-intro.md step 6); it is sent after the tour.
+    var introHoldsWork = false
+    static let introHeldWork = "I'll send this when the tour ends."
     var surfaceVisible: Bool { expanded || compactPlanText != nil || introLine != nil || introPulsing }
     var compactPlanHeight: CGFloat {
         guard let compactPlanText else { return 0 }
@@ -292,6 +299,8 @@ final class NotchModel: ObservableObject {
     @Published var availableSurfaceSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
     var bodyWidth: CGFloat { min(availableSurfaceSize.width, max(360, preferredPanelWidth)) }
     var hoverEnabled: Bool { preferences.object(forKey: "notch.hoverEnabled") as? Bool ?? true }
+    /// Hovering opens the chat, except over an intro line: the owner is reading it (or reaching for its choices).
+    var hoverOpensChat: Bool { hoverEnabled && introLine == nil }
     var indicatorHeaderAtBottom: Bool { indicatorEdge == "bottom" }
     var showsCompletionGlow: Bool { completionTraceVisible }
     var showsTraceGlow: Bool { attentionTraceVisible || showsCompletionGlow }
@@ -316,7 +325,7 @@ final class NotchModel: ObservableObject {
     var attachmentStripHeight: CGFloat { session.attachments.isEmpty ? 0 : 100 }
     var conversationChromeHeight: CGFloat {
         composerHeight + 58 + (showsWorkRow ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0)
-            + (promptError == nil ? 0 : 48) + attachmentStripHeight
+            + (promptError == nil ? 0 : 48) + attachmentStripHeight + (introLine.map { introContentHeight($0) + 9 } ?? 0)
     }
     var chatTranscriptHeight: CGFloat {
         min(max(260, preferredTranscriptHeight), max(0, availableSurfaceSize.height - cutoutHeight - conversationChromeHeight))
@@ -442,7 +451,9 @@ final class NotchModel: ObservableObject {
 
     // A preview is a hover surface, not a modal interaction. The coordinator checks
     // its actual window bounds; merely being presented must never pin chat open.
-    var blocksAutomaticDismissal: Bool { isPinned || profileMenuOpen || filePickerOpen || session.phase == .listening }
+    var blocksAutomaticDismissal: Bool {
+        isPinned || profileMenuOpen || filePickerOpen || session.phase == .listening || introLine != nil
+    }
 
     func dismissAutomatically() {
         guard !blocksAutomaticDismissal else { return }
@@ -617,6 +628,11 @@ final class NotchModel: ObservableObject {
     /// work. Pasted parts go as data and typed words as the owner's, so nothing asks.
     func startWork() {
         guard canCompose else { return }
+        if introHoldsWork {
+            promptError = Self.introHeldWork
+            onBackgroundChange?(true)
+            return
+        }
         guard !session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if handleLocalNotchCommand(session.draft) { return }
         localSettingReply = nil

@@ -107,8 +107,9 @@ final class OrbController: OrbControlling {
         }
     }
 
-    func dockBesideSettings(dragging url: URL) {
+    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?) {
         surface.setDragItem(url)
+        surface.setInstruction(instruction)
         surface.setWaiting(true)
         stopTracking()
         let t = makeTracker()

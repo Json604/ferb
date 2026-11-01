@@ -90,14 +90,35 @@ final class SetupModel: ObservableObject {
         defer { allowingAll = false }
         for id in Self.allowAllOrder(setupRows) {
             guard let row = allRows.first(where: { $0.id == id }) else { continue }
-            await grant(row)
-            if Self.answeredInPopup.contains(id) { continue }
-            for _ in 0..<180 {                       // up to 3 minutes for the owner to flip this one switch
-                await refreshPermissions()
-                if allRows.contains(where: { $0.id == id && $0.status == .granted }) { break }
-                try? await Task.sleep(for: .seconds(1))
-            }
+            if Self.answeredInPopup.contains(id) { await grant(row); continue }
+            _ = await grantAndConfirm(row, polls: 120)    // up to 3 minutes for the owner to flip this one switch
         }
+    }
+
+    /// How often a grant's row is read again while the owner flips its switch (notes/setup-intro.md: ~1–1.5 s).
+    var grantPoll: Duration = .milliseconds(1500)
+
+    /// One row's grant (`grant`: macOS's own request where there is one, then its pane), then its row read again
+    /// every `grantPoll` until the system reports it on: true only then, never inferred. `asked` runs once the request
+    /// and the pane are up (the intro docks its orb there). A row macOS asked about in its own popup that comes back
+    /// denied returns false at once (its pane is the way on); otherwise it waits until on, `polls` reads at most, or
+    /// the calling task is cancelled.
+    func grantAndConfirm(_ row: PermissionRow, polls limit: Int? = nil, asked: (() -> Void)? = nil) async -> Bool {
+        let undecided = row.status == .notDetermined
+        await grant(row)
+        asked?()
+        var polls = 0
+        while !Task.isCancelled {
+            if let now = allRows.first(where: { $0.id == row.id }) {
+                if now.status == .granted { return true }
+                if undecided && Self.answeredInPopup.contains(row.id) && now.status == .denied { return false }
+            }
+            if let limit, polls >= limit { return false }
+            do { try await Task.sleep(for: grantPoll) } catch { return false }
+            polls += 1
+            await refreshPermissions()
+        }
+        return false
     }
     var setupRows: [PermissionRow] { allRows.filter { Self.askedAtSetup.contains($0.id) } }
 

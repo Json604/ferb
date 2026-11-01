@@ -137,6 +137,11 @@ private struct TurnView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
+            if turn.preview {
+                // The intro's suggested task (notes/setup-intro.md step 6): how FERB would do it, nothing done.
+                Label("Preview · nothing here is done", systemImage: "eye")
+                    .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.secondary)
+            }
             RequestView(turn: turn)
             if let scope = SeenScope(requestID: turn.requestID, taskID: turn.backendTaskID) {
                 SeenButton(scope: scope, model: model)
@@ -154,6 +159,10 @@ private struct TurnView: View {
                 TurnCardView(card: card, turn: turn, model: model)
                 // Step 8e: the task's cards (payments, sends, links, files) under its card's footer.
                 if let cards = turn.cards { ResultCardsView(cards: cards, turnID: turn.id, model: model) }
+            }
+            if turn.preview && turn.status == "previewRunning" {
+                // Practising Stop (the tour's controls): the same words as a running task's button; nothing runs.
+                Button("Stop this task") { model.introAction(.stopPreview) }.buttonStyle(FerbButtonStyle())
             }
             ForEach(Array((turn.parts ?? []).enumerated()), id: \.offset) { _, part in    // parts saved before cards
                 FerbBubble { MarkdownContent(part).equatable() }
@@ -411,7 +420,8 @@ private struct AnswerView: View {
         if let notice = turn.responseNotice {
             Text(notice).font(.system(size: 10)).foregroundStyle(Palette.secondary)
         }
-        if turn.responseNotice == nil && !["done", "working", "merged"].contains(turn.status) && turn.card == nil {
+        if turn.responseNotice == nil && !["done", "working", "merged"].contains(turn.status) && turn.card == nil
+            && !turn.preview {
             Text(turn.status.replacingOccurrences(of: "_", with: " ").capitalized)
                 .font(.system(size: 10)).foregroundStyle(Palette.secondary)
         }

@@ -1,0 +1,210 @@
+import Foundation
+import NotchCore
+
+/// Everything FERB says in the first-run tour (notes/setup-intro.md, "the journey"): warm, plain, short, as text in the
+/// notch or in the bubble beside the orb, never read aloud. One place, so the words can be read and changed together.
+/// The choice ids are what IntroController acts on.
+enum IntroCopy {
+    enum Pick {
+        static let codex = "codex", claude = "claude", otherWays = "otherWays", back = "back", cancel = "cancel"
+        static let claudePage = "claudePage", claudeCode = "claudeCode", retry = "retry"
+        static func key(_ provider: APIProvider) -> String { "key." + provider.rawValue }
+        static let allowAll = "allowAll", openSettings = "openSettings", restartToCheck = "restartToCheck"
+        static let showInFinder = "showInFinder"
+        static let pairAll = "pairAll", browsersLater = "browsersLater", next = "next"
+        static let identityNow = "identityNow", identityLater = "identityLater"
+        static func profile(_ index: Int) -> String { "profile.\(index)" }
+        static func suggestion(_ index: Int) -> String { "suggestion.\(index)" }
+        static let otherSuggestion = "otherSuggestion", doItForReal = "doItForReal", notNow = "notNow"
+    }
+
+    // MARK: 1. Meet
+
+    static let hello = IntroLine(text: "Hi, I'm FERB.",
+                                 detail: "I work on your Mac in the background while you keep working. Let me show you around.")
+    static let gettingReady = IntroLine(text: "Getting my background part ready…")
+    static let loginItems = IntroLine(text: "macOS wants your OK before I can run in the background.",
+                                      detail: "In Login Items, switch FERB on under Allow in the Background.")
+    static let loginItemsOrb = IntroLine(text: "Switch FERB on here", detail: "Login Items · Allow in the Background")
+    static func serviceFailed(_ why: String?) -> IntroLine {
+        IntroLine(text: "I couldn't start my background part.", detail: why.flatMap(lastLine),
+                  choices: [IntroChoice(Pick.retry, "Try again")])
+    }
+
+    // MARK: 2. Sign in
+
+    static let signIn = IntroLine(text: "First, connect me to an AI service.",
+                                  detail: "Sign in with ChatGPT or Claude. I send it only what a task needs, with passwords and codes taken out.",
+                                  choices: [IntroChoice(Pick.codex, "ChatGPT"), IntroChoice(Pick.claude, "Claude"),
+                                            IntroChoice(Pick.otherWays, "Other ways to connect")])
+    static func signInFailed(_ why: String?) -> IntroLine {
+        IntroLine(text: "That didn't connect.", detail: why, choices: signIn.choices)
+    }
+    static func codexWaiting(_ status: String?) -> IntroLine {
+        IntroLine(text: "Finish signing in in the browser window that opened.", detail: status,
+                  choices: [IntroChoice(Pick.cancel, "Cancel")])
+    }
+    static func claudeWaiting(_ status: String?) -> IntroLine {
+        IntroLine(text: "Finish signing in to Claude in your browser.", detail: status,
+                  choices: [IntroChoice(Pick.claudePage, "Open the page again"),
+                            IntroChoice(Pick.claudeCode, "Paste a code"), IntroChoice(Pick.cancel, "Cancel")])
+    }
+    static let claudeCode = IntroLine(text: "Paste the code the sign-in page shows.",
+                                      choices: [IntroChoice(Pick.back, "Back")],
+                                      entry: IntroEntry(placeholder: "Code from the page", secure: true))
+    static let otherWays = IntroLine(text: "Or use an API key.", detail: "It's kept in your Keychain, on this Mac.",
+                                     choices: APIProvider.allCases.map { IntroChoice(Pick.key($0), $0.label) }
+                                        + [IntroChoice(Pick.back, "Back")])
+    static func pasteKey(_ provider: APIProvider) -> IntroLine {
+        IntroLine(text: "Paste your \(provider.label) API key.",
+                  choices: [IntroChoice(Pick.back, "Back")],
+                  entry: IntroEntry(placeholder: "\(provider.label) API key", secure: true))
+    }
+    static func checking(_ status: String?) -> IntroLine { IntroLine(text: "Checking that it answers…", detail: status) }
+    static func connected(_ name: String) -> IntroLine {
+        IntroLine(text: "Connected. I'll use \(name).",
+                  detail: "While we go on, I'll take a quick look at the apps you use, so I can suggest something useful.")
+    }
+
+    // MARK: 3. Allow all
+
+    static let permissions = IntroLine(text: "Next, a few permissions so I can work on your Mac.",
+                                       detail: "macOS asks for each one. I'll show you where.",
+                                       choices: [IntroChoice(Pick.allowAll, "Allow all")])
+    /// Accessibility is "Device Control and Data Access" on newer macOS: both names, where the owner may see either.
+    static func name(_ id: String) -> String {
+        id == "accessibility" ? "Accessibility (Device Control and Data Access)" : PermissionCopy.label(id)
+    }
+    static func listPane(_ row: PermissionRow) -> IntroLine {
+        var choices = [IntroChoice(Pick.showInFinder, "Show FERB in Finder")]
+        if row.restartToCheck { choices.append(IntroChoice(Pick.restartToCheck, "Switched it on? Restart FERB to check")) }
+        return IntroLine(text: "Switch FERB on in \(name(row.id)).",
+                         detail: "If FERB isn't in the list, drag the icon beside System Settings into it. "
+                             + PermissionCopy.reason(row.id),
+                         choices: choices)
+    }
+    static let dragMe = IntroLine(text: "Drag me into this list", detail: "or switch FERB on if it's there")
+    static func prompt(_ row: PermissionRow) -> IntroLine {
+        IntroLine(text: "macOS will ask about \(name(row.id)) next. Choose Allow.", detail: PermissionCopy.reason(row.id))
+    }
+    static func banner(_ row: PermissionRow) -> IntroLine {
+        IntroLine(text: "macOS's \(name(row.id)) banner is waiting at the top right. Choose Allow there.",
+                  detail: PermissionCopy.reason(row.id))
+    }
+    static func denied(_ row: PermissionRow) -> IntroLine {
+        IntroLine(text: "\(name(row.id)) is off.", detail: "Switch FERB on in System Settings and I'll notice.",
+                  choices: [IntroChoice(Pick.openSettings, "Open System Settings")])
+    }
+    static func waitingInSettings(_ row: PermissionRow) -> IntroLine {
+        IntroLine(text: "Switch FERB on in \(name(row.id)).", detail: "I'll notice as soon as macOS says it's on.")
+    }
+    static let allAllowed = IntroLine(text: "That's everything. Thank you.")
+
+    // MARK: 4. Browsers
+
+    static let browsers = IntroLine(text: "Now your browsers.",
+                                    detail: "I'll pair with each one so I can help on the web. A browser may ask you to turn FERB on.",
+                                    choices: [IntroChoice(Pick.pairAll, "Pair all"),
+                                              IntroChoice(Pick.browsersLater, "Later")])
+    static let pairing = IntroLine(text: "Pairing your browsers…")
+    static let paired = IntroLine(text: "Paired.")
+    static func notPaired(_ why: String) -> IntroLine {
+        IntroLine(text: "Not all of them paired.", detail: why,
+                  choices: [IntroChoice(Pick.pairAll, "Try again"), IntroChoice(Pick.next, "Continue")])
+    }
+
+    // MARK: 5. FERB's own email
+
+    static let identity = IntroLine(text: "Want me to have my own email for sign-ups and searches?",
+                                    detail: "Set it up now, or later in Settings. I'll ask again the first time a task needs it.",
+                                    choices: [IntroChoice(Pick.identityNow, "Set it up now"),
+                                              IntroChoice(Pick.identityLater, "Later")])
+    static let identityAddress = IntroLine(text: "Which Google account is mine?",
+                                           detail: "Sign into it in a browser profile of its own first.",
+                                           choices: [IntroChoice(Pick.identityLater, "Later")],
+                                           entry: IntroEntry(placeholder: "Its email address", secure: false))
+    static let identityNotFound = IntroLine(text: "I didn't find a browser profile with only that account.",
+                                            detail: "Sign into it in a profile of its own, then try again.",
+                                            choices: [IntroChoice(Pick.retry, "Try again"),
+                                                      IntroChoice(Pick.identityLater, "Later")])
+    static func identityProfiles(_ candidates: [IdentityCandidate]) -> IntroLine {
+        IntroLine(text: "Which profile is mine?",
+                  choices: candidates.enumerated().map { IntroChoice(Pick.profile($0.offset),
+                                                                     "\($0.element.name) in \($0.element.browserName)") }
+                      + [IntroChoice(Pick.identityLater, "Later")])
+    }
+    static let identityPairing = IntroLine(text: "Setting up my account…",
+                                           detail: "Turn FERB's extension on in that profile if the browser asks.")
+    static func identityResult(_ line: String?) -> IntroLine { IntroLine(text: line ?? "Done.") }
+
+    // MARK: 6. Try
+
+    /// What the scan saw, in one or two of its own sentences.
+    static func saw(_ summary: String) -> IntroLine {
+        IntroLine(text: "Here's what I saw on your Mac.", detail: firstSentences(summary, 2))
+    }
+    static let thinking = IntroLine(text: "Let me think of something useful for you…")
+    static let noSuggestions = IntroLine(text: "I couldn't come up with suggestions right now.",
+                                         choices: [IntroChoice(Pick.retry, "Try again"),
+                                                   IntroChoice(Pick.notNow, "Skip this")])
+    static func suggest(_ requests: [String]) -> IntroLine {
+        IntroLine(text: "Here are two things I could do for you.",
+                  detail: "Pick one and I'll show you how I'd do it. I won't do anything yet.",
+                  choices: requests.enumerated().map { IntroChoice(Pick.suggestion($0.offset), $0.element) }
+                      + [IntroChoice(Pick.notNow, "Not now")])
+    }
+    static let previewing = IntroLine(text: "Here's how I'd do it…")
+    static func previewed(otherShown: Bool) -> IntroLine {
+        IntroLine(text: "That's how I'd do it. Nothing was done.",
+                  detail: "Want me to do it for real once the tour ends?",
+                  choices: [IntroChoice(Pick.doItForReal, "Do it for real")]
+                      + (otherShown ? [] : [IntroChoice(Pick.otherSuggestion, "Show the other one")])
+                      + [IntroChoice(Pick.notNow, "Not now")])
+    }
+    static func previewFailed(_ why: String) -> IntroLine {
+        IntroLine(text: "I couldn't show that plan right now.", detail: why,
+                  choices: [IntroChoice(Pick.notNow, "Continue")])
+    }
+    static let willDoIt = IntroLine(text: "I'll start it when the tour ends.", detail: "It runs as a normal task, with its usual questions.")
+
+    // MARK: 7. Control
+
+    static func control(_ control: IntroControl) -> IntroLine {
+        switch control {
+        case .toggle:
+            return IntroLine(text: "Double-tap the right ⌥ Option key to open me. Do it again to close me.")
+        case .talk:
+            return IntroLine(text: "Hold right ⌘ Command and ⌥ Option together and talk to me. Let go when you're done.",
+                             detail: "Nothing you say now starts a task.")
+        case .summon:
+            return IntroLine(text: "Control-Option-Space opens me too. Try it.")
+        case .stop:
+            return IntroLine(text: "Here's that plan again, running as a preview.",
+                             detail: "Press Stop this task. That's how you stop anything I'm doing.")
+        case .pause:
+            return IntroLine(text: "Last one: click my icon in the menu bar and choose Pause FERB.",
+                             detail: "Paused, I don't see or touch anything. I'll switch myself back on right away.")
+        }
+    }
+    static let controlsDone = IntroLine(text: "You've got it.")
+
+    // MARK: 8. Home
+
+    static let home = IntroLine(text: "That's it. I'll be up here in the notch.",
+                                detail: "Double-tap right ⌥, or press Control-Option-Space, whenever you need me. You can replay this tour in Settings.")
+
+    // MARK: Helpers
+
+    private static func lastLine(_ text: String) -> String? {
+        text.split(separator: "\n").last.map(String.init)
+    }
+
+    static func firstSentences(_ text: String, _ count: Int) -> String {
+        var sentences: [String] = []
+        text.enumerateSubstrings(in: text.startIndex..., options: .bySentences) { sentence, _, _, stop in
+            if let sentence { sentences.append(sentence.trimmingCharacters(in: .whitespaces)) }
+            if sentences.count == count { stop = true }
+        }
+        return sentences.isEmpty ? text : sentences.joined(separator: " ")
+    }
+}

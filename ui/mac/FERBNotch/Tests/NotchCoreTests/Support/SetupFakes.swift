@@ -37,6 +37,8 @@ final class FakeAppPermissions: AppPermissionsProviding {
     var notificationStatus: GrantStatus = .notDetermined
     var microphoneStatus: GrantStatus = .notDetermined
     var microphoneDeniedPane = "microphone"
+    /// What the owner answers in macOS's microphone prompt.
+    var microphoneAnswer: GrantStatus = .granted
     private(set) var requests: [String] = []
 
     func notifications() async -> GrantStatus { notificationStatus }
@@ -50,8 +52,8 @@ final class FakeAppPermissions: AppPermissionsProviding {
     func microphone() -> GrantStatus { microphoneStatus }
     func requestMicrophone() async -> GrantStatus {
         requests.append("microphone")
-        microphoneStatus = .granted
-        return .granted
+        microphoneStatus = microphoneAnswer
+        return microphoneAnswer
     }
 }
 
@@ -125,6 +127,7 @@ struct SetupRig {
         model.serviceStartWait = .milliseconds(200)
         model.serviceAction = action
         model.requestSettle = .zero
+        model.grantPoll = .milliseconds(5)
         return model
     }
 }
@@ -165,4 +168,63 @@ func eventually(_ condition: @escaping () -> Bool, file: StaticString = #filePat
         if ContinuousClock.now > end { XCTFail("condition never held", file: file, line: line); return }
         try? await Task.sleep(for: .milliseconds(10))
     }
+}
+
+/// The intro's orb, faked: what it was asked to do. `holdFlyHome` keeps a flight home in the air until `tearDown`.
+@MainActor
+final class FakeOrb: OrbControlling {
+    var onHomeArrival: (@MainActor () -> Void)?
+    private(set) var docks: [(url: URL?, instruction: IntroLine?)] = []
+    private(set) var launches: [CGPoint] = []
+    private(set) var hops = 0
+    private(set) var flyHomes = 0
+    private(set) var tearDowns = 0
+    var holdFlyHome = false
+    private var inFlight: CheckedContinuation<Void, Never>?
+    var flying: Bool { inFlight != nil }
+
+    func launch(to target: CGPoint, instruction: IntroLine?) async { launches.append(target) }
+    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?) { docks.append((url, instruction)) }
+    func hop() { hops += 1 }
+    func flyHome() async {
+        flyHomes += 1
+        guard holdFlyHome else { return }
+        await withCheckedContinuation { inFlight = $0 }
+    }
+    func tearDown() {
+        tearDowns += 1
+        inFlight?.resume()
+        inFlight = nil
+    }
+}
+
+/// The intro's waits, instant unless held: a held duration waits until released.
+@MainActor
+final class FakeIntroSleeper: IntroSleeping {
+    private(set) var asked: [Double] = []
+    private var held: Set<Double> = []
+    private var waiting: [Double: [CheckedContinuation<Void, Never>]] = [:]
+
+    func hold(_ seconds: Double) { held.insert(seconds) }
+    func release(_ seconds: Double) {
+        held.remove(seconds)
+        for waiter in waiting.removeValue(forKey: seconds) ?? [] { waiter.resume() }
+    }
+    func isWaiting(_ seconds: Double) -> Bool { !(waiting[seconds] ?? []).isEmpty }
+
+    func sleep(seconds: Double) async {
+        asked.append(seconds)
+        if held.contains(seconds) {
+            await withCheckedContinuation { waiting[seconds, default: []].append($0) }
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(1))
+    }
+}
+
+/// The owner's shortcuts and menu actions, faked.
+@MainActor
+final class FakeControlFeed: IntroControlFeeding {
+    var onControl: ((IntroControl) -> Void)?
+    func send(_ control: IntroControl) { onControl?(control) }
 }

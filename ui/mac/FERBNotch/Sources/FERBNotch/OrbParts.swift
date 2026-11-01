@@ -7,14 +7,21 @@ import NotchCore
 protocol OrbControlling: AnyObject {
     /// Drips off the notch and flies to `target` (AppKit global coordinates); returns once it has arrived.
     func launch(to target: CGPoint, instruction: IntroLine?) async
-    /// Docks beside System Settings' window, holding `url` (the agent app) as a draggable icon, and follows it.
-    func dockBesideSettings(dragging url: URL)
+    /// Docks beside System Settings' window, holding `url` (the agent app) as a draggable icon (nil: nothing to drag,
+    /// as in Login Items), with `instruction` in its bubble, and follows it.
+    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?)
     /// The small happy hop when a step succeeds.
     func hop()
     /// Flies back and melts into the notch; returns once it is home.
     func flyHome() async
     /// Everything stops at once and the orb is gone; safe mid-flight and safe twice.
     func tearDown()
+    /// The orb has melted back into the notch (the intro swells the notch once: NotchModel.pulseIntro).
+    var onHomeArrival: (@MainActor () -> Void)? { get set }
+}
+
+extension OrbControlling {
+    func dockBesideSettings(dragging url: URL) { dockBesideSettings(dragging: url, instruction: nil) }
 }
 
 /// What draws the orb (OrbPanel), in AppKit global coordinates.

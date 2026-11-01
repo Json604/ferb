@@ -100,6 +100,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private let presentation = NotchPresentation()
     private weak var hostingView: TrackingHostingView<NotchView>?
     private let shortcuts = NotchShortcutMonitor()
+    /// The owner's controls as they happen, for the intro's Control beat (IntroController).
+    let introControls = IntroControlSignals()
     private let overlaySpace = NotchOverlaySpace()
     private static let overlayBehavior: NSWindow.CollectionBehavior = [
         .canJoinAllSpaces, .canJoinAllApplications, .stationary,
@@ -256,10 +258,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         shortcuts.onDoubleTap = { [weak self] in
             guard let self else { return }
             if !self.summonFromYield() { self.model.toggle() }
+            self.introControls.saw(.toggle)
         }
         shortcuts.onHoldBegan = { [weak self] in
             self?.hoverTask?.cancel()
             self?.model.beginHeldVoice()
+            self?.introControls.saw(.talk)
         }
         shortcuts.onHoldEnded = { [weak self] in self?.model.finishHeldVoice() }
         shortcuts.onHoldCancelled = { [weak self] in
@@ -1309,7 +1313,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             model.revealPinnedBody()
             return
         }
-        guard model.hoverEnabled,
+        guard model.hoverOpensChat,
               !model.expanded else { return }
         hoverTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
@@ -1431,6 +1435,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             do {
                 _ = try await self.model.rpc.call(paused ? "sense.pause" : "sense.resume", params: [:])
                 self.model.daemonPaused = paused
+                if paused { self.introControls.saw(.pause) }
             } catch { self.model.promptError = error.localizedDescription }
         }
     }
@@ -1482,6 +1487,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func shortcutPressed() {
+        defer { introControls.saw(.summon) }
         if summonFromYield() { return }
         if model.expanded { model.collapse(keyboard: true); return }
         beginInteraction()

@@ -65,6 +65,9 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var streamingPlan: String? = nil
     /// FERB acknowledged the message and hasn't said anything else yet: the typing dots show. Live state only.
     public var awaitingReply = false
+    /// The intro's look-don't-act preview of a suggested task (notes/setup-intro.md step 6): its rows say what FERB
+    /// would do; nothing was done. Never saved (`forStorage`).
+    public var preview = false
 
     /// The typing-dots bubble (decision 20): from the acknowledgement until FERB's first words (a streamed plan line or
     /// reply, the plan, the reply).
@@ -308,8 +311,58 @@ public struct ConversationArchive: Codable, Equatable {
     /// The archive as it may be written to disk: a turn still awaiting the daemon's redaction saves a placeholder instead of its text.
     public func forStorage() -> ConversationArchive {
         var copy = self
+        copy.turns.removeAll { $0.preview }
         for index in copy.turns.indices where copy.turns[index].awaitingRedaction { copy.turns[index].request = Self.unsavedPlaceholder }
         return copy
+    }
+
+    // MARK: The intro's preview (notes/setup-intro.md step 6)
+
+    /// A suggested task shown as the real chat shows a task, from `intro.preview`'s events (`plan`, a `part` per step,
+    /// each marked `preview: true`), in a turn of its own marked preview. `running`: replayed as if under way, for
+    /// practising Stop (its status `previewRunning` until `stopPreview`).
+    public mutating func beginPreview(id: UUID, request: String, running: Bool = false, date: Date = Date()) {
+        guard !turns.contains(where: { $0.id == id }) else { return }
+        var turn = ConversationTurn(id: id, createdAt: date, request: request, sources: [])
+        turn.preview = true
+        turn.status = running ? "previewRunning" : "preview"
+        turns.append(turn)
+    }
+
+    /// One preview event on its preview turn: the plan line and an empty card, then each step as a row. Events not
+    /// marked preview are never applied here.
+    public mutating func applyPreview(id: UUID, _ event: [String: Any]) {
+        guard event["preview"] as? Bool == true,
+              let index = turns.firstIndex(where: { $0.id == id && $0.preview }) else { return }
+        let request = event["request_id"] as? String ?? ""
+        switch event["type"] as? String {
+        case "plan":
+            var details = event
+            details.removeValue(forKey: "task_id")
+            showPlan(id: id, text: event["text"] as? String ?? "", details: details)
+            if ((event["total"] as? NSNumber)?.intValue ?? 0) > 0 {
+                turns[index].card = TurnCard(["request_id": request, "rows": [[String: Any]](), "total": event["total"] ?? 0],
+                                             taskID: "preview:" + request)
+            }
+        case "part":
+            guard let taskID = turns[index].card?.taskID else { return }
+            var row = event
+            row["task_id"] = taskID
+            row["state"] = "preview"
+            turns[index].card?.apply(part: row)
+        default: break
+        }
+    }
+
+    /// The replayed preview was stopped: it stays as a preview, no longer under way.
+    public mutating func stopPreview(id: UUID) {
+        guard let index = turns.firstIndex(where: { $0.id == id && $0.preview }) else { return }
+        turns[index].status = "previewStopped"
+    }
+
+    /// The tour ended: its previews leave the chat.
+    public mutating func removePreviews() {
+        turns.removeAll { $0.preview }
     }
 
     /// Posts a FERB message no turn asked for, once per daemon id. Returns whether it is new to this chat.

@@ -101,7 +101,7 @@ struct TurnCardView: View {
         let rows = card.rows.filter { !$0.direct }
         let running = model.runningTasks[card.taskID] != nil
         // A row still working in a turn that ended without its footer (interrupted, or read from history) isn't moving.
-        let live = running || ["working", "needs_user"].contains(turn.status)
+        let live = running || ["working", "needs_user", "previewRunning"].contains(turn.status)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 if index > 0 { Rectangle().fill(.white.opacity(0.07)).frame(height: 1) }
@@ -147,6 +147,7 @@ struct CardRowView: View {
     /// An open confirmation for its step shows the row as asking; a working row of a turn that ended, as stopped.
     private var state: String {
         if !questions.isEmpty && row.state != "asks" && row.state != "paused" { return "asks" }
+        if row.state == "preview" { return live ? "previewRunning" : "preview" }    // the intro's demo: nothing done
         return row.state == "working" && !live ? "stopped" : row.state
     }
 
@@ -184,6 +185,10 @@ struct CardRowView: View {
                 Text("working…").font(.system(size: 12)).foregroundStyle(.tertiary)
             case "stopped":
                 Text("Not finished").font(.system(size: 12)).foregroundStyle(.tertiary)
+            case "preview":
+                Text("Preview: I'd do this step").font(.system(size: 12)).foregroundStyle(.tertiary)
+            case "previewRunning":
+                Text("Preview: as if working…").font(.system(size: 12)).foregroundStyle(.tertiary)
             case "failed":
                 Text(verbatim: row.text ?? "Couldn't do it.").font(.system(size: 12)).foregroundStyle(Palette.redSoft)
                     .textSelection(.enabled)
@@ -228,7 +233,8 @@ struct CardRowView: View {
 
     static func stateName(_ state: String) -> String {
         ["working": "working", "done": "done", "updated": "updated", "asks": "asks you", "failed": "couldn't do",
-         "paused": "paused", "stopped": "not finished"][state] ?? state
+         "paused": "paused", "stopped": "not finished", "preview": "preview, nothing done",
+         "previewRunning": "preview, nothing done"][state] ?? state
     }
 
     /// Watch FERB work on this ask: the live preview of the step that answers it (notes/preview.md).
@@ -271,6 +277,8 @@ private struct RowIcon: View {
             Image(systemName: "pause.fill").font(.system(size: 11)).foregroundStyle(Palette.violet)
         case "stopped":
             Circle().stroke(.white.opacity(0.3), lineWidth: 1.4).frame(width: 12, height: 12)
+        case "preview":
+            Image(systemName: "eye").font(.system(size: 10)).foregroundStyle(Palette.secondary)
         default:
             RowSpinner()
         }
