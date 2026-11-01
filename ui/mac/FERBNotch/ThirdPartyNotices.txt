@@ -185,3 +185,14 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Google Material Design sounds — Google's Material Design sound resources (the notification sound taken from the
+redistribution at https://github.com/nana-4/materia-sound-theme)
+FERB's first-launch sound (Material's "hero") and notification sound (Material's "notification, high intensity"), by
+Google, licensed under Creative Commons Attribution 4.0 International (CC BY 4.0,
+https://creativecommons.org/licenses/by/4.0/).
+
+Changes made for FERB: the first-launch sound's leading silence trimmed and leveled to -24 LUFS; the notification
+sound trimmed, leveled and given a small room (the Subtle version also low-passed at 3 kHz); both stored as ALAC.
+The files are listed in FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/CREDITS.md. Every other sound is FERB's
+own, synthesised from code.

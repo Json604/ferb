@@ -2,17 +2,19 @@ import AVFAudio
 import Accelerate
 import NotchCore
 
-/// The decided family's files (rendered by demo/sound-family/render.py, shipped in Resources/Sounds): dry mono
-/// sources named `ferb-<sound>-<standard|subtle>[-v<n>].wav`, the signature and orb sounds without an intensity,
-/// the room as a stereo impulse response, the first-launch clip, and the banners' notification sound.
+/// The decided family's files (rendered by demo/sound-family/render.py, stored losslessly as ALAC in .caf, shipped
+/// in Resources/Sounds): dry mono sources named `ferb-<sound>-<standard|subtle>[-v<n>].caf`, the signature and orb
+/// sounds without an intensity, the room as a stereo impulse response and the first-launch clip. CREDITS.md there
+/// says which come from Google's Material sounds (CC BY 4.0).
 enum FerbSoundFiles {
+    static let fileExtension = "caf"
     static var directory: URL? { Bundle.module.url(forResource: "Sounds", withExtension: nil) }
-    static var roomImpulse: URL? { file("ferb-room-ir.wav") }
+    static var roomImpulse: URL? { file("ferb-room-ir.\(fileExtension)") }
     /// The notification sound as macOS plays it on FERB's banners: render.py's stereo reference mix (the dry sound
-    /// with its room), sounding like the in-app cue. UNNotificationSound looks only in the app's own Resources, so
-    /// scripts/build-app.sh also copies it to FERB.app/Contents/Resources.
-    static let bannerName = "ferb-notification-banner.wav"
-    static var bannerFile: URL? { file(bannerName) }
+    /// with its room), sounding like the in-app cue (which the engine plays from its own dry file). UNNotificationSound
+    /// looks only in the app's own Resources, so it lives only there: scripts/build-app.sh copies it from
+    /// ui/mac/FERBNotch/ to FERB.app/Contents/Resources, and it isn't in the Sounds bundle.
+    static let bannerName = "ferb-notification-banner.caf"
 
     static func baseName(_ s: FerbSound) -> String {
         switch s {
@@ -37,11 +39,11 @@ enum FerbSoundFiles {
     static func files(for s: FerbSound, subtle: Bool) -> [URL] {
         let base = "ferb-" + baseName(s)
         for intensity in subtle ? ["subtle", "standard"] : ["standard"] {
-            let variants = (1...3).compactMap { file("\(base)-\(intensity)-v\($0).wav") }
+            let variants = (1...3).compactMap { file("\(base)-\(intensity)-v\($0).\(fileExtension)") }
             if !variants.isEmpty { return variants }
-            if let one = file("\(base)-\(intensity).wav") { return [one] }
+            if let one = file("\(base)-\(intensity).\(fileExtension)") { return [one] }
         }
-        return file("\(base).wav").map { [$0] } ?? []
+        return file("\(base).\(fileExtension)").map { [$0] } ?? []
     }
 
     /// The finished mixes that already carry their own space: played as they are, never through the room.
@@ -80,7 +82,7 @@ final class FerbSoundLibrary {
         var room: [[Float]]?
         if let send = roomSend, channels.count == 1, let ir = roomImpulse(), ir.count == 2 {
             room = Self.room(for: channels[0], impulse: ir, send: send,
-                             tail: url.lastPathComponent == "ferb-logo.wav" ? 0.6 : 0.3)
+                             tail: url.deletingPathExtension().lastPathComponent == "ferb-logo" ? 0.6 : 0.3)
         }
         let loaded = FerbSoundData(channels: channels, room: room)
         cache[url] = loaded
@@ -113,7 +115,8 @@ final class FerbSoundLibrary {
         return impulse
     }
 
-    /// The file's channels as 32-bit float at 48 kHz (every file render.py writes); nil for anything else.
+    /// The file's channels as 32-bit float at 48 kHz (every file render.py writes, decoded from ALAC); nil for anything
+    /// else.
     static func read(_ url: URL) -> [[Float]]? {
         guard let file = try? AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false),
               file.processingFormat.sampleRate == FerbSoundData.sampleRate,

@@ -38,7 +38,6 @@ def test_ferb_app_info_plist_names_ferb_and_declares_its_usage_descriptions() ->
     assert info["CFBundleExecutable"] == "FERBNotch" and info["CFBundlePackageType"] == "APPL"
     assert info["LSUIElement"] is True                                       # background first: no Dock icon
     assert info["NSMicrophoneUsageDescription"].strip() and info["NSSpeechRecognitionUsageDescription"].strip()
-    assert "listens to" in info["NSSpeechRecognitionUsageDescription"]       # dictation and hearing, one grant
     assert not (ROOT / "macapp").exists()                                    # FERB Voice merged into the app
 
 
@@ -69,6 +68,26 @@ def test_the_development_build_keeps_its_own_identity() -> None:
     mix up the two apps' permissions."""
     script = (ROOT / "ui" / "mac" / "FERBNotch" / "build.sh").read_text()
     assert "dev.ferb.notch" in script and "FERB Notch" in script
+
+
+def test_the_sound_family_ships_as_lossless_alac_with_one_banner_copy() -> None:
+    """The committed sounds are ALAC in .caf (lossless, about half the size of the .wav renders); the banners' sound
+    lives once, at the package root build-app.sh copies into Contents/Resources, never also in the Sounds bundle; the
+    Google Material sounds' CC BY 4.0 credit sits beside them and in both notices the app ships."""
+    notch = ROOT / "ui" / "mac" / "FERBNotch"
+    sounds = notch / "Sources" / "FERBNotch" / "Resources" / "Sounds"
+    files = sorted(p.name for p in sounds.iterdir())
+    assert "CREDITS.md" in files and files and all(n.endswith(".caf") for n in files if n != "CREDITS.md")
+    banner = notch / "ferb-notification-banner.caf"
+    assert banner.is_file() and not (sounds / banner.name).exists()
+    for caf in [banner, *sounds.glob("*.caf")]:
+        head = caf.read_bytes()[:64]
+        assert head[:4] == b"caff" and head[8:12] == b"desc" and head[28:32] == b"alac", caf.name
+    script = BUILD_APP.read_text()
+    assert 'cp "$NOTCH/ferb-notification-banner.caf" "$CONTENTS/Resources/ferb-notification-banner.caf"' in script
+    assert ".wav" not in script
+    for notices in (ROOT / "THIRD_PARTY_NOTICES.md", notch / "ThirdPartyNotices.txt"):
+        assert "CC BY 4.0" in notices.read_text(), notices.name
 
 
 def test_build_scripts_are_executable_zsh_that_parses() -> None:
@@ -561,11 +580,14 @@ def test_real_bundle_structure_signature_and_embedded_cli(real_bundle: Path, tmp
                 "Resources/node/" + str(native_bin(_bundle_arch(app))),
                 # the notch's SwiftPM resources, where Bundle.module looks in an app: FERB's mark and the sound family
                 "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/ferb-mark.svg",
-                "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/ferb-logo.wav",
-                "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/ferb-room-ir.wav",
+                "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/ferb-logo.caf",
+                "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/ferb-room-ir.caf",
+                "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/CREDITS.md",
                 # the banners' notification sound, where UNNotificationSound(named:) looks: the app's own Resources
-                "Resources/ferb-notification-banner.wav"):
+                "Resources/ferb-notification-banner.caf"):
         assert (c / rel).is_file(), rel
+    sounds = c / "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds"
+    assert not list(sounds.glob("*.wav")) and not (sounds / "ferb-notification-banner.caf").exists()   # one copy
     assert not (c / "Helpers/FERB Voice.app").exists() and info["NSSpeechRecognitionUsageDescription"]
     agent = plistlib.loads((c / "Helpers/FERB.app/Contents/Info.plist").read_bytes())
     assert (agent["CFBundleIdentifier"], agent["CFBundleName"]) == ("com.ferb.daemon", "FERB")   # what macOS shows

@@ -3,9 +3,11 @@
 Status: family decided 2026-11-01 (see "Rounds so far"); rendered by `demo/sound-family/render.py` and heard on
 `demo/sound-family/index.html`. In the app (setup-intro plan Task 10, 2026-11-01): the tour and every everyday event
 play through one FerbSoundEngine, which applies each sound's switch (`feedback.sound.<name>`), Standard/Subtle and the
-call rule; banners carry `ferb-notification-banner.wav` (render.py's stereo reference mix, copied into
-FERB.app/Contents/Resources by build-app.sh); the magnetic docking sound is gone; the CC BY credit is in Settings →
-About. Banners always use the Standard mix (Subtle doesn't apply to them) and their loudness follows macOS's
+call rule; the bundled sounds are render.py's files stored losslessly as ALAC `.caf` (final review, 2026-11-01:
+2.8 MB instead of 5.9 MB); banners carry `ferb-notification-banner.caf` (render.py's stereo reference mix, kept at
+`ui/mac/FERBNotch/` and copied only into FERB.app/Contents/Resources by build-app.sh); the magnetic docking sound is
+gone; the CC BY credit is in Settings → About, `Resources/Sounds/CREDITS.md`, THIRD_PARTY_NOTICES.md and the app's
+ThirdPartyNotices.txt. Banners always use the Standard mix (Subtle doesn't apply to them) and their loudness follows macOS's
 notification volume, not FERB's volume; when macOS has FERB's notification sounds off, or a banner can't carry the
 sound, the app plays the notification sound instead. Waits on the owner (questions, a human check handed over) always
 sound as needs you in the app, and their banners post silently. Next: the open decisions at the end. Sources are cited in the research report (session of 2026-11-01); the key ones are kept inline

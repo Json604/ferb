@@ -119,7 +119,8 @@ final class SoundFeedbackTests: XCTestCase {
 
     func testANoticeShownAsBannerAndInTheNotchSoundsOnce() async {
         let (model, sounds) = makeModel()
-        model.feedback.noticeWait = .milliseconds(150)
+        let wait = ManualNoticeWait()
+        model.feedback.sleep = { try await wait.sleep($0) }
         let center = FakeNotificationCenter()
         let poster = NotificationPoster(center: center, settle: .zero)
         poster.sounds = model.feedback
@@ -132,14 +133,17 @@ final class SoundFeedbackTests: XCTestCase {
         _ = await poster.subscribeOnce(rpc: rpc)
         XCTAssertEqual(center.sounds, [true])
         model.receiveNotices([notice("n1")])
-        await settle(model)
         XCTAssertFalse(sounds.played.contains(.notification))
+        XCTAssertEqual(wait.started, 0)                      // carried by its banner: nothing waits
 
-        // The notice first: the notch waits for the banner, which carries the sound.
+        // The notice first: the notch waits for the banner, which carries the sound; the wait then running out
+        // plays nothing.
         model.feedback.postingBanners = true
         model.receiveNotices([notice("n2", bannered: true)])
         poster.receive(loopBanner("n2"))
-        await settle(model)
+        await until { wait.started == 1 }
+        wait.expire()
+        await until { wait.ended == 1 }
         XCTAssertEqual(center.sounds, [true, true])
         XCTAssertFalse(sounds.played.contains(.notification))
 
@@ -147,7 +151,9 @@ final class SoundFeedbackTests: XCTestCase {
         notchShowing = true
         model.receiveNotices([notice("n3", bannered: true)])
         poster.receive(loopBanner("n3"))
-        await settle(model)
+        await until { wait.started == 2 }
+        wait.expire()
+        await until { wait.ended == 2 }
         XCTAssertEqual(center.sounds, [true, true])
         XCTAssertEqual(sounds.played, [.notification])
 
@@ -278,14 +284,19 @@ final class SoundFeedbackTests: XCTestCase {
 
     // MARK: - The banner's file
 
-    func testTheBannerSoundIsAFinishedStereoMixAndNeverAnInAppVariant() throws {
-        let url = try XCTUnwrap(FerbSoundFiles.bannerFile)
+    func testTheBannerSoundIsAFinishedStereoMixOutsideTheSoundsBundle() throws {
+        // The package root, where scripts/build-app.sh copies it from into FERB.app/Contents/Resources.
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = root.appendingPathComponent(FerbSoundFiles.bannerName)
         let file = try AVAudioFile(forReading: url)
         XCTAssertEqual(file.processingFormat.channelCount, 2)
         XCTAssertEqual(file.processingFormat.sampleRate, 48_000)
         XCTAssertLessThan(Double(file.length) / 48_000, 30)            // macOS plays banner sounds under 30 s
-        for subtle in [false, true] {
-            XCTAssertFalse(FerbSoundFiles.files(for: .notification, subtle: subtle).contains(url))
+        let bundled = try XCTUnwrap(FerbSoundFiles.directory)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundled.appendingPathComponent(FerbSoundFiles.bannerName).path))
+        for subtle in [false, true] {                                  // the in-app cue plays its own dry file
+            XCTAssertFalse(FerbSoundFiles.files(for: .notification, subtle: subtle).isEmpty)
         }
     }
 
@@ -349,10 +360,25 @@ final class SoundFeedbackTests: XCTestCase {
         for _ in 0..<200 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
-    /// Past the notch's wait for a banner.
-    private func settle(_ model: NotchModel) async {
-        try? await Task.sleep(for: .milliseconds(300))
-        for _ in 0..<5 { await Task.yield() }
+}
+
+/// The notch's wait for a banner, ended by the test: `ended` counts the waits whose code after the wait has run.
+@MainActor
+final class ManualNoticeWait {
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private(set) var started = 0
+    private(set) var ended = 0
+
+    func sleep(_ duration: Duration) async throws {
+        started += 1
+        await withCheckedContinuation { waiting.append($0) }
+        ended += 1
+    }
+
+    func expire() {
+        let all = waiting
+        waiting = []
+        for waiter in all { waiter.resume() }
     }
 }
 

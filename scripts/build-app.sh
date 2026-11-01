@@ -85,12 +85,14 @@ cp "$NOTCH/ThirdPartyNotices.txt" "$CONTENTS/Resources/ThirdPartyNotices.txt"
 NOTCH_RESOURCES="$("${SWIFT[@]}" --show-bin-path)/FERBNotch_FERBNotch.bundle"
 [[ -d "$NOTCH_RESOURCES/Contents/Resources/Sounds" ]] || die "swift build left no sound family in $NOTCH_RESOURCES"
 ditto "$NOTCH_RESOURCES" "$CONTENTS/Resources/FERBNotch_FERBNotch.bundle"
-# An incremental build can keep a stale copy: what ships must equal the committed sounds exactly
+# An incremental build can keep a stale copy (an older family beside the new files): what ships must equal the
+# committed sounds (ALAC .caf and their CREDITS.md) exactly
 diff -rq "$NOTCH/Sources/FERBNotch/Resources/Sounds" "$CONTENTS/Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds" \
   || die "the app's sounds differ from ui/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds (rm -rf $WORK/swift and build again)"
-# The banners' notification sound: macOS plays a banner's sound only from the app's own Resources (or ~/Library/Sounds)
-cp "$NOTCH/Sources/FERBNotch/Resources/Sounds/ferb-notification-banner.wav" "$CONTENTS/Resources/ferb-notification-banner.wav"
-[[ -f "$CONTENTS/Resources/ferb-notification-banner.wav" ]] || die "FERB.app has no banner sound in Contents/Resources"
+# The banners' notification sound, only here: macOS plays a banner's sound only from the app's own Resources (or
+# ~/Library/Sounds); the notch's in-app cue plays its own dry file from the Sounds bundle
+cp "$NOTCH/ferb-notification-banner.caf" "$CONTENTS/Resources/ferb-notification-banner.caf"
+[[ -f "$CONTENTS/Resources/ferb-notification-banner.caf" ]] || die "FERB.app has no banner sound in Contents/Resources"
 ICON="$ROOT/assets/logo/AppIcon.icns"     # FERB's logo (scripts/make_logo.py makes it from assets/logo/ferb-logo.svg)
 cp "$ICON" "$CONTENTS/Resources/AppIcon.icns"                     # Info.plist CFBundleIconFile
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$CONTENTS/Resources/THIRD_PARTY_NOTICES.md"

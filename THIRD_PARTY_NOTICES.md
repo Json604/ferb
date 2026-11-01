@@ -283,3 +283,19 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
 ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+### Google Material Design sounds (FERB's first-launch and notification sounds)
+
+Two of FERB.app's sounds come from Google's Material Design sound resources, by Google, licensed under Creative Commons
+Attribution 4.0 International (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/); the notification sound was
+taken from the redistribution at https://github.com/nana-4/materia-sound-theme. The list of files is in
+`ui/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds/CREDITS.md`, which ships beside them in the app.
+
+- First-launch sound (`ferb-first-launch.caf`): Material's "hero" sound. Changes: leading silence trimmed, leveled to
+  −24 LUFS, stored as ALAC.
+- Notification sound (`ferb-notification-standard.caf`, `ferb-notification-subtle.caf`, `ferb-notification-banner.caf`):
+  Material's "notification, high intensity". Changes: trimmed, leveled, a small room added (the Subtle version also
+  low-passed at 3 kHz), stored as ALAC.
+
+Every other sound is FERB's own, synthesised from code.
