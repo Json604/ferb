@@ -129,3 +129,23 @@ rule = "Every preview loop pauses while the displays sleep, the screen is locked
 why = "APP-403 keeps it always live when visible; capturing for nobody only costs heat."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift"]
 legacy = "notes/preview.md fix list (step 8d): capture only while visible"
+
+[APP-300]
+title = "The notch gets the answers-in-steps mock's UI"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 20: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "The notch shows the turn card with one row per part and its states (working spinner, done check, asks amber, couldn't-do red, updated tag, paused violet), the done/sites footer, questions with buttons inside a row, the plan-line bubble style and the typing-dots bubble; not the mock's dashed explanation labels or \"code\" chips. The UI work is functional; the owner polishes."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
+legacy = "notes/orchestration.md decision 20"
+
+[APP-301]
+title = "The notch opens itself; a banner only when it can't show"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/orchestration.md owner decision 21: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "When a part needs the owner (a question or a Yes) and when the whole task finishes, the notch opens itself without taking keyboard focus or switching apps. Rows that fill quietly only update the card. A macOS banner is the fallback only when the notch can't show (a full-screen app or video covers it, the display is asleep, FERB.app is quit); tapping it opens the notch."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift"]
+legacy = "notes/orchestration.md decision 21"

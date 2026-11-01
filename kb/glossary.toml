@@ -95,3 +95,51 @@ see = ["STORE-401", "STORE-404", "STORE-408"]
 ["the clean-up"]
 meaning = "The one-time, owner-confirmed setup step (`ferb setup --cleanup`, Settings → Data → Clean up) that empties dead tables with the daemon stopped and compacts the database."
 see = ["STORE-402", "STORE-412"]
+
+["exchange"]
+meaning = "One owner message (or several read together) and FERB's reply to it; the unit the planner's recent conversation counts."
+see = ["ORCH-303", "ORCH-318"]
+
+["part"]
+meaning = "One of the owner's asks in a message (not a plan step); each gets its own row in the turn card and posts once."
+see = ["ORCH-319", "APP-300"]
+
+["answer step"]
+meaning = "The one plan step whose checked answer answers a part; a summing-up step is refused."
+see = ["ORCH-319"]
+
+["check-in"]
+meaning = "FERB's \"keep going?\" question after 5 failed attempts at a task or plan step."
+see = ["ORCH-307"]
+
+["standing send"]
+meaning = "A scope the owner approved for sending to recipients FERB finds itself, including in unattended runs."
+see = ["ORCH-306"]
+
+["unattended run"]
+meaning = "A run with no owner to ask (a scheduled run): it declines at once where an attended run would pause and ask."
+see = ["ORCH-307", "ORCH-323"]
+
+["typed card"]
+meaning = "A structured card (reminder, event, note, payment, send, link, file) built from FERB's own records and drawn by the notch next to the answer."
+see = ["ORCH-329", "ORCH-321"]
+
+["prompt patch"]
+meaning = "A one-off line added to a runtime prompt after an incident; patches were removed in step 10b and corrections now go to memory."
+see = ["PRM-300", "PRM-301"]
+
+["shared prefix"]
+meaning = "The small block every role's instructions start with (interaction.md: trust, voice, background first, R2, R5, R10)."
+see = ["PRM-315"]
+
+["role block"]
+meaning = "A short prompt file in prompts/roles/ that code appends to the worker's instructions only when a run needs it (step, loop, watch, parts, scheduled...)."
+see = ["PRM-315"]
+
+["watch"]
+meaning = "A schedule that checks something outside FERB's own work (\"tell me when X\") and survives restarts; never a loop or sleep inside a task."
+see = ["PRM-311"]
+
+["R1-R10"]
+meaning = "The ten general prompt rules that replaced the incident patches (PRM-303 to PRM-312)."
+see = ["PRM-301", "PRM-303", "PRM-312"]

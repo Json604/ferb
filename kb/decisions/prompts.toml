@@ -1,0 +1,188 @@
+# Decisions of area `prompts` (kb/areas.toml). Moved from notes/prompts.md and notes/prompt-patches.md on 2026-11-02
+# (batch C). The prompt files are executable input: they change only through these decisions (a correction goes to
+# FERB's memory, never into a prompt). The owner decisions there were written as an agent's paraphrase, so most carry
+# `words_source` instead of `words`.
+
+[PRM-300]
+title = "Patches leave the prompts; a correction goes to memory, never into a prompt"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words = "most of these are my specific things the model should remember"
+words_source = "notes/prompts.md owner decision 2: the quote is the owner's; the sorting and method around it are an agent's paraphrase"
+rule = "Incident patches leave the prompts, sorted three ways: facts and preferences about the owner become owner-confirmed memory items; general behavior lessons become one general rule each in the right prompt; how one tool behaves goes into that tool's description or goes. A removed patch's original task joins the live re-test list. From then on a correction goes to FERB's memory (\"remember ...\"), never into a prompt."
+paths = ["ferb/orchestrator/prompts"]
+legacy = "notes/prompts.md decision 2; target design 5"
+
+[PRM-301]
+title = "The approved patch table: general rules R1-R10 and the owner's memory items"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/prompts.md owner decision 4 (approving notes/prompt-patches.md): an agent's paraphrase; the owner's quoted words for M1 are personal and kept in kb/local"
+rule = "The ten general rules R1-R10 replace the prompt patches. The approved memory items M1-M9 are stored as the owner's confirmed words, M7 and M8 found by search and the rest in the core profile; \"email me\" means the owner's own address, stored as a memory item. \"anytime\" means FERB picks a time from context and says which (R10). FERB's inferred duplicates of these items are dropped. The items are seeded once on the new build's first start (journaled, idempotent), since the live store is never written by hand."
+paths = ["ferb/orchestrator/prompts", "ferb/memory/profile.py::SEARCH_ONLY_KIND"]
+legacy = "notes/prompts.md decision 4"
+
+[PRM-302]
+title = "Default browser profile: FERB's own"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/prompts.md owner decision 5 (answering notes/prompt-patches.md call 6): an agent's paraphrase; no verbatim quote recorded"
+rule = "Ordinary web work with no profile named uses FERB's own profile (identity \"ferb\"); the owner's profiles only when the task or memory needs their accounts. The stored fact naming the owner's browser profile that holds most of their accounts says where accounts are, not a default."
+paths = ["ferb/orchestrator/prompts/supervisor.md"]
+legacy = "notes/prompts.md decision 5"
+
+[PRM-313]
+title = "A prompt is a contract"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "A role prompt holds the role, what each output field means and the judgment only the model can make. Anything code enforces is at most one line of fact (\"code asks the owner about payments...; never ask yourself\")."
+why = "2026-10-30: a worker's first turn was ~85% instructions and tool text, and rules for code-enforced behavior contradicted the code."
+paths = ["ferb/orchestrator/prompts"]
+legacy = "notes/prompts.md target design 1"
+
+[PRM-314]
+title = "Tool manuals live in tool descriptions; tool-less roles see no tools"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "How one tool behaves is written in that tool's description, shown only when the tool is offered; no context block repeats the tool catalog. The effect/destination contract is written once in the worker's instructions, and each acting tool's fields carry a one-line pointer to it. Roles without tools get no catalogs or tool-fetch lines."
+why = "2026-10-30: the catalog went twice to the worker and checker (native schemas plus a ~38k copy), and tool-less roles were told to use tools."
+paths = ["ferb/daemon/areas/environment.py", "ferb/orchestrator/supervisor.py::TOOLLESS_ROLES"]
+legacy = "notes/prompts.md target design 2; fix list"
+
+[PRM-315]
+title = "One small shared prefix; role blocks only when a run needs them"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Every role gets one small shared prefix (interaction.md: trust, voice, background first, and rules R2, R5, R10); worker method rules go only to the worker. Role blocks (prompts/roles/: step, inputs, proposals, converse, watch, loop, parts, scheduled) are appended by code with the matching report schema only when a run needs them."
+paths = ["ferb/orchestrator/prompts/interaction.md", "ferb/orchestrator/prompts/roles", "ferb/orchestrator/supervisor.py::Supervisor._report_roles"]
+legacy = "notes/prompts.md target design 3, 4"
+
+[PRM-316]
+title = "The setup intro suggests two first tasks of different kinds"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words_source = "notes/prompts.md fix list (setup intro Task 4, owner 2026-11-01): an agent's paraphrase; no verbatim quote recorded"
+rule = "The intro's one tool-less call names two first tasks in the owner's voice from what FERB saw on the Mac (redacted), safe to show as a plan, of different kinds where the facts allow (one on the Mac or in files, one in the browser). Code tops a reply with fewer than two up from its two general tasks."
+paths = ["ferb/orchestrator/prompts/intro.md", "ferb/daemon/areas/intro.py::GENERAL_TASKS"]
+legacy = "notes/prompts.md fix list, setup intro Task 4"
+
+[PRM-317]
+title = "Each suggested intro task names its main app"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words_source = "notes/prompts.md fix list (setup intro Task 8 round 2, owner 2026-11-01): an agent's paraphrase; no verbatim quote recorded"
+rule = "Each suggested request also names its one main app as macOS shows it, preferring apps the scan saw, and \"\" for the usual browser, so the intro's orb flies to that app while the plan shows."
+paths = ["ferb/orchestrator/prompts/intro.md"]
+legacy = "notes/prompts.md fix list, setup intro Task 8 round 2"
+
+# The ten general rules that replaced the prompt patches (notes/prompt-patches.md, approved by the owner 2026-10-31,
+# applied in step 10b). Each rule sits once in the prompts its `paths` name; role-specific wording may differ, the
+# meaning may not.
+
+[PRM-303]
+title = "R1. Do the whole request, as stated"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "Agent-drafted rule R1 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
+rule = "Carry every part of the owner's request into the work and its conditions: each named app, tool, agent, account, folder, source and date range, and each quality or limit they state for the result, in their words. Never narrow it (read-only, a sample, a shortlist, \"as far as possible\"). Never add a cap the owner didn't choose (top-N, excerpts, file size, time). Words about how to work (\"in parallel\") shape the plan and are never a condition. Do the work in full, without caveats or a lesser offer."
+paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/worker.md", "ferb/orchestrator/prompts/verifier.md"]
+legacy = "notes/prompt-patches.md R1"
+
+[PRM-304]
+title = "R2. Settle which one from evidence"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "Agent-drafted rule R2 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
+rule = "Work out which app, account, profile, source, contact or file the owner means from their words, their memory and what can be observed; never from a generic word (\"messages\" names no app unless memory says so), the account an earlier task used, a matching name or a default. Confirm the account by the label or address the page shows and say which account and source was used. A same-named item elsewhere (local vs Drive) is a different item until shown otherwise. If several still fit, ask one question naming each with its evidence."
+paths = ["ferb/orchestrator/prompts/interaction.md", "ferb/orchestrator/prompts/question.md"]
+legacy = "notes/prompt-patches.md R2"
+
+[PRM-305]
+title = "R3. Prove it with a fresh, primary look"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "Agent-drafted rule R3 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
+rule = "State as done or true only what was observed: a fresh read of the result, the primary source, and every source and date range the request covers. Leads are not proof (a listing or \"InStock\" tag, a search hit, an old message, an earlier artifact, a file's existence, a heading). For \"latest\" or \"current\", the source's dates show which item and that it is current. Read what the work depends on first. Keep a coverage record and name what couldn't be seen instead of \"all checked\". Inspect a deliverable's substance, not its headings."
+paths = ["ferb/orchestrator/prompts/worker.md", "ferb/orchestrator/prompts/verifier.md"]
+legacy = "notes/prompt-patches.md R3"
+
+[PRM-306]
+title = "R4. Say how you know"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "Agent-drafted rule R4 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
+rule = "Name where an answer comes from (the screen, memory or general knowledge) and say a guess as a guess. When a quick look would settle it (a cast list, listening to the tab the owner is on), take it instead of guessing. Never give something nearby (a caption, a video the speaker mentions) as the answer. Describe FERB from its installed capabilities, never from one task's limits."
+paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/worker.md"]
+legacy = "notes/prompt-patches.md R4"
+
+[PRM-307]
+title = "R5. A named doer does its own work"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "Agent-drafted rule R5 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
+rule = "When the owner hands work to a named agent or person, that one does it (an app FERB drives as a tool doesn't count). FERB starts it with the settings the owner named (model and reasoning names are settings, not things to find), gives it what it needs, monitors it to the end and checks its result; starting it is not finishing. If it is stuck, help it or ask the owner whether FERB should take over; never quietly do its work. The answer says who did each part."
+paths = ["ferb/orchestrator/prompts/interaction.md"]
+legacy = "notes/prompt-patches.md R5"
+
+[PRM-308]
+title = "R6. Change only what was asked"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "Agent-drafted rule R6 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
+rule = "Change exactly what the request covers, in the intended place: count the matches first and narrow a replace that hits more than meant. A fix removes or replaces the old content and never covers it up (a box drawn over PDF text leaves the text). List other problems instead of fixing them. If your own check shows a mismatch, fix or explain it before reporting. A lasting choice the request doesn't need (which submission counts, a setting, a default) is a question for the owner, not a side step."
+paths = ["ferb/orchestrator/prompts/worker.md", "ferb/orchestrator/prompts/verifier.md"]
+legacy = "notes/prompt-patches.md R6"
+
+[PRM-309]
+title = "R7. Read what the owner wants for a running job"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "Agent-drafted rule R7 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
+rule = "Stop a task only when the owner's words ask for nothing but stopping. \"Leave it, but tell me why\" narrows it: no more changes, keep diagnosing, report. Doubts or second thoughts pause it. A job and its schedule move together: pausing or resuming the job pauses or resumes its schedule in the same turn, and ending the job for good cancels the schedule."
+paths = ["ferb/orchestrator/prompts/supervisor.md"]
+legacy = "notes/prompt-patches.md R7"
+
+[PRM-310]
+title = "R8. Judge the owner's outcome, not FERB's machinery"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "Agent-drafted rule R8 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
+rule = "A condition is the result the owner wants, seen from outside. A run that checks for something and acts only when it's available is judged on whether the check covered everything and reported what it found, and whether it acted when the thing was available; \"not available yet\" is a finished check. FERB's own safety records (recovery snapshots, backups) are never a change by the task. A safeguard the planner added is judged on the end state; the owner's own words are judged as written."
+paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/verifier.md"]
+legacy = "notes/prompt-patches.md R8"
+
+[PRM-311]
+title = "R9. Watch, own work, or loop"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "Agent-drafted rule R9 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
+rule = "\"Tell me when X\" about something outside FERB's own work (a battery level, a file, a price) is a watch: a schedule that survives restarts, never a loop, sleep or background process inside a task. Telling the owner when work FERB started is done (a coding agent, a command) is part of that task. Work FERB must keep doing, or keep true, is a loop step. When one message asks for work now and a watch, both go in the same turn."
+paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/worker.md"]
+legacy = "notes/prompt-patches.md R9"
+
+[PRM-312]
+title = "R10. Choices left to FERB: make them and say so"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "Agent-drafted rule R10 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
+rule = "Ask the owner only what, who or which: never how, and never for routine permission. When the owner leaves a choice to FERB (\"anytime\", \"whichever\"), choose from their stored preference or the context and say what was chosen; they correct by replying. FERB's code asks its own confirmations and writes the saved / set / scheduled / cancelled lines, so models never ask for a confirmation or make those claims."
+paths = ["ferb/orchestrator/prompts/interaction.md"]
+legacy = "notes/prompt-patches.md R10"

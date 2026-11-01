@@ -6,15 +6,15 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 13 | 1 | 14 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 15 | 1 | 14 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 40 | 2 | 13 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 27 | 1 | 0 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 49 | 1 | 6 |
-| memory | Memory and memory import | `ferb/memory` | 59 | 3 | 4 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 1 | 0 | 0 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 50 | 1 | 6 |
+| memory | Memory and memory import | `ferb/memory` | 59 | 4 | 4 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 34 | 2 | 0 |
 | perception | Perception | `ferb/sense` | 9 | 1 | 1 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `notes`, `kb`, `tools`, `spikes` | 0 | 0 | 0 |
-| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 0 | 0 | 0 |
+| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 18 | 0 | 0 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 5 | 0 | 1 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 15 | 3 | 9 |
 | storage | Storage | `ferb/store` | 23 | 5 | 5 |
@@ -23,6 +23,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 ## Waiting on the owner
 
+- T-302 (memory): Your approved memory items (M1-M9 and the address for "email me") were to be seeded into FERB's memory by the build, but that seed was deleted on 2026-11-01 to keep personal data out of the repo. Should they still reach your store automatically, from a file that stays only on your Mac, or will you tell FERB each one yourself (and the decision is updated to say so)?
 - T-401 (storage): Should the audit-like journal records (security alignment, shell network use, escape used, clipboard access) be kept forever, or deleted 90 days after their task ends like the other operational records?
 - T-402 (storage): Perception receipts and batches, the loop wake-up queue, notices and learned-node change rows have no retention period, so they are kept forever. Should any of them be deleted after a period, and after how long?
 - T-404 (runtimes): When a worker's long tool loop overflows the model's context window, should Codex compact the conversation and carry on (today), or should the worker fail instead?
@@ -31,4 +32,4 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 ## Terms
 
-APP_ONLY, FERB's home, Jev, Need, P19, Tier 1, borrowed tab, daily distill, developer toolbox, escape hatch, holds up, how-note, known destination, lift, operational records, playbook, report relay, routine questions, set aside, sink rule, tab chain, the clean-up, visible folders (`tools/kb/run kb search <term>`)
+APP_ONLY, FERB's home, Jev, Need, P19, R1-R10, Tier 1, answer step, borrowed tab, check-in, daily distill, developer toolbox, escape hatch, exchange, holds up, how-note, known destination, lift, operational records, part, playbook, prompt patch, report relay, role block, routine questions, set aside, shared prefix, sink rule, standing send, tab chain, the clean-up, typed card, unattended run, visible folders, watch (`tools/kb/run kb search <term>`)
