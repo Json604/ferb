@@ -10,6 +10,8 @@ protocol NotificationCenterPosting: AnyObject {
     func undecided() async -> Bool
     /// macOS's own prompt; true when the owner allowed it.
     func request() async -> Bool
+    /// macOS lets FERB's banners play a sound (System Settings → Notifications → FERB).
+    func soundsAllowed() async -> Bool
     /// `sound`: the banner carries FERB's notification sound (else it posts silently).
     func post(id: String, title: String, body: String, userInfo: [String: String], thread: String, sound: Bool)
     func withdraw(ids: [String])
@@ -30,6 +32,8 @@ final class UserNotificationCenter: NotificationCenterPosting {
     func undecided() async -> Bool { await center.notificationSettings().authorizationStatus == .notDetermined }
 
     func request() async -> Bool { (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false }
+
+    func soundsAllowed() async -> Bool { await center.notificationSettings().soundSetting != .disabled }
 
     /// FERB's notification sound: macOS plays a banner's sound itself, from the app's own Resources only (or
     /// ~/Library/Sounds), so build-app.sh puts the finished mix there. A build without it uses the system's sound.
@@ -58,8 +62,10 @@ final class UserNotificationCenter: NotificationCenterPosting {
 /// FERB.app as the daemon's poster (L34 D): while macOS lets FERB.app notify, it holds `notifications.subscribe`, so the
 /// daemon stops using osascript; each banner is posted unless the notch is already showing it; a click opens the notch at
 /// its item. Without a notification center (a development build run without a bundle) it never subscribes, and the
-/// daemon keeps osascript. A banner carries FERB's notification sound unless `sounds` says the notch already sounded for
-/// its item or the sound wouldn't play now; then it posts silently.
+/// daemon keeps osascript. A banner carries FERB's notification sound unless `sounds` says the app already sounded for
+/// its item, the sound wouldn't play now, or macOS has FERB's notification sounds off; then it posts silently and the
+/// notch sounds. A wait on the owner (category `question`: a question, a human check handed over) always sounds as
+/// needs you in the app, never as a notification; its banner posts silently.
 @MainActor
 final class NotificationPoster {
     private let center: NotificationCenterPosting?
@@ -76,6 +82,8 @@ final class NotificationPoster {
     private var settling: [String: Task<Void, Never>] = [:]
     /// The app's everyday sounds (the notch's), so an item shown in both places sounds once.
     weak var sounds: SoundFeedback?
+    /// macOS's sound setting for FERB's banners, read again as each banner arrives.
+    private var bannerSoundAllowed = true
 
     init(center: NotificationCenterPosting?, settle: Duration = .seconds(1)) {
         self.center = center
@@ -126,6 +134,7 @@ final class NotificationPoster {
                     asked = true
                     if !(await center.request()) { break }
                 }
+                bannerSoundAllowed = await center.soundsAllowed()
                 receive(event)
             }
         } catch {}
@@ -149,8 +158,18 @@ final class NotificationPoster {
             sounds?.bannerDeclined(item.soundKeys)
             return
         }
+        let sound: Bool
+        if item.category == .question {
+            sounds?.play(.needsYou, for: item.soundKeys)
+            sound = false
+        } else if bannerSoundAllowed {
+            sound = sounds?.bannerSounds(item.soundKeys) ?? true
+        } else {
+            sounds?.notification(for: item.soundKeys, bannerMayFollow: false)    // macOS won't play it: the app does
+            sound = false
+        }
         center.post(id: item.id, title: item.title, body: item.body, userInfo: item.target.userInfo,
-                    thread: item.category?.rawValue ?? "ferb", sound: sounds?.bannerSounds(item.soundKeys) ?? true)
+                    thread: item.category?.rawValue ?? "ferb", sound: sound)
     }
 
     /// A question answered anywhere: its banner goes from Notification Center (or never posts, while it waits).

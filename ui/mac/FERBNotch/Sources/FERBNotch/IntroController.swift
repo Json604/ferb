@@ -98,7 +98,7 @@ final class IntroController {
     /// tour resumes there with every planned beat after it, and sign-in and Allow all from before it run again only if
     /// still needed (signed out, a grant gone since). `firstRun`: a new install (Task 9 sets it), whose tour opens with
     /// the first-launch clip; a replay or a resume plays none. The running tour keeps the controller alive until it
-    /// ends (`end()` is every end's cleanup).
+    /// ends (`end(stoppingSound:)` is every end's cleanup).
     func start(beats: [IntroBeat], firstRun: Bool = false) {
         guard !running else { return }
         let resume = progress.resumeBeat.flatMap { beats.contains($0) ? $0 : nil }
@@ -139,7 +139,7 @@ final class IntroController {
         guard running else { return }
         progress.done = true
         progress.resumeBeat = nil
-        end()
+        end(stoppingSound: true)
         Task { [weak self] in
             guard let self else { return }
             await self.setup.refreshPermissions()
@@ -190,7 +190,7 @@ final class IntroController {
     private func finish() {
         progress.done = true
         progress.resumeBeat = nil
-        end()
+        end(stoppingSound: false)
         onFinished?()
         startRealTask()
     }
@@ -203,8 +203,10 @@ final class IntroController {
         notch.send(request)
     }
 
-    /// Every way the tour ends: the orb, the sound, the lines and the previews go; the app may terminate again.
-    private func end() {
+    /// Every way the tour ends: the orb, the lines and the previews go; the app may terminate again. The engine stops
+    /// being kept warm; a skip also stops what's playing at once, while the natural end lets a ringing sound (Home's, or
+    /// an everyday one on the shared engine) finish.
+    private func end(stoppingSound: Bool) {
         running = false
         run?.cancel()
         run = nil
@@ -219,7 +221,7 @@ final class IntroController {
         orb.onHomeArrival = nil
         orb.tearDown()
         sound.keepWarm(false)
-        sound.stopAll()
+        if stoppingSound { sound.stopAll() }
         notch.onIntroAction = nil
         notch.introLine = nil
         notch.introHoldsWork = false

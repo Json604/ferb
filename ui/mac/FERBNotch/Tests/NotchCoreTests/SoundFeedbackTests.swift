@@ -1,3 +1,4 @@
+import AppKit
 import AVFAudio
 import XCTest
 @testable import FERBNotch
@@ -136,7 +137,7 @@ final class SoundFeedbackTests: XCTestCase {
 
         // The notice first: the notch waits for the banner, which carries the sound.
         model.feedback.postingBanners = true
-        model.receiveNotices([notice("n2")])
+        model.receiveNotices([notice("n2", bannered: true)])
         poster.receive(loopBanner("n2"))
         await settle(model)
         XCTAssertEqual(center.sounds, [true, true])
@@ -144,15 +145,14 @@ final class SoundFeedbackTests: XCTestCase {
 
         // The notch is open: the banner isn't posted, so the notch plays the notice's sound, once.
         notchShowing = true
-        model.receiveNotices([notice("n3")])
+        model.receiveNotices([notice("n3", bannered: true)])
         poster.receive(loopBanner("n3"))
         await settle(model)
         XCTAssertEqual(center.sounds, [true, true])
         XCTAssertEqual(sounds.played, [.notification])
 
-        // A notice no banner shows sounds in the notch.
+        // A notice no banner shows sounds in the notch at once: nothing to wait for.
         model.receiveNotices([notice("n4")])
-        await settle(model)
         XCTAssertEqual(sounds.played, [.notification, .notification])
 
         // The notch already sounded for a question: its banner posts silently.
@@ -164,6 +164,116 @@ final class SoundFeedbackTests: XCTestCase {
         XCTAssertEqual(center.sounds, [true, true, false])
         XCTAssertEqual(sounds.played, [.notification, .notification, .needsYou])
         model.feedback.postingBanners = false
+    }
+
+    func testARecoveredOrScheduledTaskSoundsByItsStatus() {
+        let (model, sounds) = makeModel()
+        let (poster, center) = makePoster(model)
+        model.receiveOutcome(["task_id": "t-fail", "status": "failed", "answer": "The page didn't load.", "goal": "Check"])
+        XCTAssertEqual(sounds.played, [.error])
+        poster.receive(taskBanner("t-fail"))                 // its banner posts silently: it sounded once
+        XCTAssertEqual(center.sounds, [false])
+        model.receiveOutcome(["task_id": "t-wait", "status": "needs_user", "answer": "Which file?", "goal": "Send"])
+        model.receiveOutcome(["task_id": "t-stop", "status": "cancelled", "answer": "Stopped.", "goal": "Tidy"])
+        model.receiveOutcome(["task_id": "t-done", "status": "done", "answer": "Done.", "goal": "Tidy"])
+        XCTAssertEqual(sounds.played, [.error, .needsYou, .notification])
+    }
+
+    func testABannerNeverSilencesNeedsYouDoneOrError() async {
+        let (model, sounds) = makeModel()
+        let (poster, center) = makePoster(model)
+        // A loop's banner for task T, then T fails: the error still plays.
+        poster.receive(loopBanner("n-t", task: "t-loop"))
+        XCTAssertEqual(center.sounds, [true])
+        model.receiveOutcome(["task_id": "t-loop", "status": "failed", "answer": "It stopped.", "goal": "Watch"])
+        XCTAssertEqual(sounds.played, [.error])
+        // A question's banner before its approval event: needs you plays once, and the banner is silent.
+        poster.receive(questionBanner("q-early"))
+        model.receiveBusEvent(["topic": "approval.requested", "data": [
+            "approval_id": "q-early", "kind": "owner_question", "reason": "Send it?"] as [String: Any]])
+        XCTAssertEqual(center.sounds, [true, false])
+        XCTAssertEqual(sounds.played, [.error, .needsYou])
+    }
+
+    func testAHandoffSoundsAsNeedsYouAndDuringACallAtSubtle() {
+        let defaults = scratchDefaults("SoundFeedbackTests")
+        let feedback = SoundFeedback(defaults: defaults)
+        let player = DecidingPlayer(makeEngine(defaults: defaults, input: { [1] }))        // another app is on a call
+        feedback.player = player
+        let center = FakeNotificationCenter()
+        let poster = NotificationPoster(center: center, settle: .zero)
+        poster.sounds = feedback
+        poster.configure(notchShowing: { true }, open: { _ in })
+        poster.receive(["id": "handoff:h1", "category": "question", "title": "FERB needs you for a moment",
+                        "body": "example.com wants to check you're human.",
+                        "target": ["kind": "handoff", "handoff_id": "h1", "task_id": "t1"], "when_hidden": false])
+        XCTAssertEqual(center.sounds, [false])
+        XCTAssertEqual(player.decided.map(\.0), [.needsYou])
+        XCTAssertEqual(player.decided.first?.1, SoundDecision(subtle: true))
+        poster.receive(["id": "reminder:r1", "category": "reminder", "title": "FERB reminder", "body": "Water the plants",
+                        "target": ["kind": "reminder", "timer_id": "r1"], "when_hidden": false])
+        XCTAssertEqual(center.sounds, [false, false])                 // a call: the notification banner is silent too
+        XCTAssertEqual(player.decided.count, 1)
+    }
+
+    func testARestartsBacklogOfNoticesIsOneSound() {
+        let (model, sounds) = makeModel()
+        model.receiveNotices([notice("b1"), notice("b2"), notice("b3")])
+        XCTAssertEqual(sounds.played, [.notification])
+        model.receiveNotices([notice("b1"), notice("b2")])         // shown already: no sound again
+        XCTAssertEqual(sounds.played, [.notification])
+    }
+
+    func testWhenMacOSHasFERBsBannerSoundOffTheNotchPlaysItOnce() async {
+        let (model, sounds) = makeModel()
+        let center = FakeNotificationCenter()
+        center.soundAllowed = false
+        let poster = NotificationPoster(center: center, settle: .zero)
+        poster.sounds = model.feedback
+        poster.configure(notchShowing: { false }, open: { _ in })
+        let rpc = ScriptedRPC()
+        rpc.events["notifications.subscribe"] = [loopBanner("m1")]
+        _ = await poster.subscribeOnce(rpc: rpc)
+        XCTAssertEqual(center.sounds, [false])
+        model.receiveNotices([notice("m1", bannered: true)])
+        XCTAssertEqual(sounds.played, [.notification])
+    }
+
+    // MARK: - Shortcut and pause wiring
+
+    func testOpeningFERBByShortcutPlaysSummonAndClosingItPlaysNothing() {
+        _ = NSApplication.shared
+        let model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("SoundFeedbackTests"))
+        let sounds = FakeSoundPlayer()
+        model.feedback.player = sounds
+        let coordinator = PanelCoordinator(model: model)
+        coordinator.magneticFieldPresentationEnabled = false
+        defer { coordinator.tearDown() }
+        coordinator.shortcutPressed()
+        XCTAssertTrue(model.expanded)
+        XCTAssertEqual(sounds.played, [.summon])
+        coordinator.shortcutPressed()
+        XCTAssertFalse(model.expanded)
+        coordinator.modifierDoubleTapped()
+        XCTAssertTrue(model.expanded)
+        coordinator.modifierDoubleTapped()
+        XCTAssertEqual(sounds.played, [.summon, .summon])
+    }
+
+    func testPausingFERBPlaysPausedAndResumingPlaysNothing() async {
+        _ = NSApplication.shared
+        let model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("SoundFeedbackTests"))
+        let sounds = FakeSoundPlayer()
+        model.feedback.player = sounds
+        let coordinator = PanelCoordinator(model: model)
+        coordinator.magneticFieldPresentationEnabled = false
+        defer { coordinator.tearDown() }
+        coordinator.perform(.pause)
+        await until { model.daemonPaused }
+        XCTAssertEqual(sounds.played, [.paused])
+        coordinator.perform(.resume)
+        await until { !model.daemonPaused }
+        XCTAssertEqual(sounds.played, [.paused])
     }
 
     // MARK: - The banner's file
@@ -206,13 +316,37 @@ final class SoundFeedbackTests: XCTestCase {
         return begin(request, in: model)
     }
 
-    private func notice(_ id: String) -> [String: Any] {
-        ["id": id, "text": "The example loop paused.", "at": "2026-11-01T10:00:00Z"]
+    private func notice(_ id: String, bannered: Bool = false) -> [String: Any] {
+        var row: [String: Any] = ["id": id, "text": "The example loop paused.", "at": "2026-11-01T10:00:00Z"]
+        if bannered { row["banner"] = true }
+        return row
     }
 
-    private func loopBanner(_ notice: String) -> [String: Any] {
+    private func loopBanner(_ notice: String, task: String? = nil) -> [String: Any] {
         ["id": "loop:" + notice, "category": "loop", "title": "FERB loop", "body": "The example loop paused.",
-         "target": ["kind": "task", "task_id": "tree-" + notice], "when_hidden": true]
+         "target": ["kind": "task", "task_id": task ?? "tree-" + notice], "when_hidden": true]
+    }
+
+    private func taskBanner(_ task: String) -> [String: Any] {
+        ["id": "task:" + task, "category": "task_finished", "title": "FERB", "body": "The page didn't load.",
+         "target": ["kind": "task", "task_id": task], "when_hidden": true]
+    }
+
+    private func questionBanner(_ approval: String) -> [String: Any] {
+        ["id": "question:" + approval, "category": "question", "title": "FERB needs you", "body": "Send it?",
+         "target": ["kind": "question", "approval_id": approval], "when_hidden": true]
+    }
+
+    private func makePoster(_ model: NotchModel) -> (NotificationPoster, FakeNotificationCenter) {
+        let center = FakeNotificationCenter()
+        let poster = NotificationPoster(center: center, settle: .zero)
+        poster.sounds = model.feedback
+        poster.configure(notchShowing: { false }, open: { _ in })
+        return (poster, center)
+    }
+
+    private func until(_ condition: () -> Bool) async {
+        for _ in 0..<200 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
     /// Past the notch's wait for a banner.
@@ -220,4 +354,17 @@ final class SoundFeedbackTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(300))
         for _ in 0..<5 { await Task.yield() }
     }
+}
+
+/// Records what the engine would decide for each sound it is asked to play, and plays nothing.
+@MainActor
+private final class DecidingPlayer: FerbSoundPlaying {
+    let engine: FerbSoundEngine
+    var decided: [(FerbSound, SoundDecision?)] = []
+    var outputLatency: TimeInterval = 0
+    init(_ engine: FerbSoundEngine) { self.engine = engine }
+    func play(_ s: FerbSound, at point: CGPoint?) { decided.append((s, engine.decision(for: s))) }
+    func stopAll() {}
+    func keepWarm(_ on: Bool) {}
+    func allows(_ s: FerbSound) -> Bool { engine.allows(s) }
 }

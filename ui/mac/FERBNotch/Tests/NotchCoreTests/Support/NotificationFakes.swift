@@ -11,10 +11,12 @@ final class FakeNotificationCenter: NotificationCenterPosting {
 
     var undecidedState = false
     var answer = true
+    var soundAllowed = true
     private(set) var requests = 0
     func authorized() async -> Bool { allowed }
     func undecided() async -> Bool { undecidedState }
     func request() async -> Bool { requests += 1; undecidedState = false; allowed = answer; return answer }
+    func soundsAllowed() async -> Bool { soundAllowed }
     func post(id: String, title: String, body: String, userInfo: [String: String], thread: String, sound: Bool) {
         posted.append((id, title, body, userInfo, thread))
         sounds.append(sound)

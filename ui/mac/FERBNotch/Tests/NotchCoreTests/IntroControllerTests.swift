@@ -238,10 +238,11 @@ final class IntroControllerTests: XCTestCase {
         await eventually { t.progress.done }
         XCTAssertEqual(t.rig.rpc.methods().filter { $0 == "setup.browsers_pair_all" }.count, 1)
         XCTAssertFalse(t.rig.rpc.methods().contains { $0.hasPrefix("identity.") })
-        // The tour ended: the engine is released, the orb gone, the notch quiet.
+        // The tour ended: the engine is released (a ringing sound may finish: only a skip stops it), the orb gone,
+        // the notch quiet.
         await eventually { finished == 1 }
         XCTAssertEqual(t.sound.warm, [true, false])
-        XCTAssertGreaterThanOrEqual(t.sound.stops, 1)
+        XCTAssertEqual(t.sound.stops, 0)
         XCTAssertEqual(t.orb.tearDowns, 1)
         XCTAssertNil(t.notch.introLine)
         XCTAssertNil(t.progress.resumeBeat)

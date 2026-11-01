@@ -6,7 +6,8 @@ import SwiftUI
 /// it plays through the app's one FerbSoundEngine (`player`, shared with the intro), which applies the system's UI
 /// sounds setting, the master switch, each sound's own switch, Standard/Subtle and the call rule to every sound.
 /// Settings → General binds the switches here. Every notification sounds once: an item shown both as a banner and in
-/// the notch is carried by the banner (NotificationPoster asks `bannerSounds`), keyed on its id.
+/// the notch is carried by the banner (NotificationPoster asks `bannerSounds`), keyed on its id. Needs you, done and
+/// error always play in the app; their banners post silently.
 @MainActor
 final class SoundFeedback: ObservableObject {
     @Published var enabled: Bool {
@@ -23,13 +24,13 @@ final class SoundFeedback: ObservableObject {
     var player: FerbSoundPlaying?
     /// FERB.app holds the daemon's banners (NotificationPoster's subscription is open): a notice may get one.
     var postingBanners = false
-    /// How long a notice waits for its banner before the notch plays it: past the poster's settle (1 s).
+    /// How long a notification the daemon also banners waits for its banner: past the poster's settle (1 s).
     var noticeWait: Duration = .milliseconds(1500)
     private let defaults: UserDefaults
-    /// Which side sounded each recent item (by key): a banner, the notch, or no banner will (declined or silent).
+    /// Which side sounded each recent item (by key): a banner, the app (with which sound), or no banner will.
     private var sounded: [String: (by: Carrier, at: Date)] = [:]
     private var waiting: [String: Task<Void, Never>] = [:]
-    private enum Carrier { case banner, notch, noBanner }
+    private enum Carrier: Equatable { case banner, app(FerbSound), noBanner }
     private static let memory: TimeInterval = 30
 
     init(defaults: UserDefaults = .standard) {
@@ -59,61 +60,83 @@ final class SoundFeedback: ObservableObject {
     /// Settings' Play: the switch's sound, as the engine would play it now (a switch that's off stays silent).
     func preview(_ s: SoundSwitch) { play(s.preview) }
 
-    /// A sound for an item a banner may also show (a task's end, a question): it plays now, and that item's banner then
-    /// posts silently; unless its banner already carried the sound.
-    func play(_ s: FerbSound, for key: String) {
+    /// A sound for an item a banner may also show (a task's end, a question, a handoff): it always plays, once per item
+    /// and sound, and that item's banner then posts silently. Needs you, done and error are never left to a banner.
+    func play(_ s: FerbSound, for keys: [String]) {
         forget()
-        guard sounded[key]?.by != .banner else { return }
-        sounded[key] = (.notch, Date())
+        guard !keys.contains(where: { sounded[$0]?.by == .app(s) }) else { return }
+        for key in keys { sounded[key] = (.app(s), Date()) }
         play(s)
     }
 
-    /// A notification in the notch chat (a notice, a scheduled task's result): one notification sound, carried by its
-    /// banner when it has one. While FERB.app posts banners, the notch waits briefly for the item's banner.
-    func notification(for key: String) {
+    func play(_ s: FerbSound, for key: String) { play(s, for: [key]) }
+
+    /// Notifications in the notch chat (a batch of notices, a scheduled task's result): one notification sound for all
+    /// of `keys`, carried by a banner when one sounded for them. `bannerMayFollow`: the daemon is sending a banner of
+    /// it too (a notice marked `banner`, a task's result while FERB.app posts); only then the notch waits briefly.
+    func notification(for keys: [String], bannerMayFollow: Bool) {
         forget()
-        switch sounded[key]?.by {
-        case .banner?, .notch?: return
-        case .noBanner?: soundInNotch(key)
-        case nil:
-            guard postingBanners else { return soundInNotch(key) }
-            waiting[key]?.cancel()
-            waiting[key] = Task { [weak self, noticeWait] in
-                do { try await Task.sleep(for: noticeWait) } catch { return }
-                guard !Task.isCancelled else { return }
-                self?.soundInNotch(key)
-            }
+        guard !keys.isEmpty, !keys.contains(where: carried) else { return }
+        guard bannerMayFollow, postingBanners, !keys.contains(where: { sounded[$0]?.by == .noBanner }) else {
+            return soundInNotch(keys)
         }
+        let wait = Task { [weak self, noticeWait] in
+            do { try await Task.sleep(for: noticeWait) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.soundInNotch(keys)
+        }
+        for key in keys { waiting[key] = wait }
     }
 
-    /// A banner is being posted: whether it carries FERB's notification sound. Not when the notch already sounded for
-    /// the item, nor when the sound wouldn't play now (switched off, sound off, a call).
+    /// A banner is being posted: whether it carries FERB's notification sound. Not when the app already sounded for the
+    /// item, nor when the sound wouldn't play now (switched off, sound off, a call); then the notch sounds instead.
     func bannerSounds(_ keys: [String]) -> Bool {
         forget()
-        guard !keys.contains(where: { sounded[$0]?.by == .notch }) else { return false }
+        guard !keys.contains(where: { if case .app? = sounded[$0]?.by { return true } else { return false } }) else {
+            return false
+        }
         guard player?.allows(.notification) == true else {
             bannerDeclined(keys)
             return false
         }
         for key in keys {
             sounded[key] = (.banner, Date())
-            waiting.removeValue(forKey: key)?.cancel()
+            if let wait = waiting[key] { drop(wait) }
         }
         return true
     }
 
-    /// A banner that won't sound (not posted while the notch shows its item, or posted silently): the notch sounds.
+    /// A banner that won't sound (not posted while the notch shows its item, posted silently, or macOS's sound for FERB
+    /// is off): the notch sounds instead, at once if it was waiting.
     func bannerDeclined(_ keys: [String]) {
         for key in keys where sounded[key] == nil {
             sounded[key] = (.noBanner, Date())
-            if waiting[key] != nil { soundInNotch(key) }
+            if let wait = waiting[key] { soundInNotch(drop(wait)) }
         }
     }
 
-    private func soundInNotch(_ key: String) {
-        waiting.removeValue(forKey: key)?.cancel()
-        sounded[key] = (.notch, Date())
+    private func carried(_ key: String) -> Bool {
+        switch sounded[key]?.by {
+        case .banner?, .app?: return true
+        case .noBanner?, nil: return false
+        }
+    }
+
+    private func soundInNotch(_ keys: [String]) {
+        for key in keys {
+            if let wait = waiting[key] { drop(wait) }
+            sounded[key] = (.app(.notification), Date())
+        }
         play(.notification)
+    }
+
+    /// Cancels a wait and returns every key it was for.
+    @discardableResult
+    private func drop(_ wait: Task<Void, Never>) -> [String] {
+        wait.cancel()
+        let keys = waiting.filter { $0.value == wait }.map(\.key)
+        for key in keys { waiting[key] = nil }
+        return keys
     }
 
     /// Items older than the race between a banner and its notch twin are forgotten.

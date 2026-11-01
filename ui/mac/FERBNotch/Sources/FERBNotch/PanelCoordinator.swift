@@ -96,7 +96,7 @@ final class TrackingHostingView<Content: View>: NSHostingView<Content> {
 
 @MainActor
 final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preconcurrency QLPreviewPanelDataSource, QLPreviewPanelDelegate {
-    let model = NotchModel()
+    let model: NotchModel
     private let presentation = NotchPresentation()
     private weak var hostingView: TrackingHostingView<NotchView>?
     private let shortcuts = NotchShortcutMonitor()
@@ -181,7 +181,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     let cursor = CursorController()
 
-    override init() {
+    /// `model` is for tests (a scripted daemon); the app uses its own.
+    init(model: NotchModel? = nil) {
+        let model = model ?? NotchModel()
+        self.model = model
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                            backing: .buffered, defer: false)
         yieldController = NotchYieldController(model: model)
@@ -254,15 +257,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         model.onApprovalResolved = { [weak self] id in self?.poster?.withdrawQuestion(id) }
         statusRefresh = model.objectWillChange.sink { [weak self] _ in self?.queueStatusRefresh() }
         registerShortcut()
-        shortcuts.onDoubleTap = { [weak self] in
-            guard let self else { return }
-            if self.summonFromYield() { self.model.feedback.play(.summon) }
-            else {
-                self.model.toggle()
-                if self.model.expanded { self.model.feedback.play(.summon) }
-            }
-            self.introControls.saw(.toggle)
-        }
+        shortcuts.onDoubleTap = { [weak self] in self?.modifierDoubleTapped() }
         shortcuts.onHoldBegan = { [weak self] in
             self?.hoverTask?.cancel()
             self?.model.beginHeldVoice()
@@ -1493,7 +1488,18 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         if status != noErr { NSLog("FERB Notch: shortcut unavailable; use the menu-bar control (%d).", status) }
     }
 
-    private func shortcutPressed() {
+    /// The modifier double-tap: opens or closes the notch; opening it plays summon.
+    func modifierDoubleTapped() {
+        if summonFromYield() { model.feedback.play(.summon) }
+        else {
+            model.toggle()
+            if model.expanded { model.feedback.play(.summon) }
+        }
+        introControls.saw(.toggle)
+    }
+
+    /// The Control-Option-Space hot key: opening FERB plays summon; closing it plays nothing.
+    func shortcutPressed() {
         defer { introControls.saw(.summon) }
         if summonFromYield() { model.feedback.play(.summon); return }
         if model.expanded { model.collapse(keyboard: true); return }

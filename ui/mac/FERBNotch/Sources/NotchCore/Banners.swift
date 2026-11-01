@@ -61,6 +61,8 @@ public enum NotificationTarget: Equatable {
 
 /// One banner from `notifications.subscribe`. The daemon wrote its text from redacted data; FERB.app posts it as is.
 public struct BannerItem: Equatable {
+    /// The kinds of item a banner's id names (`<kind>:<item id>`, the daemon's `ident`).
+    static let itemKinds: Set<String> = ["loop", "task", "question", "reminder", "handoff"]
     public let id: String
     public let category: BannerCategory?
     public let title: String
@@ -80,10 +82,13 @@ public struct BannerItem: Equatable {
     }
 
     /// The item this banner shows, as the notch knows it: the id after its kind (`loop:<notice id>`, `task:<task id>`,
-    /// `question:<approval id>`) and its target's id. A notch sound for one of them is the same notification's.
+    /// `question:<approval id>`, `reminder:`, `handoff:`). A banner with no item kind in its id (a plain alert,
+    /// `banner:<uuid>`) is known by its target's id instead. A notch sound for one of them is the same notification's.
     public var soundKeys: [String] {
+        if let colon = id.firstIndex(of: ":"), Self.itemKinds.contains(String(id[..<colon])) {
+            return [String(id[id.index(after: colon)...])]
+        }
         var keys: [String] = []
-        if let colon = id.firstIndex(of: ":") { keys.append(String(id[id.index(after: colon)...])) }
         switch target {
         case .question(let approvalID, _): keys.append(approvalID)
         case .task(let item), .reminder(let item), .handoff(let item): keys.append(item)

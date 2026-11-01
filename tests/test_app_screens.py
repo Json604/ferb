@@ -279,3 +279,40 @@ def test_a_banner_never_carries_a_secret(daemon) -> None:
         client.interrupt()
         reader.join(2)
         client.close()
+
+
+def test_a_loop_notice_the_app_also_banners_says_so(daemon) -> None:
+    """Task 10: the app plays one sound per notice and waits for a banner only when the daemon sends one (`banner`)."""
+    import threading as _threading
+    import time as _time
+
+    from ferb.cli.client import Client as _Client
+    d = daemon.daemon
+    published: list[dict] = []
+    publish = d._publish
+    d._publish = lambda topic, data: (published.append(data) if topic == "attention.notice" else None,
+                                      publish(topic, data))[1]
+    daemon.run(d._loop_notice("tree-a", "step-a", "The example loop backed off."))
+    assert published and "banner" not in published[-1]               # no FERB.app poster: nothing to wait for
+    client = _Client(daemon.sock)
+
+    def read() -> None:
+        try:
+            for _ in client.stream("notifications.subscribe", {"authorized": True}):
+                pass
+        except Exception:
+            pass
+    reader = _threading.Thread(target=read, daemon=True)
+    reader.start()
+    try:
+        end = _time.monotonic() + 5
+        while not d.posters.connected and _time.monotonic() < end:
+            _time.sleep(0.05)
+        daemon.run(d._loop_notice("tree-b", "step-b", "The example loop paused."))
+        assert published[-1]["banner"] is True
+        daemon.run(d._tell_owner("set-aside-example", [], "A file was set aside.", "ferb", category="alert"))
+        assert "banner" not in published[-1]                          # notices that aren't bannered
+    finally:
+        client.interrupt()
+        reader.join(2)
+        client.close()

@@ -220,10 +220,11 @@ class Notify:
                     data = json.loads(row['data_json'])
                     self.perception.policy.told(data.get('bundle_id', ''), data.get('conversation', ''),
                                                ref.removeprefix('trail:'), view['text'])
-        self._publish('attention.notice', view)
+        # L34 D: FERB.app shows notices in the notch; a loop's pause or back-off is also a banner while the notch
+        # isn't showing it. The published notice says so (`banner`), so the app's one sound waits for that banner.
+        bannered = self.posters.connected and category == "loop" and banners.enabled(self.config.get, category)
+        self._publish('attention.notice', {**view, 'banner': True} if bannered else view)
         if self.posters.connected:
-            # L34 D: FERB.app shows notices in the notch; a loop's pause or back-off is also a banner while the notch
-            # isn't showing it
             if category == "loop":
                 await self._notify("FERB loop", view['text'], category="loop",
                                    target={"kind": "task", "task_id": task_id}, when_hidden=True,

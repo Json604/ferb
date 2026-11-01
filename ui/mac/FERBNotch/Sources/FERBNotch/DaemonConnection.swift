@@ -575,8 +575,12 @@ extension NotchModel {
                     verified: event["verified"] as? Bool ?? false, at: LiveProgress.time(event["at"]) ?? Date())
             }
             knownCompletedTasks.insert(taskID)
-            // A task this chat didn't start (a schedule's run, one from before a restart) is a notification.
-            if announce && fresh && status != "cancelled" { feedback.notification(for: taskID) }
+            // A task this chat didn't start (a schedule's run, one from before a restart): done is a notification; a
+            // failure or a wait on the owner sounds as itself (its banner then posts silently).
+            if announce && fresh, let sound = SoundPolicy.outcomeSound(status) {
+                if sound == .done { feedback.notification(for: [taskID], bannerMayFollow: true) }
+                else { feedback.play(sound, for: taskID) }
+            }
             if announce && fresh && Self.opensNotch(status) { presentTerminalAnswer() }
             runningTasks.removeValue(forKey: taskID)
             taskActivities.removeValue(forKey: taskID)
@@ -597,7 +601,7 @@ extension NotchModel {
     /// Notices go into the chat (L9) and are saved before they are acknowledged, so a shown notice is never lost. Every
     /// delivered id is acknowledged, including one shown earlier whose acknowledgement didn't arrive.
     func receiveNotices(_ rows: [[String: Any]]) {
-        var ids: [String] = [], added = false
+        var ids: [String] = [], added: [String] = [], bannered = false
         for row in rows {
             guard let id = row["id"] as? String, !id.isEmpty else { continue }
             // A notice with nothing to say is still acknowledged, so it isn't delivered again on every read.
@@ -608,13 +612,15 @@ extension NotchModel {
             }
             if conversation.addNotice(id: id, text: text, quotes: quotes, noticedAt: LiveProgress.time(row["at"]),
                                       cards: ResultCard.list(row["cards"])) {
-                added = true
-                feedback.notification(for: id)        // once: its banner carries it when it has one
+                added.append(id)
+                bannered = bannered || row["banner"] as? Bool == true    // the daemon banners it too
             }
             ids.append(id)
         }
         guard !ids.isEmpty else { return }
-        if added {
+        // One notification sound for the batch (a restart's backlog is one sound), carried by a banner when it has one.
+        feedback.notification(for: added, bannerMayFollow: bannered)
+        if !added.isEmpty {
             saveConversation()
             onBackgroundChange?(true)
         }
