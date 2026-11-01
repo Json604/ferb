@@ -359,6 +359,7 @@ def test_a_value_sealed_after_the_build_is_hidden_at_send_and_in_the_kept_file(d
     assert sent == Path(built["path"]).read_text()                             # what is kept is what was sent
 
 
+# decision: DMN-8
 def test_a_diagnostic_file_is_sent_the_same_way(daemon: RunningDaemon, relay: Relay) -> None:
     async def health(session: Any, params: dict[str, Any]) -> dict[str, Any]:
         return {"note": f"fine {SEALED}"}

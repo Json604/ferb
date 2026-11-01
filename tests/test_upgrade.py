@@ -254,6 +254,7 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     assert drops == {"owner_questions": 0, "notification_rules": 1, "learning_receipts": 0, "learning_jobs": 0}
 
 
+# decision: STORE-403, TEST-505
 def test_the_memory_upgrade_on_an_older_store_runs_once(home: Path) -> None:
     """Tier 1 seeded once from the facts an older store holds; a second start changes nothing (the embeddings are
     filled in the background once the model is there: tests/test_memory_search.py)."""

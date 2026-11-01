@@ -637,6 +637,7 @@ def test_source_codex_install_replaces_a_link_into_ferb_app(tmp_path: Path, inst
     assert (app / "Contents" / "Resources" / "node" / CODEX_BIN).read_bytes().startswith(b"fake")   # untouched
 
 
+# decision: DMN-16
 def test_a_checkout_update_after_an_old_app_install_moves_launchd_back_to_the_checkout(tmp_path: Path) -> None:
     import plistlib
     app_inst = bundled(tmp_path)

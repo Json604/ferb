@@ -195,6 +195,7 @@ def _spans_with_prefix(daemon: RunningDaemon, prefix: str) -> int:
     return _q(daemon, "SELECT count(*) FROM spans WHERE id LIKE ?", prefix + "%")
 
 
+# decision: STORE-400
 def test_a_large_nested_tree_is_purged_completely(daemon: RunningDaemon) -> None:
     root = _say_hi(daemon)
     _age(daemon, root, 31)
@@ -211,6 +212,7 @@ def test_a_large_nested_tree_is_purged_completely(daemon: RunningDaemon) -> None
     assert _spans_with_prefix(daemon, "z-") == 0 and _spans_with_prefix(daemon, "a-c") == 0
 
 
+# decision: STORE-400
 def test_many_old_loose_spans_with_children_are_purged(daemon: RunningDaemon) -> None:
     for i in range(300):
         _insert_span(daemon, f"z-p{i:03d}", None, None, None, _old())

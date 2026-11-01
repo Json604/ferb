@@ -202,6 +202,7 @@ def test_plain_setup_asks_for_no_permission_and_never_records_setup_done(world: 
     assert Config(world["home"]).get("setup", "permissions_version", 0) == 0
 
 
+# decision: DMN-21
 def test_doctor_reports_and_fails_on_missing_required_permission(world: dict[str, Any]) -> None:
     world["inst"].install()
     env, out = make_env(world, [])
@@ -249,6 +250,7 @@ def test_uninstall_purge_needs_typed_confirmation(world: dict[str, Any]) -> None
     assert "remove" in out.getvalue() and "Accessibility" in out.getvalue()
 
 
+# decision: DMN-21
 def test_update_reports_missing_permissions_without_opening_settings_or_prompting(world):
     world['inst'].install()
     env, out = make_env(world, [])  # any request for owner input would fail this test
