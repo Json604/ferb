@@ -48,6 +48,14 @@ def test_screen_recording_trusts_the_api_when_no_other_window_exists(monkeypatch
     assert P.screen_recording() is P.Status.DENIED
 
 
+def test_screen_recording_ignores_menu_bar_extras(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(P.Quartz, "CGPreflightScreenCaptureAccess", lambda: True)
+    monkeypatch.setattr(P.Quartz, "CGWindowListCopyWindowInfo", lambda *a: [
+        {"kCGWindowOwnerPID": 7, "kCGWindowLayer": 25}, {"kCGWindowOwnerPID": 8, "kCGWindowLayer": 25}])
+    assert P._other_app_window_title_readable() is None
+    assert P.screen_recording() is P.Status.GRANTED
+
+
 def test_accessibility_trusts_the_api_when_the_ax_read_is_inconclusive(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(P, "_ax_trusted", lambda prompt: True)
     assert P.confirmed("accessibility", probe=lambda name: None) is True

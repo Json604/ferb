@@ -54,7 +54,8 @@ def _other_app_window_title_readable() -> bool | None:
     me = os.getpid()
     seen = False
     for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID) or []:
-        if w.get("kCGWindowOwnerPID") == me or w.get("kCGWindowOwnerName") in ("Dock", "WindowServer"):
+        if (w.get("kCGWindowOwnerPID") == me or w.get("kCGWindowOwnerName") in ("Dock", "WindowServer")
+                or w.get("kCGWindowLayer", 0) != 0):               # only normal app windows (status items sit higher)
             continue
         if w.get("kCGWindowName"):
             return True
