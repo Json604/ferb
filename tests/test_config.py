@@ -69,7 +69,7 @@ def test_missing_config_is_empty_and_first_write_creates_it_0600(tmp_path: Path)
 
 
 def test_fresh_defaults_are_the_owners_limits_with_no_time_based_download_clearing(home: Path) -> None:
-    """Hands decision 7 (2026-10-31): no per-file cap, 300 files and 32 GB per task; decimal GB throughout."""
+    """HAND-210 (2026-10-31): no per-file cap, 300 files and 32 GB per task; decimal GB throughout."""
     c = Config(home)
     c.ensure_privacy_defaults()
     keys = ("download_task_max_files", "download_task_max_gb", "download_total_gb", "download_min_free_gb",

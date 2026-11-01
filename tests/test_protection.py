@@ -192,7 +192,7 @@ def test_entries_for_the_profile_builder(tmp_path: Path) -> None:
 
 
 def test_fs_tools_follow_the_never_read_and_never_write_lists(tmp_path: Path) -> None:
-    """Gateway decision 2 (2026-10-30): FERB's file tools follow both lists like the shell: a never-read store is closed
+    """GATE-203 (2026-10-30): FERB's file tools follow both lists like the shell: a never-read store is closed
     to their reads, writes and removals, a never-write place to their writes and removals (the gateway asks the owner
     to lift either). FERB's own state is never opened, and the old fs_reads_never_read switch is gone."""
     home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
@@ -234,7 +234,7 @@ def test_ferbs_own_service_definition_is_never_changed_or_lifted(tmp_path: Path)
 
 
 def test_the_service_definition_inside_ferb_app_is_never_changed_or_lifted(tmp_path: Path) -> None:
-    """Rule 10, notes/daemon.md decision 2: the background service's definition FERB.app registers with macOS
+    """Rule 10, DMN-2: the background service's definition FERB.app registers with macOS
     (Contents/Library/LaunchAgents/com.ferb.daemon.plist) is refused to FERB's file tools as FERB's own service, not
     only as part of the app; reading it stays open, no lift reopens it, and the shell profile denies writing it."""
     from ferb.act.shell.sandbox import Sandbox
@@ -535,7 +535,7 @@ def test_fs_tools_check_what_they_really_opened(tmp_path: Path) -> None:
 
 def test_a_never_read_store_asks_once_per_task_for_reads_and_per_call_for_changes(daemon: RunningDaemon,
                                                                                  tmp_path: Path) -> None:
-    """Gateway decision 2, hands decision 1: a file tool's read of a protected folder asks the owner once for the task
+    """GATE-203, GATE-200: a file tool's read of a protected folder asks the owner once for the task
     (every later read of that folder runs); a change asks every time; a No refuses with nothing read or written."""
     fake = tmp_path / "fakehome"
     (fake / ".aws").mkdir(parents=True)
@@ -601,7 +601,7 @@ def test_config_gets_the_protection_defaults_once(daemon: RunningDaemon) -> None
     assert cfg.get("protection", "never_read") == list(DEFAULT_NEVER_READ)
     assert cfg.get("protection", "never_write") == list(DEFAULT_NEVER_WRITE)
     assert cfg.get("protection", "terminal_apps") == list(DEFAULT_TERMINAL_APPS)
-    assert cfg.get("protection", "fs_reads_never_read") is None                  # the switch is gone (decision 2)
+    assert cfg.get("protection", "fs_reads_never_read") is None                  # the switch is gone (GATE-203)
     cfg.set("protection", "never_read", ["~/mine"])
     cfg.set("protection", "fs_reads_never_read", True)                          # an old config keeps it, harmlessly
     cfg.ensure_privacy_defaults()
@@ -1290,7 +1290,7 @@ def test_a_script_naming_ferbs_own_files_is_refused_and_a_listed_place_asks(daem
 
 def test_every_browsers_credential_store_is_never_read(tmp_path: Path) -> None:
     """Review 2026-11-01: the list missed Safari's container (its cookies), Chrome Beta/Canary, Opera and more. It is
-    built from the one browser list now, so each browser on it is closed (gateway decision 2)."""
+    built from the one browser list now, so each browser on it is closed (GATE-203)."""
     from ferb.act.browser.profiles import BROWSERS
     from ferb.act.mac import browsers
     fake = tmp_path / "fakehome"

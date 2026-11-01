@@ -77,7 +77,7 @@ def test_memory_reads_this_process() -> None:
 
 def test_a_scripted_retry_that_goes_off_its_path_ends_the_task(daemon: RunningDaemon, unattended: None) -> None:
     """A script whose one choice says "retry" for a worker that keeps failing ran forever (2026-10-25, test_supervisor:
-    a 1.7 GB test database). The check-in now bounds it (owner decision 7): a run nobody attends stops after
+    a 1.7 GB test database). The check-in now bounds it (ORCH-307): a run nobody attends stops after
     CHECK_IN_AFTER failed attempts and reports; an attended one asks (tests/test_execution_runs.py). The scripted
     choice's own cap (SCRIPTED_DISPATCH_REPEATS) still ends a script that answers the check-in forever."""
     from ferb.orchestrator.attempts import CHECK_IN_AFTER

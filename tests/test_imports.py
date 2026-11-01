@@ -1,4 +1,4 @@
-"""Every FERB module imports (notes/tests.md target design 3): a module that only runs on some path (a setup step, a
+"""Every FERB module imports (kb area tests): a module that only runs on some path (a setup step, a
 rarely used tool, an adapter the owner hasn't picked) still fails here, not in the owner's hands. Entry points
 (`__main__`) are skipped: importing one runs it. A fresh interpreter with a temporary FERB home, so nothing an import
 does reaches the owner's ~/.ferb."""

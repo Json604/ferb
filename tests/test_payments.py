@@ -1,4 +1,4 @@
-"""One payment, one question (gateway decision 4, owner 2026-10-30): a payment in a task's browser tab asks once, with
+"""One payment, one question (GATE-204, owner 2026-10-30): a payment in a task's browser tab asks once, with
 the amount and merchant code read on the page (never the worker's number); the Yes covers that tab and what it opens
 (card choice, the bank page) until the payment completes or 10 minutes pass; another tab or task asks again; a bank
 page showing another amount or merchant stops and asks again, showing both; an OTP question repeats the bank page's

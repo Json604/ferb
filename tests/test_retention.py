@@ -406,7 +406,7 @@ def test_the_retention_loop_goes_on_when_even_its_failure_cant_be_journaled(tmp_
     assert "hunter2" not in err
 
 
-# ---------- step 12a: operational records (decision 3), activity rows, one place ----------
+# ---------- step 12a: operational records (STORE-401), activity rows, one place ----------
 
 def _task(daemon: RunningDaemon, ident: str, status: str, days_ago: int) -> None:
     at = (daemon.daemon.clock.now() - timedelta(days=days_ago)).isoformat()
@@ -434,7 +434,7 @@ def _count(daemon: RunningDaemon, table: str, where: str = "1", *params: Any) ->
 
 
 def test_operational_records_go_90_days_after_their_task_ends_with_what_depends_on_them(daemon: RunningDaemon) -> None:
-    """Decision 3: the ledger, confirmations, plans and their steps, loop state, delivered or cancelled timers and their
+    """STORE-401: the ledger, confirmations, plans and their steps, loop state, delivered or cancelled timers and their
     deliveries, and operational journal rows go 90 days after their task or timer ended, never before, never while the
     task runs; chat and owner rows, results, and a row a memory fact cites stay."""
     _task(daemon, "old", "done", 91)
@@ -478,7 +478,7 @@ def _rows_of(daemon: RunningDaemon, sql: str) -> list[Any]:
 
 
 def test_old_activity_rows_go_with_the_perception_receipts_that_point_at_them(daemon: RunningDaemon) -> None:
-    """Accessibility rows after 7 days, others after 30 once their day is summarized (memory decision 3, D21), in
+    """Accessibility rows after 7 days, others after 30 once their day is summarized (SENSE-1, D21), in
     short batches; a Jev perception receipt of a deleted row goes with it (68 pointed at purged rows before)."""
     now = daemon.daemon.clock.now()
     for ident, source, days in (("a-old", "accessibility", 8), ("a-new", "accessibility", 2),

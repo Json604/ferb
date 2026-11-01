@@ -160,7 +160,7 @@ def test_a_payment_on_the_campaign_site_always_asks(daemon: RunningDaemon) -> No
     assert result["is_error"] and browser.clicks() == []
     question = ferb_questions(daemon)[0]
     assert [c["rule"] for c in question["confirm"]] == ["floor:pay"]
-    # decision 4: the worker's declared amount is never shown; the page showed none code could read
+    # GATE-204: the worker's declared amount is never shown; the page showed none code could read
     assert question["question"].startswith("FERB: this pays an amount FERB couldn't read on x.com from @samxyz.")
 
 

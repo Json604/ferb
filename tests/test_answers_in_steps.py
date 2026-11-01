@@ -1,4 +1,4 @@
-"""Step 8d end-to-end runs (orchestration decisions 19 and 20, the owner-approved mock demo/answers-in-steps): the real
+"""Step 8d end-to-end runs (ORCH-319 and 20, the owner-approved mock demo/answers-in-steps): the real
 daemon, gateway and scripted model. One ask is unchanged; several asks post each part once, in its own row, when its
 answer step is checked, in any order; a direct part is answered in the first reply; a part's question pauses only its
 row; a failed part says so and the count is honest; a later step updates a posted row; a restart posts nothing twice;
@@ -105,7 +105,7 @@ def test_one_ask_is_unchanged_plan_line_one_answer_no_card(daemon: RunningDaemon
 
 
 def test_a_one_ask_plan_answers_with_its_last_step_and_no_summarizing_call(daemon: RunningDaemon) -> None:
-    """Decision 19: no code-added final worker; a one-ask plan's last step is checked against the task's success
+    """ORCH-319: no code-added final worker; a one-ask plan's last step is checked against the task's success
     conditions and its checked answer is the answer."""
     spec = task("Find the cheapest flight", conds=(cond("The cheapest flight is named"),))
     spec["plan"] = Plan(steps=[Step(id="search", kind="do", goal="Search the flights"),
@@ -320,7 +320,7 @@ def test_a_restart_mid_task_posts_nothing_twice(home: Any, monkeypatch: Any) -> 
 
 
 def test_parts_are_checked_and_told_back_for_repair(daemon: RunningDaemon) -> None:
-    """Code validates the planner's parts (decision 19): a summing-up step, a condition in no part, a quote that isn't
+    """Code validates the planner's parts (ORCH-319): a summing-up step, a condition in no part, a quote that isn't
     the owner's words are told back; the repaired plan runs."""
     bad = _spec("Permit news and Trump's term", ["Permit news is reported", "The end of Trump's term is given"],
                 [_part("p1", "any news about the work permit", "Permit", step="permit", conds=(0,)),
@@ -338,7 +338,7 @@ def test_parts_are_checked_and_told_back_for_repair(daemon: RunningDaemon) -> No
 
 
 def test_a_plan_saved_before_parts_resumes_and_answers_from_its_last_steps(daemon: RunningDaemon) -> None:
-    """Upgrade (notes/storage.md decision 5): a plan saved before step 8d ends in two steps (made for the removed final
+    """Upgrade (STORE-403): a plan saved before step 8d ends in two steps (made for the removed final
     worker). Resumed after the update with both finished, it answers with their saved answers, its success conditions
     unconfirmed (nothing checks them now), and makes no model call."""
     from ferb.orchestrator.schemas import TaskSpec

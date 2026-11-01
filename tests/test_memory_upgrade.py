@@ -1,5 +1,5 @@
-"""Upgrade (notes/storage.md decision 5) and the one-time memory clean-up before the core profile is first built
-(notes/memory.md fix list), on a database at schema 52 shaped like the owner's live store (read 2026-10-31): four
+"""Upgrade (STORE-403) and the one-time memory clean-up before the core profile is first built
+(kb area memory), on a database at schema 52 shaped like the owner's live store (read 2026-10-31): four
 duplicate same-key pairs (the owner's words and FERB's copy, both current), the old setup step's app-use dump stored as
 the owner's words, an unnormalized project subject, a guess still waiting for its Keep with its question, identity
 nodes of the old Layer 1. The first start of this build cleans it, journals it once and seeds Tier 1; a second start

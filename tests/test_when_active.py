@@ -1,4 +1,4 @@
-"""Orchestration decision 17 ("when you're back at your Mac", clarified by the owner 2026-10-31): a reminder or schedule
+"""Orchestration ORCH-317 ("when you're back at your Mac", clarified by the owner 2026-10-31): a reminder or schedule
 the planner marks when_active fires while the Mac is in use and, held while it's out of use (asleep, displays asleep,
 locked, switched away), when it comes back (wake, unlock, login, restart); never on input idleness, and never polls; a
 scheduled run that found nothing to tell posts nothing. The real daemon with the scripted model; the Mac's presence is
@@ -161,7 +161,7 @@ def test_a_scheduled_run_that_found_nothing_to_tell_posts_nothing(daemon: Runnin
 
 
 def test_a_scheduled_run_that_acted_posts_whatever_its_worker_said(daemon: RunningDaemon) -> None:
-    """Decision 17 ("a run that did nothing posts nothing") rests on facts, not only the worker's word: a run whose tree
+    """ORCH-317 ("a run that did nothing posts nothing") rests on facts, not only the worker's word: a run whose tree
     has an acting call that ran (here a form submitted) posts even when its worker reported nothing_to_tell."""
     from ferb.policy.rules import Kind
     submit = FakeCap("probe.submit", Kind.SUBMIT, {"probe"})

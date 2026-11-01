@@ -1,4 +1,4 @@
-"""A secret pasted into the chat (setup intro task 11, notes/gateway.md): the message is masked before any model sees
+"""A secret pasted into the chat (setup intro task 11, kb area gateway): the message is masked before any model sees
 it (as before), and FERB now says so. The ack names each kind found (`hidden`), the journal records the kinds
 (`chat.secret_hidden`), and the planner gets one fact line, so it never asks for the value again. Names only, never a
 value (rule 7); the kinds are formats, never a judgement of intent (rule 4). The tokens are invented."""

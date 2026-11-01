@@ -1,4 +1,4 @@
-"""Tier 1, the core profile (notes/memory.md target design 1, decisions 7, 9, 15): always on in every role's prompt,
+"""Tier 1, the core profile (kb area memory, MEM-5, MEM-7, MEM-12): always on in every role's prompt,
 within a hard budget, rendered by code from the facts (the owner's words word for word, each with its label and id),
 updated by code the moment a fact in it changes, and compacted by a weekly model pass that chooses from facts that
 hold up and names facts whose time has passed.
@@ -96,8 +96,8 @@ def test_a_preference_the_owner_states_joins_at_once_and_understanding_waits_to_
 
 
 def test_the_owners_words_about_anything_join_at_once_unless_placed_by_search(daemon: Any) -> None:
-    """Decision 18: the owner's own words join at once, whatever they are about (a project, a person); a fact the owner
-    placed by search (prompts decision 4's M7/M8, journaled by the seed) never does; FERB's understanding about someone
+    """MEM-15: the owner's own words join at once, whatever they are about (a project, a person); a fact the owner
+    placed by search (PRM-301's M7/M8, journaled by the seed) never does; FERB's understanding about someone
     else doesn't join at once."""
     from ferb.memory.profile import SEARCH_ONLY_KIND
     d = daemon.daemon
@@ -124,7 +124,7 @@ def test_forget_and_retire_take_an_entry_out_at_once(daemon: Any) -> None:
 
 
 def test_the_weekly_pass_groups_what_holds_up_and_retires_what_is_over(daemon: Any) -> None:
-    """Decision 9: a model chooses and groups; code checks every id (one that doesn't hold up is refused), renders
+    """MEM-7: a model chooses and groups; code checks every id (one that doesn't hold up is refused), renders
     from the facts, retires what the pass found over and tells the owner once."""
     d = daemon.daemon
     tone = owner_fact(daemon, "tone", "write formally to professors", kind="preference")
@@ -143,7 +143,7 @@ def test_the_weekly_pass_groups_what_holds_up_and_retires_what_is_over(daemon: A
     view = run(daemon, d.profile.view)
     assert [s["title"] for s in view["sections"]] == ["How you like things done"]
     assert [i["id"] for i in view["sections"][0]["items"]] == [tone.id]
-    assert run(daemon, lambda: d.memory.get(exam.id)).set_aside      # decision 17: the owner's words set aside
+    assert run(daemon, lambda: d.memory.get(exam.id)).set_aside      # MEM-14: the owner's words set aside
     told = [e.data["text"] for e in run(daemon, lambda: d._journal().of_kind("chat.notice"))]
     assert len(told) == 1 and "DevOps capstone" in told[0]
     assert tone.id in str(rt.contexts[0]) and "write formally to professors" in str(rt.contexts[0])
@@ -174,5 +174,5 @@ def test_an_entry_shows_the_owners_words_their_label_and_its_id() -> None:
     item = MemoryItem("m1", "preference", "owner", "rating", "ok. score this 1 star - not ordering this again", [],
                       now, now, None, None, 1.0, "owner_stated", "active", about="Rate the Simplee order on Orderly")
     line = entry_line(item)
-    assert "ok. score this 1 star - not ordering this again" in line           # word for word (decision 13)
+    assert "ok. score this 1 star - not ordering this again" in line           # word for word (MEM-10)
     assert "your words" in line and "Rate the Simplee order on Orderly" in line and "m1" in line

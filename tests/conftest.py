@@ -451,7 +451,7 @@ def verdict(*met: bool | None, next: str = "accept", edits: tuple[tuple[str, str
                        "question": question, "reason": reason})
 
 
-# The scripted model (tests decision 1). Every model call FERB makes is keyed by its task id after the tree id: the
+# The scripted model (TEST-500). Every model call FERB makes is keyed by its task id after the tree id: the
 # planner is "supervisor"; a task's worker "worker" (a single task is a one-step plan whose step runs as "<tree>.worker");
 # a plan step's "step.<id>", a loop's rounds "loop.<id>", a delegated conversation's turns "conversation.<id>.<n>"; and
 # the roles around an attempt add a suffix. ROLES maps each suffix to the role it plays, and DEFAULT_ANSWERS gives each
@@ -559,8 +559,8 @@ class Script:
     def legacy_next(self, key: str, peek: bool = False) -> dict[str, Any] | None:
         """The checker's next step from a `.dispatch` script written before step 8b merged the next-attempt choice into
         the checker (retry -> retry, ask -> ask, finish with result unconfirmed -> accept_unconfirmed, any other finish
-        -> fail; recheck has no successor and fails); None when the test scripted none for this attempt loop. Tests
-        decision 1 deletes these tests with the old harness; new tests script the checker's `next` themselves."""
+        -> fail; recheck has no successor and fails); None when the test scripted none for this attempt loop. Tests (TEST-500)
+        deletes these tests with the old harness; new tests script the checker's `next` themselves."""
         legacy = key.removesuffix(".verify") + ".dispatch"
         scripted = self.workers.get(legacy)
         if scripted is None or (isinstance(scripted, list) and not scripted):

@@ -11,7 +11,7 @@ What happens:
   (browser.media), and you hear the sentence for a few seconds (owner accepted, L26). FERB listens with audio.listen,
   then mutes the Mac's output and listens again (your mute setting is restored afterwards), then records the tab
   with sound;
-- before each supervised action the test pauses (CLAUDE.md rule 17): press Enter to let it run, then type what you
+- before each supervised action the test pauses (AGENTS.md rule 17): press Enter to let it run, then type what you
   saw or heard (cursor, focus, Space, sound), or just Enter for nothing. Each answer is recorded with its step, so a
   disturbance is tied to one action;
 - results and transcripts go to result.json in a temporary folder that the test prints. Your verdict is separate

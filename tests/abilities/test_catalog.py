@@ -49,7 +49,7 @@ def test_fresh_daemon_exposes_metadata_to_the_worker_and_reads_on_demand(daemon)
     for role in ('supervisor', 'worker'):
         request = next(request for _, key, request in script.requests if key == role)
         context = request.system + request.context
-        # only roles with tools are told about lookup tools (notes/prompts.md; the planner has none, memory decision 10)
+        # only roles with tools are told about lookup tools (kb area prompts; the planner has none, ORCH-1)
         assert (DEFINITION.description in context) == (role == 'worker')
         assert body not in context
     assert 'abilities.run' not in daemon.daemon.registry.capabilities

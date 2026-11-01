@@ -1,6 +1,6 @@
-"""Step 6b: one authorization pipeline where every reason to ask is a Need produced from facts (notes/gateway.md target
-1). Facts before declarations (decision 1): a submitted form's fields and its site, a tool's reported deletes raise
-the question; the worker's `effect` only adds. Known destinations (decision 5). Card details only sealed (decision 6).
+"""Step 6b: one authorization pipeline where every reason to ask is a Need produced from facts (kb area gateway target
+1). Facts before declarations (GATE-202): a submitted form's fields and its site, a tool's reported deletes raise
+the question; the worker's `effect` only adds. Known destinations (GATE-205). Card details only sealed (GATE-206).
 P19: a tool that fails before acting is failed, not unknown; the call's span always ends. The conversation guard's
 refusal no longer spends the owner's Yes; a window's Yes makes destinations known; run tokens end with their tree."""
 import json
@@ -15,7 +15,7 @@ from tests.conftest import Answers, FakeCap, RunningDaemon, gateway_request, gat
 
 
 class _Form(FakeCap):
-    """A click that submits a form, as the extension reports it (decision 1): the form's site and its field kinds."""
+    """A click that submits a form, as the extension reports it (GATE-202): the form's site and its field kinds."""
     generic_input = True
 
     class Input(BaseModel):
@@ -37,7 +37,7 @@ class _Form(FakeCap):
 
 
 class _Deletes(FakeCap):
-    """A tool that reports removing a path outside the Trash (decision 1: S1 can't bring it back)."""
+    """A tool that reports removing a path outside the Trash (GATE-202: S1 can't bring it back)."""
 
     class Input(BaseModel):
         path: str
@@ -72,7 +72,7 @@ def _readers() -> list[FakeCap]:
             FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/p"),), content={"t": "hi"})]
 
 
-# ---------- facts raise the questions (decision 1) ----------
+# ---------- facts raise the questions (GATE-202) ----------
 
 def test_a_password_change_form_is_an_account_security_change_and_a_sign_up_is_not(daemon: RunningDaemon) -> None:
     """Coordinator ruling (step 6b): a current-password field with a new-password field changes an existing
@@ -145,7 +145,7 @@ def test_a_form_submit_asks_only_when_it_carries_the_owners_private_data(daemon:
 
 def test_a_private_submit_to_a_site_only_mentioned_earlier_still_asks_but_an_approved_one_doesnt(
         daemon: RunningDaemon) -> None:
-    """Decision 5: a site mentioned in an earlier request is known for normal use, not for the sink rule; one the
+    """GATE-205: a site mentioned in an earlier request is known for normal use, not for the sink rule; one the
     owner approved stays known for good."""
     form = _Form()
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("read my file and the page"),
@@ -204,7 +204,7 @@ def test_a_private_submit_to_the_site_the_owner_named_runs(daemon: RunningDaemon
     assert _asked(daemon) == []
 
 
-# ---------- card details only sealed (decision 6) ----------
+# ---------- card details only sealed (GATE-206) ----------
 
 def test_card_details_are_never_typed(daemon: RunningDaemon) -> None:
     form = _Form()

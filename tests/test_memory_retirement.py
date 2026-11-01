@@ -1,4 +1,4 @@
-"""L36 §6 and decision 15: out-of-date facts retire. A dated fact leaves search after its day, a later statement replaces
+"""L36 §6 and MEM-12: out-of-date facts retire. A dated fact leaves search after its day, a later statement replaces
 an earlier one (and FERB's line names it), and distillation retires a stale item itself and tells the owner once (with
 their words when it has them); words older than the item never retire it. Nothing is asked.
 
@@ -75,7 +75,7 @@ def chain(d: Any) -> None:
 
 def recalled(d: Any, words: str) -> list[str]:
     """What a planner turn is given for `words`: its retrieved memory, and the core profile (the owner's own words
-    about themselves join it at once, decision 18, and then take no retrieved slot)."""
+    about themselves join it at once, MEM-15, and then take no retrieved slot)."""
     return [c["text"] for c in d.run(d.daemon._learning_candidates(words))] + \
         str(run(d, d.daemon._core_profile_text)).splitlines()
 
@@ -225,7 +225,7 @@ def test_a_retire_without_asking_is_told_once(daemon: Any) -> None:
 ], ids=["one-word", "pasted", "not-typed", "unrelated-clause"])
 def test_a_retire_whose_quote_is_not_the_owners_words_about_the_item_is_ferbs_own_check(
         daemon: Any, message: str, pasted: int, quote: str, content: str, why: str) -> None:
-    """Review fix round 1, decision 15: a retire rests on the owner's words only on a whole clause they typed (never the
+    """Review fix round 1, MEM-12: a retire rests on the owner's words only on a whole clause they typed (never the
     pasted part) sharing a telling word with the item. Otherwise it is FERB's own check of the day: the item is retired
     and told once as FERB's, never as the owner's words, and nothing is asked."""
     chain(daemon)
@@ -233,7 +233,7 @@ def test_a_retire_whose_quote_is_not_the_owners_words_about_the_item_is_ferbs_ow
     later(daemon)
     r = orbit_over(daemon, message, pasted, quote, content)
     item = run(daemon, lambda: daemon.daemon.memory.get(orbit.id))
-    assert item.valid_to is None and item.set_aside                  # decision 17: the owner's words are set aside
+    assert item.valid_to is None and item.set_aside                  # MEM-14: the owner's words are set aside
     assert run(daemon, lambda: daemon.daemon.state.approvals.pending()) == []
     assert (r["retired"], r["retired_as_check"]) == ([orbit.id], [{"item": orbit.id, "why": why,
                                                                   "outcome": "set_aside"}])
@@ -295,7 +295,7 @@ def test_older_words_never_replace_a_newer_version(daemon: Any) -> None:
 
 
 def test_a_stale_item_without_the_owners_words_is_retired_and_told_once(daemon: Any) -> None:
-    """Decision 15 (replaces the Retire / Keep question): FERB retires a fact the day shows is over and tells the owner
+    """MEM-12 (replaces the Retire / Keep question): FERB retires a fact the day shows is over and tells the owner
     once; saying it still holds is how they correct it."""
     chain(daemon)
     orbit = owner_fact(daemon, "orbit", "I'm in the ORBIT shapes competition")
@@ -303,7 +303,7 @@ def test_a_stale_item_without_the_owners_words_is_retired_and_told_once(daemon: 
     handle = c_handle(daemon, said(daemon, "contest results came out today"))
     distill_day(daemon, distill_item(handle, "The ORBIT competition is over", kind="fact", key="orbit", retire=True))
     item = run(daemon, lambda: daemon.daemon.memory.get(orbit.id))
-    assert item.set_aside and item.valid_to is None          # decision 17: the owner's words set aside, kept
+    assert item.set_aside and item.valid_to is None          # MEM-14: the owner's words set aside, kept
     assert run(daemon, lambda: daemon.daemon.state.approvals.pending()) == []
     [told] = notices(daemon)
     assert "ORBIT shapes competition" in told

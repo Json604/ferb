@@ -1,5 +1,5 @@
 """Memory review I2: the chat can forget. A forget asked in chat waits for a plain Yes or No to a question that names
-exactly what goes and what stays, like `ferb memory forget`. The forget itself is simple (notes/memory.md decision 2):
+exactly what goes and what stays, like `ferb memory forget`. The forget itself is simple (MEM-2):
 the owner's chat message stays and FERB's past answers and traces are not scrubbed."""
 import json
 from typing import Any
@@ -112,7 +112,7 @@ def _everywhere(d: RunningDaemon, word: str) -> list[tuple[str, str]]:
 
 
 def _paraphrased(d: RunningDaemon, content: str = "Owner's boss is Quentarr Vexley") -> Any:
-    """FERB's wording of what the owner said, saved as its understanding (decision 15)."""
+    """FERB's wording of what the owner said, saved as its understanding (MEM-12)."""
     from ferb.orchestrator.schemas import Remember
     dd = d.daemon
     said = "my manager is Quentarr"

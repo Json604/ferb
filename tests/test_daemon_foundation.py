@@ -1,4 +1,4 @@
-"""Daemon step 2 (notes/daemon.md): composition with typed ports, one events object that redacts once, the loop's
+"""Daemon step 2 (kb area daemon): composition with typed ports, one events object that redacts once, the loop's
 exception handler, background work kept and reported, read-only chat.status, live privacy settings, redacted ps."""
 
 import asyncio

@@ -1,4 +1,4 @@
-"""Upgrading from any older FERB (notes/storage.md decision 5; step 12a): a store migrated by an older build, from
+"""Upgrading from any older FERB (STORE-403; step 12a): a store migrated by an older build, from
 before checksums were recorded, with or without the deleted 0040, reaches the current schema with its data kept; the
 journal's reply ref lists are stripped and its append-only trigger is back; the tombstone tables are merged; a database
 newer than this build is still refused. A first start on an older store and an older config.toml upgrades both.
@@ -8,8 +8,8 @@ are now except where a file was edited in place before checksums began (5119c2ac
 `older` are built from those files as a build that updated on 10-23/24 applied them: the first versions of 0044, 0045,
 0047 and 0048 from git history (tests/fixtures/migrations/older), checked in so the test stays offline. The deleted
 0040 also comes from git history (tests/fixtures/migrations). Not covered: an install made in the 10-21 window between
-0042's two versions (it lacks `schedules.last_reported_met`; notes/storage.md), and a copy of a real older build's
-database (decision 5; open)."""
+0042's two versions (it lacks `schedules.last_reported_met`; kb area storage), and a copy of a real older build's
+database (STORE-403; open)."""
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -110,7 +110,7 @@ def test_a_store_from_an_older_build_reaches_the_current_schema_with_its_data(tm
         assert ("key-abc" in tombs) == (upto >= 30) and ("trail:gone" in tombs) == (upto >= 33)
         for gone in ("learning_forgotten", "conversation_forgotten_sources"):     # merged: their rows kept above
             assert gone not in _tables(c)
-        # tables no code reads stay, with their rows, until the owner's OK'd clean-up drops them (decision 4)
+        # tables no code reads stay, with their rows, until the owner's OK'd clean-up drops them (STORE-402)
         assert {"owner_questions", "notification_rules", "learning_receipts", "learning_jobs"} <= _tables(c)
         assert c.execute("SELECT COUNT(*) FROM notification_rules").fetchone()[0] == (1 if upto >= 32 else 0)
     finally:
@@ -229,7 +229,7 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     finally:
         d.stop()
     assert got["schema"] == NEWEST
-    first, second, third = got["upgraded"]          # 2026-10-09's limits, hands decision 7, then the report relay
+    first, second, third = got["upgraded"]          # 2026-10-09's limits, HAND-210, then the report relay
     assert {c["key"] for c in first["changes"]} >= {"browser.download_max_mb", "browser.task_max_tabs",
                                                      "retention.download_days"}
     assert {"key": "browser.download_max_mb", "from": 512, "to": None} in second["changes"]
@@ -270,7 +270,7 @@ def test_the_memory_upgrade_on_an_older_store_runs_once(home: Path) -> None:
 
 
 def test_jev_stays_off_after_an_upgrade_even_with_a_key(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """notes/daemon.md decision 9: an older config that had Jev questions enabled, with a Jev key in the Keychain (faked:
+    """SENSE-6: an older config that had Jev questions enabled, with a Jev key in the Keychain (faked:
     the Keychain is never touched), starts with Jev off: no decider, no Keychain read, no request to Jev, also after a
     reload; the switch is the only thing that turns it on."""
     from ferb.daemon.areas.jev import JevGlue

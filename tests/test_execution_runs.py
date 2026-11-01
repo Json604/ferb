@@ -1,6 +1,6 @@
-"""Step 8a end-to-end runs (tests decision 1): the real daemon, gateway and scripted model through the one execution
+"""Step 8a end-to-end runs (TEST-500): the real daemon, gateway and scripted model through the one execution
 path. A single task is a one-step plan; one status, finish and stop; "needs the owner" pauses in place and asks; pause
-and resume (owner decision 8); the check-in after 5 attempts (owner decision 7); a loop survives a restart; a scheduled
+and resume (ORCH-308); the check-in after 5 attempts (ORCH-307); a loop survives a restart; a scheduled
 run declines questions and stops at 5."""
 import json
 import threading
@@ -102,7 +102,7 @@ def test_stop_mid_task_ends_every_row_as_stopped(daemon: RunningDaemon) -> None:
 
 
 def test_pause_keeps_everything_in_place_and_the_owners_reply_resumes_it(daemon: RunningDaemon) -> None:
-    """Owner decision 8: pause ends the current attempt and marks the task paused, not cancelled: nothing is released
+    """ORCH-308: pause ends the current attempt and marks the task paused, not cancelled: nothing is released
     (the browser keeps the task's tab group: `task_paused`), no answer is given, and the owner's reply (the planner's
     continue) resumes it in place."""
     released: list[str] = []
@@ -143,7 +143,7 @@ def test_pause_keeps_everything_in_place_and_the_owners_reply_resumes_it(daemon:
 
 
 def test_a_plan_step_that_needs_the_owner_asks_once_and_carries_on_with_the_answer(daemon: RunningDaemon) -> None:
-    """The endless relaunch (notes/orchestration.md): a plan step that needed the owner was relaunched forever and the
+    """The endless relaunch (kb area orchestration): a plan step that needed the owner was relaunched forever and the
     owner never asked. Now it pauses in place, asks once, and the answer carries it on."""
     spec = task("Sort the downloads then report")
     spec["plan"] = Plan(steps=[Step(id="sort", kind="do", goal="Sort the downloads"),
@@ -244,7 +244,7 @@ def test_a_scheduled_run_stops_at_five_failed_attempts_and_reports(daemon: Runni
 
 
 def test_a_loop_survives_a_restart_and_reruns_the_round_cut_short(home: Any, monkeypatch: Any) -> None:
-    """L31 with owner decision 8: FERB's shutdown suspends a loop mid-round; after the restart the tree resumes by
+    """L31 with ORCH-308: FERB's shutdown suspends a loop mid-round; after the restart the tree resumes by
     itself (no "pick it up again?" result), the round cut short runs again, and the loop's saved state carries on."""
     monkeypatch.setattr("ferb.sanitize.images.recognize_text", lambda _image: [])
     spec = task("Keep the tab playing")
@@ -326,7 +326,7 @@ def test_a_check_in_asked_before_a_restart_is_asked_again_and_no_stops(home: Any
 
 
 def test_closing_a_tab_the_task_holds_asks_whether_to_continue(daemon: RunningDaemon) -> None:
-    """Hands decision 3: the owner closing a FERB tab or the task's group mid-task stops that part, and FERB asks whether
+    """HAND-201: the owner closing a FERB tab or the task's group mid-task stops that part, and FERB asks whether
     to continue (Continue / Stop). Continue carries the task on in place."""
     script = install(daemon, [sup("task", "On it.", task("Compare the prices"))], {"worker": [STALL, done("Compared.")]})
     turn = Turn(daemon, "compare the prices")
@@ -402,7 +402,7 @@ def test_a_resumed_scheduled_run_stays_unattended_and_reports_to_its_schedule(da
     assert run(daemon, lambda: daemon.daemon.schedules.get(sched.id)).failures == 1
 
 
-# ---------- owner decision 13: pause details ----------
+# ---------- ORCH-312: pause details ----------
 
 def _pause_through_chat(daemon: RunningDaemon, script: Any, tree: str, words: str = "wait, hold on") -> None:
     script.sup.append(json.dumps({"kind": "reply", "text": "Paused.", "task": None,
@@ -413,7 +413,7 @@ def _pause_through_chat(daemon: RunningDaemon, script: Any, tree: str, words: st
 
 
 def _owner_back(daemon: RunningDaemon, after_s: float = 0) -> None:
-    """The Mac comes back into use `after_s` seconds from now (locked, then unlocked; decision 17)."""
+    """The Mac comes back into use `after_s` seconds from now (locked, then unlocked; ORCH-317)."""
     from tests.support.schedules import mac_away, mac_back
     if after_s:
         daemon.call_soon(daemon.daemon.clock.advance, after_s)
@@ -427,7 +427,7 @@ def _mentions(daemon: RunningDaemon) -> list[Any]:
 
 def test_a_paused_task_is_mentioned_once_a_day_when_the_owner_is_back_and_resume_resumes_it(
         daemon: RunningDaemon) -> None:
-    """Decision 13: FERB mentions a paused task once a day, from its record, in its chat, with a Resume that goes the
+    """ORCH-312: FERB mentions a paused task once a day, from its record, in its chat, with a Resume that goes the
     pause's own way; only when the owner is back at the Mac (never while away), never twice a day, and yesterday's
     unanswered mention is replaced, not stacked."""
     script = install(daemon, [sup("task", "On it.", task("Check the permit page"))],
@@ -462,7 +462,7 @@ def test_a_paused_task_is_mentioned_once_a_day_when_the_owner_is_back_and_resume
 
 def test_pause_stops_the_tasks_listening_and_running_commands_and_keeps_the_rest(daemon: RunningDaemon,
                                                                                  tmp_path: Any) -> None:
-    """Decision 13: a paused task keeps only its tabs and progress: its listening and its commands still running stop;
+    """ORCH-312: a paused task keeps only its tabs and progress: its listening and its commands still running stop;
     a long-lived command (made to outlive the task) and another task's are left alone."""
     import asyncio
     from ferb.act.shell.manager import ShellManager

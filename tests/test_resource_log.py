@@ -233,7 +233,7 @@ def test_the_work_counts_are_what_was_added_since_the_last_sample(tmp_path: Path
                     "jev": {"asked": 2, "not_sampled": 2},
                     "models": {"model.learning": 1, "model.turn": 1, "worker": 1}, "tool_calls": 3,
                     "tasks_running": 1, "top": [],
-                    # the live preview's work in the window (notes/preview.md decision 3)
+                    # the live preview's work in the window (APP-405)
                     "preview": {"requests": 6, "frames": 5, "capture_ms": 250.5, "cached": 1, "busy": 1}}
     # Deleting rows the last sample already counted (retention, forget) changes nothing.
     for table in ("trail", "decisions", "spans"):

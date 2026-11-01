@@ -1,4 +1,4 @@
-"""The intro's Try beat (notes/setup-intro.md step 6): FERB suggests one first task that fits what it saw on this Mac (a
+"""The intro's Try beat (kb area app): FERB suggests one first task that fits what it saw on this Mac (a
 solid general task when it saw nothing clear), then shows that task's plan as rows without doing any of it. The preview
 cannot act by construction: the planner's turn alone, with no run token, no worker and no tool call, and nothing kept
 as a task or as chat; both methods are FERB.app's only (its code signature is stood in for here)."""

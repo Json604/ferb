@@ -1,5 +1,5 @@
 """L36 §3: one ranked search over content; step 9b: facts searched in memory_items directly, each role within its
-limits (decision 7)."""
+limits (MEM-5)."""
 import threading
 from datetime import timedelta
 from pathlib import Path
@@ -20,7 +20,7 @@ from tests.support.memory_items import owner_fact, run, understood
 from tests.support.permit_audit import MSG_1217, MSG_1222, PERMIT_GOAL, PERMIT_TARGETS, RESEARCH_OFFICIAL
 
 # The Learning.search tests below rank nodes against the pre-9b budgets they were measured with (60 / 20 nodes); the
-# roles' limits now are search.PLANNER / search.WORKER (decision 7)
+# roles' limits now are search.PLANNER / search.WORKER (MEM-5)
 NODE_PLANNER_LIMIT, NODE_WORKER_LIMIT = 60, 20
 PLANNER_QUERIES = ["log in to bookslots.com",
                    "Check bookslots.com in Chrome Home_Personal for document check and interview availability",
@@ -405,7 +405,7 @@ def test_the_daemon_journals_a_reindex_only_when_nodes_were_reindexed(daemon: An
 
 
 def test_the_planner_gets_at_most_its_limit_best_first(daemon: Any) -> None:
-    """Decision 7 (step 9b): retrieved memory is within the role's limits, best first, never protected; what is left out
+    """MEM-5 (step 9b): retrieved memory is within the role's limits, best first, never protected; what is left out
     is one counted line."""
     for i in range(80):
         understood(daemon, f"tomato_{i}", f"tomato tip {i}: water them in the morning", subject="project:garden")
@@ -421,7 +421,7 @@ def test_the_planner_gets_at_most_its_limit_best_first(daemon: Any) -> None:
 
 
 def test_a_profile_entry_never_takes_a_slot_of_the_ranked_limit(daemon: Any) -> None:
-    """Final review M1, decision 18: the owner's preference "reply to permit emails in a formal tone" is in every role's
+    """Final review M1, MEM-15: the owner's preference "reply to permit emails in a formal tone" is in every role's
     core profile, so the ranked lists leave it out; the memory tools still find it."""
     d = daemon.daemon
     for i in range(4):

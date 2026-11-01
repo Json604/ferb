@@ -1,4 +1,4 @@
-"""Step 12d end-to-end runs (tests decision 1): a chat turn through the real daemon, gateway and scripted model, for the
+"""Step 12d end-to-end runs (TEST-500): a chat turn through the real daemon, gateway and scripted model, for the
 confirmations the target design names: a send to someone new asks and a No sends nothing; an action whose outcome is
 unknown is never repeated without the owner; one payment asks once. (The other runs: test_execution_runs, test_chat_turns,
 test_merged_checker, test_answers_in_steps, test_typed_cards; a file write checked: test_careful_checks; a forget removes

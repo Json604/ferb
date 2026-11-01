@@ -1,4 +1,4 @@
-"""Hands decision 5, "sound is part of background-first" (protocol 19): a tab FERB opens for a task is muted through the
+"""HAND-207, "sound is part of background-first" (protocol 19): a tab FERB opens for a task is muted through the
 browser's tab mute, a tab the task needs to hear (audio.listen, a recording with sound) is unmuted for it, a tab handed
 to the owner gets its sound back, and the owner's own tabs are never touched; sound starting or stopping in a tab that
 isn't FERB's near one of FERB's calls is a disturbance fact for the checker. The real daemon and gateway with the fake

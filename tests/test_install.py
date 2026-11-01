@@ -21,7 +21,7 @@ def inst(tmp_path: Path) -> Installer:
 
 
 def test_launch_definitions_never_import_from_a_working_folder_and_run_in_ferbs_home(tmp_path: Path) -> None:
-    """notes/daemon.md (2026-10-31): `python -m` put the checkout (the old WorkingDirectory) first on sys.path, so the
+    """kb area daemon (2026-10-31): `python -m` put the checkout (the old WorkingDirectory) first on sys.path, so the
     live daemon ran the checkout's code. A checkout's LaunchAgent and native host run the venv's python with `-P` and
     FERB's home as the working folder; FERB.app's definition (inside the app) runs its isolated agent with exactly
     `-m ferb.daemon`, and the daemon makes FERB's home its working folder itself."""
@@ -82,7 +82,7 @@ def test_install_builds_a_new_venv_from_the_lockfile_each_time(inst: Installer) 
 @pytest.mark.parametrize("step", [("uv", "pip", "install"), ("npm", "ci"), ("xcrun", "swiftc")])
 def test_a_failed_install_leaves_the_old_venv_and_the_running_daemon_as_they_were(inst: Installer,
                                                                                   step: tuple[str, ...]) -> None:
-    """notes/daemon.md: an update overwrote the venv under the running daemon, so a failed Codex install left it
+    """kb area daemon: an update overwrote the venv under the running daemon, so a failed Codex install left it
     running mixed code. Now nothing the daemon runs from changes until every step succeeded."""
     r: FakeRunner = inst.run  # type: ignore[assignment]
     inst.install()
@@ -268,7 +268,7 @@ def test_uninstall_removes_agent_and_plist_but_keeps_home(inst: Installer) -> No
 
 
 def test_purge_deletes_every_ferb_keychain_item_without_reading_one(inst: Installer) -> None:
-    """notes/daemon.md: `uninstall --purge` left API keys, the Jev key and owner-secret items. Every item of FERB's
+    """kb area daemon: `uninstall --purge` left API keys, the Jev key and owner-secret items. Every item of FERB's
     services goes (FERB's own, the owner's saved secrets and cards, Claude Code's item for FERB's Claude home), deleted
     by service one at a time: no value is ever read or listed. Others' items stay. The Keychain is a fake."""
     from ferb.runtimes.claude_login import keychain_service
@@ -383,7 +383,7 @@ def test_app_bundle_is_found_only_from_the_interpreter_inside_ferb_app(tmp_path:
 def test_the_apps_service_runs_the_daemon_as_the_nested_ferb_agent_app(tmp_path: Path) -> None:
     """launchd starts FERB's agent app (a native stub that embeds the app's Python, isolated, never writing bytecode),
     so macOS names FERB, not python3.12, in permission prompts, Privacy & Security and Login Items; its definition is
-    inside the app, which registers it (notes/daemon.md decision 2), so setup writes no user LaunchAgent."""
+    inside the app, which registers it (DMN-2), so setup writes no user LaunchAgent."""
     import plistlib
     inst = bundled(tmp_path)
     agent = inst.bundle / AGENT  # type: ignore[operator]
@@ -455,7 +455,7 @@ def test_bundle_update_records_the_new_build_and_restarts_the_registered_service
 
 
 def test_setup_from_the_app_retires_the_old_launch_agent(tmp_path: Path) -> None:
-    """Storage decision 5: an install from before FERB.app registered its own service has
+    """STORE-403: an install from before FERB.app registered its own service has
     ~/Library/LaunchAgents/com.ferb.daemon.plist; setup from the app stops it and removes it (the same label can't be
     loaded twice), before the app registers its own. A plist that isn't FERB's is left alone."""
     import plistlib

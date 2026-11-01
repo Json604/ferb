@@ -1,4 +1,4 @@
-"""Memory import from other AI assistants (notes/memory-import.md decisions 1-6): each reader on a fixture (the
+"""Memory import from other AI assistants (MEM-401-6): each reader on a fixture (the
 three-month window, roles), redaction before any model call, recall then verification through a scripted model,
 imported facts saved as FERB's understanding (never the owner's words, never known destinations), newer words win,
 resume after a restart, cancel, nothing raw kept, and the quality score on the labelled fixtures."""
@@ -187,7 +187,7 @@ def test_a_verifier_quote_not_in_the_owners_message_is_dropped(daemon: RunningDa
 
 
 def test_nothing_raw_is_kept(daemon: RunningDaemon, tmp_path: Path) -> None:
-    """Decision 4: facts only. After importing every source, no table, the database file or its WAL holds the
+    """MEM-404: facts only. After importing every source, no table, the database file or its WAL holds the
     conversations' raw text (assistant replies, titles, injected output, pasted text, the secret)."""
     d, exports = daemon.daemon, make_exports(tmp_path / "x")
     for source in ("chatgpt", "claude", "gemini", "claude_code", "codex"):

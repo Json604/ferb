@@ -1,4 +1,4 @@
-"""Step 4 runtime fixes (notes/runtimes.md fix list): Codex timeouts, MCP timeouts, start-once checks, violations that
+"""Step 4 runtime fixes (kb area runtimes): Codex timeouts, MCP timeouts, start-once checks, violations that
 say what happened, stderr always drained, worker instructions; the Claude token file, sign-in, cost across steered turns
 and sign-out; the direct-API time limit; worker types the planner can name. Offline: no Codex, Claude or model process
 is started."""

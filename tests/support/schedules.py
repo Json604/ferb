@@ -85,7 +85,7 @@ def own_daemon(home: Path, ids: str = "id") -> RunningDaemon:
 
 def watching(d: RunningDaemon) -> Any:
     """The daemon's Mac-presence signal running without macOS (nothing read, no notifications): the test says when the
-    Mac goes out of use and comes back (decision 17, clarified 2026-10-31)."""
+    Mac goes out of use and comes back (ORCH-317, clarified 2026-10-31)."""
     p = d.daemon.presence
     p.read_session, p.read_displays = dict, lambda: None
     p.start(native=False)

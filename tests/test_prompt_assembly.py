@@ -1,4 +1,4 @@
-"""Step 10b (notes/prompts.md target design 2-4): how code assembles each role's instructions. Role blocks reach a
+"""Step 10b (kb area prompts-4): how code assembles each role's instructions. Role blocks reach a
 worker only when its run needs them; no role gets a second copy of the tool catalog in its context; the tool-less
 planner gets no catalogs; the effect/destination contract is in the worker's instructions once, not on every tool."""
 import json

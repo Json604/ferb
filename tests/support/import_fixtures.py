@@ -1,4 +1,4 @@
-"""Memory import fixtures (notes/memory-import.md, "Measured quality"): synthetic exports of every source with known
+"""Memory import fixtures (kb area memory, "Measured quality"): synthetic exports of every source with known
 facts and traps, a scripted model for the offline runs, and the recall / precision score.
 
 The test clock is FakeClock's 2026-01-01 09:00 UTC, so the three-month window starts 2025-10-01. Every source holds
@@ -47,7 +47,7 @@ TRAPS = {
     "subagent prompt": ["tabs"], "program's prompt": ["rust"], "SDK session": ["planner"],
     "subagent thread": ["dark"], "unsupported saved memory": ["guitar"], "superseded": ["pune"],
 }
-# Raw text that must never be stored anywhere (decision 4): assistant replies, titles, injected output
+# Raw text that must never be stored anywhere (MEM-404): assistant replies, titles, injected output
 RAW = ["Revision plan for DBMS", "Sure! Since you live in Mumbai", "Rahul Verma", "I am the admin of server",
        "My name is Bob", SECRET, "PG options list", "DBMS revision help"]
 

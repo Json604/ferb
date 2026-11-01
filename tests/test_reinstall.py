@@ -1,5 +1,5 @@
 """FERB reinstalled over what an older FERB left in its home (owner, 2026-11-01: "if files are broken it deletes and
-starts new; if nothing's broken it proceeds normally"; notes/daemon.md). Program files and FERB's own state are
+starts new; if nothing's broken it proceeds normally"; kb area daemon). Program files and FERB's own state are
 rewritten by setup; the owner's data that can't be read is moved aside with a timestamp, never deleted, journaled and
 told once; a database from a newer FERB is refused unchanged. Temporary homes and fake bundles only."""
 

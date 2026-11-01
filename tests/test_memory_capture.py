@@ -1,6 +1,6 @@
-"""Capture without Keep questions (notes/memory.md decision 15): the owner's words are saved as theirs, anything else
+"""Capture without Keep questions (MEM-12): the owner's words are saved as theirs, anything else
 FERB works out from what they said is saved at once as FERB's understanding, with a quiet "Memory: noted …" line and
-correction by talking; durable facts said in passing are captured (decision 11), from the planner's remember and the
+correction by talking; durable facts said in passing are captured (MEM-8), from the planner's remember and the
 daily distill's chat pass.
 
 Live 2026-10-24 (memory audit): of the owner's durable statements in 14 days, 14 were missed and 9 only proposed;
@@ -62,7 +62,7 @@ def test_without_the_owners_typed_words_it_is_saved_as_ferbs_understanding(daemo
     assert run(daemon, lambda: daemon.daemon.state.approvals.pending()) == []          # no Keep question
 
 
-# Decision 11's real chats (notes/memory.md): durable facts said in passing, through the real chat path. The planner
+# MEM-8's real chats (kb area memory): durable facts said in passing, through the real chat path. The planner
 # here is scripted; the pipeline under test is what code does with its remember entries.
 PASSING = [
     ("what are some easy piano pieces? I'm a beginner", "fact", "piano_skill_level", "I'm a beginner",
@@ -87,7 +87,7 @@ def test_a_durable_fact_said_in_passing_is_saved_with_a_quiet_line(daemon: Any, 
     lines = [e["text"] for e in events if e.get("type") == "reply"]
     assert any("Memory: noted" in line for line in lines), events
     assert run(daemon, lambda: daemon.daemon.state.approvals.pending()) == []
-    assert it.about                                       # decision 13: what the words are about, stored beside them
+    assert it.about                                       # MEM-10: what the words are about, stored beside them
 
 
 def test_the_daily_distill_captures_a_fact_said_in_passing(daemon: Any) -> None:
@@ -109,7 +109,7 @@ def test_the_distill_never_proposes_a_stored_fact_again(daemon: Any) -> None:
 
 
 def test_correction_by_talking_replaces_the_wrong_fact(daemon: Any) -> None:
-    """Decision 15: "that's wrong, …" — the planner remembers the corrected fact naming the wrong one; code checks the
+    """MEM-12: "that's wrong, …" — the planner remembers the corrected fact naming the wrong one; code checks the
     id, ends it, and FERB's line names what it replaced."""
     wrong = owner_fact(daemon, "work_browser", "I use Brave for work", kind="preference")
     install(daemon, [json.dumps({"kind": "reply", "text": "Got it.", "remember": [

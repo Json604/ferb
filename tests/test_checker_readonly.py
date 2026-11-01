@@ -47,7 +47,7 @@ def _every_capability() -> Registry:
     from ferb.identity.secret_tools import SecretsList
     r.add(SecretsList(lambda: Path('/nonexistent')))       # the daemon adds it beside the context readers (L36)
     from ferb.daemon.about import AboutRead
-    r.add(AboutRead(lambda: None))                          # the daemon adds it too (decision 6: read-only)
+    r.add(AboutRead(lambda: None))                          # the daemon adds it too (DMN-6: read-only)
     return r
 
 

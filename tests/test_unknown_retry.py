@@ -1,6 +1,6 @@
 """A consequential action whose outcome is unknown is never retried without the owner (P19).
 
-Code refuses the repeat (CLAUDE.md rules 5 and 9). The only way past is the owner's Yes to a question FERB itself
+Code refuses the repeat (AGENTS.md rules 5 and 9). The only way past is the owner's Yes to a question FERB itself
 attaches to that exact action (owner.ask with retry_action); a worker can't settle it on its own word."""
 import json
 from datetime import timedelta

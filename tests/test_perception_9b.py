@@ -1,4 +1,4 @@
-"""Step 9b perception and activity fixes (notes/memory.md fix list) and the bot-check fact (notes/hands.md decision 6):
+"""Step 9b perception and activity fixes (kb area memory) and the bot-check fact (HAND-208):
 accessibility rows stay in the trail (7 days), never in today's activity or its search; browser titles, typed text and
 copied text are checked against incognito and the excluded domains; activity search indexes values, prefers recent
 rows and stays within its limit; each row's data is stored once; typed text survives a quick focus change; the software
@@ -30,7 +30,7 @@ def trail(tmp_path: Path, domains: tuple[str, ...] = ()) -> tuple[Trail, list[An
     return t, published
 
 
-# ---------- accessibility (memory decision 3) ----------
+# ---------- accessibility (SENSE-1) ----------
 
 def test_accessibility_rows_stay_out_of_todays_activity_and_its_search(daemon: Any) -> None:
     d = daemon.daemon
@@ -169,7 +169,7 @@ def test_the_software_watcher_reads_grants_and_launch_jobs_only_when_they_change
     assert reads == ["tcc", "jobs"]                                       # once, when the stamp changed
 
 
-# ---------- the bot-check fact (hands decision 6) ----------
+# ---------- the bot-check fact (HAND-208) ----------
 
 def test_a_bot_check_frame_is_stated_with_the_ability_that_covers_it() -> None:
     from ferb.act.browser.ext_bridge import frame_urls

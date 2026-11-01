@@ -188,7 +188,7 @@ def test_ages_are_fresh_and_situation_precedes_owner_message(daemon: RunningDaem
 
 
 def test_non_urgent_notifications_wait_while_the_mac_is_out_of_use(daemon: RunningDaemon) -> None:
-    """Decision 21: a banner is for when the notch can't show; while the displays sleep it waits for them to wake.
+    """APP-301: a banner is for when the notch can't show; while the displays sleep it waits for them to wake.
     The owner not touching input (a film) holds nothing."""
     from ferb.daemon.banners import Banner
     from tests.support.schedules import mac_away, mac_back, watching
@@ -338,7 +338,7 @@ def test_a_reply_runs_answer_is_in_the_schedules_conversation(daemon: RunningDae
     assert "Rank 146, score 0.957." in second.contexts[0][2]
 
 
-# ---------- step 8a: schedule bookkeeping (notes/storage.md findings 4, 5; notes/orchestration.md) ----------
+# ---------- step 8a: schedule bookkeeping (kb area storage findings 4, 5; kb area orchestration) ----------
 
 def test_an_every_schedule_resumed_before_its_first_run_keeps_that_first_run() -> None:
     """Resumed less than one interval before its first run, `next_after(first_run - 1s)` skipped to the second."""
@@ -396,7 +396,7 @@ def test_a_scheduled_run_respects_the_global_stop(daemon: RunningDaemon) -> None
     assert [e.data["why"] for e in skipped] == ["FERB was stopped"]
 
 
-# ---------- decision 22: a schedule's end from the owner's words ----------
+# ---------- ORCH-320: a schedule's end from the owner's words ----------
 
 def _until(quote: str, **said: Any) -> dict[str, Any]:
     """The planner's `until` (unused fields "" / 0, as the schema has them)."""
@@ -479,7 +479,7 @@ def test_a_schedule_change_gives_an_existing_schedule_an_end(daemon: RunningDaem
 
 
 def test_a_schedule_made_before_ends_existed_runs_on_unchanged(tmp_path: Path, daemon: RunningDaemon) -> None:
-    """Upgrade (notes/storage.md decision 5): a schedule row from before migration 0052 has no end; it reads as one
+    """Upgrade (STORE-403): a schedule row from before migration 0052 has no end; it reads as one
     without, its runs keep being booked, and its run card counts down to the next run as before. 0052 re-runs."""
     import shutil
     from ferb.clock.clock import FakeClock
@@ -517,7 +517,7 @@ def test_a_schedule_made_before_ends_existed_runs_on_unchanged(tmp_path: Path, d
     assert "Schedule ended" not in result["answer"]
 
 
-# ---------- decision 14: what every run uses is recorded when the schedule is made ----------
+# ---------- ORCH-313: what every run uses is recorded when the schedule is made ----------
 
 def _scoped_schedule(d: RunningDaemon, words: str, folders: list[str], identity: str, profile: str) -> str:
     reply = json.loads(schedule_reply(d, "tidy my downloads", words, d.daemon.clock.now() + timedelta(minutes=1),
@@ -528,7 +528,7 @@ def _scoped_schedule(d: RunningDaemon, words: str, folders: list[str], identity:
 
 
 def test_a_scheduled_run_uses_the_folders_and_identity_recorded_when_it_was_made(daemon: RunningDaemon) -> None:
-    """Decision 14 (owner, 2026-10-30): folders, profile/identity and worker type are fixed when the schedule is made
+    """ORCH-313 (owner, 2026-10-30): folders, profile/identity and worker type are fixed when the schedule is made
     and stated then; an unattended run never re-guesses them. The run's plan proposes other folders and FERB's own
     identity: the run works in the recorded folder as the owner, and its worker is given the recorded scope."""
     words = "every day tidy my downloads folder in my Work profile"

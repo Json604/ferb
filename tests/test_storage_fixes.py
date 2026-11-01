@@ -1,4 +1,4 @@
-"""Step 12a's confirmed storage bugs (notes/storage.md): a continued tree's episode reads its last run; episodes keep
+"""Step 12a's confirmed storage bugs (kb area storage): a continued tree's episode reads its last run; episodes keep
 the outside-content labels of what the planner was shown; non-ASCII evidence is found whether it was written before
 (JSON escapes) or after (UTF-8); a forget's scrub finds a told text in both forms. The 2026-11-01 review's: the first
 start's memory clean-up survives a writer committing between its read and its write; the compaction asks for the room

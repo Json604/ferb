@@ -1,5 +1,5 @@
-"""Step 5b (notes/hands.md, Mac): one browser list, structural facts, secure fields on key presses, terminal detection
-that fails closed, the shortcut guard (owner decision 2), the multi-window pointer check, responsiveness, the one
+"""Step 5b (kb area hands, Mac): one browser list, structural facts, secure fields on key presses, terminal detection
+that fails closed, the shortcut guard (HAND-200), the multi-window pointer check, responsiveness, the one
 foreground path, honest mechanisms, stable P19 identity for Mac actions, and the capture retry. Offline, on fakes:
 nothing here drives the Mac."""
 
@@ -61,7 +61,7 @@ def test_invisible_marks_are_stripped_before_names_compare(monkeypatch: pytest.M
 
 
 def test_a_mac_read_of_any_browser_is_outside_web_content() -> None:
-    """notes/hands.md: Mac snapshots/screenshots of Arc, Edge, Firefox were labelled the owner's own app data."""
+    """kb area hands: Mac snapshots/screenshots of Arc, Edge, Firefox were labelled the owner's own app data."""
     from ferb.act.mac.tools import _sources
     for bundle in (ARC, FIREFOX, EDGE, "com.google.Chrome.beta"):
         assert _sources(bundle) == (("web", bundle),), bundle
@@ -236,7 +236,7 @@ def test_typing_in_an_editor_stops_when_the_focus_becomes_unreadable(monkeypatch
     assert ax.landed == [("editor", "type ab")]
 
 
-# ---------- 5. the shortcut guard (owner decision 2) ----------
+# ---------- 5. the shortcut guard (HAND-200) ----------
 
 def test_screen_wide_combinations() -> None:
     for combo in ("cmd+tab", "cmd+shift+tab", "cmd+space", "ctrl+space", "ctrl+left", "ctrl+up", "cmd+alt+escape",
@@ -629,7 +629,7 @@ def test_a_capture_that_fails_to_start_is_tried_once_more(monkeypatch: pytest.Mo
 
 def test_after_an_unknown_press_a_fresh_snapshot_doesnt_escape_the_repeat_check(
         daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """notes/gateway.md, P19 bypass by re-observing: after an unknown-outcome "Send", a new snapshot gave the button a
+    """kb area gateway, P19 bypass by re-observing: after an unknown-outcome "Send", a new snapshot gave the button a
     new id and the identical press ran again unasked. The press is identified by what the button is."""
     from ferb.act.mac.tools import MacAct, MacSnapshot
     from tests.conftest import gateway_request, gateway_setup, gateway_tool_call

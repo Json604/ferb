@@ -1,4 +1,4 @@
-"""Step 5c (protocol 18, notes/hands.md owner decision 3 and fix list): one collapsed tab group per task, tabs known by
+"""Step 5c (protocol 18, HAND-201 and fix list): one collapsed tab group per task, tabs known by
 browser tab id across reconnects and daemon restarts, the owner's close or move of a FERB tab published for the
 supervisor, signed daemon messages, the native host's starter checked, reads that fail are known failures, the chosen
 window remembered, secret fields (cards too) refusing text keys, structural facts and a stable P19 identity. The real
@@ -44,7 +44,7 @@ def _published(d: Any) -> list[tuple[str, dict[str, Any]]]:
     return seen
 
 
-# ---------- tab groups (owner decision 3) ----------
+# ---------- tab groups (HAND-201) ----------
 
 def test_a_tasks_tabs_open_into_one_labelled_group_and_close_with_it_at_the_end(bd: Any) -> None:
     d, launched = bd

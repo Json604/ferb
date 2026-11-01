@@ -1,4 +1,4 @@
-"""Step 12e, the Mac background/focus fixes (notes/hands.md decisions 8-11, owner 2026-10-31; Rulings (step 12e, Mac
+"""Step 12e, the Mac background/focus fixes (HAND-211-11, owner 2026-10-31; Rulings (step 12e, Mac
 focus)). Fakes only: no real app is launched, activated or pressed, and no real input event is posted."""
 from pathlib import Path
 from typing import Any
@@ -16,7 +16,7 @@ def _front(name: str, bundle: str, pid: int) -> dict[str, Any]:
             "key_window": {"pid": pid, "ax_identity": pid}, "fullscreen": False, "active_space_epoch": 0}
 
 
-# ---------- hands decision 9, fix 3: an app that brought itself to the front is told to the worker, never put back ----------
+# ---------- HAND-212, fix 3: an app that brought itself to the front is told to the worker, never put back ----------
 
 def test_a_self_activation_during_a_background_call_reaches_the_worker_and_nothing_is_put_back(
         daemon: RunningDaemon) -> None:
@@ -206,7 +206,7 @@ def test_mac_open_of_a_protected_file_asks_through_the_gateway(daemon: RunningDa
     assert out["is_error"] and fake.opened == [] and len(answers.asked) == 1
 
 
-# ---------- hands decision 11: a sound change is never counted against FERB when the owner did it ----------
+# ---------- HAND-213: a sound change is never counted against FERB when the owner did it ----------
 
 def test_the_owners_own_mute_or_input_coincident_change_records_no_sound_fact(daemon: RunningDaemon) -> None:
     """Only changes FERB could have caused: the owner muting a tab themselves (the browser's mutedInfo.reason "user",

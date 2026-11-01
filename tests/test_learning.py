@@ -386,7 +386,7 @@ def test_the_sibling_reading_never_masks_ferbs_own_ids(redacting, label):
 # L29 fix round 4 (re-review O3): slot types are a closed set, never redacted -----------------------------------
 
 def test_a_card_parked_by_the_old_redaction_refusal_is_read_again_once(tmp_path):
-    """notes/memory.md (15 parked cards): a card parked because redaction wasn't idempotent is read again once with
+    """kb area memory (15 parked cards): a card parked because redaction wasn't idempotent is read again once with
     the structural redaction, and stored; one parked for any other reason waits for its inputs to change."""
     from tests.support.cards import card_store, finished_task
     db, _, spans, store = card_store(tmp_path)

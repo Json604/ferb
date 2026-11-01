@@ -1,4 +1,4 @@
-"""Desktop observations around FERB's on-screen calls (daemon decision 5: no timer, none around read-only calls, the
+"""Desktop observations around FERB's on-screen calls (DMN-5: no timer, none around read-only calls, the
 cursor ignored, only what FERB could change); correlation must never become guessed causation."""
 
 import asyncio
@@ -108,7 +108,7 @@ async def test_a_cursor_move_alone_records_nothing():
 
 @pytest.mark.anyio
 async def test_a_tree_finishing_while_another_starts_keeps_the_probe_open():
-    """The start/finish race (daemon decision 5): a finishing tree never closes the probe under a starting one."""
+    """The start/finish race (DMN-5): a finishing tree never closes the probe under a starting one."""
     class Probe:
         def __init__(self) -> None:
             self.open = 0

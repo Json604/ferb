@@ -184,7 +184,7 @@ def test_refuses_while_a_foreground_dev_daemon_holds_the_socket(world: dict[str,
 
 
 def test_plain_setup_asks_for_no_permission_and_never_records_setup_done(world: dict[str, Any]) -> None:
-    """The CLI permission walkthrough is gone (notes/daemon.md decision 4: FERB's setup window asks); `ferb setup`
+    """The CLI permission walkthrough is gone (DMN-4: FERB's setup window asks); `ferb setup`
     opens no pane, requests nothing, and never records setup as done: every row decides that, FERB.app's own
     Notifications and Microphone included, which only the window's Done can read (12e review)."""
     env, out = make_env(world, [], daemon_up=False)          # any request for owner input would fail this test
@@ -224,7 +224,7 @@ def test_doctor_reports_and_fails_on_missing_required_permission(world: dict[str
 
 
 def test_doctor_says_jev_is_off_and_where_a_key_comes_from(world: dict[str, Any]) -> None:
-    """Jev is switched off (notes/memory.md decision 4, daemon decision 9): doctor says so as an ok line, never a
+    """Jev is switched off (SENSE-2, SENSE-6): doctor says so as an ok line, never a
     failure, and names no removed command."""
     world["inst"].install()
     env, out = make_env(world, [])
@@ -308,7 +308,7 @@ def test_doctor_shows_the_protection_lists_and_why_a_malformed_one_stops_ferb(wo
 
 
 def test_update_shows_what_ferb_saw_without_asking_or_repeating_permission_flow(world):
-    """Decision 16: setup shows "here's what I saw" once; nothing to answer (decision 15)."""
+    """MEM-13: setup shows "here's what I saw" once; nothing to answer (MEM-12)."""
     world['inst'].install()
     env, out = make_env(world, [])
     calls = []
@@ -634,12 +634,12 @@ def test_setup_puts_ferbs_tokenizer_in_place_before_the_daemon_restarts(world: d
     assert said == [world["home"]] and "Tokenizer: FERB's pinned copy is in place." in out.getvalue()
 
 
-# ---------- storage decision 4 (step 12a): the one-time clean-up, after the owner's OK, with the daemon stopped ----------
+# ---------- STORE-402 (step 12a): the one-time clean-up, after the owner's OK, with the daemon stopped ----------
 
 def _old_store(home: Path) -> dict[str, Any]:
     """A store an older FERB left: cards the composer before C1 wrote (three versions of one traced task's card, each
     citing every ref its planner was shown), Jev's decisions and perception receipts, the old embedding vectors, task
-    memory refs and a rollup node; beside them what decision 4 protects (memory, the episode, chat, the task, a
+    memory refs and a rollup node; beside them what STORE-402 protects (memory, the episode, chat, the task, a
     schedule, the traced task's spans)."""
     import sqlite3
     from ferb.core import origin
@@ -685,7 +685,7 @@ def _old_store(home: Path) -> dict[str, Any]:
 
 
 def _protected(home: Path) -> dict[str, list[Any]]:
-    """Every row of every table decision 4 protects, order-free (VACUUM may renumber rowids)."""
+    """Every row of every table STORE-402 protects, order-free (VACUUM may renumber rowids)."""
     import sqlite3
     from ferb.store.cleanup import PROTECTED, PROTECTED_ROWS
     c = sqlite3.connect(home / "ferb.db")
@@ -734,7 +734,7 @@ def _apply(world: dict[str, Any], ok: str, daemon_up: bool = False) -> tuple[int
 
 
 def test_an_update_never_cleans_the_database_on_its_own(world: dict[str, Any]) -> None:
-    """Decision 4: the clean-up waits for the owner's OK; installing or updating FERB removes nothing."""
+    """STORE-402: the clean-up waits for the owner's OK; installing or updating FERB removes nothing."""
     world["inst"].install()
     old = _old_store(world["home"])
     before = _protected(world["home"]), _q(world["home"], "SELECT COUNT(*) FROM learning_sources")

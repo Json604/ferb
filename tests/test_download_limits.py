@@ -1,4 +1,4 @@
-"""Hands decision 7 (owner, 2026-10-31): one download budget per task tree (300 files, 32 GB) shared by the browser and
+"""HAND-210 (owner, 2026-10-31): one download budget per task tree (300 files, 32 GB) shared by the browser and
 FERB's shell, and the 10 GB free-disk floor for both. A shell command receiving bytes through FERB's egress proxy is
 stopped at the budget or the floor, and its result says why. Offline: a disposable local origin reached by a name only
 the proxy knows (tests/support/egress.py), streaming slowly enough for the watch to see it arrive."""

@@ -1,4 +1,4 @@
-"""Step 12c: FERB.app's screens and their daemon side (notes/daemon.md decisions 6-8, notes/storage.md decision 4).
+"""Step 12c: FERB.app's screens and their daemon side (DMN-6, APP-1, APP-2, STORE-402).
 FERB's self-description is built from code and config and stays the same between calls; the worker's lookup only
 reads; what FERB keeps comes from the retention rule table; FERB's own account is written through the settings path;
 a saved secret is deleted without its value ever coming back; the app restores a Trash move; the owner-data methods are
@@ -42,7 +42,7 @@ def _grants(d: RunningDaemon) -> None:
                                          "input_monitoring": "granted", "full_disk_access": "denied"}
 
 
-# ---------- About FERB (decision 6) ----------
+# ---------- About FERB (DMN-6) ----------
 
 def test_the_about_summary_is_built_from_code_and_config_and_stays_the_same(daemon: RunningDaemon) -> None:
     import ferb
@@ -107,7 +107,7 @@ def test_the_app_guide_becomes_the_self_descriptions_how_tos(daemon: RunningDaem
         "Settings → Privacy → Apps FERB ignores"
 
 
-# ---------- FERB's own account (decision 7) ----------
+# ---------- FERB's own account (APP-1) ----------
 
 def test_choosing_ferbs_profile_writes_config_through_the_settings_path(daemon: RunningDaemon) -> None:
     d = daemon.daemon
@@ -152,7 +152,7 @@ def test_without_its_own_profile_ferb_browses_in_the_profile_the_owner_picked() 
         with_own.choose(None)
 
 
-# ---------- saved secrets and cards (decision 8) ----------
+# ---------- saved secrets and cards (APP-2) ----------
 
 def _fake_keychain() -> tuple[dict[str, str], Any, Any]:
     values: dict[str, str] = {}
@@ -188,7 +188,7 @@ def test_delete_removes_the_keychain_item_and_never_returns_its_value(daemon: Ru
     assert rows and "4111" not in str([r.data for r in rows])
 
 
-# ---------- restore (decision 8) ----------
+# ---------- restore (APP-2) ----------
 
 def test_the_app_lists_and_restores_a_trash_move(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     bin_ = daemon.daemon.home.parent / ".Trash"
@@ -218,7 +218,7 @@ def test_the_owner_data_methods_refuse_any_other_program(daemon: RunningDaemon, 
     assert refused.value.code == APP_ONLY_REFUSED
 
 
-# ---------- uninstall (decision 8) ----------
+# ---------- uninstall (APP-2) ----------
 
 def test_uninstall_everything_asks_only_in_the_app(tmp_path: Path) -> None:
     from types import SimpleNamespace

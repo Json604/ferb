@@ -1,5 +1,5 @@
-"""Decision 16 (owner 2026-10-31): FERB works out who the owner is from their Mac and shows it once, as "here's what I
-saw", with no yes/no (decision 15). Code gathers the facts (installed apps, their use, browsers and profiles), a model
+"""MEM-13 (owner 2026-10-31): FERB works out who the owner is from their Mac and shows it once, as "here's what I
+saw", with no yes/no (MEM-12). Code gathers the facts (installed apps, their use, browsers and profiles), a model
 interprets them, and they are stored as observed memory, never as the owner's words; a refresh re-interprets only when
 the facts changed. The old setup question's Save / Edit / Skip flow is gone."""
 import asyncio
@@ -82,7 +82,7 @@ def test_what_ferb_saw_is_built_once_shown_once_in_chat_and_stored_as_observed(d
         status = client.call('setup.persona', {'status': True})
         assert status['state'] == 'seen' and status['summary'].startswith("Here's what I saw on your Mac: ")
         assert 'Brave' in status['summary'] and len(status['facts']) == 2
-        assert not client.call('chat.status', {'peek': True})['approvals']            # no yes/no (decision 15)
+        assert not client.call('chat.status', {'peek': True})['approvals']            # no yes/no (MEM-12)
         items = client.call('memory.list')['items']
         assert sorted(i['key'] for i in items) == ['main_activity', 'main_browser']
         assert {i['origin'] for i in items} == {'observed'} and not any(i['in_profile'] for i in items)

@@ -1,4 +1,4 @@
-"""Step 9b (notes/memory.md decisions 7, 8, 17, 18 and the fix list): one fused search by meaning and keywords over
+"""Step 9b (MEM-5, 8, 17, 18 and the fix list): one fused search by meaning and keywords over
 facts, past tasks with their how-notes, playbooks and old chat, each role within fixed limits; chat.history by meaning
 and date from the database; no fact copies in learning_nodes; playbooks and the repeat measure; bounded card sources;
 stale facts split by source; "Now always on"; and the cache guarantee. Nothing downloads: the embedding model is
@@ -36,7 +36,7 @@ def said(d: Any, text: str, session: str, request: str, reply: str = "") -> str:
 
 def understood(d: Any, key: str, content: str, subject: str) -> Any:
     """FERB's understanding of a fact (not yet holding up): found by search, never in the always-on profile (the owner's
-    own words would join it at once, decision 18)."""
+    own words would join it at once, MEM-15)."""
     src = journal(d, "chat.message", {"text": content})
     return run(d, lambda: d.daemon.memory.propose("fact", subject, key, content, "inferred", [("journal", src)]))
 
@@ -45,7 +45,7 @@ def planner_context(script: Any) -> str:
     return [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
 
 
-# ---------- the fused search (decision 8) ----------
+# ---------- the fused search (MEM-6) ----------
 
 def test_one_search_finds_facts_past_tasks_and_old_chat_by_meaning(daemon: Any) -> None:
     """None of these share a word with the query; the local model's nearest find them (keywords alone don't)."""
@@ -143,10 +143,10 @@ def test_an_older_builds_fact_copies_close_once(tmp_path: Any) -> None:
     db.close()
 
 
-# ---------- limits (decision 7) ----------
+# ---------- limits (MEM-5) ----------
 
 def test_the_planners_memory_old_chat_and_activity_stay_within_their_limits_whatever_the_store(daemon: Any) -> None:
-    """Coordinator 2026-10-31 (decision 7): 10,000 facts, hundreds of past tasks and a long chat history give the planner
+    """Coordinator 2026-10-31 (MEM-5): 10,000 facts, hundreds of past tasks and a long chat history give the planner
     the same bounded blocks as a small store."""
     d = daemon.daemon
 
@@ -293,14 +293,14 @@ def test_a_card_keeps_one_source_per_kind_of_origin_not_every_row_a_tool_read(tm
     db.close()
 
 
-# ---------- decisions 17 and 18 ----------
+# ---------- MEM-14 and MEM-15 ----------
 
 def notices(d: Any) -> list[dict[str, Any]]:
     return [e.data for e in run(d, lambda: d.daemon._journal().of_kind("chat.notice"))]
 
 
 def test_stale_facts_are_split_by_source(daemon: Any) -> None:
-    """Decision 17: FERB's understanding that looks over is retired and told once; the owner's own words are only set
+    """MEM-14: FERB's understanding that looks over is retired and told once; the owner's own words are only set
     aside (not used, kept), told once, and come back when the owner says them again or restores them."""
     from ferb.cli.client import Client
     d = daemon.daemon
@@ -333,7 +333,7 @@ def test_stale_facts_are_split_by_source(daemon: Any) -> None:
 
 
 def test_understanding_that_holds_up_joins_with_one_quiet_now_always_on_card(daemon: Any) -> None:
-    """Decision 18: FERB's understanding joins the core profile once it holds up (here, seen on a second day), with one
+    """MEM-15: FERB's understanding joins the core profile once it holds up (here, seen on a second day), with one
     "Now always on" note card (the 8e note card, marked always_on), never a question; the owner's words join at
     once (any kind, about the owner)."""
     d = daemon.daemon
@@ -357,7 +357,7 @@ def test_understanding_that_holds_up_joins_with_one_quiet_now_always_on_card(dae
 
 
 def test_the_profile_and_so_the_cached_prefix_change_only_when_a_profile_entry_changes(daemon: Any) -> None:
-    """Decision 18's guarantee: the planner's instructions (the cached prefix) are identical across turns unless a
+    """MEM-15's guarantee: the planner's instructions (the cached prefix) are identical across turns unless a
     profile entry changed; saving a fact outside the profile changes nothing; nothing but the weekly pass rewrites it on
     a schedule (the hourly jobs leave it as it is)."""
     d = daemon.daemon
@@ -384,7 +384,7 @@ def test_the_profile_and_so_the_cached_prefix_change_only_when_a_profile_entry_c
 
 
 def test_a_browser_connecting_or_disconnecting_leaves_the_cached_prefix_alone(daemon: Any) -> None:
-    """Decision 4 (target design 5): what's usable (`{capabilities}` in the instructions) holds only stable facts, the
+    """ORCH-325: what's usable (`{capabilities}` in the instructions) holds only stable facts, the
     paired profiles; whether one is connected right now is a live fact after the conversation."""
     from types import SimpleNamespace
     from ferb.core.types import Identity

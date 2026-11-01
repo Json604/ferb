@@ -1,4 +1,4 @@
-"""The live preview (notes/preview.md): guards for what live use can't show. An abandoned or waiting request never holds
+"""The live preview (kb area app): guards for what live use can't show. An abandoned or waiting request never holds
 up the worker; no frame after the task ends or for a tab the task doesn't own; the preview freezes with a state when
 FERB leaves the surface, pauses or asks; nothing is persisted; only FERB.app's own process may call it; a declaration
 that fails never touches the call."""
@@ -32,7 +32,7 @@ def _target(scope: str, capture: Any, label: str = "Notes") -> PreviewTarget:
 
 
 def test_a_request_never_queues_behind_the_worker_and_an_abandoned_one_frees_the_surface() -> None:
-    """The 10-30 slow calls (notes/preview.md): requests queued on the worker's locks and ran ahead of its next call.
+    """The 10-30 slow calls (kb area app): requests queued on the worker's locks and ran ahead of its next call.
     Now a request while the worker acts answers at once with the last frame (busy); a request whose caller leaves
     cancels its capture, so the worker's next call takes the lock at once."""
     async def check() -> None:
@@ -190,7 +190,7 @@ def test_a_withheld_frame_and_the_masking_note_are_said() -> None:
 
 def test_a_failing_declaration_never_touches_the_call() -> None:
     """A capability's declaration that raises is no surface; the hook never raises, so a successful call's result is
-    never lost (notes/preview.md: gateway.py:1446, 1457)."""
+    never lost (kb area app: gateway.py:1446, 1457)."""
     class Boom:
         def preview_target(self, args: Any, owner: str, observed: Any = None) -> Any:
             raise RuntimeError("AX went away")
@@ -318,7 +318,7 @@ def test_mac_preview_without_exact_element_window_never_uses_front_window(monkey
 
 
 def test_the_app_leaving_mid_request_cancels_the_capture_through_the_socket(daemon: Any) -> None:
-    """notes/preview.md: an abandoned request (the app's socket closed) no longer runs on: the server ends the call and
+    """kb area app: an abandoned request (the app's socket closed) no longer runs on: the server ends the call and
     the capture with it, so nothing holds the surface for the worker's next call."""
     import json
     import threading

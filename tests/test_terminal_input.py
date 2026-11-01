@@ -1,4 +1,4 @@
-"""Typing into any terminal is enforced by code (D31, CLAUDE.md rule 10): FERB always asks the owner first, showing the
+"""Typing into any terminal is enforced by code (D31, AGENTS.md rule 10): FERB always asks the owner first, showing the
 exact command, every time, with no standing permission; a No types nothing.
 
 Live evidence, task 6f5b85894b3140e0b434910301e088a6 (2026-10-25): FERB's sandbox blocked `ps` and the Codex control

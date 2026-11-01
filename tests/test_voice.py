@@ -1,4 +1,4 @@
-"""Step 11 (notes/voice.md decisions 2-3): FERB speaks a voice turn's replies through the configured speech provider,
+"""Step 11 (VOICE-401-3): FERB speaks a voice turn's replies through the configured speech provider,
 from the turn's structured events, through one shared path that redacts first; a new turn or a stop interrupts it.
 Hearing's technical guards: a transcription time limit, FERB's hearing spared mid-transcription, and a recording's sound
 refused on an excluded site. Nothing is spoken or recorded: fake providers and fake processes stand in."""

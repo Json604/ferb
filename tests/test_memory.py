@@ -106,7 +106,7 @@ def test_the_owners_own_words_are_saved_as_theirs(daemon: RunningDaemon) -> None
 
 
 def test_a_paraphrase_is_saved_at_once_as_ferbs_understanding(daemon: RunningDaemon) -> None:
-    """Decision 15: FERB's wording of what the owner said is saved at once, labelled FERB's understanding, with a quiet
+    """MEM-12: FERB's wording of what the owner said is saved at once, labelled FERB's understanding, with a quiet
     "Memory: noted" line; it reaches retrieved memory with its label, but not the core profile until it holds up."""
     said = "I prefer Brave for work"
     src = journal(daemon, "chat.message", {"text": said})
@@ -249,7 +249,7 @@ def test_a_version_not_from_the_owners_words_never_overrides_what_they_said(daem
     assert sorted(o.id for o in told.replaced) == sorted([zed.id, inf.id])
 
 
-# ---------- forget (safety test 17; notes/memory.md decision 2: simple forget) ----------
+# ---------- forget (safety test 17; MEM-2: simple forget) ----------
 
 def test_forget_deletes_the_item_its_versions_and_its_trail_rows_and_nothing_comes_back(daemon: RunningDaemon) -> None:
     """The item, its versions, their source links and the watcher-captured trail rows they came from go; the day's
@@ -480,7 +480,7 @@ def test_owner_words_are_saved_as_their_whole_sentence_whatever_its_commas(daemo
 
 
 def test_a_memory_question_waits_across_a_restart(home) -> None:
-    """Re-review F5 (CLAUDE.md rule 9): a question never expires while it waits. FERB's Yes/No questions about memory
+    """Re-review F5 (AGENTS.md rule 9): a question never expires while it waits. FERB's Yes/No questions about memory
     (keep its wording, forget an item) come back after a restart with the same words; nothing acts before the Yes."""
     import json as _json
     from tests.support.schedules import own_daemon as _own_daemon
@@ -602,7 +602,7 @@ def test_the_planner_still_reads_the_owners_words_as_one_line(daemon: RunningDae
 
 
 def test_the_owners_pass_verdict_counts_as_verified(daemon: RunningDaemon) -> None:
-    """notes/memory.md decision 5: the owner's pass counts as verified for memory, as the checker's does; their fail
+    """MEM-3: the owner's pass counts as verified for memory, as the checker's does; their fail
     overrides; their latest verdict decides."""
     from tests.conftest import done, outcome, task
     install(daemon, [sup("task", "On it.", task("Say hello"))], {"worker": done("Said hello.")})
@@ -624,7 +624,7 @@ def test_the_owners_pass_verdict_counts_as_verified(daemon: RunningDaemon) -> No
 
 
 def test_forgetting_a_person_or_site_removes_it_from_known_destinations(daemon: RunningDaemon) -> None:
-    """Decision 14: a send to someone FERB forgot asks again."""
+    """MEM-11: a send to someone FERB forgot asks again."""
     d = daemon.daemon
 
     def known() -> list[str]:

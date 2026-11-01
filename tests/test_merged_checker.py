@@ -1,6 +1,6 @@
-"""Step 8b end-to-end runs (tests decision 1): the merged checker judges the conditions and chooses what's next (owner
-decision 3); "done" is about the outcome asked for, and the answer comes first (owner decision 9); a usage limit or a
-sign-in failure is written by code and offers another signed-in runtime with one tap (owner decision 16). The real
+"""Step 8b end-to-end runs (TEST-500): the merged checker judges the conditions and chooses what's next (owner
+ORCH-302); "done" is about the outcome asked for, and the answer comes first (ORCH-309); a usage limit or a
+sign-in failure is written by code and offers another signed-in runtime with one tap (ORCH-315). The real
 daemon, gateway and scripted model."""
 import json
 from typing import Any
@@ -20,7 +20,7 @@ def _checks(script: Any) -> list[str]:
 
 
 def test_a_report_only_problem_gets_its_answer_fixed_not_a_redo(daemon: RunningDaemon) -> None:
-    """31% of rejections failed only the report condition and cost a full worker redo (notes/orchestration.md). The
+    """31% of rejections failed only the report condition and cost a full worker redo (kb area orchestration). The
     outcome is verified; the checker removes the unproven detail from the answer; the worker runs once."""
     script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
         "worker": done(BOOKED),
@@ -33,7 +33,7 @@ def test_a_report_only_problem_gets_its_answer_fixed_not_a_redo(daemon: RunningD
 
 
 def test_a_retry_with_every_outcome_verified_fixes_the_answer_instead(daemon: RunningDaemon) -> None:
-    """Decision 9: when every outcome condition is verified, only the answer can be wrong; a retry the checker chose
+    """ORCH-309: when every outcome condition is verified, only the answer can be wrong; a retry the checker chose
     anyway becomes fix-only-the-answer (its edits applied, the unproven detail marked), never a worker redo."""
     script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
         "worker": [done(BOOKED), done("Booked again.")],
@@ -155,7 +155,7 @@ def test_the_checker_gets_code_facts_about_how_the_work_was_done(daemon: Running
 
 
 def test_no_separate_next_attempt_or_resource_review_runs(daemon: RunningDaemon) -> None:
-    """Owner decision 3 and prompts decision 1: one role judges and chooses; the dispatcher and the resource reviewer
+    """ORCH-302 and ORCH-333: one role judges and chooses; the dispatcher and the resource reviewer
     are gone."""
     script = install(daemon, [sup("task", "On it.", task("Say hi"))], {"worker": done("Hi.")})
     outcome(chat(daemon, "say hi"))
@@ -173,7 +173,7 @@ def test_the_how_note_is_kept_on_the_episode(daemon: RunningDaemon) -> None:
     assert ep["how"] == "System Settings > Appearance > Dark."
 
 
-# ---------- owner decision 16: usage limit or sign-in failure ----------
+# ---------- ORCH-315: usage limit or sign-in failure ----------
 
 LIMIT = RuntimeEvent("error", {"message": "You've hit your usage limit.", "account": "usage_limit"})
 

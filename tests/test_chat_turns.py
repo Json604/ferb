@@ -1,7 +1,7 @@
-"""Step 8c end-to-end runs (tests decision 1): a chat turn through the real daemon, gateway and scripted model. The
-restart rule and its shared time limit (owner decisions 10, 11, 18), cross-chat control, a stop that finds the work
-finished, folders in the plan line (hands decision 4), "keep the tabs open" (hands decision 3), the planner's context
-ordered most-stable first with task state once and bounded history (decision 4), questions recorded with their kind,
+"""Step 8c end-to-end runs (TEST-500): a chat turn through the real daemon, gateway and scripted model. The
+restart rule and its shared time limit (ORCH-311, ORCH-318), cross-chat control, a stop that finds the work
+finished, folders in the plan line (HAND-204), "keep the tabs open" (HAND-201), the planner's context
+ordered most-stable first with task state once and bounded history (ORCH-303), questions recorded with their kind,
 and a remembered fact sourced to the message that holds it."""
 import json
 import threading
@@ -78,7 +78,7 @@ async def _trees(d: RunningDaemon) -> list[tuple[str, str]]:
 
 
 def test_four_quick_messages_are_two_turns(daemon: RunningDaemon) -> None:
-    """Decision 18: the second message comes before FERB's first reply, so the turn restarts once and reads both; the
+    """ORCH-318: the second message comes before FERB's first reply, so the turn restarts once and reads both; the
     third and fourth come while the restarted turn is still thinking, so they wait and are read together next."""
     release = threading.Event()
 
@@ -113,7 +113,7 @@ def test_four_quick_messages_are_two_turns(daemon: RunningDaemon) -> None:
 
 
 def test_a_planner_that_runs_out_of_time_replies_plainly_and_the_restart_shares_the_limit(daemon) -> None:
-    """Decisions 11 and 18: one time limit covers the turn, its restart included; when it runs out the owner reads a
+    """ORCH-311 and ORCH-318: one time limit covers the turn, its restart included; when it runs out the owner reads a
     plain reply (no stack, no internal words) instead of waiting."""
     daemon.daemon.supervisor.planner_limit_s = 1.0
     script = install(daemon, [STALL, STALL])
@@ -174,7 +174,7 @@ def test_a_stop_after_the_work_finished_never_records_it_as_cancelled(daemon: Ru
 
 
 def test_the_plan_line_states_the_folders_and_the_shell_works_only_there(daemon: RunningDaemon) -> None:
-    """Hands decision 4: the planner resolves the owner's folder words into `folders`; the plan line says them, so a
+    """HAND-204: the planner resolves the owner's folder words into `folders`; the plan line says them, so a
     wrong guess can be corrected, and they are the task's shell scope. One that names no specific folder is repaired."""
     sv = daemon.daemon.supervisor
     seen: list[tuple[str, ...]] = []
@@ -201,7 +201,7 @@ async def _folders_left(d: RunningDaemon) -> dict[str, Any]:
 
 
 def test_keep_the_tabs_open_reaches_the_browser(daemon: RunningDaemon) -> None:
-    """Hands decision 3: the owner's "keep the tabs open", marked by the planner, asks the browser drivers to hand the
+    """HAND-201: the owner's "keep the tabs open", marked by the planner, asks the browser drivers to hand the
     task's tabs over at its end instead of closing them."""
     kept: list[str] = []
     daemon.daemon.supervisor.keep_tabs_open = kept.append
@@ -212,7 +212,7 @@ def test_keep_the_tabs_open_reaches_the_browser(daemon: RunningDaemon) -> None:
 
 
 def test_the_planner_context_is_ordered_most_stable_first(daemon: RunningDaemon) -> None:
-    """Decision 4, target design 5: instructions hold no live values; the stable facts, the summary and the recent
+    """ORCH-325: instructions hold no live values; the stable facts, the summary and the recent
     conversation come first; live facts (a reminder) come after the conversation, then memory, activity, the time, the
     task state and the questions, and the owner's new message last."""
     sv = daemon.daemon.supervisor
@@ -231,7 +231,7 @@ def test_the_planner_context_is_ordered_most_stable_first(daemon: RunningDaemon)
 
 
 def test_a_long_chat_keeps_the_planner_and_every_summary_call_within_their_bounds(daemon: RunningDaemon) -> None:
-    """Decision 4: the planner reads the summary and the tail after it: the last RECENT_EXCHANGES exchanges word for
+    """ORCH-303: the planner reads the summary and the tail after it: the last RECENT_EXCHANGES exchanges word for
     word however long they are (owner, 2026-10-30: always at least the last 20; no token cap folds one of them), and at
     most about one chunk beyond them; a summary call holds the summary and at most FOLD_CHUNK_TOKENS of the oldest
     entries, never "what fits the window" (live 2026-10-28: one fold read 533k tokens), and is told the days it

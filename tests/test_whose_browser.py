@@ -360,7 +360,7 @@ def test_a_held_tab_the_owner_closes_is_marked_closed() -> None:
                                                           "title": "Lesson"}}]
     with pytest.raises(StaleRef):
         r._tab(ref)
-    assert published and published[0][0] == "browser.owner_stopped"              # owner decision 3: for step 8
+    assert published and published[0][0] == "browser.owner_stopped"              # HAND-201: for step 8
     assert r.task_tab(br, 11) is None                                       # no downloads are held for it
     br.calls.clear()
     assert asyncio.run(r.release("task-1"))[0]["closed"] is True

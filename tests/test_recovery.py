@@ -502,7 +502,7 @@ def test_an_agent_asks_for_a_snapshot_and_it_is_recorded(daemon: RunningDaemon) 
 
 
 def test_the_last_snapshot_is_reused_only_while_no_command_ran_since(daemon: RunningDaemon) -> None:
-    """Hands decision 4 (B): a fresh snapshot before each shell command, skipped only when no command ran since the
+    """HAND-206: a fresh snapshot before each shell command, skipped only when no command ran since the
     last one (replacing "at most one per 15 minutes"); an agent's own request follows the same rule."""
     fake = _Snapshots()
     _snaps(daemon, fake)

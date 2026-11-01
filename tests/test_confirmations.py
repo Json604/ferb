@@ -449,7 +449,7 @@ def test_decide_the_floor() -> None:
     pay = _decide(Kind.PAY, Target(site="shop.example", amount=5.0, recipients=("x@y.com",)),
                   {"site": owner, "amount": owner, "recipient:0": owner})
     # outside a browser tab every payment run asks (SQ1); a tab's payment is one question per payment instead
-    # (decision 4, ferb/policy/payments.py, tests/test_payments.py)
+    # (GATE-204, ferb/policy/payments.py, tests/test_payments.py)
     assert [n.rule for n in pay] == ["floor:pay"] and pay[0].always and "x@y.com" in pay[0].key
     assert pay[0].values["amount"] == "5"
     unread = _decide(Kind.PAY, Target(site="shop.example"), {"site": owner})[0]
@@ -561,7 +561,7 @@ def test_known_destinations_normalize_and_come_from_the_owners_words(daemon: Run
         ("email", "ann@x.com"), ("host", "docs.example.com"), ("phone", "919876543210")]
     _record(daemon, "phone", "+91 98765-43210", "named", request_id="r")
     assert _known(daemon, "phone", "(91) 98765 43210") and not _known(daemon, "phone", "98765")
-    assert not _approved(daemon, "phone", "919876543210")         # decision 5: only mentioned, not approved
+    assert not _approved(daemon, "phone", "919876543210")         # GATE-205: only mentioned, not approved
     _record(daemon, "phone", "919876543210", "named", request_id="r2")     # already known: the first record stays
     [row] = _rows(daemon, "known_destinations")
     assert row["how"] == "named" and row["value"] == "919876543210" and row["request_id"] == "r"
@@ -1172,7 +1172,7 @@ class _Wipes(FakeCap):
 def test_dont_ask_for_30_minutes_covers_routine_questions_only(daemon: RunningDaemon) -> None:
     """Friend's feedback 2026-10-27: "add an allow all for a short time". Owner: 30 minutes, routine questions only
     (here: sending to someone new); payments, account security, permanent deletes, terminal typing, certificate checks
-    turned off and the sink questions still ask inside the window (gateway decision 7). A question the window answers
+    turned off and the sink questions still ask inside the window (GATE-207). A question the window answers
     is still in the trace, marked with the window's end."""
     send = FakeCap("probe.send", "send", {"probe"})
     pay = FakeCap("probe.pay", "pay", {"probe"})

@@ -1,4 +1,4 @@
-"""Decision 8 (step 9b): the local embedding model, a static table read by FERB's own code. Nothing is downloaded here:
+"""MEM-6 (step 9b): the local embedding model, a static table read by FERB's own code. Nothing is downloaded here:
 the model is a tiny synthetic one built in the test, and the fetch is a fake."""
 import hashlib
 import io

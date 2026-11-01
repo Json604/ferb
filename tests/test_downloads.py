@@ -134,7 +134,7 @@ def test_safe_name_keeps_ordinary_names_and_their_extension() -> None:
 
 
 def test_a_large_download_is_never_refused_for_its_size(bd: Any) -> None:
-    """Hands decision 7 (owner, 2026-10-31): no size cap per file. A download announcing 20 GB is taken (the old cap was
+    """HAND-210 (owner, 2026-10-31): no size cap per file. A download announcing 20 GB is taken (the old cap was
     512 MB), and an old config's per-file key is never read."""
     d, launched = bd
     d.daemon.config.set("browser", "download_max_mb", 1)              # an old config's key: ignored
@@ -415,7 +415,7 @@ def _fake_clock(d: RunningDaemon, ext: FakeExtension, step_s: float) -> list[flo
 
 
 def test_what_the_tasks_shell_received_counts_against_its_browser_downloads(bd: Any) -> None:
-    """Hands decision 7: one budget per task tree for the browser and the shell (32 GB by default)."""
+    """HAND-210: one budget per task tree for the browser and the shell (32 GB by default)."""
     d, launched = bd
     d.daemon.config.set("browser", "download_task_max_gb", 0.001)       # 1,000,000 bytes
     ext, g, tab, chrome_id = _task_tab(d, launched)
@@ -537,7 +537,7 @@ def test_a_dismissed_browser_download_is_reported_as_canceled(bd: Any) -> None:
     assert row["state"] == "not_taken" and "dismissed" in row["reason"]
 
 
-# ---------- retention: working copies stay; over the cap the owner is asked (hands decision 8) ----------
+# ---------- retention: working copies stay; over the cap the owner is asked (HAND-211) ----------
 
 def _fake_trash(monkeypatch: Any, home: Path) -> Path:
     """A Trash beside the test's FERB home (tests.support.trash): retention moves through open folders, like fs.trash."""
@@ -548,7 +548,7 @@ def _fake_trash(monkeypatch: Any, home: Path) -> Path:
 
 
 def test_downloads_stay_until_the_owner_deletes_them_however_old(bd: Any, monkeypatch: Any) -> None:
-    """Owner, 2026-10-09: no time-based clearing (and, hands decision 8, nothing goes without the owner's Yes)."""
+    """Owner, 2026-10-09: no time-based clearing (and, HAND-211, nothing goes without the owner's Yes)."""
     d, launched = bd
     trash = _fake_trash(monkeypatch, d.daemon.home)
     ext, g, tab, chrome_id = _task_tab(d, launched)
@@ -583,7 +583,7 @@ def _cap_journal(d: RunningDaemon) -> list[Any]:
 
 
 def test_over_the_cap_the_owner_is_asked_and_yes_deletes_the_oldest_for_good(bd: Any, monkeypatch: Any) -> None:
-    """Hands decision 8 (owner 2026-10-31): past browser.download_total_gb nothing moves by itself; the owner is asked,
+    """HAND-211 (owner 2026-10-31): past browser.download_total_gb nothing moves by itself; the owner is asked,
     with how many files and how much, and their Yes deletes those oldest files permanently (never to the Trash)."""
     d, launched = bd
     trash = _fake_trash(monkeypatch, d.daemon.home)
@@ -968,13 +968,13 @@ def test_a_page_save_dropped_over_the_hold_caps_is_a_refused_download_fact(bd: A
     assert "7 saves were dropped" in _wait_record(d, 2)["reason"]
 
 
-# ---------- the owner's limits (2026-10-09, hands decision 7 of 2026-10-31) ----------
+# ---------- the owner's limits (2026-10-09, HAND-210 of 2026-10-31) ----------
 
 def test_the_limits_default_to_the_owners_decision(tmp_path: Path) -> None:
     from ferb.act.browser.downloads import Downloads, Limits
     dl = Downloads(tmp_path / "downloads", None, lambda: None, lambda s, k, v: v, lambda t: t, lambda *a: None)
     gb = 1000 ** 3                                              # decimal, as Finder counts (ruling, step 12e)
-    assert dl.limits() == Limits(300, 32 * gb, 20 * gb, 10 * gb)  # hands decision 7 (2026-10-31): no per-file cap
+    assert dl.limits() == Limits(300, 32 * gb, 20 * gb, 10 * gb)  # HAND-210 (2026-10-31): no per-file cap
 
 
 def test_a_task_tree_may_open_fifty_tabs_by_default(bd: Any) -> None:

@@ -1,4 +1,4 @@
-"""Hands decision 4 and the shell fix list (step 5a), with the real sandbox-exec on scratch folders in pytest's tmp_path:
+"""HAND-203, HAND-204 and the shell fix list (step 5a), with the real sandbox-exec on scratch folders in pytest's tmp_path:
 the folder scope (no changes in the owner's visible folders unless the task names them; hidden folders, ~/Library,
 temp and the workspace stay writable), the window-server deny, signals only within the command, the lift-order and
 FERB-service rules, sends into lifted commands, process-group cleanup after the command's own process ended, pruning,
@@ -52,7 +52,7 @@ def _ok(sb: Sandbox, command: str, folders: tuple[str, ...] = (), lift: str | No
     return _run(sb, command, folders, lift).returncode == 0
 
 
-# ---------- the folder scope (hands decision 4, A) ----------
+# ---------- the folder scope (HAND-203, HAND-204) ----------
 
 def test_a_command_cant_change_the_owners_visible_folders_but_programs_keep_working(tmp_path: Path) -> None:
     home, ferb = _home(tmp_path)
@@ -188,7 +188,7 @@ def test_input_into_a_lifted_command_is_refused(tmp_path: Path) -> None:
 
 
 def test_a_read_escape_yes_covers_the_task_and_the_file_tools(daemon: RunningDaemon, tmp_path: Path) -> None:
-    """Hands decision 1: "Let FERB read ~/.aws for this task?" once; later shell read escapes of that folder and file
+    """GATE-200: "Let FERB read ~/.aws for this task?" once; later shell read escapes of that folder and file
     tool reads of it in the same task run without asking. Writes still ask per command."""
     from tests.conftest import Answers, gateway_request, gateway_setup, gateway_tool_call
     fake = tmp_path / "fake"
