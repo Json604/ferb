@@ -382,3 +382,14 @@ why = "The intro's \"it never acts\" holds by construction, not by instruction (
 paths = ["ferb/orchestrator/supervisor.py::Supervisor.preview", "ferb/orchestrator/continuity.py::RESERVED_SESSIONS", "ferb/daemon/areas/intro.py"]
 live = ["LIVE-500"]
 legacy = "notes/setup-intro.md Left to the builder (Task 4); notes/setup-intro-plan.md Task 4"
+
+[ORCH-501]
+title = "Answers show their full text; no short summary above a Details disclosure"
+by = "owner"
+date = 2026-10-24
+status = "active"
+words = "the details response is better. remove the summarised short response as of now"
+rule = "The planner, workers and the orchestrator's recovery write no separate short version: a direct reply streams its full text, and a task's answer is the full answer with the side lines FERB adds. Question cards keep their own display text."
+rejected = ["Short by default (P30) and a concise display_text above Details (0.27.0.dev1)"]
+paths = ["ferb/orchestrator/schemas.py", "ferb/orchestrator/prompts"]
+legacy = "CHANGELOG.md 0.27.0.dev1 (2026-10-24): every answer shows its full detailed text"

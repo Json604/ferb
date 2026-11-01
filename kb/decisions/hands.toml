@@ -529,3 +529,14 @@ rule = "The bot_check fact states plainly that a bot-check widget's frame is on 
 why = "A reCAPTCHA v3 or Turnstile footer badge draws in the same frames as a challenge, so the frame alone proves no block (a page with only a footer badge was read as blocked, 2026-10-14)."
 paths = ["ferb/act/browser/snapshot.py::BOT_CHECK_FACT"]
 legacy = "notes/prompts.md decision 6 (a ruling); notes/prompt-patches.md call 9"
+
+[HAND-403]
+title = "A browser profile: connected, use it; not connected, start it quietly, else open its window once"
+by = "owner"
+date = 2026-10-26
+status = "active"
+words = "didnt i said simply that it should check if its not open, if open then use / if not open once that causes focus shift - ok"
+words_source = "CHANGELOG.md 0.27.0.dev1 entries of 2026-10-26: two quotes joined by \" / \""
+rule = "Every browser tool shares one check: a connected profile is used; one that isn't connected is started quietly with no window; if the extension still doesn't come, the profile's own window opens once (the accepted focus shift) and FERB carries on through the extension. A profile with no FERB window takes a background tab in one of its own windows; nothing asks the owner first unless the extension isn't paired."
+paths = ["ferb/act/browser/ext_bridge.py", "ferb/act/browser/profiles.py"]
+legacy = "CHANGELOG.md 0.27.0.dev1 (2026-10-26): natural steer replies; background browser fixes"

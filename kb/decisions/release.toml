@@ -64,3 +64,13 @@ why = "The Codex 0.166.0 binary (238 → 269 MB) and bundled Claude Code 2.1.310
 evidence = "Step-13 arm64 build, 2026-11-01: 705.6 MB (Claude Code 274.1, Codex 273.0)."
 paths = ["tests/test_packaging.py::MAX_APP_MB"]
 legacy = "notes/runtimes.md Pin move 2026-11-01: App size"
+
+[REL-402]
+title = "The Intel build pins cryptography 48.0.1, the last release with Intel Mac wheels"
+by = "owner"
+date = 2026-10-25
+status = "active"
+words_source = "CHANGELOG.md L34 phase A: \"(owner, A3)\", an answer in the L34 question list; no verbatim quote"
+rule = "On Intel Macs FERB installs cryptography 48.0.1 (the last release with Intel Mac wheels); every other platform takes the current pin."
+paths = ["pyproject.toml", "uv.lock"]
+legacy = "CHANGELOG.md 0.27.0.dev1 FERB for everyone, phase A (L34)"
