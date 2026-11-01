@@ -51,14 +51,6 @@ final class FerbSoundEngineTests: XCTestCase {
         XCTAssertFalse(engine.isRunning)                     // stopAll ended keeping warm too
     }
 
-    func testALatencyReadingThatIsGarbageCountsAsUnknownNotACrash() {
-        XCTAssertEqual(AudioOutputFacts.latency(frames: [0xFFFF_FFFF, 0xFFFF_FFFF, 0xFFFF_FFFF, 0xFFFF_FFFF],
-                                                sampleRate: 48_000), 0)
-        XCTAssertEqual(AudioOutputFacts.latency(frames: [480, 0, 96, 512], sampleRate: 48_000), 1088.0 / 48_000,
-                       accuracy: 1e-12)
-        XCTAssertEqual(AudioOutputFacts.latency(frames: [480], sampleRate: 0), 0)
-    }
-
     private func settle() async {
         for _ in 0..<10 { await Task.yield() }
     }

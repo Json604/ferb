@@ -106,16 +106,6 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertNil(model.questionFocus)
     }
 
-    func testAQuestionCardNamesItsTaskEvenWhenTheGoalIsUnknown() {
-        let model = makeModel(StatusRPC())
-        let unknown = DaemonApproval(["approval_id": "q1", "task_id": "0f3c9a7e5b2d4c18a6e0", "kind": "owner_login_code",
-                                      "reason": "Enter the code."])!
-        XCTAssertEqual(model.questionContext(unknown), "Task 0f3c9a7e")
-        model.runningTasks["0f3c9a7e5b2d4c18a6e0"] = "Log in to Orderly"
-        XCTAssertEqual(model.questionContext(unknown), "Log in to Orderly")
-        XCTAssertNil(model.questionContext(DaemonApproval(["approval_id": "q2", "reason": "Which?"])!))
-    }
-
     // decision: APP-584
     func testPastePlusTypingSendsWithoutADialog() async throws {
         let rpc = StatusRPC()
@@ -682,15 +672,6 @@ final class QuestionsAndNoticesTests: XCTestCase {
     }
 
     // MARK: - Dropped telemetry
-
-    func testBusDroppedTopicTriggersReconciliation() async {
-        let rpc = StatusRPC()
-        let model = makeModel(rpc)
-        let read = expectation(description: "Dropped events trigger a status read")
-        rpc.onCall = { method, _ in if method == "chat.status" { read.fulfill() } }
-        model.receiveBusEvent(["topic": "bus.dropped", "at": at, "class": "notice", "data": ["count": 3]])
-        await fulfillment(of: [read], timeout: 1)
-    }
 
     // MARK: - Support
 

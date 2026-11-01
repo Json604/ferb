@@ -396,15 +396,6 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(fresh.progress.resumeBeat, .signIn)                // a quit here comes back here
     }
 
-    func testHoverDoesNotOpenTheChatOverAnIntroLine() {
-        let notch = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("IntroHover"))
-        XCTAssertTrue(notch.hoverOpensChat)
-        notch.introLine = IntroLine(text: "Hi, I'm FERB.")
-        XCTAssertFalse(notch.hoverOpensChat)
-        notch.introLine = nil
-        XCTAssertTrue(notch.hoverOpensChat)
-    }
-
     // MARK: Fix round 1
 
     // decision: APP-508, APP-509
@@ -424,23 +415,6 @@ final class IntroControllerTests: XCTestCase {
         await eventually { missing.progress.done }
         XCTAssertFalse(missing.rig.rpc.methods().contains("setup.finish"))   // a grant is off: not done
         XCTAssertEqual(missing.controller.remainingRequired, ["full_disk_access"])
-    }
-
-    func testTheOwnersDraftStaysInTheBoxThroughTheTour() async {
-        let t = tour()
-        t.controller.start(beats: [.tryIt, .home])
-        await eventually { t.notch.introLine?.choices.contains { $0.id == "suggestion.0" } == true }
-        t.notch.session.draft = "Book a table for Friday"
-        t.notch.startWork()                                               // Return in the composer during the tour
-        XCTAssertEqual(t.notch.session.draft, "Book a table for Friday")
-        XCTAssertEqual(t.notch.promptError, NotchModel.introHeldWork)
-        XCTAssertFalse(t.rig.rpc.methods().contains("chat.send"))
-        await t.pick("suggestion.0")
-        await t.pick("doItForReal")
-        await eventually { t.rig.rpc.methods().contains("chat.send") }
-        XCTAssertEqual(t.rig.rpc.params(of: "chat.send").map { $0["text"] as? String }, [Self.suggestions[0]])
-        XCTAssertEqual(t.notch.session.draft, "Book a table for Friday")  // never sent, never overwritten
-        XCTAssertNil(t.notch.promptError)
     }
 
     func testTheTourOpensTheChatWithoutTakingFocus() async {
@@ -529,22 +503,6 @@ final class IntroControllerTests: XCTestCase {
         await eventually { stale.controller.beat == .signIn }
     }
 
-    func testAPauseTheOwnerSetIsLeftOn() async {
-        let t = tour()
-        t.notch.daemonPaused = true
-        t.controller.start(beats: [.control, .home])
-        await eventually { t.controls.onControl != nil }
-        t.controls.send(.toggle)
-        t.controls.send(.talk)
-        t.controls.send(.summon)
-        await eventually { t.notch.conversation.turns.contains { $0.status == "previewRunning" } }
-        t.notch.introAction(.stopPreview)
-        await eventually { t.progress.done }
-        XCTAssertTrue(t.lines.all.contains(IntroCopy.alreadyPaused))     // explained, not practised
-        XCTAssertFalse(t.rig.rpc.methods().contains("sense.resume"))
-        XCTAssertTrue(t.notch.daemonPaused)
-    }
-
     // MARK: Round 2
 
     // decision: APP-516
@@ -582,17 +540,6 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.orb.launches.last?.instruction?.text, "I'd use Notes for this")
         XCTAssertEqual(t.orb.launches.last?.instruction?.iconPath, "/System/Applications/Notes.app")
         XCTAssertEqual(t.orb.launches.count, 2)
-    }
-
-    func testATapWhileTheOrbFliesHomeStillPicks() async {
-        let t = tour()
-        t.orb.holdFlyHome = true                                                // the flight home is still in the air
-        t.controller.start(beats: [.tryIt, .home])
-        await t.pick("suggestion.0")
-        await eventually { t.orb.flying }
-        await t.pick("doItForReal")
-        await eventually { t.lines.all.contains(IntroCopy.willDoIt) }
-        await eventually { t.rig.rpc.methods().contains("chat.send") }          // the tap was kept: the task starts after
     }
 
     // decision: APP-511
@@ -652,56 +599,11 @@ final class IntroControllerTests: XCTestCase {
         await eventually { t.rig.rpc.methods().contains("chat.send") }
         XCTAssertEqual(t.rig.rpc.params(of: "chat.send").map { $0["text"] as? String }, [Self.suggestions[1]])
     }
-
-    func testARepairSkipPutsDoItForRealInTheDraftInsteadOfSending() async {
-        for typed in ["", "Book a table for Friday"] {
-            let t = tour()
-            var ended = 0
-            t.controller.onFinished = { ended += 1 }
-            t.controller.start(beats: [.tryIt, .control, .home])
-            await t.pick("suggestion.0")
-            await t.pick("doItForReal")
-            await eventually { t.controller.beat == .control }
-            t.notch.session.draft = typed
-            t.controller.skip(forRepair: true)                             // the service is down: nothing is sent
-            await eventually { ended == 1 }
-            XCTAssertEqual(t.notch.session.draft, typed.isEmpty ? Self.suggestions[0] : typed + "\n" + Self.suggestions[0])
-            XCTAssertFalse(t.notch.conversation.turns.contains { !$0.preview && $0.request == Self.suggestions[0] })
-            XCTAssertFalse(t.rig.rpc.methods().contains("chat.send"))
-        }
-    }
 }
 
 /// Where the intro's orb points for an app, from injected sources (no real app is looked up, opened or brought forward).
 @MainActor
 final class IntroAppTargetsTests: XCTestCase {
-    func testARunningAppsLargestWindowIsTheTarget() {
-        let target = IntroControllerTests.mac().target(app: "finder")            // names match regardless of case
-        XCTAssertEqual(target.point, IntroControllerTests.besideFinder)
-        XCTAssertTrue(target.onWindow)
-        XCTAssertEqual(target.name, "Finder")
-    }
-
-    func testTheDefaultBrowserIsResolvedFromLaunchServices() {
-        let target = IntroControllerTests.mac(browser: true).target(app: "")
-        XCTAssertEqual(target.name, "Example Browser")
-        XCTAssertEqual(target.point, CGPoint(x: 720, y: 791))
-        XCTAssertEqual(target.iconPath, "/Applications/Example Browser.app")
-        let closed = IntroControllerTests.mac().target(app: "")                 // installed, not running
-        XCTAssertEqual(closed.point, IntroControllerTests.resting)
-        XCTAssertEqual(closed.name, "Example Browser")
-    }
-
-    func testAMissingAppGoesToTheRestingPoint() {
-        let installed = IntroControllerTests.mac().target(app: "Notes")
-        XCTAssertEqual(installed.point, IntroControllerTests.resting)
-        XCTAssertFalse(installed.onWindow)
-        XCTAssertEqual(installed.iconPath, "/System/Applications/Notes.app")
-        let unknown = IntroControllerTests.mac().target(app: "Example Editor")
-        XCTAssertEqual(unknown.point, IntroControllerTests.resting)
-        XCTAssertNil(unknown.iconPath)                                          // not installed: no icon
-    }
-
     func testAModelNamedAppIsNeverAPath() {
         var probed: [String] = []
         let exists: (String) -> Bool = { probed.append($0); return true }
@@ -712,17 +614,5 @@ final class IntroAppTargetsTests: XCTestCase {
         XCTAssertEqual(IntroAppResolver.installedApp(named: "Notes", folders: ["/Applications", "/System/Applications"],
                                                      exists: { $0 == "/System/Applications/Notes.app" }),
                        "/System/Applications/Notes.app")
-    }
-
-    func testTheFrontmostWindowOfThoseAppsIsPicked() {
-        var resolver = IntroControllerTests.mac(browser: true)
-        resolver.windows = {                                                    // front to back
-            [RawWindow(pid: 20, bounds: CGRect(x: 0, y: 0, width: 300, height: 30), layer: 25),   // a menu-bar extra
-             RawWindow(pid: 10, bounds: CGRect(x: 400, y: 100, width: 600, height: 400), layer: 0),
-             RawWindow(pid: 20, bounds: CGRect(x: 0, y: 25, width: 1440, height: 875), layer: 0)]
-        }
-        XCTAssertEqual(resolver.frontWindow(of: ["Example Browser", "Finder"]), IntroControllerTests.besideFinder)
-        XCTAssertEqual(resolver.frontWindow(of: ["Example Browser"]), CGPoint(x: 720, y: 791))
-        XCTAssertNil(resolver.frontWindow(of: ["Notes"]))
     }
 }

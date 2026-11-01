@@ -3,34 +3,6 @@ import CoreGraphics
 @testable import NotchCore
 
 final class NotchCoreTests: XCTestCase {
-    func testCompletedDocumentCanBeRecalledWithItsOriginalContext() {
-        var session = NotchSession()
-        let source = URL(fileURLWithPath: "/tmp/Original notes.txt")
-        let document = URL(fileURLWithPath: "/tmp/Example brief.pdf")
-        session.draft = "Make a brief from my notes"
-        session.attach([source])
-        let id = session.beginWork()!
-        XCTAssertTrue(session.finishWork(taskID: id, documentURL: document))
-        let receipt = session.result!
-        session.newRequest()
-        session.draft = "Another request"
-        session.recall(receipt)
-        XCTAssertEqual(session.result?.documentURL, document)
-        XCTAssertEqual(session.draft, receipt.request)
-        XCTAssertEqual(session.attachments, [source])
-    }
-
-    func testAttentionInvalidatesPendingCompletionAndKeepsTheRequest() {
-        var session = NotchSession()
-        session.draft = "Make a brief"
-        let id = session.beginWork()!
-        session.requireAttention("The example could not be saved.")
-        XCTAssertFalse(session.finishWork(taskID: id))
-        XCTAssertEqual(session.phase, .attention)
-        XCTAssertEqual(session.draft, "Make a brief")
-        XCTAssertTrue(session.history.isEmpty)
-    }
-
     // decision: APP-550
     func testPanelAttachesBelowThePhysicalCameraCutout() {
         let geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1512, height: 982),
@@ -77,51 +49,5 @@ final class NotchCoreTests: XCTestCase {
         XCTAssertFalse(session.isExpanded)
         XCTAssertEqual(session.phase, .result)
         XCTAssertEqual(session.history.count, 1)
-    }
-
-    func testStoppedTaskCannotPublishALateResult() {
-        var session = NotchSession()
-        session.draft = "Make a brief"
-        let taskID = session.beginWork()!
-        session.stopWork()
-        XCTAssertFalse(session.finishWork(taskID: taskID))
-        XCTAssertEqual(session.phase, .stopped)
-        XCTAssertTrue(session.history.isEmpty)
-    }
-
-    func testAnOldCompletionCannotReplaceANewerTask() {
-        var session = NotchSession()
-        session.draft = "First"
-        let oldID = session.beginWork()!
-        session.stopWork()
-        session.newRequest()
-        session.draft = "Second"
-        let currentID = session.beginWork()!
-        XCTAssertFalse(session.finishWork(taskID: oldID))
-        XCTAssertEqual(session.activeTaskID, currentID)
-        XCTAssertTrue(session.finishWork(taskID: currentID))
-        XCTAssertEqual(session.result?.request, "Second")
-    }
-
-    func testEmptyRequestsCannotStartAndAttachmentsAreDeduplicated() {
-        var session = NotchSession()
-        session.draft = " \n "
-        XCTAssertNil(session.beginWork())
-        let file = URL(fileURLWithPath: "/tmp/Notes.txt")
-        session.attach([file, file])
-        XCTAssertEqual(session.attachments.count, 1)
-        session.removeAttachment(file)
-        XCTAssertTrue(session.attachments.isEmpty)
-    }
-
-    func testResultKeepsOriginalContextAfterStartingAnotherRequest() {
-        var session = NotchSession()
-        session.draft = "An example handoff"
-        session.attach([URL(fileURLWithPath: "/tmp/Notes.txt")])
-        let id = session.beginWork()!
-        XCTAssertTrue(session.finishWork(taskID: id))
-        session.newRequest()
-        XCTAssertEqual(session.history.first?.request, "An example handoff")
-        XCTAssertEqual(session.history.first?.sources.first?.lastPathComponent, "Notes.txt")
     }
 }

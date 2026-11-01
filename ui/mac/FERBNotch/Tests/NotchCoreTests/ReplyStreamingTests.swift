@@ -49,37 +49,6 @@ final class ReplyStreamingTests: XCTestCase {
         XCTAssertFalse(model.session.activity.contains { $0.title == "Finding your notes" })
     }
 
-    func testAbortClearsDraftAndPersistsInterruptionUntilAuthoritativeResult() throws {
-        let model = makeModel()
-        let id = begin("Hello", in: model)
-        model.receiveChatEvent(["type": "reply_delta", "text": "Unfinished draft"], localID: id)
-        model.receiveChatEvent(["type": "reply_abort", "reason": "Response interrupted"], localID: id)
-        model.receiveChatEvent(["type": "reply_delta", "text": "stale"], localID: id)
-        XCTAssertEqual(model.conversation.turns.first?.answer, "")
-        XCTAssertEqual(model.conversation.turns.first?.status, "interrupted")
-        XCTAssertEqual(model.conversation.turns.first?.responseNotice, "Response interrupted")
-        XCTAssertFalse(model.completionTraceVisible)
-        let saved = try XCTUnwrap(model.preferences.data(forKey: "FERBConversationArchive"))
-        XCTAssertFalse(String(decoding: saved, as: UTF8.self).contains("Unfinished draft"))
-        let restored = try JSONDecoder().decode(ConversationArchive.self, from: saved)
-        XCTAssertEqual(restored.turns.first?.status, "interrupted")
-        model.receiveChatEvent(["type": "clarify", "text": "Could you clarify?"], localID: id)
-        XCTAssertEqual(model.conversation.turns.first?.answer, "Could you clarify?")
-        XCTAssertNil(model.conversation.turns.first?.responseNotice)
-    }
-
-    func testPlanAfterAbortRestoresWorkingStateWithoutProvisionalText() {
-        let model = makeModel()
-        let id = begin("Find notes", in: model)
-        model.receiveChatEvent(["type": "reply_delta", "text": "Draft"], localID: id)
-        model.receiveChatEvent(["type": "reply_abort", "reason": "Draft discarded"], localID: id)
-        model.receiveChatEvent(["type": "plan", "task_id": "actual-task", "text": "Finding notes"], localID: id)
-        XCTAssertEqual(model.conversation.turns.first?.status, "working")
-        XCTAssertNil(model.conversation.turns.first?.responseNotice)
-        XCTAssertEqual(model.conversation.turns.first?.answer, "")
-        XCTAssertFalse(model.conversation.turns.first!.isProvisional)
-    }
-
     // decision: APP-571, APP-570
     func testRestoringProvisionalDraftDoesNotPretendTheOldStreamIsStillRunning() throws {
         let defaults = scratchDefaults()

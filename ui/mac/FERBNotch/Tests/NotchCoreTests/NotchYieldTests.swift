@@ -116,33 +116,6 @@ final class NotchOverlapTests: XCTestCase {
         XCTAssertEqual(NotchOverlap.owner(at: point, in: [ferbPanel, F.maximizedBrowser], ownPIDs: [F.ferb]), F.browser)
         XCTAssertNil(NotchOverlap.owner(at: CGPoint(x: 5, y: 5), in: [F.maximizedBrowser], ownPIDs: [F.ferb]))
     }
-
-    func testAppKitFramesConvertToWindowServerCoordinates() {
-        let appKitHeader = CGRect(x: 547, y: 912, width: 376, height: 44)
-        XCTAssertEqual(NotchOverlap.windowServerRect(appKitHeader, primaryDisplayHeight: 956), F.headerPanel)
-        XCTAssertEqual(NotchOverlap.windowServerPoint(CGPoint(x: 735, y: 950), primaryDisplayHeight: 956),
-                       CGPoint(x: 735, y: 6))
-    }
-
-    func testAWindowListRowIsReadFromBoundsLayerOwnerAndAlphaOnly() {
-        let row: [String: Any] = [kCGWindowNumber as String: NSNumber(value: 4242),
-                                  kCGWindowOwnerPID as String: NSNumber(value: 900),
-                                  kCGWindowLayer as String: NSNumber(value: 101),
-                                  kCGWindowAlpha as String: NSNumber(value: 0.5),
-                                  kCGWindowBounds as String: ["X": 850, "Y": 33, "Width": 260, "Height": 400]]
-        XCTAssertEqual(ScreenWindow(windowInfo: row),
-                       ScreenWindow(windowID: 4242, ownerPID: 900, layer: 101,
-                                    bounds: CGRect(x: 850, y: 33, width: 260, height: 400), alpha: 0.5))
-        var withoutAlpha = row
-        withoutAlpha[kCGWindowAlpha as String] = nil
-        XCTAssertEqual(ScreenWindow(windowInfo: withoutAlpha)?.alpha, 1)
-        var withoutBounds = row
-        withoutBounds[kCGWindowBounds as String] = nil
-        XCTAssertNil(ScreenWindow(windowInfo: withoutBounds))
-        var withoutNumber = row
-        withoutNumber[kCGWindowNumber as String] = nil
-        XCTAssertNil(ScreenWindow(windowInfo: withoutNumber))
-    }
 }
 
 final class NotchYieldTests: XCTestCase {

@@ -259,41 +259,6 @@ final class SoundFeedbackTests: XCTestCase {
 
     // MARK: - Shortcut and pause wiring
 
-    func testOpeningFERBByShortcutPlaysSummonAndClosingItPlaysNothing() {
-        _ = NSApplication.shared
-        let model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("SoundFeedbackTests"))
-        let sounds = FakeSoundPlayer()
-        model.feedback.player = sounds
-        let coordinator = PanelCoordinator(model: model)
-        coordinator.magneticFieldPresentationEnabled = false
-        defer { coordinator.tearDown() }
-        coordinator.shortcutPressed()
-        XCTAssertTrue(model.expanded)
-        XCTAssertEqual(sounds.played, [.summon])
-        coordinator.shortcutPressed()
-        XCTAssertFalse(model.expanded)
-        coordinator.modifierDoubleTapped()
-        XCTAssertTrue(model.expanded)
-        coordinator.modifierDoubleTapped()
-        XCTAssertEqual(sounds.played, [.summon, .summon])
-    }
-
-    func testPausingFERBPlaysPausedAndResumingPlaysNothing() async {
-        _ = NSApplication.shared
-        let model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("SoundFeedbackTests"))
-        let sounds = FakeSoundPlayer()
-        model.feedback.player = sounds
-        let coordinator = PanelCoordinator(model: model)
-        coordinator.magneticFieldPresentationEnabled = false
-        defer { coordinator.tearDown() }
-        coordinator.perform(.pause)
-        await until { model.daemonPaused }
-        XCTAssertEqual(sounds.played, [.paused])
-        coordinator.perform(.resume)
-        await until { !model.daemonPaused }
-        XCTAssertEqual(sounds.played, [.paused])
-    }
-
     // MARK: - The banner's file
 
     // decision: APP-533

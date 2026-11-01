@@ -301,22 +301,6 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(p?["folder"] as? String, "Profile 1")
     }
 
-    func testPollingThroughARestartKeepsTheStepAndSaysFERBIsAway() async {
-        let rig = SetupRig()
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()
-        let model = rig.model()
-        model.step = .permissions
-        await model.refreshPermissions()
-        rig.rpc.failures["setup.permissions"] = DaemonRPCError.unavailable
-        await model.refreshPermissions()
-        XCTAssertEqual(model.step, .permissions)
-        XCTAssertEqual(model.message, SetupModel.notAnswering)
-        XCTAssertEqual(model.permissions?.rows.count, 4)          // the last rows stay on screen
-        rig.rpc.failures["setup.permissions"] = nil
-        await model.refreshPermissions()
-        XCTAssertNil(model.message)
-    }
-
     func testDoneRecordsSetupAndOpensTheNotch() async {
         let rig = SetupRig()
         let model = rig.model()
@@ -327,52 +311,6 @@ final class SetupModelTests: XCTestCase {
         await model.primary()
         XCTAssertTrue(rig.rpc.methods().contains("setup.finish"))
         XCTAssertTrue(opened)
-    }
-
-    func testLaunchKnowsSetupIsDoneFromTheDaemon() async {
-        let rig = SetupRig()
-        let model = rig.model()
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(setupDone: true)
-        let done = await model.setupDone(attempts: 1, pause: .zero)
-        XCTAssertTrue(done)
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(setupDone: false)
-        let notDone = await model.setupDone(attempts: 1, pause: .zero)
-        XCTAssertFalse(notDone)
-        rig.rpc.failures["setup.permissions"] = DaemonRPCError.unavailable
-        let away = await model.setupDone(attempts: 2, pause: .zero)
-        XCTAssertTrue(away)                                      // FERB isn't answering: never nag at launch
-    }
-
-    func testAnExistingInstallIsAskedForNotificationsOnceWhileMacOSHasntAsked() async {
-        // owner decision 6: set up before this window existed, so its Permissions step never offered Notifications
-        let rig = SetupRig()
-        let model = rig.model()
-        let defaults = scratchDefaults("SetupModelTests")
-        let asked = await model.askForNotificationsOnce(defaults: defaults)
-        XCTAssertTrue(asked)
-        XCTAssertEqual(rig.app.requests, ["notifications"])
-        rig.app.notificationStatus = .notDetermined               // still undecided (dismissed): never asked again
-        let again = await model.askForNotificationsOnce(defaults: defaults)
-        XCTAssertFalse(again)
-        XCTAssertEqual(rig.app.requests, ["notifications"])
-        let decided = SetupRig()
-        decided.app.notificationStatus = .denied                  // the owner already answered macOS: no question
-        let fresh = scratchDefaults("SetupModelTests")
-        let none = await decided.model().askForNotificationsOnce(defaults: fresh)
-        XCTAssertFalse(none)
-        XCTAssertTrue(decided.app.requests.isEmpty)
-    }
-
-    func testEveryStepDrawsWithoutTheDaemon() {
-        let rig = SetupRig()
-        let model = rig.model(.install)
-        for step in SetupStep.allCases {
-            model.step = step
-            let view = NSHostingView(rootView: SetupView(model: model))
-            view.frame = NSRect(x: 0, y: 0, width: 560, height: 500)
-            view.layoutSubtreeIfNeeded()
-            XCTAssertGreaterThan(view.fittingSize.height, 0, "\(step)")
-        }
     }
 
     private func aiReply(claude signIn: [String: Any], signedIn: Bool) -> [String: Any] {

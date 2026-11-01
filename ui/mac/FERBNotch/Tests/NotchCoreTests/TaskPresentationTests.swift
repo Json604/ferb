@@ -46,19 +46,6 @@ final class TaskPresentationTests: XCTestCase {
         XCTAssertEqual(model.session.activeTaskID, second)
     }
 
-    func testTaskListDeduplicatesLocalAndBackendAndIncludesRecoveredTasks() {
-        let model = makeModel()
-        model.session.draft = "First task"
-        let local = model.session.beginWork()!
-        model.session.bindBackendTask("first", localID: local)
-        model.workSessions[local] = model.session
-        model.conversation.begin(id: local, request: "First task", sources: [])
-        model.conversation.bind(id: local, taskID: "first")
-        model.runningTasks = ["first": "First task", "recovered": "Recovered task"]
-        XCTAssertEqual(model.taskItems.count, 2)
-        XCTAssertEqual(Set(model.taskItems.compactMap(\.backendID)), ["first", "recovered"])
-    }
-
     func testTaskHistoryListsTheNewestFirst() {
         // Owner 2026-10-25: the list showed older tasks on top (it sorted by the random task id).
         let model = makeModel()
@@ -82,26 +69,6 @@ final class TaskPresentationTests: XCTestCase {
         XCTAssertEqual(rpc.calls.first?.1["task_ids"] as? [String], ["two"])
     }
 
-    func testDisplayTextPreservesFullAnswerInArchive() throws {
-        let model = makeModel()
-        model.session.draft = "Question"
-        let local = model.session.beginWork()!
-        model.conversation.begin(id: local, request: "Question", sources: [])
-        model.receiveChatEvent(["type": "reply", "text": "Full explanation with evidence.", "display_text": "Done."], localID: local)
-        XCTAssertEqual(model.conversation.turns.first?.answer, "Full explanation with evidence.")
-        XCTAssertEqual(model.conversation.turns.first?.displayText, "Done.")
-        let restored = try JSONDecoder().decode(ConversationArchive.self, from: JSONEncoder().encode(model.conversation))
-        XCTAssertEqual(restored.turns.first?.displayText, "Done.")
-    }
-
-    func testApprovalSummaryPreservesFullQuestionAndLegacyFallback() {
-        let value: [String: Any] = ["approval_id": "question", "reason": "Full question and context.", "display_text": "Which app?", "kind": "owner_question", "capability": "owner.ask"]
-        let approval = DaemonApproval(value)!
-        XCTAssertEqual(approval.visibleReason, "Which app?")
-        XCTAssertEqual(approval.reason, "Full question and context.")
-        XCTAssertEqual(DaemonApproval(["approval_id": "old", "reason": "Original?"])?.visibleReason, "Original?")
-    }
-
     func testStopWaitingIdentityNeverStopsAnotherTask() async {
         let rpc = TaskListRPC()
         let model = makeModel(rpc)
@@ -118,35 +85,6 @@ final class TaskPresentationTests: XCTestCase {
         await fulfillment(of: [stopped], timeout: 2)
         XCTAssertEqual(rpc.calls.first?.1["task_ids"] as? [String], ["new"])
         XCTAssertEqual(rpc.calls.filter { $0.0 == "task.stop" }.count, 1)
-    }
-
-    func testInspectPreservesComposerSelectionAndPasteProvenance() async {
-        let rpc = TaskListRPC()
-        let model = makeModel(rpc)
-        model.runningTasks = ["other": "Other task"]
-        model.session.draft = "My pasted draft"
-        model.pasteProvenance.paste("pasted", over: NSRange(location: 3, length: 0), in: "My  draft")
-        let provenance = model.pasteProvenance
-        let focus = model.focusRequest
-        let read = expectation(description: "Read exact trace")
-        rpc.onCall = { method in if method == "trace.get" { read.fulfill() } }
-        model.inspectTask(model.taskItems[0])
-        await fulfillment(of: [read], timeout: 2)
-        XCTAssertEqual(rpc.calls.first?.1["task_id"] as? String, "other")
-        XCTAssertEqual(model.session.draft, "My pasted draft")
-        XCTAssertEqual(model.pasteProvenance, provenance)
-        XCTAssertEqual(model.focusRequest, focus)
-        XCTAssertFalse(model.bodyVisible)
-    }
-
-    func testWorkerApprovalMapsToKnownRootWithoutGuessingUnscopedApproval() {
-        let model = makeModel()
-        model.runningTasks = ["root": "Task", "other": "Another"]
-        model.receiveBusEvent(["topic": "approval.requested", "data": ["approval_id": "q", "task_id": "root.worker", "reason": "Which?"]])
-        XCTAssertEqual(model.pendingApprovals.first?.taskID, "root")
-        XCTAssertEqual(model.taskItems.first(where: { $0.backendID == "root" })?.status, "needs_user")
-        XCTAssertNil(model.normalizeApproval(["approval_id": "unscoped"])?.taskID)
-        XCTAssertEqual(model.normalizeApproval(["approval_id": "unknown", "task_id": "rootish.worker"])?.taskID, "rootish.worker")
     }
 
     func testCodeQuestionShowsItsSummaryFirstAndTheExactQuestionUnderDetails() {

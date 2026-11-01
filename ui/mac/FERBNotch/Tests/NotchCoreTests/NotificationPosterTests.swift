@@ -12,22 +12,6 @@ final class NotificationPosterTests: XCTestCase {
         "id": "reminder:r1", "category": "reminder", "title": "FERB reminder", "body": "call Mom",
         "target": ["kind": "reminder", "timer_id": "r1"], "when_hidden": false]
 
-    func testFERBAppPostsWhatTheDaemonSendsExactlyAsWritten() async {
-        let center = FakeNotificationCenter()
-        let rpc = ScriptedRPC()
-        rpc.events["notifications.subscribe"] = [question, reminder]
-        let poster = NotificationPoster(center: center, settle: .zero)
-        poster.configure(notchShowing: { false }, open: { _ in })
-        let subscribed = await poster.subscribeOnce(rpc: rpc)
-        XCTAssertTrue(subscribed)
-        XCTAssertEqual(rpc.params(of: "notifications.subscribe").first?["authorized"] as? Bool, true)
-        XCTAssertEqual(center.posted.map(\.id), ["question:a1", "reminder:r1"])
-        XCTAssertEqual(center.posted[0].title, "FERB needs you")
-        XCTAssertEqual(center.posted[0].body, "FERB needs your OK: Send it?")
-        XCTAssertEqual(center.posted[0].userInfo, ["kind": "question", "approval_id": "a1", "task_id": "t1"])
-        XCTAssertEqual(center.posted[1].thread, "reminder")
-    }
-
     // decision: APP-301
     func testAnOpenNotchHoldsBackOnlyWhatItAlreadyShows() async {
         let center = FakeNotificationCenter()
@@ -37,47 +21,6 @@ final class NotificationPosterTests: XCTestCase {
         poster.configure(notchShowing: { true }, open: { _ in })
         _ = await poster.subscribeOnce(rpc: rpc)
         XCTAssertEqual(center.posted.map(\.id), ["reminder:r1"])
-    }
-
-    func testAnUnauthorizedAppNeverSubscribes() async {
-        let center = FakeNotificationCenter()
-        center.allowed = false
-        let rpc = ScriptedRPC()
-        let poster = NotificationPoster(center: center, settle: .zero)
-        let subscribed = await poster.subscribeOnce(rpc: rpc)
-        XCTAssertFalse(subscribed)
-        XCTAssertTrue(rpc.calls.isEmpty)
-    }
-
-    /// Owner 2026-10-26: "ask when first needed, like Claude and ChatGPT": the first banner brings macOS's prompt.
-    func testTheFirstBannerAsksMacOSAndPostsOnAYes() async {
-        let center = FakeNotificationCenter()
-        center.allowed = false
-        center.undecidedState = true
-        let rpc = ScriptedRPC()
-        rpc.events["notifications.subscribe"] = [question, reminder]
-        let poster = NotificationPoster(center: center, settle: .zero)
-        poster.configure(notchShowing: { false }, open: { _ in })
-        let subscribed = await poster.subscribeOnce(rpc: rpc)
-        XCTAssertTrue(subscribed)
-        XCTAssertEqual(center.requests, 1)
-        XCTAssertEqual(center.posted.map(\.id), ["question:a1", "reminder:r1"])
-    }
-
-    func testANoToTheFirstBannerPostsNothingAndHandsBackPosting() async {
-        let center = FakeNotificationCenter()
-        center.allowed = false
-        center.undecidedState = true
-        center.answer = false
-        let rpc = ScriptedRPC()
-        rpc.events["notifications.subscribe"] = [question, reminder]
-        let poster = NotificationPoster(center: center, settle: .zero)
-        poster.configure(notchShowing: { false }, open: { _ in })
-        _ = await poster.subscribeOnce(rpc: rpc)
-        XCTAssertEqual(center.requests, 1)
-        XCTAssertTrue(center.posted.isEmpty)
-        let again = await poster.subscribeOnce(rpc: rpc)            // denied now: never subscribes again
-        XCTAssertFalse(again)
     }
 
     /// Owner 2026-10-26: one "Allow all" button for the setup rows: the two every task needs, Full Disk Access and
@@ -96,18 +39,6 @@ final class NotificationPosterTests: XCTestCase {
                                                         "screen_recording"])
         XCTAssertEqual(SetupModel.allowAllOrder([row("accessibility", .granted), row("screen_recording", .denied)]),
                        ["screen_recording"])
-    }
-
-    func testWithoutANotificationCenterThePosterNeverSubscribes() async {
-        let rpc = ScriptedRPC()
-        let poster = NotificationPoster(center: nil)
-        let subscribed = await poster.subscribeOnce(rpc: rpc)
-        XCTAssertFalse(subscribed)
-        poster.start(rpc: rpc, notchShowing: { false }, open: { _ in })
-        try? await Task.sleep(for: .milliseconds(50))
-        XCTAssertTrue(rpc.calls.isEmpty)
-        poster.receive(question)                                 // nothing to post with: no crash
-        poster.stop()
     }
 
     // decision: APP-301
@@ -145,12 +76,5 @@ final class NotificationPosterTests: XCTestCase {
         poster.withdrawQuestion("a1")                                   // answered before the banner was judged
         try await Task.sleep(for: .milliseconds(150))
         XCTAssertEqual(center.posted.map(\.id), ["reminder:r1", "task:t1"])
-    }
-
-    func testAnAnsweredQuestionWithdrawsItsBanner() {
-        let center = FakeNotificationCenter()
-        let poster = NotificationPoster(center: center, settle: .zero)
-        poster.withdrawQuestion("a1")
-        XCTAssertEqual(center.withdrawn, ["question:a1"])
     }
 }

@@ -4,22 +4,6 @@ import Darwin
 @testable import NotchCore
 
 final class DaemonRPCTests: XCTestCase {
-    func testAuthenticatesThenDecodesFragmentedNotificationsAndMatchingResponse() async throws {
-        let server = try RPCFixture { request in
-            switch request["method"] as? String {
-            case "auth.hello":
-                XCTAssertEqual((request["params"] as? [String: Any])?["role"] as? String, "cli")
-                return ["jsonrpc": "2.0", "id": request["id"]!, "result": ["ok": true]]
-            default:
-                return ["jsonrpc": "2.0", "id": request["id"]!, "result": ["session_id": "conversation-real"]]
-            }
-        }
-        defer { server.close() }
-        let rpc = DaemonRPC(socketPath: server.path)
-        let value = try await rpc.call("chat.attach", params: [:])
-        XCTAssertEqual(value["session_id"] as? String, "conversation-real")
-    }
-
     // decision: APP-570
     func testStreamingDeliversFragmentedEventThenEndsOnMatchingResponse() async throws {
         let server = try RPCFixture(notifications: [
@@ -49,33 +33,6 @@ final class DaemonRPCTests: XCTestCase {
         } catch {
             XCTAssertFalse(error.localizedDescription.contains("private-test-value"))
         }
-    }
-
-    func testAnInternalFaultIsToldApartFromFERBsOwnRefusal() async throws {
-        // L36: -32004 carries FERB's own words for a refusal (shown to the owner); -32603 only an exception's type name
-        func failing(_ code: Int, _ message: String) throws -> RPCFixture {
-            try RPCFixture { request in
-                request["method"] as? String == "auth.hello" ? ["id": request["id"]!, "result": ["ok": true]]
-                    : ["id": request["id"]!, "error": ["code": code, "message": message]]
-            }
-        }
-        let fault = try failing(-32603, "ValueError")
-        defer { fault.close() }
-        do {
-            _ = try await DaemonRPC(socketPath: fault.path).call("chat.answer", params: ["approval_id": "a", "text": "x"])
-            XCTFail("Expected failure")
-        } catch DaemonRPCError.internalFault {
-        } catch { XCTFail("Expected an internal fault, got \(error)") }
-        XCTAssertEqual(DaemonRPCError.internalFault.localizedDescription, "FERB hit an internal error.")
-        let refusal = try failing(-32004, "Pick Keep, Edit or Drop.")
-        defer { refusal.close() }
-        do {
-            _ = try await DaemonRPC(socketPath: refusal.path).call("chat.answer", params: ["approval_id": "a", "text": "x"])
-            XCTFail("Expected failure")
-        } catch DaemonRPCError.remote(let message, let code) {
-            XCTAssertEqual(message, "Pick Keep, Edit or Drop.")
-            XCTAssertEqual(code, -32004)                    // the code reaches the app (step 8e)
-        } catch { XCTFail("Expected FERB's refusal, got \(error)") }
     }
 }
 

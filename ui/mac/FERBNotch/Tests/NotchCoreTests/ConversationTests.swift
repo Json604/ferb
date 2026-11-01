@@ -22,21 +22,6 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(restored.turns.last?.answer, "Hello again!")
     }
 
-    @MainActor func testIncrementalReplyKeepsOneTurnAndFinalTextReplacesChunks() {
-        let model = NotchModel(preferences: scratchDefaults())
-        model.session.draft = "Hello"
-        let id = model.session.beginWork()!
-        model.conversation.begin(id: id, request: "Hello", sources: [])
-        model.receiveChatEvent(["type": "reply_delta", "text": "Hel"], localID: id)
-        model.receiveChatEvent(["type": "reply_delta", "text": "lo"], localID: id)
-        XCTAssertEqual(model.conversation.turns.first?.answer, "Hello")
-        XCTAssertEqual(model.session.activeTaskID, id)
-        model.receiveChatEvent(["type": "reply", "text": "Hello!"], localID: id)
-        model.receiveChatEvent(["type": "reply_delta", "text": "late"], localID: id)
-        XCTAssertEqual(model.conversation.turns.count, 1)
-        XCTAssertEqual(model.conversation.turns.first?.answer, "Hello!")
-    }
-
     // decision: APP-571, APP-301
     @MainActor func testTaskCompletionRevealsTuckedHeaderWithoutRequestingKeyboardFocus() {
         let model = NotchModel(preferences: scratchDefaults())

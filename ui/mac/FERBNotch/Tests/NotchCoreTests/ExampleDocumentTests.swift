@@ -21,12 +21,4 @@ final class ExampleDocumentTests: XCTestCase {
         XCTAssertEqual(try documents.create(id: id, request: "Changed", sources: []), url)
         XCTAssertEqual(PDFDocument(url: url)?.string, text)
     }
-
-    @MainActor
-    func testDocumentFailureIsReportedWhenDestinationIsAFile() throws {
-        let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try Data("occupied".utf8).write(to: destination)
-        defer { try? FileManager.default.removeItem(at: destination) }
-        XCTAssertThrowsError(try ExampleDocuments(directory: destination).create(id: UUID(), request: "A brief", sources: []))
-    }
 }

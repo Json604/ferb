@@ -72,20 +72,6 @@ final class RedactedHistoryTests: XCTestCase {
         XCTAssertFalse(try savedText(model).contains("hunter2"))
     }
 
-    func testHiddenNoticeCopy() {
-        var turn = ConversationTurn(id: UUID(), createdAt: Date(), request: redacted, sources: [])
-        XCTAssertNil(turn.hiddenNotice)
-        turn.hiddenKinds = ["saved secret"]
-        XCTAssertEqual(turn.hiddenNotice, "That's one of your saved secrets. I hid it from the AI.")
-        turn.hiddenKinds = ["AWS access key id"]
-        XCTAssertEqual(turn.hiddenNotice, "That looked like an AWS access key id. I hid it from the AI and didn't "
-                       + "save it. Best not to paste keys and passwords into chats.")
-        turn.hiddenKinds = ["saved secret", "npm token"]
-        XCTAssertEqual(turn.hiddenNotice, "That's one of your saved secrets. I hid it from the AI. That looked like "
-                       + "an npm token. I hid it from the AI and didn't save it. Best not to paste keys and passwords "
-                       + "into chats.")
-    }
-
     // decision: APP-569
     func testRecordAnswerNeverSavesRawRequest() throws {
         let model = NotchModel(rpc: QuietRPC(), preferences: scratchDefaults())

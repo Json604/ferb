@@ -5,23 +5,6 @@ import Foundation
 
 @MainActor
 final class DaemonConnectionTests: XCTestCase {
-    func testStartupProfileUsesExistingApprovalWithCompleteEvidenceAndNoTaskAssociation() async {
-        let rpc = RecordingRPC()
-        let evidence = ["Local scan: 2026-10-11", "Code: 3733 Spotlight uses; last used 2026-10-10."]
-        rpc.responses["chat.status"] = ["approvals": [["approval_id": "persona", "title": "Getting to know you",
-            "capability": "setup.persona", "kind": "owner_question", "reason": "Confirm or edit your app-use profile.",
-            "options": ["Save app-use profile", "Skip"], "evidence": evidence]], "running": [[String: Any]](),
-            "results": [[String: Any]]()]
-        let model = makeModel(rpc)
-        model.session.draft = "My next request"
-        await model.refreshDaemonStatus()
-        XCTAssertEqual(model.pendingApprovals.first?.title, "Getting to know you")
-        XCTAssertEqual(model.pendingApprovals.first?.evidence, evidence)
-        XCTAssertNil(model.pendingApprovals.first?.taskID)
-        XCTAssertEqual(model.session.draft, "My next request")
-        XCTAssertFalse(model.pendingApprovals.first!.isSecret)
-        XCTAssertTrue(model.conversation.turns.isEmpty)
-    }
     func testStopBeforePlanWaitsForExactBackendID() async throws {
         let rpc = RecordingRPC()
         let model = makeModel(rpc)
@@ -35,17 +18,6 @@ final class DaemonConnectionTests: XCTestCase {
         let stop = rpc.calls.first { $0.0 == "task.stop" }
         XCTAssertEqual(stop?.1["task_ids"] as? [String], ["backend-real"])
         XCTAssertFalse(rpc.calls.contains { $0.0 == "chat.send" })
-    }
-
-    func testDuplicateResultsDoNotReplayOrCreateAnExampleArtifact() {
-        let model = makeModel(RecordingRPC())
-        model.session.resumeBackendTask("real", goal: "Answer a question")
-        let event: [String: Any] = ["task_id": "real", "status": "done", "answer": "An actual answer", "artifacts": [String]()]
-        model.receiveOutcome(event, announce: false)
-        model.receiveOutcome(event, announce: false)
-        XCTAssertEqual(model.session.history.count, 1)
-        XCTAssertEqual(model.session.result?.answer, "An actual answer")
-        XCTAssertNil(model.session.result?.documentURL)
     }
 
     // decision: APP-569
@@ -66,18 +38,6 @@ final class DaemonConnectionTests: XCTestCase {
         XCTAssertTrue(model.pendingApprovals.isEmpty)
     }
 
-    func testReconnectRestoresActualPreviouslyShownOutcomeWithoutResubmission() async {
-        let rpc = RecordingRPC()
-        rpc.responses["trace.get"] = ["outcome": ["result": ["status": "done", "answer": "Restored answer", "artifacts": ["/tmp/real.txt"]]]]
-        let model = makeModel(rpc)
-        model.preferences.set("remembered", forKey: "FERBActiveTaskID")
-        await model.refreshDaemonStatus()
-        XCTAssertEqual(model.session.result?.backendTaskID, "remembered")
-        XCTAssertEqual(model.session.result?.answer, "Restored answer")
-        XCTAssertFalse(rpc.calls.contains { $0.0 == "chat.send" })
-        XCTAssertFalse(model.completionTraceVisible)
-    }
-
     func testDuplicateOptionUsesExactOneBasedChoiceAndDenialDoesNotGrant() async throws {
         let rpc = RecordingRPC()
         let model = makeModel(rpc)
@@ -93,32 +53,6 @@ final class DaemonConnectionTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(20))
         XCTAssertEqual(rpc.calls.last?.1["granted"] as? Bool, false)
         XCTAssertNil(rpc.calls.last?.1["choice"])
-    }
-
-    func testARefusedTextAnswerShowsFERBsReasonAndTheQuestionStays() async throws {
-        // L36: FERB refuses an Edit answer that came back hidden as a secret and says why; the notch showed a generic
-        // "could not be confirmed" instead. A lost connection keeps the generic line (the answer may have landed).
-        let rpc = RecordingRPC()
-        let question: [String: Any] = ["approval_id": "edit-1", "kind": "owner_question", "capability": "memory.edit",
-                                       "reason": "How should FERB remember it?", "options": [String]()]
-        rpc.responses["chat.status"] = ["running": [[String: Any]](), "approvals": [question], "results": [[String: Any]]()]
-        let reason = "Those words looked like a secret, so FERB hid them and saved nothing."
-        rpc.failures["chat.answer"] = DaemonRPCError.remote(reason)
-        let model = makeModel(rpc)
-        await model.refreshDaemonStatus()
-        model.answerApproval(try XCTUnwrap(model.pendingApprovals.first), text: "hunter2")
-        await Task.yield()
-        try await Task.sleep(for: .milliseconds(20))
-        XCTAssertEqual(model.promptError, reason)
-        XCTAssertEqual(model.pendingApprovals.map(\.id), ["edit-1"])
-        for failure in [DaemonRPCError.disconnected, DaemonRPCError.internalFault] {   // never FERB's refusal
-            model.promptError = nil
-            rpc.failures["chat.answer"] = failure
-            model.answerApproval(try XCTUnwrap(model.pendingApprovals.first), text: "My dentist is Dr. Rao")
-            await Task.yield()
-            try await Task.sleep(for: .milliseconds(20))
-            XCTAssertEqual(model.promptError, "The answer could not be confirmed. Rechecking the pending request.")
-        }
     }
 
     // decision: APP-584

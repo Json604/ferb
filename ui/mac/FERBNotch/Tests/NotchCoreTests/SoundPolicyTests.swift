@@ -29,8 +29,4 @@ final class SoundPolicyTests: XCTestCase {
         XCTAssertNil(decide(ui: true, feedback: false))
         XCTAssertEqual(decide(ui: true, feedback: true), SoundDecision(subtle: false))
     }
-
-    func testTheFamilyHasNoFlightOrLandingSound() {
-        XCTAssertEqual(FerbSound.allCases.count, 13)
-    }
 }

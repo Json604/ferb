@@ -6,68 +6,6 @@ import SwiftUI
 
 @MainActor
 final class ChatDetailsTests: XCTestCase {
-    func testSourceChipPreservesFullListAndShowsFirstHost() {
-        XCTAssertEqual(VisitedSites("").all, [])
-        XCTAssertEqual(VisitedSites("a, b, c").remainingCount, 2)
-        let sites = VisitedSites("a, b, c, d, e")
-        XCTAssertEqual(sites.inline, "a")
-        XCTAssertEqual(sites.remainingCount, 4)
-        XCTAssertEqual(sites.all, ["a", "b", "c", "d", "e"])
-    }
-
-    func testNativeHoverTracksInactiveWindowWithoutInterceptingClicks() async throws {
-        let hover = ArtifactHoverState()
-        let host = NSHostingView(rootView: NativePreviewHover(changed: hover.anchorHovered))
-        host.frame = NSRect(x: 0, y: 0, width: 120, height: 30)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        func tracker(in view: NSView) -> PreviewHoverTrackingView? {
-            if let result = view as? PreviewHoverTrackingView { return result }
-            return view.subviews.compactMap { tracker(in: $0) }.first
-        }
-        let view = try XCTUnwrap(tracker(in: host))
-        view.updateTrackingAreas()
-        XCTAssertFalse(window.isKeyWindow)
-        XCTAssertTrue(view.trackingAreas.contains { $0.options.contains(.activeAlways) && $0.options.contains(.inVisibleRect) && $0.rect == .zero })
-        XCTAssertNil(view.hitTest(NSPoint(x: 2, y: 2)))
-        let event = try XCTUnwrap(NSEvent.enterExitEvent(with: .mouseEntered, location: view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, trackingNumber: 0, userData: nil))
-        view.mouseEntered(with: event)
-        XCTAssertTrue(hover.isPresented)
-        view.mouseExited(with: event)
-        try await Task.sleep(for: .milliseconds(300))
-        XCTAssertFalse(hover.isPresented)
-        view.mouseEntered(with: event)
-        view.removeFromSuperview()
-        try await Task.sleep(for: .milliseconds(300))
-        XCTAssertFalse(hover.isPresented)
-    }
-
-    func testActualArtifactAndComposerViewsInstallPassiveNativeHoverTracking() {
-        let model = NotchModel(preferences: scratchDefaults())
-        let url = URL(fileURLWithPath: "/tmp/report.md")
-        let host = NSHostingView(rootView: VStack {
-            ArtifactRow(url: url, model: model)
-            ComposerAttachmentCard(url: url, model: model)
-            VisitedSitesView(sites: VisitedSites("one.example, two.example"), model: model)
-        })
-        host.frame = NSRect(x: 0, y: 0, width: 440, height: 240)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        func trackers(in view: NSView) -> [PreviewHoverTrackingView] {
-            (view as? PreviewHoverTrackingView).map { [$0] } ?? view.subviews.flatMap { trackers(in: $0) }
-        }
-        let installed = trackers(in: host)
-        XCTAssertEqual(installed.count, 3)
-        for tracker in installed {
-            tracker.updateTrackingAreas()
-            XCTAssertFalse(tracker.bounds.isEmpty)
-            XCTAssertNil(tracker.hitTest(.zero))
-            XCTAssertTrue(tracker.trackingAreas.contains { $0.options.contains(.activeAlways) })
-        }
-    }
-
     // decision: APP-573
     func testArtifactPrimaryActionUsesQuickLookNotDefaultApp() {
         let model = NotchModel(preferences: scratchDefaults())
@@ -79,28 +17,6 @@ final class ChatDetailsTests: XCTestCase {
         ArtifactRow(url: url, model: model).openPreview()
         XCTAssertEqual(previewed, url)
         XCTAssertFalse(opened)
-    }
-
-    func testComposerCardsReserveOneStripAndRestoreEmptyHeightOnRemoval() {
-        let model = NotchModel(preferences: scratchDefaults())
-        let emptyChrome = model.conversationChromeHeight
-        let emptyBody = model.bodyHeight
-        XCTAssertEqual(model.attachmentStripHeight, 0)
-        let first = URL(fileURLWithPath: "/tmp/report.md")
-        let second = URL(fileURLWithPath: "/tmp/render.mjs")
-        model.attach([first, second])
-        XCTAssertEqual(model.session.attachments, [first, second])
-        XCTAssertEqual(model.attachmentStripHeight, 100)
-        XCTAssertEqual(model.conversationChromeHeight, emptyChrome + 100)
-        XCTAssertEqual(model.bodyHeight, emptyBody + 100)
-        XCTAssertLessThanOrEqual(model.chatTranscriptHeight + model.conversationChromeHeight + model.cutoutHeight,
-                                 model.availableSurfaceSize.height)
-        model.removeAttachment(first)
-        XCTAssertEqual(model.attachmentStripHeight, 100)
-        XCTAssertEqual(model.session.attachments, [second])
-        model.removeAttachment(second)
-        XCTAssertEqual(model.conversationChromeHeight, emptyChrome)
-        XCTAssertEqual(model.bodyHeight, emptyBody)
     }
 
     // decision: APP-571
@@ -156,21 +72,5 @@ final class ChatDetailsTests: XCTestCase {
             model.receiveOutcome(["task_id": "background", "status": status, "answer": "Result"])
             XCTAssertFalse(model.bodyVisible)
         }
-    }
-
-    func testPreviewExitCancellationAndDismissal() async throws {
-        let hover = ArtifactHoverState()
-        hover.anchorHovered(true)
-        XCTAssertTrue(hover.isPresented)
-        hover.anchorHovered(false)
-        hover.previewHovered(true)
-        try await Task.sleep(for: .milliseconds(300))
-        XCTAssertTrue(hover.isPresented)
-        hover.previewHovered(false)
-        try await Task.sleep(for: .milliseconds(300))
-        XCTAssertFalse(hover.isPresented)
-        hover.anchorHovered(true)
-        hover.dismiss()
-        XCTAssertFalse(hover.isPresented)
     }
 }

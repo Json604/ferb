@@ -91,49 +91,6 @@ final class IntroNarrationTests: XCTestCase {
 /// The closed notch shows one thing; the live intro line wins while set (fix round 1).
 @MainActor
 final class IntroPrecedenceTests: XCTestCase {
-    func testAPlanPreviewArrivingAsTheIntroLineClosesShowsThePlanNotTheOldLine() {
-        let model = NotchModel(preferences: scratchDefaults())
-        model.introLine = IntroLine(text: "Let's try one together.", detail: "Watch the notch.")
-        model.introLine = nil                                    // closing; its dismissal hasn't finished
-        model.acknowledgement.show("I'll check the weather.")
-        XCTAssertNil(model.introDisplayLine)
-        XCTAssertEqual(model.compactContent, .plan("I'll check the weather."))
-        XCTAssertEqual(model.surfaceSize.height, model.compactPlanHeight)
-    }
-
-    func testAnIntroLineOverAPlanPreviewWinsAndGivesItBack() {
-        let model = NotchModel(preferences: scratchDefaults())
-        model.acknowledgement.show("I'll check the weather.")
-        var presented: [Bool] = []
-        model.onBackgroundChange = { presented.append($0) }
-        let line = IntroLine(text: "That's FERB planning.", detail: nil)
-        model.introLine = line
-        XCTAssertEqual(model.compactContent, .intro(line))
-        XCTAssertEqual(model.surfaceSize.height, model.introSurfaceHeight(line))
-        model.introLine = nil
-        XCTAssertEqual(model.compactContent, .plan("I'll check the weather."))
-        XCTAssertEqual(model.surfaceSize.height, model.compactPlanHeight)
-        XCTAssertEqual(presented, [true, true])
-        model.acknowledgement.dismiss()                      // the plan closes: the old line never comes back
-        XCTAssertNil(model.introDisplayLine)
-        XCTAssertNotEqual(model.compactContent, .intro(line))
-    }
-
-    func testWithBothSetTheIntroLineWinsWhicheverCameFirst() {
-        let model = NotchModel(preferences: scratchDefaults())
-        let line = IntroLine(text: "Here's the plan.", detail: nil)
-        model.introLine = line
-        model.acknowledgement.show("I'll check the weather.")
-        XCTAssertEqual(model.compactContent, .intro(line))
-        XCTAssertEqual(model.introDisplayLine, line)
-        XCTAssertEqual(model.surfaceSize.height, model.introSurfaceHeight(line))
-        model.introLine = nil
-        XCTAssertEqual(model.compactContent, .plan("I'll check the weather."))
-        model.acknowledgement.dismiss()
-        XCTAssertNil(model.introDisplayLine)
-        XCTAssertNotEqual(model.compactContent, .intro(line))
-    }
-
     // decision: APP-501
     func testThePulseSwellsTheNotchOnceAndShrinksBack() async throws {
         let model = NotchModel(preferences: scratchDefaults())

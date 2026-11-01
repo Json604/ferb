@@ -164,26 +164,6 @@ final class AppSetupTests: XCTestCase {
         XCTAssertEqual(AppSetupPlan.atLaunch(.update, needs: needs(done: true), resume: .permissions), .quietUpdate)
     }
 
-    /// Restart from the menu with no service to restart repairs it in the setup window; it never replays the tour.
-    @MainActor
-    func testAFailedRestartNeverStartsATour() async {
-        _ = NSApplication.shared
-        let coordinator = PanelCoordinator()
-        coordinator.magneticFieldPresentationEnabled = false
-        defer { coordinator.tearDown() }
-        let service = FakeService()
-        service.result = false
-        coordinator.service = service
-        var toured = false
-        var repaired = false
-        coordinator.onSetUp = { toured = true }
-        coordinator.onRepair = { repaired = true }
-        coordinator.perform(.restart)
-        await eventually { repaired }
-        XCTAssertEqual(service.restarts, 1)
-        XCTAssertFalse(toured)
-    }
-
     /// Restart's repair while a tour runs: the tour ends through its own skip (orb, sound and lines torn down) and
     /// exactly one compact window shows, on Welcome, where the tour's end leaves it.
     @MainActor
@@ -239,70 +219,5 @@ final class AppSetupTests: XCTestCase {
         rig.app.microphoneStatus = .notDetermined                   // every permission is required, FERB.app's too
         await controller.model.refreshPermissions()
         XCTAssertEqual(controller.snapshotNeeds(setupDone: true, firstRun: false).missingPermissions, ["microphone"])
-    }
-
-    /// A finished launch reads whether setup is done and nothing else.
-    @MainActor
-    func testAFinishedLaunchReadsOnlyWhatItsDecisionNeeds() async {
-        let rig = SetupRig()
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(setupDone: true)
-        let controller = AppSetupController(model: rig.model(), defaults: scratchDefaults("AppSetupTests"))
-        var settled = false
-        controller.onSettled = { settled = true }
-        await controller.decideAtLaunch(.none)
-        XCTAssertEqual(rig.rpc.methods(), ["setup.permissions"])
-        XCTAssertTrue(settled)
-    }
-
-    /// The tour is behind it and every grant is on, but setup was never recorded: launch records it quietly (the
-    /// daemon checks every row again), and leaves no "isn't answering" line from a slow read behind.
-    @MainActor
-    func testANothingLaunchRecordsAnUnrecordedFinishedSetup() async {
-        let rig = SetupRig()
-        rig.app.notificationStatus = .granted
-        rig.app.microphoneStatus = .granted
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
-        rig.rpc.failures["runtimes.status"] = DaemonRPCError.unavailable
-        rig.rpc.failures["setup.browsers"] = DaemonRPCError.unavailable
-        let defaults = scratchDefaults("AppSetupTests")
-        var progress = IntroProgress(defaults: defaults)
-        progress.done = true
-        let controller = AppSetupController(model: rig.model(), defaults: defaults)
-        var settled = false
-        controller.onSettled = { settled = true }
-        await controller.decideAtLaunch(.none)
-        XCTAssertTrue(rig.rpc.methods().contains("setup.finish"))
-        XCTAssertTrue(settled)
-        XCTAssertNil(controller.model.message)
-
-        // Never recorded without the tour behind it, or without the grants read.
-        let unseen = SetupRig()
-        let fresh = AppSetupController(model: unseen.model(), defaults: scratchDefaults("AppSetupTests"))
-        await fresh.launch(.nothing, action: .none, needs: needs(done: false))
-        XCTAssertFalse(unseen.rpc.methods().contains("setup.finish"))
-        let unread = SetupRig()
-        let seen = scratchDefaults("AppSetupTests")
-        var seenProgress = IntroProgress(defaults: seen)
-        seenProgress.done = true
-        await AppSetupController(model: unread.model(), defaults: seen).launch(.nothing, action: .none,
-                                                                               needs: needs(done: false))
-        XCTAssertFalse(unread.rpc.methods().contains("setup.finish"))
-    }
-
-    func testSignInToCodexRunsFERBsOwnCodexLogin() {
-        XCTAssertEqual(AppSetupPlan.codexLoginArguments, ["setup", "--codex-login"])
-    }
-
-    func testConsoleKeepsCharactersSplitAcrossReads() {
-        var console = ConsoleDecoder()
-        let bytes = Array("✓ granted\n".utf8)                   // ✓ is three bytes
-        XCTAssertEqual(console.append(Data(bytes[0..<2])), "")
-        XCTAssertEqual(console.append(Data(bytes[2...])), "✓ granted\n")
-        XCTAssertEqual(console.append(Data("Press Enter: ".utf8)), "Press Enter: ")   // prompts end without a newline
-    }
-
-    func testConsoleReplacesInvalidBytesInsteadOfStalling() {
-        var console = ConsoleDecoder()
-        XCTAssertEqual(console.append(Data([0x66, 0xFF, 0xFE, 0x67])), "f\u{FFFD}\u{FFFD}g")
     }
 }

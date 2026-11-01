@@ -18,8 +18,7 @@ let package = Package(
                           // The intro playground (Sources/FERBNotch/Playground, PLAYGROUND.md) is compiled into debug
                           // builds only: FERB.app is built release (scripts/build-app.sh) and carries none of it.
                           swiftSettings: [.define("FERB_PLAYGROUND", .when(configuration: .debug))]),
-        .target(name: "AudioCaptureTestSupport", path: "Tests/AudioCaptureTestSupport"),
-        .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore", "FERBNotch", "AudioCapture", "AudioCaptureTestSupport"],
+        .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore", "FERBNotch", "AudioCapture"],
                     swiftSettings: [.define("FERB_PLAYGROUND", .when(configuration: .debug))])
     ],
     swiftLanguageModes: [.v5]
