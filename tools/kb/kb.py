@@ -772,8 +772,12 @@ def item_covers(item: dict, unit: dict) -> bool:
     if item.get("section"):
         sec = norm_text(str(item["section"]))
         return any(h[1].startswith(sec) for h in unit["section"])
-    src = norm_text(str(item.get("src", "")))
-    return bool(src) and unit["text"].startswith(src) and len(src) >= min(20, len(unit["text"]))
+    raw = str(item.get("src", "")).strip()
+    # `init` writes src already normalized; normalizing it again would strip a leading "#" from a "| # |" table row
+    for src in dict.fromkeys((raw, norm_text(raw))):
+        if src and unit["text"].startswith(src) and len(src) >= min(20, len(unit["text"])):
+            return True
+    return False
 
 
 def reconcile_problems(kb: KB, src: str) -> list[str]:
