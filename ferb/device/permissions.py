@@ -7,6 +7,7 @@ CLI's process. Automation can be *requested* (prompt) only from the daemon, so t
 
 import asyncio
 import ctypes
+import logging
 import os
 import subprocess
 import threading
@@ -31,27 +32,38 @@ def _ax_trusted(prompt: bool) -> bool:
     return bool(AX.AXIsProcessTrustedWithOptions({AX.kAXTrustedCheckOptionPrompt: prompt}))
 
 
-def _ax_read_works() -> bool:
-    """A real Accessibility read: the frontmost app's role. The trust flag can be stale; a read cannot."""
-    from AppKit import NSWorkspace
-    app = NSWorkspace.sharedWorkspace().frontmostApplication()
-    if app is None:
+_AX_API_DISABLED = -25211               # kAXErrorAPIDisabled: the only error that proves Accessibility is off
+
+
+def _ax_read_works() -> bool | None:
+    """A real Accessibility read of the focused app's role: True works, False the API is disabled, None inconclusive
+    (no focused app, a slow app). The trust flag can be stale; a read cannot."""
+    system = AX.AXUIElementCreateSystemWide()
+    err, focused = AX.AXUIElementCopyAttributeValue(system, "AXFocusedApplication", None)
+    if err == _AX_API_DISABLED:
         return False
-    err, _ = AX.AXUIElementCopyAttributeValue(AX.AXUIElementCreateApplication(app.processIdentifier()), "AXRole", None)
-    return err == 0
+    if err != 0 or focused is None:
+        return None
+    err, _ = AX.AXUIElementCopyAttributeValue(focused, "AXRole", None)
+    return True if err == 0 else False if err == _AX_API_DISABLED else None
 
 
-def _other_app_window_title_readable() -> bool:
-    """A real Screen Recording read: another process's window title is only listed with the grant."""
+def _other_app_window_title_readable() -> bool | None:
+    """A real Screen Recording read: another process's window title is only listed with the grant. True a title
+    was read, False windows exist but none has a title, None no other app has a window to judge by."""
     me = os.getpid()
+    seen = False
     for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID) or []:
-        if w.get("kCGWindowOwnerPID") != me and w.get("kCGWindowName"):
+        if w.get("kCGWindowOwnerPID") == me or w.get("kCGWindowOwnerName") in ("Dock", "WindowServer"):
+            continue
+        if w.get("kCGWindowName"):
             return True
-    return False
+        seen = True
+    return False if seen else None
 
 
-_PROBES: dict[str, Callable[[], bool]] = {"accessibility": _ax_read_works,
-                                         "screen_recording": _other_app_window_title_readable}
+_PROBES: dict[str, Callable[[], bool | None]] = {"accessibility": _ax_read_works,
+                                                 "screen_recording": _other_app_window_title_readable}
 
 
 def _api_says_granted(name: str) -> bool:
@@ -60,15 +72,18 @@ def _api_says_granted(name: str) -> bool:
     return bool(Quartz.CGPreflightScreenCaptureAccess())
 
 
-def confirmed(name: str, probe: Callable[[str], bool] | None = None) -> bool:
-    """A grant counts only when the plain API says so and a real read of what it protects works (the API alone can be
-    stale). Never prompts. `probe` is injectable; it defaults to the real read for `name`."""
+def confirmed(name: str, probe: Callable[[str], bool | None] | None = None) -> bool:
+    """A grant counts when the plain API says so and no real read of what it protects disproves it (the API alone can
+    be stale). The probe says True (confirmed), False (proven denied) or None (inconclusive: the API is trusted).
+    Never prompts. `probe` is injectable; it defaults to the real read for `name`."""
     if not _api_says_granted(name):
         return False
     try:
-        return bool(probe(name)) if probe is not None else _PROBES[name]()
+        result = probe(name) if probe is not None else _PROBES[name]()
     except Exception:
-        return False
+        logging.getLogger(__name__).debug("FERB %s probe was inconclusive", name)
+        return True
+    return result is not False
 
 
 def accessibility() -> Status:

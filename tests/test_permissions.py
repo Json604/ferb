@@ -37,6 +37,37 @@ def test_screen_recording_counts_only_when_another_apps_window_title_is_readable
     assert P.screen_recording() is P.Status.DENIED
 
 
+def test_screen_recording_trusts_the_api_when_no_other_window_exists(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(P.Quartz, "CGPreflightScreenCaptureAccess", lambda: True)
+    monkeypatch.setattr(P.Quartz, "CGWindowListCopyWindowInfo", lambda *a: [
+        {"kCGWindowOwnerPID": os.getpid(), "kCGWindowName": "mine"}, {"kCGWindowOwnerPID": 1, "kCGWindowOwnerName": "Dock"}])
+    assert P._other_app_window_title_readable() is None
+    assert P.screen_recording() is P.Status.GRANTED
+    monkeypatch.setattr(P.Quartz, "CGWindowListCopyWindowInfo", lambda *a: [{"kCGWindowOwnerPID": 7}])
+    assert P._other_app_window_title_readable() is False
+    assert P.screen_recording() is P.Status.DENIED
+
+
+def test_accessibility_trusts_the_api_when_the_ax_read_is_inconclusive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(P, "_ax_trusted", lambda prompt: True)
+    assert P.confirmed("accessibility", probe=lambda name: None) is True
+    monkeypatch.setattr(P.AX, "AXUIElementCreateSystemWide", lambda: object())
+    monkeypatch.setattr(P.AX, "AXUIElementCopyAttributeValue", lambda el, attr, out: (-25204, None))
+    assert P._ax_read_works() is None
+    assert P.accessibility() is P.Status.GRANTED
+    def boom(name: str) -> bool:
+        raise RuntimeError("x")
+    assert P.confirmed("accessibility", probe=boom) is True
+
+
+def test_accessibility_denied_when_the_ax_api_is_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(P, "_ax_trusted", lambda prompt: True)
+    monkeypatch.setattr(P.AX, "AXUIElementCreateSystemWide", lambda: object())
+    monkeypatch.setattr(P.AX, "AXUIElementCopyAttributeValue", lambda el, attr, out: (-25211, None))
+    assert P._ax_read_works() is False
+    assert P.accessibility() is P.Status.DENIED
+
+
 def test_input_monitoring_uses_iohid_check_access(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(P._iokit, "IOHIDCheckAccess", lambda kind: 0, raising=False)
     assert P.input_monitoring() is P.Status.GRANTED
