@@ -144,8 +144,7 @@ def _line(name: str, pinned: str, latest: str, age: str) -> str:
     if not latest:
         return f"{name}: pinned {pinned}; the registry named no newest release"
     if _release(latest) is not None and (_release(latest) or ()) > (_release(pinned) or ()):
-        return (f"{name}: pinned {pinned}, newest {latest}{age}: behind (see notes/runtimes.md \"Moving the "
-                f"Codex/Claude pins\")")
+        return (f"{name}: pinned {pinned}, newest {latest}{age}: behind (see RUN-411: moving the Codex/Claude pins)")
     return f"{name}: pinned {pinned}, newest {latest}{age}: up to date"
 
 

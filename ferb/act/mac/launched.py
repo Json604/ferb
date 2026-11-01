@@ -128,7 +128,7 @@ class LaunchedApps:
         mine = [x for x in self.of(task_id) if x.pid == app.pid and x.bundle_id == app.bundle_id]
         if not mine:
             raise Refused(f"{app.name} isn't an app FERB opened for this task, so FERB doesn't {verb} it: the "
-                          "owner's apps stay as they are (notes/hands.md decision 2)")
+                          "owner's apps stay as they are (HAND-200)")
         return mine[0]
 
     async def quit_now(self, task_id: str, app: Any) -> str:

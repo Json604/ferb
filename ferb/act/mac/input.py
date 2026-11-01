@@ -254,7 +254,7 @@ def key_steps(combo: str, pid: int | None = None) -> list[Step]:
 ARROWS = {"left", "right", "up", "down"}
 SCREEN_WIDE = ("this key combination acts on the owner's whole Mac (switching apps or desktops, Spotlight, Mission "
                "Control, Force Quit, locking or logging out), not on one app, so FERB doesn't press it: work in the "
-               "app itself (notes/hands.md decision 2)")
+               "app itself (HAND-200)")
 
 
 def screen_wide(combo: str) -> bool:

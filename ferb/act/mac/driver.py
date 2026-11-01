@@ -1834,8 +1834,7 @@ class MacComputerDriver:
         if what is None:
             return None
         if what == "hide_others":
-            raise Refused("⌥⌘H hides every other app, the owner's included, so FERB doesn't press it (notes/hands.md "
-                          "decision 2)")
+            raise Refused("⌥⌘H hides every other app, the owner's included, so FERB doesn't press it (HAND-200)")
         if self.launched is None or task is None:
             raise Refused(f"FERB quits or hides only apps it opened for the task, and it can't tell that here, so it "
                           f"didn't send {combo} to {a.name}")

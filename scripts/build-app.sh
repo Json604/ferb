@@ -177,7 +177,7 @@ xcrun clang -O2 -arch "$ARCH" -mmacosx-version-min=14.2 -ffile-prefix-map="$ROOT
   -Wl,-rpath,@executable_path/../../../../Resources/python/lib -o "$AGENT/Contents/MacOS/FERB"
 strip -S "$AGENT/Contents/MacOS/FERB"
 
-print "==> Background service definition (FERB.app registers it with SMAppService; notes/daemon.md decision 2)"
+print "==> Background service definition (FERB.app registers it with SMAppService; DMN-2)"
 SERVICE="$CONTENTS/Library/LaunchAgents/com.ferb.daemon.plist"     # ferb/device/install.py BUNDLE_SERVICE
 mkdir -p "${SERVICE:h}"
 cp "$ROOT/ui/mac/FERBAgent/com.ferb.daemon.plist" "$SERVICE"

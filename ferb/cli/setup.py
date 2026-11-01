@@ -890,7 +890,7 @@ def doctor(env: Env) -> int:
                     add(Check("jev", "ok", f"shadow mode{'; enabled: ' + ', '.join(on) if on else ''}"))
             elif jev is not None:
                 from ferb.decide.decider import JEV_KEYS_URL
-                add(Check("jev", "ok", "off: activity notices are paused (notes/memory.md decision 4); a key comes "
+                add(Check("jev", "ok", "off: activity notices are paused (SENSE-2); a key comes "
                                        f"from {JEV_KEYS_URL}"))
             for source, why in sense.get("failed", {}).items():
                 add(Check(f"watcher {source}", "warn", f"failing, trying again: {why}",
