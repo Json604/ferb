@@ -107,6 +107,9 @@ final class IntroPrecedenceTests: XCTestCase {
         XCTAssertEqual(model.compactContent, .plan("I'll check the weather."))
         XCTAssertEqual(model.surfaceSize.height, model.compactPlanHeight)
         XCTAssertEqual(presented, [true, true])
+        model.acknowledgement.dismiss()                      // the plan closes: the old line never comes back
+        XCTAssertNil(model.introDisplayLine)
+        XCTAssertNotEqual(model.compactContent, .intro(line))
     }
 
     func testWithBothSetTheIntroLineWinsWhicheverCameFirst() {
@@ -119,6 +122,9 @@ final class IntroPrecedenceTests: XCTestCase {
         XCTAssertEqual(model.surfaceSize.height, model.introSurfaceHeight(line))
         model.introLine = nil
         XCTAssertEqual(model.compactContent, .plan("I'll check the weather."))
+        model.acknowledgement.dismiss()
+        XCTAssertNil(model.introDisplayLine)
+        XCTAssertNotEqual(model.compactContent, .intro(line))
     }
 
     func testThePulseSwellsTheNotchOnceAndShrinksBack() async throws {

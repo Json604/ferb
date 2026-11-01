@@ -280,9 +280,8 @@ final class OrbController: OrbControlling {
             let waited = min(hold, dt)
             hold -= waited
             dt -= waited
-            guard dt > 0 else { return }
         }
-        if var f = fade {
+        if dt > 0, var f = fade {
             f.elapsed += dt
             let p = CGFloat(min(f.elapsed / Self.fadeSeconds, 1))
             appearance = f.from + (f.to - f.from) * p * p * (3 - 2 * p)
@@ -291,7 +290,7 @@ final class OrbController: OrbControlling {
             fade = p < 1 ? f : nil
             if p >= 1 { f.then?() }
         }
-        if var f = flight {
+        if dt > 0, var f = flight {
             position = motion.step(dt: dt)
             f.elapsed += dt
             if motion.settled || f.elapsed >= Self.maxFlightSeconds {
@@ -311,14 +310,15 @@ final class OrbController: OrbControlling {
                 flight = f
             }
         }
+        // A hop counts from its own call (its sound went out then), never from the end of a departure's hold.
         var lift: CGFloat = 0
         if let h = hopElapsed {
-            let t = h + dt
+            let t = h + elapsed
             hopElapsed = t < Self.hopSeconds ? t : nil
             if t > 0 && t < Self.hopSeconds { lift = Self.hopHeight * sin(.pi * t / Self.hopSeconds) }
         }
         if out { surface.place(center: CGPoint(x: position.x, y: position.y + lift)) }
-        if fade == nil && flight == nil && hopElapsed == nil { clock.stop() }
+        if fade == nil && flight == nil && hopElapsed == nil && hold <= 0 { clock.stop() }
     }
 
     private func stopTracking() {

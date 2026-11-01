@@ -28,7 +28,7 @@ final class FerbSoundEngineTests: XCTestCase {
         let engine = FerbSoundEngine(engine: audio, defaults: scratchDefaults("FerbSoundEngineTests"),
                                      preference: { _ in nil }, headphones: { false }, screens: { [] },
                                      measureLatency: { 0.12 }, idleSleep: { _ in })
-        XCTAssertEqual(engine.outputLatency, 0.12)
+        XCTAssertEqual(engine.outputLatency, 0.12 + FerbSoundEngine.scheduleLead, accuracy: 1e-9)
         engine.play(.orbHop, at: nil)
         XCTAssertTrue(engine.isRunning)
         await settle()
@@ -47,6 +47,14 @@ final class FerbSoundEngineTests: XCTestCase {
         engine.play(.orbHop, at: nil)
         await settle()
         XCTAssertFalse(engine.isRunning)                     // stopAll ended keeping warm too
+    }
+
+    func testALatencyReadingThatIsGarbageCountsAsUnknownNotACrash() {
+        XCTAssertEqual(AudioOutputFacts.latency(frames: [0xFFFF_FFFF, 0xFFFF_FFFF, 0xFFFF_FFFF, 0xFFFF_FFFF],
+                                                sampleRate: 48_000), 0)
+        XCTAssertEqual(AudioOutputFacts.latency(frames: [480, 0, 96, 512], sampleRate: 48_000), 1088.0 / 48_000,
+                       accuracy: 1e-12)
+        XCTAssertEqual(AudioOutputFacts.latency(frames: [480], sampleRate: 0), 0)
     }
 
     private func settle() async {

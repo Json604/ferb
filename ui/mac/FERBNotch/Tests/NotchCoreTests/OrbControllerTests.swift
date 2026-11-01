@@ -48,6 +48,25 @@ final class OrbControllerTests: XCTestCase {
         XCTAssertGreaterThan(surface.center.y, target.y)
     }
 
+    func testAHopDuringTheDeparturesHoldWaitsOneLeadFromItsOwnCall() async {
+        let (hopping, hopSurface, _, hopClock) = makeOrb(latency: 0.1)
+        let (still, stillSurface, _, stillClock) = makeOrb(latency: 0.1)
+        let first = Task { await hopping.launch(to: target, instruction: nil) }
+        let second = Task { await still.launch(to: target, instruction: nil) }
+        await Task.yield()
+        hopping.hop()                                        // at t=0, while the drip holds the departure
+        run(hopClock, seconds: 0.08)
+        run(stillClock, seconds: 0.08)
+        XCTAssertEqual(hopSurface.center, stillSurface.center)   // not yet: the hop's sound is still on its way
+        run(hopClock, seconds: 0.07)
+        run(stillClock, seconds: 0.07)
+        XCTAssertGreaterThan(hopSurface.center.y - stillSurface.center.y, 1)   // lifting at 0.15 s, not after 0.2 s
+        hopping.tearDown()
+        still.tearDown()
+        await first.value
+        await second.value
+    }
+
     func testWithNoLatencyTheMeltPlaysAsTheOrbLands() async {
         let (orb, surface, sound, clock) = makeOrb(latency: 0)
         let flight = Task { await orb.launch(to: target, instruction: nil) }

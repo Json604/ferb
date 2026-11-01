@@ -266,6 +266,7 @@ final class NotchModel: ObservableObject {
         willSet { introSurfaceBefore = (surfaceVisible, surfaceSize) }
         didSet {
             if introLine != nil && compactPlanText == nil { compactPlanDisplayText = nil }   // a closed preview can't show
+            if introLine == nil && compactPlanText != nil { introDisplayLine = nil }   // the live plan takes over
             introLineChanged(from: oldValue)
         }
     }

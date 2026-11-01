@@ -52,7 +52,15 @@ enum AudioOutputFacts {
                 streamFrames = property(first, kAudioStreamPropertyLatency) ?? 0
             }
         }
-        return Double(deviceFrames + streamFrames + safety + buffer) / rate
+        return latency(frames: [deviceFrames, streamFrames, safety, buffer], sampleRate: rate)
+    }
+
+    /// Frames to seconds, summed in floating point so a device's garbage value can't overflow; a total over a
+    /// second is not a real output latency and counts as unknown (0).
+    static func latency(frames: [UInt32], sampleRate: Double) -> TimeInterval {
+        guard sampleRate > 0 else { return 0 }
+        let seconds = frames.reduce(0.0) { $0 + Double($1) } / sampleRate
+        return seconds.isFinite && seconds <= 1 ? seconds : 0
     }
 
     private static func defaultOutputDevice() -> AudioDeviceID? {

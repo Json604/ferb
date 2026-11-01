@@ -46,10 +46,14 @@ final class FerbSoundEngine: FerbSoundPlaying {
     /// Today's master volume (SoundFeedback); at it, the family plays at the levels it was decided at.
     static let defaultVolume = 0.18
     static let idleSeconds = 10.0
+    /// Every sound is scheduled this far ahead, so its source and its room start on the same sample.
+    static let scheduleLead = 0.02
     private static let stereo = AVAudioFormat(standardFormatWithSampleRate: FerbSoundData.sampleRate, channels: 2)!
     private static let mono = AVAudioFormat(standardFormatWithSampleRate: FerbSoundData.sampleRate, channels: 1)!
 
-    private(set) var outputLatency: TimeInterval = 0
+    /// The device's latency (measured) plus the engine's own scheduling lead.
+    var outputLatency: TimeInterval { measuredLatency + Self.scheduleLead }
+    private var measuredLatency: TimeInterval = 0
     private let engine: AVAudioEngine
     private let environment = AVAudioEnvironmentNode()
     private var stereoPlayers: [AVAudioPlayerNode] = []
@@ -82,7 +86,7 @@ final class FerbSoundEngine: FerbSoundPlaying {
         self.screens = screens
         self.measureLatency = measureLatency
         self.idleSleep = idleSleep
-        outputLatency = measureLatency()
+        measuredLatency = measureLatency()
         // The output changed (headphones, a display's speakers): AVAudioEngine has stopped itself. Players are reset
         // so the next sound starts cleanly; keeping warm survives the change.
         routeObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
@@ -119,7 +123,7 @@ final class FerbSoundEngine: FerbSoundPlaying {
               let data = library.data(for: url, roomSend: FerbSoundFiles.isFinishedMix(s)
                                           ? nil : FerbSoundFiles.roomSend(s, subtle: subtle)),
               startIfNeeded() else { return }
-        let start = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.02))
+        let start = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: Self.scheduleLead))
         var seconds = Double(data.channels[0].count) / FerbSoundData.sampleRate
         if data.channels.count == 2 {
             schedule(data.channels, on: nextPlayer(&stereoPlayers, &nextStereo), volume: gain, at: start)
@@ -161,6 +165,7 @@ final class FerbSoundEngine: FerbSoundPlaying {
     func keepWarm(_ on: Bool) {
         warm = on
         if on {
+            measuredLatency = measureLatency()     // a device switch while stopped may post no configuration change
             idleStop?.cancel()
             idleStop = nil
             if settingsGain != nil { _ = startIfNeeded() }    // pre-rolled, so the first cue isn't late
@@ -180,7 +185,7 @@ final class FerbSoundEngine: FerbSoundPlaying {
     private func outputChanged() {
         let keep = warm
         stopAll()
-        outputLatency = measureLatency()
+        measuredLatency = measureLatency()
         if keep { keepWarm(true) }
     }
 
