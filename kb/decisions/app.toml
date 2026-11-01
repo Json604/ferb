@@ -282,6 +282,7 @@ title = "The family replaces the system sounds; per-sound switches and defaults"
 by = "owner"
 date = 2026-11-01
 status = "active"
+supersedes = ["APP-565"]
 words_source = "notes/setup-intro.md Sound (Scope, defaults) and notes/sound.md owner decisions: paraphrase; no verbatim quote"
 rule = "The tour and every everyday event play FERB's family through one engine, replacing the macOS system sounds. Every sound has its own switch: on by default for needs you, error, done, notification, listening start and end, and the tour; off for summon and paused. Standard is the default intensity, Subtle the choice in Settings. The master volume stays at 0.18; the existing master switch and volume carry over on upgrade."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SoundFeedback.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
@@ -406,3 +407,367 @@ why = "A loop would leak into the microphone and break \"calm once settled\". Ea
 evidence = "2026-11-01: the Mac's premium cues (Glass.aiff, Siri jbl_*, payment_success) measured as 1-3 clean tuned partials, a strike gone within ~50 ms, clean decays, no noise; the first sine-and-whoosh placeholders were judged cheap."
 paths = ["demo/sound-family/render.py", "ui/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundFiles.swift"]
 legacy = "notes/sound.md The family from one seed, What premium sounds are made of"
+
+[APP-550]
+title = "The app lives in the hardware notch"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "FERB.app lives in the hardware notch: its idle footprint is native-sized and its hover surface compact."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/NotchGeometry.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-551]
+title = "Visibly frosted glass with a pure black band; no white border lines"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "Panels use visibly frosted glass (blurred desktop, not plain transparency) with a pure black band extending below the camera and dissolving downward. Frost and black tint are one native background driven by the same display-link spring geometry as the controls: the blur mask never animates on its own, bare frost never shows before the tint and content, and SwiftUI opacity/clip groups never flatten the backdrop. Lower frost may be lighter. No white border lines around panels, buttons or fields; icons and real input fields over action labels."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchBackdrop.swift"]
+legacy = "ui/AGENTS.md design direction; Quiet notch"
+
+[APP-552]
+title = "Double-tap right Option toggles FERB; right Command + Option holds voice"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "Double-tap right Option toggles FERB: it opens with focused typing when closed and closes when the dialog or pinned header is visible, with the same spring both ways. Voice opens at once while right Command + Option are held together (either Option key, either order); releasing either key finishes. Right Option alone never opens voice. Another modifier or an ordinary key cancels dictation and restores the previous draft. The previous app keeps its keyboard focus during held voice."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchShortcutMonitor.swift", "ui/mac/FERBNotch/Sources/NotchCore/NotchShortcutState.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-553]
+title = "Hover and double-tap focus the input; only the pin button pins"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "Hover, double-tap, and returning by hover or click all focus the visible text input. Neither hover focus, typing nor ordinary controls pin the panel; only the explicit pin button keeps it across hover-out. Hover detection includes the exact physical top screen edge across the whole expanded header, wings included, with a 2-point vertical tolerance on the cutout and the expanded surface, so moving to the very top never dismisses."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-554]
+title = "Return submits, Shift-Return adds a line, silently"
+by = "owner"
+date = 2026-10-11
+status = "active"
+words_source = "ui/AGENTS.md 'Continuous chat refinement' (2026-10-11): an agent's write-up of the owner's direction; no verbatim quote; also the design direction"
+rule = "In the draft editor Return submits and Shift-Return inserts a newline, handled by the native NSTextView and preserving IME composition. No submission Tink and no unhandled-command beep."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift"]
+legacy = "ui/AGENTS.md design direction; Continuous chat refinement"
+
+[APP-555]
+title = "Header controls, greeting and placeholder"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "The header has a circular profile/options control and a pin toggle; no Preview label or ellipsis control. The centered \"Go ahead. I’m here.\" greeting sits above the composer and the field placeholder is \"Ask anything…\". Voice is real dictation, never labelled microphone-off or simulated."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ProfileMenuButton.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-556]
+title = "Header glyph sizes, and the header only fades"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "The header pin is a 10.8-point regular glyph (10% under the original 12) in a 24 × 26 point click target. Profile is an explicitly sized 18 × 18 glyph in a 26 × 26 native button that opens an NSMenu. The header only fades; entrance scale and blur apply to the body alone. Neither opening nor lazy menu measurement resizes or shifts the profile glyph."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ProfileMenuButton.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-557]
+title = "One spring for opening and hover exit; motion feels alive"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "Opening and hover exit share one 300 ms / 0.08-bounce spring; the exit follows a 60 ms grace period. Interruptions keep their velocity and the camera anchor stays fixed. Double-tap right Option opens with that spring and immediate text focus. Motion feels alive and continuous: persistent surfaces, interruption-safe springs, coherent transformations, responsive presses; Reduce Motion is respected."
+why = "The owner's explicit preference for an animated double-tap opening overrides generic advice to make keyboard opening instant."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchPresentation.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-558]
+title = "Pin keeps the header through everything until explicitly closed"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "Pin keeps the header attached through hover-out, outside clicks, task submission and Space changes. Pinning or hovering away starts the upward tuck at once (no 1.5 s delay), with the shared spring and a fixed header. Hover reveals the body with focused typing and typing never folds it. Menus, file pickers and voice defer a requested fold until they finish; returning to hover cancels it. Hidden fields get no keyboard input. Escape, Hide or double-tap closes and clears the pin; Unpin returns to normal hover. Settings and Quick Look dismiss the unpinned notch."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-559]
+title = "FERB yields to other apps"
+by = "owner"
+date = 2026-10-14
+status = "active"
+words_source = "ui/AGENTS.md design direction (\"owner, 2026-10-14\"): an agent's write-up; no verbatim quote"
+rule = "FERB's file picker, another process's menu, popover or floating window over FERB's drawn surface, or (pinned chat only) an app the owner brings forward or clicks into under the chat orders the panel out; when no reason remains it returns exactly as it was. Opening or revealing FERB, the notch, the shortcut and dictation keep it over windows overlapping it until they leave, so it is never stuck hidden. It never yields during dictation or to system text-input windows; always-on chrome (menu bar, status items, Dock, near-invisible or whole-display windows) never counts."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchYieldController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchWindowYield.swift", "ui/mac/FERBNotch/Sources/NotchCore/NotchYield.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-560]
+title = "Yielding orders windows out; never toggle ignoresMouseEvents"
+by = "agent"
+date = 2026-10-14
+status = "active"
+rule = "FERB yields by ordering its windows out and back into the overlay space, never by toggling the panel's ignoresMouseEvents."
+why = "Toggling ignoresMouseEvents makes the transparent margins swallow clicks for the rest of the process."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchWindowYield.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-561]
+title = "The content stack has an explicit top-aligned presentation height"
+by = "agent"
+date = 2026-10-13
+status = "active"
+rule = "The persistent content stack has an explicit, top-aligned presentation-height frame; its hidden full-height body never imposes a larger minimum height."
+why = "Otherwise the header recenters upward when the native window canvas shrinks at spring completion."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-562]
+title = "The notch stays fixed during Space swipes and never takes focus"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "Both overlay windows (the dialog and the trace) stay fixed to the physical notch during desktop swipes. FERB never moves or modifies other apps' windows or the owner's desktops. A Space change keeps the existing input responder: never resign key, reset geometry, restart the spring, discard state or seize focus FERB didn't already have. Background task updates never take focus from another app."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-563]
+title = "The overlay windows share one SkyLight overlay space"
+by = "agent"
+date = 2026-10-13
+status = "active"
+rule = "The dialog and trace share one unmanaged SkyLight overlay space, above desktops and below security and lock screens. Private symbols are resolved defensively, both windows' membership is checked, and AppKit is the fallback when the space is unavailable."
+why = "AppKit's all-Spaces and stationary flags alone did not keep the windows fixed during swipes."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-564]
+title = "Completion glow and the status dot"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "Work continues when the notch closes. Completion lights the camera edge with two soft green pulses separated by darkness (3.6 s total, a 1.8 s cadence), then off; Reduce Motion uses one quiet finite glow; it works hovered or closed and recalling a result never replays it. The dot in \"ferb.\" shows status: amber while working, red for attention or error, green when done (kept by the session phase after the glow), neutral otherwise, with a tooltip and accessibility value. Hover shows compact status; Show activity reveals details."
+rejected = ["The yellow progress trace on the camera edge"]
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/CompletionGlow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-565]
+title = "Sound cues are low-volume macOS system sounds"
+by = "owner"
+date = 2026-10-13
+status = "superseded"
+superseded_by = "APP-526"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "Sound feedback is a standing requirement: low-volume macOS system sound cues for dictation start and stop, completion and attention, with mute and volume controls in native Settings."
+legacy = "ui/AGENTS.md design direction (sound feedback)"
+
+[APP-566]
+title = "Sound feedback stays; submission, hover, progress and right-Option taps are silent"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "Sound feedback is a standing requirement. Submitting is silent (the owner rejected the Tink on Return); there are no hover or repeating progress sounds; right Option taps are silent, while the right Command + Option voice chord acknowledges at once. Mute and volume live in native Settings (Command-comma), and the system output volume and mute still apply."
+rejected = ["A Tink on Return"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SoundFeedback.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+legacy = "ui/AGENTS.md design direction (sound feedback)"
+
+[APP-567]
+title = "The owner evaluates visuals; no unsolicited screenshot loops"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "The owner does the visual evaluation and proposes changes; agents don't run unsolicited screenshot or UI inspection loops."
+legacy = "ui/AGENTS.md design direction"
+
+[APP-568]
+title = "Dictation is real and every exit stops capture"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "FERB.app is connected to the real daemon. Dictation uses AVAudioEngine and Apple Speech with the system permission prompts, live transcription and review in the composer. Hold release, Stop, Cancel, hiding and switching to typing all stop capture; releasing while permissions are pending prevents a delayed recording."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Microphone.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-569]
+title = "One continuous daily chat"
+by = "owner"
+date = 2026-10-11
+status = "active"
+words_source = "ui/AGENTS.md design direction (\"As of 2026-10-11 the user explicitly wants a continuous daily chat\"): an agent's write-up; no verbatim quote"
+rule = "One continuous daily chat with no New request action. The app persists its whole conversation locally (the owner's sent messages as the daemon's redacted ack.message, never the raw text; the unsent draft only in memory) with Today and discoverable History/date tabs, and keeps the same backend conversation across days. Approval secrets never enter chat history."
+rejected = ["The earlier result-only design"]
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Conversation.swift"]
+legacy = "ui/AGENTS.md design direction (L20)"
+
+[APP-570]
+title = "Never claim or fake token streaming"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "Task events stream to the app as they arrive. Until the daemon emits reply deltas (it sends full answer text in reply and outcome), the app never claims token streaming works and never fakes it with delayed text."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-571]
+title = "A new answer expands the notch without taking focus"
+by = "owner"
+date = 2026-10-13
+status = "active"
+words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
+rule = "A newly arriving answer expands the hidden notch or pinned header with its existing animation, without taking keyboard focus, and cancels a pending hover dismissal. Startup and history restoration never reopen the notch or replay the completion glow."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift"]
+legacy = "ui/AGENTS.md design direction"
+
+[APP-572]
+title = "Quiet notch: one compact composer, native controls"
+by = "owner"
+date = 2026-10-10
+status = "active"
+words_source = "ui/AGENTS.md 'Accepted native macOS direction — Quiet notch' (approved 2026-10-10): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "One compact composer at rest, with the centered greeting and no idle waveform; the field grows to four lines and attachments show as named/count context beneath it. System typography, SF Symbols, native menus, pickers and file actions. Within the daily chat one concrete live status and Stop; detailed activity is one click away."
+why = "Approved after the native macOS research on 2026-10-10; the previous UI is commit 2018d0c, tagged notch-before-native-redesign."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+legacy = "ui/AGENTS.md Quiet notch"
+
+[APP-573]
+title = "Finished work is an object"
+by = "owner"
+date = 2026-10-10
+status = "active"
+words_source = "ui/AGENTS.md 'Accepted native macOS direction — Quiet notch' (approved 2026-10-10): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "A result supports Open, native Quick Look (Space), Reveal in Finder (Command-R) and dragging the document out; Return opens it. In the preview, a real one-page Example brief.pdf holds the original request and source names with an explicit example disclosure, stored under Application Support/FERB Notch/Examples; recent examples stay in memory for the app session. FERB never claims to have read or summarised attached sources there."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ExampleDocuments.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift"]
+legacy = "ui/AGENTS.md Quiet notch"
+
+[APP-574]
+title = "Motion references; no course content in the repo"
+by = "agent"
+date = 2026-10-10
+status = "active"
+rule = "Motion is refined against animations.dev's spring-animations, dynamic-island morph-effect, family-drawer analysis and finishing-touch, and good-vs-great accessibility lessons, and WWDC23 \"Animate with springs\" (10158): keep motion when targets change, one persistent shape, content and container as one object, quick repeated interactions, meaning kept through fades. Subscription lesson content is never copied or published into the repository; only project decisions and source links."
+legacy = "ui/AGENTS.md Motion references examined 2026-10-10"
+
+[APP-575]
+title = "The chat area: at least 240 points, growing to 320"
+by = "owner"
+date = 2026-10-11
+status = "active"
+words_source = "ui/AGENTS.md Continuous chat refinement (\"the owner explicitly requested this larger conversation area\"): paraphrase; no verbatim quote"
+rule = "The empty dialog stays compact. With messages it reserves at least 240 points for reading and grows with content to 320 points before scrolling."
+rejected = ["The content-fit size (too small)"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelLayout.swift"]
+legacy = "ui/AGENTS.md Continuous chat refinement"
+
+[APP-576]
+title = "Messages-style bubbles on a black glass notch"
+by = "owner"
+date = 2026-10-11
+status = "active"
+words_source = "ui/AGENTS.md 'Continuous chat refinement' (2026-10-11): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "Compact blue owner bubbles on the right and neutral frosted FERB bubbles on the left; the notch backdrop stays black glass."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift"]
+legacy = "ui/AGENTS.md Continuous chat refinement"
+
+[APP-577]
+title = "The composer stays usable during work; each turn resolves itself"
+by = "owner"
+date = 2026-10-11
+status = "active"
+words_source = "ui/AGENTS.md 'Continuous chat refinement' (2026-10-11): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "The composer stays usable while FERB works; it clears on submission, never on reply arrival. Each submitted turn is tracked on its own, so concurrent or out-of-order replies keep the next draft and resolve their own message."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Conversation.swift"]
+legacy = "ui/AGENTS.md Continuous chat refinement"
+
+[APP-578]
+title = "Chat events bind to their own turn"
+by = "owner"
+date = 2026-10-14
+status = "active"
+words_source = "ui/AGENTS.md 'Launch-week chat rules' (owner, 2026-10-13/14): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "Every chat event carries request_id and at; the app binds each to its own turn and drops an event that names another turn's request."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Conversation.swift"]
+legacy = "ui/AGENTS.md Launch-week chat rules"
+
+[APP-579]
+title = "Ack, plan line, then one live line"
+by = "owner"
+date = 2026-10-14
+status = "active"
+words_source = "ui/AGENTS.md 'Launch-week chat rules' (owner, 2026-10-13/14): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "The daemon's ack shows at once under the owner's message, then the plan line (in the chat, not the activity feed), then one live line from progress with the elapsed time; the live line goes at the answer or when the stream ends."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift"]
+legacy = "ui/AGENTS.md Launch-week chat rules (L7, L8)"
+
+[APP-580]
+title = "Late answers come as quoted replies; verified shows a check mark"
+by = "owner"
+date = 2026-10-14
+status = "active"
+words_source = "ui/AGENTS.md 'Launch-week chat rules' (owner, 2026-10-13/14): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "An answer to a turn that isn't the last entry goes to the bottom as a reply quoting that turn, and the original turn reads \"Answered below\". A verified answer shows a small check mark, never a \"Verified.\" prefix."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift"]
+legacy = "ui/AGENTS.md Launch-week chat rules (L6)"
+
+[APP-581]
+title = "Questions are inline cards; a secret field takes focus only on the owner's action"
+by = "owner"
+date = 2026-10-14
+status = "active"
+words_source = "ui/AGENTS.md 'Launch-week chat rules' (owner, 2026-10-13/14): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "Questions are inline cards and the composer stays enabled while one is open. A hidden secret field takes focus only on an explicit owner action (clicking its card, Tasks → Answer request), never because a question arrived."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
+legacy = "ui/AGENTS.md Launch-week chat rules"
+
+[APP-582]
+title = "Notices are quiet FERB messages (silent)"
+by = "owner"
+date = 2026-10-14
+status = "superseded"
+superseded_by = "APP-583"
+words_source = "ui/AGENTS.md 'Launch-week chat rules' (owner, 2026-10-13/14): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "Notices are FERB messages with a small \"noticed\" tag and quotes show their origin; they never expand the notch, take focus, glow or sound, and are acknowledged with attention.ack. The app polls chat.status with peek: true and acknowledges placed results with results.ack."
+legacy = "ui/AGENTS.md Launch-week chat rules (L9)"
+
+[APP-583]
+title = "Notices are quiet FERB messages that play the notification sound"
+by = "owner"
+date = 2026-11-01
+status = "active"
+supersedes = ["APP-582"]
+words_source = "ui/AGENTS.md launch-week rule (L9) as changed by the owner's notification-sound decision of 2026-11-01 (notes/sound.md): paraphrase; no verbatim quote"
+rule = "Notices are FERB messages with a small \"noticed\" tag and quotes show their origin; they never expand the notch, take focus or glow, and are acknowledged with attention.ack. A notice plays the notification sound (APP-532), once even when it also shows as a banner. The app polls chat.status with peek: true and acknowledges placed results with results.ack."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift"]
+legacy = "ui/AGENTS.md Launch-week chat rules (L9); notes/sound.md"
+
+[APP-584]
+title = "No paste dialog: pasted text goes as data"
+by = "owner"
+date = 2026-10-14
+status = "active"
+words_source = "ui/AGENTS.md 'Launch-week chat rules' (owner, 2026-10-13/14): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "There is no paste dialog: pasted ranges are tracked and sent as data with the CLI's delimiters."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/PastedRequest.swift"]
+legacy = "ui/AGENTS.md Launch-week chat rules"
+
+[APP-585]
+title = "Recovered tasks show on FERB's side"
+by = "owner"
+date = 2026-10-14
+status = "active"
+words_source = "ui/AGENTS.md 'Launch-week chat rules' (owner, 2026-10-13/14): an agent's write-up of the owner's direction; no verbatim quote"
+rule = "Recovered tasks show on FERB's side of the chat with their goal, never as the owner's words."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift"]
+legacy = "ui/AGENTS.md Launch-week chat rules"

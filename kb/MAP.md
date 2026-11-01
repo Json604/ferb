@@ -6,7 +6,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 38 | 3 | 2 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 72 | 5 | 2 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 1 | 0 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 2 | 1 | 0 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 1 | 0 | 0 |
@@ -21,6 +21,11 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | tests | Tests | `tests` | 6 | 2 | 0 |
 | voice | Voice | `ferb/voice` | 0 | 0 | 0 |
 
+## Waiting on the owner
+
+- T-506 (app): ui/AGENTS.md says the camera edge lights ONLY for completion (two green pulses; the red attention segment was removed), but its later yield rule (2026-10-14) keeps an amber camera-edge light when a question arrives, and the app has that amber light today. Should a waiting question light the camera edge in amber, or should the edge light only for completion?
+- T-507 (app): ui/AGENTS.md tells agents to "Build and relaunch after edits", but AGENTS.md rule 17 says not to restart the running FERB.app without your OK (building itself is allowed). For UI work, may an agent relaunch FERB.app after an edit, or only build and leave relaunching to you?
+
 ## Terms
 
-Crystal, Jev, Standard / Subtle, Tier 1, beat, compact window, daily distill, holds up, how-note, needs you, orb, playbook, set aside, sound logo (`tools/kb/run kb search <term>`)
+Crystal, Jev, Quiet notch, Standard / Subtle, Tier 1, beat, compact window, daily distill, holds up, how-note, needs you, orb, playbook, set aside, sound logo, yield (`tools/kb/run kb search <term>`)
