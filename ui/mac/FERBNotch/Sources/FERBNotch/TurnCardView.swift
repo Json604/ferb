@@ -1,7 +1,7 @@
 import SwiftUI
 import NotchCore
 
-/// Answers in steps (orchestration decisions 19, 20), drawn as the approved mock (demo/answers-in-steps): the first
+/// Answers in steps (ORCH-319, 20), drawn as the approved mock (demo/answers-in-steps): the first
 /// reply's bubble with the plan line under a left rule, the turn card with one row per ask and its footer, the typing
 /// dots. Not the mock's pink dashed explanation labels or "code" chips.
 
@@ -74,7 +74,7 @@ struct TypingDots: View {
     }
 }
 
-/// Under a message FERB read together with another (decision 18): that message's reply answers both.
+/// Under a message FERB read together with another (ORCH-318): that message's reply answers both.
 struct MergedLabel: View {
     let lead: ConversationTurn?
     let leadIsAbove: Bool
@@ -237,7 +237,7 @@ struct CardRowView: View {
          "previewRunning": "preview, nothing done"][state] ?? state
     }
 
-    /// Watch FERB work on this ask: the live preview of the step that answers it (notes/preview.md).
+    /// Watch FERB work on this ask: the live preview of the step that answers it (kb area app).
     private func watchButton(_ step: String) -> some View {
         Button { watching.toggle() } label: {
             Image(systemName: "eye").font(.system(size: 10)).frame(width: 18, height: 15)
@@ -314,7 +314,7 @@ private struct UpdatedTag: View {
     }
 }
 
-/// A one-ask answer's own lines (decision 19): "Couldn't confirm", the correction, and code's lines other than the
+/// A one-ask answer's own lines (ORCH-319): "Couldn't confirm", the correction, and code's lines other than the
 /// sites (which keep their chip).
 struct AnswerLinesView: View {
     let note: String?
@@ -336,7 +336,7 @@ struct AnswerLinesView: View {
     }
 }
 
-/// A failed answer's offer of another AI service (owner decision 16): one tap per signed-in alternative.
+/// A failed answer's offer of another AI service (ORCH-315): one tap per signed-in alternative.
 struct RuntimeSwitchRow: View {
     let turn: ConversationTurn
     let offer: RuntimeSwitch

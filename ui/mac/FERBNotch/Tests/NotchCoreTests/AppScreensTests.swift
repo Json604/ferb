@@ -2,7 +2,7 @@ import XCTest
 @testable import FERBNotch
 @testable import NotchCore
 
-/// Step 12c's screens (notes/daemon.md decisions 6-8, notes/storage.md decision 4): the models read the daemon's replies
+/// Step 12c's screens (DMN-6, APP-1, APP-2, STORE-402): the models read the daemon's replies
 /// and the `ferb` commands' JSON; the stores and the setup model call the right methods with the right parameters.
 @MainActor
 final class AppScreensTests: XCTestCase {

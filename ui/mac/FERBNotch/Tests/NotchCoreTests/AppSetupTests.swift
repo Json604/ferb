@@ -33,7 +33,7 @@ final class AppSetupTests: XCTestCase {
         XCTAssertEqual(AppSetupPlan.serviceArguments(for: .update), ["setup", "--service", "--update"])
     }
 
-    /// Storage decision 5: an install from before the app registered its own service has the old user LaunchAgent
+    /// STORE-403: an install from before the app registered its own service has the old user LaunchAgent
     /// running this very app; it is retired by a quiet update, never by a question.
     func testAnOldLaunchAgentOfThisAppIsRetiredByAQuietUpdate() {
         XCTAssertEqual(decide(legacy: legacy(agentExecutable), .notRegistered, record: nil), .update)
@@ -70,7 +70,7 @@ final class AppSetupTests: XCTestCase {
                    firstRun: firstRun)
     }
 
-    /// notes/setup-intro.md: a new install (or another installation, after the owner's yes) meets FERB through the
+    /// kb area app: a new install (or another installation, after the owner's yes) meets FERB through the
     /// whole tour, with the first-launch clip; so does an install that never finished setup nor saw the tour. A quit
     /// tour picks up its own plan, and the intro's resume wins over the old window's.
     func testNewInstallLaunchesTheIntro() {

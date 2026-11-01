@@ -1,7 +1,7 @@
 import Foundation
 import NotchCore
 
-/// Everything FERB says in the first-run tour (notes/setup-intro.md, "the journey"): warm, plain, short, as text in the
+/// Everything FERB says in the first-run tour (kb area app, "the journey"): warm, plain, short, as text in the
 /// notch or in the bubble beside the orb, never read aloud. One place, so the words can be read and changed together.
 /// The choice ids are what IntroController acts on.
 enum IntroCopy {

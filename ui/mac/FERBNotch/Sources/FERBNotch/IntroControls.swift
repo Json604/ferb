@@ -1,6 +1,6 @@
 import Foundation
 
-/// The controls the tour teaches by doing (notes/setup-intro.md step 7): double-tap right ⌥ (open or close), hold
+/// The controls the tour teaches by doing (kb area app): double-tap right ⌥ (open or close), hold
 /// right ⌘+⌥ (talk), Control-Option-Space, Stop on the replayed preview, and Pause FERB from the menu.
 enum IntroControl: CaseIterable {
     case toggle, talk, summon, stop, pause

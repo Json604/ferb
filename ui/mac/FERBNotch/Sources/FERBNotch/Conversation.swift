@@ -31,7 +31,7 @@ extension NotchModel {
     }
     var visibleEntries: [TranscriptEntry] { conversation.transcript(on: followsToday ? Date() : selectedDay) }
     /// Open questions, shown at the end of today's chat; one that belongs to a card row shown here is in that row instead
-    /// (decision 20).
+    /// (APP-300).
     var inlineQuestions: [DaemonApproval] {
         guard viewingToday else { return [] }
         let placed = conversation.rowPlacements(pendingApprovals)
@@ -41,7 +41,7 @@ extension NotchModel {
         })
         return pendingApprovals.filter { approval in placed[approval.id].map { !shown.contains($0.turnID) } ?? true }
     }
-    /// The open questions shown inside this turn's card, by part (decision 20). Live state: only in today's chat.
+    /// The open questions shown inside this turn's card, by part (APP-300). Live state: only in today's chat.
     func rowQuestions(_ turn: ConversationTurn) -> [String: [DaemonApproval]] {
         guard viewingToday, turn.card != nil, !pendingApprovals.isEmpty else { return [:] }
         let placed = conversation.rowPlacements(pendingApprovals)

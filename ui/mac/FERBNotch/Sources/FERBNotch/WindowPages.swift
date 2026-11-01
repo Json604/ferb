@@ -172,7 +172,7 @@ struct MemoryPage: View {
     }
 
     /// Import from other assistants: pick a source (an export file or folder for the account exports), read the
-    /// estimate, Start; progress while it runs, Cancel. The facts arrive as FERB's understanding (decision 6).
+    /// estimate, Start; progress while it runs, Cancel. The facts arrive as FERB's understanding (DMN-6).
     @ViewBuilder private var importSection: some View {
         Section("Import from other assistants") {
             HStack {

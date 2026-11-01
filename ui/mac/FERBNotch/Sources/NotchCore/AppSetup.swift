@@ -2,7 +2,7 @@ import Foundation
 
 /// What the packaged FERB.app does at launch or from its menu (L27, L34 C). `ferb setup --service` does the file work
 /// and enforces where FERB may be installed from; the app then registers the background service whose definition is
-/// inside the signed app (SMAppService, notes/daemon.md decision 2). This only reads facts: an old user LaunchAgent
+/// inside the signed app (SMAppService, DMN-2). This only reads facts: an old user LaunchAgent
 /// (~/Library/LaunchAgents/com.ferb.daemon.plist, from before the app registered its own, or a checkout's), the app
 /// service's status, what setup last recorded (~/.ferb/service.json) and whether launchd has FERB running.
 public enum AppSetupAction: Equatable {
@@ -12,7 +12,7 @@ public enum AppSetupAction: Equatable {
     case confirmReplace(current: String)    // another installation (a checkout, or a FERB.app elsewhere): ask first
 }
 
-/// What launch shows (L34 C, notes/setup-intro.md).
+/// What launch shows (L34 C, kb area app).
 public enum SetupLaunch: Equatable {
     case nothing                 // this app's build runs and setup is finished
     case intro([IntroBeat])      // the first-run intro: every beat, or only those for what is missing

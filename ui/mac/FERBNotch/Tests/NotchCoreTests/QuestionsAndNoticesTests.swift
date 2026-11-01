@@ -677,7 +677,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     private func makeModel(_ rpc: StatusRPC) -> NotchModel { makeModelWithSuite(rpc).0 }
 
-    // MARK: - Voice turns (notes/voice.md decision 3)
+    // MARK: - Voice turns (VOICE-402)
 
     func testAHeldDictationSendsOnReleaseWhenChosenAndAsksForASpokenReply() async throws {
         let rpc = StatusRPC()

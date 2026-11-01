@@ -42,7 +42,7 @@ protocol DaemonServicing: AnyObject {
     func restart() async -> Bool
 }
 
-/// FERB's background service as FERB.app registers it with macOS (notes/daemon.md decision 2): its definition is inside
+/// FERB's background service as FERB.app registers it with macOS (DMN-2): its definition is inside
 /// the signed app, so nothing can edit it, deleting the app removes it, and Login Items lists it under FERB.
 @MainActor
 protocol BackgroundServiceRegistering: AnyObject {

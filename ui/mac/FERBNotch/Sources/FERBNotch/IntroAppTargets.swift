@@ -1,7 +1,7 @@
 import AppKit
 import NotchCore
 
-/// Where the intro's orb points for an app (notes/setup-intro.md steps 4 and 6): beside the app's main window when it
+/// Where the intro's orb points for an app (kb area app steps 4 and 6): beside the app's main window when it
 /// is running and on screen, else a resting point below the notch. `iconPath`: the app's bundle, for the bubble's icon.
 struct IntroAppTarget: Equatable {
     var point: CGPoint

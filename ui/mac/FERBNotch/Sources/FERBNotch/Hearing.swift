@@ -2,7 +2,7 @@
 // the notch; the daemon starts it per use with `open -g -n -W --env FERB_HOME=… FERB.app --args <mode> …`
 // (LaunchServices: FERB.app, not the daemon, is the app macOS asks about). main() runs a hearing mode before
 // NSApplication, the delegate, Sparkle, login items, the daemon connection or any window, and exits; no microphone is
-// opened (push-to-talk is the app's own dictation, notes/voice.md decision 3). Speech is recognized on this Mac only
+// opened (push-to-talk is the app's own dictation, VOICE-402). Speech is recognized on this Mac only
 // (requiresOnDeviceRecognition): without on-device support FERB says so and never sends speech to Apple's servers
 // (rule 15, L26).
 // Modes: request-speech                 ask for Speech Recognition only, print the result (kept and harmless; setup no

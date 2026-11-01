@@ -31,7 +31,7 @@ final class SetupModel: ObservableObject {
     @Published private(set) var restarting = false
     @Published private(set) var browsers: BrowserSnapshot?
     @Published private(set) var persona: PersonaState = .loading
-    /// FERB's own Google account (decision 7, optional): as set now, and the profiles found for the address typed.
+    /// FERB's own Google account (APP-1, optional): as set now, and the profiles found for the address typed.
     @Published private(set) var identity: IdentityState?
     @Published var identityAddress = ""
     @Published private(set) var identityLine: String?
@@ -95,7 +95,7 @@ final class SetupModel: ObservableObject {
         }
     }
 
-    /// How often a grant's row is read again while the owner flips its switch (notes/setup-intro.md: ~1–1.5 s).
+    /// How often a grant's row is read again while the owner flips its switch (kb area app: ~1–1.5 s).
     var grantPoll: Duration = .milliseconds(1500)
 
     /// One row's grant (`grant`: macOS's own request where there is one, then its pane), then its row read again
@@ -542,7 +542,7 @@ final class SetupModel: ObservableObject {
         await refreshBrowsers()
     }
 
-    // MARK: FERB's own account (decision 7)
+    // MARK: FERB's own account (APP-1)
 
     /// FERB's account as set now and, for the address typed (else the one set), the profiles signed into it.
     func refreshIdentity() async {

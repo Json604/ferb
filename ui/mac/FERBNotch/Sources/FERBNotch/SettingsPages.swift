@@ -68,7 +68,7 @@ struct SettingsView: View {
 }
 
 /// Settings → General: the notch's shortcuts, FERB's pointer and sounds (moved here from the old sound window). Plans
-/// F and G add "Startup" (open at login) and "Updates"; the installed app offers "Replay intro" (notes/setup-intro.md).
+/// F and G add "Startup" (open at login) and "Updates"; the installed app offers "Replay intro" (kb area app).
 struct GeneralSettingsPage: View {
     @ObservedObject var feedback: SoundFeedback
     let cursor: CursorController
@@ -487,7 +487,7 @@ struct AdvancedSettingsPage: View {
             Text("FERB stops its background service and removes its browser connection, its login item and the `ferb` " +
                  "link. Your data in ~/.ferb stays. Then quit FERB and drag it to the Trash.")
         }
-        // Permanent (decision 8): asked once here; the command then runs without another question.
+        // Permanent (APP-2): asked once here; the command then runs without another question.
         .alert("Uninstall FERB and delete everything?", isPresented: $confirmPurge) {
             Button("Delete Everything", role: .destructive) { output.uninstall(with: actions, purge: true) }
             Button("Cancel", role: .cancel) {}
@@ -502,7 +502,7 @@ struct AdvancedSettingsPage: View {
 
 // MARK: - Step 12c screens (functional only; the owner polishes them)
 
-/// Settings → About (decision 6): FERB's self-description from the daemon (`about.get`), built from code and config, and
+/// Settings → About (DMN-6): FERB's self-description from the daemon (`about.get`), built from code and config, and
 /// this app's own how-tos and shortcuts. Read-only: every setting is changed on its own page.
 struct AboutSettingsPage: View {
     @ObservedObject var store: FERBWindowStore
@@ -572,7 +572,7 @@ private struct SoundCredits: View {
     }
 }
 
-/// Settings → Data (decision 8, storage decision 4): put back what FERB changed or trashed, delete a saved secret or
+/// Settings → Data (APP-2, STORE-402): put back what FERB changed or trashed, delete a saved secret or
 /// card, every screenshot FERB kept (step 12e: What FERB saw), and the one-time clean-up of data FERB no longer uses.
 struct DataSettingsPage: View {
     @ObservedObject var store: FERBWindowStore
@@ -638,7 +638,7 @@ struct DataSettingsPage: View {
     }
 }
 
-/// The one-time clean-up's screen (storage decision 4): `ferb setup --cleanup` lists what it removes; OK runs it with
+/// The one-time clean-up's screen (STORE-402): `ferb setup --cleanup` lists what it removes; OK runs it with
 /// the digest of exactly that list (`--ok`), the daemon stopped meanwhile; then the result.
 @MainActor
 final class CleanupRunner: ObservableObject {

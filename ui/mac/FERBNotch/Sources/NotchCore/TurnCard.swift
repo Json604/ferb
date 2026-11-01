@@ -1,6 +1,6 @@
 import Foundation
 
-/// Answers in steps (orchestration decisions 19, 20): a request with several asks gets one card, a row per ask (part),
+/// Answers in steps (ORCH-319, 20): a request with several asks gets one card, a row per ask (part),
 /// each filled once in the owner's order. The daemon sends the card with its plan line, each row's change as a `part`
 /// event (on the turn's stream and on the bus as `task.part`), and the footer with the outcome. Pure state: the notch
 /// draws it (ConversationTranscript's card).
@@ -202,7 +202,7 @@ public struct TurnCard: Codable, Equatable {
 }
 
 /// The offer of another signed-in AI service when an account fact (a usage limit, a sign-in problem) ended the work
-/// (owner decision 16): the runtime that failed, the role it served and the other runtimes FERB could use.
+/// (ORCH-315): the runtime that failed, the role it served and the other runtimes FERB could use.
 public struct RuntimeSwitch: Codable, Equatable {
     public let runtime: String
     public let problem: String
@@ -224,7 +224,7 @@ public struct RuntimeSwitch: Codable, Equatable {
     }
 }
 
-/// A one-ask answer split into what it says and code's own lines after it (decision 19's structured fields), so the
+/// A one-ask answer split into what it says and code's own lines after it (ORCH-319's structured fields), so the
 /// notch draws the "Couldn't confirm" line, the correction and code's lines on their own. The daemon also writes them
 /// into `answer` (history, voice, older clients): what is drawn on its own is cut from the end of the text, and a piece
 /// that isn't found there stays in the text and isn't drawn again.

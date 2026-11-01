@@ -1,7 +1,7 @@
 import XCTest
 @testable import NotchCore
 
-/// Memory import on the Memory page (notes/memory-import.md): the daemon's status and estimate read as one line each.
+/// Memory import on the Memory page (kb area memory): the daemon's status and estimate read as one line each.
 final class MemoryImportRowsTests: XCTestCase {
     func testARunningImportReadsItsProgress() throws {
         let status = try XCTUnwrap(MemoryImportStatus(["run": "r1", "name": "ChatGPT", "status": "running",

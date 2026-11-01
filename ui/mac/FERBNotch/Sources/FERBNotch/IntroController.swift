@@ -10,7 +10,7 @@ enum IntroAnswer: Equatable {
     case entry(String)
 }
 
-/// FERB.app's first-run tour (notes/setup-intro.md): Meet → Sign in → Allow all → Pair browsers → FERB's email →
+/// FERB.app's first-run tour (kb area app): Meet → Sign in → Allow all → Pair browsers → FERB's email →
 /// Try → Control → Home. FERB speaks in text lines in the notch, the orb points at places on screen, every grant counts
 /// only when the system confirms it, the demo looks and tells but never acts, and nothing the tour runs is real work:
 /// "Do it for real" is sent as the owner's message after Home. Skippable at any point (everything it drew or said is

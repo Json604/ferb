@@ -16,7 +16,7 @@ public struct ResultCard: Codable, Equatable {
     public var repeatRule: String?
     public var nextRun: String?
     public var scheduleID: String?
-    /// reminder and event: the schedule's recorded end (decision 22); the countdown is to it when present.
+    /// reminder and event: the schedule's recorded end (ORCH-320); the countdown is to it when present.
     public var until: String?
     // event: a reminder or schedule just set (kind reminder | schedule)
     public var kind: String?
@@ -32,7 +32,7 @@ public struct ResultCard: Codable, Equatable {
     public var amount: String?
     public var merchant: String?
     public var site: String?
-    /// payment: the name of the owner's saved card entry that filled the checkout (decision 23); never digits.
+    /// payment: the name of the owner's saved card entry that filled the checkout (ORCH-321); never digits.
     public var savedCard: String?
     // send: the call's checked destination (kind send, reply, post, mailbox_send, call)
     public var recipient: String?
@@ -90,7 +90,7 @@ public struct ResultCard: Codable, Equatable {
     public var whenDate: Date? { LiveProgress.time(when) }
     public var untilDate: Date? { LiveProgress.time(until) }
 
-    /// What a reminder or event card counts down to: the schedule's end when it has one (decision 22), else a
+    /// What a reminder or event card counts down to: the schedule's end when it has one (ORCH-320), else a
     /// reminder's next run; nothing for an event without an end (its first time shows as chips).
     public var countdown: CountdownTarget? {
         guard type == "reminder" || type == "event" else { return nil }

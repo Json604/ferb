@@ -1,6 +1,6 @@
 # FERB sound family (decided 2026-11-01)
 
-The decided family (owner's picks over nine rounds; decisions in `notes/sound.md`):
+The decided family (owner's picks over nine rounds; decisions in `kb area app`):
 
 - First launch: Google's Material "hero" clip (CC BY 4.0, CREDITS.md), played once; silence until the logo.
 - Crystal (synthesised): sound logo, summon, listening start/end, done (bright); needs you (one ringing A);

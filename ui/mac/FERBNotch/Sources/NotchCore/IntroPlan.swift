@@ -1,6 +1,6 @@
 import Foundation
 
-/// FERB.app's first-run intro: its beats, in the spec's order (notes/setup-intro.md).
+/// FERB.app's first-run intro: its beats, in the spec's order (kb area app).
 public enum IntroBeat: Int, CaseIterable, Equatable {
     case meet, signIn, permissions, browsers, identity, tryIt, control, home
 }

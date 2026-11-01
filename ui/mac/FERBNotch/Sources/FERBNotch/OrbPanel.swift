@@ -4,7 +4,7 @@ import NotchCore
 
 /// The orb's window: a transparent canvas centred on the orb, above the menu bar on every Space. It never takes a
 /// click (the drag card is its own small window above it), never becomes key and never activates FERB, so the owner's
-/// focus stays where it was (CLAUDE.md rule 10).
+/// focus stays where it was (AGENTS.md rule 10).
 final class OrbPanel: NSPanel, OrbSurface {
     static let canvas = CGSize(width: 600, height: 220)
     static let bubbleWidth: CGFloat = 240

@@ -1,6 +1,6 @@
 import Foundation
 
-/// One `tasks.preview` answer (notes/preview.md decision 2): what FERB is doing now (`state`, a short `line`), the
+/// One `tasks.preview` answer (APP-404): what FERB is doing now (`state`, a short `line`), the
 /// frame if there is one, and why a frame is old (`problem`). Pure, so the notch's preview loop is testable.
 public struct PreviewAnswer: Equatable {
     /// working, working_elsewhere, asking, waiting, paused, done or none.
@@ -52,7 +52,7 @@ public struct PreviewAnswer: Equatable {
     /// The app keeps its last frame unless the daemon has nothing at all to show (no surface yet).
     public var dropsLastFrame: Bool { state == "none" && !hasImage }
 
-    /// When to ask again: a fresh frame asks at once (the rate is the capture's own, notes/preview.md decision 3: no
+    /// When to ask again: a fresh frame asks at once (the rate is the capture's own, APP-405: no
     /// cap until measured); the worker holding the surface is retried soon; a frozen or empty answer waits a second.
     public var nextRequestDelay: Duration {
         if fresh && hasImage { return .zero }
@@ -86,7 +86,7 @@ public enum PreviewRefusal: Equatable {
     }
 }
 
-/// Whether anyone could see a preview now (notes/preview.md fix list: capture only while someone can see it): not
+/// Whether anyone could see a preview now (kb area app: capture only while someone can see it): not
 /// while the displays sleep, the screen is locked or another user's session is in front. A covered window is the view's
 /// own check (its window's occlusion).
 public struct PreviewGate: Equatable {

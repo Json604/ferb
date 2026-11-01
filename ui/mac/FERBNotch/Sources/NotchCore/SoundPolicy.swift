@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 
-/// The decided sound family (notes/sound.md): no flight or landing sound.
+/// The decided sound family (kb area app): no flight or landing sound.
 public enum FerbSound: CaseIterable, Sendable {
     case firstLaunch, intro, summon, listeningStart, listeningEnd, done, needsYou, paused, error, notification
     case orbDrip, orbHop, orbMelt

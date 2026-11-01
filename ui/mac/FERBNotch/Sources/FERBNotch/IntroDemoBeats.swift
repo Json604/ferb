@@ -3,7 +3,7 @@ import NotchCore
 
 private typealias Pick = IntroCopy.Pick
 
-/// The tour's demo beats (notes/setup-intro.md steps 6–7): Try looks and tells, it never acts (the daemon's
+/// The tour's demo beats (kb area app steps 6–7): Try looks and tells, it never acts (the daemon's
 /// `intro.preview` is a planner turn with no run token and no worker, every event marked preview); Control is taught by
 /// doing, with Stop practised on that preview replayed as running. Nothing here sends `chat.send`.
 /// A suggested first task (`intro.suggest`) and the one app it would use, as macOS names it ("" for the browser).

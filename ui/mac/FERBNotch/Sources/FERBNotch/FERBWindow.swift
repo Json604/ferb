@@ -39,7 +39,7 @@ struct FERBAppActions {
     var appVersion: String? = NotchModel.appVersion
     /// Plan C's: Settings → AI, Permissions and Browsers embed its step views on this model.
     var setup: SetupModel?
-    /// Settings → General → Replay intro: the first-run intro's every beat again (notes/setup-intro.md).
+    /// Settings → General → Replay intro: the first-run intro's every beat again (kb area app).
     var replayIntro: (() -> Void)?
     /// Runs FERB.app's own `ferb` with these arguments (plan C's runner, one at a time): each output line, then the exit
     /// status. False when another run is under way.

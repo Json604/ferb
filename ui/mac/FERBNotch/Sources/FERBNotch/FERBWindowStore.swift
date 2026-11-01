@@ -186,7 +186,7 @@ final class FERBWindowStore: ObservableObject {
         await loadImportStatus()
     }
 
-    // MARK: Memory import (notes/memory-import.md)
+    // MARK: Memory import (kb area memory)
 
     /// What the import would read and how many model calls it takes; nothing is sent yet.
     func estimateImport(_ source: MemoryImportSource, path: String = "") async {
@@ -239,13 +239,13 @@ final class FERBWindowStore: ObservableObject {
         await loadMemory()
     }
 
-    // MARK: About (decision 6)
+    // MARK: About (DMN-6)
 
     func loadAbout() async {
         if let reply = await ask("about.get", [:], wait: Self.runtimeWait) { about = AboutDocument(reply) }
     }
 
-    // MARK: Data: Restore and saved secrets (decision 8)
+    // MARK: Data: Restore and saved secrets (APP-2)
 
     func loadRestore() async {
         guard let reply = await ask("recovery.list") else { return }

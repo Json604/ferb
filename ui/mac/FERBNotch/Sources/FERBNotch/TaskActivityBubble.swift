@@ -53,7 +53,7 @@ struct TaskActivityBubble: View {
 
     private func taskButton(_ item: TaskItem) -> some View {
         Button { hoveredTaskID = item.id } label: {
-            // Live while visible (decision 1): not while the notch is closed or stepped aside for another window.
+            // Live while visible (APP-403): not while the notch is closed or stepped aside for another window.
             TaskVideoView(preview: model.preview(for: item), compact: true, active: model.expanded && !model.isYielded)
                 .frame(width: 27, height: 27)
                 .clipShape(Circle())
@@ -145,7 +145,7 @@ final class TaskActivityPanel: NSPanel {
         isReleasedWhenClosed = false
         level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        sharingType = .none             // hidden from screen sharing and recordings (notes/preview.md decision 4)
+        sharingType = .none             // hidden from screen sharing and recordings (APP-406)
         let view = DetachedTaskActivityView(model: model, taskID: taskID, onClose: onClose)
         let hosting = NSHostingView(rootView: view)
         hosting.sizingOptions = []

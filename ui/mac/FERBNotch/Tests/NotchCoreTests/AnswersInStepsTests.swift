@@ -2,7 +2,7 @@ import XCTest
 @testable import FERBNotch
 @testable import NotchCore
 
-/// Answers in steps in the notch (orchestration decisions 19-21), driven by events shaped as the daemon sends them
+/// Answers in steps in the notch (ORCH-319-21), driven by events shaped as the daemon sends them
 /// (step 8d): the plan event with its card, `part` events on the stream and the bus, the outcome's footer, `merged`,
 /// and `chat.status` after a reconnect.
 @MainActor
@@ -334,7 +334,7 @@ final class AnswersInStepsTests: XCTestCase {
     }
 }
 
-/// The live preview's answers (notes/preview.md decisions 1-4): the status line over the frozen frame, when to ask
+/// The live preview's answers (APP-403-4): the status line over the frozen frame, when to ask
 /// again, and when not to ask at all.
 final class PreviewStateTests: XCTestCase {
     func testTheStatusLineShowsWheneverFERBIsntWorkingInTheWindowOrTheFrameIsOld() {

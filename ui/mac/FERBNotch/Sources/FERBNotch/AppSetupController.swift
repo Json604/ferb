@@ -6,9 +6,9 @@ enum AppName {
     static var current: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "FERB" }
 }
 
-/// FERB.app's setup (L27, L34 C, notes/setup-intro.md). A first launch runs the first-run intro (IntroController): its
+/// FERB.app's setup (L27, L34 C, kb area app). A first launch runs the first-run intro (IntroController): its
 /// Meet sets the background service up from this app (`ferb setup --service`, no questions) and turns it on with macOS
-/// (SMAppService: its definition is inside this signed app, notes/daemon.md decision 2), and every later beat reads and
+/// (SMAppService: its definition is inside this signed app, DMN-2), and every later beat reads and
 /// acts through the daemon. After the app is replaced by a new build, or when launchd doesn't have FERB running, launch
 /// updates the service quietly (`ferb setup --service --update`) and runs only the intro's beats for a required grant
 /// that's missing. A skipped intro (or a grant still off at its end) leaves the compact setup window on the first

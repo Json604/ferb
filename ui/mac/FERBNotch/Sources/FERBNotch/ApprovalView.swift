@@ -2,7 +2,7 @@ import SwiftUI
 import NotchCore
 
 /// One open question, shown inline at the end of today's chat while the composer stays usable (spec §4.7), or inside
-/// its card row (`inRow`, decision 20: the question and its buttons in the row of the ask it is about).
+/// its card row (`inRow`, APP-300: the question and its buttons in the row of the ask it is about).
 /// Hidden values live only in this field and the one answer RPC. Never in NotchSession or task history.
 struct ApprovalView: View {
     @ObservedObject var model: NotchModel
@@ -12,7 +12,7 @@ struct ApprovalView: View {
     @FocusState private var inputFocused: Bool
 
     /// A typed answer: a secret, a question without choices, or (outside a row) any question but a runtime offer,
-    /// which only its buttons answer (owner decision 16). In a row the choices are the answer, like the mock's.
+    /// which only its buttons answer (ORCH-315). In a row the choices are the answer, like the mock's.
     private var takesTypedAnswer: Bool {
         if approval.isSecret { return true }
         if approval.runtimeSwitch != nil { return false }

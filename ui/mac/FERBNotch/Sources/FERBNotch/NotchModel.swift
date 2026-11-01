@@ -184,7 +184,7 @@ final class NotchModel: ObservableObject {
     var archiveBlocked = false
     /// Send to developer (L35): each answer's report, by turn id (live state, never saved).
     @Published var reports: [UUID: ReportState] = [:]
-    /// A runtime switch the owner chose on a failed answer (decision 16), by turn: what it says now. Live state only.
+    /// A runtime switch the owner chose on a failed answer (ORCH-315), by turn: what it says now. Live state only.
     @Published var runtimeChoices: [UUID: String] = [:]
     /// Opens a report file the owner asked to view; tests replace it.
     var openReportFile: (URL) -> Void = { NSWorkspace.shared.open($0) }
@@ -287,7 +287,7 @@ final class NotchModel: ObservableObject {
     /// intro controller while the tour runs. Set, the line also offers Skip.
     var onIntroAction: ((IntroAction) -> Void)?
     /// While the tour runs, a request typed or spoken stays in the composer instead of starting a task: the tour runs
-    /// no real work (notes/setup-intro.md step 6); it is sent after the tour.
+    /// no real work (kb area app); it is sent after the tour.
     var introHoldsWork = false
     static let introHeldWork = "It'll wait here until the tour ends."
     /// What the owner is typing into the intro line's field. Emptied whenever the line changes (or goes), so a key

@@ -5,7 +5,7 @@ import SwiftUI
 /// window bounds so neither the chat mask nor its screen-edge placement clips them.
 struct TaskPreviewWindow: NSViewRepresentable {
     let model: NotchModel
-    /// A live preview of FERB's work: hidden from screen sharing and recordings (notes/preview.md decision 4).
+    /// A live preview of FERB's work: hidden from screen sharing and recordings (APP-406).
     var hidesFromCapture = false
 
     func makeNSView(context: Context) -> Attachment {

@@ -4,7 +4,7 @@ import XCTest
 @testable import FERBNotch
 @testable import NotchCore
 
-/// FERB's everyday sounds (notes/sound.md, owner 2026-11-01): each event's sound from the decided family, the owner's
+/// FERB's everyday sounds (kb area app, owner 2026-11-01): each event's sound from the decided family, the owner's
 /// per-sound switches, quiet during calls, and one sound per notification. Sounds go to fakes or are only decided,
 /// never played out loud.
 @MainActor

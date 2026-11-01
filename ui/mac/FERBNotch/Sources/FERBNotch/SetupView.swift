@@ -227,7 +227,7 @@ struct BrowsersStepView: View {
     }
 }
 
-/// FERB's own Google account (decision 7, optional; also Settings → Browsers): the owner makes the account and signs it
+/// FERB's own Google account (APP-1, optional; also Settings → Browsers): the owner makes the account and signs it
 /// into a browser profile of its own; FERB finds that profile and pairs it. Skipping it, the owner picks one of their
 /// paired profiles for FERB to browse in. Bare minimum; the owner polishes it.
 struct IdentityStepView: View {

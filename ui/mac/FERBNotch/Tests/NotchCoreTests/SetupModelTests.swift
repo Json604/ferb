@@ -23,7 +23,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.serviceAction, .none)              // going back to Welcome never reinstalls
     }
 
-    /// notes/daemon.md decision 2: after `ferb setup --service` FERB.app turns its own background service on with macOS
+    /// DMN-2: after `ferb setup --service` FERB.app turns its own background service on with macOS
     /// (SMAppService), waits until FERB answers, then goes on.
     func testWelcomeTurnsTheAppsBackgroundServiceOnAfterTheSetupCommand() async {
         let rig = SetupRig()

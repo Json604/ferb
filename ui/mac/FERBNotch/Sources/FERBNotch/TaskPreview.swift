@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import NotchCore
 
-/// Whether previews may be asked for now, shared by every preview loop (notes/preview.md): nobody can see one while the
+/// Whether previews may be asked for now, shared by every preview loop (kb area app): nobody can see one while the
 /// displays sleep, the screen is locked or another user's session is in front; and once the daemon refuses
 /// `tasks.preview` (not FERB.app, or a daemon from before previews) nobody asks again until it connects anew.
 @MainActor
@@ -54,7 +54,7 @@ final class TaskPreview: ObservableObject {
         self.access = access
     }
 
-    /// The line over the frame (decision 2), or why there is no live picture.
+    /// The line over the frame (APP-404), or why there is no live picture.
     var overlay: String? {
         if let refusal = access.refusal { return refusal.text }
         return answer?.overlay
@@ -122,7 +122,7 @@ struct TaskVideoView: View {
     var compact = false
     var active = true
     @State private var subscribed = false
-    /// The window showing it isn't covered (notes/preview.md: capture only while someone can see it).
+    /// The window showing it isn't covered (kb area app: capture only while someone can see it).
     @State private var windowVisible = true
 
     init(preview: TaskPreview, compact: Bool = false, active: Bool = true) {
@@ -145,7 +145,7 @@ struct TaskVideoView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            // What FERB is doing now, over its last frame of this window (decision 2).
+            // What FERB is doing now, over its last frame of this window (APP-404).
             if !compact, preview.image != nil, let line = preview.overlay {
                 Text(line)
                     .font(.system(size: 11, weight: .medium)).lineLimit(2)

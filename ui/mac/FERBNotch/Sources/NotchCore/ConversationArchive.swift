@@ -42,24 +42,24 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     /// turn saved before they existed (its `plan` text is shown).
     public var planLine: String?
     public var planLines: [String]?
-    /// A multi-part request's first reply (decision 19): the asks answered at once, then code's receipts (Remembered,
+    /// A multi-part request's first reply (ORCH-319): the asks answered at once, then code's receipts (Remembered,
     /// 🗓 Scheduled), above the plan line.
     public var direct: [String]?
     public var receipts: [String]?
-    /// A multi-part request's card (decision 19): a row per ask, filled in place, and the footer once the task ended.
+    /// A multi-part request's card (ORCH-319): a row per ask, filled in place, and the footer once the task ended.
     public var card: TurnCard?
-    /// A one-ask answer's structured lines (decision 19): "Couldn't confirm: …", "Correction: …", code's lines.
+    /// A one-ask answer's structured lines (ORCH-319): "Couldn't confirm: …", "Correction: …", code's lines.
     public var note: String?
     public var correction: String?
     public var codeLines: [String]?
-    /// The offer of another AI service when an account problem ended the work (owner decision 16).
+    /// The offer of another AI service when an account problem ended the work (ORCH-315).
     public var runtimeSwitch: RuntimeSwitch?
     /// Typed cards (step 8e) of the reply or the outcome: drawn in place of the lines they stand for. Nil for a turn
     /// saved before cards, which draws its text as before.
     public var cards: [ResultCard]?
     /// The first reply's cards (a multi-part request's receipts), drawn in place of those receipts.
     public var receiptCards: [ResultCard]?
-    /// The request this message was read together with (`merged`, decision 18): it has no reply of its own.
+    /// The request this message was read together with (`merged`, ORCH-318): it has no reply of its own.
     public var mergedInto: String?
     /// The kinds of secret the daemon hid in this message (the ack's `hidden`: "saved secret" or a format's name, never
     /// a value); the notice under the message says so (`hiddenNotice`).
@@ -68,11 +68,11 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var streamingPlan: String? = nil
     /// FERB acknowledged the message and hasn't said anything else yet: the typing dots show. Live state only.
     public var awaitingReply = false
-    /// The intro's look-don't-act preview of a suggested task (notes/setup-intro.md step 6): its rows say what FERB
+    /// The intro's look-don't-act preview of a suggested task (kb area app): its rows say what FERB
     /// would do; nothing was done. Never saved (`forStorage`).
     public var preview = false
 
-    /// The typing-dots bubble (decision 20): from the acknowledgement until FERB's first words (a streamed plan line or
+    /// The typing-dots bubble (APP-300): from the acknowledgement until FERB's first words (a streamed plan line or
     /// reply, the plan, the reply).
     public var showsTyping: Bool {
         awaitingReply && status == "working" && answer.isEmpty && plan == nil && (streamingPlan ?? "").isEmpty
@@ -352,7 +352,7 @@ public struct ConversationArchive: Codable, Equatable {
         return copy
     }
 
-    // MARK: The intro's preview (notes/setup-intro.md step 6)
+    // MARK: The intro's preview (kb area app)
 
     /// A suggested task shown as the real chat shows a task, from `intro.preview`'s events (`plan`, a `part` per step,
     /// each marked `preview: true`), in a turn of its own marked preview. `running`: replayed as if under way, for
@@ -468,7 +468,7 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].ack = text
     }
 
-    /// The plan event (L7): its text, and its fields when the daemon sends them (`details`, decision 19): the plan line
+    /// The plan event (L7): its text, and its fields when the daemon sends them (`details`, ORCH-319): the plan line
     /// and code's lines, the asks answered at once, the receipts and the card.
     public mutating func showPlan(id: UUID, text: String, details: [String: Any] = [:]) {
         guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
@@ -552,7 +552,7 @@ public struct ConversationArchive: Codable, Equatable {
         return turns != before
     }
 
-    /// The outcome's own fields (decision 19) on the turn that asked (its request, else the task's newest turn): a
+    /// The outcome's own fields (ORCH-319) on the turn that asked (its request, else the task's newest turn): a
     /// one-ask answer's "Couldn't confirm", correction and code lines; a multi-part task's footer; the offer of another
     /// AI service. Returns whether the turn changed.
     @discardableResult
@@ -605,13 +605,13 @@ public struct ConversationArchive: Codable, Equatable {
         }
     }
 
-    /// A failed reply's offer of another AI service (owner decision 16).
+    /// A failed reply's offer of another AI service (ORCH-315).
     public mutating func offerRuntimeSwitch(id: UUID, _ offer: RuntimeSwitch?) {
         guard let offer, let index = turns.firstIndex(where: { $0.id == id }) else { return }
         turns[index].runtimeSwitch = offer
     }
 
-    /// The message was read together with another one (`merged`, decision 18): that message's reply answers it.
+    /// The message was read together with another one (`merged`, ORCH-318): that message's reply answers it.
     public mutating func merge(id: UUID, into requestID: String) {
         guard let index = turns.firstIndex(where: { $0.id == id && $0.status == "working" && $0.backendTaskID == nil }) else { return }
         turns[index].mergedInto = requestID
@@ -621,7 +621,7 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].liveLine = nil
     }
 
-    /// Where each open question is shown in a card (decision 20: a question with its buttons inside its row): the
+    /// Where each open question is shown in a card (APP-300: a question with its buttons inside its row): the
     /// newest turn whose card has a row it belongs to. A question no row claims stays at the end of the chat.
     public func rowPlacements(_ approvals: [DaemonApproval]) -> [String: RowPlace] {
         var placed: [String: RowPlace] = [:]
@@ -696,7 +696,7 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].verified = verified
         turns[index].statusInferred = inferred ? true : nil
         turns[index].liveLine = nil
-        // A card fills in place (decision 19): its rows and footer are the answer, never a reply further down.
+        // A card fills in place (ORCH-319): its rows and footer are the answer, never a reply further down.
         guard firstAnswer || afterQuestion, turns[index].card == nil, let newest = turns.last else { return }
         if firstAnswer && replies.contains(where: { $0.turnID == id }) { return }
         // Its words so far are shown on the turn, or in the reply below it that showed the question.

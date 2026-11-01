@@ -1,6 +1,6 @@
 import Foundation
 
-// Step 12c (notes/daemon.md decisions 6-8, notes/storage.md decision 4): the models behind Settings → About, Settings →
+// Step 12c (DMN-6, APP-1, APP-2, STORE-402): the models behind Settings → About, Settings →
 // Data (Restore, saved secrets and cards, the one-time clean-up) and FERB's own account. Each is read from a daemon reply
 // or a `ferb` command's JSON; nothing here decides anything. Functional only: the owner polishes the screens later.
 
@@ -13,7 +13,7 @@ public func shownBytes(_ bytes: Int) -> String {
     ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
 }
 
-// MARK: - The app guide (decision 6: "a small list kept with the UI")
+// MARK: - The app guide (DMN-6: "a small list kept with the UI")
 
 /// FERB.app's how-tos, shortcuts and where each setting lives, kept here beside the screens they describe. FERB.app
 /// hands it to the daemon (`about.guide`) on each connection, so FERB's self-description and its workers say what this
@@ -80,7 +80,7 @@ public enum AppGuide {
     }
 }
 
-// MARK: - About (decision 6)
+// MARK: - About (DMN-6)
 
 /// `about.get`: FERB's self-description, as the daemon built it from code and config.
 public struct AboutDocument: Equatable {
@@ -151,7 +151,7 @@ public struct AboutDocument: Equatable {
     }
 }
 
-// MARK: - Restore (decision 8)
+// MARK: - Restore (APP-2)
 
 /// One thing FERB can put back (`recovery.list`): a copy of a file before FERB changed it, an item it moved to the
 /// Trash, or a disk snapshot (restored from macOS Recovery or Time Machine, not here).
@@ -185,7 +185,7 @@ public struct RestoreRow: Identifiable, Equatable {
     }
 }
 
-// MARK: - Saved secrets and cards (decision 8)
+// MARK: - Saved secrets and cards (APP-2)
 
 /// One saved entry (`secrets.saved`): where it fills and its name. Never a value.
 public struct SavedSecretRow: Identifiable, Equatable {
@@ -303,7 +303,7 @@ public struct SeenList: Equatable {
     }
 }
 
-// MARK: - The one-time clean-up (storage decision 4)
+// MARK: - The one-time clean-up (STORE-402)
 
 /// The last line of a `ferb setup --cleanup` run that is a JSON object (the command prints its plan, or its result, as
 /// one JSON line after any progress lines).
@@ -399,7 +399,7 @@ public struct CleanupResult: Equatable {
     }
 }
 
-// MARK: - FERB's own account (decision 7)
+// MARK: - FERB's own account (APP-1)
 
 /// A browser profile signed into the account the owner made for FERB (`identity.find`).
 public struct IdentityCandidate: Identifiable, Equatable {

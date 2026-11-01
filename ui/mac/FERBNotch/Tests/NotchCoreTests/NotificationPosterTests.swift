@@ -118,7 +118,7 @@ final class NotificationPosterTests: XCTestCase {
         XCTAssertEqual(opened.last, .question(approvalID: "a1", taskID: nil))
     }
 
-    /// Decision 21: the notch opens itself for a question or a finished task; the banner, which may arrive first, posts
+    /// APP-301: the notch opens itself for a question or a finished task; the banner, which may arrive first, posts
     /// only if the notch still isn't showing once that has landed, and never for a question answered meanwhile.
     func testABannerTheNotchShowsItselfWaitsForTheNotchToOpen() async throws {
         let center = FakeNotificationCenter()

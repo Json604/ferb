@@ -3,7 +3,7 @@ import NotchCore
 
 private typealias Pick = IntroCopy.Pick
 
-/// The tour's setup beats (notes/setup-intro.md steps 2–5), through SetupModel's own actions: the same sign-in,
+/// The tour's setup beats (kb area app steps 2–5), through SetupModel's own actions: the same sign-in,
 /// grants, pairing and identity paths as the setup window.
 extension IntroController {
     // MARK: 2. Sign in

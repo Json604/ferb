@@ -58,7 +58,7 @@ public struct ScheduleRow: Identifiable, Equatable {
     public let rule: String
     public let state: String
     public let nextRun: Date?
-    /// Its recorded end (decision 22); nil runs until stopped.
+    /// Its recorded end (ORCH-320); nil runs until stopped.
     public let until: Date?
     public let failures: Int
     public let lastResult: LastResult?
@@ -128,7 +128,7 @@ public struct NoticeRow: Identifiable, Equatable {
 }
 
 /// A memory item (`memory.list`): its words, where it came from (`label`: your words / FERB's understanding / observed,
-/// notes/memory.md decision 15), what it is about, and whether it is in the core profile (always on).
+/// MEM-12), what it is about, and whether it is in the core profile (always on).
 public struct MemoryRow: Identifiable, Equatable {
     public let id: String
     public let kind: String
@@ -234,7 +234,7 @@ public struct HealthLine: Identifiable, Equatable {
             out.append(HealthLine(name: "Shell containment", ok: ok,
                                   detail: ok ? "" : (reason.isEmpty ? "sandbox or proxy down" : reason)))
         }
-        // The store and its one-time clean-up (storage decision 4): "waiting for your OK" until the owner runs it.
+        // The store and its one-time clean-up (STORE-402): "waiting for your OK" until the owner runs it.
         if let database = doctor["database"] as? [String: Any] {
             let waiting = flag(database["cleanup_pending"])
             out.append(HealthLine(name: "Database", ok: !waiting,
@@ -244,7 +244,7 @@ public struct HealthLine: Identifiable, Equatable {
     }
 }
 
-/// Where a memory import reads from (`memory.import.*`, notes/memory-import.md decision 3): three account exports the
+/// Where a memory import reads from (`memory.import.*`, MEM-403): three account exports the
 /// owner chooses as a file or folder, and two local transcript folders FERB reads on this Mac.
 public enum MemoryImportSource: String, CaseIterable, Identifiable {
     case chatgpt, claude, gemini, claude_code, codex

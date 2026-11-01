@@ -25,11 +25,11 @@ public struct DaemonApproval: Identifiable, Equatable {
     public let title: String?
     public let evidence: [String]
     /// The task id the question was asked for, before the notch filed it under its root task (`task_id` is the root):
-    /// a step's task id, or a task under it, ties a confirmation to that step's row in a card (decision 19).
+    /// a step's task id, or a task under it, ties a confirmation to that step's row in a card (ORCH-319).
     public let sourceTaskID: String?
-    /// The part of a multi-part request FERB's own question is about (decision 19).
+    /// The part of a multi-part request FERB's own question is about (ORCH-319).
     public let part: String?
-    /// The offer of another AI service (`runtime.switch`, owner decision 16): answered only with its buttons.
+    /// The offer of another AI service (`runtime.switch`, ORCH-315): answered only with its buttons.
     public let runtimeSwitch: RuntimeSwitch?
     public var isSecret: Bool { ["owner_login_code", "owner_admin_password", "owner_secret"].contains(kind) }
     public init?(_ value: [String: Any]) {

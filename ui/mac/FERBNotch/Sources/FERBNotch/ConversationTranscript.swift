@@ -129,7 +129,7 @@ struct ConversationTranscript: View {
 /// The owner's request, then FERB's substantive plan, connection line, question and answer.
 /// Canned transport acknowledgements stay archived but are not presented (owner, 2026-10-29). Ordinary steps
 /// never reach the live line (owner, 2026-10-24: only the "N active tasks" row stays; DaemonConnection's `progress`).
-/// Several asks (decision 19): the first reply's bubble, then the card, whose rows and footer are the answer.
+/// Several asks (ORCH-319): the first reply's bubble, then the card, whose rows and footer are the answer.
 private struct TurnView: View {
     let turn: ConversationTurn
     let answeredBelow: Bool
@@ -138,7 +138,7 @@ private struct TurnView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             if turn.preview {
-                // The intro's suggested task (notes/setup-intro.md step 6): how FERB would do it, nothing done.
+                // The intro's suggested task (kb area app): how FERB would do it, nothing done.
                 Label("Preview · nothing here is done", systemImage: "eye")
                     .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.secondary)
             }
@@ -377,7 +377,7 @@ private struct AnswerView: View {
     let turn: ConversationTurn
     @ObservedObject var model: NotchModel
 
-    /// The answer's own lines drawn on their own (decision 19), cut from its text.
+    /// The answer's own lines drawn on their own (ORCH-319), cut from its text.
     private var split: AnswerParts {
         AnswerParts(answer: turn.visibleAnswer, note: turn.note, correction: turn.correction, lines: turn.codeLines ?? [])
     }

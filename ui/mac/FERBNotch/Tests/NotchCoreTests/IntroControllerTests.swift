@@ -3,7 +3,7 @@ import Combine
 @testable import FERBNotch
 import NotchCore
 
-/// The first-run tour (notes/setup-intro.md): the beats in order, each grant confirmed by the system, a preview that
+/// The first-run tour (kb area app): the beats in order, each grant confirmed by the system, a preview that
 /// never acts, the controls taught by doing, and a skip or quit that leaves nothing behind.
 @MainActor
 final class IntroControllerTests: XCTestCase {

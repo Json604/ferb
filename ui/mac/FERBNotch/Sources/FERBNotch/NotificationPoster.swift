@@ -75,7 +75,7 @@ final class NotificationPoster {
     private var pending: NotificationTarget?
     /// The wait before subscribing again after the daemon went away or macOS didn't allow notifications.
     static let retry: Duration = .seconds(5)
-    /// How long a banner the notch may show itself waits before it is judged (decision 21: the notch opens itself for a
+    /// How long a banner the notch may show itself waits before it is judged (APP-301: the notch opens itself for a
     /// question or a finished task; a banner only when it can't show). The banner can arrive first: the daemon sends a
     /// task's banner before its result, and a question's on another connection than the question itself.
     private let settle: Duration

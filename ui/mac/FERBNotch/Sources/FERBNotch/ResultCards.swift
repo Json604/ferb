@@ -117,7 +117,7 @@ enum CardTime {
 }
 
 /// A scheduled run came due: its title, when it was due, its rule, and a countdown to the schedule's recorded end when
-/// it has one (decision 22), else to its next run (a deadline only in the request's words gets none).
+/// it has one (ORCH-320), else to its next run (a deadline only in the request's words gets none).
 struct ReminderCard: View {
     let card: ResultCard
 
@@ -316,7 +316,7 @@ struct NoteCard: View {
 }
 
 /// A payment the owner approved that ran (Shapeshift's ExpenseRow): the merchant and site on the left, the amount as
-/// the page showed it on the right, and the name of the owner's saved card that paid (decision 23). Never a card digit:
+/// the page showed it on the right, and the name of the owner's saved card that paid (ORCH-321). Never a card digit:
 /// FERB's facts carry none.
 struct ExpenseRow: View {
     let card: ResultCard

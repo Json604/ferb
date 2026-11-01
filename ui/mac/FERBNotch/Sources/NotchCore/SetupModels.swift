@@ -246,8 +246,8 @@ public enum APIKeyEntry {
     }
 }
 
-/// Getting to know you (`setup.persona`, notes/memory.md decision 16): what FERB saw on this Mac, shown once as
-/// "here's what I saw"; nothing to answer (decision 15).
+/// Getting to know you (`setup.persona`, MEM-13): what FERB saw on this Mac, shown once as
+/// "here's what I saw"; nothing to answer (MEM-12).
 public enum PersonaState: Equatable {
     case loading                 // not asked for yet: the window calls `setup.persona {}` to start the scan
     case scanning

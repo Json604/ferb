@@ -53,7 +53,7 @@ extension NotchModel {
         supportsAttachments = (attached["capabilities"] as? [String] ?? []).contains("input_paths")
         previewAccess.reconnected()         // the daemon may have been updated: a refused preview is asked for again
         connectionStatus = "Connected to FERB"
-        // FERB's self-description says what this app shows (decision 6): its how-tos, shortcuts and settings' places.
+        // FERB's self-description says what this app shows (DMN-6): its how-tos, shortcuts and settings' places.
         Task { [rpc] in _ = try? await rpc.call("about.guide", params: AppGuide.payload) }
     }
 
@@ -94,7 +94,7 @@ extension NotchModel {
                 if let id = row["task_id"] as? String, runningTasks[id] != nil,
                    let started = LiveProgress.time(row["started_at"]) { runningSince[id] = started }
             }
-            // A multi-part task's rows as they stand (decision 19): live rows after a reconnect, or for a task this
+            // A multi-part task's rows as they stand (ORCH-319): live rows after a reconnect, or for a task this
             // chat has no turn for.
             var cardsChanged = false
             for row in running {
@@ -306,7 +306,7 @@ extension NotchModel {
         switch event["type"] as? String {
         case "plan_delta", "plan_abort", "plan_end":
             // Provisional presentation only; the canonical plan owns archive and task binding. The streamed plan line
-            // shows where the plan event's plan line will be (one path, notes/preview.md).
+            // shows where the plan event's plan line will be (one path, kb area app).
             guard session.backendTaskID == nil else { return false }
             switch event["type"] as? String {
             case "plan_delta": conversation.streamPlan(id: localID, delta: event["text"] as? String ?? "")
@@ -324,14 +324,14 @@ extension NotchModel {
             session.bindBackendTask(id, localID: localID)
             conversation.clearProvisionalReply(id: localID)
             conversation.bind(id: localID, taskID: id)
-            // Several asks (decision 19): the asks answered at once, receipts, the plan line, and the card.
+            // Several asks (ORCH-319): the asks answered at once, receipts, the plan line, and the card.
             conversation.showPlan(id: localID, text: event["text"] as? String ?? "", details: event)
             saveConversation()
             preferences.set(id, forKey: "FERBActiveTaskID")
             runningTasks[id] = event["goal"] as? String ?? session.draft
             if pendingStops.remove(localID) != nil { requestDaemonStop() }
         case "part":
-            // A row of the card changed (decision 19). It fills quietly: no opening, no banner (decision 21).
+            // A row of the card changed (ORCH-319). It fills quietly: no opening, no banner (APP-301).
             receivePart(event)
         case "progress":
             // Live state only, so it is not saved. The chat shows only the AI service connection's lines (marked
@@ -362,13 +362,13 @@ extension NotchModel {
             if event["type"] as? String == "reply", let sound = SoundPolicy.outcomeSound(status) { feedback.play(sound) }
             presentTerminalAnswer()
             recordAnswer(announce: true, displayText: event["display_text"] as? String)
-            // A planner turn that ended on a usage limit or a sign-in problem offers another AI service (decision 16).
+            // A planner turn that ended on a usage limit or a sign-in problem offers another AI service (ORCH-315).
             conversation.offerRuntimeSwitch(id: localID, RuntimeSwitch(event["runtime_switch"]))
             // Step 8e: the cards of what code did with the turn's memory, reminders and schedules.
             conversation.showCards(id: localID, event["cards"])
             saveConversation()
         case "merged":
-            // Read together with another message (decision 18): that message's reply answers this one too.
+            // Read together with another message (ORCH-318): that message's reply answers this one too.
             conversation.merge(id: localID, into: event["into"] as? String ?? "")
             session.finishMerged()
             saveConversation()
@@ -515,15 +515,15 @@ extension NotchModel {
         }
     }
 
-    /// A row's change (decision 19), from the turn's stream or the bus: applied once, by its seq, to the card that
-    /// shows it. Rows fill quietly: the notch opens only for a question or the task's end (decision 21).
+    /// A row's change (ORCH-319), from the turn's stream or the bus: applied once, by its seq, to the card that
+    /// shows it. Rows fill quietly: the notch opens only for a question or the task's end (APP-301).
     func receivePart(_ event: [String: Any]) {
         guard conversation.applyPart(event) != nil else { return }
         saveConversation()
         onBackgroundChange?(true)
     }
 
-    /// The runtime switch offered with a failed answer (owner decision 16): the role that failed uses `runtime` from
+    /// The runtime switch offered with a failed answer (ORCH-315): the role that failed uses `runtime` from
     /// its next call (`runtimes.use`); the task already ended, so the owner sends the request again.
     func useRuntime(_ runtime: String, for offer: RuntimeSwitch, turn: UUID) {
         guard runtimeChoices[turn] == nil else { return }
@@ -542,7 +542,7 @@ extension NotchModel {
     func receiveOutcome(_ event: [String: Any], announce: Bool = true, recordEvent: Bool = true) {
         guard let taskID = event["task_id"] as? String else { return }
         if recordEvent { taskStateRevision += 1 }
-        // The answer's own fields (decision 19) on its turn, before and after it is filed: a card fills in place.
+        // The answer's own fields (ORCH-319) on its turn, before and after it is filed: a card fills in place.
         let placed = conversation.applyOutcome(event)
         defer {
             if conversation.applyOutcome(event) || placed { saveConversation() }
@@ -838,7 +838,7 @@ extension NotchModel {
         }
     }
 
-    /// A finished task opens the notch by itself, without taking focus (decision 21): an answer, an unconfirmed answer,
+    /// A finished task opens the notch by itself, without taking focus (APP-301): an answer, an unconfirmed answer,
     /// a failure, or a question. The owner's own stop doesn't.
     static func opensNotch(_ status: String) -> Bool { ["done", "done_unverified", "failed", "needs_user"].contains(status) }
 

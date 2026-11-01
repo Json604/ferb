@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- FERB's background service (notes/daemon.md decision 2): scripts/build-app.sh copies it to
+<!-- FERB's background service (DMN-2): scripts/build-app.sh copies it to
      FERB.app/Contents/Library/LaunchAgents/com.ferb.daemon.plist (and sets FERB_APP_BUILD) before signing, and
      FERB.app registers it with SMAppService.agent(plistName:). Inside the signed app nothing can edit it, deleting the
      app removes it, and Login Items lists it under FERB. The agent (a native stub embedding the app's Python) accepts
