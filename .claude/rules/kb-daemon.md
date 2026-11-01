@@ -67,3 +67,4 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **DMN-503** (owner): A failure report older than 30 days is deleted.
 - **DMN-504** (agent): The final checker is offered and can run only observation tools; a click, send, write, shell or navigation of the owner's tabs is refused and recorded even if it is told to act, and it never opens a window that may switch Spaces.
 - **DMN-505** (agent): A failure report includes recorded problems only as redacted rows, never the raw stderr of logs/daemon.err.log.
+- **DMN-506** (owner): ferb doctor reports System Integrity Protection being off as a problem and says what it exposes (other processes can read a running command's proxy credential).

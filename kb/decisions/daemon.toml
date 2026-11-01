@@ -458,3 +458,13 @@ rule = "A failure report includes recorded problems only as redacted rows, never
 why = "Secrets stay out of anything sent to the developer (AGENTS.md rule 7)."
 paths = ["ferb/daemon/reports.py"]
 legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[DMN-506]
+title = "ferb doctor warns when System Integrity Protection is off"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "okok do it."
+why = "With SIP off, any process can read a shell command's proxy credential from its environment and no sandbox rule stops it (found on GitHub's runner, 2026-11-02)."
+rule = "ferb doctor reports System Integrity Protection being off as a problem and says what it exposes (other processes can read a running command's proxy credential)."
+paths = ["ferb/cli/setup.py"]

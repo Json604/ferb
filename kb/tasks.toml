@@ -410,3 +410,10 @@ kind = "build"
 status = "open"
 why = "No test resumes a tour with the daemon down; testAllowAllWaitsForTheDaemonsAnswer shows the same \"Getting my background part ready…\" wait only at the Allow all beat of a fresh tour."
 decisions = ["APP-515"]
+
+[T-26]
+title = "ferb doctor warns when SIP is off (DMN-506)"
+area = "daemon"
+kind = "build"
+status = "open"
+decisions = ["DMN-506"]
