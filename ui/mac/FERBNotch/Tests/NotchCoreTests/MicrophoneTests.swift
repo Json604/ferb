@@ -3,6 +3,7 @@ import XCTest
 
 @MainActor
 final class MicrophoneTests: XCTestCase {
+    // decision: APP-568
     func testHeldVoiceReturnsRealTranscriptToDraftWithoutSubmitting() {
         let mic = FakeMicrophone()
         let model = NotchModel(preferences: scratchDefaults(), microphone: mic)
@@ -19,6 +20,7 @@ final class MicrophoneTests: XCTestCase {
         XCTAssertNil(model.session.activeTaskID)
     }
 
+    // decision: APP-568, APP-552
     func testCancelStopsRecorderAndRestoresSnapshot() {
         let mic = FakeMicrophone()
         let model = NotchModel(preferences: scratchDefaults(), microphone: mic)
@@ -31,6 +33,7 @@ final class MicrophoneTests: XCTestCase {
         XCTAssertFalse(model.expanded)
     }
 
+    // decision: APP-568
     func testPermissionFailurePreservesDraftAndExplainsRecovery() {
         let mic = FakeMicrophone()
         let model = NotchModel(preferences: scratchDefaults(), microphone: mic)

@@ -5,6 +5,7 @@ import XCTest
 
 @MainActor
 final class ContinuousChatTests: XCTestCase {
+    // decision: APP-577, APP-580
     func testTwoMessagesCanRunAndFinishOutOfOrderWithoutErasingNextDraft() {
         let rpc = ChatRPC()
         let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
@@ -36,6 +37,7 @@ final class ContinuousChatTests: XCTestCase {
         model.disconnectDaemon()
     }
 
+    // decision: APP-571
     func testFirstStreamedAnswerReopensFERBAndShowsAttentionWithoutTakingFocus() {
         let model = NotchModel(rpc: ChatRPC(), preferences: scratchDefaults())
         model.session.draft = "First task"
@@ -70,6 +72,7 @@ final class ContinuousChatTests: XCTestCase {
         XCTAssertEqual(model.chatTranscriptHeight, 380)
     }
 
+    // decision: APP-554
     func testReturnIsConsumedOnceAndShiftReturnInsertsNewline() {
         let editor = ChatTextView()
         var submits = 0

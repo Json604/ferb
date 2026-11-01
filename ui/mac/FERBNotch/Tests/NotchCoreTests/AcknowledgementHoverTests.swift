@@ -6,6 +6,7 @@ import XCTest
 
 @MainActor
 final class AcknowledgementHoverTests: XCTestCase {
+    // decision: APP-579, APP-571
     func testFreshPlanIsImmediateWithoutExpandingAndDoesNotReplay() {
         let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Check my task"
@@ -32,6 +33,7 @@ final class AcknowledgementHoverTests: XCTestCase {
         XCTAssertEqual(model.conversation.turns.first?.plan, "Still checking")
     }
 
+    // decision: APP-571
     func testBackgroundPlanUsesForegroundVisibilityAndHistoryNeverReplays() {
         let preferences = scratchDefaults()
         let model = NotchModel(preferences: preferences)

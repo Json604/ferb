@@ -5,6 +5,7 @@ import XCTest
 
 @MainActor
 final class NotchLayoutTests: XCTestCase {
+    // decision: APP-561, APP-558
     func testPinnedHeaderDoesNotShiftWhenTheWindowCanvasShrinks() throws {
         let model = NotchModel()
         model.expand()
@@ -36,6 +37,7 @@ final class NotchLayoutTests: XCTestCase {
         model.collapse()
     }
 
+    // decision: APP-557
     func testOpeningFromCompactDoesNotSlideBodySeparatelyFromSurface() {
         let presentation = NotchPresentation()
         presentation.backdrop.frame = CGRect(x: 0, y: 0, width: 456, height: 500)
@@ -45,6 +47,7 @@ final class NotchLayoutTests: XCTestCase {
         presentation.stop()
     }
 
+    // decision: APP-557
     func testReopeningDuringCloseKeepsCurrentSurfaceInsteadOfRestartingAtPill() throws {
         guard NSScreen.main != nil else { throw XCTSkip("A display is required for the presentation clock") }
         let presentation = NotchPresentation()

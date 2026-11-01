@@ -18,6 +18,7 @@ final class NotificationTests: XCTestCase {
         XCTAssertNil(BannerItem(["id": "n", "category": "", "title": "FERB noticed", "body": "x"])!.category)
     }
 
+    // decision: APP-301
     func testOnlyBannersTheNotchShowsWaitForItToClose() {
         let question = BannerItem(["id": "q", "title": "t", "body": "b", "when_hidden": true])!
         let reminder = BannerItem(["id": "r", "title": "t", "body": "b", "when_hidden": false])!

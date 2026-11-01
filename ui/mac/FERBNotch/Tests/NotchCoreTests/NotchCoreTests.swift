@@ -31,6 +31,7 @@ final class NotchCoreTests: XCTestCase {
         XCTAssertTrue(session.history.isEmpty)
     }
 
+    // decision: APP-550
     func testPanelAttachesBelowThePhysicalCameraCutout() {
         let geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1512, height: 982),
                                      topInset: 32, leftAreaMaxX: 666, rightAreaMinX: 846,
@@ -41,6 +42,7 @@ final class NotchCoreTests: XCTestCase {
         XCTAssertEqual(geometry.panelFrame(size: CGSize(width: 528, height: 354)).maxY, 950)
     }
 
+    // decision: APP-518
     func testANotchlessDisplayGetsAVirtualNotchOverTheMenuBar() {
         // Owner 2026-10-27 (a friend's M1): a black pill at the top centre, as tall as the menu bar, not a tab below it
         let geometry = NotchGeometry(screen: CGRect(x: -1920, y: 200, width: 1920, height: 1080),
@@ -55,6 +57,7 @@ final class NotchCoreTests: XCTestCase {
         XCTAssertEqual(hidden.cutoutFrame.height, 24)
     }
 
+    // decision: APP-550
     func testANotchedDisplaysPillIsTheCameraHousing() {
         let geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1512, height: 982),
                                      topInset: 32, leftAreaMaxX: 666, rightAreaMinX: 846,
@@ -62,6 +65,7 @@ final class NotchCoreTests: XCTestCase {
         XCTAssertEqual(geometry.cutoutFrame, CGRect(x: 666, y: 950, width: 180, height: 32))
     }
 
+    // decision: APP-564
     func testClosingTheSurfaceDoesNotStopTheTask() {
         var session = NotchSession()
         session.draft = "Make a brief"

@@ -3,6 +3,7 @@ import XCTest
 @testable import FERBNotch
 
 final class ConversationTests: XCTestCase {
+    // decision: APP-569
     func testTurnsPersistAndGroupByLocalDayWithoutLosingEarlierReplies() throws {
         var chat = ConversationArchive()
         let day = Calendar.current.startOfDay(for: Date())
@@ -36,6 +37,7 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(model.conversation.turns.first?.answer, "Hello!")
     }
 
+    // decision: APP-571, APP-301
     @MainActor func testTaskCompletionRevealsTuckedHeaderWithoutRequestingKeyboardFocus() {
         let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Find notes"
@@ -53,6 +55,7 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(foregroundRequests, 0)
     }
 
+    // decision: APP-571
     @MainActor func testReplyOpensCollapsedPanelAndPersistsOnlyOnce() {
         let defaults = scratchDefaults()
         let model = NotchModel(preferences: defaults)

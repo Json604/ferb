@@ -39,6 +39,7 @@ final class NotchYieldControllerTests: XCTestCase {
     private let notchPoint = CGPoint(x: 735, y: 10)
     private let browserPoint = CGPoint(x: 200, y: 600)
 
+    // decision: APP-559
     func testPinnedChatYieldsToAnActivatedAppUnderItAndHoveringTheNotchBringsItBack() {
         pinOpenChat()
         windows = [F.maximizedBrowser]
@@ -56,6 +57,7 @@ final class NotchYieldControllerTests: XCTestCase {
 
     /// The panel steps back just behind the covered app's frontmost window under the chat (owner, 2026-10-24),
     /// so that window is known when the yield applies; a menu over FERB has no window to sit behind.
+    // decision: APP-559
     func testTheWindowToStepBehindIsKnownWhenTheYieldApplies() {
         pinOpenChat()
         let front = F.window(F.browser, layer: 0, 100, 40, 1000, 800, id: 11)
@@ -76,6 +78,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertNil(controller.coveringWindow())
     }
 
+    // decision: APP-559
     func testTheFoldedPinnedHeaderSitsInTheMenuBarAndDoesNotYield() {
         model.expand()
         model.togglePin()
@@ -85,6 +88,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testAnAppWithNothingUnderTheChatOrAnUnpinnedChatDoesNotYield() {
         pinOpenChat()
         windows = [F.window(F.finder, layer: 0, 0, 500, 400, 300)]
@@ -96,6 +100,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testFERBComesBackWhenTheAppsWindowsUnderTheChatGoAway() {
         pinOpenChat()
         windows = [F.maximizedBrowser]
@@ -107,6 +112,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testFERBComingForwardItsShortcutOrAnotherAppNotUnderTheChatBringsItBack() {
         pinOpenChat()
         windows = [F.maximizedBrowser, F.window(F.finder, layer: 0, 0, 500, 400, 300)]
@@ -119,6 +125,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testAClickIntoTheFrontmostAppUnderTheChatYieldsAndAClickOnTheNotchBringsFERBBack() {
         // An answer opened the pinned chat over the browser the owner is using: no app activation happens.
         pinOpenChat()
@@ -131,6 +138,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testAClickOnAWindowThatIsNotUnderTheChatDoesNotYield() {
         pinOpenChat()
         let finderWindow = F.window(F.finder, layer: 0, 0, 500, 400, 300)
@@ -139,6 +147,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testAnotherAppsMenuOverFERBYieldsUntilItCloses() {
         model.expand()
         windows = [F.maximizedBrowser, F.clipboardMenu]
@@ -153,6 +162,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertTrue(model.expanded)
     }
 
+    // decision: APP-559
     func testEnteringTheNotchShowsFERBOverAWindowThatNeverClosesUntilANewOneAppears() {
         model.expand()
         windows = [F.shareBar]
@@ -182,6 +192,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertTrue(model.isYielded)
     }
 
+    // decision: APP-559
     func testOpeningFERBOverAWindowThatIsAlreadyThereKeepsItShown() {
         // Collapsed on a notched display nothing of FERB is drawn, so there is nothing to check yet.
         windows = [F.shareBar]
@@ -199,6 +210,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertEqual(model.yielding.reasons, [.foreignOverlay])
     }
 
+    // decision: APP-559
     func testRevealingThePinnedChatOverAWindowKeepsItShown() {
         model.expand()
         model.togglePin()
@@ -212,6 +224,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testAnOverrideLastsWhileTheWindowIsOnScreenEvenWhenItNoLongerOverlapsFERB() {
         pinOpenChat()
         windows = [F.maximizedBrowser, F.shareBar]
@@ -231,6 +244,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertTrue(controller.overriddenOverlays.isEmpty)
     }
 
+    // decision: APP-559
     func testHoverOrAClickOnTheNotchOverridesAWindowThatCoversIt() {
         model.expand()
         windows = [F.window(810, layer: 25, 620, 0, 230, 60)]   // another notch app
@@ -244,6 +258,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testHoveringAMenuThatCoversTheNotchDoesNotBringFERBBack() {
         model.expand()
         windows = [F.window(F.clipboardApp, layer: NotchOverlap.popUpMenuLayer, 640, 0, 200, 300)]
@@ -253,6 +268,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertTrue(model.isYielded)
     }
 
+    // decision: APP-559
     func testSystemInputWindowsOverFERBNeverHideIt() {
         // An accent popup, emoji palette or input-method candidates opened from FERB's own composer belong to a
         // system input process, not to FERB.
@@ -266,6 +282,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertTrue(model.isYielded)
     }
 
+    // decision: APP-559
     func testOnlyEnteringTheNotchCountsNotAPointerAlreadyRestingThere() {
         model.expand()
         windows = [F.shareBar]
@@ -276,6 +293,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertEqual(controller.pointerMoved(to: notchPoint), .broughtBack)
     }
 
+    // decision: APP-559
     func testTheNotchDoesNotSummonFERBWhereAnotherAppsMenuReachesUnderIt() {
         model.expand()
         let menuUnderNotch = F.window(F.clipboardApp, layer: 101, 640, 33, 200, 300)
@@ -288,6 +306,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertEqual(controller.pointerMoved(to: CGPoint(x: 700, y: 10)), .broughtBack)
     }
 
+    // decision: APP-559
     func testTheShortcutOrAClickOnTheNotchOverridesAnotherAppsWindow() {
         model.expand()
         windows = [F.shareBar]
@@ -302,6 +321,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testWindowsOverFERBDuringDictationDontHideItAfterwards() {
         model.expand()
         model.session.beginVoicePreview()
@@ -312,6 +332,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testANormalWindowUnderTheUnpinnedChatNeverYields() {
         model.expand()
         windows = [F.maximizedBrowser]
@@ -321,6 +342,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testWithNothingOfFERBOnScreenAMenuNoLongerHidesIt() {
         model.expand()
         windows = [F.clipboardMenu]
@@ -331,6 +353,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testDictationIsNeverHiddenByAnotherAppsMenu() {
         model.expand()
         model.session.beginVoicePreview()
@@ -339,6 +362,7 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
+    // decision: APP-559
     func testAWindowThatAppearsJustAfterActivationStillYields() async throws {
         pinOpenChat()
         controller.activationRecheckDelay = .milliseconds(10)

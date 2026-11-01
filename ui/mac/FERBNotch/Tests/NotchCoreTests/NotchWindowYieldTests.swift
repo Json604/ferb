@@ -26,6 +26,7 @@ final class NotchWindowYieldTests: XCTestCase {
 
     /// Owner, 2026-10-24: "take it one layer behind rather than closing it back". The panel stays on screen, just
     /// behind the app window it yields to, and comes back at its own level in the overlay space.
+    // decision: APP-560, APP-563
     func testYieldStepsThePanelOneLayerBackAndBringsItBackIntoTheOverlaySpace() {
         panel.isKeyWindow = true
         yield.yield(behind: 42)
@@ -45,6 +46,7 @@ final class NotchWindowYieldTests: XCTestCase {
 
     /// Yielding to a menu, popover or floating window (all above the normal level) or to FERB's file picker, the
     /// panel stays in front of ordinary windows, under that surface.
+    // decision: APP-560
     func testWithNoAppWindowToSitBehindThePanelStaysInFrontOfOrdinaryWindows() {
         yield.yield(behind: nil)
         XCTAssertTrue(panel.isVisible)
@@ -52,6 +54,7 @@ final class NotchWindowYieldTests: XCTestCase {
         XCTAssertEqual(panel.log, ["front"])
     }
 
+    // decision: APP-560
     func testRestackingMovesThePanelOnlyWhenWhatItYieldsToChanged() {
         yield.restack(behind: 7)                       // not yielding: nothing moves
         XCTAssertEqual(panel.log, [])
@@ -64,6 +67,7 @@ final class NotchWindowYieldTests: XCTestCase {
         XCTAssertEqual(yield.behind, 43)
     }
 
+    // decision: APP-562
     func testComingBackTakesFocusOnlyIfItHadItAndTheOwnerStayed() {
         yield.yield(behind: nil)
         yield.comeBack(refocus: true)
@@ -83,6 +87,7 @@ final class NotchWindowYieldTests: XCTestCase {
         XCTAssertFalse(panel.isKeyWindow)
     }
 
+    // decision: APP-558, APP-553
     func testTheOwnerBringingFERBBackFocusesTheVisibleInputButNeverWhileYielded() {
         yield.yield(behind: 42)
         XCTAssertFalse(yield.focusInput(bodyVisible: true))
@@ -96,6 +101,7 @@ final class NotchWindowYieldTests: XCTestCase {
 
     /// A presentation while FERB yields (a background reply resizing the chat) leaves the panel where it stepped
     /// back to; one that finds it off screen (after the displays slept) puts it back there, not on top.
+    // decision: APP-560, APP-563
     func testPresentationsKeepAYieldedPanelWhereItSteppedBack() {
         yield.yield(behind: 42)
         yield.showPanel()
@@ -110,6 +116,7 @@ final class NotchWindowYieldTests: XCTestCase {
         XCTAssertEqual(rejoined, ["panel"])
     }
 
+    // decision: APP-586, APP-560
     func testOnlyTheAttentionLightStaysOnScreenWhileYielded() {
         yield.yield(behind: nil)
         yield.updateTracer(glowing: true, lightShows: false)
@@ -126,6 +133,7 @@ final class NotchWindowYieldTests: XCTestCase {
     /// transparent areas. The only writes allowed are FERB's click-through windows' own, each always true: the
     /// light (NotchLightPanel), the pointer overlay (CursorPanel) and the intro's orb (OrbPanel), at creation and in
     /// the setter that keeps it on (D31 fix round 4). The notch's own panel is never written.
+    // decision: APP-560
     func testNoCodeMakesTheNotchPanelMouseTransparent() throws {
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/FERBNotch")

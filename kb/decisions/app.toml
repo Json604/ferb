@@ -8,6 +8,7 @@ status = "active"
 words_source = "notes/daemon.md owner decision 7 (owner confirmed the proposal): an agent's paraphrase; no verbatim quote recorded"
 rule = "FERB.app's setup offers \"Give FERB its own Google account (recommended)\": the owner creates the account (creation needs human verification) and signs it into a browser profile; FERB finds and pairs it. If skipped, FERB browses as the owner in a profile the owner picks, and features that need FERB's own inbox say they aren't set up."
 paths = ["ui/mac/FERBNotch", "ferb/daemon/settings.py::write_identity"]
+live = ["LIVE-7"]
 legacy = "notes/daemon.md decision 7"
 
 [APP-2]
@@ -18,6 +19,7 @@ status = "active"
 words_source = "notes/daemon.md owner decision 8: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
 rule = "FERB.app has, functional only (the owner polishes the UI later): Restore, listing FERB's Trash moves, backup copies and snapshots and restoring one; Delete, removing a stored owner secret or card; Uninstall, removing FERB fully, Keychain items included. Daemon RPCs plus minimal app screens."
 paths = ["ui/mac/FERBNotch", "ferb/identity/owner_secrets.py::OwnerSecrets.delete"]
+live = ["LIVE-8", "LIVE-9", "LIVE-12", "LIVE-620"]
 legacy = "notes/daemon.md decision 8"
 
 [APP-3]
@@ -28,6 +30,7 @@ status = "active"
 words_source = "notes/daemon.md fix list (owner, 2026-10-31, step 12e): an agent's paraphrase; no verbatim quote recorded"
 rule = "A button on each message in the notch opens the screenshot taken when it was sent and the images its task captured, each exactly as the model got it, with time and app or site. Settings → Data lists every saved screenshot of the last 7 days, newest first."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SeenViewer.swift", "ferb/daemon/areas/about.py::About._seen_list"]
+live = ["LIVE-13"]
 legacy = "notes/daemon.md fix list: \"What FERB saw\""
 
 [APP-4]
@@ -47,6 +50,7 @@ status = "active"
 rule = "FERB.app's Uninstall (plain or delete everything) awaits SMAppService.unregister() and checks the status; only not-registered or not-found goes on to `ferb uninstall [--purge --yes]`. A throw or a service macOS still lists shows why in the output lines and nothing is uninstalled."
 why = "A fire-and-forget unregister let the uninstall start while the service was still registered."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
+live = ["LIVE-12", "LIVE-19"]
 legacy = "notes/daemon.md Rulings (12e review): uninstall waits"
 
 [APP-400]
@@ -77,6 +81,7 @@ status = "active"
 rule = "Settings → General \"Send dictation when I let go of the keys\" (`voice.sendOnRelease`) is off by default. A sent draft that still holds the last dictated words goes with `speak: true`, so a dictated message lightly edited and sent with Return is still answered aloud; a typed message isn't."
 why = "Sending on release changes when a message leaves, so the owner turns it on."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+live = ["LIVE-413", "LIVE-416"]
 legacy = "notes/voice.md Rulings (step 11) 7"
 
 [APP-403]
@@ -98,6 +103,7 @@ words_source = "notes/preview.md owner decision 2: an agent's summary (its quote
 rule = "When FERB stops working in a window (moves to another step, pauses, waits, asks), the preview freezes on FERB's last frame of it and shows what FERB is doing now over it (asking, waiting, working in another app, paused). It never keeps streaming the owner's window after FERB has left it."
 why = "Before, it kept streaming: new WhatsApp messages would stream into the preview."
 paths = ["ferb/daemon/task_preview.py::TaskPreviews", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift"]
+live = ["LIVE-422"]
 legacy = "notes/preview.md decision 2"
 
 [APP-405]
@@ -109,6 +115,7 @@ words_source = "notes/preview.md owner decision 3 (\"Frame rate: measure first\"
 rule = "There is no preview frame-rate cap until the heat is confirmed from data. Preview frames and capture time are counted (`resource_samples.work_json.preview`); step 13 measures the same task with the preview open vs closed, and the owner decides a cap from that."
 why = "The 33-53% daemon CPU windows on 2026-10-30 came while previews ran, but the tasks differed, so it isn't proven."
 paths = ["ferb/daemon/resources.py", "ferb/daemon/task_preview.py::Counts"]
+live = ["LIVE-420"]
 legacy = "notes/preview.md decision 3"
 
 [APP-406]
@@ -119,6 +126,7 @@ status = "active"
 words_source = "notes/preview.md owner decision 4: an agent's summary; no verbatim quote recorded"
 rule = "The preview popovers and the floating player are excluded from screen sharing and screen recordings (`sharingType = .none`)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift"]
+live = ["LIVE-423"]
 legacy = "notes/preview.md decision 4"
 
 [APP-407]
@@ -129,6 +137,7 @@ status = "active"
 rule = "Every preview loop pauses while the displays sleep, the screen is locked or another user's session is in front (`PreviewAccess`); each video view asks only while its window is visible (occlusion); the work-row circles only while the notch is open and not stepped aside. The frame rate itself is unchanged (APP-405)."
 why = "APP-403 keeps it always live when visible; capturing for nobody only costs heat."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift"]
+live = ["LIVE-423"]
 legacy = "notes/preview.md fix list (step 8d): capture only while visible"
 
 [APP-300]
@@ -139,6 +148,7 @@ status = "active"
 words_source = "notes/orchestration.md owner decision 20: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
 rule = "The notch shows the turn card with one row per part and its states (working spinner, done check, asks amber, couldn't-do red, updated tag, paused violet), the done/sites footer, questions with buttons inside a row, the plan-line bubble style and the typing-dots bubble; not the mock's dashed explanation labels or \"code\" chips. The UI work is functional; the owner polishes."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
+live = ["LIVE-555"]
 legacy = "notes/orchestration.md decision 20"
 
 [APP-301]
@@ -149,6 +159,7 @@ status = "active"
 words_source = "notes/orchestration.md owner decision 21: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
 rule = "When a part needs the owner (a question or a Yes) and when the whole task finishes, the notch opens itself without taking keyboard focus or switching apps. Rows that fill quietly only update the card. A macOS banner is the fallback only when the notch can't show (a full-screen app or video covers it, the display is asleep, FERB.app is quit); tapping it opens the notch."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift"]
+live = ["LIVE-562", "LIVE-560"]
 legacy = "notes/orchestration.md decision 21"
 
 [APP-500]
@@ -161,6 +172,7 @@ rule = "First install is a short, interactive introduction that makes FERB feel 
 why = "Inspiration: HeyClicky's intro (principles only), Apple's Dynamic Island motion, the macOS 27 Siri orb (one object that morphs, content grows out of it, calm once settled). AskForPermission and Scrawl (MIT) were studied for the drag card."
 rejected = ["A wizard of screens with Next buttons", "A permission checklist dressed up", "A separate onboarding-app look that isn't the notch", "An account system, marketing screens or feature slides", "New FERB capabilities made for the intro"]
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift"]
+live = ["LIVE-500"]
 legacy = "notes/setup-intro.md Intent, Goals, Non-goals, Anti-goals"
 
 [APP-501]
@@ -172,6 +184,7 @@ words = "i like the mixture of a and b. the notch it is. BUT i dont want the bla
 rule = "The notch is FERB's home and voice: it swells down to speak and shrinks back when done, and all of FERB's tour words come from it except a short instruction beside the orb. When FERB shows a place on screen, a small glass orb (an iridescent band inside that ripples while FERB listens or waits) drips off the notch in a liquid split, flies there, helps with the step, hops when the step is done, flies home and melts back; the notch swells once as it takes it back."
 rejected = ["A: the notch grows and reaches out with an attached arm (the black line)", "B: a free companion orb on its own"]
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/OrbController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift"]
+live = ["LIVE-542", "LIVE-546"]
 legacy = "notes/setup-intro.md The direction"
 
 [APP-502]
@@ -201,6 +214,7 @@ date = 2026-11-01
 status = "active"
 rule = "Springs with a perceptual duration of about 0.35-0.5 s: opening with a small bounce (0.15-0.3), closing and dismissal critically damped (bounce 0), morphs snappy. Every animation is interruptible and retargetable mid-flight, keeping its velocity. Decorative animations last at most 2 s and the user never waits on one. Content stays concentric with the notch; the notch and the orb split and merge as liquid (metaball). Reduce Motion: springs become cross-fades and the orb fades in beside its target instead of flying."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/OrbMotion.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbController.swift"]
+live = ["LIVE-500"]
 legacy = "notes/setup-intro.md The direction (Motion) and Constraints (Reduce Motion)"
 
 [APP-505]
@@ -233,6 +247,7 @@ status = "active"
 rule = "Sign in offers Codex or Claude first, with \"Other ways to connect\" for an Anthropic, OpenAI or Google API key. As soon as sign-in succeeds FERB starts the Mac scan (MEM-13) in the background so it is ready by the Try beat; a cancelled or failed sign-in never starts it."
 why = "AGENTS.md rule 12 keeps the API runtimes first-class."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift"]
+live = ["LIVE-547"]
 legacy = "notes/setup-intro.md journey step 2 (ruling)"
 
 [APP-508]
@@ -243,6 +258,7 @@ status = "active"
 words_source = "notes/setup-intro.md journey step 3 and Constraints cite the owner's decision of 2026-10-26: an agent's paraphrase; no verbatim quote"
 rule = "Every permission FERB asks at setup is required; setup grants them through one Allow all, and Automation stays per app at first use. Required grants still missing at the end bring setup back at the next launch."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ferb/device/permissions.py"]
+live = ["LIVE-21"]
 legacy = "notes/setup-intro.md journey step 3"
 
 [APP-509]
@@ -298,7 +314,7 @@ rule = "FERB says in one or two specific lines what it saw from the scan, then s
 supersedes = ["PRM-316"]
 why = "Owner, 2026-11-01 (paraphrase): more than one suggestion; two suggested, one previewed."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift", "ferb/daemon/areas/intro.py"]
-live = ["LIVE-500"]
+live = ["LIVE-500", "LIVE-542", "LIVE-543"]
 legacy = "notes/setup-intro.md journey step 6"
 
 [APP-514]
@@ -309,6 +325,7 @@ status = "active"
 rule = "A \"Do it for real\" choice taken in the Try beat starts as a normal real task, with its usual questions, only after the tour ends at Home. Stopping is practised in the Control beat on the Try beat's preview, replayed as a running preview."
 why = "The tour itself never runs real work."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroControls.swift"]
+live = ["LIVE-543"]
 legacy = "notes/setup-intro.md journey steps 6-7 (rulings)"
 
 [APP-515]
@@ -329,7 +346,7 @@ status = "active"
 words_source = "notes/setup-intro.md Constraints (design agreed 2026-11-01): an agent's write-up; no verbatim quote"
 rule = "The tour can be skipped at any point, resumes at the same beat after a quit, and replays from Settings. A skip tears down everything the tour drew or said (orb, sound, drag card) at once and leaves the required steps still missing (service, sign-in, permissions) in the compact window. The app opts out of automatic termination during the tour."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift"]
-live = ["LIVE-500"]
+live = ["LIVE-500", "LIVE-553"]
 legacy = "notes/setup-intro.md Constraints (Skippable)"
 
 [APP-517]
@@ -351,6 +368,7 @@ status = "active"
 words_source = "notes/setup-intro.md Constraints cites the owner's decision of 2026-10-27: no verbatim quote"
 rule = "On a Mac without a hardware notch a virtual notch pill plays the notch's role, in the tour too: the orb launches from it on FERB's screen."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/NotchGeometry.swift", "ui/mac/FERBNotch/Sources/NotchCore/OrbMotion.swift"]
+live = ["LIVE-500", "LIVE-636"]
 legacy = "notes/setup-intro.md Constraints (Notchless Macs)"
 
 [APP-519]
@@ -373,7 +391,7 @@ rule = "FERB has an original, recognisable family of sounds sharing one characte
 why = "The owner shared Fares Farhan, \"Sounds in User Experience\" (Medium, 2023), to explain the intent: sound as a designed UX system, tested by living with it."
 rejected = ["Unrelated stock effects", "Music under the tour", "Synthesized sine placeholders (round 1, \"not good\")"]
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AudioOutputFacts.swift"]
-live = ["LIVE-501"]
+live = ["LIVE-501", "LIVE-544", "LIVE-548"]
 legacy = "notes/setup-intro.md Sound; notes/sound.md"
 
 [APP-521]
@@ -384,6 +402,7 @@ status = "active"
 words = "i dont want too much noise everywhere too. lets have it for big events and only where its necessary."
 rule = "FERB makes a sound only for big events and where it is needed. Working is silent; there are no hover, typing or repeating progress sounds."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SoundFeedback.swift"]
+live = ["LIVE-501"]
 legacy = "notes/sound.md round 3 verdict; notes/setup-intro.md Sound"
 
 [APP-522]
@@ -394,6 +413,7 @@ status = "active"
 words_source = "notes/setup-intro.md Sound (\"Owner's words, condensed\"): an agent's condensation; no verbatim quote"
 rule = "In the tour sound is attached to FERB's position and movement, not a soundtrack: at the notch while FERB speaks, with the orb while it is out, home with it."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift"]
+live = ["LIVE-552", "LIVE-545"]
 legacy = "notes/setup-intro.md The direction and Sound"
 
 [APP-523]
@@ -404,6 +424,7 @@ status = "active"
 rule = "Mono sources are placed from the notch's and the orb's frames: pan = clamp((x / screenWidth - 0.5) x 1.2, -0.6, 0.6), the notch at 0; distance from the notch lowers gain by at most 3 dB and adds a low-pass, never elevation or Doppler. HRTF (AVAudioEnvironmentNode) only when headphones are the output, equal-power pan otherwise. The engine stays warm and compensates output latency; no tight sync is promised on Bluetooth. Meaning never depends on position."
 why = "MacBook speakers convey left/right, not up/down; on-screen travel is about 30 cm, so pitch bends read as cartoon; Bluetooth adds about 125-170 ms."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift"]
+live = ["LIVE-545"]
 legacy = "notes/setup-intro.md Sound (Spatial); notes/sound.md Motion and space"
 
 [APP-524]
@@ -415,6 +436,7 @@ words_source = "notes/setup-intro.md Sound (Ownership) and notes/sound.md owner 
 rule = "The Crystal family, synthesised from code under the owner's direction with no samples, ships as FERB's own sounds; hiring a sound designer stays optional for later. No library loops or sample-library content, no game or film music."
 rejected = ["No purely AI-generated signature (the first sound brief)", "Commissioning a UI-sound specialist for the final family now (the research's hybrid route)"]
 paths = ["demo/sound-family/render.py", "ui/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds"]
+untestable = "A sourcing rule for the sound files (synthesised from code, no samples or library content); nothing the app does shows it."
 legacy = "notes/sound.md owner decisions; notes/setup-intro.md Sound (Ownership)"
 
 [APP-525]
@@ -459,7 +481,7 @@ rule = "While another app is using the microphone (a call, dictation elsewhere),
 why = "macOS already silences FERB's banners in Focus and reading Focus would cost a permission; screen sharing has no public API. The call fact is Core Audio's kAudioProcessPropertyIsRunningInput (macOS 14+)."
 rejected = ["Quieter or silent during Focus, meetings, screen sharing, media playing or late at night (the first sound brief)"]
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AudioOutputFacts.swift"]
-live = ["LIVE-501"]
+live = ["LIVE-501", "LIVE-550"]
 legacy = "notes/sound.md owner decisions; notes/setup-intro.md Sound (Scope)"
 
 [APP-529]
@@ -483,6 +505,7 @@ rule = "Bright Crystal glass plays the sound logo (Open fifth, tour only), summo
 why = "The owner's words were said of round 3's paused, error and needs you."
 rejected = ["The Tactile, Signal and Bloom directions (round 3)", "Bright paused and error cues (round 3)"]
 paths = ["demo/sound-family/render.py"]
+live = ["LIVE-501"]
 legacy = "notes/sound.md rounds 3, 4, 6/7"
 
 [APP-531]
@@ -494,6 +517,7 @@ words = "one tone, conveying that need"
 rule = "Needs you is \"One ping\": a single Crystal note on A (the unresolved dominant) left to ring; the loudest everyday cue."
 rejected = ["macOS Basso (\"not good\")", "Three Google Material candidates", "Tap-tap and calling (round 9)", "Round 3's bright needs you (\"needs to [tone] it down a bit to show that it needs you\")"]
 paths = ["demo/sound-family/render.py"]
+live = ["LIVE-501"]
 legacy = "notes/sound.md rounds 3, 6/7, 9"
 
 [APP-532]
@@ -526,6 +550,7 @@ words = "ok lets merge it"
 rule = "The old FERB Voice helper (com.ferb.app) is merged into FERB.app: one app and one Speech Recognition grant, so the separate hearing permission row is gone and the microphone row (Microphone + Speech Recognition) covers hearing. Owner-facing text says FERB, never FERB Voice."
 why = "The helper held a second Speech Recognition grant that the notch already had for dictation, so the intro would have guided one grant twice."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift", "ferb/device/install.py", "ferb/device/permissions.py"]
+live = ["LIVE-549"]
 legacy = "notes/setup-intro-plan.md Task 3"
 
 [APP-537]
@@ -577,6 +602,7 @@ status = "active"
 words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
 rule = "Panels use visibly frosted glass (blurred desktop, not plain transparency) with a pure black band extending below the camera and dissolving downward. Frost and black tint are one native background driven by the same display-link spring geometry as the controls: the blur mask never animates on its own, bare frost never shows before the tint and content, and SwiftUI opacity/clip groups never flatten the backdrop. Lower frost may be lighter. No white border lines around panels, buttons or fields; icons and real input fields over action labels."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchBackdrop.swift"]
+untestable = "The panels' look (frost, black band, no border lines) is judged by the owner's eye (APP-567); no offline test sees it."
 legacy = "ui/AGENTS.md design direction; Quiet notch"
 
 [APP-552]
@@ -597,6 +623,7 @@ status = "active"
 words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
 rule = "Hover, double-tap, and returning by hover or click all focus the visible text input. Neither hover focus, typing nor ordinary controls pin the panel; only the explicit pin button keeps it across hover-out. Hover detection includes the exact physical top screen edge across the whole expanded header, wings included, with a 2-point vertical tolerance on the cutout and the expanded surface, so moving to the very top never dismisses."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-200"]
 legacy = "ui/AGENTS.md design direction"
 
 [APP-554]
@@ -617,6 +644,7 @@ status = "active"
 words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
 rule = "The header has a circular profile/options control and a pin toggle; no Preview label or ellipsis control. The centered \"Go ahead. I’m here.\" greeting sits above the composer and the field placeholder is \"Ask anything…\". Voice is real dictation, never labelled microphone-off or simulated."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ProfileMenuButton.swift"]
+untestable = "The header's controls and copy are visual and wording: the owner checks them by eye (APP-567); wording isn't tested (TEST-500)."
 legacy = "ui/AGENTS.md design direction"
 
 [APP-556]
@@ -627,6 +655,7 @@ status = "active"
 words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
 rule = "The header pin is a 10.8-point regular glyph (10% under the original 12) in a 24 × 26 point click target. Profile is an explicitly sized 18 × 18 glyph in a 26 × 26 native button that opens an NSMenu. The header only fades; entrance scale and blur apply to the body alone. Neither opening nor lazy menu measurement resizes or shifts the profile glyph."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ProfileMenuButton.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+untestable = "Glyph sizes, click targets and the header's fade are visual detail the owner checks by eye (APP-567)."
 legacy = "ui/AGENTS.md design direction"
 
 [APP-557]
@@ -688,6 +717,7 @@ status = "active"
 words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
 rule = "Both overlay windows (the dialog and the trace) stay fixed to the physical notch during desktop swipes. FERB never moves or modifies other apps' windows or the owner's desktops. A Space change keeps the existing input responder: never resign key, reset geometry, restart the spring, discard state or seize focus FERB didn't already have. Background task updates never take focus from another app."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift"]
+live = ["LIVE-540"]
 legacy = "ui/AGENTS.md design direction"
 
 [APP-563]
@@ -730,6 +760,7 @@ words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of t
 rule = "Sound feedback is a standing requirement. Submitting is silent (the owner rejected the Tink on Return); there are no hover or repeating progress sounds; right Option taps are silent, while the right Command + Option voice chord acknowledges at once. Mute and volume live in native Settings (Command-comma), and the system output volume and mute still apply."
 rejected = ["A Tink on Return"]
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SoundFeedback.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+live = ["LIVE-501"]
 legacy = "ui/AGENTS.md design direction (sound feedback)"
 
 [APP-567]
@@ -739,6 +770,7 @@ date = 2026-10-13
 status = "active"
 words_source = "ui/AGENTS.md 'User's design direction': an agent's write-up of the owner's direction; undated (present by 2026-10-13); no verbatim quote"
 rule = "The owner does the visual evaluation and proposes changes; agents don't run unsolicited screenshot or UI inspection loops."
+untestable = "A process rule for agents (no unsolicited screenshot or UI inspection loops), not app behaviour."
 legacy = "ui/AGENTS.md design direction"
 
 [APP-568]
@@ -791,6 +823,7 @@ words_source = "ui/AGENTS.md 'Accepted native macOS direction — Quiet notch' (
 rule = "One compact composer at rest, with the centered greeting and no idle waveform; the field grows to four lines and attachments show as named/count context beneath it. System typography, SF Symbols, native menus, pickers and file actions. Within the daily chat one concrete live status and Stop; detailed activity is one click away."
 why = "Approved after the native macOS research on 2026-10-10; the previous UI is commit 2018d0c, tagged notch-before-native-redesign."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+untestable = "The composer's look at rest, its typography and native controls are visual; the owner checks them by eye (APP-567)."
 legacy = "ui/AGENTS.md Quiet notch"
 
 [APP-573]
@@ -809,6 +842,7 @@ by = "agent"
 date = 2026-10-10
 status = "active"
 rule = "Motion is refined against animations.dev's spring-animations, dynamic-island morph-effect, family-drawer analysis and finishing-touch, and good-vs-great accessibility lessons, and WWDC23 \"Animate with springs\" (10158): keep motion when targets change, one persistent shape, content and container as one object, quick repeated interactions, meaning kept through fades. Subscription lesson content is never copied or published into the repository; only project decisions and source links."
+untestable = "A design-reference and copyright rule for how motion is refined; the motion itself is tested under APP-504 and APP-557."
 legacy = "ui/AGENTS.md Motion references examined 2026-10-10"
 
 [APP-575]
@@ -830,6 +864,7 @@ status = "active"
 words_source = "ui/AGENTS.md 'Continuous chat refinement' (2026-10-11): an agent's write-up of the owner's direction; no verbatim quote"
 rule = "Compact blue owner bubbles on the right and neutral frosted FERB bubbles on the left; the notch backdrop stays black glass."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift"]
+untestable = "Bubble colours and sides are visual; the owner checks them by eye (APP-567)."
 legacy = "ui/AGENTS.md Continuous chat refinement"
 
 [APP-577]

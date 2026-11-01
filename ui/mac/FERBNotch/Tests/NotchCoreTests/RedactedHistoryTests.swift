@@ -8,6 +8,7 @@ final class RedactedHistoryTests: XCTestCase {
     private let raw = "My password is hunter2-secret, log in to the bank"
     private let redacted = "My password is [REDACTED], log in to the bank"
 
+    // decision: APP-569
     func testAckMessageReplacesRawTextInArchiveAndOnScreen() throws {
         let (model, id) = sent()
         model.receiveChatEvent(["type": "ack", "request_id": "req-1", "at": "2026-10-13T10:00:00+00:00",
@@ -18,6 +19,7 @@ final class RedactedHistoryTests: XCTestCase {
         XCTAssertFalse(saved.contains("hunter2"))
     }
 
+    // decision: APP-569
     func testSaveBeforeAckHoldsNoRawText() throws {
         let (model, id) = sent()
         model.saveConversation()
@@ -28,12 +30,14 @@ final class RedactedHistoryTests: XCTestCase {
         XCTAssertEqual(model.conversation.turns[0].request, raw, "raw text stays in memory only")
     }
 
+    // decision: APP-569
     func testAckWithoutMessageKeepsRawTextOutOfStorage() throws {
         let (model, id) = sent()
         model.receiveChatEvent(["type": "ack", "request_id": "req-1", "text": "On it."], localID: id)
         XCTAssertFalse(try savedText(model).contains("hunter2"))
     }
 
+    // decision: APP-569
     func testAckLessTurnRestoresWithPlaceholder() throws {
         let (model, _) = sent()
         model.saveConversation()
@@ -42,6 +46,7 @@ final class RedactedHistoryTests: XCTestCase {
         XCTAssertFalse(restarted.conversation.turns[0].request.contains("hunter2"))
     }
 
+    // decision: APP-569
     func testOldArchiveWithoutTheFlagDecodes() throws {
         var archive = ConversationArchive()
         archive.begin(id: UUID(), request: "Old message", sources: [])
@@ -81,6 +86,7 @@ final class RedactedHistoryTests: XCTestCase {
                        + "into chats.")
     }
 
+    // decision: APP-569
     func testRecordAnswerNeverSavesRawRequest() throws {
         let model = NotchModel(rpc: QuietRPC(), preferences: scratchDefaults())
         model.session.draft = raw

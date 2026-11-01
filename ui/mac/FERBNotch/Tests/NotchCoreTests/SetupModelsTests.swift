@@ -47,6 +47,7 @@ final class SetupModelsTests: XCTestCase {
         XCTAssertEqual(GrantStatus(daemon: "target_not_running"), .targetNotRunning)
     }
 
+    // decision: APP-401, APP-536
     func testMicrophoneRowNeedsBothMicrophoneAndSpeech() {
         XCTAssertEqual(GrantStatus.both(.granted, .granted), .granted)
         XCTAssertEqual(GrantStatus.both(.granted, .denied), .denied)

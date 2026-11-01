@@ -5,6 +5,7 @@ import XCTest
 
 @MainActor
 final class TaskPresentationTests: XCTestCase {
+    // decision: APP-584
     func testCommandPasteReplacesSelectionAndRecordsPlainTextOnce() {
         let editor = ChatTextView()
         editor.isRichText = false
@@ -25,6 +26,7 @@ final class TaskPresentationTests: XCTestCase {
         XCTAssertEqual(selections, [NSRange(location: 7, length: 8)])
     }
 
+    // decision: APP-571
     func testBackgroundReplyReopensDismissedWindowButProgressDoesNot() {
         let model = makeModel()
         model.session.draft = "First task"

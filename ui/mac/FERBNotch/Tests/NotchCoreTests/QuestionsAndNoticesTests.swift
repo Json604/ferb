@@ -19,6 +19,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     // MARK: - Questions inline
 
+    // decision: APP-581
     func testAnOpenQuestionLeavesTheComposerEnabled() async throws {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
@@ -53,6 +54,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         model.disconnectDaemon()
     }
 
+    // decision: APP-581
     func testASecretQuestionNeverTakesFocusWhileTheOwnerTypes() async throws {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
@@ -83,6 +85,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         model.disconnectDaemon()
     }
 
+    // decision: APP-581
     func testAnExplicitQuestionFocusLastsUntilThatQuestionIsAnswered() async {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
@@ -113,6 +116,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertNil(model.questionContext(DaemonApproval(["approval_id": "q2", "reason": "Which?"])!))
     }
 
+    // decision: APP-584
     func testPastePlusTypingSendsWithoutADialog() async throws {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
@@ -141,6 +145,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         model.disconnectDaemon()
     }
 
+    // decision: APP-584
     func testTextDroppedFromAnotherAppIsPastedTextToo() throws {
         let model = makeModel(StatusRPC())
         let editor = ChatTextView()
@@ -159,6 +164,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     // MARK: - No stored drafts (L20); sent messages stay in History (ui/AGENTS.md)
 
+    // decision: APP-569
     func testAnUnsentDraftIsNeverWrittenToUserDefaults() async throws {
         let rpc = StatusRPC()
         rpc.status["notices"] = [["id": "batch:9", "text": "Your build finished.", "at": at]]
@@ -176,6 +182,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         model.disconnectDaemon()
     }
 
+    // decision: APP-569
     func testSentOwnerMessagesSurviveARestart() async throws {
         let rpc = StatusRPC()
         rpc.events = [
@@ -199,6 +206,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(turn.answer, "Renamed.")
     }
 
+    // decision: APP-569
     func testAnExistingArchiveWithOwnerTurnsSurvivesLaunchUnchanged() throws {
         let suite = Self.scratchSuiteName()
         suites.append(suite)
@@ -226,6 +234,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(model.conversation, archive)
     }
 
+    // decision: APP-569
     func testAnArchiveThatFailsToDecodeIsSetAsideNeverSavedOver() throws {
         let suite = Self.scratchSuiteName()
         suites.append(suite)
@@ -246,6 +255,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(NotchModel(preferences: defaults).conversation.turns.first?.request, "Hello again")
     }
 
+    // decision: APP-569
     func testASecretAnswerNeverEntersHistory() async throws {
         let rpc = StatusRPC()
         let (model, suite) = makeModelWithSuite(rpc)
@@ -269,6 +279,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     // MARK: - Notices in chat (L9)
 
+    // decision: APP-583
     func testANoticeRendersInChatAndIsAcked() async throws {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
@@ -306,6 +317,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
                                        "turn: Thanks = Anytime."])
     }
 
+    // decision: APP-583
     func testUnacknowledgedStatusNoticesAreShownOnceAndAcked() async throws {
         let rpc = StatusRPC()
         rpc.status["notices"] = [["id": "batch:7", "text": "Sam replied on WhatsApp about Friday.", "at": at,
@@ -322,6 +334,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(acks, [["batch:7"], ["batch:7"]])
     }
 
+    // decision: APP-583
     func testANoticeWithNoTextIsAckedSoItIsNotFetchedForever() async {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
@@ -335,6 +348,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     // MARK: - Shown results are acknowledged; recovered tasks are not the owner's words
 
+    // decision: APP-583, APP-585
     func testPolledResultsAreAcknowledgedOnlyOncePlacedInChat() async throws {
         let rpc = StatusRPC()
         let backlog = "2026-10-11T09:00:00+05:30"
@@ -367,6 +381,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(model.conversation.turns.filter { $0.backendTaskID == "sched-1" }.count, 1)
     }
 
+    // decision: APP-583
     func testALiveResultNotShownElsewhereIsAcknowledgedOncePlaced() async throws {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
@@ -540,6 +555,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         }
     }
 
+    // decision: APP-585
     func testRecoveredTaskIsNeverShownAsTheOwnersWords() async throws {
         let rpc = StatusRPC()
         rpc.traces["remembered"] = ["outcome": ["result": ["status": "done", "answer": "Renamed 12 files."]]]
@@ -574,6 +590,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     // MARK: - Task 15 review follow-ups
 
+    // decision: APP-578
     func testResultFoundByRequestIDBindsItsTaskSoTasksCanReachIt() {
         let model = makeModel(StatusRPC())
         let a = begin("Export the photos", in: model)
@@ -586,6 +603,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(model.taskItems.first { $0.backendID == "task-a" }?.localID, a)
     }
 
+    // decision: APP-580
     func testFinalAnswerAfterAQuestionIsPlacedLikeALateAnswerAndKeepsTheQuestion() throws {
         let model = makeModel(StatusRPC())
         let a = begin("Post the update", in: model)
@@ -613,6 +631,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(model.conversation.replies.count, 1)
     }
 
+    // decision: APP-580
     func testFinalAnswerStaysUnderItsQuestionWhenNothingCameAfter() {
         var chat = ConversationArchive()
         let a = UUID()
@@ -624,6 +643,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(chat.turns[0].answer, "Posted.")
     }
 
+    // decision: APP-578
     func testStrayEventDroppedByTheRequestGateNeverAnnounces() {
         let model = makeModel(StatusRPC())
         let a = begin("What's 2 + 2?", in: model)
@@ -639,6 +659,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(turn(a, in: model).answer, "4")
     }
 
+    // decision: APP-569
     func testADaysTranscriptIsTheWholeChatFilteredToThatDay() {
         var chat = ConversationArchive()
         let today = Calendar.current.startOfDay(for: Date()).addingTimeInterval(9 * 3600)
@@ -679,6 +700,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     // MARK: - Voice turns (VOICE-403)
 
+    // decision: APP-402
     func testAHeldDictationSendsOnReleaseWhenChosenAndAsksForASpokenReply() async throws {
         let rpc = StatusRPC()
         let suite = Self.scratchSuiteName()
@@ -698,6 +720,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         model.disconnectDaemon()
     }
 
+    // decision: APP-402
     func testWithoutSendOnReleaseDictationStaysInTheDraftAndATypedMessageIsNotSpoken() async throws {
         let rpc = StatusRPC()
         let suite = Self.scratchSuiteName()

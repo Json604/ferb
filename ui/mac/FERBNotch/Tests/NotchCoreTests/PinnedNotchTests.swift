@@ -4,6 +4,7 @@ import NotchCore
 
 @MainActor
 final class PinnedNotchTests: XCTestCase {
+    // decision: APP-558
     func testMenuOnlyDefersDismissalUntilItCloses() {
         let model = NotchModel()
         model.expand()
@@ -21,6 +22,7 @@ final class PinnedNotchTests: XCTestCase {
         XCTAssertEqual(model.session.draft, "Keep my draft")
     }
 
+    // decision: APP-558
     func testPinnedFoldKeepsHeaderAndDraftThenHoverRestoresBody() {
         let model = NotchModel()
         model.session.draft = "Keep this draft"
@@ -39,6 +41,7 @@ final class PinnedNotchTests: XCTestCase {
         model.collapse()
     }
 
+    // decision: APP-558, APP-552
     func testToggleClosesBothAnOpenDialogAndAPinnedHeaderWithoutClearingDraft() {
         let model = NotchModel()
         model.session.draft = "Keep me"
@@ -56,6 +59,7 @@ final class PinnedNotchTests: XCTestCase {
         XCTAssertEqual(model.session.draft, "Keep me")
     }
 
+    // decision: APP-558
     func testOpenMenuAndVoicePreventFolding() {
         let model = NotchModel()
         model.expand()
@@ -73,6 +77,7 @@ final class PinnedNotchTests: XCTestCase {
         model.collapse()
     }
 
+    // decision: APP-558, APP-564
     func testWorkContinuesWhilePinnedHeaderSurvivesAutomaticDismissal() {
         let model = NotchModel()
         model.session.draft = "Write a brief"
@@ -88,6 +93,7 @@ final class PinnedNotchTests: XCTestCase {
         model.collapse()
     }
 
+    // decision: APP-558
     func testUnpinRevealsBodyAndPreventsFurtherFolding() {
         let model = NotchModel()
         model.expand()
@@ -100,6 +106,7 @@ final class PinnedNotchTests: XCTestCase {
         XCTAssertFalse(model.isPinned)
     }
 
+    // decision: APP-558
     func testPinAndHoverExitFoldImmediatelyWhileHoverRevealsBody() {
         let model = NotchModel()
         model.expand()
@@ -112,6 +119,7 @@ final class PinnedNotchTests: XCTestCase {
         model.collapse()
     }
 
+    // decision: APP-558
     func testHoverCancelsADeferredFoldBeforeTheMenuCloses() {
         let model = NotchModel()
         model.expand()
@@ -128,6 +136,7 @@ final class PinnedNotchTests: XCTestCase {
 
 @MainActor
 final class FilePickerVisibilityTests: XCTestCase {
+    // decision: APP-558
     func testPickerStateNotifiesCoordinatorAndKeepsDraft() {
         let model = NotchModel()
         model.expand()

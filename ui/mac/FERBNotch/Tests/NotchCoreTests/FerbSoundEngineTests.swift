@@ -7,6 +7,7 @@ import AVFAudio
 /// mode), so nothing reaches the speakers; no call is running (the Mac's real microphone users are never read).
 @MainActor
 final class FerbSoundEngineTests: XCTestCase {
+    // decision: APP-520
     func testTheAlertVolumeScalesTheGainAndUISoundsOffSilenceIt() {
         let defaults = scratchDefaults("FerbSoundEngineTests")
         var prefs: [String: Any] = [:]
@@ -21,6 +22,7 @@ final class FerbSoundEngineTests: XCTestCase {
         XCTAssertNil(engine.settingsGain)
     }
 
+    // decision: APP-523
     func testKeepingWarmHoldsTheEngineThroughIdleUntilReleased() async throws {
         let audio = AVAudioEngine()
         try audio.enableManualRenderingMode(.offline, format: AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!,

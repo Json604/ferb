@@ -11,6 +11,7 @@ import XCTest
 final class SoundFeedbackTests: XCTestCase {
     // MARK: - Which sound each event plays
 
+    // decision: APP-526
     func testAFailedTaskPlaysErrorNotNeedsYou() {
         let (model, sounds) = makeModel()
         let a = begin("Rename the example files", in: model)
@@ -30,6 +31,7 @@ final class SoundFeedbackTests: XCTestCase {
         XCTAssertEqual(sounds.played, [.error, .error, .done])
     }
 
+    // decision: APP-526, APP-533
     func testAQuestionPlaysNeedsYou() {
         let (model, sounds) = makeModel()
         model.receiveBusEvent(["topic": "approval.requested", "data": [
@@ -53,6 +55,7 @@ final class SoundFeedbackTests: XCTestCase {
 
     // MARK: - Switches and defaults
 
+    // decision: APP-526
     func testSummonAndPausedAreSilentByDefault() {
         let engine = makeEngine(defaults: scratchDefaults("SoundFeedbackTests"))
         XCTAssertNil(engine.decision(for: .summon))
@@ -63,6 +66,7 @@ final class SoundFeedbackTests: XCTestCase {
         }
     }
 
+    // decision: APP-526
     func testTurningASoundOffSilencesOnlyThatSound() {
         let defaults = scratchDefaults("SoundFeedbackTests")
         let feedback = SoundFeedback(defaults: defaults)
@@ -82,6 +86,7 @@ final class SoundFeedbackTests: XCTestCase {
         XCTAssertNil(engine.decision(for: .needsYou))
     }
 
+    // decision: APP-526, APP-527
     func testTheMasterSwitchAndVolumeAreKeptOnUpgradeAndTheMagneticSettingGoes() {
         let defaults = scratchDefaults("SoundFeedbackTests")
         defaults.set(false, forKey: "feedback.enabled")
@@ -96,6 +101,7 @@ final class SoundFeedbackTests: XCTestCase {
 
     // MARK: - Calls
 
+    // decision: APP-528
     func testDuringACallOnlyNeedsYouPlaysAtSubtle() {
         let defaults = scratchDefaults("SoundFeedbackTests")
         var running: [pid_t] = [1]                          // another app (not FERB) runs microphone input
@@ -117,6 +123,7 @@ final class SoundFeedbackTests: XCTestCase {
 
     // MARK: - One sound per notification
 
+    // decision: APP-532, APP-533, APP-583
     func testANoticeShownAsBannerAndInTheNotchSoundsOnce() async {
         let (model, sounds) = makeModel()
         let wait = ManualNoticeWait()
@@ -172,6 +179,7 @@ final class SoundFeedbackTests: XCTestCase {
         model.feedback.postingBanners = false
     }
 
+    // decision: APP-533
     func testARecoveredOrScheduledTaskSoundsByItsStatus() {
         let (model, sounds) = makeModel()
         let (poster, center) = makePoster(model)
@@ -185,6 +193,7 @@ final class SoundFeedbackTests: XCTestCase {
         XCTAssertEqual(sounds.played, [.error, .needsYou, .notification])
     }
 
+    // decision: APP-533
     func testABannerNeverSilencesNeedsYouDoneOrError() async {
         let (model, sounds) = makeModel()
         let (poster, center) = makePoster(model)
@@ -201,6 +210,7 @@ final class SoundFeedbackTests: XCTestCase {
         XCTAssertEqual(sounds.played, [.error, .needsYou])
     }
 
+    // decision: APP-533, APP-528
     func testAHandoffSoundsAsNeedsYouAndDuringACallAtSubtle() {
         let defaults = scratchDefaults("SoundFeedbackTests")
         let feedback = SoundFeedback(defaults: defaults)
@@ -222,6 +232,7 @@ final class SoundFeedbackTests: XCTestCase {
         XCTAssertEqual(player.decided.count, 1)
     }
 
+    // decision: APP-521
     func testARestartsBacklogOfNoticesIsOneSound() {
         let (model, sounds) = makeModel()
         model.receiveNotices([notice("b1"), notice("b2"), notice("b3")])
@@ -230,6 +241,7 @@ final class SoundFeedbackTests: XCTestCase {
         XCTAssertEqual(sounds.played, [.notification])
     }
 
+    // decision: APP-533
     func testWhenMacOSHasFERBsBannerSoundOffTheNotchPlaysItOnce() async {
         let (model, sounds) = makeModel()
         let center = FakeNotificationCenter()
@@ -284,6 +296,7 @@ final class SoundFeedbackTests: XCTestCase {
 
     // MARK: - The banner's file
 
+    // decision: APP-533
     func testTheBannerSoundIsAFinishedStereoMixOutsideTheSoundsBundle() throws {
         // The package root, where scripts/build-app.sh copies it from into FERB.app/Contents/Resources.
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

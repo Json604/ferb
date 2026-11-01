@@ -113,6 +113,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Meet
 
+    // decision: APP-506
     func testMeetInstallsTheServiceAndGuidesLoginItemsOnlyWhenAsked() async {
         for needsOK in [true, false] {
             let service = FakeBackgroundService()
@@ -142,6 +143,7 @@ final class IntroControllerTests: XCTestCase {
         }
     }
 
+    // decision: APP-529
     func testFirstLaunchClipPlaysOnceThenSilenceThenTheLogo() async {
         XCTAssertEqual(IntroController.firstLaunchClipSeconds() ?? 0, 7.34, accuracy: 0.05)   // the bundled clip
 
@@ -179,6 +181,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Sign in
 
+    // decision: APP-507
     func testSignInStartsTheScanInTheBackground() async {
         let t = tour()
         t.rig.rpc.queue("runtimes.status", [Self.notConnected])
@@ -199,6 +202,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Allow all
 
+    // decision: APP-510, APP-503
     func testEachListPermissionFliesTheOrbAndWaitsForTheSystem() async {
         let t = tour()
         let off = SetupReplies.permissions(accessibility: "denied", fda: "granted")
@@ -218,6 +222,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.orb.flyHomes, 1)
     }
 
+    // decision: APP-510
     func testADeniedPromptKeepsTheBeatOpen() async {
         let t = tour()
         t.rig.app.microphoneStatus = .notDetermined
@@ -240,6 +245,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Browsers and FERB's email
 
+    // decision: APP-511, APP-512
     func testPairAllRunsOnceAndIdentityCanBeSkipped() async {
         let t = tour()
         var finished = 0
@@ -262,6 +268,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Try
 
+    // decision: APP-513
     func testTheScanLineIsShownBeforeTheSuggestion() async {
         let t = tour()
         let summary = "You spend most days in a code editor and a design app."
@@ -276,6 +283,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertTrue(offered.contains(Self.suggestions[0]) && offered.contains(Self.suggestions[1]))
     }
 
+    // decision: APP-513
     func testTryShowsThePreviewAndActsNever() async {
         let t = tour()
         t.controller.start(beats: [.tryIt, .home])
@@ -298,6 +306,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertFalse(t.notch.conversation.forStorage().turns.contains { $0.preview })   // never saved
     }
 
+    // decision: APP-514
     func testDoItForRealStartsTheTaskAfterHome() async {
         let t = tour()
         t.sleeper.hold(IntroController.Timing.home)
@@ -315,6 +324,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Control
 
+    // decision: APP-505, APP-514
     func testControlBeatWaitsForEachShortcut() async {
         let t = tour()
         t.controller.start(beats: [.control, .home])
@@ -340,6 +350,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Skip, resume, the notch
 
+    // decision: APP-516
     func testSkipMidFlightTearsEverythingDown() async {
         let t = tour()
         var finished = 0
@@ -366,6 +377,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.orb.tearDowns, 1)
     }
 
+    // decision: APP-516
     func testQuitAndReopenResumesTheBeat() async {
         let t = tour()
         t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "denied", fda: "granted")
@@ -395,6 +407,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Fix round 1
 
+    // decision: APP-508, APP-509
     func testATourWithNothingLeftRecordsSetupDone() async {
         let complete = tour()
         complete.controller.start(beats: [.browsers, .home])
@@ -463,6 +476,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(notch.introTyped, "")
     }
 
+    // decision: APP-510
     func testAllowAllWaitsForTheDaemonsAnswer() async {
         let t = tour()
         t.rig.rpc.failFirst["setup.permissions"] = 3                      // the daemon isn't answering yet
@@ -476,6 +490,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.lines.all.filter { $0 == IntroCopy.allAllowed }.count, 1)
     }
 
+    // decision: APP-514
     func testSkipStillStartsARealTaskTheOwnerTapped() async {
         let t = tour()
         t.sleeper.hold(IntroController.Timing.home)
@@ -489,6 +504,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.rig.rpc.params(of: "chat.send").first?["text"] as? String, Self.suggestions[0])
     }
 
+    // decision: APP-516
     func testResumeRunsEarlierStepsOnlyWhenStillNeeded() async {
         let signedOut = tour()
         signedOut.rig.rpc.replies["runtimes.status"] = Self.notConnected
@@ -531,6 +547,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Round 2
 
+    // decision: APP-516
     func testSkipWithNothingLeftRecordsSetupDone() async {
         let t = tour()
         var finished = 0
@@ -543,6 +560,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.rig.rpc.params(of: "setup.finish").count, 1)
     }
 
+    // decision: APP-513
     func testTryPointsTheOrbAtTheAppThePreviewWouldUse() async {
         let t = tour()
         t.rig.rpc.replies["intro.suggest"] = ["suggestions": [["request": Self.suggestions[0], "app": "Finder"],
@@ -577,6 +595,7 @@ final class IntroControllerTests: XCTestCase {
         await eventually { t.rig.rpc.methods().contains("chat.send") }          // the tap was kept: the task starts after
     }
 
+    // decision: APP-511
     func testTheBrowsersBeatPointsTheOrbWhilePairing() async {
         let t = tour(apps: Self.mac(browser: true))
         t.rig.rpc.replies["setup.browsers"] = ["browsers": [["browser": "example", "label": "Example Browser",
@@ -596,6 +615,7 @@ final class IntroControllerTests: XCTestCase {
 
     /// The sound engine is shared with everyday sounds: the real orb's teardown stops only its own motion, and only a
     /// skip stops what is playing; the natural end lets a ringing sound finish.
+    // decision: APP-516
     func testOnlyASkipStopsTheSharedSoundsWithTheRealOrb() async {
         let finished = tour(realOrb: true)
         var ended = 0
@@ -614,6 +634,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(skipped.sound.warm, [true, false])
     }
 
+    // decision: APP-514
     func testDoItForRealWaitsForDictationToEndThenSends() async {
         let t = tour()
         t.sleeper.hold(IntroController.Timing.home)

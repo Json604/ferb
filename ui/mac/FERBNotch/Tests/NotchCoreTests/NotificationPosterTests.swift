@@ -28,6 +28,7 @@ final class NotificationPosterTests: XCTestCase {
         XCTAssertEqual(center.posted[1].thread, "reminder")
     }
 
+    // decision: APP-301
     func testAnOpenNotchHoldsBackOnlyWhatItAlreadyShows() async {
         let center = FakeNotificationCenter()
         let rpc = ScriptedRPC()
@@ -81,6 +82,7 @@ final class NotificationPosterTests: XCTestCase {
 
     /// Owner 2026-10-26: one "Allow all" button for the setup rows: the two every task needs, Full Disk Access and
     /// Notifications. Screen Recording goes last: macOS restarts FERB after it, and setup reopens on this page.
+    // decision: APP-508
     func testSetupAsksForFourAndAllowAllLeavesScreenRecordingLast() {
         XCTAssertEqual(SetupModel.askedAtSetup, ["accessibility", "screen_recording", "full_disk_access", "input_monitoring",
                                                  "notifications", "microphone", "clipboard"])
@@ -108,6 +110,7 @@ final class NotificationPosterTests: XCTestCase {
         poster.stop()
     }
 
+    // decision: APP-301
     func testAClickOpensTheNotchAtItsItemEvenBeforeTheNotchIsReady() {
         let poster = NotificationPoster(center: FakeNotificationCenter())
         poster.clicked(["kind": "task", "task_id": "t9"])        // a click that launched FERB.app
@@ -120,6 +123,7 @@ final class NotificationPosterTests: XCTestCase {
 
     /// APP-301: the notch opens itself for a question or a finished task; the banner, which may arrive first, posts
     /// only if the notch still isn't showing once that has landed, and never for a question answered meanwhile.
+    // decision: APP-301
     func testABannerTheNotchShowsItselfWaitsForTheNotchToOpen() async throws {
         let center = FakeNotificationCenter()
         var showing = false

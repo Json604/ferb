@@ -23,6 +23,7 @@ final class OrbControllerTests: XCTestCase {
         while clock.now < end && !done() { clock.advance(1.0 / 120) }
     }
 
+    // decision: APP-523, APP-534, APP-522
     func testKeyframeSoundsLeadTheirKeyframesByTheOutputLatency() async {
         let (orb, surface, sound, clock) = makeOrb(latency: 0.1)
         let flight = Task { await orb.launch(to: target, instruction: nil) }
@@ -48,6 +49,7 @@ final class OrbControllerTests: XCTestCase {
         XCTAssertGreaterThan(surface.center.y, target.y)
     }
 
+    // decision: APP-523
     func testAHopDuringTheDeparturesHoldWaitsOneLeadFromItsOwnCall() async {
         let (hopping, hopSurface, _, hopClock) = makeOrb(latency: 0.1)
         let (still, stillSurface, _, stillClock) = makeOrb(latency: 0.1)
@@ -67,6 +69,7 @@ final class OrbControllerTests: XCTestCase {
         await second.value
     }
 
+    // decision: APP-534
     func testWithNoLatencyTheMeltPlaysAsTheOrbLands() async {
         let (orb, surface, sound, clock) = makeOrb(latency: 0)
         let flight = Task { await orb.launch(to: target, instruction: nil) }
@@ -76,6 +79,7 @@ final class OrbControllerTests: XCTestCase {
         XCTAssertEqual(sound.times.first { $0.0 == .orbMelt }?.1 ?? -1, clock.now, accuracy: 1e-9)
     }
 
+    // decision: APP-534, APP-501
     func testTheHomecomingHookFiresOnlyWhenTheOrbMeltsBackIntoTheNotch() async {
         let (orb, surface, sound, clock) = makeOrb(latency: 0)
         var homecomings = 0
@@ -100,6 +104,7 @@ final class OrbControllerTests: XCTestCase {
         XCTAssertEqual(homecomings, 1)
     }
 
+    // decision: APP-503, APP-506
     func testDockingWithNothingToDragShowsOnlyTheInstruction() {
         let (orb, surface, _, _) = makeOrb(latency: 0)
         let line = IntroLine(text: "Switch FERB on here", detail: "Login Items · Allow in the Background")

@@ -4,6 +4,7 @@ import XCTest
 
 @MainActor
 final class AttentionReconciliationTests: XCTestCase {
+    // decision: APP-301, APP-571
     func testNewApprovalRevealsOnceWithoutRequestingFocusAcrossPollingAndRelaunch() async {
         let rpc = AttentionRPC()
         let preferences = scratchDefaults()
@@ -27,6 +28,7 @@ final class AttentionReconciliationTests: XCTestCase {
         XCTAssertFalse(restored.attentionTraceVisible)
     }
 
+    // decision: APP-301
     func testNewFollowupRevealsButOrdinaryReplyStaysQuiet() {
         let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Question"
@@ -56,6 +58,7 @@ final class AttentionReconciliationTests: XCTestCase {
         }
     }
 
+    // decision: APP-577
     func testMissingBackgroundTasksRecoverAllResultsWithoutChangingDraft() async {
         let rpc = AttentionRPC()
         let model = NotchModel(rpc: rpc, preferences: scratchDefaults())

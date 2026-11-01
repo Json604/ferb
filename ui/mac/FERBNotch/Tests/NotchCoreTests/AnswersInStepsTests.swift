@@ -9,6 +9,7 @@ import XCTest
 final class AnswersInStepsTests: XCTestCase {
     // ---------- the first reply and the card ----------
 
+    // decision: APP-300
     func testThePlanEventDrawsDirectAnswersReceiptsThePlanLineAndOneRowPerOtherAsk() throws {
         let model = makeModel()
         let id = begin("who are you, research 3 keyboards, remind me at 9", in: model)
@@ -80,6 +81,7 @@ final class AnswersInStepsTests: XCTestCase {
         XCTAssertEqual(try savedArchive(model).turns.first?.card?.row("kb")?.state, "done")
     }
 
+    // decision: APP-301
     func testARowFillingQuietlyNeverOpensTheNotch() {
         let model = makeModel()
         let id = begin("two things", in: model)
@@ -126,6 +128,7 @@ final class AnswersInStepsTests: XCTestCase {
 
     // ---------- questions in their row ----------
 
+    // decision: APP-300
     func testAStepsConfirmationAndFerbsOwnQuestionSitInTheirRowsNotAtTheEnd() async throws {
         let rpc = ScriptedRPC()
         let model = makeModel(rpc)
@@ -156,6 +159,7 @@ final class AnswersInStepsTests: XCTestCase {
 
     // ---------- the end ----------
 
+    // decision: APP-300
     func testTheOutcomeDrawsTheFooterInPlaceAndNeverAReplyBelow() throws {
         let model = makeModel()
         let id = begin("two things", in: model)
@@ -337,6 +341,7 @@ final class AnswersInStepsTests: XCTestCase {
 /// The live preview's answers (APP-403-4): the status line over the frozen frame, when to ask
 /// again, and when not to ask at all.
 final class PreviewStateTests: XCTestCase {
+    // decision: APP-404, APP-405
     func testTheStatusLineShowsWheneverFERBIsntWorkingInTheWindowOrTheFrameIsOld() {
         let live = PreviewAnswer(["state": "working", "line": "Working in Safari", "image": "AAAA", "fresh": true])
         XCTAssertNil(live.overlay)
@@ -358,6 +363,7 @@ final class PreviewStateTests: XCTestCase {
         XCTAssertEqual(none.emptyText, "No window to show yet")
     }
 
+    // decision: APP-407
     func testARefusalStopsAskingAndNobodyCapturesWhileNobodyCanSee() {
         // Decided by the daemon's error code (step 8e), never its words.
         XCTAssertEqual(PreviewRefusal(code: DaemonRPCError.remote("anything", code: -32005).code ?? 0), .notThisApp)
@@ -373,6 +379,7 @@ final class PreviewStateTests: XCTestCase {
         XCTAssertFalse(gate.mayCapture)
     }
 
+    // decision: APP-300
     func testTypingDotsBlinkLikeTheMock() {
         XCTAssertEqual(TypingDots.blink(0), 0.25, accuracy: 0.001)
         XCTAssertEqual(TypingDots.blink(0.48), 1, accuracy: 0.001)

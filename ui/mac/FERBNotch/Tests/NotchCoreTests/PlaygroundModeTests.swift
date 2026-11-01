@@ -16,6 +16,7 @@ final class PlaygroundModeTests: XCTestCase {
         return url
     }
 
+    // decision: APP-519
     func testOnlyItsOwnBundleIDRunsThePlayground() {
         XCTAssertTrue(PlaygroundMode.isPlayground(bundleID: "dev.ferb.playground"))
         for other in ["com.ferb.FERB", "dev.ferb.notch", "com.ferb.secrets", nil] {
@@ -24,6 +25,7 @@ final class PlaygroundModeTests: XCTestCase {
         XCTAssertFalse(PlaygroundMode.requested)                      // the test runner is not the playground
     }
 
+    // decision: APP-519
     func testHomeIsTemporaryAndNeverTheRealFerbHome() throws {
         let root = try folder("home")
         let account = root.appendingPathComponent("account/.ferb", isDirectory: true)
@@ -59,6 +61,7 @@ final class PlaygroundModeTests: XCTestCase {
         }
     }
 
+    // decision: APP-519
     func testEveryServiceBehindTheIntroIsAFake() throws {
         let home = try folder("services").appendingPathComponent("home", isDirectory: true)
         let services = PlaygroundServices.make(home: home, defaults: scratchDefaults("Playground"), fresh: true)
@@ -93,6 +96,7 @@ final class PlaygroundModeTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: home.path), ["state.json"])
     }
 
+    // decision: APP-519
     func testAQuitAndReopenKeepsTheFakeWorldAndAFreshStartDropsIt() throws {
         let home = try folder("reopen")
         let first = PlaygroundServices.make(home: home, defaults: scratchDefaults("Playground"), fresh: true)
@@ -109,6 +113,7 @@ final class PlaygroundModeTests: XCTestCase {
         XCTAssertEqual(fresh.state.grant("accessibility"), .notDetermined)
     }
 
+    // decision: APP-519
     func testTheFakeDaemonAnswersWhatTheIntroAsks() async throws {
         let services = PlaygroundServices.make(home: try folder("daemon"), defaults: scratchDefaults("Playground"),
                                                fresh: true)

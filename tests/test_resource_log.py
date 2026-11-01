@@ -206,6 +206,7 @@ def _task(db: Database, ident: str, status: str) -> None:
                     "updated_at) VALUES (?, ?, 'r', 'g', 'owner', 'mixed', '[]', ?, 'x', 'x')", (ident, ident, status))
 
 
+# decision: APP-405
 def test_the_work_counts_are_what_was_added_since_the_last_sample(tmp_path: Path) -> None:
     counters = [(2, {"age": 1})]
     fake = Fake()

@@ -144,6 +144,7 @@ final class FERBWindowViewTests: XCTestCase {
         XCTAssertEqual(returnedPrivacy.draft.newApp, "com.example.app")
     }
 
+    // decision: APP-5
     func testFERBsOwnCommandsShowTheirOutputAndUninstallRunsItsHookFirst() async {
         var order: [String] = []
         var packaged = actions()
@@ -166,6 +167,7 @@ final class FERBWindowViewTests: XCTestCase {
 
     /// Past bug (12e review): the service's unregister was fire-and-forget, so `ferb uninstall` could run while macOS
     /// still had FERB's background service registered. Now uninstall waits for it and doesn't run if it's still on.
+    // decision: APP-5
     func testUninstallWaitsForTheServiceToUnregisterAndStopsIfItDidnt() async {
         let background = FakeBackgroundService()
         background.status = .enabled
