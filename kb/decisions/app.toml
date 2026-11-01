@@ -48,3 +48,84 @@ rule = "FERB.app's Uninstall (plain or delete everything) awaits SMAppService.un
 why = "A fire-and-forget unregister let the uninstall start while the service was still registered."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
 legacy = "notes/daemon.md Rulings (12e review): uninstall waits"
+
+[APP-400]
+title = "FERB.app's own executable answers the hearing modes"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Before it starts the app, FERB.app's executable answers `transcribe`, `status` and `request-speech` with the old helper's arguments, answer files, lease and exit codes (no window, no microphone). The daemon runs it with `open -g -n -W --env FERB_HOME=… <FERB.app> --args <mode> …`. `request-speech` stays but setup no longer calls it. The home rule is NotchCore/FerbHomeRule.swift."
+why = "It carries the owner's merge of FERB Voice into FERB.app (VOICE-403) without changing the daemon's hearing protocol."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift", "ui/mac/FERBNotch/Sources/NotchCore/FerbHomeRule.swift"]
+legacy = "notes/voice.md Rulings that carry the merge 1"
+
+[APP-401]
+title = "Setup's microphone row also asks for Speech Recognition"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Setup has no separate hearing row: the microphone row covers Microphone and Speech Recognition (one grant for dictation and hearing); `ferb doctor` still probes hearing."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch"]
+legacy = "notes/voice.md Rulings that carry the merge 3"
+
+[APP-402]
+title = "Send dictation on release is off by default; a dictated draft is answered aloud"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Settings → General \"Send dictation when I let go of the keys\" (`voice.sendOnRelease`) is off by default. A sent draft that still holds the last dictated words goes with `speak: true`, so a dictated message lightly edited and sent with Return is still answered aloud; a typed message isn't."
+why = "Sending on release changes when a message leaves, so the owner turns it on."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+legacy = "notes/voice.md Rulings (step 11) 7"
+
+[APP-403]
+title = "The work preview is always live while a task runs"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/preview.md owner decision 1 (\"Always live, as today\"): an agent's summary; no verbatim quote recorded"
+rule = "The notch shows a live picture of what FERB is working on: the task's own browser tab or the one Mac app window the current call targets, never the whole screen. The work-row circles, the popover and the floating player stream while a task runs."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift", "ferb/daemon/task_preview.py"]
+legacy = "notes/preview.md decision 1"
+
+[APP-404]
+title = "When FERB leaves a window, the preview freezes on its last frame with what FERB is doing now"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/preview.md owner decision 2: an agent's summary (its quoted lines are example status texts, not the owner's words)"
+rule = "When FERB stops working in a window (moves to another step, pauses, waits, asks), the preview freezes on FERB's last frame of it and shows what FERB is doing now over it (asking, waiting, working in another app, paused). It never keeps streaming the owner's window after FERB has left it."
+why = "Before, it kept streaming: new WhatsApp messages would stream into the preview."
+paths = ["ferb/daemon/task_preview.py::TaskPreviews", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift"]
+legacy = "notes/preview.md decision 2"
+
+[APP-405]
+title = "Preview frame rate: measure first; the owner sets any cap from data"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/preview.md owner decision 3 (\"Frame rate: measure first\"): an agent's summary; no verbatim quote recorded"
+rule = "There is no preview frame-rate cap until the heat is confirmed from data. Preview frames and capture time are counted (`resource_samples.work_json.preview`); step 13 measures the same task with the preview open vs closed, and the owner decides a cap from that."
+why = "The 33-53% daemon CPU windows on 2026-10-30 came while previews ran, but the tasks differed, so it isn't proven."
+paths = ["ferb/daemon/resources.py", "ferb/daemon/task_preview.py::Counts"]
+legacy = "notes/preview.md decision 3"
+
+[APP-406]
+title = "Previews are hidden from screen sharing and recordings"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/preview.md owner decision 4: an agent's summary; no verbatim quote recorded"
+rule = "The preview popovers and the floating player are excluded from screen sharing and screen recordings (`sharingType = .none`)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift"]
+legacy = "notes/preview.md decision 4"
+
+[APP-407]
+title = "The preview captures only while someone can see it"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Every preview loop pauses while the displays sleep, the screen is locked or another user's session is in front (`PreviewAccess`); each video view asks only while its window is visible (occlusion); the work-row circles only while the notch is open and not stepped aside. The frame rate itself is unchanged (APP-405)."
+why = "APP-403 keeps it always live when visible; capturing for nobody only costs heat."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift"]
+legacy = "notes/preview.md fix list (step 8d): capture only while visible"

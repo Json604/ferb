@@ -1,0 +1,93 @@
+# Decisions of area `voice` (kb/areas.toml). Moved from notes/voice.md on 2026-11-02.
+
+[VOICE-400]
+title = "Push-to-talk setup lives in the app; no CLI path"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/voice.md owner decision 1: an agent's summary; no verbatim quote recorded"
+rule = "Setting up push-to-talk happens in FERB.app; there is no CLI path for it (no `ferb setup --voice`, no `ferb voice`)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch", "ferb/cli"]
+legacy = "notes/voice.md decision 1"
+
+[VOICE-401]
+title = "Speech output: macOS's own voice now; other speech providers pluggable later"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/voice.md owner decision 2 (\"Owner, 2026-10-30: keep Apple's voice and the app's dictation for now\"): an agent's summary; no verbatim quote"
+rule = "FERB speaks with macOS's native voice and dictates with the app's dictation. Other text-to-speech providers plug in later like the runtime adapters. Local human-like voices (Kokoro, Chatterbox) and a local dictation engine (Parakeet/Whisper with clean-up) are deferred until the owner raises them."
+rejected = ["Local human-like voices and a local dictation engine now (deferred)"]
+paths = ["ferb/voice/speak.py"]
+legacy = "notes/voice.md decision 2"
+
+[VOICE-402]
+title = "One push-to-talk path: the app's dictation; the daemon's push-to-talk stack goes"
+by = "owner"
+date = 2026-10-30
+status = "superseded"
+superseded_by = "VOICE-403"
+words_source = "notes/voice.md owner decision 3: an agent's summary; no verbatim quote recorded"
+rule = "The one push-to-talk path is the app's dictation (hold Right Command + Option, the Mac's language), with an option to send on release; replies are spoken through the pluggable speaker. The daemon's push-to-talk stack goes (voice controller, mic, push_to_talk, the voice role and `voice.*` RPCs, key forwarding, FERB Voice's serve/Listener/request modes). FERB Voice keeps `transcribe`, `status`, `request-speech` for hearing."
+legacy = "notes/voice.md decision 3"
+
+[VOICE-403]
+title = "FERB Voice merges into FERB.app; dictation stays the one push-to-talk path"
+by = "owner"
+date = 2026-11-01
+status = "active"
+supersedes = ["VOICE-402"]
+words = "ok lets merge it"
+words_source = "notes/voice.md decision 6: the quote is the owner's for the merge; the rest restates decision 3 as decision 6 amends it (an agent's summary)"
+rule = "The one push-to-talk path is the app's dictation (hold Right Command + Option, the Mac's language), with an option to send on release; replies are spoken through the pluggable speaker; the daemon has no push-to-talk stack. The FERB Voice helper is merged into FERB.app: FERB.app itself answers `transcribe`, `status` and `request-speech` for hearing, and Speech Recognition is one grant for dictation and hearing."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift", "ferb/sense/transcribe.py", "ferb/daemon/areas/voice.py"]
+legacy = "notes/voice.md decisions 3 and 6"
+
+[VOICE-404]
+title = "Every new message and every stop interrupts speech; a turn's utterances queue in order"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Any new message, typed or spoken, `task.stop` (whatever ids) and the global stop interrupt what FERB is saying; the daemon's shutdown ends it. Within one turn, utterances queue in order (plan line, then the answer) rather than cutting each other off."
+why = "speak.py's original rule: the owner typing cuts off what it was saying."
+paths = ["ferb/voice/speak.py::Speech", "ferb/daemon/areas/voice.py"]
+legacy = "notes/voice.md Rulings (step 11) 2"
+
+[VOICE-405]
+title = "What a voice turn says aloud"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A turn sent with `speak: true` speaks its reply, its task's plan line (not again for a resumed task) and the answer, without code's lines after them (sites contacted, schedules, apps left open). Questions FERB asks during a voice task are not spoken; they show in the notch. A spoken message merged into an earlier turn makes that turn spoken. Words come from structured events, never CLI rendering."
+why = "Owner decision 3 says replies are spoken."
+paths = ["ferb/daemon/areas/voice.py::answer_words", "ferb/daemon/areas/chat.py"]
+legacy = "notes/voice.md Rulings (step 11) 3 and fix list"
+
+[VOICE-406]
+title = "Speech is redacted on one shared path for every provider, before and after reshaping"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "`Speech.say` redacts the raw text, reshapes it for speech (`spoken`), then redacts again, before any provider is built; no provider, hosted or local, can receive unredacted text and none needs a flag. `voice.said` and `voice.failed` carry only redacted words."
+why = "`spoken` strips marks like ** __ # $ { } ~, so a saved value holding them no longer matched once reshaped and was spoken and published (12e review)."
+paths = ["ferb/voice/speak.py::Speech", "ferb/voice/speak.py::spoken"]
+legacy = "notes/voice.md Rulings (step 11) 4 and 9"
+
+[VOICE-407]
+title = "Speech providers are a registry; one built per utterance from current settings"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "`PROVIDERS` in ferb/voice/speak.py is the registry, like the runtime catalog: `[voice] tts` (default \"macos\"), `voice`, `rate`. A provider is built per utterance, so an edit applies to the next one without a restart; a bad value is journaled `voice.failed` once per turn's queue and nothing is spoken. `MacVoice` passes the text to `/usr/bin/say` on stdin, never argv."
+paths = ["ferb/voice/speak.py::PROVIDERS", "ferb/voice/speak.py::MacVoice"]
+legacy = "notes/voice.md Rulings (step 11) 5, target design 2, fix list"
+
+[VOICE-408]
+title = "Voice settings are checked for validity only, with no FERB-chosen range"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "`[voice] rate` is checked only as a positive finite number of words per minute; `voice` only for shape (non-empty, not option-like, no control characters). A voice macOS doesn't know makes `say` fail, journaled."
+why = "Argument validity is code's job; a range would be an undecided cap."
+paths = ["ferb/voice/speak.py::VoiceConfigError"]
+legacy = "notes/voice.md Rulings (step 11) 6"

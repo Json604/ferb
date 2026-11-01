@@ -338,3 +338,62 @@ words = "your recommeded is fine with me"
 why = "Answer to T-8: in installed mode the check trusted whatever FERB.app sat in /Applications, so a look-alike could pass. Accepted recommendation: pin the release certificate, which every release keeps; ad-hoc builds stay unpinned."
 rule = "When the installed FERB.app is release-signed, the APP_ONLY check accepts only a peer signed with FERB's release certificate (its leaf in scripts/release-cert.sha1). Ad-hoc development builds stay unpinned."
 paths = ["ferb/daemon/app_peer.py::AppPeers"]
+
+[DMN-400]
+title = "Hearing's signature pin is FERB.app's own designated requirement"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "The daemon trusts a hearing process only if it matches FERB.app's own designated requirement (`Installer.own_requirement`, read after the bundle's signature checked out). An older pin naming `com.ferb.app` is replaced by the next app setup or update, with no owner step."
+paths = ["ferb/device/install.py::Installer.own_requirement"]
+legacy = "notes/voice.md Rulings that carry the merge 2"
+
+[DMN-401]
+title = "Updates end only idle hearing processes, found by a process scan"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "A transcription in flight that no listed task covers holds `update.prepare` like a running task. Quitting before an update does nothing while one runs; otherwise one `ps` scan finds processes running FERB.app's executable with `transcribe`/`status` on a file in FERB's audio folder and sends SIGTERM (`request-speech` is left to end when the owner answers). Never by bundle id. On Quit and Install the daemon's shutdown cancels the ask, which deletes the lease."
+why = "`com.ferb.FERB` is also the running notch; `com.ferb.app` stays in FERB_APPS and APP_PREFERENCE_DOMAINS for an older build running during an update."
+paths = ["ferb/daemon/areas/voice.py::VoiceGlue._quit_voice_app", "ferb/sense/transcribe.py"]
+legacy = "notes/voice.md Rulings that carry the merge 4 and Rulings (step 11) 8"
+
+[DMN-402]
+title = "App-only RPCs check the socket peer's audit token against FERB.app's designated requirement"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "RPCs in `auth.APP_ONLY` (e.g. `tasks.preview`) answer only FERB.app: the kernel's audit token of the socket peer (LOCAL_PEERTOKEN) checked by the Security framework against the designated requirement of the FERB.app the daemon runs from (else /Applications then ~/Applications), re-derived when that bundle's signature changes and checked per connection. Any failure to check fails closed; only a daemon run from a source checkout accepts the notch's identifiers."
+why = "Any program running as the owner could pull masked window pictures through the `cli` role; a pid can be reused, and bundle ids, paths and owner-readable secrets are spoofable."
+rejected = ["A dedicated role with a secret (any owner process can read the owner's files; the Keychain is out of bounds)", "Bundle id or path checks (spoofable)"]
+paths = ["ferb/daemon/app_peer.py::AppPeers", "ferb/daemon/auth.py::APP_ONLY"]
+legacy = "notes/preview.md Rulings (step 8d): app-only access"
+
+[DMN-403]
+title = "A preview never waits on a worker: free locks only, one capture per task, 8 s limit"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A preview capture takes the surface's resource locks only when they are free (`try_hold`, no yield between the look and the take; a lock just handed to a waking worker counts as busy); busy, it returns the cached last frame with a state. One capture job per task, within `PREVIEW_LIMIT_S` (8 s, under the app's 10 s wait). The call ends when its caller's connection ends, and the capture when nobody waits for it; an in-flight thread step finishes in the background and the locks are released."
+why = "Abandoned preview requests queued on the FIFO locks and ran ahead of the worker's next call."
+paths = ["ferb/act/locks.py::ResourceLocks.try_hold", "ferb/daemon/task_preview.py::PREVIEW_LIMIT_S", "ferb/daemon/server.py::CANCEL_WHEN_LEFT"]
+legacy = "notes/preview.md fix list and Rulings (step 8d): locks"
+
+[DMN-404]
+title = "Which surface and step a preview shows"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Previews are keyed by the step's task id; an answer names `step` and `worker`, and `worker` picks one. The default shows the step whose latest call is on a surface, most recent first. A new surface replaces the last one only once it has a frame of its own; until then the last frame stays frozen with the working-elsewhere line. Each answer carries its state, line, `masking` note and any `problem` (withheld, gone, not_allowed, slow, failed) with the last frame kept."
+paths = ["ferb/daemon/task_preview.py::TaskPreviews"]
+legacy = "notes/preview.md Rulings (step 8d): surfaces; fix list: parallel steps, states"
+
+[DMN-405]
+title = "Preview frames are masked and never stored"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A preview frame has secure, secret, card and code fields painted over before it leaves the capture (AX for Mac windows, the extension for tabs), then OCR masking of codes, card numbers and known secrets; when only OCR masked a window, the answer says so. Frames live in memory only: never written to disk, the database, a trace or a log, and none is captured after the task ends or for a tab the task doesn't own."
+why = "Rule 7: secrets never reach a trace, log or the database; the preview shows the owner's own windows."
+paths = ["ferb/daemon/task_preview.py", "ferb/sanitize/images.py"]
+legacy = "notes/preview.md What exists today (verified 2026-10-31): masking and storage"

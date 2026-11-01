@@ -76,3 +76,13 @@ rule = "MacPresence: out of use while the Mac sleeps, its displays sleep, the sc
 paths = ["ferb/sense/watchers/presence.py::MacPresence"]
 live = ["LIVE-204"]
 legacy = "notes/hands.md Rulings (step 12e part 2): presence signal"
+
+[SENSE-400]
+title = "Transcription time limit: 60 s plus 2 s per second of sound"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A transcription may take `LIMIT_S` (60 s) plus `PER_AUDIO_S` (2 s) for each second of captured sound; past it the ask is cancelled, the lease deleted (the hearing process exits) and the tool says hearing is unavailable. The status probe has the 60 s base. A listen's length stays the model's choice (no cap on `seconds`). Redaction alignment runs in a worker thread, off the event loop."
+why = "Covers FERB.app's launch and the recognizer's set-up, and scales because on-device recognition time grows with the sound."
+paths = ["ferb/sense/transcribe.py::LIMIT_S", "ferb/sense/transcribe.py::PER_AUDIO_S"]
+legacy = "notes/voice.md Rulings (step 11) 1"

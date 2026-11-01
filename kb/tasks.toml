@@ -70,3 +70,78 @@ kind = "build"
 status = "open"
 why = "app_peer.py AppPeers re-derives the requirement from whatever bundle sits at /Applications/FERB.app in installed mode; the owner chose the release-certificate pin on 2026-11-02."
 decisions = ["DMN-34"]
+
+[T-400]
+title = "Test the upgrade on a copy of a real older build's database and config (STORE-403)"
+area = "storage"
+kind = "build"
+status = "open"
+why = "notes/storage.md fix list: tested so far only on the owner's store and synthetic stores built from migration files (0044-0048 first versions from git history); STORE-403 asks for copies of real older databases and configs before release."
+decisions = ["STORE-403"]
+
+[T-401]
+title = "Audit-like journal kinds: kept forever, or 90 days with the operational records?"
+area = "storage"
+kind = "question"
+status = "open"
+why = "notes/storage.md open owner question (step 12a): security.alignment 886 rows, shell.network 481, escape.used 26, clipboard.access 28 on the live store; kept forever until answered (STORE-408)."
+decisions = ["STORE-401", "STORE-408"]
+ask = "Should the audit-like journal records (security alignment, shell network use, escape used, clipboard access) be kept forever, or deleted 90 days after their task ends like the other operational records?"
+
+[T-402]
+title = "Retention periods for tables with none decided"
+area = "storage"
+kind = "question"
+status = "open"
+why = "notes/storage.md open owner question (step 12a): perception_receipts/perception_batches (writers off; would grow again if Jev returns), plan_events (loop wake-up queue), attention_notices and learning_changes (small). Nothing ages them out today."
+ask = "Perception receipts and batches, the loop wake-up queue, notices and learned-node change rows have no retention period, so they are kept forever. Should any of them be deleted after a period, and after how long?"
+
+[T-403]
+title = "Installs from the same-day windows of in-place edits to 0018, 0025 and 0042 lack those columns"
+area = "storage"
+kind = "bug"
+status = "open"
+why = "notes/storage.md Rulings (step 12a), \"Not covered\": installs made on 10-08, 10-09 or 10-21, when those migrations were edited in place, never got the added columns; SQL migrations can't add a column only when it is missing. STORE-403 asks that any older build upgrade safely."
+decisions = ["STORE-403"]
+
+[T-404]
+title = "Codex workers on context overflow: compact (today) or fail?"
+area = "runtimes"
+kind = "question"
+status = "open"
+why = "notes/runtimes.md Step 4 findings: workers keep Codex's automatic compaction (RUN-402), \"owner's call whether workers should fail on overflow instead\"."
+decisions = ["RUN-402"]
+ask = "When a worker's long tool loop overflows the model's context window, should Codex compact the conversation and carry on (today), or should the worker fail instead?"
+
+[T-405]
+title = "Turn planner caching (P20) on by default once the injection test passes"
+area = "runtimes"
+kind = "build"
+status = "blocked"
+why = "RUN-401: on by default only after the owner's run of tests/security/test_planner_injection_real.py passes (LIVE-405); `codex_planner_cache` defaults to false today (catalog.py:163)."
+decisions = ["RUN-401"]
+
+[T-406]
+title = "gpt-6.1-terra has no OpenAI limits or price"
+area = "runtimes"
+kind = "chore"
+status = "open"
+why = "notes/runtimes.md Pin move 2026-11-01: Codex 0.166.0's bundled catalog adds gpt-6.1-terra, but FERB knows no OpenAI max output for it; openai_api.py and prices.py list gpt-6.1-sol only."
+
+[T-407]
+title = "Other assistants to import from (Perplexity, Cursor, Copilot…)?"
+area = "memory"
+kind = "question"
+status = "open"
+why = "notes/memory-import.md: \"Others the owner uses (Perplexity, Cursor, Copilot…): to list with the owner\"; open owner question, only if wanted."
+decisions = ["MEM-403"]
+ask = "Besides ChatGPT, claude.ai, Claude Code, Codex CLI and Gemini, are there other AI assistants you use (Perplexity, Cursor, Copilot, …) that FERB should import memory from?"
+
+[T-408]
+title = "Preview frame-rate cap: decide from the step-13 measurement"
+area = "app"
+kind = "question"
+status = "blocked"
+why = "APP-405: no cap until heat is confirmed from data; LIVE-420 measures the same task with the preview open vs closed, then the owner decides."
+decisions = ["APP-405"]
+ask = "With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?"

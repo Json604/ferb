@@ -313,3 +313,226 @@ surface = "FERB.app build on the owner's Mac, tasks that take Mac window screens
 request = "Run tasks that take several window screenshots; then count mac.screenshot errors in `ferb stats`."
 pass = "No SCStreamErrorDomain -3811 failures survive the single retry after 0.3 s."
 sitting = "step 13"
+
+[LIVE-400]
+title = "The first start after an update migrates and purges once"
+area = "storage"
+surface = "FERB.app build installed by the owner over their existing store"
+request = "Install the build, let it start, wait for the first hourly pass; then read the journal (`ferb logs` / timeline)."
+pass = "Migrations applied, `store.upgraded` and the memory upgrade records journaled once each, no `retention.failed`; the first pass journals `retention.purged` and `trail.purged` (the accessibility backlog)."
+decisions = ["STORE-400", "STORE-401", "STORE-403"]
+sitting = "step 13"
+
+[LIVE-401]
+title = "The clean-up runs on the live store with the owner's OK"
+area = "storage"
+surface = "FERB.app Settings → Data → Clean up, on the owner's store"
+request = "Open Clean up, read the list of what goes, press OK."
+pass = "The daemon stops and comes back; `store.cleaned` and `store.compacted` journaled; the file near 1.7 GB; `ferb doctor` shows the database OK and no clean-up pending."
+decisions = ["STORE-402", "STORE-411", "STORE-412", "STORE-416"]
+sitting = "step 13"
+
+[LIVE-402]
+title = "The database file stays flat a day after the clean-up"
+area = "storage"
+surface = "the owner's ~/.ferb/ferb.db, read-only"
+request = "A day after LIVE-401, read the file size, `PRAGMA freelist_count` and the WAL size."
+pass = "File size about the same, freelist_count small (free pages handed back hourly), WAL under 64 MiB."
+decisions = ["STORE-409"]
+sitting = "step 13"
+
+[LIVE-403]
+title = "Non-ASCII evidence search and continued-task episodes"
+area = "storage"
+surface = "FERB.app, an owner-controlled task that reads Hindi text, then a follow-up on the same task"
+request = "Run a task that reads a page with Hindi text, search its evidence for a Hindi word; continue the task with a follow-up and open its episode."
+pass = "`task.evidence` finds the Hindi text; the continued task's episode shows its last run's result and is verified."
+sitting = "step 13"
+
+[LIVE-404]
+title = "A timer set from a task shows as a timer and can be cancelled from chat"
+area = "storage"
+surface = "FERB.app notch"
+request = "Ask for a task that sets a timer (`time.set_timer`), then cancel it from chat."
+pass = "The notch shows a timer (not a reminder); the chat cancel removes it."
+sitting = "step 13"
+
+[LIVE-405]
+title = "The planner injection test passes (P20)"
+area = "runtimes"
+surface = "the checkout after the rebuild, the owner's Codex sign-in"
+request = "The owner runs tests/security/test_planner_injection_real.py once."
+pass = "It passes; then planner caching becomes the default (T-405)."
+decisions = ["RUN-401"]
+sitting = "step 13"
+
+[LIVE-406]
+title = "Codex worker: FERB's base instructions and a long confirmation"
+area = "runtimes"
+surface = "FERB.app on Codex, an owner-controlled task (a kartikey.xyz page or FERB's Gmail)"
+request = "Run a worker task; leave an owner confirmation it raises unanswered for more than 60 s, then answer. Compare one task's quality and tokens with an older run. Also `uv run pytest -m real tests/test_real_runtimes.py`."
+pass = "FERB tools listed and called, typed answer returned, no `instructionSources`; the confirmation's call is not abandoned; the real tests pass."
+decisions = ["RUN-407", "RUN-410"]
+sitting = "step 13"
+
+[LIVE-407]
+title = "Codex planner and start: compaction off, overflow, no version subprocess, 90 s cut"
+area = "runtimes"
+surface = "FERB.app on Codex, the owner's journal and process list"
+request = "After the owner installs the build, read the first start's journal; start a run and watch processes; send a planner prompt over ~245k tokens and one over the window; let a planner turn run past 90 s."
+pass = "No `runtime.codex_problem`; no `codex --version` process per run; no `contextCompaction` item; the over-window prompt comes back as an overflow; the planner turn is cut at 90 s with a plain reply."
+decisions = ["RUN-402", "RUN-406", "RUN-407"]
+sitting = "step 13"
+
+[LIVE-408]
+title = "Claude SDK availability follows model and FERB's sign-in"
+area = "runtimes"
+surface = "FERB.app Settings → AI with FERB's own Claude sign-in (owner's subscription)"
+request = "Clear the Claude model and look at the runtimes; set it again; then Sign out of Claude."
+pass = "Without a model Claude shows unusable, the planner isn't offered it and `runtimes.check` fails naming the model; after sign-out Claude is unusable."
+decisions = ["RUN-404", "RUN-409"]
+sitting = "step 13"
+
+[LIVE-409]
+title = "Claude SDK runs: reshaped planner schema, big worker, hidden token, steering cost"
+area = "runtimes"
+surface = "FERB.app on the Claude SDK, an owner-controlled task; one owner-run `pytest -m real_claude`"
+request = "A planner turn on the reshaped SUPERVISOR_SCHEMA; a worker with an output schema and many FERB tools; `ps` during it; steer a worker twice."
+pass = "The plan streams; the worker runs (MCP tool schemas within the optional/union limits); no run token in `ps`; one result after the replays, and the run's cost equals Claude's final `total_cost_usd`."
+decisions = ["RUN-408", "RUN-409"]
+sitting = "step 13"
+
+[LIVE-410]
+title = "Anthropic API: planner schema accepted, unknown tool, prices"
+area = "runtimes"
+surface = "FERB.app with the owner's Anthropic API key"
+request = "A planner turn on SUPERVISOR_SCHEMA; a worker that calls a made-up tool name; read the usage spans of a claude-haiku-5-5 run."
+pass = "No \"too many parameters with union types\"; the answer maps back and a plan streams; the made-up tool gets a tool error and the worker goes on; haiku-5-5 spans carry a cost."
+decisions = ["RUN-400", "RUN-408"]
+sitting = "step 13"
+
+[LIVE-411]
+title = "Gemini API: schemas accepted, parallel same-tool calls paired"
+area = "runtimes"
+surface = "FERB.app with the owner's free Gemini key"
+request = "A planner turn on SUPERVISOR_SCHEMA and a worker on WORKER_SCHEMA; a worker making two parallel calls to one tool."
+pass = "No \"too many states\"; both parallel results are paired with the right calls."
+decisions = ["RUN-400", "RUN-408"]
+sitting = "step 13"
+
+[LIVE-412]
+title = "After the 2026-11-01 pin move: Codex over HTTP, Claude cache and effort"
+area = "runtimes"
+surface = "FERB.app build with Codex 0.166.0 and Claude Code 2.1.310"
+request = "Run a Codex task and read its trace; run a Claude task twice and read the cache rates and the request's effort."
+pass = "Codex runs go over HTTP and the tool catalog is observed (a WebSocket run would fail closed); Claude cache reads still happen without the prompt-caching-scope beta; no effort is sent unless asked."
+decisions = ["RUN-405", "RUN-409"]
+sitting = "step 13"
+
+[LIVE-413]
+title = "Send on release: a dictated question is sent and answered aloud"
+area = "voice"
+surface = "FERB.app notch, Settings → General \"Send dictation when I let go of the keys\" on"
+request = "Hold Right Command + Option, say \"what time is it\", release."
+pass = "The message sends and the reply is spoken in the Mac's voice; `voice.said` appears in `ferb logs`."
+decisions = ["VOICE-403", "VOICE-405", "APP-402"]
+sitting = "step 13"
+
+[LIVE-414]
+title = "A dictated task speaks its plan line and answer, not code's lines"
+area = "voice"
+surface = "FERB.app notch, send on release on"
+request = "Dictate \"make a note called test with hi in it\"."
+pass = "The plan line is spoken as it starts and the answer when it ends; \"Sites contacted\"/\"Left open\" lines are not read out."
+decisions = ["VOICE-405"]
+sitting = "step 13"
+
+[LIVE-415]
+title = "Stop and a new message cut speech off at once"
+area = "voice"
+surface = "FERB.app notch while FERB is speaking a reply"
+request = "Press the notch's stop; in another turn, type a new message while it speaks."
+pass = "Speech stops at once each time."
+decisions = ["VOICE-404"]
+sitting = "step 13"
+
+[LIVE-416]
+title = "Send on release off: dictation stays a draft and is still answered aloud"
+area = "voice"
+surface = "FERB.app notch, send on release off"
+request = "Dictate a message, send it with Return; then type and send a message."
+pass = "The dictation stays in the draft until Return and its reply is spoken; the typed message's reply is not."
+decisions = ["APP-402"]
+sitting = "step 13"
+
+[LIVE-417]
+title = "Voice settings apply to the next reply; a bad provider speaks nothing"
+area = "voice"
+surface = "~/.ferb config.toml [voice], edited by the owner"
+request = "Set `voice = \"Daniel\"`, `rate = 220`, ask something by voice; then set `tts = \"nope\"` and ask again."
+pass = "The next reply uses Daniel at 220; with `nope` nothing is spoken and `voice.failed` names the value."
+decisions = ["VOICE-407", "VOICE-408"]
+sitting = "step 13"
+
+[LIVE-418]
+title = "A long listen transcribes in time; an excluded site's sound isn't recorded"
+area = "voice"
+surface = "FERB.app, a tab playing several minutes of speech; a site on the owner's exclusion list"
+request = "Ask FERB to listen to the long speech; then ask for a recording with sound on the excluded site."
+pass = "The listen returns a transcript within the limit; the recording is refused."
+decisions = ["SENSE-400"]
+sitting = "step 13"
+
+[LIVE-419]
+title = "Import each real assistant once and judge the facts"
+area = "memory"
+surface = "FERB.app Memory page → Import from other assistants, the owner's own exports and local transcripts"
+request = "Import each source once (ChatGPT, claude.ai, Claude Code, Codex CLI, Gemini); read the estimate first, then the summary notice, the Memory page's source filter and a sample of facts. Also `uv run pytest -m real tests/test_memory_import.py::test_quality_live`."
+pass = "The estimate states model calls before starting; each run ends with one notice whose Open the Memory page button filters by source; the sampled facts are true to the owner's memory, saved as FERB's understanding, none older than 3 months; the live quality test passes."
+decisions = ["MEM-400", "MEM-401", "MEM-402", "MEM-403", "MEM-406"]
+sitting = "step 13"
+
+[LIVE-420]
+title = "Preview open vs closed: daemon CPU and call times on the same task"
+area = "app"
+surface = "FERB.app on the owner's Mac, one owner-controlled browser task (a kartikey.xyz page), `resource_samples`"
+request = "Run the same browser task twice, once with the preview open and once closed; read the daemon's CPU and `work_json.preview` counters for both windows and the call durations."
+pass = "The figures for both runs are recorded for the owner's cap decision (T-408); no `daemon.slow_call` for `tasks.preview`."
+decisions = ["APP-405", "DMN-403"]
+sitting = "step 13"
+
+[LIVE-421]
+title = "Secrets and codes stay painted in the preview"
+area = "app"
+surface = "kartikey.xyz login page with the request-logging server, FERB.app's preview popover"
+request = "Run a login task that fills `browser.secret` and a code field while the preview popover is open."
+pass = "Both fields stay painted over in every preview frame."
+decisions = ["DMN-405"]
+sitting = "step 13"
+
+[LIVE-422]
+title = "The preview freezes when FERB leaves the owner's window"
+area = "app"
+surface = "WhatsApp \"message yourself\", FERB.app's preview"
+request = "Run a task that works in WhatsApp then moves on to another step; send yourself a new message after FERB has left."
+pass = "The preview freezes on FERB's last frame with a status line; the later message never appears in the preview."
+decisions = ["APP-404", "DMN-404"]
+sitting = "step 13"
+
+[LIVE-423]
+title = "Preview states: minimised, no Screen Recording, locked screen, two tasks; hidden from sharing"
+area = "app"
+surface = "FERB.app on the owner's Mac; a Zoom or Meet screen share"
+request = "With a task previewing: minimise its window; turn Screen Recording off; lock the screen; run two tasks at once; share the screen in Zoom/Meet."
+pass = "Each shows its plain state line with the last frame kept (or pauses while locked); two tasks preview separately; the shared screen shows no preview popover or player."
+decisions = ["APP-406", "APP-407", "DMN-404"]
+sitting = "step 13"
+
+[LIVE-424]
+title = "Does macOS show its screen-recording indicator while the preview runs?"
+area = "app"
+surface = "FERB.app on the owner's Mac, menu bar"
+request = "Open a task's preview and watch the menu bar and Control Center."
+pass = "The owner notes whether the recording indicator appears (a fact to record, not a pass/fail on FERB)."
+decisions = ["APP-403"]
+sitting = "step 13"

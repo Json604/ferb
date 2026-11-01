@@ -87,3 +87,11 @@ see = ["GATE-205", "GATE-218"]
 ["routine questions"]
 meaning = "The questions a \"don't ask for 30 minutes\" answer covers: foreground, protected-folder reads, a browser's own pages, new recipients, profile pairing."
 see = ["GATE-207"]
+
+["operational records"]
+meaning = "FERB's bookkeeping about doing a task (action ledger, confirmations, plans, loop state, timer deliveries, operational journal kinds), deleted 90 days after the task or timer ends."
+see = ["STORE-401", "STORE-404", "STORE-408"]
+
+["the clean-up"]
+meaning = "The one-time, owner-confirmed setup step (`ferb setup --cleanup`, Settings → Data → Clean up) that empties dead tables with the daemon stopped and compacts the database."
+see = ["STORE-402", "STORE-412"]

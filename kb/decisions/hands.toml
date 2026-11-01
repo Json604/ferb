@@ -487,3 +487,35 @@ rule = "The shell can reach any site; every connection is recorded in the trace.
 rejected = ["Ask the first time a host is reached (2026-10-10)", "The old docs' L2 egress limit"]
 paths = ["ferb/act/shell/proxy.py", "ferb/daemon/areas/egress.py"]
 legacy = "notes/gateway.md decision 9"
+
+[HAND-400]
+title = "No music recognition for now"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/voice.md owner decision 4 (\"Music recognition: not now\"): an agent's summary; no verbatim quote recorded"
+rule = "FERB does not recognise music by its sound. Workers keep being told so: asked what a song is, they listen on the tab the owner means and, hearing no lyrics they can identify, say so, never naming something else as the song."
+rejected = ["Pressing Control Center's Recognize Music through accessibility (drives system UI, writes the owner's Shazam history)", "ShazamKit on FERB's captured app audio (likely needs a paid Apple Developer App ID; a new hosted destination)"]
+paths = ["ferb/act/listen.py"]
+legacy = "notes/voice.md decision 4"
+
+[HAND-401]
+title = "No muting while FERB listens, for now"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/voice.md owner decision 5 (\"Muting while FERB listens: not now\"): an agent's summary; no verbatim quote recorded"
+rule = "While FERB listens to an app or tab, the owner hears it too: FERB captures the app's audio unmuted (a tab listen hears the whole browser)."
+rejected = ["Muting the page's media element (FERB hears nothing either)", "chrome.tabCapture (needs a user gesture and a protocol change)", "A Core Audio process tap muting when tapped (FERB's browser is the owner's Chrome process; muting it mutes the owner's Chrome)"]
+paths = ["ferb/act/listen.py", "ferb/act/mac/audio.py"]
+legacy = "notes/voice.md decision 5"
+
+[HAND-402]
+title = "The preview target comes from the capability's own declaration"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Each Mac and browser capability declares what its call targets (`preview_target(args, owner, observed)` → `PreviewTarget`, beside `Point` in ferb/act/point.py); the gateway's hook asks the capability and checks no tool names. The declaration does no lookup: the target resolves at the first frame request, and the hook never raises, so a preview problem can't lose a successful call."
+rejected = ["Name and argument lists in the gateway hook"]
+paths = ["ferb/act/point.py::PreviewTarget", "ferb/daemon/call_hooks.py"]
+legacy = "notes/preview.md fix list (step 8d): target choice"
