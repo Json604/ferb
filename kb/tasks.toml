@@ -76,8 +76,8 @@ title = "Test the upgrade on a copy of a real older build's database and config 
 area = "storage"
 kind = "build"
 status = "open"
-why = "notes/storage.md fix list: tested so far only on the owner's store and synthetic stores built from migration files (0044-0048 first versions from git history); STORE-403 asks for copies of real older databases and configs before release."
-decisions = ["STORE-403"]
+why = "STORE-403 asks for upgrade tests on copies of real older databases and configs before release; tests/test_upgrade.py still builds its stores from migration files (0044-0048 first versions from git history). A tracked copy must hold no personal data (PROJ-500)."
+decisions = ["STORE-403", "TEST-505", "PROJ-500"]
 
 [T-401]
 title = "Audit-like journal kinds: kept forever, or 90 days with the operational records?"
@@ -162,15 +162,6 @@ status = "open"
 why = "notes/orchestration.md Rulings (2026-11-01): a schedule's recorded profile and account reach the planner and worker only as facts; nothing binds a browser call to a profile in the gateway yet (not for chat tasks either)."
 decisions = ["ORCH-313"]
 
-[T-302]
-title = "How do the approved memory items reach the owner's store now that the seed is gone?"
-area = "memory"
-kind = "question"
-status = "open"
-why = "PRM-301 (prompts decision 4) says the approved items M1-M9 and \"email me\" are seeded once on the new build's first start; commit ca4543ce (2026-11-01, personal data out of the repo) deleted seed_owner_items; the items now sit in an untracked local file. The notes still mark the seed done."
-decisions = ["PRM-301"]
-ask = "Your approved memory items (M1-M9 and the address for \"email me\") were to be seeded into FERB's memory by the build, but that seed was deleted on 2026-11-01 to keep personal data out of the repo. Should they still reach your store automatically, from a file that stays only on your Mac, or will you tell FERB each one yourself (and the decision is updated to say so)?"
-
 [T-500]
 title = "The intro's permission accepting, reopen and quit are broken"
 area = "app"
@@ -208,14 +199,6 @@ kind = "chore"
 status = "open"
 why = "Step 12d kept whole files and deleted 109 others; the per-test pass removing wording and wiring tests inside the kept files (e.g. most of test_question_clarity, test_front_window_context, test_install, test_setup_flow) is not done."
 decisions = ["TEST-500"]
-
-[T-505]
-title = "An upgrade test from a copy of a real older build's database"
-area = "tests"
-kind = "build"
-status = "open"
-why = "notes/tests.md (2026-11-01): storage decision 5 asks for upgrade tests on copies of real older databases and configs; tests/test_upgrade.py still builds its stores from migration files. A tracked copy must hold no personal data (PROJ-500)."
-decisions = ["TEST-505", "PROJ-500"]
 
 [T-506]
 title = "Does a question light the camera edge in amber, or does it light only for completion?"

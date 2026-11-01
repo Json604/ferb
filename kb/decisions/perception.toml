@@ -61,7 +61,8 @@ legacy = "notes/daemon.md decision 9"
 title = "\"When you're back at your Mac\" is the Mac coming back into use"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-317"
 words_source = "notes/hands.md owner decision 10 (clarifying orchestration decision 17): an agent's paraphrase; no verbatim quote recorded"
 rule = "Back at the Mac = lid opened / wake from sleep, screen unlocked, login, or restart (the daemon starting after boot). Input idleness doesn't count: watching a film without touching anything is still being at the Mac. Kept: at most once per the schedule's own rule; away for days gives one run. The paused-task mention uses the same signal; held banners show only when the notch can't."
 paths = ["ferb/sense/watchers/presence.py", "ferb/daemon/areas/schedules.py"]

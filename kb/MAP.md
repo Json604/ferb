@@ -6,24 +6,23 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 87 | 6 | 16 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 86 | 6 | 15 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 41 | 2 | 13 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 29 | 2 | 0 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 28 | 2 | 0 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 50 | 1 | 6 |
-| memory | Memory and memory import | `ferb/memory` | 59 | 4 | 4 |
+| memory | Memory and memory import | `ferb/memory` | 59 | 3 | 5 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 35 | 2 | 0 |
-| perception | Perception | `ferb/sense` | 9 | 1 | 1 |
+| perception | Perception | `ferb/sense` | 8 | 1 | 1 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `notes`, `kb`, `tools`, `spikes` | 1 | 0 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 18 | 0 | 32 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 5 | 0 | 1 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 15 | 3 | 9 |
-| storage | Storage | `ferb/store` | 23 | 5 | 5 |
-| tests | Tests | `tests` | 6 | 2 | 0 |
+| storage | Storage | `ferb/store` | 22 | 5 | 5 |
+| tests | Tests | `tests` | 6 | 1 | 0 |
 | voice | Voice | `ferb/voice` | 8 | 0 | 6 |
 
 ## Waiting on the owner
 
-- T-302 (memory): Your approved memory items (M1-M9 and the address for "email me") were to be seeded into FERB's memory by the build, but that seed was deleted on 2026-11-01 to keep personal data out of the repo. Should they still reach your store automatically, from a file that stays only on your Mac, or will you tell FERB each one yourself (and the decision is updated to say so)?
 - T-401 (storage): Should the audit-like journal records (security alignment, shell network use, escape used, clipboard access) be kept forever, or deleted 90 days after their task ends like the other operational records?
 - T-402 (storage): Perception receipts and batches, the loop wake-up queue, notices and learned-node change rows have no retention period, so they are kept forever. Should any of them be deleted after a period, and after how long?
 - T-404 (runtimes): When a worker's long tool loop overflows the model's context window, should Codex compact the conversation and carry on (today), or should the worker fail instead?

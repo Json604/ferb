@@ -18,7 +18,8 @@ legacy = "notes/prompts.md decision 2; target design 5"
 title = "The approved patch table: general rules R1-R10 and the owner's memory items"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "PRM-318"
 words_source = "notes/prompts.md owner decision 4 (approving notes/prompt-patches.md): an agent's paraphrase; the owner's quoted words for M1 are personal and kept in kb/local"
 rule = "The ten general rules R1-R10 replace the prompt patches. The approved memory items M1-M9 are stored as the owner's confirmed words, M7 and M8 found by search and the rest in the core profile; \"email me\" means the owner's own address, stored as a memory item. \"anytime\" means FERB picks a time from context and says which (R10). FERB's inferred duplicates of these items are dropped. The items are seeded once on the new build's first start (journaled, idempotent), since the live store is never written by hand."
 paths = ["ferb/orchestrator/prompts", "ferb/memory/profile.py::SEARCH_ONLY_KIND"]
@@ -67,7 +68,8 @@ legacy = "notes/prompts.md target design 3, 4"
 title = "The setup intro suggests two first tasks of different kinds"
 by = "owner"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-513"
 words_source = "notes/prompts.md fix list (setup intro Task 4, owner 2026-11-01): an agent's paraphrase; no verbatim quote recorded"
 rule = "The intro's one tool-less call names two first tasks in the owner's voice from what FERB saw on the Mac (redacted), safe to show as a plan, of different kinds where the facts allow (one on the Mac or in files, one in the browser). Code tops a reply with fewer than two up from its two general tasks."
 paths = ["ferb/orchestrator/prompts/intro.md", "ferb/daemon/areas/intro.py::GENERAL_TASKS"]
@@ -186,3 +188,26 @@ words_source = "Agent-drafted rule R10 in notes/prompt-patches.md, approved as a
 rule = "Ask the owner only what, who or which: never how, and never for routine permission. When the owner leaves a choice to FERB (\"anytime\", \"whichever\"), choose from their stored preference or the context and say what was chosen; they correct by replying. FERB's code asks its own confirmations and writes the saved / set / scheduled / cancelled lines, so models never ask for a confirmation or make those claims."
 paths = ["ferb/orchestrator/prompts/interaction.md"]
 legacy = "notes/prompt-patches.md R10"
+
+[PRM-318]
+title = "No code seeds the owner's memory items; the owner checks and tells FERB once"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "yes do this."
+rule = "No code seeds the owner's personal memory items (M1–M9, the \"email me\" address); after installing, the owner checks whether FERB's memory already has them and otherwise tells FERB once in chat."
+why = "Accepted proposal (answer to T-302): check whether FERB already has them once it's running (the fresh start kept the database); if not, tell FERB once in chat; no seed code or import file."
+supersedes = ["PRM-301"]
+live = ["LIVE-534"]
+paths = ["ferb/memory/upgrade.py"]
+
+[PRM-319]
+title = "The approved patch table: general rules R1-R10 and the owner's memory items"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words_source = "PRM-301 (notes/prompts.md owner decision 4, an agent's paraphrase) without its seeding sentence, which the owner replaced 2026-11-02 (PRM-318); the rest unchanged"
+rule = "The ten general rules R1-R10 replace the prompt patches. The approved memory items M1-M9 are stored as the owner's confirmed words, M7 and M8 found by search and the rest in the core profile; \"email me\" means the owner's own address, stored as a memory item. \"anytime\" means FERB picks a time from context and says which (R10). FERB's inferred duplicates of these items are dropped."
+why = "Carries PRM-301's unchanged parts after PRM-318 superseded it for the seeding."
+paths = ["ferb/orchestrator/prompts", "ferb/memory/profile.py::SEARCH_ONLY_KIND"]
+legacy = "notes/prompts.md decision 4"

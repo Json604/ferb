@@ -92,15 +92,6 @@ pass = "Keychain Access no longer lists the item (service ferb.owner-secrets); `
 decisions = ["APP-2", "GATE-2"]
 sitting = "step 13"
 
-[LIVE-10]
-title = "Clean up the live store from Settings → Data"
-area = "app"
-surface = "FERB.app on the owner's live store"
-request = "Settings → Data → Clean up: review the list, OK."
-pass = "FERB stops and comes back, the result line shows, and Health's Database line clears."
-decisions = ["DMN-17"]
-sitting = "step 13"
-
 [LIVE-11]
 title = "A memory import notice opens the Memory page on that assistant"
 area = "app"
@@ -285,7 +276,7 @@ area = "perception"
 surface = "The owner's Mac with FERB.app running"
 request = "Close and open the lid, lock and unlock the screen, let the display sleep and wake, fast-switch user and back, restart; then check the journal."
 pass = "Each journals one `mac.back_in_use` with the right signal; note whether the lock notifications reach FERB's thread or only the 5-second read catches them."
-decisions = ["SENSE-200", "SENSE-201"]
+decisions = ["ORCH-317", "SENSE-201"]
 sitting = "step 13"
 
 [LIVE-205]
@@ -328,8 +319,8 @@ title = "The clean-up runs on the live store with the owner's OK"
 area = "storage"
 surface = "FERB.app Settings → Data → Clean up, on the owner's store"
 request = "Open Clean up, read the list of what goes, press OK."
-pass = "The daemon stops and comes back; `store.cleaned` and `store.compacted` journaled; the file near 1.7 GB; `ferb doctor` shows the database OK and no clean-up pending."
-decisions = ["STORE-402", "STORE-411", "STORE-412", "STORE-416"]
+pass = "The daemon stops and comes back; the result line shows; `store.cleaned` and `store.compacted` journaled; the file near 1.7 GB; Health's Database line clears and `ferb doctor` shows the database OK and no clean-up pending."
+decisions = ["STORE-402", "STORE-411", "STORE-412", "STORE-416", "DMN-17"]
 sitting = "step 13"
 
 [LIVE-402]
@@ -809,3 +800,12 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Run a loop, a watch and a delegated conversation."
 pass = "A loop round arms a probe and keeps its tab; a watch run alerts once and then stays quiet; a delegated conversation turn waits and hands over."
 sitting = "9"
+
+[LIVE-534]
+title = "After the install, FERB's memory has M1–M9 and the email-me address"
+area = "memory"
+surface = "FERB.app on the owner's Mac after the step-13 install; the Memory page"
+request = "After the install, look in FERB's memory (Memory page or a search) for each of the local items in kb/local/decisions/memory.toml; tell FERB once in chat any that are missing."
+pass = "FERB's memory has M1–M9 and the email-me address, from the kept database or from the owner telling it; no seed code ran."
+decisions = ["PRM-318", "PRM-319"]
+sitting = "step 13"

@@ -126,7 +126,7 @@ see = ["ORCH-329", "ORCH-321"]
 
 ["prompt patch"]
 meaning = "A one-off line added to a runtime prompt after an incident; patches were removed in step 10b and corrections now go to memory."
-see = ["PRM-300", "PRM-301"]
+see = ["PRM-300", "PRM-319"]
 
 ["shared prefix"]
 meaning = "The small block every role's instructions start with (interaction.md: trust, voice, background first, R2, R5, R10)."
@@ -142,7 +142,7 @@ see = ["PRM-311"]
 
 ["R1-R10"]
 meaning = "The ten general prompt rules that replaced the incident patches (PRM-303 to PRM-312)."
-see = ["PRM-301", "PRM-303", "PRM-312"]
+see = ["PRM-319", "PRM-303", "PRM-312"]
 
 ["beat"]
 meaning = "One step of the first-run intro tour (meet, signIn, permissions, browsers, identity, tryIt, control, home); IntroPlan picks which beats an install gets."
