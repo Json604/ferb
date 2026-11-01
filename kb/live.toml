@@ -28,3 +28,46 @@ request = "Install the build, let the daemon run for a few minutes, then ask abo
 pass = "The journal shows one `memory.embedded` backfill with counts and CPU seconds, no turn waits on it, and the old exchange is found by meaning."
 decisions = ["MEM-6", "MEM-25", "MEM-26"]
 sitting = "step 13"
+
+[LIVE-400]
+title = "The first start after an update migrates and purges once"
+area = "storage"
+surface = "FERB.app build installed by the owner over their existing store"
+request = "Install the build, let it start, wait for the first hourly pass; then read the journal (`ferb logs` / timeline)."
+pass = "Migrations applied, `store.upgraded` and the memory upgrade records journaled once each, no `retention.failed`; the first pass journals `retention.purged` and `trail.purged` (the accessibility backlog)."
+decisions = ["STORE-400", "STORE-401", "STORE-403"]
+sitting = "step 13"
+
+[LIVE-401]
+title = "The clean-up runs on the live store with the owner's OK"
+area = "storage"
+surface = "FERB.app Settings → Data → Clean up, on the owner's store"
+request = "Open Clean up, read the list of what goes, press OK."
+pass = "The daemon stops and comes back; `store.cleaned` and `store.compacted` journaled; the file near 1.7 GB; `ferb doctor` shows the database OK and no clean-up pending."
+decisions = ["STORE-402", "STORE-411", "STORE-412", "STORE-416"]
+sitting = "step 13"
+
+[LIVE-402]
+title = "The database file stays flat a day after the clean-up"
+area = "storage"
+surface = "the owner's ~/.ferb/ferb.db, read-only"
+request = "A day after LIVE-401, read the file size, `PRAGMA freelist_count` and the WAL size."
+pass = "File size about the same, freelist_count small (free pages handed back hourly), WAL under 64 MiB."
+decisions = ["STORE-409"]
+sitting = "step 13"
+
+[LIVE-403]
+title = "Non-ASCII evidence search and continued-task episodes"
+area = "storage"
+surface = "FERB.app, an owner-controlled task that reads Hindi text, then a follow-up on the same task"
+request = "Run a task that reads a page with Hindi text, search its evidence for a Hindi word; continue the task with a follow-up and open its episode."
+pass = "`task.evidence` finds the Hindi text; the continued task's episode shows its last run's result and is verified."
+sitting = "step 13"
+
+[LIVE-404]
+title = "A timer set from a task shows as a timer and can be cancelled from chat"
+area = "storage"
+surface = "FERB.app notch"
+request = "Ask for a task that sets a timer (`time.set_timer`), then cancel it from chat."
+pass = "The notch shows a timer (not a reminder); the chat cancel removes it."
+sitting = "step 13"

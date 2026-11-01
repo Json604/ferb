@@ -1,0 +1,182 @@
+# Decisions of area `storage` (kb/areas.toml). Moved from notes/storage.md on 2026-11-02.
+# notes/storage.md wrote the owner's decisions as an agent's bold summaries, so the owner decisions carry
+# `words_source` instead of `words`.
+
+[STORE-400]
+title = "Raw traces (spans) are kept 30 days after the task's episode exists"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/storage.md owner decision 1: an agent's summary of the owner's ruling (\"today's rule\"); no verbatim quote recorded"
+rule = "A task's raw trace (spans: every model and tool call) is deleted 30 days after the task ends, and only once its episode exists; a missing episode is built from the spans first. The window is the `trace_days` setting (default 30)."
+paths = ["ferb/store/retention.py::RULES"]
+legacy = "notes/storage.md decision 1"
+
+[STORE-401]
+title = "Operational records go 90 days after their task or timer ends; task results stay forever"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/storage.md owner decision 3: an agent's summary of the owner's ruling; no verbatim quote recorded"
+rule = "Operational records (action ledger, confirmations, plans and plan steps, loop state, timer deliveries, operational journal kinds) are deleted 90 days after their task or timer ends (`operational_days`, default 90). Task results stay forever with their tasks, as do episodes, memory, verdicts, schedules, known destinations, chat and day summaries."
+why = "The app's task history joins task results to tasks."
+paths = ["ferb/store/retention.py::RULES", "ferb/store/retention.py::OPERATIONAL_KINDS"]
+legacy = "notes/storage.md decision 3"
+
+[STORE-402]
+title = "A one-time clean-up of dead tables, only after the owner's OK"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/storage.md owner decision 4: an agent's summary of the owner's ruling; no verbatim quote recorded"
+rule = "Once the new code is installed, a setup step with the daemon stopped shows what it will delete, waits for the owner's OK, deletes in batches, journals the counts, then compacts (VACUUM with incremental auto-vacuum). It never touches memory, episodes, chat, tasks, schedules or in-window traces (`cleanup.PROTECTED`, asserted)."
+paths = ["ferb/store/cleanup.py"]
+legacy = "notes/storage.md decision 4"
+
+[STORE-403]
+title = "Upgrading from any older FERB is a first-class path"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/storage.md owner decision 5 (\"owner: crucial for friends on older versions\"): an agent's summary; no verbatim quote recorded"
+rule = "A new version upgrades an install from any earlier build safely and automatically: migrations from every older schema (including installs that ran the deleted 0040), then the clean-up when old tables hold data; config from older layouts; the old LaunchAgent plist retired; native-host manifests rewritten and an old extension asked to update; Codex re-pinned; permissions re-checked; secrets, memories, schedules and episodes carried over. Tested on copies of real older databases and configs before release."
+paths = ["ferb/store/db.py::Database.migrate", "ferb/store/migrations", "ferb/memory/upgrade.py", "tests/test_upgrade.py"]
+legacy = "notes/storage.md decision 5"
+
+[STORE-404]
+title = "Finished reminders go with the operational records"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words_source = "notes/storage.md owner decision 6 (owner, 2026-11-01): an agent's summary; no verbatim quote recorded"
+rule = "A reminder timer that went off or was cancelled is deleted 90 days after it finished, with the other operational records; a reminder still to come stays until the owner removes it. The retention table says so."
+paths = ["ferb/store/retention.py::RULES"]
+legacy = "notes/storage.md decision 6"
+
+[STORE-405]
+title = "The retention rules are one table, retention.RULES"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Every retention rule is a row of `retention.RULES` (what, where, how long, window name, setting and default). The hourly pass reads its windows from it (`retention.windows`), settings.py its defaults, and FERB's self-description and the app's About page its rows (`retention.describe`). A new retention window is a new row, never a constant elsewhere."
+why = "One place keeps what FERB does and what it tells the owner it does from drifting apart."
+paths = ["ferb/store/retention.py::RULES", "ferb/store/retention.py::windows", "ferb/store/retention.py::describe"]
+legacy = "notes/storage.md Rulings (step 12c): the retention table"
+
+[STORE-406]
+title = "Retention scans read off the loop; deletes run on the loop's connection in small batches"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Retention lives in ferb/store/retention.py; the daemon only runs it hourly. Scanning reads run in a worker thread on a read-only connection; deletes run on the loop's own connection, `BATCH` = 200 rows a transaction, dependents first (`DEPENDENTS`), yielding between batches. Trail purges run here too, not in the distiller."
+why = "A worker-thread writer would make the loop's writes wait on SQLite's lock; one big delete fires FTS and change triggers for up to 112k rows in one go."
+paths = ["ferb/store/retention.py::BATCH", "ferb/store/retention.py::DEPENDENTS"]
+legacy = "notes/storage.md Rulings (step 12a): retention placement and batches"
+
+[STORE-407]
+title = "What counts as a record's end for the 90-day window"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A record whose task isn't in the task list counts 90 days from its own last write. A journal row a memory fact cites (`memory_sources`) is never aged out. A journal row whose task still runs, or ended within 90 days, stays."
+paths = ["ferb/store/retention.py"]
+legacy = "notes/storage.md Rulings (step 12a): record ends"
+
+[STORE-408]
+title = "Operational journal kinds are retention.OPERATIONAL_KINDS; audit-like kinds stay"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "\"Operational journal kinds\" (STORE-401) are `retention.OPERATIONAL_KINDS`: the daemon's bookkeeping, failure and progress rows. Chat and owner kinds, day summaries, schedule, timer-set/delivered/cancelled and memory records stay, and so do the audit-like kinds (`security.alignment`, `shell.network`, `escape.used`, `clipboard.access`) until the owner answers T-401."
+paths = ["ferb/store/retention.py::OPERATIONAL_KINDS"]
+legacy = "notes/storage.md Rulings (step 12a): operational journal kinds"
+
+[STORE-409]
+title = "SQLite connection settings: busy timeout, WAL limit, incremental vacuum, non-waiting checkpoint"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Every Database connection sets `busy_timeout` 5000 ms and `journal_size_limit` 64 MiB. New stores start with `auto_vacuum=INCREMENTAL`; an older store gets it only from the clean-up's VACUUM. After each hourly pass up to 8192 free pages go back in 512-page slices, then `wal_checkpoint(TRUNCATE)` with the busy timeout at 0; the forget's `truncate_wal` keeps its wait."
+why = "A TRUNCATE checkpoint waits the busy timeout for readers and held the event loop up to 5 s; a miss only copies what it can and the next pass retries. The forget waits because erasing the WAL is a privacy guarantee."
+paths = ["ferb/store/db.py::Database.checkpoint", "ferb/store/db.py::BUSY_TIMEOUT_MS", "ferb/store/db.py::JOURNAL_SIZE_LIMIT"]
+legacy = "notes/storage.md Rulings (step 12a) and Fixes (2026-11-01): connection settings and checkpoint"
+
+[STORE-410]
+title = "Context spans keep a block's own refs and drop trail: lists"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Chat replies and questions store no `source_refs`. Context spans keep a block's own refs (entry:, journal:, memory: and learned node ids) but no `trail:` lists (`supervisor._stored_refs`). `chat.summary` keeps its entry handles."
+why = "The notes said \"only entry: refs\", but the repeat measure finds learned node ids and a card cites the owner's request entry; reply ref lists were 79 MB of the journal, read only by a removed echo scrub."
+paths = ["ferb/orchestrator/supervisor.py::_stored_refs"]
+legacy = "notes/storage.md Rulings (step 12a): context span refs"
+
+[STORE-411]
+title = "Migrations delete no owner data; unread tables are dropped only by the OK'd clean-up"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A migration never deletes owner data. Tables no code reads are dropped only by the clean-up after the owner's OK (`cleanup.DROPPED`), listed with their rows even when empty; the doctor's pending count includes only those holding rows. Tables of switched-off code keep their schema; only their data is emptied. Rewriting journal rows needs a migration that drops and remakes the append-only trigger in the same transaction."
+why = "Coordinator, 2026-10-31, from STORE-402: deletion waits for the owner's OK; a new install isn't asked about empty tables."
+paths = ["ferb/store/cleanup.py::DROPPED", "ferb/store/migrations"]
+legacy = "notes/storage.md Rulings (step 12a): migration 0056 and dropped tables"
+
+[STORE-412]
+title = "The clean-up's OK is the preview's digest"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "`ferb setup --cleanup` previews the plan read-only with an `ok` digest; `--ok DIGEST` stops the daemon, reads the plan again and refuses unless it matches. The digest covers the steps, the compaction and exact rows of steps only the clean-up changes; `live` steps (rows the hourly pass also changes) are approved by table, and one that empties in between refuses. Nothing deletes old card rows during `--update` without this OK."
+why = "Exact counts of rows the hourly pass trims made every OK fail for about 30 days after the upgrade."
+paths = ["ferb/store/cleanup.py"]
+legacy = "notes/storage.md Rulings (step 12a) and Fixes (2026-11-01): the clean-up digest"
+
+[STORE-413]
+title = "Existing episodes are not rewritten by later fixes"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "An episode, once composed, is the permanent record and is not rewritten when episode composition changes (e.g. the continued-tree and exposure-origin fixes); a missing episode is still built from spans while they exist."
+paths = ["ferb/store/spans.py::SpanStore.outcome"]
+legacy = "notes/storage.md Rulings (step 12a): episodes not rewritten"
+
+[STORE-414]
+title = "Migrations are checksummed and strictly increasing; a newer store is refused unchanged"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "The runner applies NNNN_*.sql files above the newest applied, each in its own `BEGIN IMMEDIATE` transaction, recording a checksum. It refuses an edited applied file, a duplicate number, a new file numbered at or below the newest, and a database migrated by newer code (nothing changed; the owner is told to install the newer FERB)."
+why = "The old runner silently skipped low-numbered files, applied duplicates and missed edited files."
+paths = ["ferb/store/db.py::Database.migrate", "ferb/store/db.py::NewerStore"]
+legacy = "notes/storage.md target design 5 and fix list (step 1)"
+
+[STORE-415]
+title = "Multi-statement writes use Database.transaction (BEGIN IMMEDIATE)"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "A write that must be atomic runs inside `Database.transaction()`: `BEGIN IMMEDIATE` … COMMIT, rolled back whole on an error, joining a transaction already open. `with conn:` on the autocommit connection is never used for that. Start-up upgrades that read before writing begin `BEGIN IMMEDIATE` too."
+why = "`with conn:` on an autocommit connection opens no transaction; a deferred read goes stale when another connection commits, and the first write then fails at once (\"database is locked\") without waiting."
+paths = ["ferb/store/db.py::Database.transaction"]
+legacy = "notes/storage.md Fixes (2026-11-01): first start lock and plan writes"
+
+[STORE-416]
+title = "Compaction runs only with free disk of 2.25 times the used bytes"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "The clean-up compacts only when free disk is at least 2.25 times the used bytes ((page_count − freelist_count) × page_size); otherwise it says the figure and does not compact. The preview shows it as `needed`."
+why = "VACUUM in WAL mode writes the whole new database into the WAL beside its temporary copy."
+evidence = "2026-11-01, a copy of the owner's store: the WAL grew 1.85 GB for a 1.66 GB result."
+paths = ["ferb/store/db.py::compaction_needs"]
+legacy = "notes/storage.md Fixes (2026-11-01): compaction disk check"
+
+[STORE-417]
+title = "secure_delete stays on"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Every connection keeps `secure_delete=ON`, so deleted data is zeroed; its cost (about twice the writes) is offset by batched purges, not by turning it off."
+why = "A forget must really erase."
+paths = ["ferb/store/db.py"]
+legacy = "notes/storage.md fix list: secure_delete"

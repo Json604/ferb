@@ -31,3 +31,11 @@ see = ["SENSE-2", "SENSE-3"]
 ["daily distill"]
 meaning = "The once-a-day model pass over the day's chat and activity that saves durable facts and retires stale ones."
 see = ["MEM-8", "MEM-22"]
+
+["operational records"]
+meaning = "FERB's bookkeeping about doing a task (action ledger, confirmations, plans, loop state, timer deliveries, operational journal kinds), deleted 90 days after the task or timer ends."
+see = ["STORE-401", "STORE-404", "STORE-408"]
+
+["the clean-up"]
+meaning = "The one-time, owner-confirmed setup step (`ferb setup --cleanup`, Settings → Data → Clean up) that empties dead tables with the daemon stopped and compacts the database."
+see = ["STORE-402", "STORE-412"]

@@ -17,10 +17,15 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 0 | 0 | 0 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 0 | 0 | 0 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 0 | 0 | 0 |
-| storage | Storage | `ferb/store` | 0 | 1 | 0 |
+| storage | Storage | `ferb/store` | 18 | 5 | 5 |
 | tests | Tests | `tests` | 0 | 0 | 0 |
 | voice | Voice | `ferb/voice` | 0 | 0 | 0 |
 
+## Waiting on the owner
+
+- T-401 (storage): Should the audit-like journal records (security alignment, shell network use, escape used, clipboard access) be kept forever, or deleted 90 days after their task ends like the other operational records?
+- T-402 (storage): Perception receipts and batches, the loop wake-up queue, notices and learned-node change rows have no retention period, so they are kept forever. Should any of them be deleted after a period, and after how long?
+
 ## Terms
 
-Jev, Tier 1, daily distill, holds up, how-note, playbook, set aside (`tools/kb/run kb search <term>`)
+Jev, Tier 1, daily distill, holds up, how-note, operational records, playbook, set aside, the clean-up (`tools/kb/run kb search <term>`)
