@@ -82,12 +82,14 @@ orb flying when to show the permission thingy."
 6. **Try: look, tell, show the journey** (owner, 2026-11-01: "look and tell it can do it. NOT ACTUALLY DO IN THE DEMO.
    BUT SHOW the journey that it can do and the visuals in the chat too").
    - FERB says what it saw from the scan in one or two specific lines ("here's what I saw").
-   - It suggests one first task that fits this user; if the scan found nothing clear or isn't ready, a solid general
-     task instead.
-   - It shows the journey of that task without doing it: the plan and the answer-in-steps rows and cards in the real
+   - It suggests two first tasks that fit this user, ideally of different kinds (e.g. one on the Mac or in files, one
+     in the browser); if the scan found nothing clear or isn't ready, two solid general tasks of different kinds
+     instead (owner, 2026-11-01: more than one; two suggested, one previewed). The user picks one; a small "Show the
+     other one" plays the second preview for anyone curious.
+   - It shows the journey of the picked task without doing it: the plan and the answer-in-steps rows and cards in the real
      chat UI, exactly as a real task looks, each step clearly marked as a preview; the orb flies to the apps or windows
      it would use. Nothing is clicked, typed, sent, opened or changed.
-   - It ends with a "Do it for real" choice the user may take or skip. Ruling: a task taken here starts as a normal
+   - It ends with a "Do it for real" choice for the previewed task, which the user may take or skip. Ruling: a task taken here starts as a normal
      real task (its usual questions) right after the tour ends in step 8, so the tour itself never runs real work.
 7. **Control.** Taught by doing, with today's controls: double-tap right ⌥ opens or closes FERB; hold to talk
    (push-to-talk, sends when the keys are released if that setting is on); Control-Option-Space also opens it; how to
@@ -165,8 +167,8 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   AskForPermission (MIT) and Scrawl (MIT) for the docked draggable card and live grant detection; study, don't copy
   assets).
 - How the preview task in step 6 is produced (a plan-only run with no acting tools), and how its rows are marked as a
-  preview. Built (Task 4, daemon): `intro.suggest` (one tool-less call on the redacted scan summary; the general task
-  when the scan isn't "seen" or the call fails) and the stream `intro.preview` (`Supervisor.preview`: the real planner
+  preview. Built (Task 4, daemon): `intro.suggest` (one tool-less call on the redacted scan summary for two
+  suggestions; the two general tasks when the scan isn't "seen" or the call fails) and the stream `intro.preview` (`Supervisor.preview`: the real planner
   turn alone, no run token, worker, task row or chat entry; events `plan`, `part` per step, `done`, all `preview: true`),
   both FERB.app only.
 - Which of today's eight permissions are list panes vs prompts, and their deep links on macOS 14–27.

@@ -172,20 +172,21 @@ notch (`com.ferb.FERB`) already has for dictation, so the intro would guide one 
 **Interfaces:**
 - Consumes: `PersonaReview.status()` (ferb/daemon/persona.py:87), `Supervisor._supervise` (~2544).
 - Produces:
-  - RPC `intro.suggest {}` → `{"request": str, "fits": bool}` (`fits` false → the general task `GENERAL_TASK`).
+  - RPC `intro.suggest {}` → `{"suggestions": [{"request": str}, {"request": str}], "fits": bool}`: exactly two, of
+    different kinds where the scan allows (owner, 2026-11-01); `fits` false → the two general tasks `GENERAL_TASKS`.
   - Stream RPC `intro.preview {request}` → events `plan`, `part` (each with `"preview": true`), then `done`.
   - `Supervisor.preview(session_id: str, text: str) -> AsyncIterator[dict]`.
-  - Constant `GENERAL_TASK = "Find three things on my Mac I could tidy up, and show me how you'd do it."` (copy may change; must stay general).
+  - Constant `GENERAL_TASKS = ("Find three things on my Mac I could tidy up, and show me how you'd do it.", <a general web task, e.g. comparing three options for an everyday purchase>)` (copy may change; must stay general; one Mac/files task, one browser task).
 
 - [ ] **Step 1: Write the failing tests** (fake runtime, real daemon and gateway, temp FERB_HOME, `preload_secrets=False`):
   - `test_preview_runs_no_worker_and_issues_no_run_token`: after `intro.preview`, `RunTokens` issued count == 0, no `tool.called` bus events, every emitted event has `preview is True`.
   - `test_preview_shows_the_planned_steps_as_parts`: the fake planner returns 3 steps → 3 `part` events with those titles.
-  - `test_suggest_falls_back_to_the_general_task_without_a_scan`: persona `not_started` or `failed` → `{"request": GENERAL_TASK, "fits": False}`.
-  - `test_suggest_uses_the_scan_when_seen`: persona `seen` → `fits` True and a request derived by the fake model.
+  - `test_suggest_falls_back_to_the_general_task_without_a_scan`: persona `not_started` or `failed` → the two `GENERAL_TASKS`, `fits` False; a model reply with fewer than two usable tasks is topped up from `GENERAL_TASKS`.
+  - `test_suggest_uses_the_scan_when_seen`: persona `seen` → `fits` True and two requests derived by the fake model.
   - `test_intro_methods_refuse_any_other_program`: both are APP_ONLY.
 - [ ] **Step 2: Run** `nice -n 10 uv run pytest -q tests/test_intro_preview.py` → FAIL.
 - [ ] **Step 3: Implement**: `preview` runs the planner turn only (no `execute`/`run_tree`), maps its plan to part
-  events, journals `intro.preview`; `intro.suggest` asks the model for one task from the persona summary (redacted),
+  events, journals `intro.preview`; `intro.suggest` asks the model for two tasks from the persona summary (redacted),
   never acting, falling back to `GENERAL_TASK`.
 - [ ] **Step 4: Run** → PASS; `uv run mypy ferb/core`.
 - [ ] **Step 5: Commit** `git commit -m "Intro: suggested task and plan-only preview that cannot act"`.
@@ -290,8 +291,8 @@ notch (`com.ferb.FERB`) already has for dictation, so the intro would guide one 
   - `testSignInStartsTheScanInTheBackground`: after a successful sign-in, `setup.persona {}` is sent before the permissions beat starts.
   - `testEachListPermissionFliesTheOrbAndWaitsForTheSystem`: accessibility row fake-granted only on the 3rd poll → beat advances after it; the orb docked once.
   - `testADeniedPromptKeepsTheBeatOpen`: microphone denied → beat stays, line offers the Settings pane.
-  - `testTryShowsThePreviewAndActsNever`: tryIt sends `intro.suggest` then `intro.preview`; preview parts land in the transcript marked preview; no `chat.send`.
-  - `testDoItForRealStartsTheTaskAfterHome`: choosing it sends `chat.send {text: suggestion}` only after `home`.
+  - `testTryShowsThePreviewAndActsNever`: tryIt sends `intro.suggest`, shows both suggestions, and sends `intro.preview` for the one picked; preview parts land in the transcript marked preview; no `chat.send`; "Show the other one" previews the second.
+  - `testDoItForRealStartsTheTaskAfterHome`: choosing it sends `chat.send {text: <the previewed suggestion>}` only after `home`.
   - `testControlBeatWaitsForEachShortcut`: fake double-tap right ⌥, hold right ⌘+⌥, ⌃⌥Space, stop on the replayed preview, and Pause FERB from the menu → advances once each was seen (pause is lifted at once).
   - `testSkipMidFlightTearsEverythingDown`: skip during an orb flight → `tearDown` and `stopAll` called; compact path lists only required steps left.
   - `testQuitAndReopenResumesTheBeat`: `IntroProgress.resumeBeat` = `.permissions` → `start` resumes there.
