@@ -10,12 +10,14 @@ from ferb.runtimes.catalog import CATALOG
 from tests.conftest import RunningDaemon
 
 
+# decision: RUN-400, RUN-404
 def test_catalog_lists_all_five_runtimes() -> None:
     assert set(CATALOG) == {"codex", "claude", "anthropic", "openai", "google"}
     from ferb.runtimes.openai_api import OpenAIProvider
     assert OpenAIProvider("gpt-5.5").explicit is False and OpenAIProvider("gpt-6.1-sol").explicit is True
 
 
+# decision: RUN-411
 def test_the_pin_report_compares_pins_with_the_registries_and_only_reads() -> None:
     """`ferb runtimes pins` (developer toolbox): the registry replies come through `get`; nothing is written."""
     from datetime import datetime, timezone
@@ -32,6 +34,7 @@ def test_the_pin_report_compares_pins_with_the_registries_and_only_reads() -> No
     assert f"pinned {SDK_VERSION}, newest 9.9.9" in claude and "behind" in claude and "2 newer releases" in claude
 
 
+# decision: RUN-404
 def test_provider_defaults_come_from_the_table() -> None:
     from ferb.runtimes.anthropic_api import AnthropicProvider
     from ferb.runtimes.google_api import GoogleProvider
@@ -49,6 +52,7 @@ def test_api_runtime_is_built_for_its_role(daemon: RunningDaemon) -> None:
     assert isinstance(rt, ApiRuntime) and rt.provider.model == "gpt-6-sol" and rt.role == "orchestrator"
 
 
+# decision: RUN-403, RUN-404
 def test_worker_types_list_only_available_runtimes(daemon: RunningDaemon, monkeypatch) -> None:
     d = daemon.daemon
     monkeypatch.setattr(d, "_runtime_available", lambda name: name in ("codex", "anthropic"))
@@ -138,6 +142,7 @@ def test_offline_daemons_never_ask_the_real_keychain(daemon: RunningDaemon) -> N
     assert d._worker_types() == ["default", "codex", "claude"]
 
 
+# decision: RUN-1, RUN-404
 def test_codex_without_ferbs_own_login_is_refused_with_the_fix(daemon: RunningDaemon) -> None:
     import pytest
     from ferb.core.errors import Unsupported

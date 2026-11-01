@@ -19,6 +19,7 @@ def _checks(script: Any) -> list[str]:
     return script.calls("checker")
 
 
+# decision: ORCH-302, ORCH-309
 def test_a_report_only_problem_gets_its_answer_fixed_not_a_redo(daemon: RunningDaemon) -> None:
     """31% of rejections failed only the report condition and cost a full worker redo (kb area orchestration). The
     outcome is verified; the checker removes the unproven detail from the answer; the worker runs once."""
@@ -32,6 +33,7 @@ def test_a_report_only_problem_gets_its_answer_fixed_not_a_redo(daemon: RunningD
     assert result["answer"] == "Booked a table for 4 at 7pm at Nopa."
 
 
+# decision: ORCH-309
 def test_a_retry_with_every_outcome_verified_fixes_the_answer_instead(daemon: RunningDaemon) -> None:
     """ORCH-309: when every outcome condition is verified, only the answer can be wrong; a retry the checker chose
     anyway becomes fix-only-the-answer (its edits applied, the unproven detail marked), never a worker redo."""
@@ -43,6 +45,7 @@ def test_a_retry_with_every_outcome_verified_fixes_the_answer_instead(daemon: Ru
     assert result["status"] == "done" and result["answer"] == "Booked a table for 4 at 7pm at Nopa."
 
 
+# decision: ORCH-309
 def test_an_unverifiable_side_detail_is_marked_inline_and_the_task_is_done(daemon: RunningDaemon) -> None:
     script = install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
         "worker": done("The library is at 100 Larkin St. It opens at 10am."),
@@ -53,6 +56,7 @@ def test_an_unverifiable_side_detail_is_marked_inline_and_the_task_is_done(daemo
     assert result["answer"] == "The library is at 100 Larkin St. It opens at 10am (I couldn't confirm the hours)."
 
 
+# decision: ORCH-309
 def test_an_unconfirmed_detail_the_checker_left_unfixed_gets_the_one_line(daemon: RunningDaemon) -> None:
     """The checker accepted while FERB's report condition stayed unknown: the outcome is verified (done), and the
     unproven detail is marked by the one "Couldn't confirm" line, never by a redo."""
@@ -65,6 +69,7 @@ def test_an_unconfirmed_detail_the_checker_left_unfixed_gets_the_one_line(daemon
                                 "Couldn't confirm: The opening hours weren't on the page.")
 
 
+# decision: ORCH-309
 def test_an_unverifiable_outcome_is_done_unconfirmed_with_the_answer_first(daemon: RunningDaemon) -> None:
     """Task 810e9973: the answer was buried under "Why work stopped". Now the answer comes first, then one line."""
     spec = task("Send the invite to Sam", conds=(cond("Sam received the invite"),))
@@ -80,6 +85,7 @@ def test_an_unverifiable_outcome_is_done_unconfirmed_with_the_answer_first(daemo
     assert "Why work stopped" not in result["answer"] and "Send the invite to Sam" not in result["answer"]
 
 
+# decision: ORCH-309
 def test_a_failure_says_plainly_what_happened(daemon: RunningDaemon) -> None:
     install(daemon, [sup("task", "On it.", task("Book a table"))], {
         "worker": done(BOOKED),
@@ -90,6 +96,7 @@ def test_a_failure_says_plainly_what_happened(daemon: RunningDaemon) -> None:
     assert BOOKED not in result["answer"]            # a claim the check refuted is never stated
 
 
+# decision: ORCH-302
 def test_conditions_confirmed_in_an_earlier_attempt_carry_over(daemon: RunningDaemon) -> None:
     spec = task("Rename and move the file", conds=(cond("The file is renamed"), cond("The file is in Archive")))
     script = install(daemon, [sup("task", "On it.", spec)], {
@@ -145,6 +152,7 @@ def test_a_correction_during_the_check_keeps_the_done_report(daemon: RunningDaem
     assert "Booked a table for 4." in second and "Finished before the latest owner correction" in second
 
 
+# decision: ORCH-309
 def test_the_checker_gets_code_facts_about_how_the_work_was_done(daemon: RunningDaemon) -> None:
     script = install(daemon, [sup("task", "On it.", task("Say hi"))], {"worker": done("Hi.")})
     outcome(chat(daemon, "say hi"))
@@ -154,6 +162,7 @@ def test_the_checker_gets_code_facts_about_how_the_work_was_done(daemon: Running
     assert "Worker types available for a retry" in ctx
 
 
+# decision: ORCH-302, ORCH-333
 def test_no_separate_next_attempt_or_resource_review_runs(daemon: RunningDaemon) -> None:
     """ORCH-302 and ORCH-333: one role judges and chooses; the dispatcher and the resource reviewer
     are gone."""
@@ -182,6 +191,7 @@ def _signed_in(daemon: RunningDaemon, *others: str) -> None:
     daemon.daemon.supervisor.worker_types = lambda: ["default", *others]
 
 
+# decision: ORCH-315
 def test_a_usage_limit_is_written_by_code_and_offers_another_runtime(daemon: RunningDaemon) -> None:
     _signed_in(daemon, "claude")
     roles: list[str] = []
@@ -205,6 +215,7 @@ def test_a_usage_limit_is_written_by_code_and_offers_another_runtime(daemon: Run
     assert switched == [{"task_id": result["task_id"], "runtime": "claude", "role": "worker"}]
 
 
+# decision: ORCH-315
 def test_the_app_switches_a_task_with_one_rpc(daemon: RunningDaemon) -> None:
     from ferb.cli.client import Client
     _signed_in(daemon, "claude", "openai")
@@ -229,6 +240,7 @@ def test_the_app_switches_a_task_with_one_rpc(daemon: RunningDaemon) -> None:
     assert turn.result()["status"] == "done"
 
 
+# decision: ORCH-315
 def test_with_no_other_runtime_signed_in_the_failure_says_so(daemon: RunningDaemon) -> None:
     _signed_in(daemon)
     install(daemon, [sup("task", "On it.", task("Tidy the desktop"))], {"worker": LIMIT})
@@ -240,6 +252,7 @@ def test_with_no_other_runtime_signed_in_the_failure_says_so(daemon: RunningDaem
     assert not daemon.daemon.state.approvals.pending()
 
 
+# decision: ORCH-315
 def test_a_planner_turn_on_a_usage_limit_offers_the_switch_for_its_role(daemon: RunningDaemon) -> None:
     _signed_in(daemon, "claude")
     install(daemon, [LIMIT], {})
@@ -251,6 +264,7 @@ def test_a_planner_turn_on_a_usage_limit_offers_the_switch_for_its_role(daemon: 
 
 # ---------- per-role schemas (step 8b) fit every provider ----------
 
+# decision: RUN-400, RUN-408
 def test_every_per_role_report_schema_fits_the_providers_limits() -> None:
     """Each combination `worker_schema` can build, and the checker's, passes the Anthropic limits and Gemini's
     keywords (ferb/runtimes/schema_shape.py); the shared report holds only the role-free fields."""

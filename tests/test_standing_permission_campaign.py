@@ -246,6 +246,7 @@ def test_only_a_generic_input_is_checked_as_its_declared_effect() -> None:
 
 # ---------- messages and emails: the declared recipients are what the floor and the scope check ----------
 
+# decision: ORCH-306
 def test_a_webmail_send_inside_its_recipient_scope_runs_and_another_recipient_asks(daemon: RunningDaemon) -> None:
     grant, browser = campaign_grant(daemon, "email the launch note to my FERB inbox every morning")
     stand(daemon, grant.task_id, SendScope(capability="browser.act", identity="owner", site="mail.google.com",
@@ -264,6 +265,7 @@ def test_a_webmail_send_inside_its_recipient_scope_runs_and_another_recipient_as
         "FERB: this sends to stranger@example.com, whom you didn't name in this request"]
 
 
+# decision: ORCH-306
 def test_a_recipient_the_owner_named_needs_no_question_without_a_scope(daemon: RunningDaemon) -> None:
     grant, browser = campaign_grant(daemon, "email the launch note to ferb.helper@mail.example")
     assert not _post(daemon, grant, "https://mail.google.com/mail/u/0/#inbox?compose=new", effect="send",
@@ -714,6 +716,7 @@ ACCOUNT_SCOPE = SendScope(capability="browser.act", identity="owner", site="x.co
                           content=None)
 
 
+# decision: ORCH-306, ORCH-313
 @pytest.mark.parametrize("typed", [True, False])
 def test_a_scheduled_campaign_post_runs_inside_the_scope_recorded_with_its_schedule(daemon: RunningDaemon,
                                                                                      typed: bool) -> None:

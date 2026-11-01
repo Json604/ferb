@@ -95,6 +95,7 @@ def test_a_preference_the_owner_states_joins_at_once_and_understanding_waits_to_
     assert run(daemon, lambda: d.profile.holds_up(d.memory.get(guess.id)))     # stood a weekly pass uncorrected
 
 
+# decision: PRM-319
 def test_the_owners_words_about_anything_join_at_once_unless_placed_by_search(daemon: Any) -> None:
     """MEM-15: the owner's own words join at once, whatever they are about (a project, a person); a fact the owner
     placed by search (PRM-319's M7/M8, journaled by the seed) never does; FERB's understanding about someone

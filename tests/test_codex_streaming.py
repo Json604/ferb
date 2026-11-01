@@ -69,6 +69,7 @@ async def test_commentary_and_unknown_phase_never_become_deltas(tmp_path, monkey
     assert got[-1].kind == ('final' if phase is None else 'error')
 
 
+# decision: RUN-405
 @pytest.mark.anyio
 async def test_unexpected_actual_tool_catalog_blocks_text_and_final(tmp_path, monkeypatch):
     proc = Process(tools=[{'type': 'function', 'name': 'shell'}])
@@ -216,6 +217,7 @@ async def test_cancel_cleans_up_and_keeps_refreshed_auth_without_overwriting_new
     assert proc.returncode is not None
 
 
+# decision: RUN-405
 @pytest.mark.anyio
 async def test_missing_catalog_never_emits_a_delta_or_final(tmp_path, monkeypatch):
     proc = Process(catalog=False)
@@ -228,6 +230,7 @@ async def test_missing_catalog_never_emits_a_delta_or_final(tmp_path, monkeypatc
     assert not any(ev.kind in {'text_delta', 'final'} for ev in got)
 
 
+# decision: RUN-405
 @pytest.mark.anyio
 async def test_late_catalog_violation_is_drained_before_final(tmp_path, monkeypatch):
     proc = Process()
@@ -242,6 +245,7 @@ async def test_late_catalog_violation_is_drained_before_final(tmp_path, monkeypa
     assert not any(ev.kind == 'final' for ev in got)
 
 
+# decision: RUN-405
 @pytest.mark.anyio
 async def test_codex_runtime_routes_schema_supervisors_to_app_server(tmp_path, monkeypatch):
     import ferb.runtimes.codex_exec as codex
@@ -378,6 +382,7 @@ async def test_concurrent_steers_match_rpc_ids_not_notification_order(tmp_path, 
     {'id': 'm', 'type': 'mcpToolCall', 'server': 'ferb', 'tool': 'not_registered'},
     {'id': 'm', 'type': 'commandExecution', 'command': 'touch /tmp/not-permitted'},
 ])
+# decision: RUN-405
 async def test_worker_only_accepts_registered_ferb_mcp_calls(tmp_path, monkeypatch, item):
     proc = SteeringProcess()
     rt, run, _ = await begin_worker(tmp_path, monkeypatch, proc)
@@ -440,6 +445,7 @@ class AccountProcess(Process):
     ('refresh_token_invalidated', 'auth_required'), ('invalid_grant', 'auth_required'),
     ('upstream temporarily unavailable', 'account_unavailable'),
 ])
+# decision: RUN-1
 async def test_account_failure_is_actionable_without_provider_secrets_or_starting_turn(tmp_path, monkeypatch, marker, reason):
     import ferb.runtimes.codex_stream as stream
     proc = AccountProcess(error={'code': -32000, 'message': marker + ' secret-provider-payload',

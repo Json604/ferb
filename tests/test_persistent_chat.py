@@ -120,6 +120,7 @@ def test_new_conversation_cannot_control_another_conversations_task(daemon, unat
     daemon.run(check())
 
 
+# decision: ORCH-502
 def test_pending_question_survives_daemon_restart(home):
     d = RunningDaemon(home, watch_owner_input=False)
     try:

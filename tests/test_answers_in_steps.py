@@ -91,6 +91,7 @@ def _permit_and_trump() -> dict[str, Any]:
                   Step(id="term", kind="do", goal="Find when Trump's term ends")])
 
 
+# decision: ORCH-319
 def test_one_ask_is_unchanged_plan_line_one_answer_no_card(daemon: RunningDaemon) -> None:
     """Scenario 1: a single ask gets the plan line, then one answer: no card, no rows, no count, no extra summary."""
     script = install(daemon, [sup("task", "I'll put together a short list.", task("List easy piano pieces"))],
@@ -104,6 +105,7 @@ def test_one_ask_is_unchanged_plan_line_one_answer_no_card(daemon: RunningDaemon
     assert script.calls("worker") == ["worker"]
 
 
+# decision: ORCH-319
 def test_a_one_ask_plan_answers_with_its_last_step_and_no_summarizing_call(daemon: RunningDaemon) -> None:
     """ORCH-319: no code-added final worker; a one-ask plan's last step is checked against the task's success
     conditions and its checked answer is the answer."""
@@ -120,6 +122,7 @@ def test_a_one_ask_plan_answers_with_its_last_step_and_no_summarizing_call(daemo
     assert "card" not in final
 
 
+# decision: ORCH-319
 def test_two_parts_fill_in_any_order_each_once_and_code_adds_the_count(daemon: RunningDaemon) -> None:
     """Scenario 2: one reply opens a card with a row per ask in the owner's order; the Trump row fills first, the permit
     row later, each once; no model summary afterwards, only "2 of 2 done" and the sites."""
@@ -143,6 +146,7 @@ def test_two_parts_fill_in_any_order_each_once_and_code_adds_the_count(daemon: R
     assert [(r["part"], r["state"]) for r in _records(daemon, tree)] == [("p2", "done"), ("p1", "done")]
 
 
+# decision: ORCH-319
 def test_a_direct_part_is_answered_in_the_first_reply_and_counts_as_done(daemon: RunningDaemon) -> None:
     """Scenario 3: "who are you" is answered in the first reply, above the plan line; only the research gets a row;
     the count includes the direct part."""
@@ -163,6 +167,7 @@ def test_a_direct_part_is_answered_in_the_first_reply_and_counts_as_done(daemon:
     assert (final["card"]["done"], final["card"]["total"]) == (2, 2) and final["status"] == "done"
 
 
+# decision: ORCH-319
 def test_a_part_asks_in_its_row_while_another_part_fills(daemon: RunningDaemon) -> None:
     """Scenario 4: the booking row asks which time (its question tied to the part); the other row fills meanwhile;
     the answer goes back to that row only, which then fills."""
@@ -192,6 +197,7 @@ def test_a_part_asks_in_its_row_while_another_part_fills(daemon: RunningDaemon) 
     assert outcome(events)["card"]["line"] == "2 of 2 done"
 
 
+# decision: ORCH-319
 def test_a_failed_part_says_so_in_its_row_and_the_count_is_honest(daemon: RunningDaemon) -> None:
     """Scenario 5: one link can't be read: its row says "Couldn't do: reason"; the others fill; 2 of 3 done."""
     spec = _spec("Summarize three links", ["Link 1 summarized", "Link 2 summarized", "Link 3 summarized"],
@@ -213,6 +219,7 @@ def test_a_failed_part_says_so_in_its_row_and_the_count_is_honest(daemon: Runnin
     assert "2 of 3 done" in final["answer"]
 
 
+# decision: ORCH-319
 def test_a_later_step_updates_a_posted_row_once_with_why(daemon: RunningDaemon) -> None:
     """Scenario 6: a later step finds a posted answer out of date: the row gets the new text, "updated" and one line
     why (one record); no new message, no second copy of the old answer."""
@@ -244,6 +251,7 @@ def test_a_later_step_updates_a_posted_row_once_with_why(daemon: RunningDaemon) 
     assert final["card"]["line"] == "2 of 2 done"
 
 
+# decision: ORCH-307, ORCH-319
 def test_a_part_that_keeps_failing_pauses_only_its_row_and_checks_in(daemon: RunningDaemon) -> None:
     """Scenario 9: after 5 failed attempts of one part's step, only that row is paused with "keep going?" in it; the
     other row is already done. No stops it: the row says it couldn't be done; 1 of 2 done."""
@@ -273,6 +281,7 @@ def test_a_part_that_keeps_failing_pauses_only_its_row_and_checks_in(daemon: Run
     assert outcome(events)["card"]["line"] == "1 of 2 done"
 
 
+# decision: ORCH-319
 def test_a_restart_mid_task_posts_nothing_twice(home: Any, monkeypatch: Any) -> None:
     """Scenario 8: FERB restarts after one row filled: the resumed task's card comes from the record, the filled row is
     never posted again, the working row runs again and fills once."""
@@ -319,6 +328,7 @@ def test_a_restart_mid_task_posts_nothing_twice(home: Any, monkeypatch: Any) -> 
         second.stop()
 
 
+# decision: ORCH-319
 def test_parts_are_checked_and_told_back_for_repair(daemon: RunningDaemon) -> None:
     """Code validates the planner's parts (ORCH-319): a summing-up step, a condition in no part, a quote that isn't
     the owner's words are told back; the repaired plan runs."""
@@ -368,6 +378,7 @@ def test_a_plan_saved_before_parts_resumes_and_answers_from_its_last_steps(daemo
     assert not script.calls("worker")
 
 
+# decision: ORCH-319, ORCH-324
 def test_continuing_a_multi_part_task_never_shows_a_finished_part_again(daemon: RunningDaemon) -> None:
     """Rows are keyed by (task, part) across turns: the owner's follow-up on the failed link runs only that part; its
     card carries only that row, which updates to its answer; the finished parts stay as posted in the first card,

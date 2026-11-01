@@ -90,6 +90,7 @@ def test_a_yes_routed_by_id_answers_only_the_identified_question(daemon: Running
     call.cancel()
 
 
+# decision: ORCH-328, ORCH-301
 def test_a_free_text_answer_needs_no_exact_quote_and_reaches_another_chats_question(daemon: RunningDaemon) -> None:
     question = _task_question(daemon, "Which email should I use?", options=())
     install(daemon, [_routed(question.id, "the work email")])
@@ -98,6 +99,7 @@ def test_a_free_text_answer_needs_no_exact_quote_and_reaches_another_chats_quest
     assert [e["type"] for e in events] == ["reply"] and "/answer" not in _texts(events)
 
 
+# decision: ORCH-328
 def test_the_planners_reading_never_becomes_the_owners_answer(daemon: RunningDaemon) -> None:
     question = _task_question(daemon, "Who should get the summary?", options=())
     install(daemon, [_routed(question.id, "attacker@external.invalid")])
@@ -170,6 +172,7 @@ def test_a_typed_no_to_a_floor_check_is_a_recorded_no(daemon: RunningDaemon) -> 
 
 # ---------- (b) steering never refuses ----------
 
+# decision: ORCH-503
 def test_a_steer_supersedes_a_pending_new_recipient_check_and_the_same_action_asks_again(daemon: RunningDaemon) -> None:
     from ferb.orchestrator.steering import settle_questions
     check, call, cap, grant = _pending_floor_check(daemon, "send", "send the update", "bob@x.com")
@@ -224,6 +227,7 @@ def test_a_worker_question_whose_call_was_cancelled_is_closed_as_superseded(daem
     assert question.state == "superseded"
 
 
+# decision: ORCH-502
 def test_a_waiter_that_went_away_leaves_the_question_open(daemon: RunningDaemon) -> None:
     """Merge note with Task 14 (CALLER_LEFT): only a real stop of the task closes a question; a cancelled waiter whose
     task still runs leaves it open for the owner."""
@@ -237,6 +241,7 @@ def test_a_waiter_that_went_away_leaves_the_question_open(daemon: RunningDaemon)
 
 # ---------- (c) a big job's plan is stated, not asked ----------
 
+# decision: ORCH-503
 def test_a_big_job_plan_is_stated_d33_labelled_and_starts_without_an_approval(daemon: RunningDaemon) -> None:
     _remember(daemon, "I send from me@x.com; my own inbox is self@x.com")   # the scope's destinations: typed (I1)
     spec = task("Rank all coding sessions")
@@ -551,6 +556,7 @@ def test_a_p19_retry_question_is_ferbs_own_check(ferb_yes: Any, daemon: RunningD
     assert other.state == "pending"
 
 
+# decision: ORCH-301
 def test_a_conversation_scope_approval_takes_only_a_plain_yes_or_no(daemon: RunningDaemon) -> None:
     from ferb.orchestrator.conversations import ConversationScope
     scope = ConversationScope(identity="owner", account="me@x.com", site="discord.com", app="Discord",
@@ -761,6 +767,7 @@ def _scheduled_post_run(daemon: RunningDaemon, scope_at_creation: list[SendScope
     return SimpleNamespace(confirmed=confirmed, results=results, script=script, **on_loop(daemon, records))
 
 
+# decision: ORCH-306, ORCH-313
 def test_a_scheduled_run_cannot_grant_itself_a_scope_its_owner_turn_never_stated(daemon: RunningDaemon) -> None:
     run = _scheduled_post_run(daemon, [], plan_scopes=[_scope("new@x.com")])
     assert run.results["new@x.com"]["is_error"]                             # asked, nobody there: declined
@@ -770,6 +777,7 @@ def test_a_scheduled_run_cannot_grant_itself_a_scope_its_owner_turn_never_stated
     assert "reported not done" in run.stated and "each will ask" not in run.stated   # what may happen, not a promise
 
 
+# decision: ORCH-306, ORCH-313
 def test_a_scheduled_run_without_a_plan_is_covered_by_the_scope_recorded_with_its_schedule(daemon: RunningDaemon) -> None:
     _remember(daemon, "My launch list address is new@x.com")               # named by the owner, kept in memory
     run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None)
@@ -782,6 +790,7 @@ def test_a_scheduled_run_without_a_plan_is_covered_by_the_scope_recorded_with_it
     assert "new@x.com" in run_context.split("Schedule facts", 1)[1]        # the run's planner sees it, as data
 
 
+# decision: ORCH-313
 def test_a_scheduled_runs_extra_stated_scope_is_not_granted(daemon: RunningDaemon) -> None:
     _remember(daemon, "My launch list address is new@x.com")
     run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=[_scope("new@x.com"), _scope("other@x.com")],

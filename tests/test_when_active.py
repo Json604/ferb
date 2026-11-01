@@ -26,6 +26,7 @@ def _runs(d: RunningDaemon) -> int:
     return len(run(d, lambda: d.daemon.journal.of_kind("schedule.run")))
 
 
+# decision: ORCH-317
 def test_a_when_active_schedule_fires_when_the_owner_is_back_and_not_while_they_are_away(daemon: RunningDaemon) -> None:
     words = "remind me every day whenever I'm on my mac that I want to apply to YC"
     install(daemon, [_schedule(words), sup("reply", "Reminder: you want to apply to YC."),
@@ -56,6 +57,7 @@ def test_a_when_active_schedule_fires_when_the_owner_is_back_and_not_while_they_
         daemon.daemon.presence.stop()
 
 
+# decision: ORCH-317
 def test_input_idleness_is_not_away_and_waking_the_mac_is_a_return(daemon: RunningDaemon) -> None:
     """The owner watching a film touches nothing for an hour: still at the Mac, so the run goes at its time. Asleep
     displays hold the next one until the screens wake."""
@@ -84,6 +86,7 @@ def test_input_idleness_is_not_away_and_waking_the_mac_is_a_return(daemon: Runni
         daemon.daemon.presence.stop()
 
 
+# decision: ORCH-317
 def test_the_daemon_starting_in_a_new_login_session_is_a_return(daemon: RunningDaemon) -> None:
     """A restart or a login brings the daemon up in a new login session: what waited for the owner's return fires;
     the same session again (an update, a crash) is no return."""
@@ -110,6 +113,7 @@ def test_the_daemon_starting_in_a_new_login_session_is_a_return(daemon: RunningD
         daemon.daemon.presence.stop()
 
 
+# decision: ORCH-317
 def test_a_reminder_for_when_the_owner_is_back_waits_for_their_next_return(daemon: RunningDaemon) -> None:
     words = "when I'm back at my mac remind me to call Mom"
     install(daemon, [json.dumps({"kind": "reply", "text": "Okay.", "task": None, "schedule": None,
@@ -132,6 +136,7 @@ def test_a_reminder_for_when_the_owner_is_back_waits_for_their_next_return(daemo
         daemon.daemon.presence.stop()
 
 
+# decision: ORCH-317
 def test_without_the_presence_signal_a_when_active_schedule_runs_at_its_time(daemon: RunningDaemon) -> None:
     """FERB can't tell whether the Mac is in use (sensing paused): unknown counts as present."""
     words = "every day whenever I'm on my mac remind me to apply to YC"
@@ -142,6 +147,7 @@ def test_without_the_presence_signal_a_when_active_schedule_runs_at_its_time(dae
     assert _runs(daemon) == 1
 
 
+# decision: ORCH-317, ORCH-331
 def test_a_scheduled_run_that_found_nothing_to_tell_posts_nothing(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     make_schedule(daemon, "tell me if the YC page changed", "every day tell me if the YC page changed", Targets.of(),
@@ -160,6 +166,7 @@ def test_a_scheduled_run_that_found_nothing_to_tell_posts_nothing(daemon: Runnin
     assert [r["answer"] for r in results(daemon)] == ["The deadline moved to Nov 5."] and len(published) == 1
 
 
+# decision: ORCH-331
 def test_a_scheduled_run_that_acted_posts_whatever_its_worker_said(daemon: RunningDaemon) -> None:
     """ORCH-317 ("a run that did nothing posts nothing") rests on facts, not only the worker's word: a run whose tree
     has an acting call that ran (here a form submitted) posts even when its worker reported nothing_to_tell."""

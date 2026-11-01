@@ -39,6 +39,7 @@ def spawn_returns(monkeypatch: pytest.MonkeyPatch, proc: Any, seen: dict[str, An
 
 # ---------- Codex ----------
 
+# decision: RUN-407
 def test_codex_mcp_config_names_long_startup_and_call_timeouts(tmp_path: Path) -> None:
     rt = cx.CodexRuntime(Path("/x/codex"), "worker", tmp_path, shim_cmd=["ferb", "mcp"])
     settings = rt._mcp_settings(tmp_path / "tok")
@@ -47,6 +48,7 @@ def test_codex_mcp_config_names_long_startup_and_call_timeouts(tmp_path: Path) -
     assert cx.MCP_STARTUP_TIMEOUT_S >= 60 and cx.MCP_TOOL_TIMEOUT_S >= 24 * 3600   # never Codex's 10 s / 60 s
 
 
+# decision: RUN-402, RUN-414
 def test_auto_compaction_is_out_of_reach_for_supervisor_runs_only(tmp_path: Path) -> None:
     from ferb.runtimes.codex_stream import _command
     sup = " ".join(_command(cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path), None))
@@ -55,6 +57,7 @@ def test_auto_compaction_is_out_of_reach_for_supervisor_runs_only(tmp_path: Path
     assert "model_auto_compact_token_limit=" in sup and "model_auto_compact_token_limit" not in work
 
 
+# decision: RUN-410
 @pytest.mark.anyio
 async def test_a_worker_gets_ferbs_instructions_in_place_of_codexs_base_prompt(tmp_path, monkeypatch) -> None:
     import ferb.runtimes.codex_stream as stream
@@ -69,6 +72,7 @@ async def test_a_worker_gets_ferbs_instructions_in_place_of_codexs_base_prompt(t
     await stream.cancel(run)
 
 
+# decision: RUN-405
 @pytest.mark.anyio
 async def test_the_item_gate_records_the_kind_tool_and_server(tmp_path, monkeypatch) -> None:
     import ferb.runtimes.codex_stream as stream
@@ -95,6 +99,7 @@ class RequestingProcess(Process):
             self.stdout.put({"id": 99, "method": "item/tool/requestUserInput", "params": {"threadId": "th"}})
 
 
+# decision: RUN-405
 @pytest.mark.anyio
 async def test_a_server_to_client_request_is_a_violation_naming_the_request(tmp_path, monkeypatch) -> None:
     import ferb.runtimes.codex_stream as stream
@@ -156,6 +161,7 @@ async def test_stderr_is_read_to_the_end_after_an_unreadable_line(tmp_path, monk
     assert not any(ev.kind == "final" for ev in got)
 
 
+# decision: RUN-406
 @pytest.mark.anyio
 async def test_one_deadline_covers_start_and_answer(tmp_path, monkeypatch) -> None:
     """One limit for the whole call (was 900 s to start plus another 900 s for the answer)."""
@@ -174,6 +180,7 @@ async def test_one_deadline_covers_start_and_answer(tmp_path, monkeypatch) -> No
     assert loop.time() - began < 1.0
 
 
+# decision: RUN-406, ORCH-311
 @pytest.mark.anyio
 async def test_a_worker_run_has_no_deadline(tmp_path, monkeypatch) -> None:
     import ferb.runtimes.codex_stream as stream
@@ -187,11 +194,13 @@ async def test_a_worker_run_has_no_deadline(tmp_path, monkeypatch) -> None:
     await stream.cancel(run)
 
 
+# decision: RUN-406, ORCH-311
 def test_call_limits_planner_other_calls_and_workers() -> None:
     assert PLANNER_LIMIT_S == 90 and call_limit("supervisor", True) == 90
     assert call_limit("supervisor", False) == CALL_LIMIT_S and call_limit("worker", False) is None
 
 
+# decision: RUN-407
 @pytest.mark.anyio
 async def test_the_pinned_version_is_checked_once_not_per_call(tmp_path, monkeypatch) -> None:
     import ferb.runtimes.codex_stream as stream
@@ -228,6 +237,7 @@ async def test_a_version_mismatch_is_never_remembered(tmp_path, monkeypatch) -> 
     assert len(calls) == 2
 
 
+# decision: RUN-405, RUN-407
 def test_the_locked_catalog_is_written_once_and_again_only_when_codex_s_changes(tmp_path, monkeypatch) -> None:
     codex_home(tmp_path)
     source = tmp_path / "codex-home" / "models_cache.json"
@@ -262,6 +272,7 @@ def test_a_model_that_needs_a_newer_codex_is_refused_in_plain_words(tmp_path) ->
     assert cx.limits_for(tmp_path, "gpt-5.6-sol").context_window == 258_400
 
 
+# decision: RUN-406, ORCH-311, RUN-401
 def test_daemon_builds_codex_with_the_planners_90_s_and_others_their_limit(daemon, monkeypatch) -> None:
     from ferb.orchestrator.schemas import QUESTION_SCHEMA, SUPERVISOR_SCHEMA, WORKER_SCHEMA
     d = daemon.daemon
@@ -294,6 +305,7 @@ class FakeSDKClient:
         pass
 
 
+# decision: RUN-409
 @pytest.mark.anyio
 async def test_the_claude_run_token_goes_through_an_owner_only_file(monkeypatch) -> None:
     import claude_agent_sdk
@@ -313,6 +325,7 @@ async def test_the_claude_run_token_goes_through_an_owner_only_file(monkeypatch)
     assert not token_file.parent.exists()
 
 
+# decision: RUN-409
 def test_the_shim_reads_the_token_file(tmp_path, monkeypatch) -> None:
     from ferb.cli.mcp import Shim
     token = tmp_path / "run-token"
@@ -355,6 +368,7 @@ async def test_claude_cost_is_not_counted_twice_across_steered_turns() -> None:
     assert costs == pytest.approx([0.30, 0.20]) and sum(costs) == pytest.approx(0.50)
 
 
+# decision: RUN-404, RUN-409
 def test_claude_is_built_only_with_ferbs_sign_in_and_a_model(daemon) -> None:
     from ferb.core.errors import Unsupported
     from ferb.runtimes.claude_login import mark
@@ -371,6 +385,7 @@ def test_claude_is_built_only_with_ferbs_sign_in_and_a_model(daemon) -> None:
     assert rt.model == "sonnet" and rt.limit_s == CALL_LIMIT_S
 
 
+# decision: RUN-409
 def test_claude_sign_out_removes_the_marker(tmp_path, monkeypatch) -> None:
     from ferb.cli import setup as S
     from ferb.runtimes import claude_login as CL
@@ -388,6 +403,7 @@ def test_claude_sign_out_removes_the_marker(tmp_path, monkeypatch) -> None:
     assert "Signed out" in said[-1]
 
 
+# decision: RUN-409
 def test_a_failed_claude_sign_out_keeps_the_marker(tmp_path, monkeypatch) -> None:
     from ferb.cli import setup as S
     from ferb.runtimes import claude_login as CL
@@ -401,6 +417,7 @@ def test_a_failed_claude_sign_out_keeps_the_marker(tmp_path, monkeypatch) -> Non
 
 # ---------- direct APIs ----------
 
+# decision: RUN-406
 @pytest.mark.anyio
 async def test_a_direct_api_call_ends_at_its_time_limit() -> None:
     from ferb.runtimes.api import ApiRuntime
@@ -446,6 +463,7 @@ def test_the_runtimes_use_rpc_can_set_a_model(daemon, monkeypatch) -> None:
     assert daemon.daemon._model_for("google") == "gemini-3.1-pro-preview"
 
 
+# decision: RUN-403
 def test_an_unknown_worker_type_is_told_to_the_planner_without_blaming_config(daemon) -> None:
     from tests.conftest import chat, install, sup, task
     bad = {**task("make a file"), "worker_type": "gpt-9-runner"}
@@ -460,6 +478,7 @@ def test_an_unknown_worker_type_is_told_to_the_planner_without_blaming_config(da
     assert "config.toml" not in problems
 
 
+# decision: RUN-403
 def test_a_worker_type_outside_the_table_is_named_as_a_worker_type(daemon) -> None:
     from ferb.core.errors import FerbError
     with pytest.raises(FerbError, match="there is no worker type 'gpt-9'") as raised:
@@ -467,6 +486,7 @@ def test_a_worker_type_outside_the_table_is_named_as_a_worker_type(daemon) -> No
     assert "config.toml" not in str(raised.value)
 
 
+# decision: RUN-403
 def test_worker_types_reach_the_planner_in_layer_1_not_the_activity_block(daemon) -> None:
     d = daemon.daemon
     env = daemon.run(d._environment("hello"))

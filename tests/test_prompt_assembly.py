@@ -17,6 +17,7 @@ def _systems(script: Any, key: str) -> list[str]:
     return [req.system for _, k, req in script.requests if k == key]
 
 
+# decision: PRM-315
 def test_a_plain_task_gets_no_role_block_and_a_plan_step_gets_its_own(daemon: Any) -> None:
     script = install(daemon, [sup("task", "On it.", task("Say hello"))], {"worker": done("Said hello.")})
     assert outcome(chat(daemon, "say hello"))["status"] == "done"
@@ -34,6 +35,7 @@ def test_a_plain_task_gets_no_role_block_and_a_plan_step_gets_its_own(daemon: An
         assert STEP_BLOCK in system and LOOP_BLOCK not in system
 
 
+# decision: PRM-314
 def test_no_role_gets_the_tool_catalog_in_its_context_and_the_planner_no_catalogs(daemon: Any) -> None:
     d = daemon.daemon
     script = install(daemon, [sup("task", "On it.", task("Say hello"))], {"worker": done("Said hello.")})
@@ -47,6 +49,7 @@ def test_no_role_gets_the_tool_catalog_in_its_context_and_the_planner_no_catalog
     assert abilities not in planner and abilities in _systems(script, "worker")[0]
 
 
+# decision: PRM-314
 def test_the_effect_contract_is_in_the_worker_instructions_once_not_on_each_tool(daemon: Any) -> None:
     d = daemon.daemon
     script = install(daemon, [sup("task", "On it.", task("Say hello", identity="owner"))],

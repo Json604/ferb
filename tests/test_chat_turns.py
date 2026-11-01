@@ -77,6 +77,7 @@ async def _trees(d: RunningDaemon) -> list[tuple[str, str]]:
     return d.daemon.supervisor.running_trees()
 
 
+# decision: ORCH-318
 def test_four_quick_messages_are_two_turns(daemon: RunningDaemon) -> None:
     """ORCH-318: the second message comes before FERB's first reply, so the turn restarts once and reads both; the
     third and fourth come while the restarted turn is still thinking, so they wait and are read together next."""
@@ -112,6 +113,7 @@ def test_four_quick_messages_are_two_turns(daemon: RunningDaemon) -> None:
     assert len(_journal(daemon, "chat.restarted")) == 1
 
 
+# decision: ORCH-311, ORCH-318
 def test_a_planner_that_runs_out_of_time_replies_plainly_and_the_restart_shares_the_limit(daemon) -> None:
     """ORCH-311 and ORCH-318: one time limit covers the turn, its restart included; when it runs out the owner reads a
     plain reply (no stack, no internal words) instead of waiting."""
@@ -173,6 +175,7 @@ def test_a_stop_after_the_work_finished_never_records_it_as_cancelled(daemon: Ru
     assert outcome(first.done())["status"] == "done"
 
 
+# decision: ORCH-327
 def test_the_plan_line_states_the_folders_and_the_shell_works_only_there(daemon: RunningDaemon) -> None:
     """HAND-204: the planner resolves the owner's folder words into `folders`; the plan line says them, so a
     wrong guess can be corrected, and they are the task's shell scope. One that names no specific folder is repaired."""
@@ -211,6 +214,7 @@ def test_keep_the_tabs_open_reaches_the_browser(daemon: RunningDaemon) -> None:
     assert kept == [result["task_id"]]
 
 
+# decision: ORCH-325
 def test_the_planner_context_is_ordered_most_stable_first(daemon: RunningDaemon) -> None:
     """ORCH-325: instructions hold no live values; the stable facts, the summary and the recent
     conversation come first; live facts (a reminder) come after the conversation, then memory, activity, the time, the
@@ -230,6 +234,7 @@ def test_the_planner_context_is_ordered_most_stable_first(daemon: RunningDaemon)
     assert request.cacheable >= 3                              # Layer 1, the conversation header, its entries
 
 
+# decision: ORCH-303, ORCH-304, ORCH-326
 def test_a_long_chat_keeps_the_planner_and_every_summary_call_within_their_bounds(daemon: RunningDaemon) -> None:
     """ORCH-303: the planner reads the summary and the tail after it: the last RECENT_EXCHANGES exchanges word for
     word however long they are (owner, 2026-10-30: always at least the last 20; no token cap folds one of them), and at
@@ -266,6 +271,7 @@ def test_a_long_chat_keeps_the_planner_and_every_summary_call_within_their_bound
         assert f"last {SUMMARY_DAYS} days" in fold.context
 
 
+# decision: ORCH-303
 def test_no_entry_is_ever_in_neither_the_window_nor_the_summary(daemon: RunningDaemon, monkeypatch) -> None:
     """Target design 5: the recent conversation is append-only after the summary's coverage, so every earlier entry is
     either folded into the summary or shown; the planner always sees at least the last RECENT_EXCHANGES exchanges."""
@@ -298,6 +304,7 @@ def test_no_entry_is_ever_in_neither_the_window_nor_the_summary(daemon: RunningD
     assert covered                                              # folds did run
 
 
+# decision: ORCH-325
 def test_two_turns_without_a_fold_share_the_cached_prefix(daemon: RunningDaemon) -> None:
     """Target design 5: the recent conversation only grows at its end between folds, so the next turn's cacheable
     prefix starts with the whole of this turn's."""
@@ -309,6 +316,7 @@ def test_two_turns_without_a_fold_share_the_cached_prefix(daemon: RunningDaemon)
     assert later.cacheable > earlier.cacheable
 
 
+# decision: ORCH-318
 def test_a_side_entry_reply_never_lets_the_next_message_in_before_the_task_registers(daemon, monkeypatch) -> None:
     """Fix list (Intake): a turn's side entries can send a reply-type event (here a conversation change refused) before
     its task registers; the next message still waits until the plan line is out, then has a turn of its own."""
@@ -340,6 +348,7 @@ def test_a_side_entry_reply_never_lets_the_next_message_in_before_the_task_regis
     assert len(_planner_calls(script)) == 2
 
 
+# decision: ORCH-328, ORCH-301
 def test_questions_are_recorded_with_their_kind_and_answer(daemon: RunningDaemon) -> None:
     """Fix list: every question FERB asks, with its kind and how it was answered, so "few questions" can be measured."""
     install(daemon, [sup("task", "Booking.", task("Book the table"))],

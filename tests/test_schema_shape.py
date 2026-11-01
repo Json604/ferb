@@ -72,6 +72,7 @@ def as_wire(core_node: dict[str, Any], wire_node: dict[str, Any], value: Any) ->
 
 # ---------- Anthropic ----------
 
+# decision: RUN-408, RUN-400
 @pytest.mark.parametrize("name", sorted(CORE))
 def test_every_core_schema_fits_anthropics_limits_and_round_trips(name: str) -> None:
     schema = CORE[name]
@@ -89,6 +90,7 @@ def test_every_core_schema_fits_anthropics_limits_and_round_trips(name: str) -> 
         check_final(json.dumps(back), schema)                        # FERB's one check sees the core shape
 
 
+# decision: RUN-408
 def test_the_planners_schema_was_over_the_union_limit_and_now_fits() -> None:
     unions, _ = complexity(core.SUPERVISOR_SCHEMA)
     assert unions > ANTHROPIC_MAX_UNIONS                              # 42: the API refused it ("too many ... union")
@@ -97,6 +99,7 @@ def test_the_planners_schema_was_over_the_union_limit_and_now_fits() -> None:
     assert wire["properties"]["task"]["type"] == "array"             # a nullable object: a list of at most one
 
 
+# decision: RUN-408
 def test_a_schema_still_over_a_limit_is_refused_before_sending() -> None:
     props = {f"f{i}": {"type": "object", "additionalProperties": False, "required": ["v"],
                        "properties": {"v": {"anyOf": [{"type": "string"}, {"type": "integer"}]}}} for i in range(20)}
@@ -105,6 +108,7 @@ def test_a_schema_still_over_a_limit_is_refused_before_sending() -> None:
         for_anthropic(schema)
 
 
+# decision: RUN-408
 def test_a_missing_required_key_still_fails_ferbs_check() -> None:
     shape = for_anthropic(core.CHECKER_SCHEMA)
     back = shape.answer_text(json.dumps({"next": "retry"}))
@@ -112,6 +116,7 @@ def test_a_missing_required_key_still_fails_ferbs_check() -> None:
         check_final(back, core.CHECKER_SCHEMA)
 
 
+# decision: RUN-408
 def test_a_list_of_two_for_one_optional_object_is_left_for_ferbs_check() -> None:
     shape = for_anthropic(core.SUPERVISOR_SCHEMA)
     answer = sample(core.SUPERVISOR_SCHEMA, False) | {"kind": "reply", "text": "hi"}
@@ -121,6 +126,7 @@ def test_a_list_of_two_for_one_optional_object_is_left_for_ferbs_check() -> None
         check_final(shape.answer_text(json.dumps(wire)), core.SUPERVISOR_SCHEMA)
 
 
+# decision: RUN-408
 @pytest.mark.anyio
 async def test_the_anthropic_api_gets_the_reshaped_schema_and_ferb_gets_its_own_answer_back() -> None:
     from ferb.runtimes.anthropic_api import AnthropicProvider
@@ -142,6 +148,7 @@ async def test_the_anthropic_api_gets_the_reshaped_schema_and_ferb_gets_its_own_
     assert json.loads(final) == answer and check_final(final, core.SUPERVISOR_SCHEMA)
 
 
+# decision: RUN-408
 @pytest.mark.anyio
 async def test_claude_codes_typed_answer_is_mapped_back_to_ferbs_form() -> None:
     from types import SimpleNamespace
@@ -169,6 +176,7 @@ async def test_claude_codes_typed_answer_is_mapped_back_to_ferbs_form() -> None:
     assert json.loads(final) == answer
 
 
+# decision: RUN-408
 def test_the_planners_streamed_reply_reads_reshaped_fields() -> None:
     """The reply streams as it is written; with the schema reshaped, its metadata arrive in the provider's form and are
     read back field by field (a task's empty list for no schedule is null)."""
@@ -198,6 +206,7 @@ def test_the_planners_streamed_reply_reads_reshaped_fields() -> None:
 
 # ---------- Gemini ----------
 
+# decision: RUN-408
 @pytest.mark.parametrize("name", sorted(CORE))
 def test_every_core_schema_uses_only_geminis_documented_keywords(name: str) -> None:
     schema = CORE[name]
@@ -210,6 +219,7 @@ def test_every_core_schema_uses_only_geminis_documented_keywords(name: str) -> N
         assert shape.answer_text(json.dumps(answer)) == json.dumps(answer)
 
 
+# decision: RUN-408
 def test_a_nullable_enum_becomes_an_any_of_for_gemini() -> None:
     schema = core._obj({"loop_action": {"type": ["string", "null"], "enum": ["continue", "finished", "blocked", None]}})
     wire = for_gemini(schema).wire["properties"]["loop_action"]

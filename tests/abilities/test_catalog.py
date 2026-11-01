@@ -21,6 +21,7 @@ from ferb.registry import build
 from tests.conftest import chat, install, sup, task, tool
 
 
+# decision: PRM-314, ORCH-1
 def test_fresh_daemon_exposes_metadata_to_the_worker_and_reads_on_demand(daemon):
     assert not (daemon.daemon.home / 'skills').exists()
     results = {}

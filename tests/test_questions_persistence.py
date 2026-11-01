@@ -34,6 +34,7 @@ def _let_waiters_look_again(d: RunningDaemon) -> None:
     time.sleep(4 * d.daemon.gateway.hold_poll_s)
 
 
+# decision: ORCH-502
 def test_a_worker_question_older_than_600_s_is_still_pending_and_its_answer_reaches_the_task(
         daemon: RunningDaemon) -> None:
     grant, _ = gateway_setup(daemon, set(), gateway_request("tidy my downloads"), [])
@@ -54,6 +55,7 @@ def test_a_worker_question_older_than_600_s_is_still_pending_and_its_answer_reac
     assert not result["is_error"] and result["content"]["answer"] == "Downloads", result
 
 
+# decision: ORCH-502
 def test_a_plan_question_older_than_600_s_still_waits_for_the_owner(daemon: RunningDaemon) -> None:
     sup = daemon.daemon.supervisor
     assert sup is not None
@@ -74,6 +76,7 @@ def test_a_plan_question_older_than_600_s_still_waits_for_the_owner(daemon: Runn
     assert result["status"] == "done" and result["answer"] == "Desktop"
 
 
+# decision: ORCH-502
 def test_a_question_closes_when_its_task_ends(daemon: RunningDaemon) -> None:
     """Without an expiry, the end of the task is what closes its question (the request is forgotten)."""
     grant, _ = gateway_setup(daemon, set(), gateway_request("tidy my downloads"), [])

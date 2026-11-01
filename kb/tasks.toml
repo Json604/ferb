@@ -208,3 +208,28 @@ area = "orchestration"
 kind = "build"
 status = "open"
 decisions = ["ORCH-506"]
+
+[T-800]
+title = "Write the test for ORCH-305"
+area = "orchestration"
+kind = "build"
+status = "open"
+why = "No test checks plan validation's input list: an input in no step or in two steps, and an input missing from the inventory, are told back to the planner (ferb/orchestrator/plans.py problems)."
+decisions = ["ORCH-305"]
+
+[T-801]
+title = "Write the test for ORCH-332"
+area = "orchestration"
+kind = "build"
+status = "open"
+why = "No test checks that chat.part records' seq is a microsecond UTC ISO string strictly increasing, also across a daemon restart."
+decisions = ["ORCH-332"]
+
+[T-802]
+title = "Write the test for ORCH-506"
+area = "orchestration"
+kind = "build"
+status = "open"
+why = "Code watchers are not built yet (T-12); their offline test (no AI call per round, 30 s floor) lands with them."
+decisions = ["ORCH-506"]
+after = ["T-12"]
