@@ -191,7 +191,8 @@ legacy = "notes/memory.md Rulings (step 9a): holds up"
 title = "What code adds to Tier 1 between profile passes"
 by = "agent"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "MEM-36"
 rule = "Code joins the owner's words about anything at once, under \"Recently said\" while it fits, except a fact the owner placed by search (memory.search_only). Code joins FERB's understanding / observed facts about the owner (subject \"owner\") only on an event that shows them holding up (a save on a second day); \"standing 7 days\" is the weekly pass's to see. The pass places the rest and stays the only scheduled rewrite. The owner's \"Always on\" pins survive every pass."
 paths = ["ferb/memory/profile.py::CoreProfile.saved"]
 legacy = "notes/memory.md Rulings (step 9a) code's own Tier 1 additions; (step 9b) decision 18"
@@ -339,3 +340,23 @@ status = "active"
 rule = "memory_items is the source of truth for facts, versioned, with source and validity window. No fact or identity copies live in learning_nodes. Facts tied to a period carry an end date (`until`) or a review date (`review_in_days`)."
 paths = ["ferb/memory/items.py", "ferb/memory/search.py::MemorySearch.facts"]
 legacy = "notes/memory.md target design 1 (Tier 2)"
+
+[MEM-35]
+title = "Only the owner's words about themselves join the always-on profile at once"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "about myself"
+why = "Answer to the open check T-1: did \"your words join Tier 1 at once\" mean anything the owner says, or only what they say about themselves."
+rule = "The owner's own words join Tier 1 at once only when they are about the owner. What the owner says about other things is placed by the weekly profile pass like any other fact."
+paths = ["ferb/memory/profile.py::CoreProfile.saved"]
+supersedes = []
+
+[MEM-36]
+title = "What code adds to Tier 1 between profile passes (owner's words about themselves)"
+by = "agent"
+date = 2026-11-02
+status = "active"
+supersedes = ["MEM-19"]
+rule = "Code joins the owner's words about the owner (subject \"owner\") at once, under \"Recently said\" while it fits, except a fact the owner placed by search (memory.search_only). Code joins FERB's understanding / observed facts about the owner only on an event that shows them holding up (a save on a second day); \"standing 7 days\" is the weekly pass's to see. The pass places the rest and stays the only scheduled rewrite. The owner's \"Always on\" pins survive every pass."
+paths = ["ferb/memory/profile.py::CoreProfile.saved"]

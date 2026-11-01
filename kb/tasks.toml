@@ -11,15 +11,6 @@
 # after = []
 # ask = ""              # kind = "question": the exact question for the owner
 
-[T-1]
-title = "Owner check: does \"your words join Tier 1 at once\" cover anything, and do M7/M8 stay search-only?"
-area = "memory"
-kind = "question"
-status = "open"
-why = "On 2026-11-01 an agent widened code's Tier 1 joins from the owner's words about the owner to their words about anything, keeping M7/M8 (prompts decision 4) search-only; notes/memory.md left this as an open owner check."
-decisions = ["MEM-15", "MEM-19"]
-ask = "Your own words join the always-on profile at once. Did you mean that for anything you say (as built since 2026-11-01), or only for what you say about yourself? And should the two facts placed by search (M7, M8) stay out of the always-on profile?"
-
 [T-2]
 title = "perception_seen grows forever: notification dedupe rows are never purged"
 area = "perception"
@@ -40,3 +31,11 @@ area = "storage"
 kind = "bug"
 status = "open"
 why = "notes/memory.md: closed fact/identity nodes stay \"until the step-12 clean-up\"; ferb/store/cleanup.py PROTECTED_ROWS keeps every learning_nodes row but rollups, so upgrade.py:88's closed nodes are never removed."
+
+[T-5]
+title = "Tier 1 joins at once only the owner's words about themselves (MEM-35)"
+area = "memory"
+kind = "build"
+status = "open"
+why = "Built since 2026-11-01 for the owner's words about anything (the old MEM-19); the owner answered \"about myself\" on 2026-11-02."
+decisions = ["MEM-35", "MEM-36"]
