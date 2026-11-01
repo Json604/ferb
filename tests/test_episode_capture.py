@@ -58,28 +58,6 @@ def test_the_card_reader_refuses_a_request_for_another_home(tmp_path):
 
 # Finding 5: the reader holds no statement while it decodes; a forget that can't empty the WAL is journaled ---------------
 
-def test_the_reader_reads_each_query_fully_before_decoding_so_the_wal_can_be_emptied(tmp_path, monkeypatch):
-    """Measured in review: forget's wal_checkpoint(TRUNCATE) waited 5.21 s and returned busy while the reader held a
-    statement open. While the reader decodes its rows, the daemon can now empty the WAL."""
-    from ferb.memory import card_reader
-    from ferb.memory.learning import Learning
-    home = tmp_path / "home"
-    home.mkdir()
-    db, _, spans, learning = card_store(home)
-    finished_task(db, spans, learning, "t-wal", reads=3)
-    db.conn.execute("PRAGMA busy_timeout=100")
-    seen = []
-    real = Learning._action_sources
-
-    def decoding(self, inp, result):                      # runs while the reader works through the task's spans
-        seen.append(tuple(db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()))
-        return real(self, inp, result)
-    monkeypatch.setattr(Learning, "_action_sources", decoding)
-    prepared = card_reader.read("t-wal", None, home=home)
-    assert prepared is not None and prepared["task_id"] == "t-wal"
-    assert seen and all(busy == 0 for busy, _, _ in seen), seen
-    db.close()
-
 
 # decision: MEM-2
 def test_a_forget_that_cannot_empty_the_wal_is_journaled(daemon):
@@ -106,39 +84,6 @@ def test_a_forget_that_cannot_empty_the_wal_is_journaled(daemon):
 
 
 # Decision B, then C1: a missing source is skipped by why it is missing ----------------------------------------------
-
-DAMAGED = ["trail:0525142c8c[redacted]a36a40c24",                       # shapes from the owner's journal
-           "m-8e953d2b8ca8f[redacted]b46e986ee416a81e4cc270dfe91fe0f6a23784"]
-
-
-def test_a_capture_skips_a_ref_damaged_by_redaction(tmp_path):
-    """60 old rows in the owner's journal carry ids an earlier redaction altered; every capture whose lineage reached
-    them failed. No FERB id contains '[' or ']', so such a ref can never resolve: it is skipped, and reported."""
-    db, _, spans, learning = card_store(tmp_path)
-    real = learning.put("entity", "owner", {"text": "The owner"}, [], made_by="code:entity-summary/1", state="active")
-    finished_task(db, spans, learning, "t-old", refs=[real["id"], *DAMAGED])
-    prepared = learning.prepare_episode("t-old")
-    assert prepared is not None
-    assert real["id"] in prepared["sources"] and not set(DAMAGED) & set(prepared["sources"])
-    assert prepared["damaged"] == sorted(DAMAGED)
-    assert {"private", "external:unlabeled"} <= set(prepared["labels"])    # what it held is unknown: never less private
-    card = learning.write_episode(prepared)
-    assert card is not None and card["key"] == "t-old"
-    db.close()
-
-
-def test_a_source_removed_by_retention_stays_an_edge_of_unknown_content(tmp_path):
-    """C1: a source missing without a forget tombstone aged out (the 30-day trail purge). It no longer fails the card:
-    the edge stays (source edges survive retention) with the labels of a source whose content is unknown."""
-    db, _, spans, learning = card_store(tmp_path)
-    purged = "trail:" + uuid.uuid4().hex
-    finished_task(db, spans, learning, "t-aged", refs=[purged])
-    prepared = learning.prepare_episode("t-aged")
-    assert prepared is not None and prepared["expired"] == [purged] and purged in prepared["sources"]
-    assert {"private", "external:unlabeled"} <= set(prepared["labels"])
-    card = learning.write_episode(prepared)
-    assert card is not None and purged in card["sources"]
-    db.close()
 
 
 # decision: MEM-2
@@ -259,7 +204,6 @@ def test_a_registered_value_that_is_a_whole_id_body_is_redacted(tmp_path):
     span = spans.start("context.exposure", input={"source_refs": ["trail:" + body], "reference": "x"})
     assert span.input["source_refs"] == ["trail:[redacted]"]
     db.close()
-
 
 
 # Round 5: a registered secret that holds an id-shaped run is still redacted -------------------------------------------

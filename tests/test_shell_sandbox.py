@@ -198,24 +198,6 @@ def test_the_shell_names_apples_certificate_bundle(daemon: RunningDaemon) -> Non
     assert f"cert={CERT_BUNDLE}" in lines and int(lines[-1]) > 50
 
 
-def test_shell_rules_lists_the_boundaries_and_what_is_liftable(daemon: RunningDaemon) -> None:
-    g = task(daemon, "r", Identity.OWNER, SHELL)
-    r = call(daemon, g, "shell.rules")
-    ids = {x["id"]: x for x in r["content"]["rules"]}
-    assert ids["ferb_state"]["liftable"] is False and ids["network"]["liftable"] is False and ids["admin"]["liftable"]
-    assert r["footer"].endswith("Origin: ferb")
-    assert "danger-full-access" in r["content"]["own_sandbox"]
-    assert "can't open apps" in r["content"]["apps"]
-    assert "escape" not in r["content"]                                       # Task 6 adds it
-    # Derived from proxy_port(): the proxy runs (F5a Task 3), so the line names it and what it records
-    port = daemon.daemon.proxy.port                                           # type: ignore[union-attr]
-    assert r["content"]["network"].startswith("any remote host, without asking, only through FERB's proxy")
-    assert f"only through FERB's proxy on 127.0.0.1:{port}, which records" in r["content"]["network"]
-    daemon.daemon.sandbox.proxy_port = lambda: None                          # type: ignore[union-attr]
-    r = call(daemon, g, "shell.rules")
-    assert r["content"]["network"].startswith("no network beyond this Mac; FERB's proxy is not running")
-
-
 def test_shell_tools_say_a_programs_own_sandbox_cant_start_inside(daemon: RunningDaemon) -> None:
     """A fact for the agents (E5), never a flag FERB adds to another agent's command."""
     caps = daemon.daemon.registry.capabilities

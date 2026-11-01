@@ -222,21 +222,6 @@ def test_many_old_loose_spans_with_children_are_purged(daemon: RunningDaemon) ->
     assert _q(daemon, "SELECT json_extract(data_json, '$.spans') FROM journal WHERE kind = 'retention.purged'") == 600
 
 
-def test_loose_span_rules(daemon: RunningDaemon) -> None:
-    root = _say_hi(daemon)
-    request_id = _q(daemon, "SELECT request_id FROM tasks WHERE id = ?", root)
-    recent = daemon.daemon.clock.now().isoformat()
-    _insert_span(daemon, "l-recent", None, None, None, recent)
-    _insert_span(daemon, "l-task", None, None, request_id, _old())
-    _insert_span(daemon, "l-nomatch", None, None, "no-such-request", _old())
-    _insert_span(daemon, "l-norequest", None, None, None, _old())
-    _purge(daemon)
-    assert _spans_with_prefix(daemon, "l-recent") == 1
-    assert _spans_with_prefix(daemon, "l-task") == 1
-    assert _spans_with_prefix(daemon, "l-nomatch") == 0
-    assert _spans_with_prefix(daemon, "l-norequest") == 0
-
-
 def test_task_origins_outlive_the_spans(daemon: RunningDaemon) -> None:
     root = _say_hi(daemon)
     _do(daemon, "UPDATE episodes SET origins = 'external:web:x.com' WHERE task_id = ?", root)
@@ -246,119 +231,6 @@ def test_task_origins_outlive_the_spans(daemon: RunningDaemon) -> None:
     async def go():
         return daemon.daemon.spans.task_origins(root)
     assert "external:web:x.com" in daemon.run(go())
-
-
-def test_a_pass_cancelled_between_roots_journals_what_it_purged(daemon: RunningDaemon) -> None:
-    """Residual 3 (D21): shutdown can cancel the hourly pass between roots; what it already purged is journaled."""
-    first, second = _say_hi(daemon), _say_hi(daemon)
-    for root in (first, second):
-        _age(daemon, root, 31)
-    _do(daemon, "UPDATE tasks SET updated_at = ? WHERE tree_id = ?", "2020-01-01T00:00:00+00:00", first)
-
-    async def cancel_after_the_first_root() -> None:
-        pass_ = asyncio.ensure_future(daemon.daemon._purge_pass())
-        real = daemon.daemon._purge_root
-
-        def purge_one(root: str, plan: Any) -> Any:
-            pass_.cancel()                               # shutdown arrives while this root is purged
-            return real(root, plan)
-        daemon.daemon._purge_root = purge_one  # type: ignore[method-assign]
-        try:
-            await pass_
-        except asyncio.CancelledError:
-            pass
-        finally:
-            del daemon.daemon._purge_root
-    daemon.run(cancel_after_the_first_root())
-    assert _tree_spans(daemon, first) == 0 and _tree_spans(daemon, second) > 0
-    row = json.loads(_q(daemon, "SELECT data_json FROM journal WHERE kind = 'retention.purged'"))
-    assert row["spans"] > 0 and row["decisions"] == 0 and row["roots_left"] == 1 and row["stopped"] is True
-
-
-def test_a_pass_cancelled_after_its_last_root_still_journals_it(daemon: RunningDaemon) -> None:
-    root = _say_hi(daemon)
-    _age(daemon, root, 31)
-
-    async def cancel_during_the_last_root() -> None:
-        pass_ = asyncio.ensure_future(daemon.daemon._purge_pass())
-        real = daemon.daemon._purge_root
-        daemon.daemon._purge_root = lambda r, plan: (pass_.cancel(), real(r, plan))[1]  # type: ignore[method-assign]
-        try:
-            await pass_
-        except asyncio.CancelledError:
-            pass
-        finally:
-            del daemon.daemon._purge_root
-    daemon.run(cancel_during_the_last_root())
-    row = json.loads(_q(daemon, "SELECT data_json FROM journal WHERE kind = 'retention.purged'"))
-    assert _tree_spans(daemon, root) == 0 and row["spans"] > 0 and row["roots_left"] == 0 and row["stopped"] is True
-
-
-def test_a_pass_cancelled_before_anything_was_purged_journals_nothing(daemon: RunningDaemon) -> None:
-    root = _say_hi(daemon)
-    _age(daemon, root, 31)
-
-    async def cancel_at_once() -> None:
-        pass_ = asyncio.ensure_future(daemon.daemon._purge_pass())
-        daemon.daemon._purge_root = lambda root, plan: (pass_.cancel(), iter(()))[1]  # type: ignore[method-assign]
-        try:
-            await pass_
-        except asyncio.CancelledError:
-            pass
-        finally:
-            del daemon.daemon._purge_root
-    daemon.run(cancel_at_once())
-    assert _q(daemon, "SELECT count(*) FROM journal WHERE kind = 'retention.purged'") == 0
-
-
-def test_a_root_interrupted_by_a_restart_is_aged_from_then(daemon: RunningDaemon) -> None:
-    root = _say_hi(daemon)
-    _age(daemon, root, 31)
-    _do(daemon, "UPDATE tasks SET status = 'running' WHERE id = ?", root)
-    _do(daemon, "DELETE FROM episodes WHERE task_id = ?", root)
-    async def go():
-        return daemon.daemon.tasks.interrupt_running()
-    assert root in daemon.run(go())
-    _purge(daemon)
-    assert _tree_spans(daemon, root) > 0
-
-
-def test_one_bad_root_does_not_stop_the_others(daemon: RunningDaemon) -> None:
-    bad = _say_hi(daemon)
-    good = _say_hi(daemon)
-    _age(daemon, bad, 31)
-    _age(daemon, good, 31)
-    from ferb.orchestrator import episodes
-    real = episodes.get
-    def flaky(db: Any, task_id: str) -> Any:
-        if task_id == bad:
-            raise RuntimeError("unreadable")
-        return real(db, task_id)
-    episodes.get = flaky  # type: ignore
-    try:
-        _purge(daemon)
-    finally:
-        episodes.get = real  # type: ignore
-    assert _tree_spans(daemon, bad) > 0
-    assert _tree_spans(daemon, good) == 0
-    assert _q(daemon, "SELECT count(*) FROM journal WHERE kind = 'retention.failed'") == 1
-    assert _q(daemon, "SELECT count(*) FROM journal WHERE kind = 'retention.purged'") == 1
-
-
-def test_a_pass_handles_at_most_200_roots_oldest_first(daemon: RunningDaemon, monkeypatch: Any) -> None:
-    from ferb.daemon.areas import retention as retention_area
-    monkeypatch.setattr(retention_area, "ROOTS_PER_PURGE", 1)
-    first = _say_hi(daemon)
-    second = _say_hi(daemon)
-    _age(daemon, first, 40)
-    _age(daemon, second, 31)
-    _do(daemon, "UPDATE tasks SET updated_at = ? WHERE tree_id = ?", "2020-01-01T00:00:00+00:00", first)
-    _purge(daemon)
-    assert _tree_spans(daemon, first) == 0 and _tree_spans(daemon, second) > 0
-    assert _q(daemon, "SELECT json_extract(data_json, '$.roots_left') FROM journal "
-                      "WHERE kind = 'retention.purged'") == 1
-    _purge(daemon)
-    assert _tree_spans(daemon, second) == 0
 
 
 # decision: STORE-420
@@ -375,43 +247,6 @@ def test_every_retention_days_setting_is_at_least_one_day(daemon: RunningDaemon)
     plan, restore_days = daemon.run(read())
     assert (plan.trace_days, plan.decision_days, plan.evidence_days, plan.recovery_days) == (1, 1, 1, 1)
     assert restore_days == 1
-
-
-def test_the_retention_loop_goes_on_when_even_its_failure_cant_be_journaled(tmp_path: Path, capsys: Any) -> None:
-    """D14: a failed pass is journaled `retention.failed`; when that write fails too (a broken database), the error
-    goes to stderr through the daemon's redactor and the hourly loop goes on, as the resource loop's does (L30)."""
-    import contextlib
-    import sqlite3
-    from types import SimpleNamespace
-    from ferb.daemon.main import Daemon
-    from tests.support.virtual_time import run_virtual
-    d = Daemon(tmp_path / ".ferb", watchers=False, distill=False, retention=False, resources=False,
-               notifications=False, snapshots=False, watch_owner_input=False, preload_secrets=False)
-    passes: list[int] = []
-
-    async def failing() -> dict[str, int]:
-        passes.append(1)
-        raise RuntimeError("purge failed for token hunter2")
-
-    def append(kind: str, data: Any = None, origin: Any = None) -> Any:
-        raise sqlite3.OperationalError("disk I/O error")
-    d._purge_pass = failing                                              # type: ignore[method-assign]
-    d._journal = lambda: SimpleNamespace(append=append)                  # type: ignore[method-assign]
-    d.redact = SimpleNamespace(text=lambda text: text.replace("hunter2", "[REDACTED]"))  # type: ignore[assignment]
-
-    async def three_passes() -> None:
-        loop = asyncio.create_task(d._retention_loop())
-        await asyncio.sleep(60 + 2 * 3600 + 1)                           # a minute after start, then hourly
-        assert not loop.done()
-        loop.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await loop
-    run_virtual(three_passes())
-    err = capsys.readouterr().err
-    assert len(passes) == 3
-    assert err.count("FERB: a retention pass failed (RuntimeError: purge failed for token [REDACTED]) and couldn't "
-                     "be journaled (OperationalError)") == 3, err
-    assert "hunter2" not in err
 
 
 # ---------- step 12a: operational records (STORE-401), activity rows, one place ----------

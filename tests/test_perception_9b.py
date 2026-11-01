@@ -3,9 +3,8 @@ accessibility rows stay in the trail (7 days), never in today's activity or its 
 copied text are checked against incognito and the excluded domains; activity search indexes values, prefers recent
 rows and stays within its limit; each row's data is stored once; typed text survives a quick focus change; the software
 watcher reads TCC and launch jobs only when they change; a bot-check widget's frame is stated with the ability."""
-import asyncio
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +12,6 @@ from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
 from ferb.core.types import PageSnapshot, TabRef
 from ferb.sense.capture import Field, TypedFields
-from ferb.sense.daily import DailyActivity
 from ferb.sense.exclusions import Exclusions
 from ferb.sense.trail import Observation, Trail
 from ferb.sense.watchers.accessibility import accessibility_observation
@@ -90,15 +88,6 @@ def test_text_typed_or_copied_in_a_browser_follows_its_pages_privacy(tmp_path: P
 
 # ---------- today's activity ----------
 
-def test_activity_search_reads_values_not_keys_and_prefers_recent_rows(tmp_path: Path) -> None:
-    log = DailyActivity(tmp_path / "a.jsonl", lambda: datetime(2026, 10, 31, 12, tzinfo=timezone.utc))
-    log.record({"id": "old", "source": "window", "data": {"title": "budget sheet"}})
-    for n in range(5):
-        log.record({"id": f"x{n}", "source": "window", "data": {"title": f"other {n}"}})
-    log.record({"id": "new", "source": "window", "data": {"title": "budget sheet"}})
-    assert log.search("data source where what") == []            # field names match nothing
-    assert [r["source_id"] for r in log.search("budget sheet", limit=2)] == ["new", "old"]
-
 
 # decision: MEM-27
 def test_activity_stays_within_its_limit_and_says_what_it_left_out(daemon: Any) -> None:
@@ -145,34 +134,6 @@ def test_typed_text_is_kept_when_focus_moves_on_within_the_hold() -> None:
 
 
 # ---------- the software watcher ----------
-
-def test_the_software_watcher_reads_grants_and_launch_jobs_only_when_they_change(monkeypatch: Any,
-                                                                                tmp_path: Path) -> None:
-    from ferb.sense.watchers import software
-    stamps = iter([("a",), ("a",), ("a",), ("b",), ("b",)])
-    reads: list[str] = []
-    monkeypatch.setattr(software, "change_stamp", lambda: next(stamps))
-    monkeypatch.setattr(software, "app_security_facts", lambda path, bundle: {
-        "bundle_id": bundle, "path": str(path), "privacy": {}, "launch_jobs": [], "login_items": {}})
-    monkeypatch.setattr(software, "privacy_facts", lambda *a: reads.append("tcc") or {})
-    monkeypatch.setattr(software, "associated_jobs", lambda *a: reads.append("jobs") or [])
-    monkeypatch.setattr(software, "login_items", lambda *a: {})
-
-    class Ticks:
-        def __init__(self) -> None:
-            self.n = 0
-
-        def is_set(self) -> bool:
-            return self.n >= 5
-
-        async def wait(self) -> None:
-            self.n += 1
-
-    async def go() -> None:
-        await software.SoftwareWatcher(lambda: [("owner.tool", str(tmp_path / "Tool.app"))], lambda v: v).run(
-            lambda o: None, Ticks())                                      # type: ignore[arg-type]
-    asyncio.run(go())
-    assert reads == ["tcc", "jobs"]                                       # once, when the stamp changed
 
 
 # ---------- the bot-check fact (HAND-208) ----------

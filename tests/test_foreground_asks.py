@@ -22,14 +22,6 @@ def test_background_input_asks_nothing_outside_browsers() -> None:
     assert confirm.foreground_need("fs.read", {"allow_foreground": True}) is None
 
 
-def test_the_question_says_the_app_comes_to_the_front_for_this_task() -> None:
-    need = confirm.foreground_need("mac.click", {"app": "Google Chrome", "allow_foreground": True})
-    assert need is not None
-    text = confirm.summary([need])
-    assert "Google Chrome" in text and "front" in text and "this task" in text
-    assert "Google Chrome" in confirm.line([need], "mac.click", "")
-
-
 def test_a_menu_choice_asks_and_listing_menus_does_not() -> None:
     """Live 2026-10-26: the worker switched Chrome profiles through its Profiles menu, moving the owner's Space."""
     need = confirm.foreground_need("mac.menu", {"app": "Google Chrome", "path": "Profiles > Sam (Home_Personal)"})

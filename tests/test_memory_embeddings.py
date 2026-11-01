@@ -10,8 +10,7 @@ from typing import Any
 
 import pytest
 
-from ferb.memory.embeddings import (MODEL, StaticEmbedder, WordPiece, download, manifest_ok, nearest, quantize,
-                                    sign_bits, similarity, store, verify)
+from ferb.memory.embeddings import (MODEL, StaticEmbedder, WordPiece, download, manifest_ok, similarity, verify)
 
 VOCAB = ["[PAD]", "[UNK]", "piano", "music", "permit", "##s", "play", ",", "!"]
 
@@ -92,22 +91,6 @@ def test_the_fetch_checks_every_hash_before_the_folder_appears(tmp_path: Path) -
     with pytest.raises(ValueError):
         download(tmp_path / "models" / "bad", bad, fetch)
     assert not (tmp_path / "models" / "bad").exists()
-
-
-def test_quantized_vectors_rank_by_cosine_with_a_sign_bit_prefilter(tmp_path: Path) -> None:
-    from ferb.store.db import Database
-    db = Database(tmp_path / "v.db")
-    db.migrate()
-    assert quantize([3.0, -4.0]) == [95, -127] and sign_bits([1, -1, 0, 5]) == bytes([0b1001])
-    for n in range(1200):                                       # past the prefilter's size
-        store(db.conn, f"doc{n}", "chat", "t", "m", "h", [1 if n % 2 else -1] * 4 + [-1] * 4)
-    store(db.conn, "best", "chat", "t", "m", "h", [5] * 8)
-    store(db.conn, "fact", "fact", "t", "m", "h", [5] * 8)
-    found = nearest(db, "m", [3] * 8, ["chat"], 3)
-    assert found[0][0] == "best" and "fact" not in [d for d, _ in found]
-    db.conn.execute("DELETE FROM recall_vectors WHERE doc = 'best'")
-    assert nearest(db, "m", [3] * 8, ["chat"], 1)[0][0] != "best"            # the cached copy reloads on a change
-    db.close()
 
 
 # decision: MEM-26

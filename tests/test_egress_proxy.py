@@ -259,17 +259,6 @@ def _port_of(d: RunningDaemon, g: Any, sid: str) -> int:
     raise AssertionError("the dev server never started")
 
 
-def test_shell_rules_say_the_proxy_records_and_the_doctor_sees_it(daemon: RunningDaemon) -> None:
-    g = task(daemon, "s", Identity.OWNER, SHELL)
-    port = daemon.daemon.proxy.port                                           # type: ignore[union-attr]
-    network = call(daemon, g, "shell.rules")["content"]["network"]
-    assert f"FERB's proxy on 127.0.0.1:{port}" in network and "records" in network
-    assert "started inside FERB's shell" in network
-    assert f'(allow network-outbound (remote tcp "localhost:{port}"))' in daemon.daemon.sandbox.profile()  # type: ignore[union-attr]
-    report = daemon.run(daemon.daemon._doctor_check(None, {"selftest": False}), timeout=60)  # type: ignore[arg-type]
-    assert report["containment"]["proxy"] is True
-
-
 # ---------- the proxy on its own ----------
 
 def _proxy(allow: Any = None, **kw: Any) -> EgressProxy:

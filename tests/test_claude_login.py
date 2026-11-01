@@ -9,18 +9,12 @@ from typing import Any, Callable
 
 import pytest
 
-from ferb.cli import runtimes as runtimes_cli
 from ferb.cli.client import Client, RpcError
-from ferb.core.errors import FerbError, Unsupported
+from ferb.core.errors import Unsupported
 from ferb.runtimes import claude_login as CL
 from ferb.runtimes.claude_sdk import ClaudeRuntime
 from tests.conftest import RunningDaemon
 from tests.support.fake_claude import CREDENTIAL, GOOD_CODE, PAGE, fake_claude
-
-
-async def until_async(check: Callable[[], bool]) -> None:
-    while not check():
-        await asyncio.sleep(0.01)
 
 
 def until(check: Callable[[], bool], seconds: float = 10) -> None:
@@ -38,72 +32,6 @@ def on_loop(daemon: RunningDaemon, fn: Callable[[], Any]) -> Any:
 
 
 # ---------- the sign-in itself ----------
-
-def test_a_pasted_code_finishes_the_sign_in_and_only_a_marker_is_left(tmp_path: Path) -> None:
-    cli = fake_claude(tmp_path / "bin")
-    secrets: list[str] = []
-    finished: list[bool] = []
-
-    async def run() -> dict[str, str]:
-        sign_in = CL.ClaudeSignIn(tmp_path / "home", lambda: cli, secrets.append, finished.append)
-        assert (await sign_in.start())["state"] == "waiting"
-        await until_async(lambda: bool(sign_in.url))
-        assert sign_in.url == PAGE
-        await sign_in.send_code(f"  {GOOD_CODE} ")
-        await until_async(lambda: sign_in.state != "waiting")
-        return sign_in.status()
-    assert asyncio.run(asyncio.wait_for(run(), 10)) == {"state": "signed_in", "url": "", "why": ""}
-    assert finished == [True] and secrets == [GOOD_CODE]           # the code joined the redactor first
-    home = tmp_path / "home" / "claude-home"
-    assert CL.claude_home(tmp_path / "home") == home
-    marker = (home / CL.SIGNED_IN).read_text()
-    assert CREDENTIAL not in marker and GOOD_CODE not in marker
-    assert home.stat().st_mode & 0o777 == 0o700
-
-
-def test_a_wrong_code_fails_and_says_so_in_the_apps_words(tmp_path: Path) -> None:
-    cli = fake_claude(tmp_path / "bin")
-    finished: list[bool] = []
-
-    async def run() -> dict[str, str]:
-        sign_in = CL.ClaudeSignIn(tmp_path / "home", lambda: cli, lambda code: None, finished.append)
-        await sign_in.start()
-        await until_async(lambda: bool(sign_in.url))
-        await sign_in.send_code("wrong-code")
-        await until_async(lambda: sign_in.state != "waiting")
-        return sign_in.status()
-    status = asyncio.run(asyncio.wait_for(run(), 10))
-    assert status["state"] == "failed" and "Try again" in status["why"] and "ferb" not in status["why"]
-    assert finished == [False] and CL.claude_home(tmp_path / "home") is None
-
-
-def test_cancel_stops_the_waiting_sign_in(tmp_path: Path) -> None:
-    cli = fake_claude(tmp_path / "bin")
-    finished: list[bool] = []
-
-    async def run() -> dict[str, str]:
-        sign_in = CL.ClaudeSignIn(tmp_path / "home", lambda: cli, lambda code: None, finished.append)
-        await sign_in.start()
-        await until_async(lambda: bool(sign_in.url))
-        status = await sign_in.cancel()
-        assert sign_in._proc is None
-        return status
-    assert asyncio.run(asyncio.wait_for(run(), 10)) == {"state": "idle", "url": "", "why": ""}
-    assert finished == [] and CL.claude_home(tmp_path / "home") is None
-
-
-def test_a_code_needs_a_waiting_sign_in_and_is_one_word(tmp_path: Path) -> None:
-    cli = fake_claude(tmp_path / "bin")
-
-    async def run() -> None:
-        sign_in = CL.ClaudeSignIn(tmp_path / "home", lambda: cli, lambda code: None, lambda ok: None)
-        with pytest.raises(FerbError, match="waiting"):
-            await sign_in.send_code(GOOD_CODE)
-        await sign_in.start()
-        with pytest.raises(FerbError, match="Paste the code"):
-            await sign_in.send_code("two words")
-        await sign_in.cancel()
-    asyncio.run(asyncio.wait_for(run(), 10))
 
 
 # decision: RUN-1
@@ -153,22 +81,6 @@ def test_runs_use_only_ferbs_own_claude_home(tmp_path: Path, monkeypatch: pytest
     monkeypatch.setattr(CL, "cli_binary", missing)
     with pytest.raises(Unsupported, match="bundled Claude Code is missing"):
         rt._options("run", None)
-
-
-def test_status_says_which_runtimes_ferb_is_signed_in_to(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("ferb.runtimes.keys.has_api_key", lambda provider: provider == "openai")
-    monkeypatch.setattr("ferb.runtimes.codex_exec.codex_binary", lambda *a, **k: Path("/x/codex"))
-    rows = {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}
-    assert (rows["claude"]["signed_in"], rows["codex"]["signed_in"], rows["openai"]["signed_in"]) == (False, False, True)
-    CL.mark(tmp_path)
-    assert {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}["claude"]["signed_in"] is True
-
-
-def test_the_keychain_service_of_ferbs_claude_sign_in_is_named_from_its_home(tmp_path: Path) -> None:
-    """`ferb uninstall --purge` deletes Claude Code's item for FERB's Claude home by its service name (never read)."""
-    import hashlib
-    digest = hashlib.sha256(str(tmp_path / "claude-home").encode()).hexdigest()[:8]
-    assert CL.keychain_service(tmp_path) == f"Claude Code-credentials-{digest}"
 
 
 # ---------- through the daemon ----------

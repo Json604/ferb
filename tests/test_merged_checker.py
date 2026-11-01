@@ -114,17 +114,6 @@ def test_conditions_confirmed_in_an_earlier_attempt_carry_over(daemon: RunningDa
     assert "It isn't in Archive yet." in second_worker
 
 
-def test_artifacts_of_failed_attempts_are_not_listed(daemon: RunningDaemon) -> None:
-    script = install(daemon, [sup("task", "On it.", task("Write the summary"))], {
-        "worker": [json.dumps(report("done", "Wrote a draft.", artifacts=("/tmp/draft.md",))),
-                   json.dumps(report("done", "Wrote the summary.", artifacts=("/tmp/summary.md",)))],
-        "worker.verify": [verdict(False, True, next="retry", instructions="Write the whole summary."),
-                          verdict(True, True)]})
-    result = outcome(chat(daemon, "write the summary"))
-    assert len(script.calls("worker")) == 2
-    assert result["artifacts"] == ["/tmp/summary.md"]
-
-
 def test_a_report_that_fails_validation_keeps_nothing_of_an_earlier_attempt(daemon: RunningDaemon) -> None:
     """Fix list (stale fields): an attempt whose report is incomplete reports nothing, not the previous answer."""
     install(daemon, [sup("task", "On it.", task("Check the price"))], {

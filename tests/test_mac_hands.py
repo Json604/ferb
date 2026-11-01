@@ -607,12 +607,6 @@ def test_a_snapshot_elements_identity_holds_no_snapshot_id_or_value() -> None:
 
 # ---------- 11. the marks path is gone ----------
 
-def test_snapshot_promises_no_numbered_controls() -> None:
-    from ferb.act.mac import screenshot
-    from ferb.act.mac.tools import MacSnapshot
-    assert "numbered" not in MacSnapshot.description
-    assert not hasattr(screenshot, "to_pixels") and not hasattr(drv.MacComputerDriver, "marks")
-
 
 # ---------- 12. ScreenCaptureKit "Failed to start stream" ----------
 

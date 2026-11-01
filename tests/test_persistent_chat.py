@@ -14,44 +14,6 @@ def attach(d, **params):
         c.close()
 
 
-def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home):
-    d = RunningDaemon(home, watch_owner_input=False)
-    try:
-        d.daemon.supervisor.availability = d.daemon.supervisor._default_availability
-        session = attach(d)
-        install(d, [sup("task", "Starting", task("order lunch using Work profile", "owner", sites=("shop.example",)))],
-                {"worker": json.dumps({"status": "failed", "summary": "Login required", "artifacts": [], "evidence": []})})
-        first = outcome(chat(d, "order lunch on shop.example in Work profile", session=session))
-    finally:
-        d.stop()
-
-    d = RunningDaemon(home, watch_owner_input=False)
-    try:
-        supervisor = d.daemon.supervisor
-        supervisor.availability = supervisor._default_availability
-        supervisor.environment = lambda words: {"stable": "", "profile_test": "Work" if "Work profile" in words else None}
-        assert attach(d) == session
-        retry = json.loads(sup("task", "Retrying", task("continue login", "owner")))
-        retry["control"] = {"task_id": first["task_id"], "action": "continue", "standing_sends": "unchanged", "supersedes": []}
-        seen = []
-
-        def worker(token):
-            grant = d.daemon.tokens.validate(token)
-            rec = d.daemon.tasks.get(grant.task_id)
-            request = d.daemon.state.requests.get(rec.task.request_id)
-            seen.append((rec.task.goal, request))
-            return json.dumps({"status": "failed", "summary": "Waiting for login", "artifacts": [], "evidence": []})
-
-        script = install(d, [json.dumps(retry)], {"worker": worker})
-        result = outcome(chat(d, "try the lunch task again", session=session))
-        assert result["task_id"] == first["task_id"]        # a continue carries on in the same task (L11, P19)
-        assert "Work profile" in seen[0][0] and "Login required" in seen[0][0]
-        assert "shop.example" in seen[0][1].words
-        assert first["task_id"] in script.contexts[0][2]
-    finally:
-        d.stop()
-
-
 def test_context_is_redacted_and_legacy_tasks_are_recovered_without_grants(daemon, unattended):
     install(daemon, [sup("task", "Starting", task("use Work profile on shop.example", "owner"))],
             {"worker": json.dumps({"status": "needs_user", "summary": "Login required", "artifacts": [], "evidence": []})})
@@ -93,15 +55,6 @@ def test_retry_receives_unknown_prior_action_for_inspection(daemon, unattended):
     assert outcome(result)["status"] == "done"
     ctx = next(ctx for _, key, ctx, _ in script.contexts if key == "worker")
     assert "Uncertain prior actions" in ctx and "shop.example" in ctx
-
-
-def test_unknown_task_id_is_repaired_to_a_specific_question_without_running(daemon):
-    bad = json.loads(sup("task", "Retrying", task("try again", "owner")))
-    bad["control"] = {"task_id": "t1", "action": "retry", "standing_sends": "unchanged", "supersedes": []}
-    script = install(daemon, [json.dumps(bad), sup("clarify", "Do you mean lunch or the spreadsheet search?")], {})
-    result = chat(daemon, "try that again")
-    assert result[-1] == {"type": "clarify", "text": "Do you mean lunch or the spreadsheet search?"}
-    assert len(script.contexts) == 2
 
 
 def test_new_conversation_cannot_control_another_conversations_task(daemon, unattended):

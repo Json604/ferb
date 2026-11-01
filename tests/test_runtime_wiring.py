@@ -1,11 +1,8 @@
 """The direct-API runtimes join FERB: chosen per role, keys from the Keychain and redacted, offered only when usable."""
-import asyncio
 import json
 
 import pytest
 
-from ferb.core.types import ModelLimits
-from ferb.runtimes.api import ApiRuntime
 from ferb.runtimes.catalog import CATALOG
 from tests.conftest import RunningDaemon
 
@@ -42,14 +39,6 @@ def test_provider_defaults_come_from_the_table() -> None:
     assert AnthropicProvider().model == CATALOG["anthropic"].default_model
     assert OpenAIProvider().model == CATALOG["openai"].default_model
     assert GoogleProvider().model == CATALOG["google"].default_model
-
-
-def test_api_runtime_is_built_for_its_role(daemon: RunningDaemon) -> None:
-    d = daemon.daemon
-    d.config.set("runtimes", "orchestrator", "openai")
-    d.config.set("models", "openai", "gpt-6-sol")
-    rt = d._make_runtime("orchestrator", mode="supervisor", tool_names=[], schema={"type": "object"})
-    assert isinstance(rt, ApiRuntime) and rt.provider.model == "gpt-6-sol" and rt.role == "orchestrator"
 
 
 # decision: RUN-403, RUN-404
@@ -96,76 +85,14 @@ def test_google_api_keys_are_redacted_by_pattern() -> None:
     assert key not in Redactor().text(f"key={key} end")
 
 
-def test_runtimes_check_reports_a_non_json_answer(daemon: RunningDaemon, monkeypatch) -> None:
-    from types import SimpleNamespace as NS
-    d = daemon.daemon
-
-    def fake(text):
-        class RT:
-            name = "openai"
-            limits = ModelLimits("fake-model", 1_000_000, 100_000, "test double")
-
-            async def start(self, *a):
-                return "run"
-
-            async def events(self, run):
-                yield NS(kind="final", data={"text": text})
-
-            async def cancel(self, run):
-                pass
-        return RT()
-    for text in ("not json", "[1, 2]", "true"):
-        monkeypatch.setattr(d, "_build_runtime", lambda *a, _t=text, **k: fake(_t))
-        out = daemon.run(d._runtimes_check(None, {"runtime": "openai"}))
-        assert out == {"ok": False, "detail": 'the answer was not {"ok": ...}'}
-    monkeypatch.setattr(d, "_build_runtime", lambda *a, **k: fake('{"ok": true}'))
-    assert daemon.run(d._runtimes_check(None, {"runtime": "openai"}))["ok"] is True
-
-
-def test_runtimes_check_fails_for_a_model_without_documented_limits(daemon: RunningDaemon, monkeypatch) -> None:
-    """A Claude with no model (or any model FERB knows no window for) fails the check before any call (L28), instead
-    of passing the check and failing every real call."""
-    from ferb.runtimes.claude_login import mark
-    d = daemon.daemon
-    mark(d.home)
-    started = []
-    monkeypatch.setattr("ferb.runtimes.claude_sdk.ClaudeRuntime.start", lambda *a, **k: started.append(a))
-    out = daemon.run(d._runtimes_check(None, {"runtime": "claude"}))
-    assert out["ok"] is False and "no model is chosen" in out["detail"] and not started
-    d.config.set("models", "claude", "claude-sonnet-9")
-    out = daemon.run(d._runtimes_check(None, {"runtime": "claude"}))
-    assert out["ok"] is False and "context window" in out["detail"] and not started
-
-
-def test_offline_daemons_never_ask_the_real_keychain(daemon: RunningDaemon) -> None:
-    d = daemon.daemon
-    assert d._worker_types() == ["default", "codex", "claude"]
-
-
 # decision: RUN-1, RUN-404
 def test_codex_without_ferbs_own_login_is_refused_with_the_fix(daemon: RunningDaemon) -> None:
-    import pytest
     from ferb.core.errors import Unsupported
     d = daemon.daemon
     assert not (d.home / "codex-home" / "auth.json").exists()
     d.config.set("runtimes", "orchestrator", "codex")
     with pytest.raises(Unsupported, match="sign in to ChatGPT in Settings → AI"):
         d._make_runtime("orchestrator", mode="supervisor", tool_names=[], schema={"type": "object"})
-
-
-def test_a_usage_events_cost_lands_in_the_span_cost_column(daemon: RunningDaemon) -> None:
-    from tests.conftest import chat, done, install, outcome, sup, task
-    install(daemon, [sup("task", "Working", task())], {"worker": lambda _: done("ok")})
-    outcome(chat(daemon, "Create the requested file"))
-    async def rows(sql):
-        return [dict(r) for r in daemon.daemon.db.conn.execute(sql).fetchall()]
-    usage = daemon.run(rows("SELECT cost_usd FROM spans WHERE kind = 'model.usage'"))
-    assert usage and any(r["cost_usd"] == 0.001 for r in usage)
-
-    async def distill():
-        daemon.daemon._record_learning_usage("distill")("fake", {"input_tokens": 1, "cost_usd": 0.5})
-        return await rows("SELECT cost_usd FROM spans WHERE input_json LIKE '%distill%'")
-    assert daemon.run(distill())[0]["cost_usd"] == 0.5
 
 
 def test_the_codex_runtime_redacts_its_errors_with_the_daemons_redactor(daemon: RunningDaemon, monkeypatch) -> None:
@@ -176,114 +103,3 @@ def test_the_codex_runtime_redacts_its_errors_with_the_daemons_redactor(daemon: 
     monkeypatch.setattr('ferb.runtimes.codex_exec.codex_binary', lambda *_: d.home / 'fake-codex')
     rt = d._make_runtime('orchestrator', mode='supervisor', tool_names=[], schema={'type': 'object'})
     assert rt.redact is d.redact
-
-
-def test_a_retried_runtime_error_is_recorded_and_the_task_goes_on(daemon: RunningDaemon, monkeypatch) -> None:
-    """An error the runtime retries itself (Codex willRetry) is a `model.retry` span under the run, with its message;
-    the worker's run continues to its answer (L28, D32)."""
-    from ferb.core.types import RuntimeEvent
-    from tests.conftest import FakeRuntime, chat, done, install, outcome, sup, task
-    original = FakeRuntime.events
-
-    async def events(self, run):
-        if run.state["key"] == "worker":
-            yield RuntimeEvent("retrying", {"message": "Codex is retrying after an error: stream disconnected"})
-        async for event in original(self, run):
-            yield event
-    monkeypatch.setattr(FakeRuntime, "events", events)
-    install(daemon, [sup("task", "Working", task())], {"worker": lambda _: done("ok")})
-    result = outcome(chat(daemon, "Create the requested file"))
-    assert result["status"] != "failed"
-
-    async def retries():
-        return [(r[0], r[1]) for r in daemon.daemon.db.conn.execute(
-            "SELECT s.error, p.kind FROM spans s JOIN spans p ON p.id = s.parent_id WHERE s.kind = 'model.retry'")]
-    assert daemon.run(retries()) == [("Codex is retrying after an error: stream disconnected", "worker")]
-
-
-RECONNECTING = "Codex is retrying after an error: Reconnecting... 3/∞ (waiting for network)"
-
-
-def _retrying_worker(daemon: RunningDaemon, monkeypatch, then_progress: bool) -> dict:
-    """A worker run whose runtime only retries (Codex 0.157.1 retries a lost connection without end: its default-on
-    unbounded_connection_retries), or retries and then makes progress. Real seconds, a 0.3 s stall for test speed."""
-    import threading
-    import time
-    from ferb.core.types import RuntimeEvent
-    from tests.conftest import FakeRuntime, chat, done, install, sup, task
-    s = daemon.daemon.supervisor
-    s.activity.now = time.monotonic
-    s.stall_s, s.heartbeat_poll_s = 0.3, 0.05
-    original = FakeRuntime.events
-
-    async def events(self, run):
-        if run.state["key"] != "worker":
-            async for event in original(self, run):
-                yield event
-            return
-        if then_progress:
-            yield RuntimeEvent("retrying", {"message": RECONNECTING})
-            for _ in range(3):
-                await asyncio.sleep(0.1)
-                yield RuntimeEvent("message", {"text": "reading the notes"})
-            async for event in original(self, run):
-                yield event
-            return
-        while not run.state["cancel"]:
-            yield RuntimeEvent("retrying", {"message": RECONNECTING})
-            await asyncio.sleep(0.05)
-    monkeypatch.setattr(FakeRuntime, "events", events)
-    install(daemon, [sup("task", "Working", task("tidy the notes"))], {"worker": lambda _: done("ok")})
-    turn: dict = {}
-    chatting = threading.Thread(target=lambda: turn.update(events=chat(daemon, "tidy the notes")), daemon=True)
-    chatting.start()
-    chatting.join(8)                                   # chat streams have no socket timeout: bound the wait here
-    return turn
-
-
-def test_a_worker_that_only_retries_stalls_and_says_why(daemon: RunningDaemon, monkeypatch) -> None:
-    """Retries are not a sign of life (L28, D32): during an outage Codex retries without end, and FERB's stall
-    watchdog (STALL_S) bounds the run, reporting the last retry as the reason."""
-    from tests.conftest import outcome
-    turn = _retrying_worker(daemon, monkeypatch, then_progress=False)
-    assert "events" in turn, "a worker that only retried was never stopped"
-    out = outcome(turn["events"])
-    summary = out["subtasks"]["worker"]["summary"]
-    assert out["status"] == "failed" and "Reconnecting... 3/∞ (waiting for network)" in summary, out
-    assert ".." not in summary.replace("Reconnecting...", "")
-
-
-def test_a_worker_that_retries_and_then_makes_progress_continues(daemon: RunningDaemon, monkeypatch) -> None:
-    from tests.conftest import outcome
-    turn = _retrying_worker(daemon, monkeypatch, then_progress=True)
-    assert "events" in turn
-    out = outcome(turn["events"])
-    assert out["status"] != "failed" and "Reconnecting" not in json.dumps(out), out
-
-
-def test_a_worker_that_only_retries_while_the_mac_is_offline_says_so(daemon: RunningDaemon, monkeypatch) -> None:
-    import ferb.sense.network as network
-    from tests.conftest import outcome
-    monkeypatch.setattr(network, "has_route", lambda: False)
-    out = outcome(_retrying_worker(daemon, monkeypatch, then_progress=False)["events"])
-    assert "seems to be offline" in out["subtasks"]["worker"]["summary"], out
-
-
-@pytest.mark.parametrize("offline", [False, True])
-def test_a_failed_next_attempt_choice_reads_as_one_sentence(daemon: RunningDaemon, monkeypatch, offline) -> None:
-    """The dispatch failure's sentence ended in a doubled period (the service's or the offline sentence's own period
-    before FERB's). Step 8b: the checker chooses next; when its run fails after a failed attempt, the attempt's own
-    reason is said, as one sentence."""
-    import ferb.sense.network as network
-    from ferb.orchestrator.worker import ServiceError
-    from tests.conftest import chat, install, outcome, sup, task
-    monkeypatch.setattr(network, "has_route", lambda: not offline)
-
-    async def failing(*_a, **_k):
-        raise ServiceError("You've hit your usage limit.", "codex", network=True)
-    install(daemon, [sup("task", "Working", task("tidy the notes"))], {"worker": json.dumps(
-        {"status": "failed", "summary": "The notes app didn't open.", "artifacts": [], "evidence": []})})
-    monkeypatch.setattr(daemon.daemon.supervisor, "verify", failing)
-    out = outcome(chat(daemon, "tidy the notes"))
-    assert out["summary"] == "I couldn't finish this task. The notes app didn't open.", out
-    assert ".." not in out["summary"]

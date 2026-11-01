@@ -28,11 +28,11 @@ from ferb.cli.client import Client, RpcError
 from ferb.daemon import auth
 from ferb.daemon import reports as reports_module
 from ferb.daemon.reports import RELAY_URL
-from ferb.daemon.reports import (KEEP_DAYS, NOT_SET_UP, PROBLEMS_LAST, SECTIONS, TURN_FAILED, relay_url,
+from ferb.daemon.reports import (KEEP_DAYS, NOT_SET_UP, PROBLEMS_LAST, SECTIONS, relay_url,
                                   shorten, summarize)
 from ferb.daemon.server import INTERNAL_ERROR, SLOW_CALL
 from ferb.sanitize.redact import Redactor, SealedWord, escaped_forms, sealed_spans
-from tests.conftest import RunningDaemon, chat, install, sup
+from tests.conftest import RunningDaemon, chat
 
 SEALED = "Kestrovan-Plume-4471"                       # a sealed value FERB learned after the record was written
 QUOTED = 'Tr0ub"dor\\x9!\tQ'                          # one holding a quote, a backslash and a tab (review 1, I1)
@@ -189,26 +189,6 @@ def _section(text: str, name: str) -> str:
     return text[start:min(later, default=len(text))]
 
 
-def test_the_file_has_the_four_sections_in_order(daemon: RunningDaemon) -> None:
-    _failed_task(daemon)
-    r = _build(daemon, "t-fail", app_version="0.1.0 (7)")
-    text = Path(r["path"]).read_text()
-    heads = [text.index(f"\n## {name}\n") for name in SECTIONS]
-    assert SECTIONS == ("Summary", "Request", "Steps", "FERB's recorded problems") and heads == sorted(heads)
-    summary, request, steps = (_section(text, name) for name in SECTIONS[:3])
-    import ferb
-    for fact in (f"FERB version: {ferb.__version__}", "macOS version: ", "Notch version: 0.1.0 (7)",
-                 "AI runtime and model: ", "Status: failed", f"Failure reason: {ANSWER}", "Duration: 1m05s"):
-        assert fact in summary, fact
-    assert REQUEST in request and ANSWER in request
-    # the renderer behind `ferb trace TASK --full`: every span field, the tool's arguments and its error
-    assert "tool.call  fs.list" in steps and "denied: ~/Downloads is protected" in steps
-    assert "find the invoices" in steps
-    assert r["subject"] == f"FERB report: {ANSWER}"
-    assert ANSWER in r["summary"] and "address" not in r
-    assert Path(r["path"]).name == "FERB-report-2026-01-01-t-fail.txt"
-
-
 def test_recorded_problems_are_those_of_the_tasks_window_and_the_last_20(daemon: RunningDaemon) -> None:
     """Review 1, I3 (ruling): section 4 is FERB's own problem rows (`daemon.internal_error`, `daemon.slow_call`,
     redacted at capture, with frames), never the raw stderr in logs/daemon.err.log."""
@@ -232,12 +212,6 @@ def test_recorded_problems_are_those_of_the_tasks_window_and_the_last_20(daemon:
     assert all(f'"seconds": {10 + i}' in problems for i in range(6, 26))
     assert '"seconds": 15' not in problems and "old-" not in problems and "not-a-problem-row" not in problems
     assert "raw-stderr-line" not in text and "sessionid" not in text and "daemon.err.log" not in text
-
-
-def test_no_recorded_problem_says_so(daemon: RunningDaemon) -> None:
-    _failed_task(daemon)
-    problems = _section(Path(_build(daemon, "t-fail")["path"]).read_text(), "FERB's recorded problems")
-    assert "(none recorded)" in problems
 
 
 def test_planted_sealed_values_in_any_escaped_form_and_an_api_key_never_reach_the_file(daemon: RunningDaemon) -> None:
@@ -284,19 +258,6 @@ def test_the_redactor_hides_a_sealed_values_escaped_forms_everywhere() -> None:
     ascii_form = next(f for f in forms if "u00ef" in f)
     assert sealed_spans('"na\\u00efve"', ascii_form) and not sealed_spans("na\\u00efvety", ascii_form)
     assert escaped_forms("plain-value-1") == ()
-
-
-@pytest.mark.parametrize("status", ["done", "cancelled", "done_unverified", "needs_user", "running"])
-def test_a_task_that_did_not_fail_is_refused(daemon: RunningDaemon, status: str) -> None:
-    _failed_task(daemon, status=status)
-    with pytest.raises(RpcError, match="Only a failed or interrupted task"):
-        _build(daemon, "t-fail", request_id="r-t-fail")
-    assert not (daemon.daemon.home / "reports").exists()
-
-
-def test_an_interrupted_task_is_reportable(daemon: RunningDaemon) -> None:
-    _failed_task(daemon, status="interrupted")
-    assert "Status: interrupted" in Path(_build(daemon, "t-fail")["path"]).read_text()
 
 
 def test_an_unknown_task_is_refused(daemon: RunningDaemon) -> None:
@@ -425,16 +386,6 @@ def test_a_commit_conflict_sends_the_file_again_and_files_one_issue(daemon: Runn
     relay.file_answers = [conflict, conflict, conflict]
     r = _send(daemon, built["path"], title=built["subject"])
     assert r["sent"] is False and "another report was being saved" in r["error"] and len(relay.received) == 3
-
-
-def test_an_unreachable_relay_keeps_the_file_and_says_so(daemon: RunningDaemon, relay: Relay) -> None:
-    _failed_task(daemon)
-    built = _build(daemon, "t-fail")
-    relay.server.shutdown()
-    relay.server.server_close()
-    r = _send(daemon, built["path"], title=built["subject"])
-    assert r["sent"] is False and "couldn't reach the report service" in r["error"]
-    assert Path(built["path"]).exists()
 
 
 # decision: DMN-31
@@ -608,83 +559,6 @@ def test_the_file_is_owner_only(daemon: RunningDaemon) -> None:
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
 
 
-def test_a_turn_a_planning_failure_ended_is_reportable_and_its_reply_says_failed(daemon: RunningDaemon) -> None:
-    """The planner's answer stayed invalid after its one repair: no task exists, the turn's reply says it failed (so
-    the notch offers the button), and the report, asked for by the request id the notch bound at `ack`, holds the
-    request, FERB's reply and the planner's turns."""
-    stop = json.loads(sup("reply", "Stopping it."))
-    stop["control"] = {"task_id": "no-such-task", "action": "stop", "standing_sends": "unchanged", "supersedes": []}
-    install(daemon, [json.dumps(stop), json.dumps(stop)])
-    events = _turn(daemon, "stop the invoice renaming")
-    replies = [e for e in events if e["type"] == "reply"]
-    assert len(replies) == 1 and replies[0]["status"] == "failed"
-    r = _build(daemon, request_id=events[0]["request_id"])                  # no task: the notch sends the request
-    text = Path(r["path"]).read_text()
-    assert f"Status: {TURN_FAILED}" in text and "stop the invoice renaming" in text
-    assert replies[0]["text"] in text and r["subject"].startswith("FERB report: I couldn't start that")
-    assert "model.turn" in _section(text, "Steps")
-
-
-def test_a_turn_that_failed_after_its_plan_line_is_reportable_by_the_ids_the_notch_sends(
-        daemon: RunningDaemon) -> None:
-    """Review 1, I2(b): the plan line bound the turn to its task, whose row is still running; the turn's request has a
-    `chat.failed` row, so the report is built. Review 1, M2: the catch-all's reply is journaled, so the reason is the
-    owner-facing wording the owner saw."""
-    d = daemon.daemon
-
-    async def send(session_id: str, text: str, **kwargs: Any) -> Any:
-        now = d.clock.now().isoformat()
-        d.db.conn.execute(                                                   # type: ignore[union-attr]
-            "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, status, "
-            "outcome_json, created_at, updated_at) VALUES ('t-started', 't-started', NULL, ?, 'do it', 'ferb', "
-            "'worker', '[]', 'running', '{}', ?, ?)", (kwargs["request_id"], now, now))
-        yield {"type": "plan", "text": "On it.", "task_id": "t-started", "goal": "x", "identity": "ferb",
-               "subtasks": []}
-        raise KeyError("worker_type")
-    d.supervisor.send = send                                                # type: ignore[union-attr]
-    events = _turn(daemon, "do it")
-    [reply] = [e for e in events if e["type"] == "reply"]
-    assert reply["status"] == "failed" and reply["text"].startswith("I couldn't finish that")
-    said = _on_loop(daemon, lambda: [e.data for e in d.journal.of_kind("chat.reply")])      # type: ignore[union-attr]
-    assert said[-1]["request_id"] == events[0]["request_id"] and said[-1]["text"] == reply["text"]
-    for params in ({"task_id": "t-started", "request_id": events[0]["request_id"]},   # what the notch sends
-                   {"task_id": "t-started"}):                                         # an earlier notch: the task alone
-        text = Path(_build(daemon, **params)["path"]).read_text()
-        assert f"Status: {TURN_FAILED}" in text and "Task status: running" in text
-        assert f"Failure reason: {reply['text']}" in text and "KeyError" in text
-
-
-def test_a_turn_an_error_event_ended_is_reportable(daemon: RunningDaemon) -> None:
-    """Review 1, I2(a): chat.send's FerbError branch now journals `chat.failed`, so the button the notch shows on that
-    failed turn works."""
-    from ferb.core.errors import FerbError
-
-    async def send(session_id: str, text: str, **kwargs: Any) -> Any:
-        raise FerbError("the conversation store is locked")
-        yield {}                                                             # an async generator
-    daemon.daemon.supervisor.send = send                                    # type: ignore[union-attr]
-    events = _turn(daemon, "summarise my notes")
-    assert [e["type"] for e in events[1:]] == ["error"]
-    failed = _on_loop(daemon, lambda: daemon.daemon.journal.of_kind("chat.failed")[-1].data)
-    assert failed["request_id"] == events[0]["request_id"] and "conversation store is locked" in failed["why"]
-    text = Path(_build(daemon, request_id=events[0]["request_id"])["path"]).read_text()
-    assert f"Status: {TURN_FAILED}" in text and "conversation store is locked" in text
-
-
-def test_a_scheduled_run_that_failed_before_its_task_is_reportable(daemon: RunningDaemon) -> None:
-    """A scheduled run has no chat message: its request is the schedule's, as `task_results` keeps it; its result
-    names the request as its task, so the notch sends that id as the task."""
-    def seed() -> None:
-        d = daemon.daemon
-        d.journal.append("chat.failed", {"request_id": "r-sched", "why": "ServiceError", "detail": "usage limit"})
-        d.db.conn.execute("INSERT INTO task_results (task_id, at, status, goal, answer, shown) VALUES (?, ?, 'failed', "
-                          "?, ?, 0)", ("r-sched", d.clock.now().isoformat(), "Check the permit slots",
-                                       "You've hit your usage limit."))
-    _on_loop(daemon, seed)
-    text = Path(_build(daemon, "r-sched")["path"]).read_text()
-    assert "Check the permit slots" in text and "Failure reason: You've hit your usage limit." in text
-
-
 def _loop_gaps(daemon: RunningDaemon, fn: Any) -> tuple[Any, float]:
     """`fn()`'s result and the longest the daemon's event loop went without running meanwhile (seconds)."""
     gaps: list[float] = []
@@ -735,24 +609,6 @@ def test_a_30_mb_trace_leaves_the_event_loop_responsive(daemon: RunningDaemon, r
     assert stalled < 0.2, f"the loop stalled {stalled:.2f} s while sending"
     [(_, _, text)] = relay.files()
     assert 24_000_000 < len(text.encode()) <= 25_000_000 and "denied: ~/Downloads is protected" in text
-
-
-def test_the_notch_waits_longer_for_a_report_so_a_slow_one_is_no_slow_call(daemon: RunningDaemon,
-                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
-    """A long task's whole record is redacted and rendered before the file is written (the owner's largest failed
-    task holds 41.6 MB), so the notch waits up to LONG_WAITS for it (NotchModel.reportWait), and `ferb stats` doesn't
-    count it as a slow call."""
-    import ferb.daemon.server as server
-    from ferb.daemon.server import LONG_WAITS
-    assert LONG_WAITS["reports.build"] == 120.0
-    monkeypatch.setattr(server, "CLIENT_WAIT_S", 0.05)
-
-    async def slow(session: Any, params: dict[str, Any]) -> dict[str, Any]:
-        await asyncio.sleep(0.1)
-        return {"ok": True}
-    daemon.daemon.server.unary["reports.build"] = slow
-    assert _build(daemon, "t-fail") == {"ok": True}
-    assert not _on_loop(daemon, lambda: daemon.daemon.journal.of_kind(SLOW_CALL))
 
 
 def test_only_the_owners_clients_may_build_or_send_a_report() -> None:

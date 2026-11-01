@@ -1,5 +1,5 @@
 """Shared learning test fixtures: a store on a fresh database and cards."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -9,17 +9,6 @@ from ferb.store.db import Database
 class Clock:
     def now(self) -> datetime:
         return datetime(2026, 10, 21, tzinfo=timezone.utc)
-
-
-class TickingClock:
-    """A clock one second later at every reading: each node a store writes is newer than the one before."""
-
-    def __init__(self) -> None:
-        self.at = datetime(2026, 10, 21, tzinfo=timezone.utc)
-
-    def now(self) -> datetime:
-        self.at += timedelta(seconds=1)
-        return self.at
 
 
 class NoMemory:

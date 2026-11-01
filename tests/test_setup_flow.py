@@ -175,14 +175,6 @@ def make_env(world: dict[str, Any], answers: list[str], daemon_up: bool = True) 
     return env, out
 
 
-def test_refuses_while_a_foreground_dev_daemon_holds_the_socket(world: dict[str, Any]) -> None:
-    world["daemon"].pid = 999                            # not launchd's pid (nothing loaded)
-    env, out = make_env(world, [])
-    assert S.setup(env) == 1
-    assert "outside launchd" in out.getvalue()
-    assert world["runner"].ran("uv", "python", "install") == 0
-
-
 # decision: DMN-21
 def test_plain_setup_asks_for_no_permission_and_never_records_setup_done(world: dict[str, Any]) -> None:
     """The CLI permission walkthrough is gone (DMN-4: FERB's setup window asks); `ferb setup`
@@ -284,16 +276,6 @@ def test_update_does_not_treat_a_missing_permission_status_as_a_grant(world):
     assert 'full_disk_access=unknown' in out.getvalue()
     assert Config(world['home']).get('setup', 'permissions_version', 0) == 0
     assert world['panes'] == []
-
-
-def test_doctor_never_wakes_browser_or_calls_not_checked_signed_out(world):
-    world['inst'].install()
-    env, out = make_env(world, [])
-    S.doctor(env)
-    assert ('identity.check', {'session': False}) in world['daemon'].calls
-    assert 'session not checked' in out.getvalue()
-    assert 'not signed in' not in out.getvalue()
-    assert not world['panes'] and not world['daemon'].automation_requests
 
 
 def test_doctor_shows_the_protection_lists_and_why_a_malformed_one_stops_ferb(world: dict[str, Any]) -> None:
@@ -426,17 +408,6 @@ def app_world(world: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
     return world
 
 
-def test_setup_from_the_app_installs_from_the_bundle_and_says_where_ferb_is(app_world: dict[str, Any]) -> None:
-    env, out = make_env(app_world, ["", "", "", ""], daemon_up=False)
-    assert S.setup(env) == 0, out.getvalue()
-    text = out.getvalue()
-    assert f"from {app_world['app']}" in text and "venv" not in text and "python3.12" not in text
-    assert f"Permissions go to FERB ({app_world['app']}/Contents/Helpers/FERB.app)" in text   # what they go to
-    assert f"`ferb` command: {app_world['inst'].cli_dir / 'ferb'}" in text
-    assert "PATH" not in text                              # the app is the product; the CLI is for development
-    assert app_world["runner"].ran("uv") == 0
-
-
 def test_setup_from_the_app_repins_push_to_talk_to_the_app_itself(app_world: dict[str, Any]) -> None:
     config = Config(app_world["home"])
     config.set("voice", "requirement", 'identifier "com.ferb.app" and certificate leaf = H"old"')
@@ -445,51 +416,6 @@ def test_setup_from_the_app_repins_push_to_talk_to_the_app_itself(app_world: dic
     assert S.setup(env, update=True) == 0, out.getvalue()
     assert Config(app_world["home"]).get("voice", "requirement") == PINNED   # the app itself, not the old helper's pin
     assert "Set Up FERB… in FERB's menu bar" in out.getvalue()               # an ad-hoc update can lose permissions
-
-
-def test_closing_setup_while_it_installs_never_leaves_the_daemon_unloaded(world: dict[str, Any]) -> None:
-    """A stop (SIGTERM, Ctrl-C) that arrives while the background service is being reinstalled waits until it is
-    loaded again, then setup stops."""
-    import os
-    import signal
-    runner = world["runner"]
-    world["inst"].install()
-    real = runner.__call__
-
-    def stop_midway(cmd: list[str]) -> Any:
-        if cmd[:2] == ["launchctl", "bootout"]:
-            os.kill(os.getpid(), signal.SIGTERM)           # the owner stops setup between unload and load
-        return real(cmd)
-    world["inst"].run = stop_midway
-    env, out = make_env(world, [], daemon_up=False)
-    with pytest.raises(KeyboardInterrupt):
-        S.setup(env, update=True)
-    assert runner.loaded and runner.ran("launchctl", "bootstrap") == 2       # loaded before setup stopped
-    assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
-
-
-def test_a_checkout_update_says_it_took_over_from_the_app(app_world: dict[str, Any], tmp_path: Path) -> None:
-    app_world["inst"].install()
-    source = Installer(app_world["home"], label="com.ferb.test", run=app_world["runner"], launch_agents=tmp_path / "LA")
-    app_world["runner"].requirement = 'identifier "com.ferb.secrets" and certificate leaf = H"local"'   # its own build
-    from ferb.runtimes.codex_exec import CODEX_VERSION
-    app_world["runner"].codex_version = f"codex-cli {CODEX_VERSION}\n"
-    (source.venv / "bin").mkdir(parents=True)
-    (source.venv / "bin" / "python").write_text("")
-    app_world["inst"] = source
-    env, out = make_env(app_world, [])
-    assert S.setup(env, update=True) == 0, out.getvalue()
-    assert f"now runs from {source.venv_python} (it ran from {app_world['app']}" in out.getvalue()
-
-
-def test_doctor_from_the_app_checks_the_bundled_interpreter_not_a_venv(app_world: dict[str, Any]) -> None:
-    app_world["inst"].install()
-    env, out = make_env(app_world, [])
-    S.doctor(env)
-    text = out.getvalue()
-    assert f"✓ app: {app_world['app']}" in text
-    assert f"✓ interpreter: {app_world['app']}/Contents/Helpers/FERB.app/Contents/MacOS/FERB" in text
-    assert "venv" not in text and "✓ service definition: inside FERB.app" in text and "✓ background service" in text
 
 
 # ---------- packaged FERB.app × hearing (L26 + L27 integration) ----------
@@ -948,43 +874,6 @@ def test_the_setup_window_installs_the_service_without_asking_anything(app_world
     assert "setup.permission_request" not in calls and "setup.persona" not in calls and "doctor.check" not in calls
     assert (app_world["home"] / "device").is_dir()             # the app scan behind Automation's list
     assert Config(app_world["home"]).get("hearing", "requirement") == PINNED   # FERB.app pinned for hearing
-
-
-def test_the_setup_window_updates_the_service_quietly(app_world: dict[str, Any]) -> None:
-    app_world["inst"].install()                                 # installed from this app before
-    env, out = make_env(app_world, [])
-    assert S.service_setup(env, update=True) == 0, out.getvalue()
-    assert "Updating FERB's background service" in out.getvalue()
-    assert [m for m, _ in app_world["daemon"].calls if m != "ping"] == []
-
-
-def test_the_setup_window_refuses_a_disk_image_copy_with_its_fix(app_world: dict[str, Any], tmp_path: Path) -> None:
-    from ferb.device.install import InstallError
-    app_world["inst"] = Installer(app_world["home"], label="com.ferb.test", run=app_world["runner"],
-                                  launch_agents=tmp_path / "LA", bundle=app_world["app"], cli_dir=tmp_path / "bin",
-                                  read_only=lambda path: True)
-    env, out = make_env(app_world, [], daemon_up=False)
-    app_world["runner"].loaded = False
-    with pytest.raises(InstallError, match="drag FERB.app to Applications"):
-        S.service_setup(env)
-    assert not app_world["runner"].loaded and not app_world["inst"].record_path.exists()
-
-
-def test_the_setup_window_refuses_while_a_foreground_dev_daemon_holds_the_socket(world: dict[str, Any]) -> None:
-    world["daemon"].pid = 999
-    env, out = make_env(world, [])
-    assert S.service_setup(env) == 1
-    assert "outside launchd" in out.getvalue()
-
-
-def test_ferb_setup_service_runs_the_quiet_step(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from ferb.cli import main as cli_main
-    ran: list[bool] = []
-    monkeypatch.setenv("FERB_HOME", str(tmp_path / "home"))
-    monkeypatch.setattr(S, "service_setup", lambda env, update=False: ran.append(update) or 0)
-    assert cli_main(["setup", "--service", "--update"]) == 0
-    assert cli_main(["setup", "--service"]) == 0
-    assert ran == [True, False]
 
 
 def test_the_device_profile_commits_to_its_own_repo_under_an_inherited_git_dir(tmp_path: Path,

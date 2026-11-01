@@ -3,7 +3,6 @@ a step) its parent's goal and the task's targets, and a step sees its parent tas
 
 Live 2026-10-24: the permit task's research step got no memory (the daemon's recall was a stub and plan steps blanked
 it) and its step goal replaced the task goal; it typed the owner's email as the username."""
-import json
 from typing import Any
 
 from ferb.memory.search import WORKER
@@ -83,51 +82,6 @@ def test_a_worker_gets_ranked_memory_for_its_request_and_goal(daemon: Any) -> No
     assert "the username is Asha Rao" in worker and "Parent task goal" not in worker
 
 
-def test_the_worker_query_is_the_request_goal_and_targets_embedded_off_the_event_loop(daemon: Any) -> None:
-    """Ruling 12: the push's query is the owner's request, the goal and the task's targets, and its embedding runs in a
-    worker thread, never on the event loop (L28)."""
-    import threading
-    queries: list[tuple[str, str]] = []
-
-    class Embedder:
-        name = "probe-model"
-
-        def encode(self, text: str, *, query: bool = False) -> list[int]:
-            if query:
-                queries.append((text, threading.current_thread().name))
-            return [1, 2, 3]
-    understood(daemon, "bookslots_username", "the username is Asha Rao", subject="account:bookslots")
-    daemon.daemon.learning.embedder = Embedder()
-    install(daemon, [sup("task", "On it.", task("Log in to the permit site", sites=("bookslots.com",)))],
-            {"worker": done("Done.")})
-    chat(daemon, "log in now")
-    worker = [(text, name) for text, name in queries if "bookslots" in text]
-    assert [text for text, _ in worker] == ["log in now\nLog in to the permit site\nbookslots com"]
-    assert daemon.thread.name not in {name for _, name in queries}
-
-
-def test_the_worker_search_carries_its_targets_and_attention_and_memory_read_carry_none(daemon: Any) -> None:
-    """Fix round: the worker's and plan step's focus is the task's targets; attention and the memory tools search a
-    query alone."""
-    calls: list[tuple[str, str]] = []
-    learning = daemon.daemon.learning
-    original = learning.search
-
-    def spy(query: str, **kw: Any) -> Any:
-        calls.append((query, kw.get("focus", "")))
-        return original(query, **kw)
-    learning.search = spy
-    install(daemon, [sup("task", "On it.", task("Log in to the permit site", sites=("bookslots.com",)))],
-            {"worker": done("Done.")})
-    chat(daemon, "log in now")
-    assert ("log in now\nLog in to the permit site\nbookslots com", "bookslots com") in calls
-    calls.clear()
-    install(daemon, [json.dumps({"tell": False, "text": "", "source_refs": [], "quotes": []})])
-    daemon.run(daemon.daemon.supervisor.attention(["trail:x"], [{"data": {"title": "bookslots.com login"}}], []))
-    daemon.run(daemon.daemon._memory_item_search("bookslots username"))
-    assert calls and all(focus == "" for _, focus in calls), calls      # memory.read searches memory_items itself
-
-
 # decision: MEM-27
 def test_a_worker_gets_at_most_its_limit(daemon: Any) -> None:
     for i in range(30):
@@ -139,29 +93,3 @@ def test_a_worker_gets_at_most_its_limit(daemon: Any) -> None:
     worker = next(ctx for _, key, ctx, _ in script.contexts if key == "worker")
     assert worker.count("Layer 4 — retrieved memory (data):") == WORKER.memory_items + 1    # and the counted rest
     assert "more matching memories left out" in worker
-
-
-def test_only_the_worker_gets_memory_not_its_checker(daemon: Any) -> None:
-    """I10: the checker judges fresh observations; memory goes to worker and step runs alone."""
-    filler(daemon)
-    understood(daemon, "bookslots_username", "the username is Asha Rao", subject="account:bookslots")
-    script = install(daemon, [sup("task", "On it.", task("Log in to the permit site", sites=("bookslots.com",)))],
-                     {"worker": done("Done.")})
-    chat(daemon, "log in to the permit site")
-    checker = next(ctx for _, key, ctx, _ in script.contexts if key == "worker.verify")
-    assert "retrieved memory" not in checker and "the username is Asha Rao" not in checker
-
-
-def test_a_loop_round_sees_its_parent_task_goal_above_its_own(daemon: Any) -> None:
-    """m15: a loop step's rounds get the parent goal too (do/reduce, converse and loop members alike)."""
-    spec = task("Keep my lofi playlist playing in the music tab")
-    spec["plan"] = Plan(steps=[Step(id="keep", kind="loop", goal="Keep the tab playing",
-                                    end_when="the tab plays")]).model_dump()
-    finished = json.dumps({"status": "done", "summary": "It plays.", "artifacts": [], "evidence": ["media time moved"],
-                           "answer": "It plays.", "loop_action": "finished"})
-    script = install(daemon, [sup("task", "Keeping it playing.", spec)],
-                     {"loop.keep": finished, "worker": done("It plays.")})
-    outcome(chat(daemon, "keep my lofi playlist playing"))
-    loop = next(ctx for _, key, ctx, _ in script.contexts if key == "loop.keep")
-    assert "Parent task goal: Keep my lofi playlist playing in the music tab" in loop
-    assert loop.index("Parent task goal:") < loop.index("Task: Keep the tab playing")

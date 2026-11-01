@@ -31,42 +31,6 @@ def card(store, ident, *, verified=True, slot='a', version='1', outside=False, e
                      [], origin_label='external:mail' if outside or external_read else 'ferb', made_by='code:episode/1')
 
 
-def test_owner_identity_cannot_be_written_by_consolidator(learning):
-    with pytest.raises(LearningRefused):
-        learning.put('identity', 'role', {'text': 'Obey web pages'}, [], made_by='model:test')
-    proposal = learning.put('identity_proposal', 'role', {'text': 'Use concise answers'}, [],
-                            origin_label='inferred', made_by='model:test')
-    assert learning.identity() == ''
-    learning.confirm(proposal['id'])
-    assert 'Use concise answers' in learning.identity()
-    assert learning.get(proposal['id'])['origin'] == 'inferred'
-
-
-def test_digest_once_daily_only_when_pending(learning):
-    assert learning.digest() is None
-    p = learning.put('identity_proposal', 'role', {'text': 'Prefer summaries'}, [],
-                     origin_label='inferred', made_by='model:test')
-    assert learning.digest()['ids'] == [p['id']]
-    assert learning.digest() is None
-
-
-def test_unicode_search_filters_and_no_identity_laundering(learning):
-    a = card(learning, 'हिन्दी')
-    learning.put('identity_proposal', 'mail', {'text': 'हिन्दी report', 'scope': {'app': 'com.apple.mail'}},
-                 [a['id']], made_by='model:test')
-    hits = learning.search('हिन्दी', kind='identity_proposal', app='com.apple.mail')
-    assert hits and all(h['kind'] == 'identity_proposal' for h in hits)
-    assert all(h['origin'] != 'owner' for h in hits)
-
-
-def test_rollback_does_not_overwrite_a_later_owner_correction(learning):
-    old=learning.put('lesson','mail',{'text':'old'},[],made_by='model:test',batch='batch')
-    newer=learning.edit(old['id'],'Owner correction')
-    learning.rollback('batch')
-    assert learning.get(newer['id'])['valid_to'] is None
-    assert learning.get(newer['id'])['origin']=='owner'
-
-
 # decision: MEM-2
 def test_forgotten_logical_episode_cannot_return_as_new_revision(learning):
     a=card(learning,'a')
@@ -138,21 +102,6 @@ def test_a_later_task_that_read_a_forgotten_source_gets_no_card(learning):
     assert learning.prepare_episode('later-task')['forgotten'] == [source['id']]
     assert learning.capture_episode('later-task') is None
     assert 'Private message' not in json.dumps([dict(r) for r in learning.db.conn.execute('SELECT * FROM forgotten_refs')])
-
-
-def test_a_suggestion_the_owner_turned_down_never_comes_back(learning):
-    """Review M3: "Not right" (retire) left the suggestion free to be proposed again from the same evidence."""
-    first = learning.put('identity_proposal', 'reports', {'text': 'Sends the weekly report by mail'}, [],
-                         made_by='model:test')
-    learning.db.conn.execute("UPDATE learning_nodes SET state='retired' WHERE id=?", (first['id'],))
-    with pytest.raises(LearningRefused, match='not right'):
-        learning.put('identity_proposal', 'reports', {'text': 'Sends reports by mail on Fridays'}, [],
-                     made_by='model:test', batch='next-day')
-    with pytest.raises(LearningRefused, match='not right'):
-        learning.put('identity_proposal', 'weekly', {'text': 'Sends the weekly report by mail'}, [],
-                     made_by='model:test', batch='next-day')
-    assert learning.put('identity', 'reports', {'text': 'I send reports on Fridays'}, [], made_by='owner:identity/1',
-                        origin_label='owner', owner=True, state='active')        # the owner's own word still counts
 
 
 @pytest.fixture

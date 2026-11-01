@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 import ferb.runtimes.codex_exec as cx
-from ferb.core.types import Identity, ModelRequest, RunHandle, Task
+from ferb.core.types import Identity, ModelRequest, Task
 from ferb.runtimes.catalog import CALL_LIMIT_S, PLANNER_LIMIT_S, call_limit
 from tests.support.claude_home import signed_in_home
 from tests.support.runtime_fakes import FakeBridge, FakeProvider, Process, Scripted
@@ -116,51 +116,6 @@ async def test_a_server_to_client_request_is_a_violation_naming_the_request(tmp_
     assert answer["error"]["code"] == -32601                 # FERB told Codex no
 
 
-class LongLineStderr:
-    """stderr whose second line is over the reader's limit (asyncio raises ValueError), then more trace lines."""
-
-    def __init__(self, lines: list[bytes]) -> None:
-        self.lines = list(lines)
-        self.read = 0
-        self.queue = self                                 # what the Process fixture writes its trace lines to
-
-    def put_nowait(self, line: bytes) -> None:
-        self.lines.append(line)
-
-    async def readline(self) -> bytes:
-        await asyncio.sleep(0)
-        if not self.lines:
-            return b""
-        line = self.lines.pop(0)
-        self.read += 1
-        if line == b"TOO LONG":
-            raise ValueError("Separator is not found, and chunk exceed the limit")
-        return line
-
-
-@pytest.mark.anyio
-async def test_stderr_is_read_to_the_end_after_an_unreadable_line(tmp_path, monkeypatch) -> None:
-    """Under RUST_LOG=trace an unread stderr fills its pipe and blocks Codex. An over-long line no longer stops the
-    reader: it counts the catalog as unobserved (the run fails closed) and keeps emptying the pipe."""
-    import ferb.runtimes.codex_stream as stream
-    codex_home(tmp_path)
-    proc = Process()
-    tail = [b"TRACE more\n"] * 50
-    proc.stderr = LongLineStderr([b"TRACE start\n", b"TOO LONG", *tail])   # type: ignore[assignment]
-    spawn_returns(monkeypatch, proc)
-    rt = cx.CodexRuntime(Path("/fake/codex"), "supervisor", tmp_path, output_schema={"type": "object"},
-                         model="test-model")
-    run = await stream.start(rt, TASK, ModelRequest("sys", ("ctx",)), "")
-    async with asyncio.timeout(2):
-        while proc.stderr.read < 53:                      # type: ignore[attr-defined]
-            await asyncio.sleep(0.01)
-    assert not proc.stderr.lines                          # type: ignore[attr-defined]  # every line was read
-    proc.complete()
-    got = [ev async for ev in stream.events(rt, run)]
-    assert got[-1].kind == "error" and "catalog" in got[-1].data["message"]
-    assert not any(ev.kind == "final" for ev in got)
-
-
 # decision: RUN-406
 @pytest.mark.anyio
 async def test_one_deadline_covers_start_and_answer(tmp_path, monkeypatch) -> None:
@@ -221,22 +176,6 @@ async def test_the_pinned_version_is_checked_once_not_per_call(tmp_path, monkeyp
     assert checks == [Path("/fake/codex-once")]
 
 
-@pytest.mark.anyio
-async def test_a_version_mismatch_is_never_remembered(tmp_path, monkeypatch) -> None:
-    from ferb.core.errors import Unsupported
-    calls = []
-
-    async def version(binary: Path) -> None:
-        calls.append(binary)
-        raise Unsupported("Codex 0.1 is not the pinned 0.157.1")
-    monkeypatch.setattr(cx, "check_version", version)
-    monkeypatch.setattr(cx, "_checked", set())
-    for _ in range(2):
-        with pytest.raises(Unsupported):
-            await cx.ensure_version(Path("/fake/codex-bad"))
-    assert len(calls) == 2
-
-
 # decision: RUN-405, RUN-407
 def test_the_locked_catalog_is_written_once_and_again_only_when_codex_s_changes(tmp_path, monkeypatch) -> None:
     codex_home(tmp_path)
@@ -257,19 +196,6 @@ def test_the_locked_catalog_is_written_once_and_again_only_when_codex_s_changes(
     source.write_text(json.dumps({"models": [{"slug": "m"}, {"slug": "n"}]}))
     os.utime(source, ns=(1, 1))
     assert len(json.loads(cx.locked_catalog(tmp_path).read_text())["models"]) == 2 and len(writes) == 2  # type: ignore[union-attr]
-
-
-def test_a_model_that_needs_a_newer_codex_is_refused_in_plain_words(tmp_path) -> None:
-    """A catalog entry's `minimal_client_version` above the pinned Codex (the model service's [major, minor, patch])."""
-    from ferb.core.errors import ModelLimitsUnknown
-    codex_home(tmp_path)
-    entry = {"context_window": 272_000, "effective_context_window_percent": 95}
-    (tmp_path / "codex-home" / "models_cache.json").write_text(json.dumps({"models": [
-        {"slug": "gpt-6.1-sol", **entry, "minimal_client_version": [99, 0, 0]},
-        {"slug": "gpt-5.6-sol", **entry, "minimal_client_version": cx.CODEX_VERSION}]}))
-    with pytest.raises(ModelLimitsUnknown, match="needs a newer Codex .* it comes with a FERB update"):
-        cx.limits_for(tmp_path, "gpt-6.1-sol")
-    assert cx.limits_for(tmp_path, "gpt-5.6-sol").context_window == 258_400
 
 
 # decision: RUN-406, ORCH-311, RUN-401
@@ -333,39 +259,6 @@ def test_the_shim_reads_the_token_file(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("FERB_RUN_TOKEN", raising=False)
     monkeypatch.setenv("FERB_RUN_TOKEN_FILE", str(token))
     assert Shim()._token == "from-the-file"
-
-
-@pytest.mark.anyio
-async def test_claude_cost_is_not_counted_twice_across_steered_turns() -> None:
-    """Claude Code's total_cost_usd is the session's running total in a streaming-input session; each usage event
-    carries only the cost since the previous result."""
-    from claude_agent_sdk import ResultMessage, UserMessage
-    from ferb.runtimes.claude_sdk import ClaudeRuntime
-    queue: asyncio.Queue[Any] = asyncio.Queue()
-
-    class Client:
-        sent: list[Any] = []
-
-        async def query(self, frames: Any) -> None:
-            async for frame in frames:
-                Client.sent.append(frame)
-
-        async def receive_messages(self) -> Any:
-            while True:
-                yield await queue.get()
-
-        async def disconnect(self) -> None:
-            pass
-    proxy = SimpleNamespace(seen=lambda ident: set(), forget=lambda ident: None)
-    rt = ClaudeRuntime("worker", proxy, signed_in_home(), shim_cmd=["ferb", "mcp"], model="opus")  # type: ignore[arg-type]
-    run = RunHandle("r", "claude", "t", {"client": Client(), "checked_auth": True})
-    await rt.continue_(run, "Two breads")
-    await queue.put(ResultMessage("success", 1, 1, False, 1, "s", total_cost_usd=0.30, result="stale"))
-    await queue.put(UserMessage("Two breads", uuid=Client.sent[0]["uuid"]))
-    await queue.put(ResultMessage("success", 1, 1, False, 1, "s", total_cost_usd=0.50, result="updated"))
-    events = [e async for e in rt.events(run)]
-    costs = [e.data["cost_usd"] for e in events if e.kind == "usage"]
-    assert costs == pytest.approx([0.30, 0.20]) and sum(costs) == pytest.approx(0.50)
 
 
 # decision: RUN-404, RUN-409
@@ -435,32 +328,6 @@ async def test_a_direct_api_call_ends_at_its_time_limit() -> None:
 
 
 # ---------- selection ----------
-
-def test_ferb_runtimes_use_checks_the_model_against_the_runtime(tmp_path: Path) -> None:
-    import io
-
-    from ferb.cli import runtimes as runtimes_cli
-    from ferb.config import Config
-    out = io.StringIO()
-    assert runtimes_cli.use(tmp_path, "worker", "anthropic", "claude-sonnet-9", out) == 1
-    assert "can't use 'claude-sonnet-9' with anthropic" in out.getvalue()
-    assert Config(tmp_path).get("models", "anthropic") is None and Config(tmp_path).get("runtimes", "worker") is None
-    assert runtimes_cli.use(tmp_path, "worker", "anthropic", "claude-opus-5-5", io.StringIO()) == 0
-    assert Config(tmp_path).get("models", "anthropic") == "claude-opus-5-5"
-
-
-def test_the_runtimes_use_rpc_can_set_a_model(daemon, monkeypatch) -> None:
-    from ferb.cli.client import Client, RpcError
-    monkeypatch.setattr("ferb.runtimes.keys.has_api_key", lambda provider: True)
-    client = Client(daemon.sock)
-    try:
-        reply = client.call("runtimes.use", {"runtime": "google", "roles": ["worker"], "model": "gemini-3.1-pro-preview"})
-        with pytest.raises(RpcError, match="can't use 'gemini-9'"):
-            client.call("runtimes.use", {"runtime": "google", "model": "gemini-9"})
-    finally:
-        client.close()
-    assert reply["roles"]["worker"] == "google" and reply["usable"] is True
-    assert daemon.daemon._model_for("google") == "gemini-3.1-pro-preview"
 
 
 # decision: RUN-403

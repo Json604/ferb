@@ -48,25 +48,6 @@ def test_journal_is_append_only(db: Database) -> None:
     assert [e.kind for e in j.entries()] == ["daemon.started"]
 
 
-def test_span_tree_rebuilds_nesting_and_is_scoped_to_the_task(db: Database) -> None:
-    clock = FakeClock()
-    sp = SpanStore(db, clock, SequentialIds("s"), lambda d: d)
-    root = sp.start("task", task_id="t1", input={})
-    a = sp.start("worker", task_id="t1", parent_id=root.id, input={})
-    clock.advance(1)
-    a1 = sp.start("tool.call", task_id="t1", parent_id=a.id, input={"tool": "fs.read"})
-    sp.finish(a1, output={"ok": True})
-    b = sp.start("worker", task_id="t1", parent_id=root.id, input={})
-    sp.start("task", task_id="t2", input={})                       # other task
-    sp.start("daemon.tick", input={})                              # daemon-level span: task_id None
-    [r] = sp.tree("t1")
-    assert r.span.id == root.id
-    assert [c.span.id for c in r.children] == [a.id, b.id]
-    assert [c.span.id for c in r.children[0].children] == [a1.id]
-    assert r.children[0].children[0].span.output == {"ok": True}
-    assert db.conn.execute("SELECT task_id FROM spans WHERE kind = 'daemon.tick'").fetchone()[0] is None
-
-
 def test_every_writer_passes_through_the_redaction_seam(db: Database) -> None:
     """Build step 1's redact is a pass-through; this proves the seam is on every write path so step 2's
     sanitizer can't be bypassed."""

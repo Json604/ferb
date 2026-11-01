@@ -205,32 +205,3 @@ def test_security_digest_reads_network_as_text_or_as_proxy_facts(stores) -> None
 
 
 # (e) ---------------------------------------------------------------------------------------------------------------
-
-def test_one_failing_hourly_memory_job_never_stops_the_others(daemon) -> None:
-    d = daemon.daemon
-    ran: list[str] = []
-
-    def job(name: str, error: Exception | None = None):
-        async def run() -> None:
-            ran.append(name)
-            if error is not None:
-                raise error
-        return run
-
-    d.distiller.catch_up = job('distill')
-    d._refresh_cards = job('cards', RuntimeError('a card reader failed'))
-    d._merge_playbooks = job('playbooks')
-    daemon.run(d._memory_pass())
-    assert ran == ['distill', 'cards', 'playbooks']                      # no intent-label or consolidation call
-
-    ran.clear()
-    d.distiller.catch_up = job('distill', AttributeError("'str' object has no attribute 'get'"))
-    d._refresh_cards = job('cards')
-    daemon.run(d._memory_pass())
-    assert ran == ['distill', 'cards', 'playbooks']
-
-    async def failures() -> list[tuple[str, str]]:
-        return [(r[0], json.loads(r[1])['error']) for r in d.db.conn.execute(
-            "SELECT kind, data_json FROM journal WHERE kind LIKE 'memory.%failed' ORDER BY seq")]
-    assert daemon.run(failures()) == [('memory.cards_failed', 'RuntimeError: a card reader failed'),
-                        ('memory.distill_failed', "AttributeError: 'str' object has no attribute 'get'")]

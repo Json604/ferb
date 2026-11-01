@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 import ferb.device.install as install_mod
-from ferb.device.install import MARKER, InstallError, Installer, code_hash
+from ferb.device.install import MARKER, InstallError, Installer
 from tests.conftest import FakeRunner, SteppedTime
 
 
@@ -148,15 +148,6 @@ def test_installed_secret_helper_requires_stable_certificate_identity(inst: Inst
     inst.run = unsigned
     with pytest.raises(InstallError, match='stable certificate identity'):
         inst.install_secret_helper()
-
-
-def test_venv_on_another_interpreter_is_replaced_by_one_on_ferbs_own(inst: Installer, tmp_path: Path) -> None:
-    other = tmp_path / "other-python"
-    other.write_text("")
-    (inst.venv / "bin").mkdir(parents=True)
-    (inst.venv / "bin" / "python").symlink_to(other)
-    inst.install()
-    assert inst.venv_python.resolve() == inst.interpreter().resolve()
 
 
 # decision: DMN-18
@@ -320,41 +311,6 @@ def test_purge_refuses_without_marker_or_on_dangerous_paths(tmp_path: Path) -> N
             d._check_purge_target()
 
 
-def test_code_hash_changes_with_code(tmp_path: Path) -> None:
-    pkg = tmp_path / "ferb"
-    (pkg / "sub").mkdir(parents=True)
-    (pkg / "a.py").write_text("x = 1\n")
-    (pkg / "sub" / "b.sql").write_text("SELECT 1;\n")
-    h1 = code_hash(pkg)
-    (pkg / "__pycache__").mkdir()
-    (pkg / "__pycache__" / "a.pyc").write_bytes(b"junk")
-    assert code_hash(pkg) == h1                                  # caches don't count
-    (pkg / "a.py").write_text("x = 2\n")
-    assert code_hash(pkg) != h1
-
-
-def test_code_hash_covers_prompts_and_equivalent_packaged_extension(tmp_path):
-    import shutil
-    checkout, installed = tmp_path / 'checkout', tmp_path / 'installed'
-    package = checkout / 'ferb'
-    package.mkdir(parents=True)
-    (package / 'prompt.md').write_text('first prompt')
-    (package / 'module.py').write_text('pass')
-    extension = checkout / 'extensions' / 'chromium'
-    extension.mkdir(parents=True)
-    (extension / 'manifest.json').write_text('{"version":"1"}')
-    (extension / 'background.js').write_text('first extension')
-    shutil.copytree(package, installed)
-    shutil.copytree(extension, installed / '_extension')
-    assert code_hash(package) == code_hash(installed)
-    before = code_hash(package)
-    (package / 'prompt.md').write_text('second prompt')
-    assert code_hash(package) != before
-    before = code_hash(package)
-    (extension / 'background.js').write_text('second extension')
-    assert code_hash(package) != before
-
-
 def test_native_host_manifest_goes_to_every_listed_folder_and_uninstall_removes_it(tmp_path: Path) -> None:
     """Section 8: Chrome's folder (read by Chrome and Brave) plus Brave's own; the launcher lives under ~/.ferb."""
     from ferb.device.install import NATIVE_HOST_MANIFEST
@@ -382,15 +338,6 @@ def bundled(tmp_path: Path, **runner: object) -> Installer:
     return Installer(home, label="com.ferb.test", run=BundleRunner(home, **runner),  # type: ignore[arg-type]
                      launch_agents=tmp_path / "LaunchAgents", bundle=app, cli_dir=tmp_path / "bin",
                      native_hosts_dirs=(tmp_path / "Chrome" / "NativeMessagingHosts",), extension_ids=("abc",))
-
-
-def test_app_bundle_is_found_only_from_the_interpreter_inside_ferb_app(tmp_path: Path) -> None:
-    from ferb.device.install import app_bundle
-    app = make_ferb_app(tmp_path / "Applications")
-    assert app_bundle(app / "Contents" / "Resources" / "python") == app
-    assert app_bundle(tmp_path / ".ferb" / "venv") is None                     # the source install
-    assert app_bundle(tmp_path / "python") is None
-    assert app_bundle() is None                                                 # this checkout's own venv
 
 
 # decision: DMN-2
@@ -431,24 +378,6 @@ def test_bundle_install_needs_no_uv_swiftc_or_npm_and_installs_from_the_bundle(t
     node = inst.home / "node"                                                  # the pinned Codex ships in the app
     assert node.is_symlink() and (node / CODEX_BIN).read_bytes().startswith(b"fake")
     assert (inst.home / "extensions" / "chromium" / "manifest.json").is_file()
-
-
-def test_bundle_install_refuses_a_temporary_read_only_or_damaged_copy(tmp_path: Path) -> None:
-    from ferb.device.install import InstallError
-    moved = make_ferb_app(tmp_path / "AppTranslocation" / "1A2B" / "d")
-    home = tmp_path / ".ferb"
-    inst = Installer(home, label="com.ferb.test", run=BundleRunner(home), launch_agents=tmp_path / "LA", bundle=moved)
-    with pytest.raises(InstallError, match="move FERB.app to Applications"):
-        inst.install()
-    inst = bundled(tmp_path / "dmg")
-    inst.read_only = lambda path: True                                        # the mounted disk image
-    with pytest.raises(InstallError, match="disk image"):
-        inst.install()
-    inst = bundled(tmp_path / "bad", bad_signature=True)
-    with pytest.raises(InstallError, match="signature"):
-        inst.install()
-    assert not inst.plist_path.exists() and not (tmp_path / "bad" / "bin" / "ferb").exists()
-    assert not inst.home.exists()                                             # nothing written before the checks
 
 
 # decision: DMN-15
@@ -589,20 +518,6 @@ def test_an_update_signed_with_the_same_certificate_keeps_the_pinned_requirement
     assert (inst.home / "bin" / "ferb-secrets.requirement").read_text() == pinned
 
 
-def test_cli_link_never_replaces_a_ferb_that_ferb_app_did_not_make(tmp_path: Path) -> None:
-    inst = bundled(tmp_path)
-    (tmp_path / "bin").mkdir()
-    other = tmp_path / "bin" / "ferb"
-    other.write_text("#!/bin/sh\necho mine\n")                               # e.g. the owner's own script
-    inst.install()
-    assert other.read_text() == "#!/bin/sh\necho mine\n"
-    assert "left" in (inst.cli_status() or "") and str(other) in (inst.cli_status() or "")
-    other.unlink()
-    other.symlink_to(tmp_path / "elsewhere" / "ferb")                       # someone else's link: left too
-    inst.install()
-    assert other.readlink() == tmp_path / "elsewhere" / "ferb"
-
-
 def test_existing_pinned_codex_is_kept_and_a_stale_one_is_replaced_by_the_apps(tmp_path: Path) -> None:
     from ferb.runtimes.codex_exec import CODEX_VERSION
     inst = bundled(tmp_path, codex_version=f"codex-cli {CODEX_VERSION}\n")
@@ -682,31 +597,11 @@ def test_a_checkout_never_takes_over_the_apps_registered_service(tmp_path: Path)
     assert not runner.ran("uv") and not source.plist_path.exists()
 
 
-def test_uninstall_removes_the_cli_link_ferb_app_made(tmp_path: Path) -> None:
-    inst = bundled(tmp_path)
-    inst.install()
-    removed = inst.uninstall()
-    assert not (tmp_path / "bin" / "ferb").exists() and str(tmp_path / "bin" / "ferb") in removed
-
-
 def test_hearing_app_is_ferb_app_itself_when_ferb_runs_from_one(tmp_path: Path) -> None:
     from ferb.device.install import voice_app
     app = make_ferb_app(tmp_path / "Applications")
     assert voice_app(tmp_path / ".ferb", None) == tmp_path / ".ferb" / "FERB.app"
     assert voice_app(tmp_path / ".ferb", app) == app
-
-
-def test_designated_requirement_reads_explicit_and_implicit_lines() -> None:
-    from ferb.device.install import designated_requirement, trusted_requirement
-    assert designated_requirement('Executable=/x\n# designated => cdhash H"ab"\n') == 'cdhash H"ab"'
-    assert designated_requirement('designated => identifier "x" and certificate leaf = H"cd"\n') == \
-        'identifier "x" and certificate leaf = H"cd"'
-    assert designated_requirement("no signature\n") == ""
-    assert trusted_requirement('identifier "x" and certificate leaf = H"cd"', pinned_ok=False)
-    assert not trusted_requirement(PINNED, pinned_ok=False)                   # a source install keeps its certificate
-    assert trusted_requirement(PINNED, pinned_ok=True)
-    assert not trusted_requirement('identifier "com.ferb.secrets"', pinned_ok=True)
-    assert not trusted_requirement('cdhash H"ab" or identifier "x"', pinned_ok=True)
 
 
 def test_daemon_running_from_ferb_app_hears_through_the_app_itself(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

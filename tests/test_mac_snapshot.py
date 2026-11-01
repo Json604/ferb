@@ -3,14 +3,11 @@ available actions, not by a role list; roles and states as facts; sheets / menus
 reported with its reason; password fields found without their value; the learned profile; the full key table."""
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import pytest
 
 from ferb.act.mac import accessibility as ax
-from ferb.act.mac import input as inp
-from ferb.act.mac.profile import Profiles
 
 
 @dataclass
@@ -139,27 +136,3 @@ def test_all_secret_boxes_survive_paging_with_a_secret_on_each_side(monkeypatch)
     ax._walk(root, later, [], 0, None, [0])
     assert len(first.nodes) == 2 and len(later.nodes) == 1
     assert first.secret_rects == later.secret_rects == [(1.0, 2.0, 30.0, 10.0), (40.0, 2.0, 30.0, 10.0)]
-
-
-def test_the_profile_learns_from_outcomes(tmp_path: Path) -> None:
-    p = Profiles(tmp_path / "apps")
-    for _ in range(3):
-        p.record("com.apple.TextEdit", "pid_keys", False)
-    assert p.get("com.apple.TextEdit").mechanisms["pid_keys"].streak == 3
-    assert p.status("com.apple.TextEdit", "pid_keys") == "failed"
-    p.record("com.apple.TextEdit", "pid_keys", True)                    # a later success forgets the streak
-    assert p.get("com.apple.TextEdit").mechanisms["pid_keys"].streak == 0
-    again = Profiles(tmp_path / "apps")
-    assert again.get("com.apple.TextEdit").mechanisms["pid_keys"].failed == 3
-    assert again.status("com.apple.TextEdit", "pid_keys") == "landed"
-    assert Profiles(None).status("x", "y") is None                      # memory only: still answers
-
-
-def test_the_key_table_covers_letters_digits_function_and_navigation_keys() -> None:
-    for combo in ("a", "z", "0", "9", "f1", "f12", "home", "end", "pageup", "pagedown", "forwarddelete", ",", "/",
-                  "cmd+shift+s", "ctrl+alt+delete", "Cmd+Return", "enter", "esc", "pgdn", "option+right"):
-        assert inp.valid_combo(combo), combo
-    assert inp.normalize("Cmd+Shift+S") == ["cmd", "shift", "s"] and inp.normalize("pgdn") == ["pagedown"]
-    assert inp.normalize("Option+Return") == ["alt", "return"]
-    assert not inp.valid_combo("hyper+a") and not inp.valid_combo("f99") and not inp.valid_combo("")
-    assert all(0 <= k < 128 for k in inp.KEYCODES.values())

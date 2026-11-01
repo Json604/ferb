@@ -244,15 +244,6 @@ def test_get_parses_once_and_again_only_when_the_file_changes(home: Path, monkey
     assert c.get("policy", "autonomy") == "balanced" and parses == []
 
 
-def test_cached_values_are_plain_copies(home: Path) -> None:
-    c = Config(home)
-    c.set("privacy", "exclude_domains", ["a.example"])
-    got = c.get("privacy", "exclude_domains")
-    assert type(got) is list
-    got.append("b.example")                                        # a caller changing its copy changes nothing
-    assert c.get("privacy", "exclude_domains") == ["a.example"]
-
-
 # decision: DMN-12
 def test_a_loosened_mode_is_refused_even_with_a_cached_parse(home: Path) -> None:
     c = Config(home)

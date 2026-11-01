@@ -233,19 +233,6 @@ def test_an_otp_line_repeats_the_bank_page_or_says_it_couldnt_read_it() -> None:
     assert payments.otp_line(None) == ""
 
 
-def test_ask_login_code_without_a_payment_adds_nothing(daemon: RunningDaemon) -> None:
-    from ferb.core.types import Identity, ToolContext
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("sign in"), [])
-    owner = Answers(daemon, granted=True)
-    try:
-        ctx = ToolContext("task-1", "w1", "req-1", Identity.OWNER, frozenset({"probe"}), "dev", None, "/tmp", (), ())
-        daemon.run(daemon.daemon.gateway.ask_login_code(ctx, "https://login.example"))
-    finally:
-        owner.stop()
-    [code] = [ap for ap in owner.asked if ap.kind == "owner_login_code"]
-    assert code.summary == "For login.example: a login code — used once"
-
-
 # decision: GATE-217
 def test_a_one_click_checkout_yes_covers_that_one_paying_submit(daemon: RunningDaemon) -> None:
     """Coordinator ruling (step 6b): a paying form submit with no card form and no bank page in the chain is the

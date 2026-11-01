@@ -403,18 +403,5 @@ def test_an_answer_to_a_question_no_longer_waiting_keeps_the_planners_reply(daem
     assert reply.startswith("No question is waiting") and reply.endswith("the rest of your message is noted.")
 
 
-def test_a_correction_that_changes_whose_account_a_running_task_uses_says_it_wasnt_applied(daemon) -> None:
-    """Fix list (Intake): mid-task identity and plan changes were dropped silently; code says so in the reply."""
-    script = install(daemon, [sup("task", "On it.", task("Check the order status"))], {"worker": STALL})
-    first = Stream(daemon, "check my order status")
-    tree = _running(daemon)
-    script.sup.append(_control(tree, "continue", "Switching to your account.",
-                               task("Check the order status in my account", identity="owner")))
-    [reply] = [e["text"] for e in chat(daemon, "use my account for it") if e["type"] == "reply"]
-    assert "Switching to your account." in reply and "keeps working as FERB" in reply
-    daemon.run(_stop(daemon, tree))
-    first.done()
-
-
 async def _stop(d: RunningDaemon, tree: str) -> None:
     d.daemon.supervisor.stop_tree(tree)

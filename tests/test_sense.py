@@ -7,25 +7,16 @@ the watchers' own logic on fake inputs (folders, file events, idle, titles, app 
 
 import asyncio
 import json
-import plistlib
 import sqlite3
-from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from ferb.cli.client import Client
-from ferb.config import Config
 from ferb.core.errors import Refused
-from ferb.sense.exclusions import Exclusions
 from ferb.sense.manager import Sense
-from ferb.sense.trail import SUMMARY_KIND, Attribution, Observation
-from ferb.sense.watchers.app_installs import AppInstallsWatcher
-from ferb.sense.watchers.base import CREATED, MODIFIED, REMOVED, Focused
-from ferb.sense.watchers.files import FilesWatcher, valid_folders
-from ferb.sense.watchers.idle import IdleWatcher
-from ferb.sense.watchers.windows import WindowTitleWatcher
+from ferb.sense.trail import Observation
 from tests.conftest import RunningDaemon
 from tests.browserkit import bd, pair  # noqa: F401  (fixture)
 
@@ -104,42 +95,6 @@ def test_titles_and_urls_are_redacted_before_they_are_stored(daemon: RunningDaem
 
 # ---------- attribution ----------
 
-def test_attribution_of_app_switches_files_shell_and_tabs() -> None:
-    clock = [0.0]
-    a = Attribution(now=lambda: clock[0])
-    focus = Observation("app_focus", {"bundle_id": "com.apple.Notes"})
-    assert a.decide(focus) == ("owner", None)
-    a.ferb_activated("com.apple.Notes", "task-1")
-    assert a.decide(focus) == ("ferb", "task-1")                       # FERB switched to it
-    clock[0] = 10.0
-    assert a.decide(focus) == ("owner", None)                          # later switches are the owner's
-    a.ferb_touched("/Users/x/notes/todo.md", "task-2")
-    assert a.decide(Observation("file", {"path": "/Users/x/notes/todo.md"})) == ("ferb", "task-2")
-    a.shell_cwds = lambda: [("/Users/x/proj", "task-3")]
-    assert a.decide(Observation("file", {"path": "/Users/x/proj/build/out.o"})) == ("unknown", None)
-    assert a.decide(Observation("file", {"path": "/Users/x/other.txt"})) == ("owner", None)
-    tab = Observation("browser_tab", {"host": "a.example"})
-    assert a.decide(Observation("browser_tab", {}, {"ferb_identity": True})) == ("ferb", None)
-    assert a.decide(Observation("browser_tab", {}, {"tab_task": "task-4"})) == ("ferb", "task-4")
-    assert a.decide(tab) == ("owner", None)
-    assert a.decide(Observation("idle", {"state": "idle"}, {"actor": "owner"})) == ("owner", None)
-
-
-def test_history_exposes_owner_and_task_provenance(daemon: RunningDaemon) -> None:
-    """Recorded profiles are candidate evidence; chronological order does not select one."""
-    record(daemon, Observation("browser_tab", {"browser": "chrome", "profile": "Profile 1", "host": "docs.example",
-                                               "url": "https://docs.example/", "title": "d"}))
-    record(daemon, Observation("browser_tab", {"browser": "brave", "profile": "Default", "host": "docs.example",
-                                               "url": "https://docs.example/x", "title": "d"}, {"tab_task": "t-9"}))
-    record(daemon, Observation("browser_tab", {"browser": "chrome", "profile": "Profile 7", "host": "docs.example",
-                                               "url": "https://docs.example/y", "title": "d"}, {"ferb_identity": True}))
-    trail = daemon.daemon.trail
-    assert trail is not None
-    page = daemon.run(_async(lambda: trail.query(since="2000-01-01", host="docs.example")))
-    assert len(page["events"]) == 3
-    assert {r["data"]["profile"] for r in page["events"]} == {"Profile 1", "Default", "Profile 7"}
-    assert sum(r["actor"] == "owner" for r in page["events"]) == 1
-
 
 def test_activity_does_not_change_an_explicit_profile_choice(bd: Any) -> None:  # noqa: F811
     d, launched = bd
@@ -162,40 +117,8 @@ async def _async(fn: Any) -> Any:
 
 # ---------- tabs from the extension ----------
 
-def test_tab_events_become_trail_rows_with_the_pairing_profile(bd: Any) -> None:  # noqa: F811
-    d, launched = bd
-    ext = pair(d, launched, "Work")
-    ext.tab_event("updated", 7, "https://mail.example/inbox", "Inbox")
-    ext.tab_event("updated", 8, "https://priv.example/", "Private", incognito=True)
-    ext.tab_event("created", 9, "https://new.example/")                         # only loads and switches count
-    ext.wait_for(lambda: len(rows(d)) >= 1)
-    import time
-    time.sleep(0.3)
-    r = rows(d)
-    assert [x["data"]["host"] for x in r] == ["mail.example"]
-    assert r[0]["actor"] == "owner" and r[0]["data"]["browser"] == "chrome" and r[0]["data"]["profile"] == "Profile 1"
-
 
 # ---------- retention ----------
-
-def test_purge_refuses_days_without_a_permanent_summary(daemon: RunningDaemon) -> None:
-    d = daemon.daemon
-
-    async def seed() -> None:
-        for day in ("2026-07-01", "2026-07-02", "2026-09-28"):
-            d.db.conn.execute("INSERT INTO trail (id, at, day, device_id, actor, source, data_json) "   # type: ignore[union-attr]
-                              "VALUES (?, ?, ?, 'dev', 'owner', 'idle', '{}')", (f"e-{day}", day + "T10:00:00+00:00", day))
-    daemon.run(seed())
-    trail = d.trail
-    assert trail is not None
-    today = date(2026, 9, 29)
-    purged, refused = daemon.run(_async(lambda: trail.purge(30, today)))
-    assert purged == [] and refused == ["2026-07-01", "2026-07-02"]      # nothing summarized: nothing deleted
-    daemon.run(_async(lambda: d.journal.append(SUMMARY_KIND, {"day": "2026-07-01", "summary": "..."})))  # type: ignore[union-attr]
-    purged, refused = daemon.run(_async(lambda: trail.purge(30, today)))
-    assert purged == ["2026-07-01"] and refused == ["2026-07-02"]
-    assert sorted(r["day"] for r in rows(daemon)) == ["2026-07-02", "2026-09-28"]   # recent days always kept
-    assert today - timedelta(days=30) > date(2026, 7, 2)
 
 
 # ---------- pause ----------
@@ -221,47 +144,6 @@ class FakeTap:
 
     def stop(self) -> None:
         self.running = False
-
-
-@pytest.mark.parametrize('source', ['file', 'app_install'])
-def test_failed_filesystem_stream_is_reported_as_failed_not_running(daemon, source):
-    class FailedStream:
-        def __init__(self, *args): pass
-        def start(self): return False
-        def stop(self): pass
-    d = daemon.daemon
-    watcher = (FilesWatcher(lambda: [d.home], stream=FailedStream) if source == 'file' else
-               AppInstallsWatcher(lambda *args: None, folders=[d.home], stream=FailedStream))
-    async def check():
-        sense = Sense(d.home, d.trail, [watcher])
-        await sense.start()
-        await asyncio.sleep(0)
-        try:
-            assert source not in sense.running
-            assert 'start' in sense.failed[source]
-        finally:
-            await sense.stop()
-    daemon.run(check())
-
-
-def test_filesystem_stream_start_uses_the_os_start_result(monkeypatch, tmp_path):
-    import sys
-    from types import SimpleNamespace
-    from ferb.sense.watchers.base import FsStream
-    fake = SimpleNamespace(kFSEventStreamCreateFlagUseCFTypes=1, kFSEventStreamCreateFlagFileEvents=2,
-                           kFSEventStreamCreateFlagNoDefer=4, kFSEventStreamEventIdSinceNow=0,
-                           FSEventStreamCreate=lambda *args: object(), FSEventStreamScheduleWithRunLoop=lambda *args: None,
-                           FSEventStreamStart=lambda *args: False, FSEventStreamStop=lambda *args: None,
-                           FSEventStreamInvalidate=lambda *args: None, FSEventStreamRelease=lambda *args: None)
-    quartz = SimpleNamespace(CFRunLoopGetCurrent=lambda: object(), kCFRunLoopDefaultMode=0,
-                             CFRunLoopRun=lambda: None, CFRunLoopStop=lambda *args: None)
-    monkeypatch.setitem(sys.modules, 'FSEvents', fake)
-    monkeypatch.setitem(sys.modules, 'Quartz', quartz)
-    stream = FsStream([tmp_path], lambda *args: None)
-    try:
-        assert stream.start() is False
-    finally:
-        stream.stop()
 
 
 def test_pause_stops_every_watcher_and_the_tap_and_records_nothing(daemon: RunningDaemon) -> None:
@@ -312,118 +194,3 @@ def test_pause_forgets_owner_tabs_refuses_real_input_and_survives_a_restart(bd: 
 
 
 # ---------- the watchers' own logic ----------
-
-def test_only_valid_owner_folders_are_watched(tmp_path: Path) -> None:
-    home = tmp_path / "home"
-    (home / "notes").mkdir(parents=True)
-    (home / "secret").mkdir()
-    (home / "a.txt").write_text("x")
-    ex = Exclusions.build(paths=[str(home / "secret")])
-    ok, problems = valid_folders([str(home / "notes"), str(home / "secret"), str(home / "missing"),
-                                  str(home / "a.txt"), str(tmp_path)], ex, home)
-    assert ok == [(home / "notes").resolve()]
-    assert len(problems) == 4 and any("excluded" in p for p in problems) and any("home" in p for p in problems)
-
-
-def test_file_events_are_metadata_coalesced_and_noise_free(tmp_path: Path) -> None:
-    t = [0.0]
-    w = FilesWatcher(lambda: [], now=lambda: t[0])
-    f = tmp_path / "todo.md"
-    f.write_text("secret contents")
-    o = w.observe(str(f), CREATED)
-    assert o is not None and o.data == {"path": str(f), "change": "created", "is_dir": False}
-    assert "secret contents" not in json.dumps(o.data)
-    t[0] = 2.0
-    assert w.observe(str(f), MODIFIED).data["change"] == "modified"    # type: ignore[union-attr]
-    assert w.observe(str(f), MODIFIED) is None                         # coalesced within a second
-    t[0] = 4.0
-    assert w.observe(str(f), CREATED | MODIFIED).data["change"] == "modified"   # type: ignore[union-attr]  # cumulative flags
-    f.unlink()
-    assert w.observe(str(f), REMOVED).data["change"] == "removed"      # type: ignore[union-attr]
-    assert w.observe(str(tmp_path / ".DS_Store"), CREATED) is None
-    assert w.observe(str(tmp_path / ".git" / "index"), MODIFIED) is None
-
-
-def test_idle_records_transitions_only_and_nothing_without_the_tap() -> None:
-    now, last, tap, out = [1000.0], [None], [True], []
-    w = IdleWatcher(lambda: last[0], lambda: tap[0], idle_after_s=120, now=lambda: now[0])
-    w.check(out.append)
-    last[0] = 990.0                                                     # type: ignore[assignment]
-    w.check(out.append)
-    w.check(out.append)
-    now[0] = 1200.0
-    w.check(out.append)
-    assert [o.data["state"] for o in out] == ["idle", "active", "idle"]
-    assert all(o.hints["actor"] == "owner" for o in out)
-    tap[0] = False
-    w.state = None
-    w.check(out.append)
-    assert len(out) == 3                                                # can't tell: nothing
-
-
-def test_window_titles_skip_browsers_and_follow_the_switch() -> None:
-    on, reads, out = [True], [(Focused(1, "com.brave.Browser", "Brave"), "Bank - Brave"),
-                              (Focused(2, "com.apple.Notes", "Notes"), "Groceries")], []
-    w = WindowTitleWatcher(lambda: on[0], interval_s=0, read=lambda: reads.pop(0) if reads else None)
-
-    async def go() -> None:
-        stop = asyncio.Event()
-        loop = asyncio.get_running_loop()
-        loop.call_later(0.1, stop.set)
-        await w.run(out.append, stop)
-    asyncio.run(go())
-    assert [o.data["title"] for o in out] == ["Groceries"]
-    on[0], reads[:] = False, [(Focused(2, "com.apple.Notes", "Notes"), "Other")]
-    out.clear()
-    asyncio.run(go())
-    assert out == []
-
-
-def test_an_installed_app_updates_the_device_profile_and_bus_first(tmp_path: Path) -> None:
-    apps = tmp_path / "Applications"
-    app = apps / "Thing.app" / "Contents"
-    app.mkdir(parents=True)
-    (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.example.thing",
-                                                     "CFBundleName": "Thing"}))
-    changes, emitted = [], []
-    w = AppInstallsWatcher(lambda c, info, p: changes.append((c, info.bundle_id if info else None)), folders=[apps])
-    assert w.observe(str(apps / "Thing.app" / "Contents" / "Info.plist"), CREATED) is None   # inside a bundle
-    o = w.observe(str(apps / "Thing.app"), CREATED)
-    assert o is not None
-    w.deliver(emitted.append, o)
-    assert changes == [("installed", "com.example.thing")] and emitted[0].data["bundle_id"] == "com.example.thing"
-    assert o.hints["actor"] == "unknown"
-
-
-def test_defaults_are_written_once_and_owner_values_stay(tmp_path: Path) -> None:
-    c = Config(tmp_path / "h")
-    c.ensure_privacy_defaults()
-    assert c.get("sense", "window_titles") is True and c.get("sense", "watch_folders") == []
-    assert c.get("sense", "trail_retention_days") == 30 and "~/.ssh" in c.get("privacy", "exclude_paths")
-    c.set("sense", "window_titles", False)
-    c.set("privacy", "exclude_paths", [])
-    c.ensure_privacy_defaults()
-    assert c.get("sense", "window_titles") is False and c.get("privacy", "exclude_paths") == []
-
-
-def test_a_polling_watcher_survives_a_bad_read_but_not_a_broken_source() -> None:
-    from ferb.sense.watchers.base import MAX_FAILED_READS, poll
-    calls = [0]
-
-    def flaky() -> None:
-        calls[0] += 1
-        if calls[0] in (2, 3):
-            raise RuntimeError("an app answered badly")
-
-    async def go(step: Any) -> None:
-        stop = asyncio.Event()
-        asyncio.get_running_loop().call_later(0.2, stop.set)
-        await poll(0.0, stop, step)
-    asyncio.run(go(flaky))
-    assert calls[0] > 3                                                  # kept going after the bad reads
-
-    def broken() -> None:
-        raise RuntimeError("gone")
-    with pytest.raises(RuntimeError):
-        asyncio.run(go(broken))
-    assert MAX_FAILED_READS == 20

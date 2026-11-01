@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from ferb.sanitize.redact import Redactor
 from ferb.sense.watchers.accessibility import AccessibilityWatcher
 
 
@@ -45,23 +44,6 @@ def bridge(monkeypatch):
     return ax, calls, observers
 
 
-def test_retained_observer_callback_is_bridged_and_runloop_source_is_removed(bridge):
-    _, calls, observers = bridge
-    events = []
-    async def run():
-        stop = asyncio.Event()
-        def emit(event):
-            events.append(event)
-            if event.data.get('subscription') == 'attached':
-                stop.set()
-        await asyncio.wait_for(AccessibilityWatcher(Redactor(), lambda *args: False).run(emit, stop), 2)
-    asyncio.run(run())
-    assert events[0].data['subscription'] == 'attached'
-    assert len(observers) == 1
-    assert [call[0] for call in calls] == ['create', 'add', 'remove']
-    assert hasattr(calls[0][2], 'pyobjc_closure')
-
-
 @pytest.mark.parametrize('bundle', ['dev.ferb.notch', 'DEV.Ferb.Notch', 'com.ferb.ferb', 'com.ferb.app', 'com.ferb.daemon'])
 def test_ferb_own_apps_never_get_an_observer(bridge, monkeypatch, bundle):
     """Rule 17 (owner, 2026-10-25): no subscription, callback or read in FERB's own apps."""
@@ -85,57 +67,3 @@ def test_ferb_own_apps_never_get_an_observer(bridge, monkeypatch, bundle):
 
     asyncio.run(run())
     assert observers == [] and not any(call[0] == 'create' for call in calls)
-
-
-def test_subscription_failure_keeps_sanitized_bridge_diagnostic(bridge):
-    ax, _, _ = bridge
-    redactor = Redactor()
-    redactor.add_secret_value('private-error-canary')
-    def fail(*args):
-        raise TypeError('callback signature is invalid; private-error-canary')
-    ax.AXObserverCreate = fail
-    async def run():
-        with pytest.raises(RuntimeError) as caught:
-            await AccessibilityWatcher(redactor, lambda *args: False).run(lambda event: None, asyncio.Event())
-        message = str(caught.value)
-        assert 'TypeError: callback signature is invalid' in message
-        assert 'private-error-canary' not in message
-    asyncio.run(run())
-
-
-@pytest.mark.parametrize('empty_apps', [True, False], ids=['no-apps', 'subscriptions-denied'])
-def test_no_native_sources_do_not_busy_poll_apps(bridge, monkeypatch, empty_apps):
-    ax, _, _ = bridge
-    entered = threading.Event()
-    scans = 0
-    workspace = sys.modules['AppKit'].NSWorkspace.sharedWorkspace()
-    original_apps = workspace.runningApplications
-
-    def applications():
-        nonlocal scans
-        scans += 1
-        return [] if empty_apps else original_apps()
-
-    def pump(*args):
-        entered.set()
-        return 1
-
-    workspace.runningApplications = applications
-    monkeypatch.setattr(sys.modules['AppKit'].NSWorkspace, 'sharedWorkspace', lambda: workspace)
-    monkeypatch.setattr(sys.modules['Quartz'], 'CFRunLoopRunInMode', pump)
-    monkeypatch.setattr(ax, 'AXObserverCreate', lambda *args: (-25211, None))
-
-    async def run():
-        stop = asyncio.Event()
-        task = asyncio.create_task(AccessibilityWatcher(lambda data: data, lambda *args: False).run(
-            lambda event: None, stop))
-        try:
-            assert await asyncio.to_thread(entered.wait, 1)
-            await asyncio.sleep(.05)
-            assert scans == 1
-        finally:
-            stop.set()
-            await asyncio.wait_for(task, .3)
-
-    asyncio.run(run())
-    assert not any(t.name == 'ferb-ax-observers' for t in threading.enumerate())

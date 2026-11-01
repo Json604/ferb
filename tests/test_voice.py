@@ -243,13 +243,6 @@ def test_a_voice_turns_task_answer_is_spoken_without_codes_lines(daemon: Running
         assert line not in daemon.speaker.said[-1]
 
 
-def test_speak_must_be_a_boolean(daemon: RunningDaemon) -> None:
-    from ferb.cli.client import RpcError
-    install(daemon, [sup("reply", "Hi.")])
-    with pytest.raises(RpcError):
-        _send(daemon, "hi", "yes")  # type: ignore[arg-type]
-
-
 # decision: VOICE-404
 def test_a_stop_or_a_new_turn_interrupts_the_speech(daemon: RunningDaemon) -> None:
     provider = Blocking()

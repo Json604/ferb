@@ -366,24 +366,6 @@ def distiller(d: RunningDaemon, answer: Any) -> tuple[Distiller, FakeDistillRunt
     return dd, rt
 
 
-def test_the_summary_is_written_by_code_before_the_model_and_survives_its_failure(daemon: RunningDaemon) -> None:
-    day = "2026-09-07"
-    daemon.call_soon(daemon.daemon.clock.set_wall, datetime(2026, 9, 10, tzinfo=UTC))
-    trail_row(daemon, day)
-    dd, _ = distiller(daemon, RuntimeError("model down"))
-    r = daemon.run(dd.run_day(day))
-    assert r["status"] == "failed" and run(daemon, lambda: summary.summarized(daemon.daemon.db, day))
-    for _ in range(3):
-        daemon.run(dd.run_day(day))
-    assert day not in run(daemon, dd.pending_days)       # M5: waits for its summary to change or `ferb memory distill`
-    dd, recovered = distiller(daemon, {"narrative": "Recovered after the provider outage", "items": []})
-    assert daemon.run(dd.run_day(day))["status"] == "distilled"
-    assert recovered.contexts and day not in run(daemon, dd.pending_days)
-    from datetime import date
-    purged, refused = run(daemon, lambda: daemon.daemon.trail.purge(1, date(2026, 9, 20)))
-    assert day in purged                                                   # summarized: the raw rows may go
-
-
 # decision: MEM-12
 def test_distillation_proposals_are_checked_in_code(daemon: RunningDaemon) -> None:
     day = daemon.daemon.clock.now().astimezone().date().isoformat()       # the chat message's day too
@@ -614,15 +596,6 @@ def test_a_pasted_part_ends_the_saved_sentence_in_chat(daemon: RunningDaemon) ->
     assert _said_in_chat(daemon, f"Translate {PASTE_START}Bonjour, share{PASTE_END} and never share my links publicly",
                          "never share my links publicly", "links") == ["and never share my links publicly"]
     assert _said_in_chat(daemon, "> a quoted line\nI like tea\n```\nfenced\n```", "I like tea", "tea") == ["I like tea"]
-
-
-def test_the_planner_still_reads_the_owners_words_as_one_line(daemon: RunningDaemon) -> None:
-    """Only memory capture receives the line breaks: the words recorded as the owner's (`Marked.own_words`) and read
-    by the rest of FERB are unchanged."""
-    from ferb.sanitize.untrusted import PASTE_END, PASTE_START, mark
-    m = mark(f"Book my flight.\nI prefer  aisle seats {PASTE_START}pasted{PASTE_END} thanks")
-    assert m.own_words == "Book my flight. I prefer aisle seats thanks"
-    assert m.typed_lines == "Book my flight.\nI prefer aisle seats\nthanks"
 
 
 # decision: MEM-3

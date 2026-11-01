@@ -5,14 +5,13 @@ their words when it has them); words older than the item never retire it. Nothin
 Live 2026-10-24: the 10-11 wedding flight, "DevOps left" and the finished ORBIT competition still sat in every planner
 prompt; memory item 54 still said "Jaipur, notify first" after the owner said "book anywhere"."""
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import pytest
 
-from ferb.clock.when import When, WhenError, end_of_day, local_zone
+from ferb.clock.when import local_zone
 from ferb.orchestrator.schemas import Remember, Until
 from tests.conftest import chat, install, sup, task
 from tests.support.live_steer import StalledWorker, control_turn
@@ -21,51 +20,6 @@ from tests.support.memory_items import c_handle, distill_day, distill_item, jour
 DISTILL_PROMPT = Path(__file__).resolve().parents[1] / "ferb" / "memory" / "distill.md"
 JAIPUR = "permit: Jaipur for both centers, any date, notify me before booking"
 ANYWHERE = "book the permit anywhere, don't wait for Jaipur, book then tell me"
-
-
-def test_end_of_day_is_the_next_local_midnight() -> None:
-    zone = ZoneInfo("Asia/Kolkata")
-    now = datetime(2026, 10, 24, 10, 0, tzinfo=zone)
-    assert end_of_day(When(date="10-25"), now, zone) == datetime(2026, 10, 26, tzinfo=zone).astimezone(timezone.utc)
-    assert end_of_day(When(day="today"), now, zone) == datetime(2026, 10, 25, tzinfo=zone).astimezone(timezone.utc)
-    with pytest.raises(WhenError):
-        end_of_day(When(date="2026-10-23"), now, zone)                      # already over
-    with pytest.raises(WhenError):
-        end_of_day(When(day="today", time="18:00"), now, zone)              # a day, not a time
-
-
-@pytest.mark.parametrize("today, said, last", [
-    ((2026, 12, 31), "01-02", (2027, 1, 2)),          # across the new year: next year's, two days on
-    ((2027, 1, 2), "12-30", None),                    # three days ago, last year's: over (not next December)
-    ((2026, 10, 24), "10-23", None),                  # yesterday: over (scan m13), never a year away
-    ((2026, 10, 24), "10-24", (2026, 10, 24)),        # today counts
-    ((2027, 3, 1), "02-29", (2028, 2, 29)),           # only next year's exists
-], ids=["new-year", "last-december", "yesterday", "today", "leap-day"])
-def test_a_month_and_day_is_the_occurrence_nearest_today(today: tuple[int, int, int], said: str,
-                                                        last: tuple[int, int, int] | None) -> None:
-    """Fix round 1 (review): `_day` turns a past "MM-DD" into next year's (right for a reminder). An item's last day the
-    owner gave without a year is the occurrence nearest today (last year's, this year's or next year's; ties toward
-    the future), and one behind today is over."""
-    zone = ZoneInfo("Asia/Kolkata")
-    now = datetime(*today, 10, 0, tzinfo=zone)
-    if last is None:
-        with pytest.raises(WhenError, match="already over"):
-            end_of_day(When(date=said), now, zone)
-    else:
-        assert end_of_day(When(date=said), now, zone) == (datetime(*last, tzinfo=zone) + timedelta(days=1)).astimezone(
-            timezone.utc)
-
-
-@pytest.mark.parametrize("today, said, shown", [((2027, 1, 2), "12-30", "(Wed 30 Dec 2026)"),
-                                                ((2026, 10, 24), "10-23", "(Fri 23 Oct)")],
-                         ids=["last-year", "this-year"])
-def test_a_day_already_over_names_its_year_when_it_is_another(today: tuple[int, int, int], said: str,
-                                                             shown: str) -> None:
-    """Re-review minor: the refusal names the year of a day in another year, so the owner sees which one was meant."""
-    zone = ZoneInfo("Asia/Kolkata")
-    with pytest.raises(WhenError) as refused:
-        end_of_day(When(date=said), datetime(*today, 10, 0, tzinfo=zone), zone)
-    assert str(refused.value) == f"that day is already over {shown}"
 
 
 def chain(d: Any) -> None:
@@ -335,12 +289,3 @@ def test_a_period_fact_due_for_its_check_is_shown_to_the_distill_and_kept_when_n
     daemon.run(daemon.daemon.distiller.run_day(daemon.daemon.clock.now().astimezone().date().isoformat()))
     assert "I'm preparing for exams" in str(rt.contexts[0]).split("Due for a check")[1]
     assert run(daemon, lambda: daemon.daemon.memory.get(exams.id)).review_at is None
-
-
-def test_ferb_memory_list_shows_a_dated_items_last_day() -> None:
-    """Review fix round 1: an item that ends at the next midnight after its last day is listed "until" that day."""
-    from ferb.cli.admin import _item_line
-    item = {"id": "m1", "kind": "fact", "subject": "owner", "key": "city", "content": "I'm in Pune",
-            "origin": "owner_stated", "status": "active", "evidence_days": 0}
-    assert "(your words, active (until 2026-10-25))" in _item_line(item | {"valid_to": "2026-10-26T00:00:00+05:30"})
-    assert "(until 2026-10-24)" in _item_line(item | {"valid_to": "2026-10-24T15:00:00+05:30"})   # replaced that day

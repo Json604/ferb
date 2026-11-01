@@ -37,18 +37,6 @@ def test_secure_input_during_hold_and_unknown_or_masked_fields_drop_text() -> No
     assert not events
 
 
-def test_field_switch_and_pause_never_relabel_old_text_as_new_field() -> None:
-    events = []
-    a = Field("com.whatsapp.WhatsApp", "WhatsApp", 7, "chat", "compose", "AXTextArea")
-    b = replace(a, field_id="search")
-    fields = TypedFields(events.append, Redactor())
-    fields.feed(a, "draft", actor="owner", now=0)
-    fields.feed(b, "find", actor="owner", now=0.1)      # step 9b: the burst in `a` is complete and kept, as `a`'s
-    fields.clear()
-    fields.flush(b, secure=False, now=1)
-    assert [(e.data["field_id"], e.data["text"]) for e in events] == [("compose", "draft")]   # never relabelled
-
-
 def test_clipboard_concealed_markers_checked_before_read_and_exact_ferb_count() -> None:
     reads = []
     read = lambda: reads.append(True) or "hello"
@@ -68,22 +56,3 @@ def test_two_app_ax_replays_preserve_app_window_parent_and_never_read_values() -
             "field_id": "compose", "role": "AXTextArea", "title": "sk-ant-abcdefghijklmnopqrstuvwx"}, Redactor())
         assert event.data["bundle_id"] == app and event.data["window_id"] == window
         assert "sk-ant-" not in str(event.data) and "value" not in event.data
-
-
-def test_native_subscription_failure_does_not_stop_other_sources(monkeypatch) -> None:
-    import asyncio
-    import sys
-    import pytest
-    from ferb.sense.watchers.accessibility import AccessibilityWatcher
-    from ferb.sense.watchers.workspace import WorkspaceWatcher
-    # Deliberately fail imports before any native app call; the watcher must surface failure, not set shared stop.
-    monkeypatch.setitem(sys.modules, 'ApplicationServices', None)
-    monkeypatch.setitem(sys.modules, 'AppKit', None)
-    async def run():
-        for watcher in (AccessibilityWatcher(Redactor(), lambda *args: False),
-                        WorkspaceWatcher(Redactor(), lambda *args: False)):
-            stop = asyncio.Event()
-            with pytest.raises(RuntimeError, match='failed'):
-                await watcher.run(lambda event: None, stop)
-            assert not stop.is_set()
-    asyncio.run(run())

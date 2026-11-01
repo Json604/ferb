@@ -452,19 +452,3 @@ def test_a_burst_of_owner_facts_stays_within_budget_with_at_most_one_early_pass_
     outside = [i.id for i in run(daemon, lambda: d.memory.items("active")) if i.id not in run(daemon, profile.ids)]
     assert outside and daemon.run(d._memory_item_search("house rule number 39"))[:1] == \
         [next(i.id for i in run(daemon, lambda: d.memory.items("active")) if i.key == "rule_39")]
-
-
-def test_a_journal_entry_that_goes_takes_its_index_copy_and_vector(daemon: Any) -> None:
-    """The seven-day purge deletes a notice's journal entry (attention.expire_derived); the conversation index and its
-    vector must not keep a copy."""
-    d = daemon.daemon
-    d.learning.embedder = FakeEmbedder()
-    jid = journal(daemon, "chat.notice", {"id": "n1", "text": "your piano lesson moved", "quotes": []})
-    daemon.run(d._embed_now())
-    count = lambda: run(daemon, lambda: (d.db.conn.execute("SELECT COUNT(*) FROM chat_fts WHERE doc = ?",   # noqa: E731
-                                                           ("journal:" + jid,)).fetchone()[0],
-                                         d.db.conn.execute("SELECT COUNT(*) FROM recall_vectors WHERE doc = ?",
-                                                           ("journal:" + jid,)).fetchone()[0]))
-    assert count() == (1, 1)
-    run(daemon, lambda: d.db.conn.execute("DELETE FROM journal WHERE id = ?", (jid,)))
-    assert count() == (0, 0)

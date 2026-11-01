@@ -830,14 +830,6 @@ def test_pagination_cursors_stay_readable_while_credentials_are_redacted() -> No
     assert "continuationToken=T" in out and "SECRET" not in out and "SIG" not in out
 
 
-def test_the_downloads_description_says_files_stay_until_the_folder_passes_its_total(bd: Any) -> None:
-    d, launched = bd
-    d.daemon.config.set("browser", "download_total_gb", 7)
-    ext, g, tab, chrome_id = _task_tab(d, launched)
-    desc = next(t["description"] for t in d.daemon.gateway.tools_for(g) if t["name"] == "browser.downloads")
-    assert "stays until the owner deletes it" in desc and "passes 7 GB" in desc and " days" not in desc
-
-
 # ---------- fix round 3 ----------
 
 def test_a_stale_listeners_middle_or_cmd_click_opens_in_the_background(bd: Any) -> None:

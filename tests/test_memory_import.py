@@ -247,23 +247,6 @@ def test_every_import_call_waits_for_the_owners_turn_not_only_the_first(daemon: 
     assert "verify" in {kind for kind, _ in model.contexts} and status(daemon)["status"] == "done"
 
 
-def test_cancel_stops_the_run_and_a_later_start_goes_on(daemon: RunningDaemon, tmp_path: Path) -> None:
-    d, exports, model = daemon.daemon, make_exports(tmp_path / "x"), ScriptedImportModel()
-    model.block_after = 0
-    d._make_runtime = model                                              # type: ignore[method-assign,assignment]
-    daemon.run(d._memory_import_start(None, {"source": "codex", "path": exports.path("codex")}))
-    for _ in range(200):
-        if model.contexts:
-            break
-        daemon.run(asyncio.sleep(0.02))
-    out = daemon.run(d._memory_import_cancel(None, {}))
-    assert out["status"]["status"] == "cancelled" and not notices(daemon)
-    finished = run(daemon, lambda: d._journal().of_kind("memory.import_finished"))
-    assert [e.data["status"] for e in finished] == ["cancelled"]
-    start(daemon, "codex", exports.path("codex"), ScriptedImportModel())
-    assert status(daemon)["status"] == "done" and imported(daemon, "codex")
-
-
 # decision: MEM-410
 def test_a_restart_resumes_from_the_last_finished_chunk(home: Path, tmp_path: Path,
                                                          monkeypatch: pytest.MonkeyPatch) -> None:

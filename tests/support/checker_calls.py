@@ -4,11 +4,10 @@ task.evidence calls it needs), and a narrowed window for the checker's next call
 
 import json
 import re
-from typing import Any, Callable
+from typing import Any
 
 from pydantic import BaseModel
 
-from ferb.core.context import ContextBlock, overhead_chars
 from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolContext, ToolResult
 from tests.conftest import tool
 
@@ -36,13 +35,6 @@ class Echo:
 
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
         return ToolResult({"text": args.text + "." * args.pad}, read_sources=self.reads)
-
-
-class Saves(Echo):
-    """A probe action whose result is short whatever it is given: how many characters it saved."""
-
-    async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
-        return ToolResult({"saved": len(args.text) + args.pad})
 
 
 class Pads(Echo):
@@ -116,57 +108,11 @@ def rebuild(sock: Any, token: str, context: str, *, use_context: bool = True) ->
     return texts, calls
 
 
-def narrow_checker(monkeypatch: Any, keep: Callable[[ContextBlock], bool]) -> None:
-    """The checker's calls get a per-input character cap that holds its protected context, a marker for every block
-    left out, and exactly the recorded calls `keep` selects, with far less than one more call's room to spare. The
-    choice of what fits stays `assemble`'s own."""
-    import ferb.orchestrator.worker as worker
-    real = worker.assemble
-
-    def fitted(blocks: list[ContextBlock], *, budget_tokens: int, reserved_tokens: int = 0,
-               max_chars: int | None = None) -> Any:
-        active = [b for b in blocks if b.text]
-        if any(b.text.startswith("Recorded call ") for b in active):
-            def marker(b: ContextBlock) -> int:
-                return len(f"[Context omitted; fetch full text: {b.reference}]")
-            base = overhead_chars(budget_tokens, reserved_tokens) + 64 + sum(
-                len(b.text) + 2 if b.protected else marker(b) + 2 for b in active)
-            max_chars = base + sum(len(b.text) - marker(b) for b in active if not b.protected and keep(b))
-        return real(blocks, budget_tokens=budget_tokens, reserved_tokens=reserved_tokens, max_chars=max_chars)
-    monkeypatch.setattr(worker, "assemble", fitted)
-
-
 # A fold note `assemble` writes for the lowest-priority recorded calls whose markers couldn't all fit (fix round 1, I1)
 FOLDED = re.compile(r"\[(\d+) more not shown or listed one by one; fetch full text: task\.evidence kind=tool\.call, "
                     r"the (observations|actions) among these recorded calls — from task\.evidence span_id=([^\s]+) "
                     r"\(recorded call (\d+) of \d+: [^)]*\) to task\.evidence span_id=([^\s]+) "
                     r"\(recorded call (\d+) of \d+: [^)]*\)\]")
-
-
-def recorded_task(daemon: Any, task_id: str, calls: int) -> tuple[list[str], list[str]]:
-    """A worker run of `calls` short recorded calls (about 340 characters each, as in review 1's measurement), every
-    third an action: their span ids and roles, in recorded order. Recorded with FERB's production ids (32 hex
-    characters), not the test daemon's short sequential ones, so each marker is its real size."""
-    from ferb.core.ids import RandomIds
-    from ferb.store.spans import SpanStore
-
-    async def go() -> tuple[list[str], list[str]]:
-        d = daemon.daemon
-        spans = SpanStore(d.db, d.clock, RandomIds(), d.redact)
-        run = spans.start("worker", task_id=task_id, input={"goal": "label these emails"})
-        ids, roles = [], []
-        for i in range(calls):
-            acts = i % 3 == 0
-            span = spans.start("tool.call", task_id=task_id, parent_id=run.id,
-                               input={"tool": "probe.act" if acts else "probe.read",
-                                      "args": {"text": f"label message {i}"}, "kind": "navigate" if acts else "read"})
-            spans.finish(span, output={"text": f"message {i}: " + "subject and preview line " * 8},
-                         origin="external:email")
-            ids.append(span.id)
-            roles.append("action" if acts else "observation")
-        spans.finish(run, output={})
-        return ids, roles
-    return daemon.run(go(), timeout=300)                        # type: ignore[no-any-return]
 
 
 def reachable(context: str, ids: list[str], roles: list[str]) -> tuple[set[str], set[str], set[str]]:

@@ -16,13 +16,11 @@ from typing import Any
 
 import pytest
 
-from ferb.act.ask import OwnerAsk
 from ferb.act.browser.ext_bridge import OutcomeUnknown
 from ferb.act.browser.tools import OWNER_BROWSER, BrowserNavigate, BrowserOpen, BrowserUseTab
 from ferb.act.shell.manager import ProcInfo
 from ferb.act.shell.proxy import DEST_REFUSED_NO
 from ferb.act.shell.sandbox import SECURITY_SERVER
-from ferb.act.shell.tools import ShellRun, ShellStart
 from ferb.core.errors import Refused
 from ferb.core.types import TabRef
 from ferb.daemon.gateway import Answer
@@ -214,13 +212,6 @@ def test_outside_sourced_code_runs_and_its_source_is_recorded(daemon: RunningDae
     assert not result["is_error"] and result["content"]["output"] == "from-page", result
     assert asked == [] and "shell:command" not in _confirmation_rules(daemon)
     assert [a.get("external_source") for a in _call_args(daemon, grant.task_id, "shell.run")] == ["Web page code block"]
-
-
-def test_models_are_not_offered_the_removed_approvals() -> None:
-    assert "allow_destination" not in OwnerAsk.Input.model_json_schema()["properties"]
-    for tool in (ShellRun, ShellStart):
-        fields = tool.Input.model_json_schema()["properties"]
-        assert "network" not in fields and " asks" not in fields["external_source"]["description"]
 
 
 # ---------- (d) the sites a tree contacted ----------

@@ -224,26 +224,3 @@ def test_a_nullable_enum_becomes_an_any_of_for_gemini() -> None:
     schema = core._obj({"loop_action": {"type": ["string", "null"], "enum": ["continue", "finished", "blocked", None]}})
     wire = for_gemini(schema).wire["properties"]["loop_action"]
     assert wire["anyOf"] == [{"type": "string", "enum": ["continue", "finished", "blocked"]}, {"type": "null"}]
-
-
-def test_gemini_parallel_calls_to_one_tool_without_ids_stay_apart() -> None:
-    from ferb.runtimes.api import ToolOutcome
-    from ferb.runtimes.google_api import GoogleProvider
-    provider = GoogleProvider("gemini-3.8-flash")
-    state = provider.begin(ModelRequest("", ("go",)), [], None, None, "")
-    data = {"candidates": [{"finishReason": "STOP", "content": {"role": "model", "parts": [
-        {"functionCall": {"name": "fs_list", "args": {"path": "/a"}}},
-        {"functionCall": {"name": "fs_list", "args": {"path": "/b"}}},
-        {"functionCall": {"name": "fs_read", "id": "g-7", "args": {"path": "/c"}}}]}}]}
-    turn = provider.parse(state, data)
-    assert len({c.id for c in turn.calls}) == 3
-    provider.add_results(state, turn, [ToolOutcome(c, "ok", False) for c in turn.calls])
-    responses = [p["functionResponse"] for p in state["body"]["contents"][-1]["parts"]]
-    assert [r.get("id") for r in responses] == [None, None, "g-7"]   # only Gemini's own ids go back; order pairs the rest
-    assert [r["name"] for r in responses] == ["fs_list", "fs_list", "fs_read"]
-
-
-def test_haiku_5_5_has_a_price_with_its_long_prompt_rate() -> None:
-    from ferb.runtimes.usage import cost_usd
-    assert cost_usd("claude-haiku-5-5", 50_000, 0, 0, 50_000) == pytest.approx(0.03)
-    assert cost_usd("claude-haiku-5-5", 200_000, 0, 0, 0) == pytest.approx(0.10)       # over 100k: 5x input

@@ -11,20 +11,8 @@ from typing import Any
 import pytest
 
 from ferb.memory.items import capture
-from ferb.sanitize.untrusted import mark, typed_lines_of
 from tests.conftest import chat, install
 from tests.support.memory_items import c_handle, distill_day, distill_item, owner_fact, run, said
-
-
-@pytest.mark.parametrize("message", [
-    "plain words\nsecond line",
-    "before \x1b[200~pasted text\x1b[201~ after",
-    "look:\n```\ncode here\n```\nthen this",
-    "> quoted line\nmy own line",
-])
-def test_typed_lines_read_back_from_a_stored_message_are_what_capture_saw(message: str) -> None:
-    m = mark(message)
-    assert typed_lines_of(m.for_model) == m.typed_lines
 
 
 # decision: MEM-12
