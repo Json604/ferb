@@ -59,3 +59,23 @@ see = ["ORCH-307", "ORCH-323"]
 ["typed card"]
 meaning = "A structured card (reminder, event, note, payment, send, link, file) built from FERB's own records and drawn by the notch next to the answer."
 see = ["ORCH-329", "ORCH-321"]
+
+["prompt patch"]
+meaning = "A one-off line added to a runtime prompt after an incident; patches were removed in step 10b and corrections now go to memory."
+see = ["PRM-300", "PRM-301"]
+
+["shared prefix"]
+meaning = "The small block every role's instructions start with (interaction.md: trust, voice, background first, R2, R5, R10)."
+see = ["PRM-315"]
+
+["role block"]
+meaning = "A short prompt file in prompts/roles/ that code appends to the worker's instructions only when a run needs it (step, loop, watch, parts, scheduled...)."
+see = ["PRM-315"]
+
+["watch"]
+meaning = "A schedule that checks something outside FERB's own work (\"tell me when X\") and survives restarts; never a loop or sleep inside a task."
+see = ["PRM-311"]
+
+["R1-R10"]
+meaning = "The ten general prompt rules that replaced the incident patches (PRM-303 to PRM-312)."
+see = ["PRM-301", "PRM-303", "PRM-312"]
