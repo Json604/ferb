@@ -34,7 +34,7 @@ enum IntroCopy {
     // MARK: 2. Sign in
 
     static let signIn = IntroLine(text: "First, connect me to an AI service.",
-                                  detail: "Sign in with ChatGPT or Claude. I send it only what a task needs, with passwords and codes taken out.",
+                                  detail: "Sign in with ChatGPT or Claude. Your passwords, codes and card numbers never go to the AI: I keep them on this Mac and fill them in myself.",
                                   choices: [IntroChoice(Pick.codex, "ChatGPT"), IntroChoice(Pick.claude, "Claude"),
                                             IntroChoice(Pick.otherWays, "Other ways to connect")])
     static func signInFailed(_ why: String?) -> IntroLine {
@@ -52,7 +52,7 @@ enum IntroCopy {
     static let claudeCode = IntroLine(text: "Paste the code the sign-in page shows.",
                                       choices: [IntroChoice(Pick.back, "Back")],
                                       entry: IntroEntry(placeholder: "Code from the page", secure: true))
-    static let otherWays = IntroLine(text: "Or use an API key.", detail: "It's kept in your Keychain, on this Mac.",
+    static let otherWays = IntroLine(text: "Or use an API key.", detail: "Your key is kept in your Keychain, on this Mac.",
                                      choices: APIProvider.allCases.map { IntroChoice(Pick.key($0), $0.label) }
                                         + [IntroChoice(Pick.back, "Back")])
     static func pasteKey(_ provider: APIProvider) -> IntroLine {
@@ -107,6 +107,7 @@ enum IntroCopy {
                                     choices: [IntroChoice(Pick.pairAll, "Pair all"),
                                               IntroChoice(Pick.browsersLater, "Later")])
     static let pairing = IntroLine(text: "Pairing your browsers…")
+    static let pairingOrb = IntroLine(text: "If your browser asks, turn FERB on here")
     static let paired = IntroLine(text: "Paired.")
     static func notPaired(_ why: String) -> IntroLine {
         IntroLine(text: "Not all of them paired.", detail: why,
@@ -154,6 +155,11 @@ enum IntroCopy {
                       + [IntroChoice(Pick.notNow, "Not now")])
     }
     static let previewing = IntroLine(text: "Here's how I'd do it…")
+    /// The orb's bubble at the app the previewed task would use: it only points.
+    static func wouldUse(_ target: IntroAppTarget, browser: Bool) -> IntroLine {
+        IntroLine(text: browser || target.name.isEmpty ? "I'd use your browser for this" : "I'd use \(target.name) for this",
+                  iconPath: target.iconPath)
+    }
     static func previewed(otherShown: Bool) -> IntroLine {
         IntroLine(text: "That's how I'd do it. Nothing was done.",
                   detail: "Want me to do it for real once the tour ends?",

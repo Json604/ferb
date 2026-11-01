@@ -50,8 +50,35 @@ final class IntroControllerTests: XCTestCase {
         var all: [IntroLine] = []
     }
 
+    /// A Mac with one 1440×900 screen, Finder running with a window, Notes installed but not running.
+    static func mac(browser: Bool = false) -> IntroAppResolver {
+        var resolver = IntroAppResolver()
+        resolver.running = {
+            [IntroAppResolver.RunningApp(pid: 10, name: "Finder", bundleID: "com.apple.finder",
+                                         bundlePath: "/System/Library/CoreServices/Finder.app")]
+                + (browser ? [IntroAppResolver.RunningApp(pid: 20, name: "Example Browser",
+                                                          bundleID: "com.example.browser",
+                                                          bundlePath: "/Applications/Example Browser.app")] : [])
+        }
+        resolver.windows = {
+            [RawWindow(pid: 10, bounds: CGRect(x: 400, y: 100, width: 600, height: 400), layer: 0),
+             RawWindow(pid: 10, bounds: CGRect(x: 420, y: 120, width: 100, height: 50), layer: 0)]
+                + (browser ? [RawWindow(pid: 20, bounds: CGRect(x: 0, y: 25, width: 1440, height: 875), layer: 0)] : [])
+        }
+        resolver.defaultBrowser = { URL(fileURLWithPath: "/Applications/Example Browser.app") }
+        resolver.bundleID = { $0.lastPathComponent == "Example Browser.app" ? "com.example.browser" : nil }
+        resolver.installed = { ["Notes": "/System/Applications/Notes.app"][$0] }
+        resolver.screens = { [(frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+                               visible: CGRect(x: 0, y: 0, width: 1440, height: 875))] }
+        resolver.primaryHeight = { 900 }
+        resolver.notch = { CGPoint(x: 720, y: 888) }
+        return resolver
+    }
+    static let besideFinder = CGPoint(x: 384, y: 600)      // left of Finder's window (AppKit 400…1000, 400…800)
+    static let resting = CGPoint(x: 720, y: 600)           // below the notch, a third of the way down
+
     func tour(_ action: AppSetupAction = .none, background: BackgroundServiceRegistering? = nil,
-              clipSeconds: Double = 7.3) -> Tour {
+              clipSeconds: Double = 7.3, apps: IntroAppLocating? = nil) -> Tour {
         let rig = SetupRig()
         rig.rpc.replies["runtimes.status"] = Self.connected
         rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
@@ -70,7 +97,7 @@ final class IntroControllerTests: XCTestCase {
         let controls = FakeControlFeed()
         let controller = IntroController(setup: setup, orb: orb, sound: sound, notch: notch,
                                          progress: IntroProgress(defaults: defaults), controls: controls,
-                                         sleeper: sleeper, clipSeconds: clipSeconds)
+                                         apps: apps ?? Self.mac(), sleeper: sleeper, clipSeconds: clipSeconds)
         let log = LineLog()
         notch.$introLine.compactMap { $0 }.sink { log.all.append($0) }.store(in: &subscriptions)
         addTeardownBlock { @MainActor in controller.skip() }
@@ -318,6 +345,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertNil(t.notch.introLine)
         await eventually { finished == 1 }
         XCTAssertEqual(t.controller.remainingRequired, ["full_disk_access"])   // only required steps are left
+        XCTAssertFalse(t.rig.rpc.methods().contains("setup.finish"))      // a grant is off: setup isn't done
         try? await Task.sleep(for: .milliseconds(30))
         XCTAssertFalse(t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_AllFiles") })
         XCTAssertFalse(t.rig.rpc.methods().contains("setup.browsers_pair_all"))
@@ -485,5 +513,100 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertTrue(t.lines.all.contains(IntroCopy.alreadyPaused))     // explained, not practised
         XCTAssertFalse(t.rig.rpc.methods().contains("sense.resume"))
         XCTAssertTrue(t.notch.daemonPaused)
+    }
+
+    // MARK: Round 2
+
+    func testSkipWithNothingLeftRecordsSetupDone() async {
+        let t = tour()
+        var finished = 0
+        t.controller.onFinished = { finished += 1 }
+        t.controller.start(beats: [.browsers, .home])
+        await eventually { t.notch.introLine?.choices.contains { $0.id == "pairAll" } == true }
+        t.controller.skip()
+        await eventually { finished == 1 }
+        XCTAssertEqual(t.controller.remainingRequired, [])
+        XCTAssertEqual(t.rig.rpc.params(of: "setup.finish").count, 1)
+    }
+
+    func testTryPointsTheOrbAtTheAppThePreviewWouldUse() async {
+        let t = tour()
+        t.rig.rpc.replies["intro.suggest"] = ["suggestions": [["request": Self.suggestions[0], "app": "Finder"],
+                                                              ["request": Self.suggestions[1], "app": "Notes"]],
+                                              "fits": true]
+        var shownWhenHome: [Bool] = []
+        t.orb.onFlyHome = { [notch = t.notch] in
+            shownWhenHome.append(notch.conversation.turns.contains { $0.preview && $0.card != nil })
+        }
+        t.controller.start(beats: [.tryIt, .home])
+        await t.pick("suggestion.0")
+        await eventually { t.orb.flyHomes == 1 }
+        XCTAssertEqual(t.orb.launches.map(\.point), [Self.besideFinder])          // beside Finder's window
+        XCTAssertEqual(t.orb.launches.first?.instruction?.text, "I'd use Finder for this")
+        XCTAssertEqual(shownWhenHome, [true])                                   // home once the plan was shown
+        await t.pick("otherSuggestion")
+        await eventually { t.orb.flyHomes == 2 }
+        XCTAssertEqual(t.orb.launches.last?.point, Self.resting)                // Notes isn't running
+        XCTAssertEqual(t.orb.launches.last?.instruction?.text, "I'd use Notes for this")
+        XCTAssertEqual(t.orb.launches.last?.instruction?.iconPath, "/System/Applications/Notes.app")
+        XCTAssertEqual(t.orb.launches.count, 2)
+    }
+
+    func testTheBrowsersBeatPointsTheOrbWhilePairing() async {
+        let t = tour(apps: Self.mac(browser: true))
+        t.rig.rpc.replies["setup.browsers"] = ["browsers": [["browser": "example", "label": "Example Browser",
+                                                              "profiles": [[String: Any]]()]]]
+        var pairedWhenHome: [Bool] = []
+        t.orb.onFlyHome = { [rpc = t.rig.rpc] in pairedWhenHome.append(rpc.methods().contains("setup.browsers_pair_all")) }
+        t.controller.start(beats: [.browsers, .home])
+        await t.pick("pairAll")
+        await eventually { t.progress.done }
+        XCTAssertEqual(t.orb.launches.count, 1)
+        XCTAssertEqual(t.orb.launches.first?.instruction, IntroCopy.pairingOrb)
+        XCTAssertEqual(t.orb.launches.first?.point, CGPoint(x: 720, y: 809))    // inside a window too wide to stand beside
+        XCTAssertEqual(pairedWhenHome, [true])                                  // home after the pair-all reply
+    }
+}
+
+/// Where the intro's orb points for an app, from injected sources (no real app is looked up, opened or brought forward).
+@MainActor
+final class IntroAppTargetsTests: XCTestCase {
+    func testARunningAppsLargestWindowIsTheTarget() {
+        let target = IntroControllerTests.mac().target(app: "finder")            // names match regardless of case
+        XCTAssertEqual(target.point, IntroControllerTests.besideFinder)
+        XCTAssertTrue(target.onWindow)
+        XCTAssertEqual(target.name, "Finder")
+    }
+
+    func testTheDefaultBrowserIsResolvedFromLaunchServices() {
+        let target = IntroControllerTests.mac(browser: true).target(app: "")
+        XCTAssertEqual(target.name, "Example Browser")
+        XCTAssertEqual(target.point, CGPoint(x: 720, y: 809))
+        XCTAssertEqual(target.iconPath, "/Applications/Example Browser.app")
+        let closed = IntroControllerTests.mac().target(app: "")                 // installed, not running
+        XCTAssertEqual(closed.point, IntroControllerTests.resting)
+        XCTAssertEqual(closed.name, "Example Browser")
+    }
+
+    func testAMissingAppGoesToTheRestingPoint() {
+        let installed = IntroControllerTests.mac().target(app: "Notes")
+        XCTAssertEqual(installed.point, IntroControllerTests.resting)
+        XCTAssertFalse(installed.onWindow)
+        XCTAssertEqual(installed.iconPath, "/System/Applications/Notes.app")
+        let unknown = IntroControllerTests.mac().target(app: "Example Editor")
+        XCTAssertEqual(unknown.point, IntroControllerTests.resting)
+        XCTAssertNil(unknown.iconPath)                                          // not installed: no icon
+    }
+
+    func testTheFrontmostWindowOfThoseAppsIsPicked() {
+        var resolver = IntroControllerTests.mac(browser: true)
+        resolver.windows = {                                                    // front to back
+            [RawWindow(pid: 20, bounds: CGRect(x: 0, y: 0, width: 300, height: 30), layer: 25),   // a menu-bar extra
+             RawWindow(pid: 10, bounds: CGRect(x: 400, y: 100, width: 600, height: 400), layer: 0),
+             RawWindow(pid: 20, bounds: CGRect(x: 0, y: 25, width: 1440, height: 875), layer: 0)]
+        }
+        XCTAssertEqual(resolver.frontWindow(of: ["Example Browser", "Finder"]), IntroControllerTests.besideFinder)
+        XCTAssertEqual(resolver.frontWindow(of: ["Example Browser"]), CGPoint(x: 720, y: 809))
+        XCTAssertNil(resolver.frontWindow(of: ["Notes"]))
     }
 }

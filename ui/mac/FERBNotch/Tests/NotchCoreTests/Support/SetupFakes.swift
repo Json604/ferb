@@ -175,7 +175,9 @@ func eventually(_ condition: @escaping () -> Bool, file: StaticString = #filePat
 final class FakeOrb: OrbControlling {
     var onHomeArrival: (@MainActor () -> Void)?
     private(set) var docks: [(url: URL?, instruction: IntroLine?)] = []
-    private(set) var launches: [CGPoint] = []
+    private(set) var launches: [(point: CGPoint, instruction: IntroLine?)] = []
+    /// Runs as each flight home begins (a test reads what had happened by then).
+    var onFlyHome: (() -> Void)?
     private(set) var hops = 0
     private(set) var flyHomes = 0
     private(set) var tearDowns = 0
@@ -183,11 +185,12 @@ final class FakeOrb: OrbControlling {
     private var inFlight: CheckedContinuation<Void, Never>?
     var flying: Bool { inFlight != nil }
 
-    func launch(to target: CGPoint, instruction: IntroLine?) async { launches.append(target) }
+    func launch(to target: CGPoint, instruction: IntroLine?) async { launches.append((target, instruction)) }
     func dockBesideSettings(dragging url: URL?, instruction: IntroLine?) { docks.append((url, instruction)) }
     func hop() { hops += 1 }
     func flyHome() async {
         flyHomes += 1
+        onFlyHome?()
         guard holdFlyHome else { return }
         await withCheckedContinuation { inFlight = $0 }
     }

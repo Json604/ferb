@@ -41,9 +41,12 @@ public enum SettingsAnchor {
     }
 
     /// Settings' on-screen window the orb follows: the largest one (sheets and tooltips are smaller).
-    public static func window(in windows: [WindowInfo]) -> WindowInfo? {
+    public static func window(in windows: [WindowInfo]) -> WindowInfo? { largestWindow(of: bundleID, in: windows) }
+
+    /// An app's main on-screen window: its largest (sheets and tooltips are smaller).
+    public static func largestWindow(of owner: String, in windows: [WindowInfo]) -> WindowInfo? {
         windows
-            .filter { $0.owner == bundleID && $0.onScreen && $0.bounds.width > 0 && $0.bounds.height > 0 }
+            .filter { $0.owner == owner && $0.onScreen && $0.bounds.width > 0 && $0.bounds.height > 0 }
             .max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height }
     }
 
@@ -51,6 +54,12 @@ public enum SettingsAnchor {
     /// Nil when Settings isn't in front, has no on-screen window, or the orb fits on neither side.
     public static func dock(for windows: [WindowInfo], orb: CGSize, screen: CGRect) -> CGPoint? {
         guard let w = window(in: windows), w.isFrontmostApp else { return nil }
+        return beside(w, orb: orb, screen: screen)
+    }
+
+    /// The orb's centre beside a window: to its left, else its right, clamped vertically into `screen`; nil when the
+    /// orb fits on neither side.
+    public static func beside(_ w: WindowInfo, orb: CGSize, screen: CGRect) -> CGPoint? {
         let half = CGSize(width: orb.width / 2, height: orb.height / 2)
         let left = w.bounds.minX - gap
         let right = w.bounds.maxX + gap

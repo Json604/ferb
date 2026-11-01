@@ -178,6 +178,9 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       the browser); code tops a reply with fewer than two up from its two general tasks (`GENERAL_TASKS`). The call
       ends at `SUGGEST_LIMIT_S`, a technical bound just under the app's wait for the method (server.LONG_WAITS), never
       an owner cap; then the general tasks.)
+      (Setup intro Task 8 round 2, owner 2026-11-01: intro.md's each request also names its one main "app" as macOS
+      shows it, preferring apps the scan saw, "" for the usual browser, so the intro's orb flies to that app while the
+      plan shows; code redacts it like the request and keeps 60 characters; the general tasks carry "Finder" and "".)
       (Step 10b: the rewrite keeps every one of these as one line of the field it describes: pause, cross-chat control
       and the restart rule's "messages read together", folders, keep_tabs_open, retry for identity/plan changes, parts,
       until/set_end, the remember/forget contract with login_origin (example removed), replaces, until, review_in_days and

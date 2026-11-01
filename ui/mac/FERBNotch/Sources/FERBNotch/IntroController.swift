@@ -33,6 +33,8 @@ final class IntroController {
     let notch: NotchModel
     let controls: IntroControlFeeding
     let sleeper: IntroSleeping
+    /// Where an app is on screen, for the orb's trips in Try and Pair browsers.
+    let apps: IntroAppLocating
     var progress: IntroProgress
     private let clipSeconds: Double
     /// The tour ended (finished or skipped); `remainingRequired` says what a skip left.
@@ -58,6 +60,8 @@ final class IntroController {
     var replayID: UUID?
     var seenControls: Set<IntroControl> = []
     var controlWaiter: (() -> Void)?
+    /// The orb on its way to an app (Try's preview): the flight home waits for it to have arrived.
+    var orbTrip: Task<Void, Never>?
     private var activation: NSObjectProtocol?
 
     var rpc: DaemonRPCTransport { setup.rpc }
@@ -66,7 +70,8 @@ final class IntroController {
 
     /// `clipSeconds`: the first-launch clip's length (nil: read from the bundled file).
     init(setup: SetupModel, orb: OrbControlling, sound: FerbSoundPlaying, notch: NotchModel, progress: IntroProgress,
-         controls: IntroControlFeeding, sleeper: IntroSleeping? = nil, clipSeconds: Double? = nil) {
+         controls: IntroControlFeeding, apps: IntroAppLocating? = nil, sleeper: IntroSleeping? = nil,
+         clipSeconds: Double? = nil) {
         self.setup = setup
         self.orb = orb
         self.sound = sound
@@ -74,6 +79,7 @@ final class IntroController {
         self.progress = progress
         self.controls = controls
         self.sleeper = sleeper ?? IntroTaskSleeper()
+        self.apps = apps ?? IntroAppResolver()
         self.clipSeconds = clipSeconds ?? Self.firstLaunchClipSeconds() ?? 0
     }
 
@@ -125,7 +131,8 @@ final class IntroController {
 
     /// Skip, at any point: everything the tour drew, played or said is gone at once; then what's still required is
     /// read again from the system and the daemon (`remainingRequired`) and `onFinished` runs.
-    /// A "Do it for real" the owner already tapped still starts, as a normal task, right after.
+    /// A "Do it for real" the owner already tapped still starts, as a normal task, right after. With nothing required
+    /// left, setup is recorded as done, as at Home.
     func skip() {
         guard running else { return }
         progress.done = true
@@ -136,6 +143,7 @@ final class IntroController {
             await self.setup.refreshPermissions()
             await self.setup.refreshAI()
             self.remainingRequired = self.remaining()
+            if self.remainingRequired.isEmpty { await self.setup.recordFinished() }
             self.onFinished?()
             self.startRealTask()
         }

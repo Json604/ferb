@@ -8,11 +8,15 @@ public struct IntroLine: Equatable, Sendable {
     public var detail: String?
     public var choices: [IntroChoice]
     public var entry: IntroEntry?
-    public init(text: String, detail: String? = nil, choices: [IntroChoice] = [], entry: IntroEntry? = nil) {
+    /// An app whose icon shows beside the line (the orb's bubble pointing at an app): its bundle's path.
+    public var iconPath: String?
+    public init(text: String, detail: String? = nil, choices: [IntroChoice] = [], entry: IntroEntry? = nil,
+                iconPath: String? = nil) {
         self.text = text
         self.detail = detail
         self.choices = choices
         self.entry = entry
+        self.iconPath = iconPath
     }
 }
 

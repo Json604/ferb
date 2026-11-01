@@ -13,7 +13,7 @@ import pytest
 from ferb.cli.client import Client, RpcError
 from ferb.core.types import ModelLimits, RunHandle
 from ferb.daemon.areas import intro
-from ferb.daemon.areas.intro import GENERAL_TASKS
+from ferb.daemon.areas.intro import GENERAL_APPS, GENERAL_TASKS
 from ferb.daemon.server import LONG_WAITS
 from ferb.orchestrator.plans import Plan, Step
 from tests.conftest import FakeDistillRuntime, RunningDaemon, chat, install, sup, task
@@ -58,6 +58,10 @@ def _preview(daemon: RunningDaemon, request: str = GENERAL_TASKS[0]) -> list[dic
         return list(c.stream("intro.preview", {"request": request}))
     finally:
         c.close()
+
+
+# the general tasks as the app gets them: each with its one main app ("" is the default browser)
+GENERAL = [{"request": t, "app": a} for t, a in zip(GENERAL_TASKS, GENERAL_APPS)]
 
 
 def _suggest(daemon: RunningDaemon) -> dict[str, Any]:
@@ -143,31 +147,40 @@ def test_suggest_falls_back_to_the_general_task_without_a_scan(daemon: RunningDa
         raise AssertionError("no model call without a scan")
     daemon.daemon._make_runtime = no_model                                  # type: ignore[method-assign]
     _persona(daemon, error="OSError: the scan failed" if state == "failed" else None)
-    assert _suggest(daemon) == {"suggestions": [{"request": t} for t in GENERAL_TASKS], "fits": False}
+    assert _suggest(daemon) == {"suggestions": GENERAL, "fits": False}
     assert _journal(daemon, "intro.suggested")[-1].data == {"fits": False, "from_scan": 0, "why": f"scan {state}"}
     # a reply with fewer than two usable tasks (a blank one, and the same one twice) is topped up from the general ones
-    rt = FakeDistillRuntime({"requests": ["Tidy my Desktop screenshots into a folder", "",
-                                          "tidy my desktop  screenshots into a folder"]})
+    rt = FakeDistillRuntime({"requests": [{"request": "Tidy my Desktop screenshots into a folder", "app": "Finder"},
+                                          {"request": "", "app": "Notes"},
+                                          {"request": "tidy my desktop  screenshots into a folder", "app": "Finder"}]})
     daemon.daemon._make_runtime = lambda *a, **k: rt                        # type: ignore[method-assign]
     _persona(daemon, seen=SEEN)
-    assert _suggest(daemon) == {"suggestions": [{"request": "Tidy my Desktop screenshots into a folder"},
-                                                {"request": GENERAL_TASKS[0]}], "fits": True}
+    assert _suggest(daemon) == {"suggestions": [{"request": "Tidy my Desktop screenshots into a folder", "app": "Finder"},
+                                                GENERAL[0]], "fits": True}
     assert _journal(daemon, "intro.suggested")[-1].data == {"fits": True, "from_scan": 1, "why": "topped up"}
 
 
 def test_suggest_uses_the_scan_when_seen(daemon: RunningDaemon) -> None:
     asked: list[dict[str, Any]] = []
-    rt = FakeDistillRuntime({"requests": ["Sort the files in my Downloads folder into project folders",
-                                          "Compare three code editors' pricing pages and summarize the differences"]})
+    rt = FakeDistillRuntime({"requests": [
+        {"request": "Sort the files in my Downloads folder into project folders", "app": "Finder"},
+        {"request": "Compare three code editors' pricing pages and summarize the differences",
+         "app": f"Google Chrome {SECRET} " + "x" * 80}]})
 
     def made(*args: Any, **kwargs: Any) -> Any:
         asked.append(kwargs)
         return rt
     daemon.daemon._make_runtime = made                                      # type: ignore[method-assign]
     _persona(daemon, seen=SEEN)
-    assert _suggest(daemon) == {"suggestions": [
-        {"request": "Sort the files in my Downloads folder into project folders"},
-        {"request": "Compare three code editors' pricing pages and summarize the differences"}], "fits": True}
+    suggested = _suggest(daemon)
+    assert suggested["fits"] is True
+    assert [s["request"] for s in suggested["suggestions"]] == [
+        "Sort the files in my Downloads folder into project folders",
+        "Compare three code editors' pricing pages and summarize the differences"]
+    apps = [s["app"] for s in suggested["suggestions"]]
+    assert apps[0] == "Finder"                                              # the model's app, as macOS names it
+    assert apps[1].startswith("Google Chrome") and SECRET not in apps[1]    # redacted like the request
+    assert len(apps[1]) <= intro.APP_NAME_MAX
     assert asked and all(k["tool_names"] == [] for k in asked)              # the call can use no tool
     seen = str(rt.contexts)
     assert "code most days" in seen and SECRET not in seen                  # redacted before it reaches a model
@@ -175,7 +188,7 @@ def test_suggest_uses_the_scan_when_seen(daemon: RunningDaemon) -> None:
     assert rows[-1].data == {"fits": True, "from_scan": 2}
     assert "code most days" not in json.dumps([r.data for r in rows])       # the journal never keeps the summary
     rt.answer = RuntimeError("the service is down")                         # a model failure never reaches the app
-    assert _suggest(daemon) == {"suggestions": [{"request": t} for t in GENERAL_TASKS], "fits": False}
+    assert _suggest(daemon) == {"suggestions": GENERAL, "fits": False}
     assert _journal(daemon, "intro.suggested")[-1].data == {"fits": False, "from_scan": 0, "why": "RuntimeError"}
 
 
@@ -187,7 +200,7 @@ def test_suggest_gives_the_general_tasks_when_the_model_stalls(daemon: RunningDa
     monkeypatch.setattr(intro, "SUGGEST_LIMIT_S", 0.3)
     daemon.daemon._make_runtime = lambda *a, **k: Silent()                  # type: ignore[method-assign]
     _persona(daemon, seen=SEEN)
-    assert _suggest(daemon) == {"suggestions": [{"request": t} for t in GENERAL_TASKS], "fits": False}
+    assert _suggest(daemon) == {"suggestions": GENERAL, "fits": False}
     assert _journal(daemon, "intro.suggested")[-1].data == {"fits": False, "from_scan": 0, "why": "timed out"}
 
 

@@ -173,7 +173,18 @@ extension IntroController {
         while live {
             guard case .choice(Pick.pairAll)? = await ask(line) else { return }
             say(IntroCopy.pairing)
+            // The orb waits at a paired browser's front window, where its own "turn FERB on" prompt appears.
+            await setup.refreshBrowsers()
+            let labels = setup.browsers?.browsers.map(\.label) ?? []
+            let point = labels.isEmpty ? nil : apps.frontWindow(of: labels)
+            let trip = point.map { point in
+                Task { [orb] in await orb.launch(to: point, instruction: IntroCopy.pairingOrb) }
+            }
             await setup.pairAll()
+            if let trip {
+                await trip.value
+                await orb.flyHome()
+            }
             guard live else { return }
             if let why = setup.message, !why.isEmpty {
                 line = IntroCopy.notPaired(why)

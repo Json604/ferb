@@ -70,10 +70,16 @@ struct InstructionBubble: View {
     let line: IntroLine
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(line.text).font(.system(size: 13, weight: .medium))
-            if let detail = line.detail, !detail.isEmpty {
-                Text(detail).font(.system(size: 11)).foregroundStyle(.white.opacity(0.7))
+        HStack(spacing: 8) {
+            if let path = line.iconPath {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: path))
+                    .resizable().frame(width: 26, height: 26).accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(line.text).font(.system(size: 13, weight: .medium))
+                if let detail = line.detail, !detail.isEmpty {
+                    Text(detail).font(.system(size: 11)).foregroundStyle(.white.opacity(0.7))
+                }
             }
         }
         .foregroundStyle(.white)

@@ -6,6 +6,12 @@ private typealias Pick = IntroCopy.Pick
 /// The tour's demo beats (notes/setup-intro.md steps 6–7): Try looks and tells, it never acts (the daemon's
 /// `intro.preview` is a planner turn with no run token and no worker, every event marked preview); Control is taught by
 /// doing, with Stop practised on that preview replayed as running. Nothing here sends `chat.send`.
+/// A suggested first task (`intro.suggest`) and the one app it would use, as macOS names it ("" for the browser).
+struct IntroSuggestion: Equatable {
+    var request: String
+    var app: String
+}
+
 extension IntroController {
     // MARK: 6. Try
 
@@ -19,20 +25,24 @@ extension IntroController {
             say(IntroCopy.saw(summary))
             await dwell(Timing.scan)
         }
-        guard live, let requests = await suggestions() else { return leaveChat() }
-        guard case .choice(let picked)? = await ask(IntroCopy.suggest(requests)),
-              var shown = requests.indices.first(where: { Pick.suggestion($0) == picked }) else { return leaveChat() }
+        guard live, let offered = await suggestions() else { return leaveChat() }
+        guard case .choice(let picked)? = await ask(IntroCopy.suggest(offered.map(\.request))),
+              var shown = offered.indices.first(where: { Pick.suggestion($0) == picked }) else { return leaveChat() }
         var otherShown = false
-        var failure = await preview(requests[shown])
+        var failure = await preview(offered[shown])
         while live {
             let line = failure.map(IntroCopy.previewFailed) ?? IntroCopy.previewed(otherShown: otherShown)
+            say(line)
+            await orbTrip?.value                     // the plan is shown: the orb comes back
+            orbTrip = nil
+            await orb.flyHome()
             switch await ask(line) {
             case .choice(Pick.otherSuggestion)? where !otherShown:
                 shown = 1 - shown
                 otherShown = true
-                failure = await preview(requests[shown])
+                failure = await preview(offered[shown])
             case .choice(Pick.doItForReal)? where failure == nil:
-                realTask = requests[shown]           // the owner's tap: sent as their words once the tour ends
+                realTask = offered[shown].request    // the owner's tap: sent as their words once the tour ends
                 say(IntroCopy.willDoIt)
                 await dwell(Timing.line * 2)
                 return leaveChat()
@@ -42,30 +52,38 @@ extension IntroController {
         }
     }
 
-    /// `intro.suggest`: always two requests from the daemon (the scan's, or two general ones).
-    func suggestions() async -> [String]? {
+    /// `intro.suggest`: always two requests from the daemon (the scan's, or two general ones), each with the one app
+    /// it would use ("" for the default browser).
+    func suggestions() async -> [IntroSuggestion]? {
         while live {
             say(IntroCopy.thinking)
             if let reply = try? await rpc.call("intro.suggest", params: [:], wait: 60) {
-                let requests = (reply["suggestions"] as? [[String: Any]] ?? [])
-                    .compactMap { $0["request"] as? String }.filter { !$0.isEmpty }
-                if requests.count >= 2 { return Array(requests.prefix(2)) }
+                let offered = (reply["suggestions"] as? [[String: Any]] ?? []).compactMap { row -> IntroSuggestion? in
+                    guard let request = row["request"] as? String, !request.isEmpty else { return nil }
+                    return IntroSuggestion(request: request, app: row["app"] as? String ?? "")
+                }
+                if offered.count >= 2 { return Array(offered.prefix(2)) }
             }
             guard live, case .choice(Pick.retry)? = await ask(IntroCopy.noSuggestions) else { return nil }
         }
         return nil
     }
 
-    /// The request's plan, fetched from `intro.preview` and shown in the open chat as a preview turn. Returns why it
+    /// The suggestion's plan, fetched from `intro.preview` and shown in the open chat as a preview turn, while the orb
+    /// points at the app it would use (it only points: the app is never opened or brought forward). Returns why it
     /// couldn't be shown, or nil.
-    func preview(_ request: String) async -> String? {
+    func preview(_ suggestion: IntroSuggestion) async -> String? {
         say(IntroCopy.previewing)
         openChat()
+        let target = apps.target(app: suggestion.app)
+        orbTrip = Task { [orb] in
+            await orb.launch(to: target.point, instruction: IntroCopy.wouldUse(target, browser: suggestion.app.isEmpty))
+        }
         do {
-            let events = try await fetchPreview(request)
+            let events = try await fetchPreview(suggestion.request)
             guard live else { return nil }
-            lastPreview = (request, events)
-            show(request, events, running: false)
+            lastPreview = (suggestion.request, events)
+            show(suggestion.request, events, running: false)
             return nil
         } catch {
             return error.localizedDescription
@@ -154,7 +172,7 @@ extension IntroController {
     /// Try's preview again, as if running, in the open chat. Without one (a resumed tour), a suggestion is previewed
     /// first; if none can be, Stop isn't practised.
     private func replayForStop() async {
-        if lastPreview == nil, let request = await suggestions()?.first,
+        if lastPreview == nil, let request = await suggestions()?.first?.request,
            let events = try? await fetchPreview(request), live {
             lastPreview = (request, events)
         }
