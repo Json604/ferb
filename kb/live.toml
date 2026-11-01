@@ -206,3 +206,48 @@ request = "Import each source once (ChatGPT, claude.ai, Claude Code, Codex CLI, 
 pass = "The estimate states model calls before starting; each run ends with one notice whose Open the Memory page button filters by source; the sampled facts are true to the owner's memory, saved as FERB's understanding, none older than 3 months; the live quality test passes."
 decisions = ["MEM-400", "MEM-401", "MEM-402", "MEM-403", "MEM-406"]
 sitting = "step 13"
+
+[LIVE-420]
+title = "Preview open vs closed: daemon CPU and call times on the same task"
+area = "app"
+surface = "FERB.app on the owner's Mac, one owner-controlled browser task (a kartikey.xyz page), `resource_samples`"
+request = "Run the same browser task twice, once with the preview open and once closed; read the daemon's CPU and `work_json.preview` counters for both windows and the call durations."
+pass = "The figures for both runs are recorded for the owner's cap decision (T-408); no `daemon.slow_call` for `tasks.preview`."
+decisions = ["APP-405", "DMN-403"]
+sitting = "step 13"
+
+[LIVE-421]
+title = "Secrets and codes stay painted in the preview"
+area = "app"
+surface = "kartikey.xyz login page with the request-logging server, FERB.app's preview popover"
+request = "Run a login task that fills `browser.secret` and a code field while the preview popover is open."
+pass = "Both fields stay painted over in every preview frame."
+decisions = ["DMN-405"]
+sitting = "step 13"
+
+[LIVE-422]
+title = "The preview freezes when FERB leaves the owner's window"
+area = "app"
+surface = "WhatsApp \"message yourself\", FERB.app's preview"
+request = "Run a task that works in WhatsApp then moves on to another step; send yourself a new message after FERB has left."
+pass = "The preview freezes on FERB's last frame with a status line; the later message never appears in the preview."
+decisions = ["APP-404", "DMN-404"]
+sitting = "step 13"
+
+[LIVE-423]
+title = "Preview states: minimised, no Screen Recording, locked screen, two tasks; hidden from sharing"
+area = "app"
+surface = "FERB.app on the owner's Mac; a Zoom or Meet screen share"
+request = "With a task previewing: minimise its window; turn Screen Recording off; lock the screen; run two tasks at once; share the screen in Zoom/Meet."
+pass = "Each shows its plain state line with the last frame kept (or pauses while locked); two tasks preview separately; the shared screen shows no preview popover or player."
+decisions = ["APP-406", "APP-407", "DMN-404"]
+sitting = "step 13"
+
+[LIVE-424]
+title = "Does macOS show its screen-recording indicator while the preview runs?"
+area = "app"
+surface = "FERB.app on the owner's Mac, menu bar"
+request = "Open a task's preview and watch the menu bar and Control Center."
+pass = "The owner notes whether the recording indicator appears (a fact to record, not a pass/fail on FERB)."
+decisions = ["APP-403"]
+sitting = "step 13"

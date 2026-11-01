@@ -1,4 +1,4 @@
-# Decisions of area `hands` (kb/areas.toml). Moved from notes/memory.md and notes/voice.md on 2026-11-02.
+# Decisions of area `hands` (kb/areas.toml). Moved from notes/memory.md, notes/voice.md and notes/preview.md on 2026-11-02.
 
 [HAND-1]
 title = "Bot checks are named in the snapshot from known challenge frames"
@@ -31,3 +31,13 @@ rule = "While FERB listens to an app or tab, the owner hears it too: FERB captur
 rejected = ["Muting the page's media element (FERB hears nothing either)", "chrome.tabCapture (needs a user gesture and a protocol change)", "A Core Audio process tap muting when tapped (FERB's browser is the owner's Chrome process; muting it mutes the owner's Chrome)"]
 paths = ["ferb/act/listen.py", "ferb/act/mac/audio.py"]
 legacy = "notes/voice.md decision 5"
+
+[HAND-402]
+title = "The preview target comes from the capability's own declaration"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Each Mac and browser capability declares what its call targets (`preview_target(args, owner, observed)` → `PreviewTarget`, beside `Point` in ferb/act/point.py); the gateway's hook asks the capability and checks no tool names. The declaration does no lookup: the target resolves at the first frame request, and the hook never raises, so a preview problem can't lose a successful call."
+rejected = ["Name and argument lists in the gateway hook"]
+paths = ["ferb/act/point.py::PreviewTarget", "ferb/daemon/call_hooks.py"]
+legacy = "notes/preview.md fix list (step 8d): target choice"

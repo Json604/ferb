@@ -105,3 +105,12 @@ status = "open"
 why = "notes/memory-import.md: \"Others the owner uses (Perplexity, Cursor, Copilot…): to list with the owner\"; open owner question, only if wanted."
 decisions = ["MEM-403"]
 ask = "Besides ChatGPT, claude.ai, Claude Code, Codex CLI and Gemini, are there other AI assistants you use (Perplexity, Cursor, Copilot, …) that FERB should import memory from?"
+
+[T-408]
+title = "Preview frame-rate cap: decide from the step-13 measurement"
+area = "app"
+kind = "question"
+status = "blocked"
+why = "APP-405: no cap until heat is confirmed from data; LIVE-420 measures the same task with the preview open vs closed, then the owner decides."
+decisions = ["APP-405"]
+ask = "With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?"

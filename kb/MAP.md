@@ -6,10 +6,10 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 3 | 0 | 0 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 2 | 0 | 0 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 8 | 1 | 5 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 6 | 0 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 0 | 0 | 0 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 3 | 0 | 0 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 4 | 0 | 0 |
 | memory | Memory and memory import | `ferb/memory` | 49 | 3 | 3 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 1 | 0 | 0 |
 | perception | Perception | `ferb/sense` | 6 | 1 | 0 |
@@ -27,6 +27,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-402 (storage): Perception receipts and batches, the loop wake-up queue, notices and learned-node change rows have no retention period, so they are kept forever. Should any of them be deleted after a period, and after how long?
 - T-404 (runtimes): When a worker's long tool loop overflows the model's context window, should Codex compact the conversation and carry on (today), or should the worker fail instead?
 - T-407 (memory): Besides ChatGPT, claude.ai, Claude Code, Codex CLI and Gemini, are there other AI assistants you use (Perplexity, Cursor, Copilot, …) that FERB should import memory from?
+- T-408 (app): With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?
 
 ## Terms
 
