@@ -13,8 +13,9 @@ def test_memory_always_reaches_the_planner_and_only_shown_chat_is_carried_to_the
     install(daemon, [sup('reply', 'Noted. ' + 'detail ' * 3000), sup('task', 'Checking.', task('Inspect the source'))],
             {'worker': done('Inspected.')})
     chat(daemon, 'An old long note. ' + 'filler ' * 3000)
-    # a window the old note can't fit in beside the instructions (step 10b made the planner's instructions smaller)
-    monkeypatch.setattr(FakeRuntime, 'limits', ModelLimits('fake-model', 12_000, 1_000, 'test double'))
+    # a window the old note can't fit in beside the instructions, sized for the byte-ceiling count every test run uses
+    # (conftest: no tokenizer from the machine)
+    monkeypatch.setattr(FakeRuntime, 'limits', ModelLimits('fake-model', 40_000, 1_000, 'test double'))
     result = outcome(chat(daemon, 'Inspect the source'))
     async def recorded():
         rows = daemon.daemon.db.conn.execute("SELECT input_json,output_json FROM spans WHERE kind='context.exposure' "

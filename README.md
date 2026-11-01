@@ -205,7 +205,8 @@ watching; see notes/test-tasks.md.
 - `notes/`: one file per area (memory, orchestration, prompts, gateway, runtimes, hands, daemon, storage, tests, voice,
   preview, memory import) with the owner's decisions, what exists, the target design and the fix list;
   `notes/fix-order.md` is the order of work and `notes/test-tasks.md` the real tasks FERB is tested on.
-- `CLAUDE.md` (and `AGENTS.md` for Codex): how to work on FERB.
+- `AGENTS.md`: how to work on FERB, for every agent (`CLAUDE.md` imports it); `kb/` holds the decisions, work list
+  and live checks (`kb/MAP.md`).
 - `THIRD_PARTY_NOTICES.md`: attribution for bundled third-party code.
 
 ## License

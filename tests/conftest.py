@@ -874,6 +874,19 @@ async def run_direct(d: RunningDaemon, mode: str, prompt: str, tool_names: list[
     return out
 
 
+@pytest.fixture(autouse=True, scope="session")
+def no_machine_tokenizer() -> Iterator[None]:
+    """Token counts never depend on this Mac: without this, the first count loads a tokenizer from the owner's
+    ~/.ferb/cache or a temp cache when one happens to exist, and a run on a clean machine (or GitHub) counts
+    differently. Every run uses the conservative byte ceiling instead."""
+    import ferb.core.context as context
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(context, "tokenizer_sources", lambda: [])
+        context._encoding.cache_clear()
+        yield
+    context._encoding.cache_clear()
+
+
 def pytest_sessionstart(session: Any) -> None:
     """repo-kb: a fresh clone learns about the repository's git hooks the first time it runs the tests (warning only;
     CI runs the gate itself)."""
