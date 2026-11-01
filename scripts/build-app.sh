@@ -81,6 +81,10 @@ plist "Set :CFBundleVersion $BUILD" "$CONTENTS/Info.plist"
 plist "Add :FERBVersion string $VERSION" "$CONTENTS/Info.plist"
 plist "Add :FERBSourceRevision string $REVISION" "$CONTENTS/Info.plist"
 cp "$NOTCH/ThirdPartyNotices.txt" "$CONTENTS/Resources/ThirdPartyNotices.txt"
+# The notch's SwiftPM resources (FERB's mark, the sound family): Bundle.module finds them in Contents/Resources
+NOTCH_RESOURCES="$("${SWIFT[@]}" --show-bin-path)/FERBNotch_FERBNotch.bundle"
+[[ -d "$NOTCH_RESOURCES/Contents/Resources/Sounds" ]] || die "swift build left no sound family in $NOTCH_RESOURCES"
+ditto "$NOTCH_RESOURCES" "$CONTENTS/Resources/FERBNotch_FERBNotch.bundle"
 ICON="$ROOT/assets/logo/AppIcon.icns"     # FERB's logo (scripts/make_logo.py makes it from assets/logo/ferb-logo.svg)
 cp "$ICON" "$CONTENTS/Resources/AppIcon.icns"                     # Info.plist CFBundleIconFile
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$CONTENTS/Resources/THIRD_PARTY_NOTICES.md"

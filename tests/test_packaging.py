@@ -558,7 +558,11 @@ def test_real_bundle_structure_signature_and_embedded_cli(real_bundle: Path, tmp
     assert info["CFBundleVersion"].isdigit()
     for rel in ("MacOS/FERBNotch", "Resources/python/bin/python3.12", "Resources/bin/ferb", "Helpers/ferb-secrets",
                 "Helpers/FERB.app/Contents/MacOS/FERB",
-                "Resources/node/" + str(native_bin(_bundle_arch(app)))):
+                "Resources/node/" + str(native_bin(_bundle_arch(app))),
+                # the notch's SwiftPM resources, where Bundle.module looks in an app: FERB's mark and the sound family
+                "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/ferb-mark.svg",
+                "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/ferb-logo.wav",
+                "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/ferb-room-ir.wav"):
         assert (c / rel).is_file(), rel
     assert not (c / "Helpers/FERB Voice.app").exists() and info["NSSpeechRecognitionUsageDescription"]
     agent = plistlib.loads((c / "Helpers/FERB.app/Contents/Info.plist").read_bytes())

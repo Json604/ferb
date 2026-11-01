@@ -258,8 +258,13 @@ final class NotchModel: ObservableObject {
     @Published private(set) var compactPlanDisplayText: String?
     func finishCompactPreviewDismissal() {
         if compactPlanText == nil { compactPlanDisplayText = nil }
+        if introLine == nil { introDisplayLine = nil }
     }
-    var surfaceVisible: Bool { expanded || compactPlanText != nil }
+    /// FERB's line in the first-run intro (IntroNarration.swift): set, the notch swells to show it; nil, it shrinks back.
+    @Published var introLine: IntroLine? { didSet { introLineChanged(from: oldValue) } }
+    /// Kept while the surface closes, like the plan preview's text.
+    @Published var introDisplayLine: IntroLine?
+    var surfaceVisible: Bool { expanded || compactPlanText != nil || introLine != nil }
     var compactPlanHeight: CGFloat {
         guard let compactPlanText else { return 0 }
         let text = (compactPlanText as NSString).boundingRect(
@@ -366,10 +371,12 @@ final class NotchModel: ObservableObject {
     }
     /// The drawn surface: header, plus the body when it shows. The panel adds a transparent margin around it.
     var surfaceSize: CGSize {
+        if !expanded, let height = introSurfaceHeight(introLine) { return CGSize(width: bodyWidth, height: height) }
         if compactPlanText != nil && !expanded { return CGSize(width: bodyWidth, height: compactPlanHeight) }
         return CGSize(width: expanded ? bodyWidth : handleWidth, height: cutoutHeight + (bodyVisible ? bodyHeight : 0))
     }
     var panelSize: CGSize {
+        if !expanded, let height = introSurfaceHeight(introLine) { return CGSize(width: bodyWidth + 16, height: height + 12) }
         if compactPlanText != nil && !expanded { return CGSize(width: bodyWidth + 16, height: compactPlanHeight + 12) }
         if expanded { return CGSize(width: bodyWidth + 16, height: cutoutHeight + (bodyVisible ? bodyHeight : 0) + 12) }
         // The independent, mouse-transparent tracer owns its own glow margin.

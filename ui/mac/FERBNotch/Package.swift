@@ -14,7 +14,7 @@ let package = Package(
         .target(name: "AudioCapture"),
         .executableTarget(name: "FERBNotch", dependencies: ["NotchCore", "AudioCapture",
                                                             .product(name: "Sparkle", package: "Sparkle")],
-                          resources: [.copy("Resources/ferb-mark.svg")]),
+                          resources: [.copy("Resources/ferb-mark.svg"), .copy("Resources/Sounds")]),
         .target(name: "AudioCaptureTestSupport", path: "Tests/AudioCaptureTestSupport"),
         .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore", "FERBNotch", "AudioCapture", "AudioCaptureTestSupport"])
     ],
