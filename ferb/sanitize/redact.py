@@ -14,7 +14,7 @@ from typing import Any, Iterable
 from urllib.parse import urlsplit
 
 from ferb.sanitize.formats import (_H, PRIVATE_KEY_END, PRIVATE_KEY_START, SECRET_PATTERNS, first_format,  # noqa: F401
-                                   format_hits, payment_card, secret_param, urls)
+                                   format_hits, holds_value, payment_card, secret_param, urls)
 from ferb.sanitize.known import (REDACTED, Registry, SealedWord, escaped_forms, holds_sealed, id_bodies,  # noqa: F401
                                  known_spans, sealed, sealed_spans, word_char)
 from ferb.sanitize.labels import (CARD_AUTOCOMPLETE, CODE_LINK, CODE_REACH, CODE_VALUE, CODE_WORD,  # noqa: F401
@@ -24,12 +24,13 @@ from ferb.sanitize.labels import (CARD_AUTOCOMPLETE, CODE_LINK, CODE_REACH, CODE
                                   line_code_spans, list_line, password_field, secret_key, secret_words)
 
 __all__ = ["CODE_LINK", "CODE_REACH", "CODE_VALUE", "CODE_WORD", "EXCLUDED", "INTERNAL_ID_KEYS", "NODE_TEXT",
-           "OTP_LABEL", "PRIVATE_KEY_END", "PRIVATE_KEY_START", "REDACTED", "SECRET_PATTERNS", "RedactionStream",
-           "Redacted", "Redactor", "SealedWord", "_H", "_code_alone", "code_words", "escaped_forms", "first_format",
-           "holds_sealed", "id_bodies", "label_class", "mask", "password_field", "payment_card", "sealed",
-           "sealed_spans", "secret_key", "secret_param", "secret_words", "word_char"]
+           "OTP_LABEL", "PRIVATE_KEY_END", "PRIVATE_KEY_START", "REDACTED", "SAVED_SECRET", "SECRET_PATTERNS",
+           "RedactionStream", "Redacted", "Redactor", "SealedWord", "_H", "_code_alone", "code_words", "escaped_forms",
+           "first_format", "holds_sealed", "id_bodies", "label_class", "mask", "password_field", "payment_card",
+           "sealed", "sealed_spans", "secret_key", "secret_param", "secret_words", "word_char"]
 
 EXCLUDED = "[excluded]"
+SAVED_SECRET = "saved secret"                  # `Redactor.kinds`' name for a known value: one of the owner's own
 _MASKS = re.compile(r"\[redacted\]|\[excluded\]")
 _DIGIT = re.compile(r"[0-9]")
 _code_alone = code_alone                       # the OCR path's name for it
@@ -230,6 +231,16 @@ class Redactor:
         if known_spans(s, self.registry.values()):
             return "a saved secret"
         return first_format(s)
+
+    def kinds(self, s: str) -> list[str]:
+        """Each kind of specific secret in `s`, once, in the order they stand: a known value (SAVED_SECRET) or a named
+        format; names only, never a value. A format inside a known value's place or an earlier format's is that one
+        (an Anthropic key is not also an OpenAI key). Labelled text is no kind: as for `hit`."""
+        taken = [(a, b, SAVED_SECRET) for a, b in known_spans(s, self.registry.values())]
+        for h in format_hits(s):
+            if holds_value(s, h) and not any(a <= h.start and h.end <= b for a, b, _ in taken):
+                taken.append((h.start, h.end, h.kind))
+        return list(dict.fromkeys(kind for _, _, kind in sorted(taken)))
 
     def field(self, text: str, *, role: str = "", label: str = "", secure_input: bool = False,
               concealed: bool = False, metadata: tuple[str, ...] = (), kind: str | None = None) -> str:

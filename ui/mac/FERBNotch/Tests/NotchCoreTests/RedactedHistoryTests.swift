@@ -52,6 +52,35 @@ final class RedactedHistoryTests: XCTestCase {
         XCTAssertFalse(decoded.turns[0].awaitingRedaction)
     }
 
+    /// Task 11: an ack naming hidden secret kinds adds a notice under that message, kept across a restart; the
+    /// message itself stays the masked text.
+    func testAckWithHiddenKindsAddsTheNoticeUnderThatMessage() throws {
+        let (model, id) = sent()
+        model.receiveChatEvent(["type": "ack", "request_id": "req-1", "text": "On it.", "message": redacted,
+                                "hidden": ["GitHub token", "Stripe key"]], localID: id)
+        let turn = model.conversation.turns[0]
+        XCTAssertEqual(turn.request, redacted)
+        XCTAssertEqual(turn.hiddenNotice, "That looked like a GitHub token and a Stripe key. I hid them from the AI "
+                       + "and didn't save them. Best not to paste keys and passwords into chats.")
+        let restarted = NotchModel(rpc: QuietRPC(), preferences: model.preferences)
+        XCTAssertEqual(restarted.conversation.turns[0].hiddenNotice, turn.hiddenNotice)
+        XCTAssertFalse(try savedText(model).contains("hunter2"))
+    }
+
+    func testHiddenNoticeCopy() {
+        var turn = ConversationTurn(id: UUID(), createdAt: Date(), request: redacted, sources: [])
+        XCTAssertNil(turn.hiddenNotice)
+        turn.hiddenKinds = ["saved secret"]
+        XCTAssertEqual(turn.hiddenNotice, "That's one of your saved secrets. I hid it from the AI.")
+        turn.hiddenKinds = ["AWS access key id"]
+        XCTAssertEqual(turn.hiddenNotice, "That looked like an AWS access key id. I hid it from the AI and didn't "
+                       + "save it. Best not to paste keys and passwords into chats.")
+        turn.hiddenKinds = ["saved secret", "npm token"]
+        XCTAssertEqual(turn.hiddenNotice, "That's one of your saved secrets. I hid it from the AI. That looked like "
+                       + "an npm token. I hid it from the AI and didn't save it. Best not to paste keys and passwords "
+                       + "into chats.")
+    }
+
     func testRecordAnswerNeverSavesRawRequest() throws {
         let model = NotchModel(rpc: QuietRPC(), preferences: scratchDefaults())
         model.session.draft = raw

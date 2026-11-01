@@ -315,7 +315,8 @@ extension NotchModel {
             }
         case "ack":
             let acknowledgement = event["text"] as? String ?? ""
-            conversation.acknowledge(id: localID, text: acknowledgement, message: event["message"] as? String)
+            conversation.acknowledge(id: localID, text: acknowledgement, message: event["message"] as? String,
+                                     hidden: event["hidden"] as? [String])
             saveConversation()
         case "plan":
             guard let id = event["task_id"] as? String else { return false }

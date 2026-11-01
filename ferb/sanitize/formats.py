@@ -312,10 +312,22 @@ def format_hits(s: str, found_urls: list[re.Match[str]] | None = None) -> Iterat
     yield from card_hits(s, url_paths(found))
 
 
+def holds_value(s: str, h: Hit) -> bool:
+    """Whether hit `h` in `s` holds a value: a hit that is only a mask (a URL's "code=[redacted]") holds none."""
+    return any(c.isalnum() for c in s[h.start:h.end].replace("[redacted]", "").replace("[excluded]", ""))
+
+
 def first_format(s: str) -> str | None:
-    """The name of the first format `s` holds, or None (a gate's specific hit). A hit that is only a mask (a URL's
-    "code=[redacted]") is none."""
-    for h in format_hits(s):
-        if any(c.isalnum() for c in s[h.start:h.end].replace("[redacted]", "").replace("[excluded]", "")):
-            return h.kind
-    return None
+    """The name of the first format `s` holds, or None (a gate's specific hit)."""
+    return next((h.kind for h in format_hits(s) if holds_value(s, h)), None)
+
+
+def named_kinds(kinds: list[str]) -> str:
+    """Named kinds as a sentence says them: each with its article, joined with "and" ("a GitHub token and a Stripe
+    key"). An acronym (all capitals, or no vowel: "AWS", "npm") takes the article its first letter's name does."""
+    def article(kind: str) -> str:
+        word = kind.split()[0] if kind.strip() else kind
+        acronym = word.isupper() or not any(c in "aeiouAEIOU" for c in word)
+        return ("an " if word[:1].upper() in ("AEFHILMNORSX" if acronym else "AEIO") else "a ") + kind
+    named = [article(k) for k in kinds]
+    return " and ".join(named) if len(named) < 3 else ", ".join(named[:-1]) + " and " + named[-1]

@@ -45,6 +45,11 @@ are to commit c6621c3. G = gateway.py.
 9. **Shell egress stays free and recorded** (owner, 2026-11-01, confirming 2026-10-13's "Free, recorded"; replaces
    the 2026-10-10 "ask the first time" and the old docs' L2): the shell can reach any site, every connection is recorded
    in the trace, and sending private data from the browser still asks (the sink rule).
+10. **A pasted secret is hidden and FERB names its kind** (owner, 2026-11-01): a secret the owner pastes into the chat
+    is masked before any model sees it, and a code-made notice under their message names the kind found ("That looked
+    like a GitHub token. I hid it from the AI and didn't save it. Best not to paste keys and passwords into chats.";
+    for a saved secret: "That's one of your saved secrets. I hid it from the AI."). No advice to revoke it: the value
+    never left the Mac.
 
 ## What exists today (verified)
 
@@ -87,6 +92,10 @@ redact, image redaction, origins).
   key silently (`redacted_json({"a": "Password: '", "b": "typed key '"})`). Explains the 15 parked learning cards.
 - Runs 4-5 times per tool result and per trail event, synchronously (~50-85 ms per pass on large results).
 - Known-value registry not preloaded at startup; `daemon.err.log` is raw stderr with no exception hook.
+- Chat (decision 10, setup intro task 11): `chat.send` and `chat.answer` read the kinds from the owner's raw words
+  before masking (`Redactor.kinds`: a saved value or a named format, each once, names only); the ack carries
+  `hidden`, the journal `chat.secret_hidden`, the planner's message one line "The owner's message held a <kind>; FERB
+  hid it.", and the notch shows the notice under the message (`ConversationTurn.hiddenNotice`).
 - "Redaction would change it" also gates actions: terminal input refused (G:1469-1501; false refusals like
   `echo 'PIN 1234'`), input paths refused (main.py:4863), learning cards refused.
 
@@ -344,6 +353,8 @@ redact, image redaction, origins).
       2026-11-01, see Rulings).
 - [x] Never-read list covers every browser's store, built from the one browser list; older configs get new defaults
       once (review 2026-11-01, see Rulings).
+- [x] A pasted secret is named, not only masked (decision 10): the ack's `hidden`, `chat.secret_hidden`, the
+      planner's fact line and the notch's notice (tests/test_chat_secret_notice.py, RedactedHistoryTests).
 - [ ] Native apps: pay / account security / send still rest on the worker's declaration (review 2026-11-01): the only
       cheap pre-call Accessibility fact is a secure field, which can't tell a sign-in from a password change. Needs a
       structural source first (e.g. an app's own markup for new-password or card fields); nothing built.

@@ -214,6 +214,7 @@ class Chat:
         """The owner's answer to a question, typed (`ferb chat`) or spoken (push-to-talk)."""
         ap = self.state.approvals.get(approval_id)
         retained = None
+        hidden: list[str] = []
         if text is not None and granted:
             if ap is not None and ap.kind in {"owner_admin_password", "owner_secret"}:
                 if any(c in text for c in "\r\n\x00"):
@@ -235,6 +236,7 @@ class Chat:
                 if (ap is not None and ap.kind == "owner_question" and isinstance(self.redact, Redactor)
                         and ap.option_for(text) is None):
                     # FERB's memory questions never ask for a secret: only secret classes are hidden (L36)
+                    hidden = self._secret_kinds(text)       # as a chat message's: the kinds by name, never the value
                     text = (self.redact.text(text) if ap.capability in MEMORY_ASKS
                             else self.redact.answer(text, question=ap.reason))
                 if ap is not None and ap.kind == "owner_login_code" and text:
@@ -253,20 +255,33 @@ class Chat:
             raise
         self._journal().append("approval.resolved", {"approval_id": ap.id, "state": ap.state,
                                                      "capability": ap.capability})
+        if hidden:
+            self._journal().append("chat.secret_hidden", {"approval_id": ap.id, "request_id": ap.request_id,
+                                                          "kinds": hidden})
         self._publish("approval.resolved", {"approval_id": ap.id, "state": ap.state})
-        return {"approval_id": ap.id, "state": ap.state}
+        return {"approval_id": ap.id, "state": ap.state, **({"hidden": hidden} if hidden else {})}
 
     def _chat_ack(self, session_id: str, request_id: str, message: str = "",
-                  received: datetime | None = None) -> dict[str, Any]:
+                  received: datetime | None = None, hidden: list[str] | None = None) -> dict[str, Any]:
         """TQ3/P25: a neutral phrase said on receipt, never one of the last eight said; journaled into chat history,
         with when the message arrived (`ferb baseline` times the ack, plan line and answer from it, L8). `message`:
-        the owner's message as the daemon redacted it, as `chat.message` records it, for clients to keep (L7)."""
+        the owner's message as the daemon redacted it, as `chat.message` records it, for clients to keep (L7).
+        `hidden`: the kinds of secret masked in it (`_secret_kinds`), for the notice under the owner's message."""
         said = [str(text) for text in self._journal().recent_values("chat.ack", "text", acks.RECENT)]
         text = acks.pick(said[::-1])
         entry = self._journal().append("chat.ack", {"session_id": session_id, "request_id": request_id, "text": text,
                                                     "received_at": (received or self.clock.now()).isoformat()})
+        if hidden:
+            self._journal().append("chat.secret_hidden", {"session_id": session_id, "request_id": request_id,
+                                                          "kinds": hidden})
         return {"type": "ack", "request_id": request_id, "text": text, "message": message.strip(),
-                "at": entry.at.isoformat()}
+                "at": entry.at.isoformat(), **({"hidden": hidden} if hidden else {})}
+
+    def _secret_kinds(self, raw: str) -> list[str]:
+        """The kinds of specific secret the owner's raw words hold, each once (`Redactor.kinds`: a saved value or a
+        named format), read before they are masked: names only, the raw text itself is never kept (rule 7). A code
+        hidden as a reply to a question (`_hide_code_reply`) and labelled text are masked too, but name no kind."""
+        return self.redact.kinds(raw) if isinstance(self.redact, Redactor) else []
 
     def _ask_input_monitoring(self) -> None:
         """Input Monitoring is asked with the owner's first request, not in setup (owner 2026-10-26: "ask when first
@@ -305,11 +320,13 @@ class Chat:
         if session_id.startswith(RESERVED_SESSIONS):     # FERB's own planner sessions (a schedule's, the intro preview)
             raise FerbError("session_id names one of FERB's own sessions, not a chat")
         self.speech.interrupt()                         # the owner said something new: FERB stops talking
-        text = self._hide_code_reply(self.redact(str(params.get("text", ""))), session_id)
+        raw = str(params.get("text", ""))
+        hidden = self._secret_kinds(raw)                # the kinds masked below, by name: the notice and the fact line
+        text = self._hide_code_reply(self.redact(raw), session_id)
         request_id = self.supervisor.ids.new_id()
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         # Before the per-session routing lock: a message is acknowledged while an earlier one is still planning (P29)
-        queue.put_nowait(self._chat_ack(session_id, request_id, text, received))
+        queue.put_nowait(self._chat_ack(session_id, request_id, text, received, hidden))
         # L12: what the owner has in front of them as they send, captured beside routing; the planner waits for it
         screen = (asyncio.ensure_future(self.front_window(request_id, session.pid if session is not None else None))
                   if self.front_window is not None else None)
@@ -330,7 +347,8 @@ class Chat:
         async def turn() -> None:
             try:
                 async for ev in self.supervisor.send(session_id, text,  # type: ignore[union-attr]
-                                                     input_paths=input_paths, request_id=request_id, screen=screen):
+                                                     input_paths=input_paths, request_id=request_id, screen=screen,
+                                                     hidden=hidden):
                     ev = stamped(ev)
                     voiced(ev)
                     if ev.get("task_id"):

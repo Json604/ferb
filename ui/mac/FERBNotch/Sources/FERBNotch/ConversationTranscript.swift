@@ -205,6 +205,15 @@ private struct RequestView: View {
                 .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 15))
                 .help(turn.createdAt.formatted(date: .omitted, time: .shortened))
             }
+            // A secret FERB hid in the message (task 11): code's reminder under it
+            if let notice = turn.hiddenNotice {
+                HStack {
+                    Spacer(minLength: 28)
+                    Label(notice, systemImage: "eye.slash")
+                        .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 }

@@ -61,6 +61,9 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var receiptCards: [ResultCard]?
     /// The request this message was read together with (`merged`, decision 18): it has no reply of its own.
     public var mergedInto: String?
+    /// The kinds of secret the daemon hid in this message (the ack's `hidden`: "saved secret" or a format's name, never
+    /// a value); the notice under the message says so (`hiddenNotice`).
+    public var hiddenKinds: [String]?
     /// The plan line as it streams (`plan_delta`), until the plan event replaces it. Live state only: never saved.
     public var streamingPlan: String? = nil
     /// FERB acknowledged the message and hasn't said anything else yet: the typing dots show. Live state only.
@@ -97,7 +100,40 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
         case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
         case requestID, ack, plan, parts, verified, question, taskGoal, statusInferred
         case planLine, planLines, direct, receipts, card, note, correction, codeLines, runtimeSwitch, mergedInto
-        case cards, receiptCards
+        case cards, receiptCards, hiddenKinds
+    }
+}
+
+extension ConversationTurn {
+    /// The daemon's name for one of the owner's own saved secrets (`Redactor.kinds`).
+    static let savedSecret = "saved secret"
+
+    /// Code's notice under the owner's message when FERB hid a secret in it (owner, 2026-11-01): a reminder, nothing
+    /// to change, since the value never left the Mac.
+    public var hiddenNotice: String? {
+        let kinds = hiddenKinds ?? []
+        let formats = kinds.filter { $0 != Self.savedSecret }
+        var lines: [String] = []
+        if kinds.contains(Self.savedSecret) { lines.append("That's one of your saved secrets. I hid it from the AI.") }
+        if !formats.isEmpty {
+            let them = formats.count == 1 ? "it" : "them"
+            lines.append("That looked like \(Self.named(formats)). I hid \(them) from the AI and didn't save \(them). "
+                         + "Best not to paste keys and passwords into chats.")
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: " ")
+    }
+
+    /// Kinds as a sentence says them, as the daemon's `named_kinds` does: each with its article, joined with "and". An
+    /// acronym (all capitals, or no vowel: "AWS", "npm") takes the article its first letter's name does.
+    static func named(_ kinds: [String]) -> String {
+        let said = kinds.map { kind -> String in
+            let word = kind.split(separator: " ").first.map(String.init) ?? kind
+            let acronym = word == word.uppercased() || !word.contains(where: { "aeiouAEIOU".contains($0) })
+            let first = word.prefix(1).uppercased()
+            return ((acronym ? "AEFHILMNORSX" : "AEIO").contains(first) && !first.isEmpty ? "an " : "a ") + kind
+        }
+        guard said.count > 2 else { return said.joined(separator: " and ") }
+        return said.dropLast().joined(separator: ", ") + " and " + said[said.count - 1]
     }
 }
 
@@ -419,13 +455,14 @@ public struct ConversationArchive: Codable, Equatable {
     }
 
     /// `message`: the owner's message as the daemon redacted it (L7); it replaces the raw text the turn was sent with.
-    /// Without one the raw text stays in memory only.
-    public mutating func acknowledge(id: UUID, text: String, message: String? = nil) {
+    /// Without one the raw text stays in memory only. `hidden`: the kinds of secret hidden in it (`hiddenNotice`).
+    public mutating func acknowledge(id: UUID, text: String, message: String? = nil, hidden: [String]? = nil) {
         guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
         if let message, !message.isEmpty {
             turns[index].request = message
             turns[index].awaitingRedaction = false
         }
+        if let hidden, !hidden.isEmpty { turns[index].hiddenKinds = hidden }
         if turns[index].status == "working" { turns[index].awaitingReply = true }
         guard !text.isEmpty else { return }
         turns[index].ack = text
