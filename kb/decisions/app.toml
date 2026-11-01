@@ -386,3 +386,23 @@ rule = "FERB.app's executable answers transcribe, status and request-speech as F
 why = "com.ferb.FERB is also the running notch, so a bundle-id quit would end it. com.ferb.app stays in the own-process lists while an older build may run; an old [hearing] pin naming it is replaced by the first app setup after an update."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Application.swift", "ui/mac/FERBNotch/Sources/NotchCore/FerbHomeRule.swift", "ferb/daemon/areas/voice.py"]
 legacy = "notes/setup-intro-plan.md Task 3 (rules for this task)"
+
+[APP-533]
+title = "Banners carry the notification sound; waits on the owner sound as needs you"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "A banner carries the notification sound in the Standard mix (Subtle doesn't apply), at macOS's notification volume rather than FERB's. When macOS has FERB's notification sounds off, or a banner can't carry the sound, the banner posts silently and the app plays the sound. A wait on the owner (a question, a human check handed over) always sounds as needs you in the app, and its banner posts silently, so one event never sounds twice."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotificationPoster.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SoundFeedback.swift"]
+legacy = "notes/sound.md Status"
+
+[APP-535]
+title = "How the sound family is built"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "One material, one 5-note pitch set, one room and one mastering chain; children change only contour, rhythm and length, cut down from the sound logo rather than composed anew. Frequent sounds vary a little per play (a few variants picked at random); the sound logo never varies. No loop while listening or working. Files are rendered offline by demo/sound-family/render.py (48 kHz/24-bit, Standard and Subtle, a room IR) and bundled losslessly as ALAC .caf; render.py is the source of every sound's level and length."
+why = "A loop would leak into the microphone and break \"calm once settled\". Earcon guidelines (Brewster) and logo-derived families (Antfood) keep cues recognisable together."
+evidence = "2026-11-01: the Mac's premium cues (Glass.aiff, Siri jbl_*, payment_success) measured as 1-3 clean tuned partials, a strike gone within ~50 ms, clean decays, no noise; the first sine-and-whoosh placeholders were judged cheap."
+paths = ["demo/sound-family/render.py", "ui/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundFiles.swift"]
+legacy = "notes/sound.md The family from one seed, What premium sounds are made of"
