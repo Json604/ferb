@@ -8,6 +8,8 @@ final class ScriptedRPC: DaemonRPCTransport, @unchecked Sendable {
     var calls: [(String, [String: Any])] { recorded.all }
     var replies: [String: [String: Any]] = [:]
     var failures: [String: Error] = [:]
+    /// The first N calls of a method fail (the daemon not answering yet), then it answers; set before the run.
+    var failFirst: [String: Int] = [:]
     var events: [String: [[String: Any]]] = [:]
     /// Replies given in order before `replies` answers (L34 E: a page, then the next; a preview, then the delete).
     var queued: [String: [[String: Any]]] = [:]
@@ -23,6 +25,10 @@ final class ScriptedRPC: DaemonRPCTransport, @unchecked Sendable {
 
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         recorded.append(method, params)
+        if let left = failFirst[method], left > 0 {
+            failFirst[method] = left - 1
+            throw DaemonRPCError.invalidResponse
+        }
         if var next = queued[method], !next.isEmpty {
             let reply = next.removeFirst()
             queued[method] = next

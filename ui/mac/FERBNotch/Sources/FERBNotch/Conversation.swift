@@ -90,15 +90,20 @@ extension NotchModel {
         catch { promptError = "Conversation history could not be saved: " + error.localizedDescription }
     }
 
-    func selectDay(_ day: Date) {
+    /// `focus: false`: FERB itself shows the day (the intro), without taking focus (rule 10).
+    func selectDay(_ day: Date, focus: Bool = true) {
         followsToday = Calendar.current.isDateInToday(day)
         measuredTranscriptHeight = 0
         selectedDay = Calendar.current.startOfDay(for: day)
         showingHistory = false
         showingSources = false
         showingActivity = false
-        onInteraction?()
-        onPresentationChange?(true)
+        if focus {
+            onInteraction?()
+            onPresentationChange?(true)
+        } else {
+            onBackgroundChange?(true)
+        }
     }
 
     func recordAnswer(announce: Bool, displayText: String? = nil, verified: Bool = false) {

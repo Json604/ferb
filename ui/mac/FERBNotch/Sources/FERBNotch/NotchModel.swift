@@ -265,6 +265,7 @@ final class NotchModel: ObservableObject {
     @Published var introLine: IntroLine? {
         willSet { introSurfaceBefore = (surfaceVisible, surfaceSize) }
         didSet {
+            if introLine != oldValue { introTyped = "" }
             if introLine != nil && compactPlanText == nil { compactPlanDisplayText = nil }   // a closed preview can't show
             if introLine == nil && compactPlanText != nil { introDisplayLine = nil }   // the live plan takes over
             introLineChanged(from: oldValue)
@@ -282,7 +283,10 @@ final class NotchModel: ObservableObject {
     /// While the tour runs, a request typed or spoken stays in the composer instead of starting a task: the tour runs
     /// no real work (notes/setup-intro.md step 6); it is sent after the tour.
     var introHoldsWork = false
-    static let introHeldWork = "I'll send this when the tour ends."
+    static let introHeldWork = "It'll wait here until the tour ends."
+    /// What the owner is typing into the intro line's field. Emptied whenever the line changes (or goes), so a key
+    /// pasted for one line can never show in, or be sent from, the next line's field.
+    @Published var introTyped = ""
     var surfaceVisible: Bool { expanded || compactPlanText != nil || introLine != nil || introPulsing }
     var compactPlanHeight: CGFloat {
         guard let compactPlanText else { return 0 }
@@ -406,12 +410,14 @@ final class NotchModel: ObservableObject {
         return CGSize(width: handleWidth, height: cutoutHeight)
     }
 
-    func expand(keyboard: Bool = false) {
+    /// `focus: false`: opened by FERB itself (the intro), never the owner: the chat shows without taking keyboard focus
+    /// (rule 10); the panel becomes key only on the owner's click or shortcut.
+    func expand(keyboard: Bool = false, focus: Bool = true) {
         cancelPinnedFold()
         isHeaderOnly = false
         session.expand()
         acknowledgement.dismiss()
-        onPresentationChange?(!keyboard)
+        if focus { onPresentationChange?(!keyboard) } else { onBackgroundChange?(true) }
     }
 
     func collapse(keyboard: Bool = false) {
@@ -635,15 +641,26 @@ final class NotchModel: ObservableObject {
         }
         guard !session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if handleLocalNotchCommand(session.draft) { return }
-        localSettingReply = nil
         let outgoing = PastedRequest(text: session.draft, provenance: pasteProvenance).markedText
         let draft = session.draft
         let spoken = lastDictation.map { draft.contains($0) } ?? false
         lastDictation = nil
-        let sources = session.attachments
+        begin(request: draft, outgoing: outgoing, sources: session.attachments, spoken: spoken, keepComposer: false)
+    }
+
+    /// A message of the owner's that isn't the composer's (the intro's "Do it for real", which they tapped): sent the
+    /// same way, while whatever they typed stays in the composer. Opened without taking focus (rule 10).
+    func send(_ text: String) {
+        guard canCompose, !introHoldsWork, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        begin(request: text, outgoing: text, sources: [], spoken: false, keepComposer: true)
+    }
+
+    private func begin(request: String, outgoing: String, sources: [URL], spoken: Bool, keepComposer: Bool) {
+        localSettingReply = nil
+        let held = (draft: session.draft, sources: session.attachments)
         if let active = session.activeTaskID { workSessions[active] = session }
         var next = NotchSession()
-        next.draft = draft
+        next.draft = request
         next.attach(sources)
         next.expand()
         session = next
@@ -654,7 +671,12 @@ final class NotchModel: ObservableObject {
         // The sent message joins the saved conversation; an unsent draft is only ever in memory (L20).
         conversation.begin(id: id, request: session.draft, sources: session.attachments, unredacted: true)
         session.clearComposer()
-        pasteProvenance = PasteProvenance()
+        if keepComposer {
+            session.draft = held.draft
+            session.attach(held.sources)
+        } else {
+            pasteProvenance = PasteProvenance()
+        }
         workSessions[id] = session
         saveConversation()
         completionTask?.cancel()
@@ -662,8 +684,12 @@ final class NotchModel: ObservableObject {
         showingSources = false
         showingHistory = false
         showingActivity = false
-        onInteraction?()
-        onPresentationChange?(true)
+        if keepComposer {
+            onBackgroundChange?(true)
+        } else {
+            onInteraction?()
+            onPresentationChange?(true)
+        }
         submitToDaemon(localID: id, text: outgoing, sources: sources, speak: spoken)
     }
 

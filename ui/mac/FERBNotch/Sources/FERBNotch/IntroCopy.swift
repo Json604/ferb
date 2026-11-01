@@ -186,6 +186,8 @@ enum IntroCopy {
                              detail: "Paused, I don't see or touch anything. I'll switch myself back on right away.")
         }
     }
+    static let alreadyPaused = IntroLine(text: "I'm paused right now, as you left me.",
+                                         detail: "That's Pause FERB in my menu-bar icon: I don't see or touch anything until you choose Resume. I'll stay paused.")
     static let controlsDone = IntroLine(text: "You've got it.")
 
     // MARK: 8. Home

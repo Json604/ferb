@@ -350,4 +350,140 @@ final class IntroControllerTests: XCTestCase {
         notch.introLine = nil
         XCTAssertTrue(notch.hoverOpensChat)
     }
+
+    // MARK: Fix round 1
+
+    func testATourWithNothingLeftRecordsSetupDone() async {
+        let complete = tour()
+        complete.controller.start(beats: [.browsers, .home])
+        await complete.pick("browsersLater")
+        await eventually { complete.progress.done }
+        let finish = complete.rig.rpc.params(of: "setup.finish")
+        XCTAssertEqual(finish.count, 1)                                   // as the setup window's Done
+        XCTAssertEqual((finish.first?["app"] as? [String: String])?["microphone"], "granted")   // FERB.app's own rows
+
+        let missing = tour()
+        missing.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "denied")
+        missing.controller.start(beats: [.browsers, .home])
+        await missing.pick("browsersLater")
+        await eventually { missing.progress.done }
+        XCTAssertFalse(missing.rig.rpc.methods().contains("setup.finish"))   // a grant is off: not done
+        XCTAssertEqual(missing.controller.remainingRequired, ["full_disk_access"])
+    }
+
+    func testTheOwnersDraftStaysInTheBoxThroughTheTour() async {
+        let t = tour()
+        t.controller.start(beats: [.tryIt, .home])
+        await eventually { t.notch.introLine?.choices.contains { $0.id == "suggestion.0" } == true }
+        t.notch.session.draft = "Book a table for Friday"
+        t.notch.startWork()                                               // Return in the composer during the tour
+        XCTAssertEqual(t.notch.session.draft, "Book a table for Friday")
+        XCTAssertEqual(t.notch.promptError, NotchModel.introHeldWork)
+        XCTAssertFalse(t.rig.rpc.methods().contains("chat.send"))
+        await t.pick("suggestion.0")
+        await t.pick("doItForReal")
+        await eventually { t.rig.rpc.methods().contains("chat.send") }
+        XCTAssertEqual(t.rig.rpc.params(of: "chat.send").map { $0["text"] as? String }, [Self.suggestions[0]])
+        XCTAssertEqual(t.notch.session.draft, "Book a table for Friday")  // never sent, never overwritten
+        XCTAssertNil(t.notch.promptError)
+    }
+
+    func testTheTourOpensTheChatWithoutTakingFocus() async {
+        let t = tour()
+        var focused = 0, quiet = 0, interactions = 0
+        t.notch.onPresentationChange = { [notch = t.notch] _ in if notch.expanded { focused += 1 } }
+        t.notch.onBackgroundChange = { _ in quiet += 1 }
+        t.notch.onInteraction = { interactions += 1 }
+        t.controller.start(beats: [.tryIt, .control, .home])
+        await t.pick("suggestion.0")
+        await eventually { t.notch.expanded && t.notch.conversation.turns.contains { $0.preview && $0.card != nil } }
+        await t.pick("notNow")
+        await eventually { t.controls.onControl != nil }
+        t.controls.send(.toggle)
+        t.controls.send(.talk)
+        t.controls.send(.summon)
+        await eventually { t.notch.expanded && t.notch.conversation.turns.contains { $0.status == "previewRunning" } }
+        XCTAssertEqual(focused, 0)                                        // no open the tour made asked for focus
+        XCTAssertEqual(interactions, 0)
+        XCTAssertGreaterThan(quiet, 0)
+    }
+
+    func testTypedTextIsEmptiedWhenTheLineChanges() {
+        let notch = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("IntroTyped"))
+        notch.introLine = IntroCopy.pasteKey(.anthropic)
+        notch.introTyped = "sk-example-secret"
+        notch.introLine = IntroCopy.pasteKey(.anthropic)                  // the same line again: kept
+        XCTAssertEqual(notch.introTyped, "sk-example-secret")
+        notch.introLine = IntroCopy.identityAddress                       // another field: never carries it over
+        XCTAssertEqual(notch.introTyped, "")
+        notch.introTyped = "someone@example.com"
+        notch.introLine = nil
+        XCTAssertEqual(notch.introTyped, "")
+    }
+
+    func testAllowAllWaitsForTheDaemonsAnswer() async {
+        let t = tour()
+        t.rig.rpc.failFirst["setup.permissions"] = 3                      // the daemon isn't answering yet
+        t.controller.start(beats: [.permissions, .home])
+        await eventually { t.progress.done }
+        XCTAssertGreaterThanOrEqual(t.rig.rpc.params(of: "setup.permissions").count, 4)
+        let ready = t.lines.all.firstIndex { $0 == IntroCopy.gettingReady }
+        let everything = t.lines.all.firstIndex { $0 == IntroCopy.allAllowed }
+        XCTAssertNotNil(ready)
+        XCTAssertLessThan(ready ?? .max, everything ?? -1)                // never "everything" before it answered
+        XCTAssertEqual(t.lines.all.filter { $0 == IntroCopy.allAllowed }.count, 1)
+    }
+
+    func testSkipStillStartsARealTaskTheOwnerTapped() async {
+        let t = tour()
+        t.sleeper.hold(IntroController.Timing.home)
+        t.controller.start(beats: [.tryIt, .control, .home])
+        await t.pick("suggestion.0")
+        await t.pick("doItForReal")
+        await eventually { t.controller.beat == .control }
+        XCTAssertFalse(t.rig.rpc.methods().contains("chat.send"))
+        t.controller.skip()
+        await eventually { t.rig.rpc.methods().contains("chat.send") }
+        XCTAssertEqual(t.rig.rpc.params(of: "chat.send").first?["text"] as? String, Self.suggestions[0])
+    }
+
+    func testResumeRunsEarlierStepsOnlyWhenStillNeeded() async {
+        let signedOut = tour()
+        signedOut.rig.rpc.replies["runtimes.status"] = Self.notConnected
+        var progress = signedOut.progress
+        progress.resumeBeat = .control                                    // quit at Control, signed out since
+        signedOut.controller.start(beats: IntroBeat.allCases)
+        await eventually { signedOut.controller.beat == .signIn }
+        XCTAssertTrue(signedOut.rig.runner.runs.isEmpty)                  // Meet isn't run again
+
+        let allSet = tour()
+        var kept = allSet.progress
+        kept.resumeBeat = .control
+        allSet.controller.start(beats: IntroBeat.allCases)
+        await eventually { allSet.controller.beat == .control }
+        XCTAssertFalse(allSet.lines.all.contains { $0 == IntroCopy.signIn || $0 == IntroCopy.allAllowed })
+
+        let stale = tour()
+        stale.rig.rpc.replies["runtimes.status"] = Self.notConnected
+        var old = stale.progress
+        old.resumeBeat = .tryIt                                           // not in this plan: the whole plan runs
+        stale.controller.start(beats: [.signIn, .permissions, .home])
+        await eventually { stale.controller.beat == .signIn }
+    }
+
+    func testAPauseTheOwnerSetIsLeftOn() async {
+        let t = tour()
+        t.notch.daemonPaused = true
+        t.controller.start(beats: [.control, .home])
+        await eventually { t.controls.onControl != nil }
+        t.controls.send(.toggle)
+        t.controls.send(.talk)
+        t.controls.send(.summon)
+        await eventually { t.notch.conversation.turns.contains { $0.status == "previewRunning" } }
+        t.notch.introAction(.stopPreview)
+        await eventually { t.progress.done }
+        XCTAssertTrue(t.lines.all.contains(IntroCopy.alreadyPaused))     // explained, not practised
+        XCTAssertFalse(t.rig.rpc.methods().contains("sense.resume"))
+        XCTAssertTrue(t.notch.daemonPaused)
+    }
 }

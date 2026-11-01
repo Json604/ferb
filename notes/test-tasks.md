@@ -87,6 +87,9 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
       network off it fails and the running daemon keeps working. [daemon.md 12b]
 - [ ] Setup window Done with one permission off: the window comes back next launch; with all on it doesn't.
       [daemon.md 12b]
+- [ ] Intro: typing into a field on FERB's line in the compact notch (an API key, FERB's address) isn't interrupted
+      when the notch re-presents in the background (a line update, a status refresh); the text stays and the caret
+      stays in the field. [setup-intro.md]
 - [ ] Fresh FERB.app install: `ferb memory embeddings` reports the model loaded from FERB.app; no
       `memory.embedding_model fetched` row; nothing under `~/.ferb/models`. The embedding model's first fill on the live
       store (`memory.embeddings` count rises once). [daemon.md 12b, storage.md, memory.md]

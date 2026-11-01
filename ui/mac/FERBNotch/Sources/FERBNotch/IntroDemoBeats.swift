@@ -90,10 +90,11 @@ extension IntroController {
         return id
     }
 
-    /// The real chat, on today, where the preview turn shows.
+    /// The real chat, on today, where the preview turn shows. FERB opens it, not the owner: no keyboard focus is taken
+    /// (rule 10); the panel becomes key only on the owner's click or shortcut.
     func openChat() {
-        if !notch.viewingToday { notch.selectDay(Date()) }
-        if !notch.expanded { notch.expand() }
+        if !notch.viewingToday { notch.selectDay(Date(), focus: false) }
+        if !notch.expanded { notch.expand(focus: false) }
     }
 
     func leaveChat() {
@@ -103,10 +104,12 @@ extension IntroController {
     // MARK: 7. Control
 
     /// Each control once, in any order: double-tap right ⌥, hold right ⌘+⌥, Control-Option-Space, Stop on the replayed
-    /// preview, Pause FERB from the menu (lifted at once). The beat goes on once each has been seen.
+    /// preview, Pause FERB from the menu (lifted at once). The beat goes on once each has been seen. A FERB the owner
+    /// had paused before the beat stays paused: the step is explained, not practised.
     func control() async {
         seenControls = []
         replayID = nil
+        let pausedByOwner = notch.daemonPaused
         controls.onControl = { [weak self] control in self?.saw(control) }
         var lifted = false
         while live, let next = IntroControl.allCases.first(where: { !seenControls.contains($0) }) {
@@ -114,9 +117,15 @@ extension IntroController {
                 await replayForStop()
                 continue
             }
+            if next == .pause && pausedByOwner {
+                say(IntroCopy.alreadyPaused)
+                await dwell(Timing.line * 2)
+                seenControls.insert(.pause)
+                continue
+            }
             say(IntroCopy.control(next))
             _ = await suspend { [weak self] (resume: @escaping (Bool?) -> Void) in self?.controlWaiter = { resume(true) } }
-            if seenControls.contains(.pause) && !lifted {
+            if seenControls.contains(.pause) && !lifted && !pausedByOwner {
                 lifted = true
                 _ = try? await rpc.call("sense.resume", params: [:])
                 notch.daemonPaused = false

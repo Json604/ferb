@@ -281,6 +281,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 if event.keyCode == 15 && event.modifierFlags.contains(.command) { self.model.revealDocument(); return nil }
             }
             if self.panel.firstResponder is ChatTextView { return event }
+            // Return in a field on FERB's intro line submits that field (its own onSubmit), never the composer.
+            if self.model.introLine?.entry != nil, (self.panel.firstResponder as? NSTextView)?.isFieldEditor == true {
+                return event
+            }
             guard self.model.canCompose,
                   event.keyCode == 36 || event.keyCode == 76,
                   let editor = self.panel.firstResponder as? NSTextView,

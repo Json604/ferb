@@ -97,6 +97,8 @@ orb flying when to show the permission thingy."
    running preview (ruling: no real task runs during the tour).
 8. **Back to the notch.** The tour ends with FERB small in the notch and one line on how to bring it back. Replay the
    intro from Settings.
+- Deferred (ruling, 2026-11-01): the orb's trips to the apps a previewed task would use (step 6) and to a browser's own
+  "turn on" prompt (step 4); the preview carries no on-screen target and those prompts are the browser's own windows.
 
 ## Sound (owner, 2026-11-01; family decided, notes/sound.md)
 Owner's words, condensed: an original, recognisable family of sounds, not unrelated effects. Intro, summoning,

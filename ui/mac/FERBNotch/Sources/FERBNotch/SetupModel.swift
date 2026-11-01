@@ -619,9 +619,14 @@ final class SetupModel: ObservableObject {
     /// Done: the daemon records setup as done only when every permission is granted, FERB.app's own included (it
     /// reads its own; FERB.app reports these); Done still opens the notch, and launch shows the window again otherwise.
     func finish() async {
-        let own = Dictionary(uniqueKeysWithValues: appRows.map { ($0.id, $0.status.rawValue) })
-        _ = try? await rpc.call("setup.finish", params: ["app": own])
+        await recordFinished()
         stopPolling()
         onFinish?()
+    }
+
+    /// `setup.finish` with FERB.app's own rows: the daemon records setup as done only when every permission is on.
+    func recordFinished() async {
+        let own = Dictionary(uniqueKeysWithValues: appRows.map { ($0.id, $0.status.rawValue) })
+        _ = try? await rpc.call("setup.finish", params: ["app": own])
     }
 }

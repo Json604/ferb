@@ -99,4 +99,14 @@ final class OrbControllerTests: XCTestCase {
         await again.value
         XCTAssertEqual(homecomings, 1)
     }
+
+    func testDockingWithNothingToDragShowsOnlyTheInstruction() {
+        let (orb, surface, _, _) = makeOrb(latency: 0)
+        let line = IntroLine(text: "Switch FERB on here", detail: "Login Items · Allow in the Background")
+        orb.dockBesideSettings(dragging: nil, instruction: line)
+        XCTAssertNil(surface.dragItem)                                    // nothing to drag in Login Items
+        XCTAssertEqual(surface.instruction, line)
+        orb.tearDown()
+        XCTAssertNil(surface.instruction)
+    }
 }

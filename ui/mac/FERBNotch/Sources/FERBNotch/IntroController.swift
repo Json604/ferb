@@ -77,17 +77,6 @@ final class IntroController {
         self.clipSeconds = clipSeconds ?? Self.firstLaunchClipSeconds() ?? 0
     }
 
-    deinit {
-        guard running else { return }
-        let orb = orb, sound = sound
-        Task { @MainActor in
-            orb.tearDown()
-            sound.keepWarm(false)
-            sound.stopAll()
-        }
-        ProcessInfo.processInfo.enableAutomaticTermination(Self.terminationReason)
-    }
-
     /// The bundled first-launch clip's length, in seconds.
     static func firstLaunchClipSeconds() -> Double? {
         guard let url = FerbSoundFiles.files(for: .firstLaunch, subtle: false).first,
@@ -97,15 +86,20 @@ final class IntroController {
 
     // MARK: Start, finish, skip
 
-    /// Runs `beats` (IntroPlan.beats) from the beat a quit left (`IntroProgress.resumeBeat`), if any. `firstRun`: a new
-    /// install (Task 9 sets it), whose tour opens with the first-launch clip; a replay or a resume plays none.
+    /// Runs `beats` (IntroPlan.beats). A quit left `IntroProgress.resumeBeat`: when that beat is in this plan, the
+    /// tour resumes there with every planned beat after it, and sign-in and Allow all from before it run again only if
+    /// still needed (signed out, a grant gone since). `firstRun`: a new install (Task 9 sets it), whose tour opens with
+    /// the first-launch clip; a replay or a resume plays none. The running tour keeps the controller alive until it
+    /// ends (`end()` is every end's cleanup).
     func start(beats: [IntroBeat], firstRun: Bool = false) {
         guard !running else { return }
-        let resume = progress.resumeBeat
+        let resume = progress.resumeBeat.flatMap { beats.contains($0) ? $0 : nil }
         var plan = beats
+        var ifNeeded: Set<IntroBeat> = []
         if let resume {
-            let rest = beats.filter { $0.rawValue >= resume.rawValue }
-            if !rest.isEmpty { plan = rest }
+            let before = beats.filter { $0.rawValue < resume.rawValue && ($0 == .signIn || $0 == .permissions) }
+            ifNeeded = Set(before)
+            plan = before + beats.filter { $0.rawValue >= resume.rawValue }
         }
         guard !plan.isEmpty else { return }
         running = true
@@ -126,14 +120,14 @@ final class IntroController {
                 self?.endClip()
             }
         }
-        run = Task { [weak self] in await self?.perform(plan) }
+        run = Task { [weak self] in await self?.perform(plan, ifNeeded: ifNeeded) }
     }
 
     /// Skip, at any point: everything the tour drew, played or said is gone at once; then what's still required is
     /// read again from the system and the daemon (`remainingRequired`) and `onFinished` runs.
+    /// A "Do it for real" the owner already tapped still starts, as a normal task, right after.
     func skip() {
         guard running else { return }
-        realTask = nil
         progress.done = true
         progress.resumeBeat = nil
         end()
@@ -143,11 +137,14 @@ final class IntroController {
             await self.setup.refreshAI()
             self.remainingRequired = self.remaining()
             self.onFinished?()
+            self.startRealTask()
         }
     }
 
-    private func perform(_ plan: [IntroBeat]) async {
+    private func perform(_ plan: [IntroBeat], ifNeeded: Set<IntroBeat>) async {
         for next in plan {
+            guard live else { return }
+            if ifNeeded.contains(next), !(await stillNeeded(next)) { continue }
             guard live else { return }
             beat = next
             if next != .home { progress.resumeBeat = next }
@@ -166,18 +163,34 @@ final class IntroController {
         finish()
     }
 
+    /// A beat from before the resume point, run again only when its step is missing now.
+    private func stillNeeded(_ beat: IntroBeat) async -> Bool {
+        switch beat {
+        case .signIn:
+            await setup.refreshAI()
+            return !Self.connected(setup.ai)
+        case .permissions:
+            await setup.refreshPermissions()
+            return setup.permissions == nil || !SetupModel.allowAllOrder(setup.setupRows).isEmpty
+        default:
+            return true
+        }
+    }
+
     private func finish() {
         progress.done = true
         progress.resumeBeat = nil
-        remainingRequired = remaining()
         end()
         onFinished?()
-        // The owner's own pick from the demo, as their message, now that the tour runs nothing any more.
-        if let request = realTask {
-            realTask = nil
-            notch.session.draft = request
-            notch.startWork()
-        }
+        startRealTask()
+    }
+
+    /// The owner's own pick from the demo, as their message, now that the tour runs nothing any more; whatever they
+    /// typed meanwhile stays in the composer.
+    private func startRealTask() {
+        guard let request = realTask else { return }
+        realTask = nil
+        notch.send(request)
     }
 
     /// Every way the tour ends: the orb, the sound, the lines and the previews go; the app may terminate again.
@@ -208,7 +221,7 @@ final class IntroController {
     }
 
     /// The required steps still missing, from the last snapshots: sign-in, then each required permission not yet on.
-    private func remaining() -> [String] {
+    func remaining() -> [String] {
         var left = Self.connected(setup.ai) ? [] : ["sign_in"]
         if setup.permissions == nil {               // the daemon didn't answer: every required row, except those on
             left += SetupModel.allowAllSequence.filter { id in
@@ -355,10 +368,16 @@ final class IntroController {
 
     // MARK: 8. Home
 
-    /// FERB small in the notch again, with one line on how to bring it back.
+    /// FERB small in the notch again, with one line on how to bring it back. With nothing required left, setup is
+    /// recorded as done (`setup.finish`, as the setup window's Done), so neither the tour nor the window comes back.
     private func home() async {
         if notch.expanded { notch.collapse() }
         say(IntroCopy.home)
+        await setup.refreshPermissions()
+        await setup.refreshAI()
+        guard live else { return }
+        remainingRequired = remaining()
+        if remainingRequired.isEmpty { await setup.recordFinished() }
         await dwell(Timing.home)
     }
 }

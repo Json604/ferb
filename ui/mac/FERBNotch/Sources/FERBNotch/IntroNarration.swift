@@ -118,7 +118,8 @@ struct IntroNarrationView: View {
     var act: ((IntroAction) -> Void)? = nil
     /// The notch's surface pads the line like the plan preview; the strip in the open chat is tighter.
     var inset = EdgeInsets(top: 17, leading: 25, bottom: 17, trailing: 25)
-    @State private var typed = ""
+    /// The field's text (NotchModel.introTyped): emptied when the line changes, when the field goes and on submit.
+    var typed: Binding<String> = .constant("")
 
     /// Long choices (a suggested task) stack, one per row; short ones share a row.
     static func stacksChoices(_ choices: [IntroChoice]) -> Bool { choices.contains { $0.title.count > 26 } }
@@ -146,13 +147,14 @@ struct IntroNarrationView: View {
             if let entry = line.entry {
                 HStack(spacing: 8) {
                     Group {
-                        if entry.secure { SecureField(entry.placeholder, text: $typed) }
-                        else { TextField(entry.placeholder, text: $typed) }
+                        if entry.secure { SecureField(entry.placeholder, text: typed) }
+                        else { TextField(entry.placeholder, text: typed) }
                     }
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { submit(act) }
+                    .onDisappear { typed.wrappedValue = "" }
                     Button("OK") { submit(act) }.buttonStyle(FerbButtonStyle())
-                        .disabled(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(typed.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 .frame(height: Self.rowHeight)
             }
@@ -189,8 +191,8 @@ struct IntroNarrationView: View {
 
     /// A typed entry goes to the controller and leaves the field at once (an API key is never kept here).
     private func submit(_ act: (IntroAction) -> Void) {
-        let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        typed = ""
+        let text = typed.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        typed.wrappedValue = ""
         guard !text.isEmpty else { return }
         act(.enter(text))
     }

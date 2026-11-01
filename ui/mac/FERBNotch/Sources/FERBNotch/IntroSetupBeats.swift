@@ -86,7 +86,13 @@ extension IntroController {
     /// A denied prompt keeps the beat open, offering its pane. The beat is the resume point, so a grant that needs a
     /// restart ("Quit & Reopen") comes back here.
     func permissions() async {
+        // Nothing is "everything" before the daemon has said which grants it has: wait for its answer.
         await setup.refreshPermissions()
+        while live && setup.permissions == nil {
+            say(IntroCopy.gettingReady)
+            await dwell(Timing.poll)
+            await setup.refreshPermissions()
+        }
         guard live else { return }
         if !SetupModel.allowAllOrder(setup.setupRows).isEmpty {
             guard await ask(IntroCopy.permissions) != nil else { return }
