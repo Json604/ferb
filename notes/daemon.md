@@ -390,7 +390,7 @@ Rulings (technical):
   `site/apple-touch-icon.png` (180 px, full-bleed).
 - **Mac**: FERB.app, its daemon helper `Helpers/FERB.app` (what Privacy & Security lists and Activity Monitor show
   as "FERB") names `CFBundleIconFile` AppIcon in its Info.plist (FERB Voice, a third bundle, merged into FERB.app on 2026-11-01:
-  voice.md decision 10); build-app.sh copies the icns into the app's and the helper's Resources (and the dev notch
+  voice.md decision 6); build-app.sh copies the icns into the app's and the helper's Resources (and the dev notch
   build into its own). Dock, Finder, Launchpad, notifications, Login Items, alerts and Sparkle's update dialog take the
   bundle's icon. build-dmg.sh puts the icns on the disk image as `.VolumeIcon.icns` and sets the volume's custom-icon
   flag (a writable image, then compressed). The menu-bar item keeps its state symbols (a status indicator, not a

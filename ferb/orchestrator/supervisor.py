@@ -845,7 +845,7 @@ class Supervisor(WorkerRuns):
         # may return its observations later (an awaitable)
         self.environment: Callable[[str], dict[str, Any] | Awaitable[dict[str, Any]]] = environment.environment
         # what changes between turns (schedules, reminders, browser connections): after the conversation (decision 4)
-        self.live_facts: Callable[[], str] = environment.live_facts
+        self.live_facts: Callable[..., str] = environment.live_facts
         self._turns: dict[str, _Turn] = {}         # request id -> its planning turn while it runs (step 8c)
         self.apps: Callable[[], list[tuple[str, str]]] = environment.apps
         self.running_apps: Callable[[], list[tuple[str, str, int]]] = environment.running_apps
@@ -1849,9 +1849,11 @@ class Supervisor(WorkerRuns):
         assembled as for any chat message, and its plan shown as rows, without doing any of it. It cannot act by
         construction: it runs `_supervise` alone (a runtime made with no tools, run with no token), never `_route`,
         `_start`, `run_tree` or a worker, so no RunGrant is issued and the planner's side outputs (memory, reminders,
-        schedules) are never applied. Its turn shows no running task, open question, reminder or earlier chat
-        (`_Turn.preview`), so it plans `text` and can't answer or control the owner's work. Nothing is kept as a task or
-        as chat: only one `intro.preview` journal row. `session_id`: one `chat.send` refuses (continuity.PREVIEW_SESSION).
+        schedules) are never applied. Its turn leaves out the owner's live state (`_Turn.preview`): no running task, open
+        question, earlier chat (the conversation, matching older chat, what was said since the last talk), notice,
+        schedule or reminder; it keeps the capability facts (paired browsers, worker types) the plan needs. So it plans
+        `text` and can't answer or control the owner's work. Nothing is kept as a task or as chat: only one
+        `intro.preview` journal row. `session_id`: one `chat.send` refuses (continuity.PREVIEW_SESSION).
         Every event is marked `preview: true`: the plan line, one `part` per planned step, then `done`."""
         request_id = self.ids.new_id()
         m = mark(text, self.pasted_is_data())
@@ -2619,12 +2621,14 @@ class Supervisor(WorkerRuns):
                           "actions.search and current device facts", protected=True, cache=True),
              {origins_.PRIVATE}), *conversation]
         situation: list[tuple[ContextBlock, set[str]]] = []
-        live = "\n".join(part for part in (str(env.get("live") or ""), self.live_facts()) if part.strip())
+        # a preview's turn (the intro's demo) is told no schedule or reminder of the owner's, only what FERB can use
+        live_facts = self.live_facts(owner_state=False) if turn.preview else self.live_facts()
+        live = "\n".join(part for part in (str(env.get("live") or ""), live_facts) if part.strip())
         if live:
             situation.append((ContextBlock('Layer 2 — right now (changes between turns):\n' + live,
                                            "current device facts", protected=True), {origins_.PRIVATE}))
-        # a preview's turn (the intro's demo) plans its one request: no running task, open question, reminder or
-        # earlier chat of the owner's is in it, so it can't answer or control any of them
+        # a preview's turn (the intro's demo) plans its one request: no running task, open question or earlier chat of
+        # the owner's is in it (nor a notice: continuity.RESERVED_SESSIONS), so it can't answer or control any of them
         tasks_block, ended = self._task_state(session) if not turn.preview else (None, [])
         task_words, task_targets = self._chat_task_words(session, ended) if not turn.preview else ("", "")
         recall_for = "\n".join(part for part in (turn.payload, task_words) if part.strip())

@@ -22,6 +22,8 @@ GENERAL_TASKS = ("Find three things on my Mac I could tidy up, and show me how y
 GENERAL_APPS = ("Finder", "")
 # an app name is a short label the app matches against running apps' names
 APP_NAME_MAX = 60
+# a suggestion is one short request shown as a choice in the notch, cut at a word boundary
+REQUEST_MAX = 280
 # the preview's planner session: `chat.send` refuses the prefix, so no owner chat (or anything said in one) is in it
 INTRO_SESSION = PREVIEW_SESSION + "intro"
 # a technical bound, not a cap of the owner's: the suggestion's model call ends just before the app stops waiting for
@@ -36,6 +38,17 @@ SUGGEST_SCHEMA: dict[str, Any] = {
 
 def _key(request: str) -> str:
     return " ".join(request.casefold().split())
+
+
+def _within(words: str, limit: int) -> str:
+    """`words` (single-spaced) cut to at most `limit` characters at a word boundary, with nothing added; one word
+    longer than that is cut at the limit."""
+    if len(words) <= limit:
+        return words
+    head = words[:limit]
+    if words[limit] != " " and " " in head:
+        head = head.rsplit(" ", 1)[0]
+    return head.rstrip()
 
 
 def two(from_scan: list[tuple[str, str]]) -> tuple[list[tuple[str, str]], int]:
@@ -109,7 +122,8 @@ class Intro:
         found: list[tuple[str, str]] = []
         for item in answer.get("requests") or []:
             if isinstance(item, dict):
-                found.append((words(item.get("request")), words(item.get("app"))[:APP_NAME_MAX]))
+                found.append((_within(words(item.get("request")), REQUEST_MAX),
+                              words(item.get("app"))[:APP_NAME_MAX]))
         return found
 
     async def _intro_preview(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:

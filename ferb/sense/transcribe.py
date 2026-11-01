@@ -100,6 +100,10 @@ def hearing_pids(app: Path, folder: Path) -> list[int]:
     return out
 
 
+class NotSigned(HearingUnavailable):
+    """FERB.app's signature doesn't meet the requirement setup recorded (or none was recorded)."""
+
+
 def signed(app: Path, requirement: str) -> bool:
     """FERB.app's signature meets the requirement setup recorded (bundle id + FERB's certificate)."""
     r = subprocess.run(["/usr/bin/codesign", "--verify", "--strict", f"-R={requirement}", str(app)], capture_output=True)
@@ -126,7 +130,7 @@ class Transcriber:
             raise HearingUnavailable("FERB.app isn't there, so FERB can't turn sound into text; download FERB again")
         req = self.requirement()
         if not req or not await asyncio.to_thread(self.signed, self.app, req):
-            raise HearingUnavailable("FERB.app's signature isn't the one setup recorded, so FERB didn't give it the "
+            raise NotSigned("FERB.app's signature isn't the one setup recorded, so FERB didn't give it the "
                                      "sound; set up FERB again")
 
     async def _ask(self, mode: str, folder: Path, *args: str, limit_s: float = LIMIT_S) -> dict[str, Any]:

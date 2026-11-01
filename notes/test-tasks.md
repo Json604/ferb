@@ -106,6 +106,15 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
 - [ ] A packaged build launches: the resource bundle (ferb-mark, Sounds) is found in Contents/Resources.
       [setup-intro]
 - [ ] After the fresh start, the old FERB Voice entry is gone from Privacy & Security. [setup-intro]
+- [ ] With "Hey Siri" or Voice Control on, FERB isn't stuck "on a call": with no call running, sounds still play.
+      [setup-intro, sound.md]
+- [ ] One hearing signature check on the packaged app is fast: time `codesign --verify --strict` with the recorded
+      requirement on /Applications/FERB.app (or `ferb doctor`'s hearing probe) and note the time. [voice.md]
+- [ ] A natural tour end (Home) doesn't cut off a ringing sound (Home's melt, or an everyday sound playing then); only
+      Skip stops sound at once. [setup-intro]
+- [ ] The Login Items beat opens System Settings only after "Open Login Items" is tapped; "Do it for real" tapped
+      while dictating is sent once dictation ends; after a Restart repair during the tour it waits in the composer.
+      [setup-intro]
 - [ ] Fresh FERB.app install: `ferb memory embeddings` reports the model loaded from FERB.app; no
       `memory.embedding_model fetched` row; nothing under `~/.ferb/models`. The embedding model's first fill on the live
       store (`memory.embeddings` count rises once). [daemon.md 12b, storage.md, memory.md]

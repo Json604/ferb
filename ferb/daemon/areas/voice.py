@@ -4,7 +4,6 @@ Must not listen: hearing only transcribes sound a task captured from an app (L26
 dictation; a turn it sends with `speak: true` is answered aloud from the turn's structured events, never from rendered
 text."""
 
-import asyncio
 import contextlib
 import os
 import signal
@@ -57,18 +56,20 @@ class VoiceGlue:
 
     async def _hearing_status(self, probe: bool) -> dict[str, Any]:
         """L26 for doctor and setup: FERB.app installed and signed as recorded, and (probe) its Speech Recognition state
-        and on-device support, asked of FERB.app itself in the background. Never a prompt."""
+        and on-device support, asked of FERB.app itself in the background. Never a prompt. The signature is verified
+        once per call, by the status ask itself (Transcriber._checked)."""
         out: dict[str, Any] = {"installed": self.voice_bundle.exists()}
         if not out["installed"] or not probe:
             return out
-        from ferb.sense.transcribe import signed
-        req = self._hearing_requirement()
-        out["signed"] = bool(req) and await asyncio.to_thread(signed, self.voice_bundle, str(req))
-        if out["signed"]:
-            try:
-                out.update(await self.hearing.transcriber.status(self.hearing.folder))
-            except Exception as e:
-                out["error"] = self._redact_text(f"{type(e).__name__}: {e}")
+        from ferb.sense.transcribe import NotSigned
+        try:
+            out.update(await self.hearing.transcriber.status(self.hearing.folder))
+            out["signed"] = True
+        except NotSigned:
+            out["signed"] = False
+        except Exception as e:
+            out["signed"] = True                    # the check passed; FERB.app's answer didn't come
+            out["error"] = self._redact_text(f"{type(e).__name__}: {e}")
         return out
 
     def _quit_voice_app(self) -> None:

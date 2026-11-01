@@ -46,7 +46,8 @@ class SchedulePort:
 class EnvironmentPort:
     """What the Mac, FERB's tools and the owner's activity look like now."""
     environment: Callable[[str], Any]                   # installed apps and connections (may return an awaitable)
-    live_facts: Callable[[], str]                       # schedules, reminders, browser connections: change per turn
+    # schedules, reminders, browser connections: change per turn (`owner_state=False`: browser connections only)
+    live_facts: Callable[..., str]
     availability: Callable[[], Any]                     # what the planner may use right now
     apps: Callable[[], list[tuple[str, str]]]           # (bundle id, name) from the device profile
     running_apps: Callable[[], list[tuple[str, str, int]]]   # (bundle id, name, pid) running now

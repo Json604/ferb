@@ -23,9 +23,9 @@ def in_conversation(kind: str, data: dict[str, Any], conversation: str) -> bool:
     """Whether a journaled chat entry (a message, reply, question or notice; never a task answer) belongs to a
     conversation: by its session id, a missing one being the daily "owner" conversation. A notice is posted to the
     owner, not to one chat, so it belongs to every conversation the owner chats in (the notch's, voice, `ferb chat`'s),
-    never to a scheduled run's planner session (final review M3)."""
+    never to one of FERB's own planner sessions (a scheduled run's, final review M3; the intro's preview)."""
     if kind == "chat.notice" and "session_id" not in data:
-        return not conversation.startswith(SCHEDULE_SESSION)
+        return not conversation.startswith(RESERVED_SESSIONS)
     return bool(data.get("session_id", "owner") == conversation)
 
 
@@ -121,7 +121,7 @@ class Continuity:
     def _where(self, conversation: str) -> tuple[str, list[Any]]:
         """SQL for the journal rows that belong to a conversation (`in_conversation`, plus its tasks' answers)."""
         marks = ",".join("?" * len(self.KINDS))
-        notices = "" if conversation.startswith(SCHEDULE_SESSION) else \
+        notices = "" if conversation.startswith(RESERVED_SESSIONS) else \
             " OR (kind = 'chat.notice' AND json_extract(data_json, '$.session_id') IS NULL)"
         return (f"kind IN ({marks}) AND ((kind = 'task.answer' AND json_extract(data_json, '$.task_id') IN "
                 f"(SELECT task_id FROM task_context WHERE conversation_id = ?)){notices} OR (kind != 'task.answer' "
@@ -167,7 +167,7 @@ class Continuity:
         if kind == "task.answer":
             return request in self.task_ids(conversation)
         if kind == "chat.notice" and not session:
-            return not conversation.startswith(SCHEDULE_SESSION)
+            return not conversation.startswith(RESERVED_SESSIONS)
         return session == conversation
 
     def tasks(self, task_id: str) -> list[dict[str, Any]]:

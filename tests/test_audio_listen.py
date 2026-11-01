@@ -274,6 +274,30 @@ def test_transcriber_refuses_a_missing_or_unsigned_ferb_app(tmp_path: Path) -> N
     assert fake.argv == []
 
 
+def test_the_hearing_status_checks_the_signature_once_per_call(tmp_path: Path) -> None:
+    """Doctor's and setup's hearing probe verifies FERB.app's signature once per call (the status ask's own check), and
+    an unsigned app is reported as such and never launched."""
+    from ferb.daemon.areas.voice import VoiceGlue
+    from ferb.sense.transcribe import Transcriber
+    app = tmp_path / "FERB.app"
+    app.mkdir()
+    for ok in (True, False):
+        checks: list[str] = []
+
+        def signed(bundle: Path, req: str) -> bool:
+            checks.append(req)
+            return ok
+        fake = FakeApp(app)
+        glue = SimpleNamespace(voice_bundle=app, _hearing_requirement=lambda: "req", _redact_text=str,
+                               hearing=SimpleNamespace(transcriber=Transcriber(app, lambda: "req", launch=fake,
+                                                                               signed=signed),
+                                                       folder=tmp_path / "workspace" / "audio"))
+        out = asyncio.run(VoiceGlue._hearing_status(glue, True))   # type: ignore[arg-type]
+        assert checks == ["req"]
+        assert out["signed"] is ok and ("speech" in out) is ok and "error" not in out
+        assert len(fake.argv) == (1 if ok else 0)
+
+
 def test_a_cancelled_transcription_tells_ferb_app_to_stop_and_leaves_nothing_on_disk(tmp_path: Path) -> None:
     """Killing `open -W` doesn't stop a LaunchServices-launched FERB.app. The answer file is its lease: the daemon
     deletes it to say stop (FERB.app watches it and exits), and an answer written after that goes to an unlinked file."""

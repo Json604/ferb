@@ -1,8 +1,8 @@
 # First-run intro and setup (design, 2026-11-01)
 
 Status: design agreed in conversation with the owner on 2026-11-01; the sound family was decided the same day over
-nine listening rounds (notes/sound.md). Tasks 1–9 built 2026-11-01 (notes/setup-intro-plan.md); Tasks 10–11 next; live
-checks pending (step 13). Replaces today's setup window flow (fix-order step 15; it comes before step
+nine listening rounds (notes/sound.md). Tasks 1–11 built 2026-11-01 (notes/setup-intro-plan.md); live checks pending
+(step 13). Replaces today's setup window flow (fix-order step 15; it comes before step
 13's fresh install). Visual polish happens in the Swift app (owner: "needs polishing and that we'll do in the swift app").
 
 ## Intent (owner's words, condensed)
@@ -63,14 +63,14 @@ orb flying when to show the permission thingy."
    API key (ruling: CLAUDE.md rule 12 keeps the API runtimes first-class). As soon as sign-in succeeds, FERB starts the
    Mac scan in the background (memory decision 16: installed apps, their use, browsers and profiles; code gathers, a
    model interprets), so it is ready by step 6.
-3. **Allow all, guided** (keeps the owner's decision that all eight permissions are required with one Allow all;
+3. **Allow all, guided** (keeps the owner's decision that all seven permissions are required with one Allow all;
    Automation stays per app at first use). Pressing Allow all starts the sequence:
    - drag-list panes (Accessibility, shown on macOS 27 as "Device Control and Data Access"; Screen & System Audio
-     Recording; Input Monitoring; Full Disk Access; whichever of today's eight are list panes): FERB opens the exact pane
+     Recording; Input Monitoring; Full Disk Access; whichever of today's seven are list panes): FERB opens the exact pane
      (`x-apple.systempreferences:` deep links), the orb flies out and docks beside System Settings holding a real,
      draggable FERB icon, follows the Settings window if it moves, hides when Settings isn't in front, and confirms only
      when the system reports the grant;
-   - request-style permissions (microphone, notifications, and any other of the eight that macOS asks with its own
+   - request-style permissions (microphone, notifications, and any other of the seven that macOS asks with its own
      prompt): one line from the notch, then the system prompt where the user is;
    - a grant that needs FERB to restart (Screen Recording) restarts the part that needs it automatically when the user
      comes back, without losing the tour's place.
@@ -160,11 +160,12 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   Settings. Skipping the tour leaves the required steps (sign-in, permissions) in a compact form; a skip tears down
   everything the tour drew or said. The app stays alive during the tour (opt out of automatic termination).
 - Upgrades: an existing install that has finished setup doesn't see the tour (it is offered in Settings as "Replay
-  intro"); an install missing grants gets only the missing beats.
+  intro"); one that finished setup and is missing grants gets only those beats plus home. An install that never
+  finished setup and predates the intro is treated as a first run (the full tour; ruling, 2026-11-01).
 - Launch (built, Task 9; AppSetupPlan.atLaunch/afterUpdate): a new install or another installation → every beat; a
   quit tour → its own plan at its beat (IntroProgress keeps the plan; it wins over the compact window's Grant resume);
   setup done → nothing, except that a quiet update finding a required grant off runs Allow all and home only; setup
-  not done → the missing beats (a fact the daemon didn't answer asks for nothing; browsers count as unpaired only
+  not done and the tour never seen → every beat (a first run); setup not done after the tour → the missing beats (a fact the daemon didn't answer asks for nothing; browsers count as unpaired only
   when profiles exist and none is paired), and with none missing after the tour, launch records setup quietly
   (`setup.finish`; the daemon checks every row). Set Up FERB… and Settings → General → Replay intro run every beat;
   the menu's Restart finding no service repairs it in the compact window, never the tour. A skip, or a grant still
@@ -183,9 +184,10 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   preview. Built (Task 4, daemon): `intro.suggest` (one tool-less call on the redacted scan summary for two
   suggestions; the two general tasks when the scan isn't "seen" or the call fails or stalls past `SUGGEST_LIMIT_S`,
   just under the app's wait) and the stream `intro.preview` (`Supervisor.preview`: the real planner turn alone, no run
-  token, worker, task row or chat entry, and no running task, open question, reminder or earlier chat in its context;
+  token, worker, task row or chat entry; its context leaves out the owner's live state: running tasks, open questions,
+  earlier chat, notices, schedules and reminders, keeping only the capability facts such as paired browsers;
   its session prefix `preview:` is one `chat.send` refuses; events `plan`, `part` per step, `done`, all
   `preview: true`), both FERB.app only.
-- Which of today's eight permissions are list panes vs prompts, and their deep links on macOS 14–27.
+- Which of today's seven permissions are list panes vs prompts, and their deep links on macOS 14–27.
 - The internal structure of the setup code it replaces, and tests (focused: grant confirmation logic, resume/skip state,
   the preview run having no acting tools, upgrade behaviour).

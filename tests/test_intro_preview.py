@@ -192,6 +192,20 @@ def test_suggest_uses_the_scan_when_seen(daemon: RunningDaemon) -> None:
     assert _journal(daemon, "intro.suggested")[-1].data == {"fits": False, "from_scan": 0, "why": "RuntimeError"}
 
 
+def test_a_long_suggestion_is_cut_at_a_word_boundary(daemon: RunningDaemon) -> None:
+    """Code bounds what the model's suggestion can put in the notch: at most REQUEST_MAX characters, whole words only,
+    with no ellipsis added."""
+    long = " ".join(f"step{i} of the example cleanup" for i in range(40))
+    rt = FakeDistillRuntime({"requests": [{"request": long, "app": "Finder"},
+                                          {"request": "x" * 400, "app": "Notes"}]})
+    daemon.daemon._make_runtime = lambda *a, **k: rt                        # type: ignore[method-assign]
+    _persona(daemon, seen=SEEN)
+    first, second = [s["request"] for s in _suggest(daemon)["suggestions"]]
+    assert len(first) <= intro.REQUEST_MAX and long.startswith(first)
+    assert long[len(first)] == " " and not first.endswith((" ", "…", "..."))   # whole words, nothing added
+    assert second == "x" * intro.REQUEST_MAX                                # one long word: cut at the bound
+
+
 def test_suggest_gives_the_general_tasks_when_the_model_stalls(daemon: RunningDaemon,
                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     """The call ends just before the app stops waiting (SUGGEST_LIMIT_S, under server.LONG_WAITS): a model that never
@@ -227,6 +241,34 @@ def test_preview_leaves_out_the_owners_running_tasks_and_open_questions(daemon: 
         for tree in list(daemon.daemon.supervisor._tree_of.values()):
             daemon.daemon.supervisor.stop_tree(tree.id)
         turn.join(10)
+
+
+def test_preview_leaves_out_the_owners_notices_schedules_and_reminders(daemon: RunningDaemon) -> None:
+    """The preview's planner turn sees none of the owner's live state: a notice FERB posted to the owner, a schedule and
+    a reminder stay out of it, while an owner chat's turn still gets all three."""
+    from datetime import timedelta
+
+    from ferb.policy.targets import Targets
+    from tests.support.schedules import make_schedule
+    now = daemon.daemon.clock.now()
+    make_schedule(daemon, "Summarize the example newsletter", "every morning summarize the example newsletter",
+                  Targets(), now + timedelta(hours=2))
+
+    async def owner_state() -> None:
+        daemon.daemon.timers.add("reminder", now + timedelta(hours=3), "water the example fern")
+        daemon.daemon.supervisor.journal.append("chat.notice", {"id": "n-example", "text": "Your example parcel moved.",
+                                                                "quotes": []})
+    daemon.run(owner_state())
+    owners = ("example newsletter", "water the example fern", "Your example parcel moved")
+    script = install(daemon, [sup("reply", "Noted.")])
+    chat(daemon, "what's on today?")
+    seen = [c for _, key, c, _ in script.contexts if key == "supervisor"][-1]
+    assert all(part in seen for part in owners)                             # an owner chat's turn gets them
+    script = _planned(daemon)
+    events = _preview(daemon)
+    assert [p["label"] for p in events if p["type"] == "part"] == STEPS
+    context = [c for _, key, c, _ in script.contexts if key == "supervisor"][-1]
+    assert not [part for part in owners if part in context]                 # the preview's turn gets none
 
 
 def test_chat_send_refuses_ferbs_own_sessions(daemon: RunningDaemon) -> None:

@@ -3,7 +3,7 @@
 Area: `ferb/voice/*` (controller, mic, push_to_talk, speak), `ferb/sense/transcribe.py`, `ferb/act/listen.py`,
 `ferb/act/recording.py`, `ferb/act/mac/audio.py`, voice/hearing wiring in `ferb/daemon/main.py`, the CLI voice parts,
 and FERB.app's hearing modes (`ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift`; the FERB Voice helper `macapp/FERB`
-merged into it, decision 10). The notch app (ui/) is the owner's side; read only for the RPCs
+merged into it, decision 6). The notch app (ui/) is the owner's side; read only for the RPCs
 and dictation it already has.
 Basis: a read of every line (2026-10-30), read-only DB counts. Nothing was recorded or spoken.
 
@@ -25,7 +25,8 @@ Basis: a read of every line (2026-10-30), read-only DB counts. Nothing was recor
 
 ### Rulings that carry the merge (built 2026-11-01, Task 3 of notes/setup-intro-plan.md)
 - FERB.app's own executable answers `transcribe`, `status` and `request-speech` (same arguments, answer files, lease and
-  exit codes) before it starts the app (`Application.swift` `main()`; no window, no microphone). The daemon opens FERB.app
+  exit codes; `request-speech` is kept but setup no longer calls it: the app asks with its microphone row) before it
+  starts the app (`Application.swift` `main()`; no window, no microphone). The daemon opens FERB.app
   itself with `open -g -n -W --env FERB_HOME=… <FERB.app> --args <mode> …`. The home rule is
   `NotchCore/FerbHomeRule.swift`; the modes are `Sources/FERBNotch/Hearing.swift`.
 - Hearing's signature pin is FERB.app's own designated requirement (`Installer.own_requirement`, after the bundle's

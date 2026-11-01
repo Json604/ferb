@@ -5,7 +5,8 @@
 // opened (push-to-talk is the app's own dictation, notes/voice.md decision 3). Speech is recognized on this Mac only
 // (requiresOnDeviceRecognition): without on-device support FERB says so and never sends speech to Apple's servers
 // (rule 15, L26).
-// Modes: request-speech                 ask for Speech Recognition only, print the result
+// Modes: request-speech                 ask for Speech Recognition only, print the result (kept and harmless; setup no
+//                                       longer calls it: the app asks with its microphone row)
 //        transcribe <audio> <out> [locale]  a captured app's sound file to text, written into <out>
 //        status <out>                   Speech Recognition state and on-device support, written into <out>
 // <out> is the daemon's empty answer file in $FERB_HOME/workspace/audio; deleting it stops FERB.app. The two never

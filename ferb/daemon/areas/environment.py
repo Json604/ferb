@@ -229,15 +229,16 @@ class Environment:
             lines.append(f"- When the owner says “{phrase}”, they mean: {meaning}")
         return "\n".join(lines)
 
-    def _live_facts(self) -> str:
+    def _live_facts(self, owner_state: bool = True) -> str:
         """Facts that change between turns (decision 4: after the conversation in the planner's context, so the prefix
         before it stays cacheable): the schedules and reminders, and the owner's paired browser profiles as FERB can
-        use them now."""
+        use them now. `owner_state=False` (the intro's preview, `Supervisor.preview`): only the browser profiles, a
+        capability the plan needs; the owner's schedules and reminders stay out."""
         lines: list[str] = []
-        for sc in (self._listed_schedules() if self.schedules is not None else []):
+        for sc in (self._listed_schedules() if self.schedules is not None and owner_state else []):
             state = "done; its last run is under way" if sc.state == "done" else sc.state
             lines.append(f"- Schedule {sc.id} ({state}): {sc.request} — {sc.describe()}")
-        for t in (self.timers.pending(("reminder", "timer")) if self.timers is not None else []):
+        for t in (self.timers.pending(("reminder", "timer")) if self.timers is not None and owner_state else []):
             lines.append(f"- {t.kind.capitalize()} {t.id}: {t.message} — {t.fire_at.astimezone():%a %d %b %Y %H:%M}")
         if self.pairings is not None and self.hub is not None:           # the owner's browsers, as FERB can use them
             ferb = self._identity_profile()
