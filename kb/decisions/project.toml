@@ -51,3 +51,12 @@ words = "recommeded all"
 why = "Answer to T-525: the owner accepted the recommendation for every open question."
 rule = "THIRD_PARTY_NOTICES.md keeps the license attributions for bundled third-party code."
 untestable = "A statement about a licence-attribution document."
+
+[PROJ-505]
+title = "Tested code wins over an older conflicting decision"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "trust the code omplemted, that is somehting ive tested the info you found might be prev decision no longer needed."
+rule = "When an older decision disagrees with code the owner has tested, the code stands: the decision is superseded by one that states what the code does. A decision the owner made after the code (e.g. MEM-35) is built instead."
+untestable = "A rule for how agents settle a conflict between kb and the code."

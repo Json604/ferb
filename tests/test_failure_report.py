@@ -583,6 +583,7 @@ def test_a_redactor_without_a_text_path_writes_nothing(daemon: RunningDaemon) ->
     assert not (daemon.daemon.home / "reports").exists()
 
 
+# decision: DMN-503
 def test_reports_older_than_30_days_are_removed(daemon: RunningDaemon) -> None:
     _failed_task(daemon)
     folder = daemon.daemon.home / "reports"

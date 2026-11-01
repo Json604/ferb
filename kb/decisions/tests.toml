@@ -87,4 +87,5 @@ date = 2026-11-02
 status = "active"
 words = "yes"
 why = "Owner approved the plan after timer tests failed under a busy Mac and tests reached the owner's ~/.ferb and the real repo (tokenizer, GIT_DIR)."
+untestable = "A rule for writing tests; tests/conftest.py fails a run that changed the repository's git config or HEAD."
 rule = "A test never waits on real time (it uses ferb.clock FakeClock or an injected clock) and never reads or changes anything outside its own temp folders: not ~/.ferb, the repository, the Keychain or machine caches. Real timing on a real Mac is a live check."

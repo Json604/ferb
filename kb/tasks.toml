@@ -410,11 +410,3 @@ kind = "build"
 status = "open"
 why = "No test resumes a tour with the daemon down; testAllowAllWaitsForTheDaemonsAnswer shows the same \"Getting my background part ready…\" wait only at the Allow all beat of a fresh tour."
 decisions = ["APP-515"]
-
-[T-1002]
-title = "Write the test for APP-575 once the owner settles the transcript height"
-area = "app"
-kind = "build"
-status = "open"
-why = "APP-575 says 240 points growing with content to 320; the code (NotchModel.swift chatTranscriptHeight) has an owner-resizable height, default 300, minimum 260, and ContinuousChatTests expects 300 and a resize to 380. The owner decides which stands first."
-decisions = ["APP-575"]

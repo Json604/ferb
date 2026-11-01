@@ -401,7 +401,8 @@ legacy = "CHANGELOG.md 0.27.0.dev1 (2026-10-24): every answer shows its full det
 title = "Questions never expire while their task waits"
 by = "owner"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-507"
 words = "recommeded all"
 why = "Answer to T-518: the owner accepted the recommendation for every open question."
 rule = "A question stays open as long as its task waits, with no expiry; the runtimes' own per-call tool timeouts stay at their defaults."
@@ -442,3 +443,14 @@ status = "active"
 words = "recommeded all"
 why = "Answer to T-522: the owner accepted the recommendation for every open question."
 rule = "Long-running watches run without AI calls (reload, read and view-switch clicks set up once), with a 30 s floor; FERB looks up the service's rate limits and says which interval it chose."
+
+[ORCH-507]
+title = "Questions never expire; FERB's tool-call timeouts stay as built"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "trust the code omplemted, that is somehting ive tested the info you found might be prev decision no longer needed."
+why = "Replaces ORCH-502's 'runtimes' defaults' with the tested settings (PROJ-505): a question can wait for the owner far longer than a runtime's own timeout."
+rule = "A question stays open as long as its task waits, with no expiry. Codex's FERB tool timeout is MCP_TOOL_TIMEOUT_S (7 days) and Claude Code's MCP tool idle timeout is off (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0), so a waiting tool call isn't cut by the runtime."
+supersedes = ["ORCH-502"]
+paths = ["ferb/runtimes/codex_exec.py", "ferb/runtimes/claude_sdk.py"]

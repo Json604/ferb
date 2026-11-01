@@ -34,3 +34,4 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **STORE-417** (agent): Every connection keeps `secure_delete=ON`, so deleted data is zeroed; its cost (about twice the writes) is offset by batched purges, not by turning it off.
 - **STORE-418** (owner): The audit-like journal records (security alignment, shell network use, escape used, clipboard access) are kept forever; they are not deleted with the operational records.
 - **STORE-419** (owner): Perception receipts and batches are deleted after 30 days; a loop wake-up row is deleted once it has fired; notices and learned-node change rows are deleted after 90 days.
+- **STORE-420** (owner): No retention setting can be set below one day.

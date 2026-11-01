@@ -63,6 +63,7 @@ final class ContinuousChatTests: XCTestCase {
         }
     }
 
+    // decision: APP-587
     func testTranscriptStartsRoomyAndUsesTheSavedResizableHeight() {
         let model = NotchModel(preferences: scratchDefaults())
         XCTAssertEqual(model.bodyWidth, 440)

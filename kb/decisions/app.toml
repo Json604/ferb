@@ -849,7 +849,8 @@ legacy = "ui/AGENTS.md Motion references examined 2026-10-10"
 title = "The chat area: at least 240 points, growing to 320"
 by = "owner"
 date = 2026-10-11
-status = "active"
+status = "superseded"
+superseded_by = "APP-587"
 words_source = "ui/AGENTS.md Continuous chat refinement (\"the owner explicitly requested this larger conversation area\"): paraphrase; no verbatim quote"
 rule = "The empty dialog stays compact. With messages it reserves at least 240 points for reading and grows with content to 320 points before scrolling."
 rejected = ["The content-fit size (too small)"]
@@ -967,3 +968,14 @@ words = "recommeded all"
 why = "Answer to T-506: the owner accepted the recommendation for every open question."
 rule = "A question waiting for the owner lights the camera edge amber (the yield rule, as built); completion keeps its two green pulses."
 rejected = ["Lighting the camera edge only for completion."]
+
+[APP-587]
+title = "The chat area has an owner-resizable height: 300 points by default, at least 260"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "trust the code omplemted, that is somehting ive tested the info you found might be prev decision no longer needed."
+why = "The owner tested the built behaviour; it replaces the 240-320 growth rule (PROJ-505)."
+rule = "The transcript starts at 300 points and the owner can resize it (minimum 260); the height the owner sets is kept."
+supersedes = ["APP-575"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift"]

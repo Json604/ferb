@@ -2,7 +2,7 @@
 [kb]
 # Turn on once the tests are linked (migration step "link tests"): every active decision then needs a test that
 # carries `decision: ID`, a `live` check, or an `untestable` reason.
-coverage = false
+coverage = true
 # Every tracked file must belong to exactly one area in kb/areas.toml, except these.
 ownership = true
 # ownership_ignore = [".gitignore", "README*", "LICENSE*", "docs/**"]

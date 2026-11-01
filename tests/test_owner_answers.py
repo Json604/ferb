@@ -227,7 +227,7 @@ def test_a_worker_question_whose_call_was_cancelled_is_closed_as_superseded(daem
     assert question.state == "superseded"
 
 
-# decision: ORCH-502
+# decision: ORCH-507
 def test_a_waiter_that_went_away_leaves_the_question_open(daemon: RunningDaemon) -> None:
     """Merge note with Task 14 (CALLER_LEFT): only a real stop of the task closes a question; a cancelled waiter whose
     task still runs leaves it open for the owner."""

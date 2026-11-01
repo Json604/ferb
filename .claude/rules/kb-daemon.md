@@ -64,3 +64,4 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **DMN-500** (agent): intro.suggest makes one tool-less model call on the redacted scan summary for two first-task suggestions. When the scan isn't seen, the call fails or stalls past SUGGEST_LIMIT_S (just under the app's wait), or fewer than two usable tasks come back, the general tasks fill in (GENERAL_TASKS: one Mac or files task, one browser task; the copy may change but stays general). FERB.app only.
 - **DMN-501** (owner): FERB records which app came forward, when its last on-screen action ended and which FERB-started processes ran, never who caused a change (owner 2026-10-09: "i dont want this hardcoded control over other agent's harness").
 - **DMN-502** (owner): Setup and ferb doctor check that FileVault is on. FERB adds no whole-database encryption of its own (FileVault encrypts the disk).
+- **DMN-503** (owner): A failure report older than 30 days is deleted.

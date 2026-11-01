@@ -470,8 +470,12 @@ class KB:
                 if why:
                     e.append(f"{where}: path `{p}` {why}")
             if self.cfg["coverage"] and st == "active":
-                if not (self.tests_for(k) or d.get("live") or d.get("untestable")):
-                    e.append(f"{where}: no test carries `decision: {k}`, no `live` check and no `untestable` reason")
+                # pending: not built or not tested yet, with an open build/bug/chore task naming it (lands with its test)
+                pending = any(k in (t.get("decisions") or []) and t.get("kind") in ("build", "bug", "chore")
+                              for t in self.tasks.values())
+                if not (self.tests_for(k) or d.get("live") or d.get("untestable") or pending):
+                    e.append(f"{where}: no test carries `decision: {k}`, no `live` check, no `untestable` reason and "
+                             f"no open build/bug/chore task names it")
 
         # tasks
         for k, t in self.tasks.items():

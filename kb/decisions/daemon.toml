@@ -428,3 +428,13 @@ words = "recommeded all"
 why = "Answer to T-517: the owner accepted the recommendation for every open question."
 rule = "Setup and ferb doctor check that FileVault is on. FERB adds no whole-database encryption of its own (FileVault encrypts the disk)."
 rejected = ["Whole-database encryption through a signed helper."]
+
+[DMN-503]
+title = "Failure reports are kept 30 days"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "trust the code omplemted, that is somehting ive tested the info you found might be prev decision no longer needed."
+why = "A limit that existed only in code and its test (PROJ-505)."
+rule = "A failure report older than 30 days is deleted."
+paths = ["ferb/daemon/reports.py"]

@@ -361,6 +361,7 @@ def test_a_pass_handles_at_most_200_roots_oldest_first(daemon: RunningDaemon, mo
     assert _tree_spans(daemon, second) == 0
 
 
+# decision: STORE-420
 def test_every_retention_days_setting_is_at_least_one_day(daemon: RunningDaemon) -> None:
     """A retention of 0 (or less) would purge evidence, recovery copies or traces the moment they exist,
     before the checker, the owner or `ferb restore` could use them: every retention.*_days F4 reads is at least 1."""
