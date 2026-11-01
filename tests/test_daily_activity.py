@@ -41,6 +41,7 @@ def test_daemon_redacts_owner_activity_before_daily_storage(daemon):
     assert rows[0]['actor'] == 'owner' and rows[0]['device_id']
 
 
+# decision: MEM-2
 def test_source_correction_and_forget_rewrite_every_mirror_without_other_rows(tmp_path):
     log = DailyActivity(tmp_path / 'activity.jsonl', lambda: datetime.now(timezone.utc))
     for source in ('sensitive', 'keep'):
@@ -54,6 +55,7 @@ def test_source_correction_and_forget_rewrite_every_mirror_without_other_rows(tm
     assert log.path.stat().st_mode & 0o777 == 0o600
 
 
+# decision: MEM-2
 def test_forget_removes_daily_source_and_keep_sources_retains_it(daemon):
     from ferb.sense.trail import Observation
     async def check():

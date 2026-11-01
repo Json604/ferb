@@ -67,6 +67,7 @@ def _old_store(home: Path) -> None:
     db.close()
 
 
+# decision: MEM-12, MEM-18
 def test_the_first_start_cleans_memory_once_and_seeds_the_core_profile(home: Path) -> None:
     _old_store(home)
     d = _own_daemon(home)

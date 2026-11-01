@@ -33,12 +33,14 @@ def test_native_adapter_reads_the_whole_string_of_a_key_event(monkeypatch) -> No
         ['h😀' + long]
 
 
+# decision: SENSE-401
 def test_typed_digits_in_an_unlabelled_field_are_kept_as_typed(monkeypatch) -> None:
     """§8.5: no digit-shape rule guesses codes in typed text; only explicit code labels hide a code."""
     assert texts(capture(monkeypatch, Screen(label='Quantity'), [key_event('482913')])) == ['482913']
     assert texts(capture(monkeypatch, Screen(label='Verification code'), [key_event('482913')])) == ['[redacted]']
 
 
+# decision: SENSE-401
 @pytest.mark.parametrize('case', ['secure field', 'secure input', *TERMINALS, 'com.googlecode.iTerm2'])
 def test_secure_fields_secure_input_and_terminal_apps_record_nothing(monkeypatch, case) -> None:
     """(b) The same keystroke in an ordinary field is recorded; in each guarded place nothing is."""
@@ -78,6 +80,7 @@ def test_polls_read_no_accessibility_while_nothing_is_typed(monkeypatch) -> None
 # ---------- D28, D31, rule 14: no terminal surface is captured, by FERB's own terminal facts ----------
 
 
+# decision: SENSE-401
 @pytest.mark.parametrize('bundle,chain', [
     ('com.microsoft.VSCode', TERMINAL), ('com.microsoft.VSCode', CLAUDE_TERMINAL),
     ('com.todesktop.230313mzl4w4u92', TERMINAL), ('com.google.Chrome', PAGE_XTERM),
@@ -97,6 +100,7 @@ def test_an_editor_or_a_page_box_beside_a_terminal_is_still_captured(monkeypatch
     assert texts(capture(monkeypatch, ChainScreen(bundle, chain), [key_event('print(1)')])) == ['print(1)']
 
 
+# decision: SENSE-401
 @pytest.mark.parametrize('bundle', ['dev.zed.Zed', 'org.tabby', 'com.example.Shelly'])
 def test_an_app_that_is_or_hosts_an_unseen_terminal_is_never_read(monkeypatch, bundle) -> None:
     """Zed's terminal panel shows Accessibility nothing, Tabby is a terminal app, and an app whose Info.plist declares
@@ -115,6 +119,7 @@ def test_ferb_own_apps_record_nothing_and_are_never_read(monkeypatch, bundle) ->
     assert screen.queried == []
 
 
+# decision: SENSE-401
 def test_an_app_on_the_owners_terminal_list_is_never_read(monkeypatch) -> None:
     """D31 round 2, N5: the typing floor counts the owner's [protection] terminal_apps; so does capture."""
     from ferb.sense.watchers import text_input

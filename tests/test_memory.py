@@ -38,6 +38,7 @@ def mem(d: RunningDaemon) -> Any:
 
 # ---------- origins ----------
 
+# decision: MEM-12
 def test_owner_stated_is_active_at_once_and_exported(daemon: RunningDaemon) -> None:
     m = mem(daemon)
     src = journal(daemon, "memory.added", {"content": "My dentist is Dr. Rao"})
@@ -48,6 +49,7 @@ def test_owner_stated_is_active_at_once_and_exported(daemon: RunningDaemon) -> N
     assert "Dr. Rao" in f.read_text() and oct(f.stat().st_mode)[-3:] == "600"
 
 
+# decision: MEM-12
 def test_chat_capture_needs_the_owners_own_words(daemon: RunningDaemon) -> None:
     src = journal(daemon, "chat.message", {"text": "x"})
     items = [Remember(kind="preference", subject="owner", key="work_browser", content="i prefer Brave for work",
@@ -71,6 +73,7 @@ def _identity(d: RunningDaemon) -> str:
     return str(run(d, d.daemon._core_profile_text))
 
 
+# decision: MEM-12
 def test_planner_wording_on_a_trivial_quote_never_becomes_the_owners_rule(daemon: RunningDaemon) -> None:
     """Probe P1: any 3-character piece of the owner's message ("the") used to make the planner's sentence an
     owner_stated preference, which then went into every system prompt as an owner rule."""
@@ -84,6 +87,7 @@ def test_planner_wording_on_a_trivial_quote_never_becomes_the_owners_rule(daemon
     assert "evil.example" not in _identity(daemon)
 
 
+# decision: MEM-12
 def test_a_quote_must_be_whole_words_of_the_owners_message(daemon: RunningDaemon) -> None:
     src = journal(daemon, "chat.message", {"text": "my friend is Raoul"})
     item = Remember(kind="person", subject="owner", key="friend", content="Rao", quote="Rao")
@@ -92,6 +96,7 @@ def test_a_quote_must_be_whole_words_of_the_owners_message(daemon: RunningDaemon
     assert run(daemon, lambda: mem(daemon).items(None, valid_now=False)) == []
 
 
+# decision: MEM-10, MEM-12
 def test_the_owners_own_words_are_saved_as_theirs(daemon: RunningDaemon) -> None:
     said = "remember that my dentist is Dr. Rao"
     src = journal(daemon, "chat.message", {"text": said})
@@ -105,6 +110,7 @@ def test_the_owners_own_words_are_saved_as_theirs(daemon: RunningDaemon) -> None
     assert (it.origin, it.status, it.content) == ("owner_stated", "active", "remember that my dentist is Dr. Rao")
 
 
+# decision: MEM-8, MEM-12, MEM-15
 def test_a_paraphrase_is_saved_at_once_as_ferbs_understanding(daemon: RunningDaemon) -> None:
     """MEM-12: FERB's wording of what the owner said is saved at once, labelled FERB's understanding, with a quiet
     "Memory: noted" line; it reaches retrieved memory with its label, but not the core profile until it holds up."""
@@ -124,6 +130,7 @@ def test_a_paraphrase_is_saved_at_once_as_ferbs_understanding(daemon: RunningDae
     assert "Safari" not in _identity(daemon)                  # FERB's understanding waits to hold up for Tier 1
 
 
+# decision: MEM-10
 def test_owner_words_are_saved_as_their_whole_sentence_never_a_slice_dropping_a_negation(daemon: RunningDaemon) -> None:
     """Review Q3: a contiguous slice of the owner's words ("share my links publicly" out of "never share my links
     publicly, …") was saved as their rule. What is saved as theirs is the whole sentence it sits in (re-review F4)."""
@@ -139,6 +146,7 @@ def test_owner_words_are_saved_as_their_whole_sentence_never_a_slice_dropping_a_
     assert "never share my links publicly" in _identity(daemon)
 
 
+# decision: MEM-15
 def test_a_preference_in_the_owners_typed_words_joins_identity_whatever_was_on_screen(daemon: RunningDaemon) -> None:
     """Owner decision 2026-10-20 (O2): "No hold for my typed words." A preference saved from the owner's own typed
     sentence goes straight into their identity even when the turn showed outside content (a web page, the front
@@ -154,6 +162,7 @@ def test_a_preference_in_the_owners_typed_words_joins_identity_whatever_was_on_s
     assert run(daemon, lambda: daemon.daemon.learning.items("identity_proposal")) == []
 
 
+# decision: MEM-12
 def test_an_unconfirmed_observed_pattern_is_labelled_unconfirmed_for_the_planner(daemon: RunningDaemon) -> None:
     """Review M2: the planner's line read "[fact, active, …]" for a hint the owner never confirmed."""
     m = mem(daemon)
@@ -165,6 +174,7 @@ def test_an_unconfirmed_observed_pattern_is_labelled_unconfirmed_for_the_planner
     assert hint and "unconfirmed" in hint[0] and ", active," not in hint[0]
 
 
+# decision: MEM-12
 def test_chat_turn_shows_what_was_remembered(daemon: RunningDaemon) -> None:
     reply = json.dumps({"kind": "reply", "text": "Noted.", "plan": None, "remember": [
         {"kind": "person", "subject": "owner", "key": "dentist", "content": "The owner's dentist is Dr. Rao",
@@ -175,6 +185,7 @@ def test_chat_turn_shows_what_was_remembered(daemon: RunningDaemon) -> None:
     assert json.dumps(sup("reply", "x"))                                  # older replies without "remember" still parse
 
 
+# decision: MEM-12
 def test_observed_needs_the_owners_own_activity_on_three_days(daemon: RunningDaemon) -> None:
     m = mem(daemon)
     ferb_row = trail_row(daemon, "2026-09-01", actor="ferb")
@@ -197,6 +208,7 @@ def test_observed_needs_the_owners_own_activity_on_three_days(daemon: RunningDae
     assert again.id == it.id and again.status == "active"                 # third day: active
 
 
+# decision: MEM-12
 def test_inferred_is_active_at_once_and_third_party_is_never_about_the_owner(daemon: RunningDaemon) -> None:
     m = mem(daemon)
     src = journal(daemon, "chat.message", {"text": "x"})
@@ -213,6 +225,7 @@ def test_inferred_is_active_at_once_and_third_party_is_never_about_the_owner(dae
 
 # ---------- history and conflicts ----------
 
+# decision: MEM-34
 def test_updates_keep_history_and_recall_sees_only_what_is_valid(daemon: RunningDaemon) -> None:
     m, c = mem(daemon), daemon.daemon.clock
     s1 = journal(daemon, "memory.added", {"content": "a"})
@@ -230,6 +243,7 @@ def test_updates_keep_history_and_recall_sees_only_what_is_valid(daemon: Running
     assert [i.content for i in run(daemon, lambda: m.history(v2.id))] == ["Dentist is Dr. Rao", "Dentist is Dr. Mehta"]
 
 
+# decision: MEM-21
 def test_a_version_not_from_the_owners_words_never_overrides_what_they_said(daemon: RunningDaemon) -> None:
     """Only a version resting on the owner's words now (their statement, or FERB's wording of what they just said) ends
     one they stated. A pattern FERB saw on three days, or a distilled conclusion, becomes active beside it."""
@@ -251,6 +265,7 @@ def test_a_version_not_from_the_owners_words_never_overrides_what_they_said(daem
 
 # ---------- forget (safety test 17; MEM-2: simple forget) ----------
 
+# decision: MEM-2
 def test_forget_deletes_the_item_its_versions_and_its_trail_rows_and_nothing_comes_back(daemon: RunningDaemon) -> None:
     """The item, its versions, their source links and the watcher-captured trail rows they came from go; the day's
     summary is rebuilt without them; the fingerprint stops it being learned again. The owner's chat message stays, and
@@ -307,6 +322,7 @@ def test_forget_deletes_the_item_its_versions_and_its_trail_rows_and_nothing_com
     assert again.status == "active"                                       # the owner saying it again is fine
 
 
+# decision: MEM-2
 def test_a_trail_row_another_fact_stands_on_stays_with_that_fact(daemon: RunningDaemon) -> None:
     """Forgetting one fact never takes another fact's evidence: a captured row both cite stays, linked to the other."""
     m, day = mem(daemon), "2026-09-06"
@@ -323,6 +339,7 @@ def test_a_trail_row_another_fact_stands_on_stays_with_that_fact(daemon: Running
                                                (b.id, shared)).fetchone()) is not None
 
 
+# decision: MEM-2
 def test_a_forget_clears_the_fact_from_a_pending_clarifying_question(daemon: RunningDaemon) -> None:
     """A chat whose clarifying question still holds the owner's words with the fact doesn't carry it into the next
     turn after a forget."""
@@ -367,6 +384,7 @@ def test_the_summary_is_written_by_code_before_the_model_and_survives_its_failur
     assert day in purged                                                   # summarized: the raw rows may go
 
 
+# decision: MEM-12
 def test_distillation_proposals_are_checked_in_code(daemon: RunningDaemon) -> None:
     day = daemon.daemon.clock.now().astimezone().date().isoformat()       # the chat message's day too
     for h in (9, 10):
@@ -445,6 +463,7 @@ def old_copy(daemon: RunningDaemon, item: Any) -> dict[str, Any]:
         origin_label=memory_origin(item.origin), state="active", owner=item.origin == "owner_stated")))
 
 
+# decision: MEM-12
 def test_the_memory_pages_not_right_on_a_fact_retires_the_memory_itself(daemon: RunningDaemon) -> None:
     """Fix list: the dashboard's op=retire on a fact retired only its index node; the item kept reaching prompts."""
     from ferb.cli.client import Client
@@ -462,6 +481,7 @@ def test_the_memory_pages_not_right_on_a_fact_retires_the_memory_itself(daemon: 
     assert not [c for c in daemon.run(d._learning_candidates("Quentarr")) if "Quentarr" in c["text"]]
 
 
+# decision: MEM-10
 def test_owner_words_are_saved_as_their_whole_sentence_whatever_its_commas(daemon: RunningDaemon) -> None:
     """Re-review F4 ruling: a comma inside a sentence split a negation or a condition off what was saved. What is saved
     as the owner's words is their whole typed sentence(s), split only at a sentence end or a line break."""
@@ -512,6 +532,7 @@ def test_a_memory_question_waits_across_a_restart(home) -> None:
         again.stop()
 
 
+# decision: MEM-10
 def test_no_mark_inside_the_owners_words_ends_a_saved_sentence(daemon: RunningDaemon) -> None:
     """Re-review R5 (controller rulings: correctness over brevity, never drop a negation). A lowercase abbreviation's
     dot ("prof.", "vs.", "approx.") ended the sentence and dropped the "Never" before it; so did a "!" or "?" ("never!
@@ -540,6 +561,7 @@ def test_no_mark_inside_the_owners_words_ends_a_saved_sentence(daemon: RunningDa
         assert owner_sentences(own, part) == saved, own
 
 
+# decision: MEM-10
 def test_a_line_break_ends_a_saved_sentence(daemon: RunningDaemon) -> None:
     """R5: the one place a saved sentence ends inside the owner's words is a line break."""
     from ferb.memory.items import owner_sentences
@@ -575,6 +597,7 @@ def _said_in_chat(d: RunningDaemon, message: str, content: str, key: str) -> lis
     return run(d, lambda: [i.content for i in mem(d).items(None, valid_now=False) if i.key == key])
 
 
+# decision: MEM-10
 def test_a_memory_said_on_its_own_line_in_chat_is_saved_from_that_line(daemon: RunningDaemon) -> None:
     """Round 5 (NEW-2): the line-break rule was unreachable in chat. The owner's words reached memory capture with
     every line break collapsed, so "Book my flight to NYC tomorrow.\\nI prefer aisle seats" saved both lines as one
@@ -583,6 +606,7 @@ def test_a_memory_said_on_its_own_line_in_chat_is_saved_from_that_line(daemon: R
                          "seat") == ["I prefer aisle seats"]
 
 
+# decision: MEM-10
 def test_a_pasted_part_ends_the_saved_sentence_in_chat(daemon: RunningDaemon) -> None:
     """Round 5 ruling: a pasted or quoted part counts as a break, so what is saved is the typed fragment that holds the
     content, never words typed on the other side of a paste (and never the paste)."""
@@ -601,6 +625,7 @@ def test_the_planner_still_reads_the_owners_words_as_one_line(daemon: RunningDae
     assert m.typed_lines == "Book my flight.\nI prefer aisle seats\nthanks"
 
 
+# decision: MEM-3
 def test_the_owners_pass_verdict_counts_as_verified(daemon: RunningDaemon) -> None:
     """MEM-3: the owner's pass counts as verified for memory, as the checker's does; their fail
     overrides; their latest verdict decides."""
@@ -623,6 +648,7 @@ def test_the_owners_pass_verdict_counts_as_verified(daemon: RunningDaemon) -> No
     assert run(daemon, lambda: verified_after("fail")) is False                  # their fail overrides
 
 
+# decision: MEM-11, MEM-23
 def test_forgetting_a_person_or_site_removes_it_from_known_destinations(daemon: RunningDaemon) -> None:
     """MEM-11: a send to someone FERB forgot asks again."""
     d = daemon.daemon

@@ -84,6 +84,7 @@ def pune(d: Any) -> list[str]:
     return [t for t in recalled(d, "where is Pune") if "Pune" in t]
 
 
+# decision: MEM-14, MEM-34
 def test_a_dated_fact_leaves_search_after_its_day(daemon: Any) -> None:
     zone = local_zone()
     daemon.call_soon(daemon.daemon.clock.set_wall, datetime(2026, 10, 24, 10, 0, tzinfo=zone))
@@ -103,6 +104,7 @@ def test_a_dated_fact_leaves_search_after_its_day(daemon: Any) -> None:
     assert run(daemon, lambda: daemon.daemon.memory.get(saved.id)).status == "active"       # kept as history
 
 
+# decision: MEM-34
 @pytest.mark.parametrize("until", [Until(quote="till Friday", day="friday"),                 # not what they typed
                                    Until(quote="until the 23rd", date="2026-10-23"),          # already over
                                    Until(quote="until the 23rd", date="10-23")],              # over, not next year
@@ -120,6 +122,7 @@ def test_an_until_the_owner_didnt_type_or_that_is_over_saves_no_end(daemon: Any,
     assert refused.data["item"] == saved.id
 
 
+# decision: MEM-21
 def test_a_later_statement_replaces_the_earlier_one(daemon: Any) -> None:
     """Regression (scan m14): supersession by a reused key, here through `memory add` (`owner_fact`). The steer the spec
     names is the next test."""
@@ -132,6 +135,7 @@ def test_a_later_statement_replaces_the_earlier_one(daemon: Any) -> None:
     assert run(daemon, lambda: daemon.daemon.memory.get(first.id)).valid_to is not None
 
 
+# decision: MEM-21
 def test_a_superseding_steer_replaces_the_jaipur_preference(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Spec Testing: "a superseding steer replaces item 54's Jaipur preference". The owner corrects the running permit
     task; the planner's remember entry reuses the item's key, so the new words supersede the old ones on this path too
@@ -188,6 +192,7 @@ def orbit_over(d: Any, message: str = "the ORBIT competition is over", pasted: i
     return distill_day(d, distill_item(handle, content, quote, kind="fact", key="orbit", retire=True))
 
 
+# decision: MEM-22
 def test_distill_retires_an_item_on_the_owners_own_words(daemon: Any) -> None:
     chain(daemon)
     orbit = owner_fact(daemon, "orbit", "I'm in the ORBIT shapes competition")
@@ -199,6 +204,7 @@ def test_distill_retires_an_item_on_the_owners_own_words(daemon: Any) -> None:
     assert (r["retired"], r["retired_as_check"]) == ([orbit.id], [])
 
 
+# decision: MEM-22
 def test_a_retire_without_asking_is_told_once(daemon: Any) -> None:
     """Re-review ruling (c): whenever FERB retires a fact without asking, it tells the owner in one notice line with the
     item and their words; a reply undoes it through the planner's usual steer, forget or edit."""
@@ -212,6 +218,7 @@ def test_a_retire_without_asking_is_told_once(daemon: Any) -> None:
                                f"is over” ({said_on(daemon, jid)}). Reply to undo."]
 
 
+# decision: MEM-14, MEM-22
 @pytest.mark.parametrize("message, pasted, quote, content, why", [
     ("the ORBIT competition is over", 0, "the", "the ORBIT competition is over",                 # a word, no clause
      "the quote isn't a whole clause of the owner's words"),
@@ -241,6 +248,7 @@ def test_a_retire_whose_quote_is_not_the_owners_words_about_the_item_is_ferbs_ow
     assert "ORBIT shapes competition" in told and "because you said" not in told and "stop using it" in told
 
 
+# decision: MEM-22
 def test_older_words_never_retire_a_newer_version(daemon: Any) -> None:
     """Review fix round 1: at 10:00 the owner said the competition was over; at 15:00 they said they're in the 2027 one.
     That night's distillation quotes the 10:00 words: they are older than what FERB remembers, so it asks."""
@@ -257,6 +265,7 @@ def test_older_words_never_retire_a_newer_version(daemon: Any) -> None:
     assert notices(daemon) == [] and run(daemon, lambda: daemon.daemon.state.approvals.pending()) == []
 
 
+# decision: MEM-22
 @pytest.mark.parametrize("quote, replaced", [("my dentist is Dr. Mehta now", True), ("my", False)],
                          ids=["whole-clause", "one-word"])
 def test_a_distilled_statement_replaces_the_owners_own_only_on_a_whole_clause(daemon: Any, quote: str,
@@ -279,6 +288,7 @@ def test_a_distilled_statement_replaces_the_owners_own_only_on_a_whole_clause(da
         {"item": new.id, "why": "the quote isn't a whole clause of the owner's words"}])
 
 
+# decision: MEM-22
 def test_older_words_never_replace_a_newer_version(daemon: Any) -> None:
     """Review fix round 1: the owner said Dr. Rao in the morning and told FERB Dr. Mehta later; the night's
     distillation of the morning's words is a guess, never a new version over the later one."""
@@ -294,6 +304,7 @@ def test_older_words_never_replace_a_newer_version(daemon: Any) -> None:
     assert r["kept_beside"] == [{"item": guess.id, "why": "the owner's words are older than what FERB remembers"}]
 
 
+# decision: MEM-14, MEM-22
 def test_a_stale_item_without_the_owners_words_is_retired_and_told_once(daemon: Any) -> None:
     """MEM-12 (replaces the Retire / Keep question): FERB retires a fact the day shows is over and tells the owner
     once; saying it still holds is how they correct it."""
@@ -309,6 +320,7 @@ def test_a_stale_item_without_the_owners_words_is_retired_and_told_once(daemon: 
     assert "ORBIT shapes competition" in told
 
 
+# decision: MEM-22, MEM-34
 def test_a_period_fact_due_for_its_check_is_shown_to_the_distill_and_kept_when_not_retired(daemon: Any) -> None:
     """Validity: a period fact without an end date in the owner's words gets a check date (`review_in_days`); when it
     comes, the day's distill sees it under "Due for a check"; one it doesn't retire holds up and its date clears."""

@@ -208,3 +208,19 @@ area = "orchestration"
 kind = "build"
 status = "open"
 decisions = ["ORCH-506"]
+
+[T-600]
+title = "Write the test for MEM-413: import texts are cut at a word boundary at their limits"
+area = "memory"
+kind = "build"
+status = "open"
+why = "No offline test checks the cut (owner message 6,000, assistant reply 700, saved memory 6,000 chars, the cut said in the text) or the ~24,000/~30,000-char recall/verify batches; tests/test_memory_import.py runs fixtures far below them."
+decisions = ["MEM-413"]
+
+[T-601]
+title = "Write the test for SENSE-401's 7-day expiry of typed and copied text"
+area = "perception"
+kind = "build"
+status = "open"
+why = "Capture is tested (secure/password fields, Secure Input, terminals, no digit rule), but nothing checks Perception.purge_text: typed_text/clipboard rows older than retention.TYPED_DAYS lose their text (content_expired) and keep their record; no test mentions content_expired."
+decisions = ["SENSE-401"]

@@ -81,6 +81,7 @@ def test_the_reader_reads_each_query_fully_before_decoding_so_the_wal_can_be_emp
     db.close()
 
 
+# decision: MEM-2
 def test_a_forget_that_cannot_empty_the_wal_is_journaled(daemon):
     """Forget empties the WAL so no copy of what was forgotten stays on disk. When a reader keeps it from doing that, the
     journal says so instead of passing it over."""
@@ -140,6 +141,7 @@ def test_a_source_removed_by_retention_stays_an_edge_of_unknown_content(tmp_path
     db.close()
 
 
+# decision: MEM-2
 def test_a_card_built_on_a_forgotten_source_is_never_written_and_never_returns(tmp_path):
     """C1: a source an explicit forget deleted leaves a tombstone (its id only). A task that read it gets no card, and
     the card's key is tombstoned, so it doesn't come back once the task's trace ages out either."""
@@ -157,6 +159,7 @@ def test_a_card_built_on_a_forgotten_source_is_never_written_and_never_returns(t
     db.close()
 
 
+# decision: MEM-2
 def test_a_forget_deletes_only_the_cards_that_cite_it_directly(tmp_path):
     """C1: a card cites its direct sources only. A forget reaches the card of the task that read the source, never the
     card of a task whose planner was merely shown it, and the deleted card is never rebuilt."""

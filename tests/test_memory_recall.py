@@ -47,6 +47,7 @@ def planner_context(script: Any) -> str:
 
 # ---------- the fused search (MEM-6) ----------
 
+# decision: MEM-6, MEM-16, MEM-26
 def test_one_search_finds_facts_past_tasks_and_old_chat_by_meaning(daemon: Any) -> None:
     """None of these share a word with the query; the local model's nearest find them (keywords alone don't)."""
     d = daemon.daemon
@@ -67,6 +68,7 @@ def test_one_search_finds_facts_past_tasks_and_old_chat_by_meaning(daemon: Any) 
     assert daemon.run(d._old_chat("melody practice", set())) is None
 
 
+# decision: MEM-16, MEM-28
 def test_the_planner_gets_matching_old_exchanges_never_one_already_shown(daemon: Any) -> None:
     said(daemon, "what sonatas suit a beginner", "s-old", "r-old", reply="Try Clementi's Sonatina in C.")
     script = install(daemon, [sup("reply", "Sure."), sup("reply", "Sure.")])
@@ -78,6 +80,7 @@ def test_the_planner_gets_matching_old_exchanges_never_one_already_shown(daemon:
     assert "earlier conversation matching" not in ctx and ctx.count("Clementi") == 1
 
 
+# decision: MEM-16
 def test_chat_history_finds_by_meaning_and_date_and_pages_from_the_database(daemon: Any) -> None:
     d = daemon.daemon
     d.learning.embedder = FakeEmbedder()
@@ -110,6 +113,7 @@ def test_chat_history_finds_by_meaning_and_date_and_pages_from_the_database(daem
         {"session_id": "hist", "request_id": "r2", "text": "Noted 2."})}
 
 
+# decision: MEM-34
 def test_facts_are_searched_in_memory_items_with_no_copies_in_learning_nodes(daemon: Any) -> None:
     """Fix list: `sync_facts` copied every memory item into learning_nodes on every search; no copy is made now, and
     the copies an older build left close once (journaled, idempotent)."""
@@ -126,6 +130,7 @@ def test_facts_are_searched_in_memory_items_with_no_copies_in_learning_nodes(dae
     assert run(daemon, lambda: d.journal.of_kind("memory.fact_nodes_closed"))           # the upgrade ran at start
 
 
+# decision: MEM-34
 def test_an_older_builds_fact_copies_close_once(tmp_path: Any) -> None:
     from ferb.memory.upgrade import close_fact_nodes
     from tests.support.learning_fixtures import new_store
@@ -145,6 +150,7 @@ def test_an_older_builds_fact_copies_close_once(tmp_path: Any) -> None:
 
 # ---------- limits (MEM-5) ----------
 
+# decision: MEM-5, MEM-27
 def test_the_planners_memory_old_chat_and_activity_stay_within_their_limits_whatever_the_store(daemon: Any) -> None:
     """Coordinator 2026-10-31 (MEM-5): 10,000 facts, hundreds of past tasks and a long chat history give the planner
     the same bounded blocks as a small store."""
@@ -195,6 +201,7 @@ def test_the_planners_memory_old_chat_and_activity_stay_within_their_limits_what
 
 # ---------- how-notes, playbooks and the repeat measure ----------
 
+# decision: MEM-1, MEM-31
 def test_a_how_note_is_built_from_the_recorded_calls_the_worker_and_the_owner(daemon: Any) -> None:
     actions = [{"tool": "browser.navigate", "args": {"url": "https://www.bookslots.com/en-US/login?x=1"}},
                {"tool": "browser.snapshot", "args": {}}, {"tool": "browser.snapshot", "args": {}},
@@ -229,6 +236,7 @@ def record_run(d: Any, task_id: str, goal: str, attempts: int, seconds: float, d
                     ended_at=f"2026-10-{day:02d}T10:05:00+00:00")
 
 
+# decision: MEM-29
 def test_verified_runs_of_one_kind_merge_into_a_playbook_and_the_repeat_measure_shows_the_change(daemon: Any) -> None:
     from ferb.cli.admin import stats
     from ferb.cli.client import Client
@@ -263,6 +271,7 @@ def test_verified_runs_of_one_kind_merge_into_a_playbook_and_the_repeat_measure_
     assert "Repeated work (playbooks): 1" in out.getvalue() and "first 3 attempt(s), 600 s" in out.getvalue()
 
 
+# decision: MEM-29
 def test_a_group_the_model_says_is_not_one_kind_is_not_asked_again(daemon: Any) -> None:
     from ferb.memory.playbooks import candidates, merge
     d = daemon.daemon
@@ -275,6 +284,7 @@ def test_a_group_the_model_says_is_not_one_kind_is_not_asked_again(daemon: Any) 
     assert run(daemon, lambda: candidates(d.learning, d.learning.embedder)) == []
 
 
+# decision: MEM-30
 def test_a_card_keeps_one_source_per_kind_of_origin_not_every_row_a_tool_read(tmp_path: Any) -> None:
     """Fix list: 1.5M learning_sources rows, up to 58,250 per card, from refs inside tool results. The labels are
     computed from every ref; the card keeps its journal and memory refs and one ref per distinct set of origins."""
@@ -299,6 +309,7 @@ def notices(d: Any) -> list[dict[str, Any]]:
     return [e.data for e in run(d, lambda: d.daemon._journal().of_kind("chat.notice"))]
 
 
+# decision: MEM-14, MEM-20, MEM-32
 def test_stale_facts_are_split_by_source(daemon: Any) -> None:
     """MEM-14: FERB's understanding that looks over is retired and told once; the owner's own words are only set
     aside (not used, kept), told once, and come back when the owner says them again or restores them."""
@@ -332,6 +343,7 @@ def test_stale_facts_are_split_by_source(daemon: Any) -> None:
     assert daemon.run(d._memory_item_search("Goa week")) == [trip.id]
 
 
+# decision: MEM-15, MEM-18, MEM-36
 def test_understanding_that_holds_up_joins_with_one_quiet_now_always_on_card(daemon: Any) -> None:
     """MEM-15: FERB's understanding joins the core profile once it holds up (here, seen on a second day), with one
     "Now always on" note card (the 8e note card, marked always_on), never a question; the owner's words join at
@@ -356,6 +368,7 @@ def test_understanding_that_holds_up_joins_with_one_quiet_now_always_on_card(dae
     assert run(daemon, lambda: d.state.approvals.pending()) == []
 
 
+# decision: MEM-7, MEM-15
 def test_the_profile_and_so_the_cached_prefix_change_only_when_a_profile_entry_changes(daemon: Any) -> None:
     """MEM-15's guarantee: the planner's instructions (the cached prefix) are identical across turns unless a
     profile entry changed; saving a fact outside the profile changes nothing; nothing but the weekly pass rewrites it on
@@ -414,6 +427,7 @@ def test_a_browser_connecting_or_disconnecting_leaves_the_cached_prefix_alone(da
     assert turn()[0] == idle_system
 
 
+# decision: MEM-17, MEM-20
 def test_a_burst_of_owner_facts_stays_within_budget_with_at_most_one_early_pass_a_day(daemon: Any) -> None:
     """Coordinator 2026-10-31: owner facts that don't fit make the pass due early, at most once a day; the profile
     stays within its budget, nothing is lost from the fact store, and retrieval finds what was left out."""

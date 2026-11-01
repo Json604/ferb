@@ -210,6 +210,7 @@ def test_words_most_items_share_find_nothing_instead_of_the_newest_items(store: 
     assert store.search("") != []                              # no words at all: a listing, newest first
 
 
+# decision: MEM-6
 def test_common_words_find_nothing_with_an_embedding_model_too(store: Any) -> None:
     """m5: similarity alone would rank every node; a query whose words all carry no weight finds nothing."""
     from tests.support.fake_embedder import FakeEmbedder
@@ -220,6 +221,7 @@ def test_common_words_find_nothing_with_an_embedding_model_too(store: Any) -> No
     assert store.search("contest leaderboard") != []
 
 
+# decision: MEM-6
 def test_embeddings_embed_what_search_matches_and_never_a_rollup(store: Any) -> None:
     """Step 9b: the background embedder embeds each node's search text (what keyword search matches too), once; a node
     kind search no longer serves (an old rollup) is never embedded."""
@@ -404,6 +406,7 @@ def test_the_daemon_journals_a_reindex_only_when_nodes_were_reindexed(daemon: An
     assert run(daemon, lambda: _fts_text(d.db, node)) == "The owner saw the dentist."
 
 
+# decision: MEM-5, MEM-27
 def test_the_planner_gets_at_most_its_limit_best_first(daemon: Any) -> None:
     """MEM-5 (step 9b): retrieved memory is within the role's limits, best first, never protected; what is left out
     is one counted line."""
@@ -420,6 +423,7 @@ def test_the_planner_gets_at_most_its_limit_best_first(daemon: Any) -> None:
     assert len(worker) - 1 <= WORKER.memory_items
 
 
+# decision: MEM-5
 def test_a_profile_entry_never_takes_a_slot_of_the_ranked_limit(daemon: Any) -> None:
     """Final review M1, MEM-15: the owner's preference "reply to permit emails in a formal tone" is in every role's
     core profile, so the ranked lists leave it out; the memory tools still find it."""
@@ -450,6 +454,7 @@ def test_an_empty_query_lists_newest_first_with_no_recency_or_owner_boost(tmp_pa
     db.close()
 
 
+# decision: MEM-6
 def test_memory_read_ranks_a_several_word_query(daemon: Any) -> None:
     """Live 2026-10-24: 14 of 20 memory.read queries came back empty; 9 were phrases like "ORBIT shapes Contest rank
     score", which a literal substring match can never find."""
@@ -552,6 +557,7 @@ def test_memory_read_refuses_a_query_with_no_words_and_finds_nothing_for_common_
     assert not out.is_error and out.content["items"] == []
 
 
+# decision: MEM-34
 def test_memory_read_without_a_query_shows_an_ended_fact_as_ended(daemon: Any) -> None:
     """Final review M2 and the step-9a fix list: after "book anywhere" replaced "Jaipur, notify first" a worker paging
     memory.read saw both as active. The no-query listing now shows current items only (a dated one until its end);
@@ -575,6 +581,7 @@ def test_memory_read_without_a_query_shows_an_ended_fact_as_ended(daemon: Any) -
     assert not by_id.is_error and "notify me first" in str(by_id.content)
 
 
+# decision: MEM-34
 def test_memory_read_query_leaves_out_a_retired_item(daemon: Any) -> None:
     from ferb.orchestrator.evidence import MemoryRead
     for i in range(4):

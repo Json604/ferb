@@ -307,6 +307,7 @@ def test_doctor_shows_the_protection_lists_and_why_a_malformed_one_stops_ferb(wo
     assert "✗ protection: protection.never_read in config.toml must be a list of paths" in out.getvalue()
 
 
+# decision: MEM-13
 def test_update_shows_what_ferb_saw_without_asking_or_repeating_permission_flow(world):
     """MEM-13: setup shows "here's what I saw" once; nothing to answer (MEM-12)."""
     world['inst'].install()

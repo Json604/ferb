@@ -269,6 +269,7 @@ def test_the_memory_upgrade_on_an_older_store_runs_once(home: Path) -> None:
         assert seeded == 1 and profile
 
 
+# decision: SENSE-2, SENSE-3, SENSE-6
 def test_jev_stays_off_after_an_upgrade_even_with_a_key(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """SENSE-6: an older config that had Jev questions enabled, with a Jev key in the Keychain (faked:
     the Keychain is never touched), starts with Jev off: no decider, no Keychain read, no request to Jev, also after a

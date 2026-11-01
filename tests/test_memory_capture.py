@@ -27,6 +27,7 @@ def test_typed_lines_read_back_from_a_stored_message_are_what_capture_saw(messag
     assert typed_lines_of(m.for_model) == m.typed_lines
 
 
+# decision: MEM-12
 def test_capture_saves_the_owners_sentence_their_guess_or_nothing() -> None:
     own = "btw my dentist is Dr. Rao now"
     stated = capture(own, "my dentist is Dr. Rao", "my dentist is Dr. Rao")
@@ -35,6 +36,7 @@ def test_capture_saves_the_owners_sentence_their_guess_or_nothing() -> None:
     assert capture(own, "Your dentist is Dr. Rao", "my dentist is Dr. Mehta").refused == "quote not in the owner's words"
 
 
+# decision: MEM-12
 def test_a_quote_of_the_owners_typed_words_saves_their_own_words(daemon: Any) -> None:
     jid = said(daemon, "btw my dentist is Dr. Rao now")
     r = distill_day(daemon, distill_item(c_handle(daemon, jid), "my dentist is Dr. Rao", "my dentist is Dr. Rao"))
@@ -45,6 +47,7 @@ def test_a_quote_of_the_owners_typed_words_saves_their_own_words(daemon: Any) ->
     assert run(daemon, lambda: daemon.daemon.state.approvals.pending()) == []
 
 
+# decision: MEM-8, MEM-12
 @pytest.mark.parametrize("message, pasted, content, quote", [
     ("my dentist is Dr. Rao", 0, "Your dentist is Dr. Rao", "my dentist is Dr. Mehta"),     # not what they typed
     ("my dentist is Dr. Rao", 0, "Your dentist is Dr. Rao", None),                          # no quote
@@ -76,6 +79,7 @@ PASSING = [
 ]
 
 
+# decision: MEM-8, MEM-10, MEM-12
 @pytest.mark.parametrize("message, kind, key, content, quote", PASSING)
 def test_a_durable_fact_said_in_passing_is_saved_with_a_quiet_line(daemon: Any, message: str, kind: str, key: str,
                                                                    content: str, quote: str) -> None:
@@ -90,6 +94,7 @@ def test_a_durable_fact_said_in_passing_is_saved_with_a_quiet_line(daemon: Any, 
     assert it.about                                       # MEM-10: what the words are about, stored beside them
 
 
+# decision: MEM-8
 def test_the_daily_distill_captures_a_fact_said_in_passing(daemon: Any) -> None:
     jid = said(daemon, "what are some easy piano pieces? I'm a beginner")
     r = distill_day(daemon, distill_item(c_handle(daemon, jid), "The owner is a beginner at piano", None,
@@ -99,6 +104,7 @@ def test_the_daily_distill_captures_a_fact_said_in_passing(daemon: Any) -> None:
     assert (it.origin, it.key) == ("inferred", "piano_skill_level")
 
 
+# decision: MEM-22
 def test_the_distill_never_proposes_a_stored_fact_again(daemon: Any) -> None:
     """Fix list: the live store's four duplicate pairs came from the distill re-proposing keys already stored."""
     owner_fact(daemon, "dentist", "my dentist is Dr. Rao", kind="person")
@@ -108,6 +114,7 @@ def test_the_distill_never_proposes_a_stored_fact_again(daemon: Any) -> None:
     assert len(run(daemon, lambda: daemon.daemon.memory.items("active"))) == 1
 
 
+# decision: MEM-12, MEM-21
 def test_correction_by_talking_replaces_the_wrong_fact(daemon: Any) -> None:
     """MEM-12: "that's wrong, …" — the planner remembers the corrected fact naming the wrong one; code checks the
     id, ends it, and FERB's line names what it replaced."""
@@ -123,6 +130,7 @@ def test_correction_by_talking_replaces_the_wrong_fact(daemon: Any) -> None:
     assert "replaces" in lines and "I use Brave for work" in lines
 
 
+# decision: MEM-21
 def test_a_replaced_id_that_holds_nothing_replaces_nothing(daemon: Any) -> None:
     install(daemon, [json.dumps({"kind": "reply", "text": "Got it.", "remember": [
         {"kind": "preference", "subject": "owner", "key": "tea", "content": "I like green tea",

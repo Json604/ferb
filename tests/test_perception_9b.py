@@ -32,6 +32,7 @@ def trail(tmp_path: Path, domains: tuple[str, ...] = ()) -> tuple[Trail, list[An
 
 # ---------- accessibility (SENSE-1) ----------
 
+# decision: SENSE-1
 def test_accessibility_rows_stay_out_of_todays_activity_and_its_search(daemon: Any) -> None:
     d = daemon.daemon
     daemon.call_soon(d._publish, "trail.event", {"id": "ax1", "source": "accessibility", "actor": "unknown",
@@ -44,6 +45,7 @@ def test_accessibility_rows_stay_out_of_todays_activity_and_its_search(daemon: A
     assert "ax1" not in d.daily_activity.path.read_text()
 
 
+# decision: SENSE-1, SENSE-4
 def test_accessibility_rows_are_purged_after_7_days_summarized_or_not(tmp_path: Path) -> None:
     t, _ = trail(tmp_path)
     for n, (source, day) in enumerate([("accessibility", "2026-10-01"), ("accessibility", "2026-10-29"),
@@ -58,6 +60,7 @@ def test_accessibility_rows_are_purged_after_7_days_summarized_or_not(tmp_path: 
 
 # ---------- privacy ----------
 
+# decision: SENSE-5
 def test_a_browsers_accessibility_events_keep_no_title() -> None:
     facts = {"window_id": "1", "field_id": "f", "role": "AXWindow", "title": "Private bank statement"}
     chrome = accessibility_observation("com.google.Chrome", "Chrome", 1, "AXTitleChanged", facts, lambda v: v)
@@ -65,6 +68,7 @@ def test_a_browsers_accessibility_events_keep_no_title() -> None:
     assert "title" not in chrome.data and notes.data["title"] == "Private bank statement"
 
 
+# decision: SENSE-5
 def test_text_typed_or_copied_in_a_browser_follows_its_pages_privacy(tmp_path: Path) -> None:
     t, _ = trail(tmp_path, domains=("bank.example",))
 
@@ -96,6 +100,7 @@ def test_activity_search_reads_values_not_keys_and_prefers_recent_rows(tmp_path:
     assert [r["source_id"] for r in log.search("budget sheet", limit=2)] == ["new", "old"]
 
 
+# decision: MEM-27
 def test_activity_stays_within_its_limit_and_says_what_it_left_out(daemon: Any) -> None:
     from ferb.memory.search import PLANNER
     d = daemon.daemon
@@ -122,6 +127,7 @@ class Redact:
         return text
 
 
+# decision: SENSE-401
 def test_typed_text_is_kept_when_focus_moves_on_within_the_hold() -> None:
     """Fix list: a burst was dropped when focus moved within 0.5 s of the last key."""
     out: list[Any] = []

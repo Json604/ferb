@@ -94,6 +94,7 @@ status = "active"
 words_source = "notes/memory.md owner decision 12: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
 rule = "No special exclusion of health or finance facts in the planner or the distill. Secrets are masked by redaction as always."
 paths = ["ferb/memory/distill.md"]
+untestable = "An absence in prompt text (no health/finance carve-out); TEST-500 rules out prompt-text tests, and secret masking is redaction's own safety suite."
 legacy = "notes/memory.md decision 12"
 
 [MEM-10]
@@ -519,3 +520,4 @@ status = "active"
 words = "recommeded all"
 why = "Answer to T-407: the owner accepted the recommendation for every open question."
 rule = "Memory import covers ChatGPT, claude.ai, Claude Code, Codex CLI and Gemini; no other assistants are added for now."
+untestable = "A product-scope choice (which assistants, none added); each of the five readers is tested under MEM-403."

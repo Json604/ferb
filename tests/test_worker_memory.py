@@ -128,6 +128,7 @@ def test_the_worker_search_carries_its_targets_and_attention_and_memory_read_car
     assert calls and all(focus == "" for _, focus in calls), calls      # memory.read searches memory_items itself
 
 
+# decision: MEM-27
 def test_a_worker_gets_at_most_its_limit(daemon: Any) -> None:
     for i in range(30):
         understood(daemon, f"tomato_{i}", f"tomato tip {i}: water them in the morning", subject="project:garden")

@@ -53,6 +53,7 @@ class Blocking:
 
 # ---------- the speaker factory ----------
 
+# decision: VOICE-401, VOICE-407
 def test_the_factory_builds_the_configured_provider_with_its_voice_and_rate() -> None:
     built = speak.build(Cfg())
     assert isinstance(built, speak.MacVoice) and built.argv() == ["/usr/bin/say"]     # the system voice, its own rate
@@ -60,6 +61,7 @@ def test_the_factory_builds_the_configured_provider_with_its_voice_and_rate() ->
     assert isinstance(built, speak.MacVoice) and built.argv() == ["/usr/bin/say", "-v", "Daniel (Enhanced)", "-r", "190"]
 
 
+# decision: VOICE-407, VOICE-408
 @pytest.mark.parametrize("voice", [
     {"tts": "kokoro"}, {"tts": ""}, {"tts": 3},
     {"rate": 0}, {"rate": -10}, {"rate": "fast"}, {"rate": True}, {"rate": float("inf")},
@@ -70,6 +72,7 @@ def test_the_factory_refuses_a_value_it_cannot_use(voice: dict[str, Any]) -> Non
         speak.build(Cfg(**voice))
 
 
+# decision: VOICE-401, VOICE-407
 def test_a_registered_provider_is_a_drop_in(monkeypatch: pytest.MonkeyPatch) -> None:
     made: list[speak.VoiceSettings] = []
 
@@ -81,6 +84,7 @@ def test_a_registered_provider_is_a_drop_in(monkeypatch: pytest.MonkeyPatch) -> 
     assert made == [speak.VoiceSettings("hosted", "Ava", 1.5)]
 
 
+# decision: VOICE-404, VOICE-407
 def test_the_macs_voice_reads_the_text_from_stdin_and_is_killed_when_interrupted() -> None:
     runs: list[tuple[tuple[str, ...], bytes | None]] = []
 
@@ -118,6 +122,7 @@ def test_the_macs_voice_reads_the_text_from_stdin_and_is_killed_when_interrupted
 
 # ---------- the shared speech path ----------
 
+# decision: VOICE-406
 def test_every_provider_gets_redacted_text_only(monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.sanitize.redact import Redactor
     got = Blocking()
@@ -133,6 +138,7 @@ def test_every_provider_gets_redacted_text_only(monkeypatch: pytest.MonkeyPatch)
     assert got.began and all("4111" not in t and "1111" not in t for t in got.began + said)
 
 
+# decision: VOICE-406
 def test_a_saved_value_with_markdown_marks_is_redacted_before_speech_reshapes_it(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Past bug (12e review): speech stripped `**`, `#`, `$`, `{}`, `~` first and redacted after, so a saved value
@@ -157,6 +163,7 @@ async def _idle(speech: speak.Speech) -> None:
         await asyncio.sleep(0.01)
 
 
+# decision: VOICE-404
 def test_utterances_play_in_order_and_an_interrupt_cuts_the_current_one_and_drops_the_rest() -> None:
     provider = Blocking()
 
@@ -176,6 +183,7 @@ def test_utterances_play_in_order_and_an_interrupt_cuts_the_current_one_and_drop
     assert provider.began == ["First.", "Third."]                # "Second." was dropped
 
 
+# decision: VOICE-407
 def test_a_bad_setting_is_reported_and_nothing_is_spoken() -> None:
     failed: list[str] = []
 
@@ -208,6 +216,7 @@ def _until(check: Any, timeout: float = 10) -> None:
         time.sleep(0.02)
 
 
+# decision: VOICE-405, VOICE-406
 def test_a_voice_turns_reply_is_spoken_from_its_reply_event(daemon: RunningDaemon) -> None:
     install(daemon, [sup("reply", "**It's** 5 s past noon 🙂."), sup("reply", "Typed answer.")])
     published: list[tuple[str, dict[str, Any]]] = []
@@ -223,6 +232,7 @@ def test_a_voice_turns_reply_is_spoken_from_its_reply_event(daemon: RunningDaemo
     assert daemon.speaker.said == ["It's 5 seconds past noon ."]
 
 
+# decision: VOICE-405
 def test_a_voice_turns_task_answer_is_spoken_without_codes_lines(daemon: RunningDaemon) -> None:
     install(daemon, [sup("task", "Writing the note.", task("write the note"))], {"worker": done("Wrote the note.")})
     events = _send(daemon, "write the note", True)
@@ -240,6 +250,7 @@ def test_speak_must_be_a_boolean(daemon: RunningDaemon) -> None:
         _send(daemon, "hi", "yes")  # type: ignore[arg-type]
 
 
+# decision: VOICE-404
 def test_a_stop_or_a_new_turn_interrupts_the_speech(daemon: RunningDaemon) -> None:
     provider = Blocking()
     daemon.daemon.build_speaker = lambda: provider
@@ -259,6 +270,7 @@ def test_a_stop_or_a_new_turn_interrupts_the_speech(daemon: RunningDaemon) -> No
     assert provider.began == ["A long spoken answer.", "Second."]
 
 
+# decision: VOICE-404
 def test_the_global_stop_interrupts_the_speech(daemon: RunningDaemon) -> None:
     provider = Blocking()
     daemon.daemon.build_speaker = lambda: provider
@@ -286,6 +298,7 @@ def _app(tmp_path: Path) -> tuple[Path, Path]:
     return app, audio
 
 
+# decision: SENSE-400
 def test_a_transcription_past_its_time_limit_stops_hearing_and_says_so(tmp_path: Path,
                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.sense import transcribe
@@ -306,6 +319,7 @@ def test_a_transcription_past_its_time_limit_stops_hearing_and_says_so(tmp_path:
     assert got.text == "hello there" and not t.busy
 
 
+# decision: SENSE-400
 def test_the_transcript_alignment_runs_off_the_event_loop(tmp_path: Path) -> None:
     from tests.test_audio_listen import _hearing
     hearing, _, _ = _hearing(tmp_path)
@@ -380,6 +394,7 @@ def test_a_recording_with_sound_refuses_an_excluded_site(tmp_path: Path) -> None
     assert r.is_error and "exclusion" in r.content["error"] and started == []
 
 
+# decision: VOICE-405
 def test_codes_own_lines_after_an_answer_are_not_read_out() -> None:
     from ferb.daemon.areas.voice import answer_words
     lines = ["Sites contacted: example.com", "Left open: Notes"]

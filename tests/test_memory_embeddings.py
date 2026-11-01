@@ -34,6 +34,7 @@ def tiny_model(root: Path) -> dict[str, Any]:
     return {"name": "tiny", "repository": "test/tiny", "revision": "a" * 40, "dimensions": 4, "files": files}
 
 
+# decision: MEM-25
 def test_the_pinned_model_is_data_files_with_hashes() -> None:
     manifest_ok(MODEL)
     for bad in ({**MODEL, "revision": "main"}, {**MODEL, "files": {**MODEL["files"], "run.py": "0" * 64}},
@@ -42,6 +43,7 @@ def test_the_pinned_model_is_data_files_with_hashes() -> None:
             manifest_ok(bad)
 
 
+# decision: MEM-25
 def test_the_tokenizer_splits_like_bert_and_drops_unknown_words() -> None:
     w = WordPiece(json.loads(json.dumps({"normalizer": {"lowercase": True},
                                          "model": {"type": "WordPiece", "vocab": {t: i for i, t in enumerate(VOCAB)}}})))
@@ -49,6 +51,7 @@ def test_the_tokenizer_splits_like_bert_and_drops_unknown_words() -> None:
     assert w.ids("pianó zebra") == [2]                         # an accent stripped; an unknown word dropped whole
 
 
+# decision: MEM-25
 def test_a_text_is_the_normalized_mean_of_its_tokens(tmp_path: Path) -> None:
     root = tmp_path / "tiny"
     model = StaticEmbedder(root, tiny_model(root))
@@ -63,6 +66,7 @@ def test_a_text_is_the_normalized_mean_of_its_tokens(tmp_path: Path) -> None:
         model.close()
 
 
+# decision: MEM-25, MEM-26
 def test_a_changed_file_is_refused(tmp_path: Path) -> None:
     root = tmp_path / "tiny"
     data = tiny_model(root)
@@ -71,6 +75,7 @@ def test_a_changed_file_is_refused(tmp_path: Path) -> None:
         verify(root, data)
 
 
+# decision: MEM-26
 def test_the_fetch_checks_every_hash_before_the_folder_appears(tmp_path: Path) -> None:
     source = tmp_path / "source"
     data = tiny_model(source)
@@ -105,6 +110,7 @@ def test_quantized_vectors_rank_by_cosine_with_a_sign_bit_prefilter(tmp_path: Pa
     db.close()
 
 
+# decision: MEM-26
 def test_the_model_ferb_app_ships_loads_from_the_bundle_with_no_network(tmp_path: Path,
                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
     """Step 12b: FERB.app ships the model (Contents/Resources/models), so a new install needs no download: the daemon
