@@ -371,9 +371,9 @@ model, so it always appears.
 
 **Rules:**
 - Every format the table names counts, plus a saved secret's value; one notice per message listing each kind once.
-- Copy (code-made): "That looked like a <kind>. I hid it from the AI and didn't save it. If you pasted it by mistake,
-  revoke it and make a new one." For a card: "…If you didn't mean to share it, tell your bank." For a saved secret:
-  "That's one of your saved secrets. I hid it from the AI."
+- Copy (code-made; owner, 2026-11-01: hidden means nothing to change, just a reminder): "That looked like a <kind>.
+  I hid it from the AI and didn't save it. Best not to paste keys and passwords into chats." For a saved secret: "That's
+  one of your saved secrets. I hid it from the AI." No advice to revoke: the value never left the Mac.
 - The owner's own message bubble shows the masked text (the ack's `message`), never the raw value, also after restart.
 - The planner's context gets one fact line ("The owner's message held a <kind>; FERB hid it."), so a reply never asks
   the owner to paste it again; no value, ever (rule 7).
