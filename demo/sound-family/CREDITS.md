@@ -8,9 +8,9 @@ International (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/).
 
 Changes made for FERB: leading silence trimmed, leveled to −24 LUFS. Nothing else was changed.
 
-Licence status: CC BY 4.0 is stated by a project that redistributes these files
-(https://github.com/nana-4/materia-sound-theme); Google's own licence page for the set is still to be confirmed before
-release. CC BY needs this credit to ship with FERB (for example in the app's About or acknowledgements).
+Licence status: CC BY 4.0, confirmed by the owner (2026-11-01); also stated by a project that redistributes these
+files (https://github.com/nana-4/materia-sound-theme). CC BY needs this credit to ship with FERB (for example in the
+app's About or acknowledgements).
 
 ## Notification sound
 

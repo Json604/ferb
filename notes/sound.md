@@ -30,7 +30,7 @@ here.
 - Owner, 2026-11-01 (after round 4): no orb flight sound; the drip-off sound is what plays when the orb sets off and
   the melt-back what plays when it lands (landing and flight cut as separate sounds). FERB's first sound is a Google
   Material Design "hero" clip the owner chose (`demo/sound-family/source/google-material-hero.mp4`, CC BY 4.0 per a
-  redistributing project; Google's own licence page still to confirm): it plays before the sound logo while FERB loads
+  redistributing project; licence confirmed by the owner, 2026-11-01): it plays before the sound logo while FERB loads
   the first time (first extended to last as long as loading; replaced in round 8, below). This supersedes the
   brief's "no third-party material / full ownership" for this one sound; CC BY needs a credit shipped with FERB
   (`demo/sound-family/CREDITS.md`). The clip is G major; into the logo's D it is a plagal resolution, no retuning.
@@ -155,9 +155,8 @@ here.
   sound has its own switch.
 - The magnetic docking sound (MagneticDockingAudio.swift) is removed.
 - Integration is in notes/setup-intro-plan.md (Task 7 for the tour, Task 10 for everyday sounds).
+- The Material clips' licence (CC BY 4.0, credit shipped with FERB) is fine: owner, "the material license is green".
+- Standard is the default intensity; Subtle is the choice in Settings. The master volume stays at today's 0.18.
 
 ## Owner decisions still open
-- The licence of the sound files in the public repo (the Material clips are CC BY 4.0 and need their credit; Google's
-  own licence page still to confirm).
 - Context rules: quiet hours, whether calls/meetings mean silent or quieter, Focus behaviour.
-- Whether Standard or Subtle is the default intensity (the master volume stays at today's 0.18).

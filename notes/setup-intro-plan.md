@@ -27,7 +27,8 @@ Python 3.12 daemon (asyncio, RPC areas), pytest; XCTest.
   `preview: true`.
 - FERB's intro lines are text in the notch, never spoken; sound comes only from the sound interface, which plays the decided
   family (notes/sound.md; files rendered by `demo/sound-family/render.py`). Default on: needs you, error, done,
-  notification, listening start/end and the tour; default off: summon and paused (owner, 2026-11-01).
+  notification, listening start/end and the tour; default off: summon and paused; Standard intensity by default,
+  Subtle in Settings (owner, 2026-11-01).
 - Motion: open springs duration 0.35–0.5 s, bounce 0.15–0.3; close/dismiss bounce 0; decorative animations ≤ 2 s; all
   interruptible. Reduce Motion: cross-fades, the orb fades in place beside its target.
 - Spatial: pan = clamp((x / screenWidth − 0.5) × 1.2, −0.6, 0.6); distance from the notch lowers gain ≤ 3 dB and adds
