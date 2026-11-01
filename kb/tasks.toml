@@ -369,11 +369,3 @@ kind = "question"
 status = "open"
 why = "notes/docs-cleanup.md 'Decisions to raise': it carries license attribution for bundled third-party code (pyproject.toml lists it as a license file); removing it may break license terms. Kept in step 14a."
 ask = "THIRD_PARTY_NOTICES.md carries the license attributions for third-party code FERB bundles (pyproject.toml lists it as a license file), so removing it may break those licenses. Keep it (recommended), or do you want it changed?"
-
-[T-526]
-title = "CHANGELOG.md after launch: remove it or restart it?"
-area = "project"
-kind = "question"
-status = "open"
-why = "notes/docs-cleanup.md: CHANGELOG.md is stale release notes (2,382 lines); the owner decides after launch whether to remove or restart it. Its history is in git (tag docs-final when made)."
-ask = "CHANGELOG.md is stale (release notes up to before the rebuild; nothing binding left in it, git keeps the history). After launch, should it be removed, or restarted as user-facing release notes from the launch version?"

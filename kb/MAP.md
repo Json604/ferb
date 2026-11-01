@@ -13,7 +13,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | memory | Memory and memory import | `ferb/memory` | 59 | 3 | 9 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 36 | 7 | 30 |
 | perception | Perception | `ferb/sense` | 8 | 4 | 5 |
-| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 1 | 4 | 0 |
+| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 2 | 3 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 18 | 0 | 32 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 6 | 1 | 3 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 15 | 3 | 10 |
@@ -45,7 +45,6 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-523 (perception): The proactivity design: FERB only offers (nothing done until you press Do it), Jev as a switch, no limit on approaches, a daily brief, Mail and Calendar as sources. Not built, and perception is paused until a Jev-free design. Keep it as your decision for that design, or drop it?
 - T-524 (hands): extensions/store/listing.md (the Chrome Web Store text) has stale lines: the repository "becomes public on 2026-10-21", and post-approval steps using `ferb browsers pair` and `ferb setup --update` from before the app's setup. Refresh it before the next extension upload, or drop the file?
 - T-525 (project): THIRD_PARTY_NOTICES.md carries the license attributions for third-party code FERB bundles (pyproject.toml lists it as a license file), so removing it may break those licenses. Keep it (recommended), or do you want it changed?
-- T-526 (project): CHANGELOG.md is stale (release notes up to before the rebuild; nothing binding left in it, git keeps the history). After launch, should it be removed, or restarted as user-facing release notes from the launch version?
 
 ## Terms
 

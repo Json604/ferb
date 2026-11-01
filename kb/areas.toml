@@ -82,5 +82,5 @@ purpose = "The offline safety suite, fakes and fixtures, real-test harnesses."
 [project]
 title = "Project knowledge and tooling"
 prefix = "PROJ"
-paths = ["README.md", "CLAUDE.md", "AGENTS.md", "CHANGELOG.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", ".gitignore", "kb", "tools", "spikes"]
+paths = ["README.md", "CLAUDE.md", "AGENTS.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", ".gitignore", "kb", "tools", "spikes"]
 purpose = "Docs, licences, agent instructions, this kb registry and gate, and historical spikes."
