@@ -136,20 +136,6 @@ final class LiveDragLayoutTests: XCTestCase {
             XCTAssertTrue(screen.contains(LiveDragLayout.interpolate(left,right,progress:t)))
         }
     }
-    @MainActor func testSoundPlaybackRespectsExistingMuteAndVolume() {
-        let sound = SoundFeedback()
-        let oldEnabled = sound.enabled, oldVolume = sound.volume
-        defer { sound.enabled = oldEnabled; sound.volume = oldVolume }
-        sound.enabled = false
-        sound.volume = 0.8
-        XCTAssertEqual(sound.playbackVolume,0)
-        sound.enabled = true
-        sound.volume = 0
-        XCTAssertEqual(sound.playbackVolume,0)
-        sound.volume = 0.18
-        XCTAssertEqual(sound.playbackVolume,0.18,accuracy:0.001)
-    }
-
     func testRoundedSurfacesTouchAtDisplayCorners() {
         let screen = CGRect(x:0,y:0,width:1200,height:800)
         for pill in [CGRect(x:0,y:0,width:58,height:30),CGRect(x:0,y:770,width:58,height:30),

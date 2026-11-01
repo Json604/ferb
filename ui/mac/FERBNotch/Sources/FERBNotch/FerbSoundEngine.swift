@@ -14,6 +14,12 @@ protocol FerbSoundPlaying: AnyObject {
     func keepWarm(_ on: Bool)
     /// How long a sound takes from `play` to leaving the current output device, in seconds.
     var outputLatency: TimeInterval { get }
+    /// Whether the sound would play now (the owner's switches, a call); a banner asks before carrying its sound.
+    func allows(_ s: FerbSound) -> Bool
+}
+
+extension FerbSoundPlaying {
+    func allows(_ s: FerbSound) -> Bool { true }
 }
 
 /// Where a sound sits: stereo position, the level drop and how far from the notch (0 at it, 1 a screen's height away).
@@ -40,7 +46,8 @@ struct SoundPlacement: Equatable {
 /// source goes through an HRTF (AVAudioEnvironmentNode); on speakers it is panned with an equal-power law. Farther
 /// from the notch it is a little quieter, duller and roomier. The engine runs only while sounds play (and briefly
 /// after, so a run of cues stays warm) or while kept warm, and stops at once on `stopAll()`. Every AVFAudio call
-/// that can raise an Objective-C exception goes through AudioCapture's wrappers.
+/// that can raise an Objective-C exception goes through AudioCapture's wrappers. Every sound, the tour's and the
+/// everyday ones (SoundFeedback), passes `decision(for:)`: the app has this one engine (AppDelegate).
 @MainActor
 final class FerbSoundEngine: FerbSoundPlaying {
     /// Today's master volume (SoundFeedback); at it, the family plays at the levels it was decided at.
@@ -67,6 +74,8 @@ final class FerbSoundEngine: FerbSoundPlaying {
     private let headphones: @MainActor () -> Bool
     private let screens: @MainActor () -> [(frame: CGRect, notch: CGPoint)]
     private let measureLatency: @MainActor () -> TimeInterval
+    private let inputProcesses: @MainActor () -> [pid_t]
+    private let ownProcess: (pid_t) -> Bool
     private let idleSleep: @Sendable (TimeInterval) async -> Void
     private var warm = false
     private var busyUntil = Date.distantPast
@@ -78,7 +87,9 @@ final class FerbSoundEngine: FerbSoundPlaying {
          headphones: @escaping @MainActor () -> Bool = { AudioOutputFacts.headphonesAreTheOutput() },
          screens: @escaping @MainActor () -> [(frame: CGRect, notch: CGPoint)] = { FerbSoundEngine.screensWithNotches() },
          measureLatency: @escaping @MainActor () -> TimeInterval = { AudioOutputFacts.outputLatency() },
-         idleSleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(for: .seconds($0)) }) {
+         idleSleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(for: .seconds($0)) },
+         inputProcesses: @escaping @MainActor () -> [pid_t] = { AudioOutputFacts.processesRunningInput() },
+         ownProcess: @escaping (pid_t) -> Bool = { AudioOutputFacts.isFerbProcess($0) }) {
         self.engine = engine
         self.defaults = defaults
         self.preference = preference
@@ -86,6 +97,8 @@ final class FerbSoundEngine: FerbSoundPlaying {
         self.screens = screens
         self.measureLatency = measureLatency
         self.idleSleep = idleSleep
+        self.inputProcesses = inputProcesses
+        self.ownProcess = ownProcess
         measuredLatency = measureLatency()
         // The output changed (headphones, a display's speakers): AVAudioEngine has stopped itself. Players are reset
         // so the next sound starts cleanly; keeping warm survives the change.
@@ -104,21 +117,32 @@ final class FerbSoundEngine: FerbSoundPlaying {
     /// The gain at today's settings, before placement: FERB's volume (relative to the default) times the alert
     /// volume. Nil when sound is off (the system's UI sounds or FERB's feedback).
     var settingsGain: Float? {
-        guard SoundPolicy.shouldPlay(.done, uiSoundsEnabled: AudioOutputFacts.uiSoundsEnabled(preference),
-                                     feedbackEnabled: defaults.object(forKey: "feedback.enabled") as? Bool ?? true)
-        else { return nil }
+        guard AudioOutputFacts.uiSoundsEnabled(preference), feedbackEnabled else { return nil }
         let volume = min(max(defaults.object(forKey: "feedback.volume") as? Double ?? Self.defaultVolume, 0), 0.5)
         let gain = Float(volume / Self.defaultVolume) * AudioOutputFacts.alertVolume(preference)
         return gain > 0 ? gain : nil
     }
 
     var isRunning: Bool { engine.isRunning }
+    private var feedbackEnabled: Bool { defaults.object(forKey: "feedback.enabled") as? Bool ?? true }
+
+    /// Whether and how the sound plays now (SoundPolicy.decide), read at play time: the system's UI sounds, FERB's
+    /// master switch, the sound's own switch, Standard/Subtle, and a call: a process other than FERB's own running
+    /// microphone input (a handful of Core Audio reads, made only when everything else lets the sound play).
+    func decision(for s: FerbSound) -> SoundDecision? {
+        let toggle = SoundSwitch(s)
+        return SoundPolicy.decide(s, uiSoundsEnabled: AudioOutputFacts.uiSoundsEnabled(preference),
+                                  feedbackEnabled: feedbackEnabled,
+                                  switchOn: defaults.object(forKey: toggle.key) as? Bool ?? toggle.onByDefault,
+                                  subtle: defaults.string(forKey: SoundPolicy.intensityKey) == "subtle",
+                                  onACall: { [inputProcesses, ownProcess] in inputProcesses().contains { !ownProcess($0) } })
+    }
+
+    func allows(_ s: FerbSound) -> Bool { decision(for: s) != nil && settingsGain != nil }
 
     func play(_ s: FerbSound, at point: CGPoint?) {
-        guard SoundPolicy.shouldPlay(s, uiSoundsEnabled: AudioOutputFacts.uiSoundsEnabled(preference),
-                                     feedbackEnabled: defaults.object(forKey: "feedback.enabled") as? Bool ?? true),
-              let gain = settingsGain else { return }
-        let subtle = defaults.string(forKey: "feedback.intensity") == "subtle"
+        guard let decision = decision(for: s), let gain = settingsGain else { return }
+        let subtle = decision.subtle
         guard let url = FerbSoundFiles.files(for: s, subtle: subtle).randomElement(),
               let data = library.data(for: url, roomSend: FerbSoundFiles.isFinishedMix(s)
                                           ? nil : FerbSoundFiles.roomSend(s, subtle: subtle)),

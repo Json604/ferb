@@ -50,6 +50,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = menu
         coordinator = PanelCoordinator()
         coordinator?.poster = poster
+        // FERB's one sound engine: the everyday sounds, the intro's tour and the banners' sound decision share it.
+        let sound = FerbSoundEngine()
+        coordinator?.model.feedback.player = sound
+        poster.sounds = coordinator?.model.feedback
+        appSetup.makeTourParts = { [sound] in (OrbController(sound: sound), sound) }
         if appSetup.isPackaged {
             coordinator?.onSetUp = { [appSetup] in appSetup.replayIntro() }   // Set Up FERB…: the intro again
             coordinator?.onRepair = { [appSetup] in appSetup.repairService() }   // Restart found no service

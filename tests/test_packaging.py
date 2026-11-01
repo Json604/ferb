@@ -562,7 +562,9 @@ def test_real_bundle_structure_signature_and_embedded_cli(real_bundle: Path, tmp
                 # the notch's SwiftPM resources, where Bundle.module looks in an app: FERB's mark and the sound family
                 "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/ferb-mark.svg",
                 "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/ferb-logo.wav",
-                "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/ferb-room-ir.wav"):
+                "Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds/ferb-room-ir.wav",
+                # the banners' notification sound, where UNNotificationSound(named:) looks: the app's own Resources
+                "Resources/ferb-notification-banner.wav"):
         assert (c / rel).is_file(), rel
     assert not (c / "Helpers/FERB Voice.app").exists() and info["NSSpeechRecognitionUsageDescription"]
     agent = plistlib.loads((c / "Helpers/FERB.app/Contents/Info.plist").read_bytes())

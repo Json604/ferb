@@ -356,7 +356,9 @@ extension NotchModel {
             // A reply that ended the turn on a failure says so (`status: failed`), and offers Send to developer (L35).
             let status = event["status"] as? String ?? "done"
             _ = session.finishBackendWork(taskID: nil, status: status, answer: event["text"] as? String ?? "", artifacts: [])
-            if status == "done" { feedback.play(.completed); showCompletionTrace() } else { feedback.play(.attention) }
+            if status == "done" { showCompletionTrace() }
+            // FERB's question (clarify) sounds as its follow-up's needs you (receiveChatEvent), never as a completion.
+            if event["type"] as? String == "reply", let sound = SoundPolicy.outcomeSound(status) { feedback.play(sound) }
             presentTerminalAnswer()
             recordAnswer(announce: true, displayText: event["display_text"] as? String)
             // A planner turn that ended on a usage limit or a sign-in problem offers another AI service (decision 16).
@@ -378,7 +380,7 @@ extension NotchModel {
             session.requireAttention(message)
             presentTerminalAnswer()
             promptError = message
-            feedback.play(.attention)
+            feedback.play(.error)
             onBackgroundChange?(true)
         case "subtask":
             let text = event["summary"] as? String ?? event["status"] as? String ?? "Task updated"
@@ -573,6 +575,8 @@ extension NotchModel {
                     verified: event["verified"] as? Bool ?? false, at: LiveProgress.time(event["at"]) ?? Date())
             }
             knownCompletedTasks.insert(taskID)
+            // A task this chat didn't start (a schedule's run, one from before a restart) is a notification.
+            if announce && fresh && status != "cancelled" { feedback.notification(for: taskID) }
             if announce && fresh && Self.opensNotch(status) { presentTerminalAnswer() }
             runningTasks.removeValue(forKey: taskID)
             taskActivities.removeValue(forKey: taskID)
@@ -603,7 +607,10 @@ extension NotchModel {
                 return NoticeQuote(text: text, origin: quote["origin"] as? String ?? "")
             }
             if conversation.addNotice(id: id, text: text, quotes: quotes, noticedAt: LiveProgress.time(row["at"]),
-                                      cards: ResultCard.list(row["cards"])) { added = true }
+                                      cards: ResultCard.list(row["cards"])) {
+                added = true
+                feedback.notification(for: id)        // once: its banner carries it when it has one
+            }
             ids.append(id)
         }
         guard !ids.isEmpty else { return }
@@ -738,8 +745,8 @@ extension NotchModel {
         knownCompletedTasks.insert(id)
         runningTasks.removeValue(forKey: id)
         stoppingTaskIDs.remove(id)
-        if announce && !alreadyAnnounced && status == "done" { feedback.play(.completed); showCompletionTrace() }
-        else if announce && !alreadyAnnounced && status != "cancelled" { feedback.play(.attention) }
+        if announce && !alreadyAnnounced, let sound = SoundPolicy.outcomeSound(status) { feedback.play(sound, for: id) }
+        if announce && !alreadyAnnounced && status == "done" { showCompletionTrace() }
         if announce && !alreadyAnnounced && Self.opensNotch(status) { presentTerminalAnswer() }
         let verified = event["verified"] as? Bool ?? false
         recordAnswer(announce: announce, displayText: event["display_text"] as? String, verified: verified)

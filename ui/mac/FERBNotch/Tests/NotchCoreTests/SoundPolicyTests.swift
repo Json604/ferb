@@ -18,9 +18,13 @@ final class SoundPolicyTests: XCTestCase {
     }
 
     func testNothingPlaysWhenSystemUISoundsAreOff() {
-        XCTAssertFalse(SoundPolicy.shouldPlay(.done, uiSoundsEnabled: false, feedbackEnabled: true))
-        XCTAssertFalse(SoundPolicy.shouldPlay(.done, uiSoundsEnabled: true, feedbackEnabled: false))
-        XCTAssertTrue(SoundPolicy.shouldPlay(.done, uiSoundsEnabled: true, feedbackEnabled: true))
+        func decide(ui: Bool, feedback: Bool) -> SoundDecision? {
+            SoundPolicy.decide(.done, uiSoundsEnabled: ui, feedbackEnabled: feedback, switchOn: true, subtle: false,
+                               onACall: { false })
+        }
+        XCTAssertNil(decide(ui: false, feedback: true))
+        XCTAssertNil(decide(ui: true, feedback: false))
+        XCTAssertEqual(decide(ui: true, feedback: true), SoundDecision(subtle: false))
     }
 
     func testTheFamilyHasNoFlightOrLandingSound() {

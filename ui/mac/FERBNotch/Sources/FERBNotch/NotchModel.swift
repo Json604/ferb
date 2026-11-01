@@ -98,7 +98,7 @@ final class NotchModel: ObservableObject {
     @Published private(set) var isPinned = false
     @Published private(set) var isHeaderOnly = false
 
-    let feedback = SoundFeedback()
+    let feedback: SoundFeedback
     var cursor: CursorController?
     let microphone: VoiceCapturing
     @Published var voiceTranscript = ""
@@ -189,6 +189,7 @@ final class NotchModel: ObservableObject {
         self.rpc = rpc
         self.clickThrough = ClickThroughReport(rpc: rpc)
         self.preferences = preferences
+        feedback = SoundFeedback(defaults: preferences)
         preferredPanelWidth = max(360, CGFloat((preferences.object(forKey: "notch.panelWidth") as? NSNumber)?.doubleValue ?? 440))
         preferredTranscriptHeight = max(260, CGFloat((preferences.object(forKey: "notch.transcriptHeight") as? NSNumber)?.doubleValue ?? 300))
         if let data = preferences.data(forKey: "FERBConversationArchive") {
@@ -584,7 +585,7 @@ final class NotchModel: ObservableObject {
         }
         session.beginVoicePreview()
         voiceStartedAt = Date()
-        feedback.play(.listening)
+        feedback.play(.listeningStart)
         if !held { onInteraction?() }
         onPresentationChange?(!held)
         voiceDraft = session.draft
@@ -626,7 +627,7 @@ final class NotchModel: ObservableObject {
         guard !voiceFinishing else { return }
         voiceFinishing = true
         voiceIsHeld = false
-        feedback.play(.finishedListening)
+        feedback.play(.listeningEnd)
         microphone.finish()
     }
 
@@ -698,7 +699,7 @@ final class NotchModel: ObservableObject {
     func requireAttention(_ message: String) {
         guard session.phase == .working else { return }
         session.requireAttention(message)
-        feedback.play(.attention)
+        feedback.play(.error)
         onPresentationChange?(true)
     }
 
@@ -861,10 +862,12 @@ final class NotchModel: ObservableObject {
         // Questions are shown inline in today's chat; arriving never moves keyboard focus.
         followsToday = true
         selectedDay = Calendar.current.startOfDay(for: Date())
-        announceAttention(key)
+        announceAttention(key, item: approval.id)
     }
 
-    func announceAttention(_ identity: String) {
+    /// Something waits on the owner (a question, an approval, FERB's own question): the notch opens and needs you
+    /// plays. `item` is what a banner of it would name (an approval's id), so the two sound once.
+    func announceAttention(_ identity: String, item: String? = nil) {
         guard announcedAttentionIDs.insert(identity).inserted else { return }
         preferences.set(Array(announcedAttentionIDs), forKey: "FERBAnnouncedAttentionIDs")
         cancelPinnedFold()
@@ -883,7 +886,7 @@ final class NotchModel: ObservableObject {
             self?.attentionTraceVisible = false
             self?.onStatusChange?()
         }
-        feedback.play(.attention)
+        feedback.play(.needsYou, for: item ?? identity)
         onAttentionArrival?()
         onBackgroundChange?(true)
         onStatusChange?()

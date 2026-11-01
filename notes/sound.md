@@ -1,8 +1,11 @@
 # FERB's sound (research 2026-11-01, for notes/setup-intro.md "Sound")
 
 Status: family decided 2026-11-01 (see "Rounds so far"); rendered by `demo/sound-family/render.py` and heard on
-`demo/sound-family/index.html`. Next: wiring it into the app (SoundFeedback.swift, notifications) and the open
-decisions at the end. Sources are cited in the research report (session of 2026-11-01); the key ones are kept inline
+`demo/sound-family/index.html`. In the app (setup-intro plan Task 10, 2026-11-01): the tour and every everyday event
+play through one FerbSoundEngine, which applies each sound's switch (`feedback.sound.<name>`), Standard/Subtle and the
+call rule; banners carry `ferb-notification-banner.wav` (render.py's stereo reference mix, copied into
+FERB.app/Contents/Resources by build-app.sh); the magnetic docking sound is gone; the CC BY credit is in Settings →
+About. Next: the open decisions at the end. Sources are cited in the research report (session of 2026-11-01); the key ones are kept inline
 here.
 
 ## Rounds so far

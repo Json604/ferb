@@ -163,7 +163,6 @@ final class AppSetupTests: XCTestCase {
     func testAFailedRestartNeverStartsATour() async {
         _ = NSApplication.shared
         let coordinator = PanelCoordinator()
-        coordinator.magneticAudioOutputEnabled = false
         coordinator.magneticFieldPresentationEnabled = false
         defer { coordinator.tearDown() }
         let service = FakeService()

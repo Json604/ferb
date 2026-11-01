@@ -32,7 +32,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     private var intro: IntroController?
     private var orb: OrbControlling?
     private var sound: FerbSoundPlaying?
-    /// The only place the real orb and sound engine are made (tests make fakes).
+    /// The only place the real orb is made, with the app's one sound engine (AppDelegate passes it; tests make fakes).
     var makeTourParts: @MainActor () -> (orb: OrbControlling, sound: FerbSoundPlaying) = {
         let sound = FerbSoundEngine()
         return (OrbController(sound: sound), sound)

@@ -88,6 +88,9 @@ ditto "$NOTCH_RESOURCES" "$CONTENTS/Resources/FERBNotch_FERBNotch.bundle"
 # An incremental build can keep a stale copy: what ships must equal the committed sounds exactly
 diff -rq "$NOTCH/Sources/FERBNotch/Resources/Sounds" "$CONTENTS/Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds" \
   || die "the app's sounds differ from ui/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds (rm -rf $WORK/swift and build again)"
+# The banners' notification sound: macOS plays a banner's sound only from the app's own Resources (or ~/Library/Sounds)
+cp "$NOTCH/Sources/FERBNotch/Resources/Sounds/ferb-notification-banner.wav" "$CONTENTS/Resources/ferb-notification-banner.wav"
+[[ -f "$CONTENTS/Resources/ferb-notification-banner.wav" ]] || die "FERB.app has no banner sound in Contents/Resources"
 ICON="$ROOT/assets/logo/AppIcon.icns"     # FERB's logo (scripts/make_logo.py makes it from assets/logo/ferb-logo.svg)
 cp "$ICON" "$CONTENTS/Resources/AppIcon.icns"                     # Info.plist CFBundleIconFile
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$CONTENTS/Resources/THIRD_PARTY_NOTICES.md"

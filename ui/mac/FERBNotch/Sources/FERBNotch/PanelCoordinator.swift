@@ -127,9 +127,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var dockingRevision: UUID?
     let magneticFieldPanel = NotchLightPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     private let magneticField = MagneticFieldView(frame: .zero)
-    var magneticAudioOutputEnabled = true { didSet { magneticAudio.outputEnabled = magneticAudioOutputEnabled } }
     var magneticFieldPresentationEnabled = true
-    private lazy var magneticAudio = MagneticDockingAudio(feedback: model.feedback)
     private var magneticDocking = MagneticDocking()
     private(set) var magneticSample = MagneticDocking.Sample()
     private var magneticClock: CADisplayLink?
@@ -258,7 +256,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         registerShortcut()
         shortcuts.onDoubleTap = { [weak self] in
             guard let self else { return }
-            if !self.summonFromYield() { self.model.toggle() }
+            if self.summonFromYield() { self.model.feedback.play(.summon) }
+            else {
+                self.model.toggle()
+                if self.model.expanded { self.model.feedback.play(.summon) }
+            }
             self.introControls.saw(.toggle)
         }
         shortcuts.onHoldBegan = { [weak self] in
@@ -789,7 +791,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func applyMagneticEffects() {
-        magneticAudio.update(magneticSample)
         indicatorControl?.setMagneticFusion(magneticSample.fusionProgress)
         guard let target = magneticSample.target, magneticSample.proximity > 0,
               magneticSample.phase == .dragging || magneticSample.phase == .fusing else {
@@ -828,7 +829,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     func cancelMagneticEffects() {
-        magneticAudio.cancel()
         magneticFieldPanel.orderOut(nil)
         indicatorControl?.setMagneticFusion(0)
         presentation.backdrop.magneticJoin = nil
@@ -953,7 +953,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     @objc func screensDidSleep() {
         cancelMagneticInteraction()
-        magneticAudio.shutdown()
         model.acknowledgement.dismiss()
         screensAsleep = true
         updateYieldWatch()
@@ -1440,7 +1439,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             do {
                 _ = try await self.model.rpc.call(paused ? "sense.pause" : "sense.resume", params: [:])
                 self.model.daemonPaused = paused
-                if paused { self.introControls.saw(.pause) }
+                if paused {
+                    self.model.feedback.play(.paused)
+                    self.introControls.saw(.pause)
+                }
             } catch { self.model.promptError = error.localizedDescription }
         }
     }
@@ -1493,8 +1495,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     private func shortcutPressed() {
         defer { introControls.saw(.summon) }
-        if summonFromYield() { return }
+        if summonFromYield() { model.feedback.play(.summon); return }
         if model.expanded { model.collapse(keyboard: true); return }
+        model.feedback.play(.summon)
         beginInteraction()
         if model.session.phase == .ready || model.session.phase == .draft { model.edit(keyboard: true) }
         else { model.expand(keyboard: true); panel.makeKey() }
@@ -1537,7 +1540,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     func tearDown() {
         isStarted = false
         cancelMagneticInteraction()
-        magneticAudio.shutdown()
         model.acknowledgement.dismiss()
         closeTaskActivity()
         poster?.stop()

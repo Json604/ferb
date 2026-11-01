@@ -114,12 +114,60 @@ struct GeneralSettingsPage: View {
             }
             Section("Sounds") {
                 Toggle("Play feedback sounds", isOn: $feedback.enabled)
-                Toggle("Magnetic docking sound", isOn: $feedback.magneticEnabled).disabled(!feedback.enabled)
                 Slider(value: $feedback.volume, in: 0...0.5) { Text("Volume") }.disabled(!feedback.enabled)
-                Button("Play completion sound") { feedback.play(.completed) }.disabled(!feedback.enabled)
+                Picker("Intensity", selection: $feedback.subtle) {
+                    Text("Standard").tag(false)
+                    Text("Subtle").tag(true)
+                }
+                .pickerStyle(.segmented).disabled(!feedback.enabled)
+                Text("During a call FERB plays only the \"needs you\" sound, softly; the notch still shows everything.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(SoundSwitch.allCases, id: \.self) { sound in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(sound.title)
+                            Text(sound.meaning).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Play") { feedback.preview(sound) }.disabled(!feedback.isOn(sound))
+                        Toggle(sound.title, isOn: feedback.binding(sound)).labelsHidden()
+                    }
+                    .disabled(!feedback.enabled)
+                }
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+extension SoundSwitch {
+    /// Settings' name for the sound, and what it means in a few words.
+    var title: String {
+        switch self {
+        case .needsYou: return "Needs you"
+        case .error: return "Something went wrong"
+        case .done: return "Done"
+        case .notification: return "Notification"
+        case .listeningStart: return "Listening"
+        case .listeningEnd: return "Done listening"
+        case .tour: return "Intro tour"
+        case .summon: return "Open FERB"
+        case .paused: return "Paused"
+        }
+    }
+
+    var meaning: String {
+        switch self {
+        case .needsYou: return "A question or approval is waiting for you"
+        case .error: return "A task couldn't finish"
+        case .done: return "A task or answer is ready"
+        case .notification: return "Reminders, scheduled tasks and notices"
+        case .listeningStart: return "Dictation starts"
+        case .listeningEnd: return "Dictation stops"
+        case .tour: return "The sounds of the first-run tour"
+        case .summon: return "You open FERB with the shortcut"
+        case .paused: return "You pause FERB"
+        }
     }
 }
 
@@ -502,9 +550,25 @@ struct AboutSettingsPage: View {
             }
             Section("Shortcuts") { ForEach(AppGuide.shortcuts, id: \.action) { LabeledContent($0.action, value: $0.keys) } }
             Section("How to") { ForEach(AppGuide.howtos, id: \.title) { LabeledContent($0.title, value: $0.steps) } }
+            Section("Sounds") { SoundCredits() }
         }
         .formStyle(.grouped)
         .task { await store.loadAbout() }
+    }
+}
+
+/// The credit Creative Commons Attribution asks for (demo/sound-family/CREDITS.md): two of FERB's sounds are Google's.
+private struct SoundCredits: View {
+    var body: some View {
+        Text("FERB's sounds are made for FERB from code, except two from Google's Material Design sound resources, by "
+             + "Google, licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).")
+        Text("First-launch sound: Material's \"hero\" sound. Changes: leading silence trimmed, leveled to −24 LUFS.")
+            .font(.caption).foregroundStyle(.secondary)
+        Text("Notification sound: Material's \"notification, high intensity\". Changes: trimmed, leveled, a small "
+             + "room added; the Subtle version is also low-passed at 3 kHz.")
+            .font(.caption).foregroundStyle(.secondary)
+        Link("Licence: creativecommons.org/licenses/by/4.0", destination: URL(string: "https://creativecommons.org/licenses/by/4.0/")!)
+        Link("Source: github.com/nana-4/materia-sound-theme", destination: URL(string: "https://github.com/nana-4/materia-sound-theme")!)
     }
 }
 

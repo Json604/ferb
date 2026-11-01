@@ -78,6 +78,19 @@ public struct BannerItem: Equatable {
         target = NotificationTarget(event["target"] as? [String: Any] ?? [:])
         whenHidden = event["when_hidden"] as? Bool ?? false
     }
+
+    /// The item this banner shows, as the notch knows it: the id after its kind (`loop:<notice id>`, `task:<task id>`,
+    /// `question:<approval id>`) and its target's id. A notch sound for one of them is the same notification's.
+    public var soundKeys: [String] {
+        var keys: [String] = []
+        if let colon = id.firstIndex(of: ":") { keys.append(String(id[id.index(after: colon)...])) }
+        switch target {
+        case .question(let approvalID, _): keys.append(approvalID)
+        case .task(let item), .reminder(let item), .handoff(let item): keys.append(item)
+        case .notch: break
+        }
+        return keys
+    }
 }
 
 public enum NotificationGate {

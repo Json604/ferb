@@ -1,7 +1,9 @@
 import AppKit
 import CoreAudio
+import Darwin
 
-/// What the system says about sound output: the user's sound settings and the current output device.
+/// What the system says about sound: the user's sound settings, the current output device, and which processes are
+/// running microphone input.
 enum AudioOutputFacts {
     /// A value from the global (any application) preferences, read fresh.
     static func globalPreference(_ key: String) -> Any? {
@@ -61,6 +63,33 @@ enum AudioOutputFacts {
         guard sampleRate > 0 else { return 0 }
         let seconds = frames.reduce(0.0) { $0 + Double($1) } / sampleRate
         return seconds.isFinite && seconds <= 1 ? seconds : 0
+    }
+
+    /// The processes running microphone input now: Core Audio's process objects (macOS 14) with an active input stream,
+    /// by pid. A few property reads, made when a sound is about to play; empty when Core Audio doesn't say.
+    static func processesRunningInput() -> [pid_t] {
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var size = UInt32(0)
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr, size > 0 else { return [] }
+        var objects = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &objects) == noErr else { return [] }
+        return objects.prefix(Int(size) / MemoryLayout<AudioObjectID>.size).compactMap { process in
+            guard let running: UInt32 = property(process, kAudioProcessPropertyIsRunningInput), running != 0,
+                  let pid: pid_t = property(process, kAudioProcessPropertyPID) else { return nil }
+            return pid
+        }
+    }
+
+    /// FERB's own processes: this app (its dictation) and anything run from inside its bundle (its helpers).
+    static func isFerbProcess(_ pid: pid_t) -> Bool {
+        if pid == getpid() { return true }
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return false }
+        let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath().path + "/"
+        return URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath().path.hasPrefix(bundle)
     }
 
     private static func defaultOutputDevice() -> AudioDeviceID? {

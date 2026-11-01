@@ -4,10 +4,15 @@ import NotchCore
 
 /// The decided family's files (rendered by demo/sound-family/render.py, shipped in Resources/Sounds): dry mono
 /// sources named `ferb-<sound>-<standard|subtle>[-v<n>].wav`, the signature and orb sounds without an intensity,
-/// the room as a stereo impulse response, and the first-launch clip.
+/// the room as a stereo impulse response, the first-launch clip, and the banners' notification sound.
 enum FerbSoundFiles {
     static var directory: URL? { Bundle.module.url(forResource: "Sounds", withExtension: nil) }
     static var roomImpulse: URL? { file("ferb-room-ir.wav") }
+    /// The notification sound as macOS plays it on FERB's banners: render.py's stereo reference mix (the dry sound
+    /// with its room), sounding like the in-app cue. UNNotificationSound looks only in the app's own Resources, so
+    /// scripts/build-app.sh also copies it to FERB.app/Contents/Resources.
+    static let bannerName = "ferb-notification-banner.wav"
+    static var bannerFile: URL? { file(bannerName) }
 
     static func baseName(_ s: FerbSound) -> String {
         switch s {

@@ -10,12 +10,14 @@ protocol NotificationCenterPosting: AnyObject {
     func undecided() async -> Bool
     /// macOS's own prompt; true when the owner allowed it.
     func request() async -> Bool
-    func post(id: String, title: String, body: String, userInfo: [String: String], thread: String)
+    /// `sound`: the banner carries FERB's notification sound (else it posts silently).
+    func post(id: String, title: String, body: String, userInfo: [String: String], thread: String, sound: Bool)
     func withdraw(ids: [String])
 }
 
-/// UNUserNotificationCenter for FERB.app (L34 D): FERB's own name and icon; Focus modes respected (macOS applies them to
-/// the default interruption level); a click comes back through `NotificationClicks`. Built only when `AppBundle.isApp`.
+/// UNUserNotificationCenter for FERB.app (L34 D): FERB's own name, icon and notification sound; Focus modes respected
+/// (macOS applies them to the default interruption level); a click comes back through `NotificationClicks`. Built only
+/// when `AppBundle.isApp`.
 @MainActor
 final class UserNotificationCenter: NotificationCenterPosting {
     private let center = UNUserNotificationCenter.current()
@@ -29,13 +31,19 @@ final class UserNotificationCenter: NotificationCenterPosting {
 
     func request() async -> Bool { (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false }
 
-    func post(id: String, title: String, body: String, userInfo: [String: String], thread: String) {
+    /// FERB's notification sound: macOS plays a banner's sound itself, from the app's own Resources only (or
+    /// ~/Library/Sounds), so build-app.sh puts the finished mix there. A build without it uses the system's sound.
+    private static let sound: UNNotificationSound =
+        Bundle.main.url(forResource: FerbSoundFiles.bannerName, withExtension: nil) == nil
+            ? .default : UNNotificationSound(named: UNNotificationSoundName(FerbSoundFiles.bannerName))
+
+    func post(id: String, title: String, body: String, userInfo: [String: String], thread: String, sound: Bool) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.userInfo = userInfo
         content.threadIdentifier = thread
-        content.sound = .default
+        content.sound = sound ? Self.sound : nil
         center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil)) { error in
             if let error { NSLog("FERB: a notification wasn't posted (%@).", error.localizedDescription) }
         }
@@ -50,7 +58,8 @@ final class UserNotificationCenter: NotificationCenterPosting {
 /// FERB.app as the daemon's poster (L34 D): while macOS lets FERB.app notify, it holds `notifications.subscribe`, so the
 /// daemon stops using osascript; each banner is posted unless the notch is already showing it; a click opens the notch at
 /// its item. Without a notification center (a development build run without a bundle) it never subscribes, and the
-/// daemon keeps osascript.
+/// daemon keeps osascript. A banner carries FERB's notification sound unless `sounds` says the notch already sounded for
+/// its item or the sound wouldn't play now; then it posts silently.
 @MainActor
 final class NotificationPoster {
     private let center: NotificationCenterPosting?
@@ -65,6 +74,8 @@ final class NotificationPoster {
     /// task's banner before its result, and a question's on another connection than the question itself.
     private let settle: Duration
     private var settling: [String: Task<Void, Never>] = [:]
+    /// The app's everyday sounds (the notch's), so an item shown in both places sounds once.
+    weak var sounds: SoundFeedback?
 
     init(center: NotificationCenterPosting?, settle: Duration = .seconds(1)) {
         self.center = center
@@ -107,6 +118,8 @@ final class NotificationPoster {
         // Asked when first needed (owner 2026-10-26: "ask when first needed, like Claude and ChatGPT"): while macOS
         // hasn't asked yet, the first banner brings macOS's prompt; a No hands posting back to osascript.
         var asked = allowed
+        sounds?.postingBanners = true
+        defer { sounds?.postingBanners = false }
         do {
             for try await event in rpc.stream("notifications.subscribe", params: ["authorized": true]) {
                 if !asked {
@@ -131,9 +144,13 @@ final class NotificationPoster {
     }
 
     private func post(_ item: BannerItem) {
-        guard let center, NotificationGate.shouldPost(item, notchShowing: notchShowing()) else { return }
+        guard let center else { return }
+        guard NotificationGate.shouldPost(item, notchShowing: notchShowing()) else {
+            sounds?.bannerDeclined(item.soundKeys)
+            return
+        }
         center.post(id: item.id, title: item.title, body: item.body, userInfo: item.target.userInfo,
-                    thread: item.category?.rawValue ?? "ferb")
+                    thread: item.category?.rawValue ?? "ferb", sound: sounds?.bannerSounds(item.soundKeys) ?? true)
     }
 
     /// A question answered anywhere: its banner goes from Notification Center (or never posts, while it waits).
