@@ -4,6 +4,10 @@ name: gate
 on:
   push:
   pull_request:
+concurrency:
+  # a newer push to a branch cancels its older run; main runs every push to the end
+  group: gate-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   gate:
     runs-on: macos-latest   # the Python suite uses macOS frameworks and the app is Swift
@@ -16,6 +20,14 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/cache@v4
+        with:
+          path: ui/mac/FERBNotch/.build
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('ui/mac/FERBNotch/Package.resolved') }}-${{ github.sha }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-${{ hashFiles('ui/mac/FERBNotch/Package.resolved') }}-
       - name: dependencies
         run: uv sync --group dev
       - name: gate
@@ -23,9 +35,36 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           BEFORE: ${{ github.event.before }}
+          REF: ${{ github.ref }}
         run: |
+          # A branch is compared with main, so a cancelled run's commits are still audited by the next one.
           base=""
           if [ "$EVENT" = "pull_request" ]; then base="origin/$BASE_REF"
+          elif [ "$REF" != "refs/heads/main" ] && git rev-parse -q --verify origin/main >/dev/null; then
+            base="$(git merge-base origin/main HEAD)"
           elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then base="$BEFORE"; fi
           chmod +x tools/kb/run
           if [ -n "$base" ]; then tools/kb/run gate ci --base "$base"; else tools/kb/run gate ci; fi
+
+  app:
+    # The packaged FERB.app, built the way users get it (ad-hoc signed here), on every push to main: the unit tests
+    # never build it, and a missing resource once made every packaged build crash at launch.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: dependencies
+        run: uv sync --group dev
+      - name: build FERB.app
+        run: scripts/build-app.sh --arch arm64 build/app-arm64
+      - name: check the built app (structure, signature, size cap, Codex and Python run, resources)
+        env:
+          FERB_APP_BUNDLE: ${{ github.workspace }}/build/app-arm64/FERB.app
+        run: uv run pytest -q -p no:cacheprovider tests/test_packaging.py -k real_bundle
