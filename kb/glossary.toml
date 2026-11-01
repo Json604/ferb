@@ -3,3 +3,31 @@
 # ["sink rule"]
 # meaning = "Data read from outside never flows to a send without the owner's Yes."
 # see = ["GATEWAY-4"]
+
+["Tier 1"]
+meaning = "The core profile: what FERB knows about the owner, always in every role's prompt within a fixed budget; code renders each entry word for word from its fact."
+see = ["MEM-5", "MEM-7", "MEM-17"]
+
+["holds up"]
+meaning = "When FERB's own understanding or an observed fact has earned a place in Tier 1: seen on two separate days, or standing 7 days uncorrected."
+see = ["MEM-15", "MEM-18"]
+
+["how-note"]
+meaning = "The short \"how I did it\" note on a verified episode, retrieved for similar requests."
+see = ["MEM-1", "MEM-31"]
+
+["playbook"]
+meaning = "One merged how-note for several verified runs of the same kind of work, rewritten as new runs succeed."
+see = ["MEM-29"]
+
+["set aside"]
+meaning = "An owner fact FERB stopped using because it looks over; kept as history and restored when the owner says it still holds."
+see = ["MEM-14", "MEM-32"]
+
+["Jev"]
+meaning = "The paid outside service that decided which perception events matter (notices); switched off by default."
+see = ["SENSE-2", "SENSE-3"]
+
+["daily distill"]
+meaning = "The once-a-day model pass over the day's chat and activity that saves durable facts and retires stale ones."
+see = ["MEM-8", "MEM-22"]

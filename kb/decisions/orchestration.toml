@@ -1,0 +1,13 @@
+# Decisions of area `orchestration` (kb/areas.toml). Moved from notes/memory.md on 2026-11-02.
+
+[ORCH-1]
+title = "The planner stays tool-less; workers do the lookups"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 10 (reversing an earlier yes): an agent's paraphrase; no verbatim quote recorded"
+rule = "The planner is one fast call that changes nothing until it returns and has no lookup tools. It gets Tier 1 and retrieved memory pushed into its context; a reply that needs more becomes a task, whose worker has memory.read, chat.history, task.evidence and trail.query. Revisit if exposure records show planner memory misses."
+why = "Lookups would add model round trips that each re-send the whole context, need the worker tool path in supervisor mode, complicate reply streaming and hold the chat longer."
+rejected = ["Lookup tools for the planner (an earlier yes, reversed 2026-10-30)"]
+paths = ["ferb/orchestrator/supervisor.py::TOOLLESS_ROLES", "ferb/orchestrator/prompts/supervisor.md"]
+legacy = "notes/memory.md decision 10"

@@ -10,3 +10,33 @@
 # decisions = ["AUTH-3"]
 # after = []
 # ask = ""              # kind = "question": the exact question for the owner
+
+[T-1]
+title = "Owner check: does \"your words join Tier 1 at once\" cover anything, and do M7/M8 stay search-only?"
+area = "memory"
+kind = "question"
+status = "open"
+why = "On 2026-11-01 an agent widened code's Tier 1 joins from the owner's words about the owner to their words about anything, keeping M7/M8 (prompts decision 4) search-only; notes/memory.md left this as an open owner check."
+decisions = ["MEM-15", "MEM-19"]
+ask = "Your own words join the always-on profile at once. Did you mean that for anything you say (as built since 2026-11-01), or only for what you say about yourself? And should the two facts placed by search (M7, M8) stay out of the always-on profile?"
+
+[T-2]
+title = "perception_seen grows forever: notification dedupe rows are never purged"
+area = "perception"
+kind = "bug"
+status = "open"
+why = "notes/memory.md listed perception_seen (~130 MB with batches/receipts) as never purged; ferb/store/cleanup.py:37-55 empties batches and receipts but not perception_seen, and perception.py:72,121 still writes it. Any retention window is the owner's call."
+
+[T-3]
+title = "Remove the identity-proposal digest left over from procedure learning"
+area = "memory"
+kind = "chore"
+status = "open"
+why = "Nothing writes identity_proposal nodes since step 3, yet learning.py:943-952 (digest) still writes learning_digests and the app still fetches memory.learning op digest; notes/storage.md keeps learning_digests only for this reader."
+
+[T-4]
+title = "The clean-up leaves the closed fact/identity learning nodes it was meant to remove"
+area = "storage"
+kind = "bug"
+status = "open"
+why = "notes/memory.md: closed fact/identity nodes stay \"until the step-12 clean-up\"; ferb/store/cleanup.py PROTECTED_ROWS keeps every learning_nodes row but rollups, so upgrade.py:88's closed nodes are never removed."

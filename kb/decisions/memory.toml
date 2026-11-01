@@ -1,0 +1,341 @@
+# Decisions of area `memory` (kb/areas.toml). Moved from notes/memory.md on 2026-11-02.
+# notes/memory.md wrote the owner's decisions as an agent's paraphrase, so the owner decisions carry `words_source`
+# instead of `words`.
+
+[MEM-1]
+title = "Learning is the hybrid: the fact store plus how-notes on verified episodes"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 1: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "FERB keeps the owner fact store. Procedure learning is replaced by a short \"how I did it\" note on each verified episode, retrieved by search for similar requests."
+rejected = ["Procedure learning (cards, intents, procedures with an exact-argument check)"]
+evidence = "Live DB 2026-10-29: 144 cards, 90 intents, 0 procedures, 0 lessons; all 5 eligible intents refused by the exact-args check."
+paths = ["ferb/memory/learning.py", "ferb/memory/playbooks.py"]
+legacy = "notes/memory.md decision 1"
+
+[MEM-2]
+title = "Forget is simple"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 2 and fix-list item (owner, 2026-10-30): an agent's paraphrase; no verbatim quote recorded"
+rule = "Forgetting a fact deletes the fact, its versions and its watcher-captured sources (trail rows), and blocks it from being re-learned. The owner's chat message that stated it stays: chat history is the owner's own record. FERB's past answers and traces are not scrubbed."
+paths = ["ferb/memory/items.py::Memory.forget", "ferb/memory/items.py::Memory.plan_forget"]
+legacy = "notes/memory.md decision 2"
+
+[MEM-3]
+title = "The owner's pass verdict counts as verified"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 5: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "For memory, the owner's pass verdict counts as verified, as the checker's pass does; the owner's fail overrides the checker. The owner's latest verdict decides."
+paths = ["ferb/memory/learning.py"]
+legacy = "notes/memory.md decision 5"
+
+[MEM-4]
+title = "Remember keeps the 2026-10-30 behavior (Keep/Edit/Drop for FERB's wording)"
+by = "owner"
+date = 2026-10-30
+status = "superseded"
+superseded_by = "MEM-12"
+words_source = "notes/memory.md owner decision 6: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "The planner's wording is saved as the owner's own words when it appears word for word in what they typed; otherwise it is saved as FERB's wording and waits for Keep/Edit/Drop."
+rejected = ["Saving the owner's raw line every time"]
+legacy = "notes/memory.md decision 6"
+
+[MEM-5]
+title = "Memory is built for years of use: three tiers"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 7 with the target design's tiers it points to: an agent's paraphrase; no verbatim quote recorded"
+rule = "Memory has three tiers. Tier 1, the core profile, is always on in every role's prompt within a hard budget (about 2-3k tokens). Tier 2, the versioned fact store, holds everything. Tier 3 holds verified episodes with their how-notes, and playbooks. Everything outside Tier 1 is retrieved within limits, so prompts don't grow with memory."
+paths = ["ferb/memory/profile.py", "ferb/memory/search.py"]
+legacy = "notes/memory.md decision 7"
+
+[MEM-6]
+title = "Retrieval by meaning plus keywords, with a local embedding model"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 8: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Memory retrieval fuses a local embedding model running on the Mac with keyword search (bm25); the same search serves facts, episodes and old chat."
+paths = ["ferb/memory/search.py", "ferb/memory/embeddings.py"]
+legacy = "notes/memory.md decision 8"
+
+[MEM-7]
+title = "The core profile is maintained by code and a model together"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 9 (\"owner confirmed\"): an agent's paraphrase; no verbatim quote recorded"
+rule = "A change to a fact in the profile updates the profile at once, by code, with no model. A weekly model pass (sooner when over budget) compacts it: the model chooses and groups entries, code renders them from the facts, so the owner's words are never paraphrased."
+paths = ["ferb/memory/profile.py", "ferb/memory/profile.md"]
+legacy = "notes/memory.md decision 9"
+
+[MEM-8]
+title = "Durable facts said in passing are captured"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 11: an agent's paraphrase; the rule follows MEM-12, which replaced its Keep/Edit/Drop part"
+rule = "The planner's remember rule and the daily distill's chat pass capture durable facts about the owner said in passing, not only after \"remember ...\". A fact FERB paraphrases is saved as FERB's understanding (MEM-12)."
+evidence = "2026-10-30: \"what are some easy piano pieces? I'm a beginner\" stored nothing; the distills of 10-12 and 10-14, which also mentioned piano, proposed nothing about it."
+paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/memory/distill.md", "ferb/memory/distill.py"]
+legacy = "notes/memory.md decision 11"
+
+[MEM-9]
+title = "Health and finance facts are stored like any other"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 12: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "No special exclusion of health or finance facts in the planner or the distill. Secrets are masked by redaction as always."
+paths = ["ferb/memory/distill.md"]
+legacy = "notes/memory.md decision 12"
+
+[MEM-10]
+title = "A remembered quote carries a short label"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 13: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Code stores what a remembered quote is about (from the task) next to the owner's exact words, so a line like \"ok. score this 1 star - not ordering this again\" still makes sense later. The words themselves are never reworded."
+paths = ["ferb/memory/items.py", "ferb/orchestrator/supervisor.py::Supervisor._remember_about"]
+legacy = "notes/memory.md decision 13"
+
+[MEM-11]
+title = "Forgetting a person or site removes it from known destinations"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 14: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Forgetting a person or site also removes it from the known destinations, so a send to it asks again."
+paths = ["ferb/memory/items.py::Memory._named_destinations"]
+legacy = "notes/memory.md decision 14"
+
+[MEM-12]
+title = "Memory without Keep questions"
+by = "owner"
+date = 2026-10-30
+status = "active"
+supersedes = ["MEM-4"]
+words_source = "notes/memory.md owner decision 15: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "FERB saves facts itself, what the owner states and what it works out, each labelled by origin (the owner's words / FERB's understanding / observed). No Keep/Edit/Drop questions: a quiet \"Memory: noted ...\" line the owner can ignore or correct by talking. Memory never authorizes an action. A memory page in the app shows and edits everything."
+why = "The same model as ChatGPT's and Claude's memory: transparency and correction, not approval."
+paths = ["ferb/memory/items.py", "ferb/daemon/areas/memory.py"]
+legacy = "notes/memory.md decision 15"
+
+[MEM-13]
+title = "FERB works out who the owner is from their Mac and shows it"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/memory.md owner decision 16: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "From installed apps and their usage FERB works out what the owner mostly does, their most-used apps, main browser and main profile/account in it; it shows that once as \"here's what I saw: ...\" (no yes/no loop), stores it as observed facts, and refreshes it as usage changes. What holds up is promoted into Tier 1."
+rejected = ["The old persona step, whose confirmed dump was stored as one 1,275-char owner-stated item"]
+paths = ["ferb/memory/mac_profile.py", "ferb/memory/mac_profile.md", "ferb/device/persona.py", "ferb/daemon/persona.py"]
+legacy = "notes/memory.md decision 16"
+
+[MEM-14]
+title = "Stale facts are handled by source"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/memory.md owner decision 17: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "FERB's own understanding and observed facts that look over are retired automatically and the owner is told once. The owner's own words are retired automatically only when their recorded end date passes; otherwise FERB tells the owner once \"this looks over, I'll stop using it\", stops using it, keeps it as history, and restores it when the owner says it still holds."
+paths = ["ferb/memory/items.py::Memory.looks_over"]
+legacy = "notes/memory.md decision 17"
+
+[MEM-15]
+title = "When facts enter the always-on profile"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/memory.md owner decision 18: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "The owner's own words join Tier 1 at once (same turn). FERB's understanding and observed facts join once they hold up (seen on 2 separate days, or standing 7 days uncorrected), and their join adds one quiet \"Now always on: ... (label)\" note card with Correct / Forget, never a question. The profile stays within its budget; the weekly pass only chooses and groups. The profile text is identical between turns unless a profile entry changed."
+paths = ["ferb/memory/profile.py::CoreProfile"]
+legacy = "notes/memory.md decision 18"
+
+[MEM-16]
+title = "Old chat is searchable by meaning"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/memory.md fix list \"Old chat searchable by meaning (owner, 2026-10-31)\": an agent's paraphrase; no verbatim quote"
+rule = "The owner's messages and FERB's short replies are indexed in the same fused search as facts and episodes. The planner gets the few old exchanges matching the current message. chat.history searches by meaning and by date and reads pages from the database instead of loading the whole history."
+paths = ["ferb/memory/search.py::MemorySearch.index_chat", "ferb/daemon/areas/memory.py::MemoryGlue._old_chat"]
+legacy = "notes/memory.md fix list, Facts"
+
+[MEM-17]
+title = "Tier 1 budget: 2,500 tokens"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "PROFILE_TOKENS = 2,500 (within MEM-5's about 2-3k), counted as FERB's context counts (4 characters a token). Every render stops at the budget; what is left out is counted in one line and makes the profile pass due."
+paths = ["ferb/memory/profile.py::PROFILE_TOKENS"]
+legacy = "notes/memory.md Rulings (step 9a): Tier 1 budget"
+
+[MEM-18]
+title = "What \"holds up\" means"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "The owner's words hold up at once. FERB's understanding and observed facts hold up once their sources span two separate days, or once they have stood a full weekly pass (7 days) without being replaced, retired or forgotten. An item the owner kept under an older build's Keep question holds up at once; the old setup dump never does. \"Used without correction\" (MEM-12) needs exposure records."
+paths = ["ferb/memory/profile.py"]
+legacy = "notes/memory.md Rulings (step 9a): holds up"
+
+[MEM-19]
+title = "What code adds to Tier 1 between profile passes"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Code joins the owner's words about anything at once, under \"Recently said\" while it fits, except a fact the owner placed by search (memory.search_only). Code joins FERB's understanding / observed facts about the owner (subject \"owner\") only on an event that shows them holding up (a save on a second day); \"standing 7 days\" is the weekly pass's to see. The pass places the rest and stays the only scheduled rewrite. The owner's \"Always on\" pins survive every pass."
+paths = ["ferb/memory/profile.py::CoreProfile.saved"]
+legacy = "notes/memory.md Rulings (step 9a) code's own Tier 1 additions; (step 9b) decision 18"
+
+[MEM-20]
+title = "The weekly profile pass"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "The pass runs weekly, or sooner when over budget, at most one try an hour; an owner fact that doesn't fit makes it due early, at most once in 24 h (EARLY_PASS_HOURS). The model returns sections of ids and `ended`; code refuses ids that don't hold up, renders every entry word for word, retires the ended ones (\"FERB's weekly check\") and tells the owner once in chat."
+paths = ["ferb/memory/profile.py::CoreProfile.run_pass", "ferb/memory/profile.md"]
+legacy = "notes/memory.md Rulings (step 9a): the pass"
+
+[MEM-21]
+title = "Replacement on save never ends the owner's words by a lesser version"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "The planner sees similar existing facts and names any a new fact replaces (`replaces`, ids checked by code); the \"Memory: noted\" line names what was replaced. A version resting on the owner's words now ends every current version of its fact and the named ids that hold; any other version never ends one the owner stated. Identical words are credited to the existing item (the owner's first), never a twin."
+evidence = "Live case 2026-10-31: appointment_preferences kept \"notify me before booking\" after the owner said to just book."
+paths = ["ferb/memory/items.py::Memory.save", "ferb/memory/items.py::Memory._replaceable"]
+legacy = "notes/memory.md Rulings (step 9a): replacement"
+
+[MEM-22]
+title = "The daily distill stays and never asks"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "The daily distill stays (one call a day). Its retire on the owner's words (passing `_may_end`) or on its own check is applied and told once, no Retire/Keep question; words older than the item are refused. A stored key is skipped unless the owner's quote replaces it. Items due for a check (`review_at`) are listed to it; one it doesn't retire has its date cleared."
+paths = ["ferb/memory/distill.py", "ferb/memory/distill.md"]
+legacy = "notes/memory.md target design 5; Rulings (step 9a): the distill, review_in_days"
+
+[MEM-23]
+title = "Which known destinations a forget removes"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A known destination goes when its stored value is whole words of the forgotten item's content, label or subject name; a host also by its bare host or its site label (4+ letters: \"kaggle\" for www.kaggle.com); a phone by its digits (6+). The \"Forget for good?\" list says which."
+why = "Over-matching only makes the next send ask again."
+paths = ["ferb/memory/items.py::Memory._named_destinations"]
+legacy = "notes/memory.md Rulings (step 9a): decision 14 matching"
+
+[MEM-24]
+title = "How the Mac profile is gathered and refreshed"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Code gathers the 25 most-used apps (TOP_APPS), installed/used counts, browsers and Chromium profiles; one model call (mac_profile.md) writes the summary and facts, stored observed and active at once, in Tier 1 only once they hold up. Shown once (setup step, else one chat notice). Re-checked weekly with the profile pass; re-interpreted only when the 10 most-used apps, browsers or profiles changed (facts_fingerprint); a key not given again ends."
+paths = ["ferb/device/persona.py::TOP_APPS", "ferb/memory/mac_profile.py"]
+legacy = "notes/memory.md Rulings (step 9a): decision 16"
+
+[MEM-25]
+title = "Embedding model: minishlab/potion-base-8M read by FERB's own code"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "The embedding model is minishlab/potion-base-8M (MIT, pinned revision and SHA-256s), a static table (29,528 WordPiece tokens x 256 float32; a text = the normalized mean of its tokens' rows), read by FERB's own tokenizer and memory-mapped safetensors: no numpy, torch, MLX or onnxruntime. Its vocabulary is English-only; other languages and coined words fall back to keywords."
+why = "Small and cheap enough to run in the background without heat: no new framework, ~10 MB RAM, sub-millisecond per short text."
+rejected = ["MiniLM/bge through onnxruntime: a ~30 MB native runtime plus a 23-130 MB model and a transformer pass per text", "The old MLX path (mlx plus transformers)", "Apple's NLEmbedding: a new PyObjC binding, quality not evaluated"]
+evidence = "2026-10-31 M-series: 31 MB download, 27 ms load, +10 MB RSS, 0.2 ms per short text; owner-shaped store backfill 1.2 s CPU, 9 ms a planner query; related pairs 0.21-0.47, unrelated -0.09-0.14."
+paths = ["ferb/memory/embeddings.py"]
+legacy = "notes/memory.md Rulings (step 9b): embedding model"
+
+[MEM-26]
+title = "The embedding model ships inside FERB.app"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "The model files ship in FERB.app (Contents/Resources/models/embeddings/<name>@<rev12>) and are read there, never fetched by the app; a checkout's setup fetches them at install into ~/.ferb/models/embeddings (temporary folder, hashes checked, then renamed); `[memory] embedding_model` can name a folder. Until the model is there, search runs on keywords and recency. Tests never download."
+paths = ["ferb/memory/embeddings.py", "scripts/build-app.sh"]
+legacy = "notes/memory.md Rulings (step 9b): model files (step 12b)"
+
+[MEM-27]
+title = "Retrieval limits per role"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Planner: facts + learned items <= 4,000 tokens and <= 20 items, old chat <= 2,000 tokens and <= 5 exchanges, today's activity <= 2,000 tokens. Worker: 2,000 tokens / 10 items, no pushed chat, activity 2,000. What doesn't fit is one counted line naming memory.read / memory.learned / trail.query. Lookup tools rank at most 100."
+why = "Bounds size, not only item count, so prompts stay within limits as memory grows (MEM-5)."
+rejected = ["The 2026-10-24 item budgets (planner 60, worker 20): they bounded items, not size"]
+paths = ["ferb/memory/search.py::PLANNER", "ferb/memory/search.py::WORKER"]
+legacy = "notes/memory.md Rulings (step 9b): limits per role (coordinator 2026-10-31)"
+
+[MEM-28]
+title = "Which old chat a planner turn gets"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A planner turn gets exchanges from any owner chat matching the message (the owner's words + FERB's short reply), never an entry already in its conversation or among this turn's messages, and none in a scheduled run's turn."
+paths = ["ferb/daemon/areas/memory.py::MemoryGlue._old_chat"]
+legacy = "notes/memory.md Rulings (step 9b): a planner turn's old chat"
+
+[MEM-29]
+title = "Playbooks merge verified how-notes of the same kind of work"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Code groups verified cards by goal similarity (PLAYBOOK_SIMILARITY 0.5); one model call says same kind or not and writes the steps; code checks the ids. At most 3 merges an hourly pass, only while no task runs, at most the 6 newest runs per call. A playbook is rewritten as new runs join; the owner's edit is never replaced; a declined group is not asked again."
+evidence = "Same-kind goal pairs scored 0.54-0.75, unrelated <= 0.15 (2026-10-31)."
+paths = ["ferb/memory/playbooks.py", "ferb/memory/playbook.md"]
+legacy = "notes/memory.md fix list (playbooks); Rulings (step 9b): playbooks"
+
+[MEM-30]
+title = "Episode cards keep only the source refs their origin labels need"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A card keeps every episode, journal and memory ref, and one ref per distinct origin set of the others; its origin labels are computed from all refs."
+evidence = "Before: 1.5M learning_sources rows, up to 58,250 per card, from refs inside tool results."
+paths = ["ferb/memory/learning.py::Learning._card_labels"]
+legacy = "notes/memory.md Rulings (step 9b): card sources"
+
+[MEM-31]
+title = "How-notes come from the recorded calls, the worker's note and the owner's hints"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A how-note is built from the worker's `how`, the owner's hints to the running task (quoted with their origin, 300 characters each) and the steps the card's recorded tool calls show (at most 12 steps, 600 characters). It is shown for verified runs only."
+paths = ["ferb/memory/learning.py::how_note", "ferb/memory/learning.py::recorded_steps"]
+legacy = "notes/memory.md fix list (how-notes); Rulings (step 9b): how-notes"
+
+[MEM-32]
+title = "\"Set aside\" is its own state, not an end"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "An owner fact that looks over (MEM-14) is set aside in `memory_set_aside`, beside memory_items: out of prompts, search and the profile at once, kept as history, restored when the owner says the same words again or by memory.restore. The login username it gave stays (it is still theirs and current)."
+paths = ["ferb/memory/items.py::Memory.looks_over", "ferb/memory/items.py::Memory.restore"]
+legacy = "notes/memory.md Rulings (step 9b): decision 17"
+
+[MEM-33]
+title = "Every turn records which memories it was given"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Every turn records the memories it was given (`context.exposure`), so a repeated owner correction (\"I told you before\") traces to a memory miss and repeat runs show whether a how-note or playbook was used."
+paths = ["ferb/orchestrator/supervisor.py"]
+legacy = "notes/memory.md target design 4"
+
+[MEM-34]
+title = "memory_items is the one fact store"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "memory_items is the source of truth for facts, versioned, with source and validity window. No fact or identity copies live in learning_nodes. Facts tied to a period carry an end date (`until`) or a review date (`review_in_days`)."
+paths = ["ferb/memory/items.py", "ferb/memory/search.py::MemorySearch.facts"]
+legacy = "notes/memory.md target design 1 (Tier 2)"

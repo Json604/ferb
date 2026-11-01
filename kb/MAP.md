@@ -9,14 +9,22 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 0 | 0 | 0 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 0 | 0 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 0 | 0 | 0 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 0 | 0 | 0 |
-| memory | Memory and memory import | `ferb/memory` | 0 | 0 | 0 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 0 | 0 | 0 |
-| perception | Perception | `ferb/sense` | 0 | 0 | 0 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 1 | 0 | 0 |
+| memory | Memory and memory import | `ferb/memory` | 33 | 2 | 2 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 1 | 0 | 0 |
+| perception | Perception | `ferb/sense` | 5 | 1 | 0 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `notes`, `kb`, `tools`, `spikes` | 0 | 0 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 0 | 0 | 0 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 0 | 0 | 0 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 0 | 0 | 0 |
-| storage | Storage | `ferb/store` | 0 | 0 | 0 |
+| storage | Storage | `ferb/store` | 0 | 1 | 0 |
 | tests | Tests | `tests` | 0 | 0 | 0 |
 | voice | Voice | `ferb/voice` | 0 | 0 | 0 |
+
+## Waiting on the owner
+
+- T-1 (memory): Your own words join the always-on profile at once. Did you mean that for anything you say (as built since 2026-11-01), or only for what you say about yourself? And should the two facts placed by search (M7, M8) stay out of the always-on profile?
+
+## Terms
+
+Jev, Tier 1, daily distill, holds up, how-note, playbook, set aside (`tools/kb/run kb search <term>`)

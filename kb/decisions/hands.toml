@@ -1,0 +1,11 @@
+# Decisions of area `hands` (kb/areas.toml). Moved from notes/memory.md on 2026-11-02.
+
+[HAND-1]
+title = "Bot checks are named in the snapshot from known challenge frames"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A frame whose address is a known challenge frame (Cloudflare Turnstile, hCaptcha, reCAPTCHA, Arkose, DataDome, AWS WAF, GeeTest; snapshot.CHALLENGE_FRAMES) puts `bot_check` {widgets, frames, ability browser_verification, read} first in the snapshot result."
+why = "The extension already reports each frame's address and each frame element's src: no protocol change, no extension reload."
+paths = ["ferb/act/browser/snapshot.py::CHALLENGE_FRAMES"]
+legacy = "notes/memory.md Rulings (step 9b): bot checks"

@@ -9,3 +9,9 @@ paths:
 Watching what happens on the Mac (apps, notifications, clipboard, typed text) and turning it into facts; notices are paused.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **SENSE-1** (owner): Accessibility events stay recorded. FERB knows the data exists and reads it when it needs to (trail.query); it is not pushed into prompts. These rows are kept 7 days.
+- **SENSE-2** (owner): The code of Jev, decide, perception batches and attention stays but is switched off. While paused, nothing in them runs.
+- **SENSE-3** (agent): `[jev] on` is the one switch, default false. While off: no decider is built (no Keychain read, no request at start), trail tagging is a no-op, no batcher work, no decisions or receipts, no shadow checks, no attention check. On but refused by Jev (HTTP 401/402/403) behaves the same.
+- **SENSE-4** (agent): The hourly pass deletes accessibility rows older than 7 days whether or not their day was summarized, 200 rows a transaction (retention.BATCH).
+- **SENSE-5** (agent): A browser's accessibility events keep no window title. Text typed or copied in a browser carries its page's host and incognito flag from the last tab observation, so the incognito and excluded-domain rules drop it; text typed or copied in a browser page FERB hasn't seen is not recorded (it can't be checked).

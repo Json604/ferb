@@ -1,0 +1,48 @@
+# Decisions of area `perception` (kb/areas.toml). Moved from notes/memory.md on 2026-11-02.
+
+[SENSE-1]
+title = "Accessibility events stay recorded, pull-only, 7 days"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 3: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Accessibility events stay recorded. FERB knows the data exists and reads it when it needs to (trail.query); it is not pushed into prompts. These rows are kept 7 days."
+paths = ["ferb/sense/trail.py", "ferb/daemon/areas/compose.py", "ferb/store/retention.py::ACCESSIBILITY_DAYS"]
+legacy = "notes/memory.md decision 3"
+
+[SENSE-2]
+title = "Jev, decide, perception batches and attention: code stays, switched off"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory.md owner decision 4: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "The code of Jev, decide, perception batches and attention stays but is switched off. While paused, nothing in them runs."
+paths = ["ferb/decide", "ferb/daemon/areas/jev.py", "ferb/orchestrator/attention.py"]
+legacy = "notes/memory.md decision 4"
+
+[SENSE-3]
+title = "One Jev switch, off by default; a refused key counts as off"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "`[jev] on` is the one switch, default false. While off: no decider is built (no Keychain read, no request at start), trail tagging is a no-op, no batcher work, no decisions or receipts, no shadow checks, no attention check. On but refused by Jev (HTTP 401/402/403) behaves the same."
+paths = ["ferb/daemon/areas/jev.py"]
+legacy = "notes/memory.md target design 8; fix list, Jev off"
+
+[SENSE-4]
+title = "Accessibility rows go after 7 days whether or not their day was summarized"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "The hourly pass deletes accessibility rows older than 7 days whether or not their day was summarized, 200 rows a transaction (retention.BATCH)."
+paths = ["ferb/sense/trail.py::Trail.purge_source"]
+legacy = "notes/memory.md Rulings (step 9b): accessibility rows"
+
+[SENSE-5]
+title = "Browser privacy rules apply to accessibility, typed and copied text"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A browser's accessibility events keep no window title. Text typed or copied in a browser carries its page's host and incognito flag from the last tab observation, so the incognito and excluded-domain rules drop it; text typed or copied in a browser page FERB hasn't seen is not recorded (it can't be checked)."
+paths = ["ferb/sense/trail.py::Trail._in_browser_page"]
+legacy = "notes/memory.md fix list, Perception (privacy); Rulings (step 9b)"

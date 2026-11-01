@@ -10,3 +10,21 @@
 # sitting = "1"
 # result = ""           # "passed 2026-11-05 v1.4.0" or "failed 2026-11-05: T-14"
 # waiver = ""           # the owner's reason to skip it for a release
+
+[LIVE-1]
+title = "FERB gets better at a repeated task"
+area = "memory"
+surface = "FERB.app on the owner's Mac, an owner-controlled task (e.g. a kartikey.xyz page or FERB's Gmail)"
+request = "Ask FERB to do the same kind of task twice, on different days or after the first is verified; then open `ferb stats` (Repeated work) or memory.repeats."
+pass = "The second run takes fewer attempts or less time, its context exposures cite the first run's how-note or playbook, and the playbook appears on the Memory page."
+decisions = ["MEM-1", "MEM-29", "MEM-31", "MEM-33"]
+sitting = "step 13"
+
+[LIVE-2]
+title = "The embedding model's first fill on the owner's store"
+area = "memory"
+surface = "FERB.app build with the bundled model, installed by the owner over their existing store"
+request = "Install the build, let the daemon run for a few minutes, then ask about something said in an old chat in other words."
+pass = "The journal shows one `memory.embedded` backfill with counts and CPU seconds, no turn waits on it, and the old exchange is found by meaning."
+decisions = ["MEM-6", "MEM-25", "MEM-26"]
+sitting = "step 13"

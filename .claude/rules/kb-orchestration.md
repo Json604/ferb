@@ -11,3 +11,5 @@ paths:
 Planner and workers, task lifecycle, questions, pause/stop, schedules, reminders, loops and continuity between turns.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **ORCH-1** (owner): The planner is one fast call that changes nothing until it returns and has no lookup tools. It gets Tier 1 and retrieved memory pushed into its context; a reply that needs more becomes a task, whose worker has memory.read, chat.history, task.evidence and trail.query. Revisit if exposure records show planner memory misses.
