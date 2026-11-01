@@ -152,8 +152,7 @@ activity in the FERB app's activity history on their Mac):
 ## Test instructions for the reviewer (optional field)
 
 The extension is idle without the FERB macOS app, which talks to it through native messaging (host
-`com.ferb.native_host`). The source is in the FERB repository (`extensions/chromium/`); the repository becomes public
-on 2026-10-21. The debugger allowlist is in `protocol.js` (`CDP_ALLOW`, 32 commands).
+`com.ferb.native_host`). The source is in the public FERB repository (`extensions/chromium/`). The debugger allowlist is in `protocol.js` (`CDP_ALLOW`, 32 commands).
 
 ## After approval
 
@@ -165,8 +164,6 @@ on 2026-10-21. The debugger allowlist is in `protocol.js` (`CDP_ALLOW`, 32 comma
    store_extension_id = "<id>"
    ```
 
-2. Upload each new extension version (`ferb browsers extension package --out DIR`) before a FERB build that needs it.
-3. Run `ferb setup --update`. Setup writes the install request for each supported browser and registers the native
-   host for both IDs.
-4. Reopen the browsers setup lists. Turn FERB on in each profile when the browser offers it.
-5. Pair each profile with `ferb browsers pair --browser <browser> "<profile>"`.
+2. Upload each new extension version (`uv run ferb browsers extension package --out build/store`) and wait until the
+   store publishes it before releasing a FERB build that needs it (`scripts/release-appcast.sh` refuses otherwise).
+3. Users add the extension from FERB.app (setup's Pair browsers step, or Settings → Browsers), which pairs each profile.

@@ -8,15 +8,12 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 
 ## Source of truth
 
-- `notes/`: one file per area with the owner's decisions, what exists today, the target design and the fix list
-  (memory, orchestration, prompts, gateway, runtimes, hands, daemon, storage, tests, voice), plus `fix-order.md`
-  (the order of work) and `docs-cleanup.md`. The "Owner decisions" sections are authoritative; a later decision
-  supersedes an earlier one. If code, a prompt or this file disagrees with a decision, name both and ask the owner.
+- `kb/`: the owner's decisions and agents' rulings, the work list, live checks and terms (overview `kb/MAP.md`;
+  `tools/kb/run kb show <file>` before editing). Owner decisions are authoritative; a later decision supersedes an
+  earlier one. If code, a prompt or this file disagrees with a decision, name both and ask the owner.
 - `README.md`: setup and use (being rewritten).
-- `CHANGELOG.md` is stale; the owner decides after launch whether to remove or restart it (notes/docs-cleanup.md);
-  don't rely on it.
 - Runtime Markdown under `ferb/` (`ferb/orchestrator/prompts/*.md`, `ferb/memory/*.md`, `ferb/abilities/**`) is
-  executable input, not documentation; it changes only through notes/prompts.md.
+  executable input, not documentation; it changes only as the `prompts` area's decisions in kb/ say.
 - `vibed/` holds abandoned versions: never read, search or reuse it. `spikes/` holds historical experiments; look at a
   specific one only when needed.
 
@@ -24,21 +21,21 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 
 1. Agents may commit and push, as `kb/setup.toml` says (`agent_commits`; owner, 2026-11-02: "listen to kb");
    never force-push.
-2. Work in the order of `notes/fix-order.md`: each step lands with its tests and is committed and pushed; the owner's
-   live checks are batched into the step the fix order names (step 13 for the rebuild), on a FERB.app build the owner
-   installs. Update the area's notes file when a decision changes or a fix lands.
+2. Work from `kb/tasks.toml` (`tools/kb/run kb next`; `after` gives the order): each change lands with its tests and
+   is committed and pushed through the hooks; the owner's live checks are in `kb/live.toml`, run on a FERB.app build
+   the owner installs. Record a decision in kb/ when it changes, in the same commit as the code.
 3. Code enforces where/what boundaries: argument validity, paths, destinations, recoverability, confirmations, the
    sink rule, redaction, task/resource ownership and stop, never through a model.
 4. Code never judges intent to gate an action; no keyword or label list decides intent or content. Agents interpret
    intent, authorization, account choice, retry and escalation. Structural facts (a field's type, a form submission,
    which app got the input) are facts, not intent.
-5. Confirmations: code asks only for concrete hard-to-undo actions, as decided in notes/gateway.md and notes/hands.md
+5. Confirmations: code asks only for concrete hard-to-undo actions, as decided in kb/ (areas `gateway` and `hands`)
    (money, account security, permanent deletion, sending as the owner to someone new unless a standing permission
    covers it, certificate checks turned off, input on a browser's own pages, terminal typing, the sink rule, foreground
    input, protected folders, profile pairing, files that run when opened). Tools report facts; the worker's declaration
    can only add a question, never remove one. FERB prepares the action before asking and asks once per action as the
-   notes define it (a payment, an app, a protected folder per task; terminal typing every time); the answer carries
-   across retries. The owner's "don't ask for 30 minutes" covers only the routine questions (gateway decision 7).
+   kb/ defines it (a payment, an app, a protected folder per task; terminal typing every time); the answer carries
+   across retries. The owner's "don't ask for 30 minutes" covers only the routine questions (GATE-207).
 6. Nothing lets FERB change its own audit records, protection rules, sandbox profile, config, service definition or
    secrets helper, or bypass its network proxy. Typing into any terminal always asks first, showing the exact command.
 7. Secrets, OTPs and card details never reach a model provider, a trace, a log or the database; code redacts at
@@ -66,7 +63,7 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 ## Development
 
 Python 3.12, `uv sync --group dev`. The checkout's `.venv` is separate from the installed `~/.ferb/venv`.
-Tests are a small safety suite (notes/tests.md): the safety floor and past-bug guards, end-to-end runs with a fake
+Tests are a small safety suite (TEST-500): the safety floor and past-bug guards, end-to-end runs with a fake
 model through the real daemon and gateway, an import check, upgrade tests, adapter contract tests. Don't test exact
 prompt text, owner-facing wording or internal wiring. For a change: focused tests, then `uv run pytest -q`,
 `uv run mypy ferb/core` and `git diff --check`. Live tests are explicit (`-m real`, Codex runtime) and need the owner's
@@ -77,12 +74,11 @@ through concrete behavior and trace evidence. Report checkout validation, instal
 results separately.
 
 Extension protocol changes update the manifest, the JavaScript/Python protocol and the minimum versions together.
-Upgrading from any older FERB build must keep working (notes/storage.md decision 5).
+Upgrading from any older FERB build must keep working (STORE-403).
 
 ## Knowledge and checks (repo-kb)
 - The repo's decisions, work list, live checks and terms are in `kb/` (overview: `kb/MAP.md`). They are the source
-  of truth for *why*; the code is the source of truth for *how*. While `notes/` still exists, a notes file is
-  only read for what hasn't moved into `kb/` yet.
+  of truth for *why*; the code is the source of truth for *how*.
 - Before editing a file, run `tools/kb/run kb show <file>`: the decisions that govern it, their tests, open work.
 - An owner decision's words are never edited: a change is a new decision that supersedes it, recorded only on the
   owner's word. Your own technical rulings are `by = "agent"`.
@@ -113,12 +109,12 @@ never force-push. The checkout can be shared by parallel agents: never `git stas
 ## The UI
 `ui/` is the owner's side (often built with Codex); `ui/AGENTS.md` covers it. The app talks to the daemon only through
 its RPCs (`ferb/daemon/main.py`, roles in `ferb/daemon/auth.py`); a UI change that needs a new or changed RPC is a
-daemon change, recorded in the area's notes file. `swift test` in `ui/mac/FERBNotch` after
+daemon change, recorded in kb/. `swift test` in `ui/mac/FERBNotch` after
 `source scripts/swiftpm-anonymous.sh`; SwiftPM must never use the owner's keychain.
 
 ## Running and building
 - **What the owner runs:** the release FERB.app in /Applications; its background service is registered by the app
-  (SMAppService, notes/daemon.md decision 2), data in `~/.ferb`. Never install, restart or stop the owner's daemon,
+  (SMAppService, DMN-2), data in `~/.ferb`. Never install, restart or stop the owner's daemon,
   browsers or FERB.app without the owner's authorization, and never write to `~/.ferb` from a test.
 - **Release build:** `source scripts/swiftpm-anonymous.sh; SIGN_IDENTITY=release scripts/build-app.sh --arch arm64
   build/app-arm64` (it needs Command Line Tools / Xcode that can read the current macOS SDK). To install, with the
