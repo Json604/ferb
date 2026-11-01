@@ -156,6 +156,7 @@ final class AppSetupTests: XCTestCase {
 
     /// Owner 2026-10-26: after Screen Recording's "Quit & Reopen" FERB came back without its setup window (setup counted
     /// as done from an earlier install). A Grant in progress in the compact window reopens it on that step, done or not.
+    // decision: APP-595
     func testLaunchReopensTheStepAGrantRestartedFrom() {
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true), resume: .permissions), .window(.permissions))
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: false), resume: .permissions),

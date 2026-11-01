@@ -7,6 +7,7 @@ import XCTest
 /// per change of what it reads.
 @MainActor
 final class TaskListCacheTests: XCTestCase {
+    // decision: APP-590
     func testTheKeptListMatchesAFreshBuildAcrossEveryChange() {
         let model = makeModel()
         model.conversation.begin(id: UUID(), request: "Small talk", sources: [])
@@ -97,6 +98,7 @@ final class TaskListCacheTests: XCTestCase {
         assertFresh(model, "closed and opened")
     }
 
+    // decision: APP-590
     func testEachTaskFieldOfASessionRebuildsTheListOnItsOwn() {
         let model = makeModel()
         model.session.draft = "Sort the photos"
@@ -131,6 +133,7 @@ final class TaskListCacheTests: XCTestCase {
         XCTAssertNil(model.taskItems.first { $0.localID == other })
     }
 
+    // decision: APP-590
     func testTheDraftCountsOnlyWhenItIsTheTasksTitle() {
         let model = makeModel()
         // A task picked up from the daemon with no goal, no turn and no daemon row yet: its title is the draft.
@@ -151,6 +154,7 @@ final class TaskListCacheTests: XCTestCase {
         assertFresh(model, "typing after the daemon named it")
     }
 
+    // decision: APP-590
     func testTheListIsBuiltOncePerChangeNotPerRead() {
         let model = makeHistory(running: true)
         model.session.expand()
@@ -193,6 +197,7 @@ final class TaskListCacheTests: XCTestCase {
         XCTAssertEqual(model.taskListCache.builds, builds + 2)
     }
 
+    // decision: APP-590
     func testTheLoopLineStillFollowsTheClock() async throws {
         let model = makeModel()
         model.receiveBusEvent(["topic": "task.created", "data": ["task_id": "loop", "goal": "Keep the tab playing"]])
@@ -207,6 +212,7 @@ final class TaskListCacheTests: XCTestCase {
         XCTAssertEqual(model.taskItems.first?.standing, model.standingLine("loop", now: Date()))
     }
 
+    // decision: APP-590
     func testTheComposerIsMeasuredForItsDraftAndWidth() {
         let model = makeModel()
         let long = String(repeating: "a long line that wraps in the composer ", count: 6)
@@ -223,6 +229,7 @@ final class TaskListCacheTests: XCTestCase {
     }
 
     /// The owner's history when it lagged: 254 turns, 105 of them tasks, about 287 KB. Prints 1000 reads' time.
+    // decision: APP-590
     func testAThousandReadsOfTheGeometryOnALongHistory() {
         for running in [false, true] {
             let model = makeHistory(running: running)

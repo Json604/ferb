@@ -7,6 +7,7 @@ import pytest
 from ferb.memory.dashboard import Dashboard
 
 
+# decision: MEM-417
 def test_dashboard_token_origin_and_host_boundaries():
     calls=[]
     d=Dashboard(lambda params: calls.append(params) or {'items':[]})

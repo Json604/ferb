@@ -46,6 +46,7 @@ final class TaskPresentationTests: XCTestCase {
         XCTAssertEqual(model.session.activeTaskID, second)
     }
 
+    // decision: APP-590
     func testTaskHistoryListsTheNewestFirst() {
         // Owner 2026-10-25: the list showed older tasks on top (it sorted by the random task id).
         let model = makeModel()

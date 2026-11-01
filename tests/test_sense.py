@@ -36,6 +36,7 @@ def record(d: RunningDaemon, o: Observation) -> Any:
 
 # ---------- the pipeline ----------
 
+# decision: SENSE-403
 def test_exclusions_run_before_any_write_bus_event_or_tag(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     d.config.set("privacy", "exclude_domains", ["bank.example"])
@@ -65,6 +66,7 @@ def test_exclusions_run_before_any_write_bus_event_or_tag(daemon: RunningDaemon)
     assert seen == ["publish:1", f"tag:{e.id}"]                         # persisted, then published, then tagged
 
 
+# decision: SENSE-403
 def test_every_row_has_an_actor_and_rows_are_append_only(daemon: RunningDaemon) -> None:
     e = record(daemon, Observation("idle", {"state": "idle"}, {"actor": "owner"}))
     db = daemon.daemon.db
@@ -83,6 +85,7 @@ def test_every_row_has_an_actor_and_rows_are_append_only(daemon: RunningDaemon) 
     assert daemon.run(bad("UPDATE trail SET relevance = 'note' WHERE id = ?", e.id)) == "accepted"   # tagging later
 
 
+# decision: SENSE-403
 def test_titles_and_urls_are_redacted_before_they_are_stored(daemon: RunningDaemon) -> None:
     record(daemon, Observation("window", {"app": "Terminal", "bundle_id": "com.apple.Terminal",
                                           "title": "export KEY=sk-ant-abcdefghijklmnopqrstuvwxyz0123"}))
@@ -146,6 +149,7 @@ class FakeTap:
         self.running = False
 
 
+# decision: SENSE-403
 def test_pause_stops_every_watcher_and_the_tap_and_records_nothing(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     watchers, tap = [FakeWatcher("a"), FakeWatcher("b")], FakeTap()
@@ -170,6 +174,7 @@ def test_pause_stops_every_watcher_and_the_tap_and_records_nothing(daemon: Runni
     daemon.run(s.stop())
 
 
+# decision: SENSE-403
 def test_pause_forgets_owner_tabs_refuses_real_input_and_survives_a_restart(bd: Any, tmp_path: Path) -> None:  # noqa: F811
     d, launched = bd
     ext = pair(d, launched, "Work")

@@ -19,6 +19,7 @@ final class DaemonRPCTests: XCTestCase {
         XCTAssertEqual(received.first?["task_id"] as? String, "backend-123")
     }
 
+    // decision: APP-593
     func testRemoteApprovalErrorsDoNotIncludeRequestBodies() async throws {
         let server = try RPCFixture { request in
             if request["method"] as? String == "auth.hello" {

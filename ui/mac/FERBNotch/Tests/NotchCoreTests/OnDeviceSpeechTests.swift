@@ -4,21 +4,25 @@ import XCTest
 /// Final review M5 (Task 20 / L26 ruling): the notch's dictation is recognized on this Mac only; raw voice never goes
 /// to Apple's servers. Without on-device support FERB says so instead of listening.
 final class OnDeviceSpeechTests: XCTestCase {
+    // decision: APP-591
     func testNoRequestWithoutOnDeviceRecognition() {
         XCTAssertNil(OnDeviceSpeech.request(supportsOnDevice: false))
     }
 
+    // decision: APP-591
     func testEveryRequestRequiresOnDeviceRecognition() throws {
         let request = try XCTUnwrap(OnDeviceSpeech.request(supportsOnDevice: true))
         XCTAssertTrue(request.requiresOnDeviceRecognition)
         XCTAssertTrue(request.shouldReportPartialResults)
     }
 
+    // decision: APP-591
     func testTheRefusalSaysWhyAndOffersTyping() {
         XCTAssertTrue(OnDeviceSpeech.unavailable.contains("on this Mac"))
         XCTAssertTrue(OnDeviceSpeech.unavailable.contains("type"))
     }
 
+    // decision: APP-591
     func testTheUsageStringNeverMentionsAppleServers() throws {
         let plist = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Info.plist")

@@ -189,6 +189,7 @@ def _section(text: str, name: str) -> str:
     return text[start:min(later, default=len(text))]
 
 
+# decision: DMN-505
 def test_recorded_problems_are_those_of_the_tasks_window_and_the_last_20(daemon: RunningDaemon) -> None:
     """Review 1, I3 (ruling): section 4 is FERB's own problem rows (`daemon.internal_error`, `daemon.slow_call`,
     redacted at capture, with frames), never the raw stderr in logs/daemon.err.log."""

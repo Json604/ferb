@@ -31,6 +31,7 @@ def permit_plan(sites: tuple[str, ...]) -> dict[str, Any]:
     return spec
 
 
+# decision: MEM-416
 def test_a_plan_step_gets_its_parent_goal_and_the_memory_it_needs(daemon: Any) -> None:
     filler(daemon)
     item = understood(daemon, "bookslots_username", "the username is Asha Rao", subject="account:bookslots")
@@ -44,6 +45,7 @@ def test_a_plan_step_gets_its_parent_goal_and_the_memory_it_needs(daemon: Any) -
     assert "the username is Asha Rao" in step and result["task_id"] and item.id
 
 
+# decision: MEM-416
 def test_the_live_research_step_gets_the_username_in_a_busy_store(daemon: Any) -> None:
     """The owner's live case end to end, on the audit's real texts (Ruling 25) in a store shaped like the owner's, with
     long past tasks that share the permit goal's words (fix round): the research_official step of the permit task, started
@@ -60,6 +62,7 @@ def test_the_live_research_step_gets_the_username_in_a_busy_store(daemon: Any) -
     assert USERNAME in step and f"Parent task goal: {PERMIT_GOAL}" in step
 
 
+# decision: MEM-416
 def test_without_the_site_among_its_targets_the_step_does_not_recall_it(daemon: Any) -> None:
     """The negative control (I4): the same task without its site; nothing else in its query recalls the username."""
     filler(daemon)
@@ -72,6 +75,7 @@ def test_without_the_site_among_its_targets_the_step_does_not_recall_it(daemon: 
     assert "the username is Asha Rao" not in step
 
 
+# decision: MEM-416
 def test_a_worker_gets_ranked_memory_for_its_request_and_goal(daemon: Any) -> None:
     filler(daemon)
     understood(daemon, "bookslots_username", "the username is Asha Rao", subject="account:bookslots")

@@ -46,6 +46,7 @@ def ranked(store: Any, query: str, node_id: str, limit: int, **kw: Any) -> bool:
     return node_id in [n["id"] for n in store.search(query, limit=limit, **kw)]
 
 
+# decision: MEM-416
 def test_the_owners_permit_messages_recall_the_username_through_the_task_they_continue(store: Any) -> None:
     """The audit's reproduction as a fixture: the fact sat at rank 167-201 of 207 unranked lines. The owner's 12:17 and
     12:22 messages share no word with it; the running permit task they continue names the site (Ruling 12a), so the
@@ -59,6 +60,7 @@ def test_the_owners_permit_messages_recall_the_username_through_the_task_they_co
         assert ranked(store, query, username["id"], NODE_PLANNER_LIMIT), query
 
 
+# decision: MEM-416
 def test_the_research_official_step_recalls_the_username_within_its_20(store: Any) -> None:
     """The step that typed the owner's email (12:34): its query is the request, the parent goal, its step goal and the
     task's targets (Ruling 12)."""
@@ -67,6 +69,7 @@ def test_the_research_official_step_recalls_the_username_within_its_20(store: An
     assert ranked(store, query, username["id"], NODE_WORKER_LIMIT)
 
 
+# decision: MEM-416
 def test_long_past_tasks_bury_the_username_unless_the_tasks_targets_are_ranked_alone(busy_store: Any) -> None:
     """Fix round (measured on a copy of the owner's store, 2026-10-24): long past tasks share the permit goal's ordinary
     words, so the research step's query ranked the username 94th and the 12:17 planner query 91st. The task's target
@@ -81,6 +84,7 @@ def test_long_past_tasks_bury_the_username_unless_the_tasks_targets_are_ranked_a
     assert ranked(busy_store, planner, username["id"], NODE_PLANNER_LIMIT, focus=targets)
 
 
+# decision: MEM-416
 def test_the_planner_recalls_for_the_work_its_message_continues(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """A planner turn's memory query adds the goals and targets of the tasks its task layers show: the owner's 12:17
     message, sent while the permit task runs in the same chat, brings the username into the planner's memory. The fillers
@@ -110,6 +114,7 @@ def test_the_planner_recalls_for_the_work_its_message_continues(daemon: Any, mon
         thread.join(5)
 
 
+# decision: MEM-416
 def test_the_planners_12_17_turn_recalls_the_username_in_a_busy_store(daemon: Any,
                                                                      monkeypatch: pytest.MonkeyPatch) -> None:
     """Fix round: the planner's focus is the targets of the tasks its task layers show (Ruling 12a). Among long past

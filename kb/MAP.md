@@ -6,13 +6,13 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 87 | 6 | 29 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 44 | 5 | 15 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 96 | 6 | 29 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 46 | 5 | 15 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 30 | 2 | 55 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 52 | 2 | 35 |
-| memory | Memory and memory import | `ferb/memory` | 60 | 3 | 9 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 41 | 6 | 30 |
-| perception | Perception | `ferb/sense` | 10 | 2 | 5 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 53 | 2 | 35 |
+| memory | Memory and memory import | `ferb/memory` | 63 | 3 | 9 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 47 | 6 | 30 |
+| perception | Perception | `ferb/sense` | 13 | 2 | 5 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 6 | 1 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 18 | 0 | 32 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 7 | 1 | 3 |

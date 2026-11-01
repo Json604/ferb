@@ -114,6 +114,7 @@ def test_conditions_confirmed_in_an_earlier_attempt_carry_over(daemon: RunningDa
     assert "It isn't in Archive yet." in second_worker
 
 
+# decision: ORCH-509
 def test_a_report_that_fails_validation_keeps_nothing_of_an_earlier_attempt(daemon: RunningDaemon) -> None:
     """Fix list (stale fields): an attempt whose report is incomplete reports nothing, not the previous answer."""
     install(daemon, [sup("task", "On it.", task("Check the price"))], {
@@ -125,6 +126,7 @@ def test_a_report_that_fails_validation_keeps_nothing_of_an_earlier_attempt(daem
     assert "The report from this attempt was incomplete." in result["answer"]
 
 
+# decision: ORCH-509
 def test_a_correction_during_the_check_keeps_the_done_report(daemon: RunningDaemon) -> None:
     """Fix list: a steer delivered while the check ran started a fresh attempt and lost the finished report. Now the
     report stays in the attempts the next worker reads, and the next attempt starts from the correction."""

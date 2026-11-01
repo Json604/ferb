@@ -98,3 +98,12 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **APP-585** (owner): Recovered tasks show on FERB's side of the chat with their goal, never as the owner's words.
 - **APP-586** (owner): A question waiting for the owner lights the camera edge amber (the yield rule, as built); completion keeps its two green pulses.
 - **APP-587** (owner): The transcript starts at 300 points and the owner can resize it (minimum 260); the height the owner sets is kept.
+- **APP-588** (agent): The pointer overlay and the notch glow ignore mouse events, can't become key or main and are click-through by AppKit's own property, and the tour opens the chat without taking keyboard focus.
+- **APP-589** (agent): Markdown in answers renders only safe links; a javascript: or other executable link is never made clickable.
+- **APP-590** (agent): The notch's task list is rebuilt only when what it reads changes, never on every read, and lists the newest task first.
+- **APP-591** (agent): The notch's dictation always requires on-device recognition and never sends voice to Apple's servers; without on-device support FERB says so and offers typing.
+- **APP-592** (agent): FERB_HOME unset, empty or naming the account's own folder is the home; another folder, or no account, is refused.
+- **APP-593** (agent): Typed text in the tour is emptied when its line changes; an API key reaches the Keychain command line as one word or not at all, refused before anything runs; daemon errors never include request bodies.
+- **APP-594** (agent): An app name the model gives is refused before anything is looked up when it holds a path separator, a leading dot, a colon, a NUL or nothing; only a plain name is looked up in the app folders.
+- **APP-595** (agent): A launch after a grant restarted FERB reopens the setup step it restarted from, and Allow all asks for notifications without waiting on macOS's banner.
+- **APP-596** (agent): A phrase the owner pasted, rather than typed, never runs a local notch command such as turning hover off.

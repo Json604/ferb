@@ -28,6 +28,7 @@ def _reader(home, *args: str, request: dict | None = None) -> dict:
 
 # Decision A: the exact entry point, no arguments; the database is the owner's FERB home's -------------------------------
 
+# decision: MEM-418
 def test_the_card_reader_takes_no_arguments_and_reads_the_owners_home(tmp_path):
     """`?`, `#` and `%` in the home's path can't change which file SQLite opens; an argument naming a file is refused."""
     home = tmp_path / "we?ird#ho%me"
@@ -42,6 +43,7 @@ def test_the_card_reader_takes_no_arguments_and_reads_the_owners_home(tmp_path):
     db.close()
 
 
+# decision: MEM-418
 def test_the_card_reader_refuses_a_request_for_another_home(tmp_path):
     """The daemon also names its home on stdin, purely as a check: the reader never opens it, and refuses when it
     isn't the home it found itself (or is missing)."""

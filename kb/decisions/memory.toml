@@ -521,3 +521,33 @@ words = "recommeded all"
 why = "Answer to T-407: the owner accepted the recommendation for every open question."
 rule = "Memory import covers ChatGPT, claude.ai, Claude Code, Codex CLI and Gemini; no other assistants are added for now."
 untestable = "A product-scope choice (which assistants, none added); each of the five readers is tested under MEM-403."
+
+[MEM-416]
+title = "A fact named only by a task's targets reaches that task's planner and steps"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "A fact that only a running task's targets name (the permit task's username) is recalled into that task's planner turns and its worker and plan steps within their memory limits, with the parent task's goal shown above a step's own, even among many past tasks that share the goal's words."
+why = "Past bug, live 2026-10-24: the permit task's research step got no memory and typed the owner's email as the username."
+paths = ["ferb/memory/search.py"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[MEM-417]
+title = "The developer memory dashboard answers only its token, origin and host"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The developer memory dashboard serves only requests that carry its token from its own origin and host; anything else is refused."
+why = "A local web server reading memory is a boundary while it exists (test deletion review, 2026-11-02)."
+paths = ["ferb/memory/dashboard.py"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[MEM-418]
+title = "The card reader opens only the owner's own FERB home"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The episode card reader takes no arguments and opens only the database of the FERB home it finds itself; a request naming another home, or none, is refused."
+why = "Path boundary of a separate reader process (AGENTS.md rule 3), kept in the test deletion review, 2026-11-02."
+paths = ["ferb/memory/card_reader.py"]
+legacy = "test deletion review 2026-11-02 (kept guard)"

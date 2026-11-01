@@ -152,6 +152,7 @@ final class SetupModelTests: XCTestCase {
         await eventually { model.allRows.first { $0.id == "notifications" }?.status == .granted }
     }
 
+    // decision: APP-595
     func testAllowAllNeverWaitsOnTheNotificationBanner() async {
         // A friend's Allow all stalled on macOS's notification banner (2026-10-27): it is asked, hinted, never awaited
         let rig = SetupRig()
@@ -246,6 +247,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.aiMessage, "your OpenAI API key answered. FERB uses it now.")
     }
 
+    // decision: APP-593
     func testAKeyTheKeychainLineCantCarryIsRefusedBeforeAnythingRuns() async {
         let rig = SetupRig()
         let model = rig.model()

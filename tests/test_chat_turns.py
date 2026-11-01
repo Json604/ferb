@@ -136,6 +136,7 @@ def test_a_planner_that_runs_out_of_time_replies_plainly_and_the_restart_shares_
     assert [row["why"] for row in _journal(daemon, "chat.failed")] == ["TimeoutError"]
 
 
+# decision: ORCH-508
 def test_another_chats_running_task_can_be_stopped(daemon: RunningDaemon) -> None:
     """Live failure 2026-10-24: the planner is shown every chat's running tasks, so a stop from another chat acts."""
     script = install(daemon, [sup("task", "On it.", task("Wait for the build"))], {"worker": STALL})
@@ -149,6 +150,7 @@ def test_another_chats_running_task_can_be_stopped(daemon: RunningDaemon) -> Non
     assert '"chat": "another chat"' in context and context.count(tree) == 1    # task state, once
 
 
+# decision: ORCH-508
 def test_a_stop_after_the_work_finished_never_records_it_as_cancelled(daemon: RunningDaemon) -> None:
     """Fix list (Intake): a stop that arrives while a finished task is tidying up leaves its finished work done."""
     sv = daemon.daemon.supervisor
@@ -394,6 +396,7 @@ def test_a_fact_said_before_a_clarifying_question_is_sourced_to_that_message(dae
     assert found == [messages[0]]
 
 
+# decision: ORCH-508
 def test_an_answer_to_a_question_no_longer_waiting_keeps_the_planners_reply(daemon: RunningDaemon) -> None:
     """Fix list (Intake): a misrouted answer used to discard the planner's own reply."""
     decision = json.loads(sup("reply", "Blue it is; the rest of your message is noted."))

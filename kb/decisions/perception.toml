@@ -106,3 +106,33 @@ words = "recommeded all"
 why = "Answer to T-523: the owner accepted the recommendation for every open question."
 rule = "When perception returns: FERB only offers (nothing done until the owner presses Do it), Jev is a switch, no limit on approaches, a daily brief, Mail and Calendar as sources."
 untestable = "A design for when perception returns; perception is paused (SENSE-2), so nothing of it runs to test yet."
+
+[SENSE-403]
+title = "Perception's privacy floor"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "Perception applies the owner's exclusions before anything is written, published or tagged; redacts titles, URLs and captured text before storing them; never reads accessibility values or concealed or transient clipboard contents; keeps rows append-only with an actor; and a pause stops every watcher and records nothing."
+why = "Unrecorded privacy boundary kept in the test deletion review, 2026-11-02."
+paths = ["ferb/sense"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[SENSE-404]
+title = "The clipboard watcher never makes macOS ask the owner"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The background clipboard watcher reads pasteboard contents only when macOS allows it without asking (macOS 15.4+ accessBehavior); otherwise it records the access state once and reads nothing."
+why = "Past bug: macOS 15.4's pasteboard privacy raised surprise alerts from a background read."
+paths = ["ferb/sense/watchers/clipboard.py"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[SENSE-405]
+title = "Watchers wait for their permission and retry instead of stopping"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The keyboard-activity tap starts only once Input Monitoring is granted, the notification watcher reads nothing until Full Disk Access is on, and a watcher that fails tries again later instead of stopping until a restart."
+why = "Past bugs on friends' first installs, 2026-10-26/27: a keystroke prompt on setup's first screen and macOS's Data Access Blocked alert."
+paths = ["ferb/sense/watchers/owner_input.py", "ferb/sense/watchers/notifications.py"]
+legacy = "test deletion review 2026-11-02 (kept guard)"

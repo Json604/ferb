@@ -610,6 +610,7 @@ def test_a_snapshot_elements_identity_holds_no_snapshot_id_or_value() -> None:
 
 # ---------- 12. ScreenCaptureKit "Failed to start stream" ----------
 
+# decision: HAND-405
 def test_a_capture_that_fails_to_start_is_tried_once_more(monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.act.mac import screenshot
     tries: list[int] = []

@@ -438,3 +438,23 @@ words = "trust the code omplemted, that is somehting ive tested the info you fou
 why = "A limit that existed only in code and its test (PROJ-505)."
 rule = "A failure report older than 30 days is deleted."
 paths = ["ferb/daemon/reports.py"]
+
+[DMN-504]
+title = "The final checker is read-only, enforced by code"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The final checker is offered and can run only observation tools; a click, send, write, shell or navigation of the owner's tabs is refused and recorded even if it is told to act, and it never opens a window that may switch Spaces."
+why = "Code enforces the boundary, not the checker's prompt (AGENTS.md rule 3); kept in the test deletion review, 2026-11-02."
+paths = ["ferb/daemon/gateway.py"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[DMN-505]
+title = "A failure report never carries raw stderr"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "A failure report includes recorded problems only as redacted rows, never the raw stderr of logs/daemon.err.log."
+why = "Secrets stay out of anything sent to the developer (AGENTS.md rule 7)."
+paths = ["ferb/daemon/reports.py"]
+legacy = "test deletion review 2026-11-02 (kept guard)"

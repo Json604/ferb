@@ -15,6 +15,7 @@ final class FerbHomeRuleTests: XCTestCase {
         return (account.path, link.path, other.path)
     }
 
+    // decision: APP-592
     func testUnsetEmptyOrTheAccountsOwnFolderIsTheHome() throws {
         let f = try folders()
         XCTAssertEqual(resolveFerbHome(nil, account: f.account), .home(f.account))
@@ -23,6 +24,7 @@ final class FerbHomeRuleTests: XCTestCase {
         XCTAssertEqual(resolveFerbHome(f.link, account: f.account), .home(f.account))   // same device and inode
     }
 
+    // decision: APP-592
     func testAnotherFolderOrNoAccountIsRefused() throws {
         let f = try folders()
         for foreign in [f.other, f.other + "/missing"] {

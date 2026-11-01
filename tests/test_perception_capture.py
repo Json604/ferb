@@ -37,6 +37,7 @@ def test_secure_input_during_hold_and_unknown_or_masked_fields_drop_text() -> No
     assert not events
 
 
+# decision: SENSE-403
 def test_clipboard_concealed_markers_checked_before_read_and_exact_ferb_count() -> None:
     reads = []
     read = lambda: reads.append(True) or "hello"
@@ -49,6 +50,7 @@ def test_clipboard_concealed_markers_checked_before_read_and_exact_ferb_count() 
     assert event.hints["actor"] == "unknown"
 
 
+# decision: SENSE-403
 def test_two_app_ax_replays_preserve_app_window_parent_and_never_read_values() -> None:
     # Synthetic callback metadata representing the owner's WhatsApp and VS Code surfaces, not live captures.
     for app, window in (("com.whatsapp.WhatsApp", "chat"), ("com.microsoft.VSCode", "editor")):

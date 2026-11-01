@@ -13,6 +13,7 @@ from ferb.sense.watchers.notifications import NotificationWatcher
 from ferb.sense.watchers.owner_input import OwnerInput
 
 
+# decision: SENSE-405
 def test_the_keyboard_tap_waits_for_input_monitoring() -> None:
     oi = OwnerInput(allowed=lambda: False)
     assert oi.start() is False and not oi.running and oi._tap is None       # no tap: macOS never prompts
@@ -27,6 +28,7 @@ class _Reader:
         return []
 
 
+# decision: SENSE-405
 def test_the_notification_watcher_reads_nothing_until_full_disk_access() -> None:
     reader = _Reader()
     granted = [False]
@@ -46,6 +48,7 @@ def test_the_notification_watcher_reads_nothing_until_full_disk_access() -> None
     assert asyncio.run(go()) == 0 and reader.reads > 0
 
 
+# decision: SENSE-405
 def test_a_failed_watcher_tries_again_instead_of_stopping(tmp_path: Path) -> None:
     from ferb.sense import manager
 

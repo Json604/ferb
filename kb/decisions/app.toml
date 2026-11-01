@@ -979,3 +979,91 @@ why = "The owner tested the built behaviour; it replaces the 240-320 growth rule
 rule = "The transcript starts at 300 points and the owner can resize it (minimum 260); the height the owner sets is kept."
 supersedes = ["APP-575"]
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift"]
+
+[APP-588]
+title = "FERB's overlays and tour never take the mouse or focus"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The pointer overlay and the notch glow ignore mouse events, can't become key or main and are click-through by AppKit's own property, and the tour opens the chat without taking keyboard focus."
+why = "Background first (AGENTS.md rule 10); kept in the test deletion review, 2026-11-02."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/CursorOverlay.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[APP-589]
+title = "Rendered answers carry no executable links"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "Markdown in answers renders only safe links; a javascript: or other executable link is never made clickable."
+why = "Text FERB shows can come from outside (AGENTS.md rule 9)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/MarkdownDocument.swift"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[APP-590]
+title = "The task list is built once per change and lists the newest first"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The notch's task list is rebuilt only when what it reads changes, never on every read, and lists the newest task first."
+why = "Past bugs, owner 2026-10-25: the notch lagged while typing, opening and closing, and older tasks showed on top."
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[APP-591]
+title = "Dictation is recognized on this Mac only"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The notch's dictation always requires on-device recognition and never sends voice to Apple's servers; without on-device support FERB says so and offers typing."
+why = "Privacy guarantee from the final review (M5), kept in the test deletion review, 2026-11-02."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Microphone.swift"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[APP-592]
+title = "The app accepts only the account's own FERB home"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "FERB_HOME unset, empty or naming the account's own folder is the home; another folder, or no account, is refused."
+why = "Path boundary (AGENTS.md rule 3)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/FerbHomeRule.swift"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[APP-593]
+title = "A key typed in the app never leaks"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "Typed text in the tour is emptied when its line changes; an API key reaches the Keychain command line as one word or not at all, refused before anything runs; daemon errors never include request bodies."
+why = "Secrets never leak and no command-line injection into the Keychain (AGENTS.md rule 7)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[APP-594]
+title = "A model-named app is never a path"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "An app name the model gives is refused before anything is looked up when it holds a path separator, a leading dot, a colon, a NUL or nothing; only a plain name is looked up in the app folders."
+why = "Argument boundary on model input (AGENTS.md rule 3)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroAppTargets.swift"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[APP-595]
+title = "Setup survives macOS's grant flow"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "A launch after a grant restarted FERB reopens the setup step it restarted from, and Allow all asks for notifications without waiting on macOS's banner."
+why = "Past bugs: 2026-10-26, and a friend's Allow all stalling on the notification banner, 2026-10-27."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[APP-596]
+title = "Pasted text can't change the notch's settings"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "A phrase the owner pasted, rather than typed, never runs a local notch command such as turning hover off."
+why = "Trust follows origin (AGENTS.md rule 9)."
+legacy = "test deletion review 2026-11-02 (kept guard)"

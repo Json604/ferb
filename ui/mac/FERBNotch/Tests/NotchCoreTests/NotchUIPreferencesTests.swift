@@ -3,6 +3,7 @@ import XCTest
 
 @MainActor
 final class NotchUIPreferencesTests: XCTestCase {
+    // decision: APP-596
     func testPastedPhraseCannotChangeHoverPreference() {
         let model = NotchModel(preferences: scratchDefaults())
         model.pasteProvenance.paste("turn hover off", over: NSRange(location: 0, length: 0), in: "")

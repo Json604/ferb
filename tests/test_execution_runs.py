@@ -378,6 +378,7 @@ def _shut_down(d: RunningDaemon) -> None:
     d.call_soon(go)
 
 
+# decision: ORCH-510
 def test_a_clean_shutdown_runs_no_task_end_clean_up_for_a_tree_that_resumes(daemon: RunningDaemon) -> None:
     """The change records startup keeps for a resuming tree were deleted by the task-end clean-up a shutdown ran."""
     sv = daemon.daemon.supervisor

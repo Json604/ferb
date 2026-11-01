@@ -13,6 +13,7 @@ final class SetupModelsTests: XCTestCase {
         XCTAssertEqual(GrantStatus.both(.unknown, .granted), .unknown)
     }
 
+    // decision: APP-593
     func testAPIKeyLineCarriesTheKeyAsOneWordOrNothing() {
         XCTAssertEqual(APIKeyEntry.command(provider: .openai, key: "sk-proj-AbC_123"),
                        "add-generic-password -U -s ferb -a api/openai -w sk-proj-AbC_123\n")

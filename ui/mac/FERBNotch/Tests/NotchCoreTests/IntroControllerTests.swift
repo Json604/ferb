@@ -417,6 +417,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(missing.controller.remainingRequired, ["full_disk_access"])
     }
 
+    // decision: APP-588
     func testTheTourOpensTheChatWithoutTakingFocus() async {
         let t = tour()
         var focused = 0, quiet = 0, interactions = 0
@@ -437,6 +438,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertGreaterThan(quiet, 0)
     }
 
+    // decision: APP-593
     func testTypedTextIsEmptiedWhenTheLineChanges() {
         let notch = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("IntroTyped"))
         notch.introLine = IntroCopy.pasteKey(.anthropic)
@@ -604,6 +606,7 @@ final class IntroControllerTests: XCTestCase {
 /// Where the intro's orb points for an app, from injected sources (no real app is looked up, opened or brought forward).
 @MainActor
 final class IntroAppTargetsTests: XCTestCase {
+    // decision: APP-594
     func testAModelNamedAppIsNeverAPath() {
         var probed: [String] = []
         let exists: (String) -> Bool = { probed.append($0); return true }

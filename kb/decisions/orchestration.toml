@@ -454,3 +454,63 @@ why = "Replaces ORCH-502's 'runtimes' defaults' with the tested settings (PROJ-5
 rule = "A question stays open as long as its task waits, with no expiry. Codex's FERB tool timeout is MCP_TOOL_TIMEOUT_S (7 days) and Claude Code's MCP tool idle timeout is off (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0), so a waiting tool call isn't cut by the runtime."
 supersedes = ["ORCH-502"]
 paths = ["ferb/runtimes/codex_exec.py", "ferb/runtimes/claude_sdk.py"]
+
+[ORCH-508]
+title = "Owner control from chat lands on the right task"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "A stop from another chat stops a running task; a stop that arrives after the work finished leaves that work done, never cancelled; an answer to a question no longer waiting keeps the planner's own reply."
+why = "Past bugs: a live failure on 2026-10-24 and two Intake fix-list items."
+paths = ["ferb/orchestrator"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[ORCH-509]
+title = "An attempt's report stands alone"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "An attempt whose report fails validation reports nothing of an earlier attempt, and a correction delivered while the check runs keeps the finished report for the next attempt, which starts from the correction."
+why = "Past bugs from the fix list (stale fields, a steer during the check losing the done report)."
+paths = ["ferb/orchestrator"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[ORCH-510]
+title = "A clean shutdown runs no task-end clean-up for a tree that resumes"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "A clean shutdown runs no task-end clean-up for a task tree that resumes at the next start, so the change records startup keeps for it survive."
+why = "Past bug: a shutdown's task-end clean-up deleted the change records of a resuming tree."
+paths = ["ferb/orchestrator"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[ORCH-511]
+title = "Schedule bookkeeping survives resumes, crashes and slow runs"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "An every-schedule resumed before its first run keeps that first run; a schedule whose timer was handled but not rebooked is rebooked once at start; a scheduled run never overlaps its previous run."
+why = "Past bugs from step 8a's schedule bookkeeping findings."
+paths = ["ferb/clock"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[ORCH-512]
+title = "A schedule keeps the owner's recipients and its earlier runs' origins"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "A scheduled run keeps the recipients the owner said (a remembered address never rewrites them), and what an earlier run read from outside keeps its outside origin when the next run is shown that answer."
+why = "Trust follows origin (AGENTS.md rule 9); kept in the test deletion review, 2026-11-02."
+paths = ["ferb/orchestrator"]
+legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[ORCH-513]
+title = "Owner steering keeps provenance, credentials and chat boundaries"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "A correction records only destinations the owner named, keeps pasted text and attachments as untrusted data, never widens a task's identity or scopes, redacts secrets before the worker and storage, and never answers a question or approves a payment, secret or plan unless the owner's own words name it."
+why = "Unrecorded provenance and secret boundaries (D3/D8/MP2), kept in the test deletion review, 2026-11-02."
+paths = ["ferb/orchestrator/steering.py"]
+legacy = "test deletion review 2026-11-02 (kept guard)"

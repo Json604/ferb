@@ -65,3 +65,5 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **DMN-501** (owner): FERB records which app came forward, when its last on-screen action ended and which FERB-started processes ran, never who caused a change (owner 2026-10-09: "i dont want this hardcoded control over other agent's harness").
 - **DMN-502** (owner): Setup and ferb doctor check that FileVault is on. FERB adds no whole-database encryption of its own (FileVault encrypts the disk).
 - **DMN-503** (owner): A failure report older than 30 days is deleted.
+- **DMN-504** (agent): The final checker is offered and can run only observation tools; a click, send, write, shell or navigation of the owner's tabs is refused and recorded even if it is told to act, and it never opens a window that may switch Spaces.
+- **DMN-505** (agent): A failure report includes recorded problems only as redacted rows, never the raw stderr of logs/daemon.err.log.

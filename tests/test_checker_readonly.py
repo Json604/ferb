@@ -63,6 +63,7 @@ async def _observe(daemon: RunningDaemon, grant: RunGrant) -> RunGrant:
                                         observe_only=True))
 
 
+# decision: DMN-504
 def test_observation_tools_are_offered_acting_tools_are_not(daemon: RunningDaemon) -> None:
     read = FakeCap("probe.read", "read", {"probe"})
     read.observation = True                                 # type: ignore[attr-defined]
@@ -72,6 +73,7 @@ def test_observation_tools_are_offered_acting_tools_are_not(daemon: RunningDaemo
     assert "probe.read" in names and "probe.send" not in names
 
 
+# decision: DMN-504
 def test_the_checker_cannot_act_even_when_asked(daemon: RunningDaemon) -> None:
     send = FakeCap("probe.send", "send", {"probe"})        # observation defaults False
     grant = _verifier_grant(daemon, send)
@@ -81,6 +83,7 @@ def test_the_checker_cannot_act_even_when_asked(daemon: RunningDaemon) -> None:
     assert send.calls == 0                                  # the capability never ran
 
 
+# decision: DMN-504
 def test_an_observation_tool_runs_for_the_checker(daemon: RunningDaemon) -> None:
     read = FakeCap("probe.read", "read", {"probe"}, content={"seen": "the sent message"})
     read.observation = True                                 # type: ignore[attr-defined]
@@ -89,6 +92,7 @@ def test_an_observation_tool_runs_for_the_checker(daemon: RunningDaemon) -> None
     assert not r["is_error"] and r["content"]["seen"] == "the sent message" and read.calls == 1
 
 
+# decision: DMN-504
 def test_a_normal_worker_still_acts(daemon: RunningDaemon) -> None:
     send = FakeCap("probe.send", "send", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("send it to x@y.com"), [send])   # not observe-only
@@ -97,6 +101,7 @@ def test_a_normal_worker_still_acts(daemon: RunningDaemon) -> None:
     assert not r["is_error"] and send.calls == 1
 
 
+# decision: DMN-504
 def test_only_reading_capabilities_are_marked_observation() -> None:
     """The checker's whole tool set, pinned: a change to it is a conscious change to this list. Opening an app
     (mac.open), a tab in the owner's profile (browser.open) or pressing a menu item (mac.menu) is a side effect."""
@@ -148,6 +153,7 @@ def _browser_checker(daemon: RunningDaemon, family: Family, *verbs: type) -> tup
     return r, br, worker, daemon.run(register())
 
 
+# decision: DMN-504
 def test_the_checker_is_not_offered_navigation_of_the_owners_tabs(daemon: RunningDaemon) -> None:
     """The owner's borrowed or kept-open tab stays where it is: a checker can't load another URL in it (a signed-in
     request as the owner, e.g. an unsubscribe link). Its own browser's navigate is offered."""
@@ -163,6 +169,7 @@ def test_the_checker_is_not_offered_navigation_of_the_owners_tabs(daemon: Runnin
     assert observes(BrowserNavigate(r, FERB_BROWSER))
 
 
+# decision: DMN-504
 def test_the_checker_navigates_only_ferb_tabs_it_opened(daemon: RunningDaemon) -> None:
     """The worker's FERB tabs keep their state for a retry (or the owner, after a handoff); the checker loads URLs
     only in tabs it opened. A normal worker still navigates its own tabs."""
@@ -178,6 +185,7 @@ def test_the_checker_navigates_only_ferb_tabs_it_opened(daemon: RunningDaemon) -
     assert not acted["is_error"] and r.tab_url(workers.tab_id) == "https://d.example/"
 
 
+# decision: DMN-504
 def test_the_checker_never_opens_a_window_that_may_switch_spaces(daemon: RunningDaemon) -> None:
     """Rule 17: allow_foreground is ignored for a checker, whatever it was told; a normal worker keeps it."""
     opened: list[bool] = []
@@ -207,6 +215,7 @@ async def _tree(daemon: RunningDaemon, task_id: str) -> list[dict[str, Any]]:
     return daemon.daemon.spans.tree_json(task_id)
 
 
+# decision: DMN-504
 def test_a_refused_call_is_recorded_for_the_trace(daemon: RunningDaemon) -> None:
     """A checker's acting call, an unknown tool and a tool outside the worker's scopes are each a hallucination or
     injection signal: a small tool.refused span (tool, worker, reason), and a line in the story."""

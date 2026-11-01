@@ -60,3 +60,6 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **MEM-413** (agent): Texts are cut at a word boundary, the cut said in the text: an owner message at 6,000 chars, an assistant reply at 700 (it only corroborates), a saved memory at 6,000. A recall call reads chunks of about 24,000 chars; a verification call batches about 30,000.
 - **MEM-414** (agent): Gemini Takeout records whose marker word isn't the English "Prompted" are not read; the JSON variant with `details` Request is. Gemini HTML times in a zone other than UTC/GMT are read in this Mac's zone.
 - **MEM-415** (owner): Memory import covers ChatGPT, claude.ai, Claude Code, Codex CLI and Gemini; no other assistants are added for now.
+- **MEM-416** (agent): A fact that only a running task's targets name (the permit task's username) is recalled into that task's planner turns and its worker and plan steps within their memory limits, with the parent task's goal shown above a step's own, even among many past tasks that share the goal's words.
+- **MEM-417** (agent): The developer memory dashboard serves only requests that carry its token from its own origin and host; anything else is refused.
+- **MEM-418** (agent): The episode card reader takes no arguments and opens only the database of the FERB home it finds itself; a request naming another home, or none, is refused.

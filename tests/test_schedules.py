@@ -56,6 +56,7 @@ def test_a_schedule_needs_the_owners_words_and_a_future_first_run(daemon: Runnin
     assert len(run(daemon, daemon.daemon.schedules.all)) == 1
 
 
+# decision: ORCH-512
 def test_remembered_address_does_not_rewrite_schedule_recipient(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     ask = schedule_reply(daemon, "email me the report", "every morning at 9 email me the report",
@@ -174,6 +175,7 @@ def _rank_worker(text: str) -> Any:
     return act
 
 
+# decision: ORCH-512
 def test_a_previous_runs_answer_keeps_its_own_origins(daemon: RunningDaemon) -> None:
     """MP2: what an earlier run read from outside stays outside when the next run is shown its answer."""
     from ferb.core import origin
@@ -200,6 +202,7 @@ def test_a_previous_runs_answer_keeps_its_own_origins(daemon: RunningDaemon) -> 
 
 # ---------- step 8a: schedule bookkeeping (kb area storage findings 4, 5; kb area orchestration) ----------
 
+# decision: ORCH-511
 def test_an_every_schedule_resumed_before_its_first_run_keeps_that_first_run() -> None:
     """Resumed less than one interval before its first run, `next_after(first_run - 1s)` skipped to the second."""
     first = datetime(2026, 10, 30, 9, 0, tzinfo=timezone.utc)
@@ -210,6 +213,7 @@ def test_an_every_schedule_resumed_before_its_first_run_keeps_that_first_run() -
     assert rule.next_after(first + timedelta(minutes=61), first) == first + timedelta(minutes=120)
 
 
+# decision: ORCH-511
 def test_a_schedule_whose_timer_was_handled_but_not_rebooked_is_reconciled_at_start(daemon: RunningDaemon) -> None:
     """A crash between marking a schedule's timer handled and booking its next run stranded it: nothing fired again."""
     from ferb.clock.timers import mark_handled
@@ -224,6 +228,7 @@ def test_a_schedule_whose_timer_was_handled_but_not_rebooked_is_reconciled_at_st
     assert run(daemon, lambda: daemon.daemon.schedules.get(s.id)).timer_id == after.timer_id
 
 
+# decision: ORCH-511
 def test_a_scheduled_run_never_overlaps_its_previous_run(daemon: RunningDaemon) -> None:
     first = daemon.daemon.clock.now() + timedelta(minutes=1)
     s = make_schedule(daemon, "check the build", "every 5 minutes check the build", Targets.of(), first, "every", 5)
