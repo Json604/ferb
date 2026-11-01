@@ -45,3 +45,259 @@ surface = "FERB.app on the owner's Mac in daily use, and 2-3 beta friends' Macs"
 request = "Use FERB daily for about a week with the default sounds, including one call in another app; ask each friend to say what each sound means without looking at the screen."
 pass = "Each sound is matched to its meaning without looking, none annoys by the tenth hearing, summon and paused stay silent by default, and during the call only needs you plays, at Subtle."
 decisions = ["APP-520", "APP-526", "APP-528", "APP-531"]
+
+[LIVE-502]
+title = "\"Who's this actor?\" on a show's frame"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "On a paused frame of a show, ask \"who's this actor?\"."
+pass = "The reply says it is a likely match and from what, or checks the cast; a guess is said as a guess."
+sitting = "9"
+
+[LIVE-503]
+title = "\"What is this song?\" and \"hear and tell\""
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask \"what is this song?\" on an Instagram reel, and \"hear and tell\" on a video."
+pass = "FERB listens to the audio (audio_listen) and answers from what it heard."
+sitting = "9"
+
+[LIVE-504]
+title = "An assignment done in full"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask FERB to do a course assignment in full."
+pass = "The work is complete as asked, with no caveats and nothing saying it was made by AI."
+sitting = "9"
+
+[LIVE-505]
+title = "\"How are you better than dots?\""
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask \"how are you better than dots?\"."
+pass = "FERB describes itself from its installed capabilities."
+sitting = "9"
+
+[LIVE-506]
+title = "A username given mid-task is used by a later login"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Give a username for a site in the middle of a task; later start another task that logs in to that site."
+pass = "The later task logs in with that username (its login origin was kept)."
+sitting = "9"
+
+[LIVE-507]
+title = "A Kaggle task via Codex Astra"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask for a Kaggle competition entry via Codex Astra: \"score well, no overfitting\"."
+pass = "Codex does the work while the owner controls the browser; \"score well, no overfitting\" are kept as conditions."
+sitting = "9"
+
+[LIVE-508]
+title = "A named tool that isn't installed is asked about once"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "With Mole not installed, say \"storage is 80% again, use mole\"."
+pass = "One install question, and never another tool instead."
+sitting = "9"
+
+[LIVE-509]
+title = "The latest assignment in a school mail account"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "\"open my <school> gmail, find the latest <course> assignment\" (the owner's own school account)."
+pass = "FERB opens the right account and finds the current assignment."
+sitting = "9"
+
+[LIVE-510]
+title = "A five-day school task limited to official groups"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask for the five-day task on the owner's school platform, official groups only."
+pass = "The task is done as asked, keeping to the official groups."
+sitting = "9"
+
+[LIVE-511]
+title = "One week of study material"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask FERB for one week of study material."
+pass = "The material covers the whole week as asked, nothing cut short."
+sitting = "9"
+
+[LIVE-512]
+title = "The six-hourly appointment-slot check"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Run the owner's six-hourly slot check behind a login: once with no slots, then pause and resume it, with its sign-in (three security questions), its bot check, and once with its browser profile closed."
+pass = "No slots is a finished check; its schedule follows the pause and resume; the sign-in asks nothing; the bot check is tried through the ability; a closed browser is opened to start it."
+sitting = "9"
+
+[LIVE-513]
+title = "A read-only storage scan plus a Homebrew cleanup"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask for a friend-style read-only \"reduce my storage\" scan, then a Homebrew cleanup."
+pass = "FERB's own snapshot is never reported as a change."
+sitting = "9"
+
+[LIVE-514]
+title = "\"every 5 minutes\" is a schedule"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask for something \"every 5 minutes …\"."
+pass = "It is accepted as a schedule (no 15-minute floor)."
+sitting = "9"
+
+[LIVE-515]
+title = "A task now plus a watch in the same turn"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "\"take mac to low power mode … loud warning at 10%\"."
+pass = "The task runs now and a battery watch is set in the same turn."
+sitting = "9"
+
+[LIVE-516]
+title = "\"email me\" uses the address from memory"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "\"every morning at 9 email me …\"."
+pass = "The schedule uses the owner's address from memory without asking."
+sitting = "9"
+
+[LIVE-517]
+title = "\"remind me … anytime\" picks a time"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "\"remind me about this show on <date> anytime\"."
+pass = "FERB picks a time and says which."
+sitting = "9"
+
+[LIVE-518]
+title = "\"all the tabs in parallel\""
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "\"do this for all the tabs in parallel\"."
+pass = "One step per tab; \"parallel\" is never kept as a condition."
+sitting = "9"
+
+[LIVE-519]
+title = "\"leave it, but tell me why\" continues"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Answer FERB's hotspot question with \"leave it, but tell me why\"."
+pass = "The task continues without the change and says why; it is not stopped."
+sitting = "9"
+
+[LIVE-520]
+title = "An assignment with \"astra high\""
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "\"<course> Assignment 2\" with \"astra high\"."
+pass = "The requirements are read first and Codex is configured as asked."
+sitting = "9"
+
+[LIVE-521]
+title = "\"check <school> mail for the new assignment\""
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "\"check <school> mail for the new assignment\"."
+pass = "The current item is picked by its dates."
+sitting = "9"
+
+[LIVE-522]
+title = "Concert tickets now, and analysing every coding-agent session"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime); an owner-approved run only (it may reach a real third party)"
+request = "Ask for concert tickets now; separately, \"analyze all coding agent sessions\"."
+pass = "Tickets are looked for on the primary seller's pages; the analysis covers every source, with no caps."
+sitting = "9"
+
+[LIVE-523]
+title = "Three ZIPs checked for name and student ID"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask FERB to check three ZIP files for the name and student ID (disposable copies)."
+pass = "Only the intended replace happens; no box is drawn over PDF text."
+sitting = "9"
+
+[LIVE-524]
+title = "The Codex startup fix in VS Code asks before typing"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask FERB to fix Codex's startup in VS Code's terminal."
+pass = "Terminal typing asks first, showing the exact command."
+sitting = "9"
+
+[LIVE-525]
+title = "A saved-application page with only a footer badge"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Open a saved-application page that shows only a footer badge."
+pass = "It is not reported as a block (the bot-check fact's wording)."
+sitting = "9"
+
+[LIVE-526]
+title = "\"keep it running\" then a follow-up"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "\"keep it running, only stop when I say\", then send a follow-up."
+pass = "The earlier run's calls are not reported as this run's failure."
+sitting = "9"
+
+[LIVE-527]
+title = "\"Did the PDF I uploaded come from Drive or my Mac?\""
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Upload a PDF, then ask \"did the PDF I uploaded come from Drive or my Mac?\"."
+pass = "FERB answers from the upload's source."
+sitting = "9"
+
+[LIVE-528]
+title = "An X post from a work browser profile"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime); an owner-approved run only (it may reach a real third party)"
+request = "Ask for an X post from the owner's work browser profile."
+pass = "It stays inside the campaign's standing scope."
+sitting = "9"
+
+[LIVE-529]
+title = "Pausing a task the owner doubts, then resuming"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Start a task, then say you doubt it or want to rethink it; later resume it."
+pass = "FERB pauses the task rather than stopping it, and resumes it on request."
+sitting = "9"
+
+[LIVE-530]
+title = "Questions ask only what, who or which"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Give tasks that need a missing detail."
+pass = "FERB's questions ask only what/who/which, never how or for permission."
+sitting = "9"
+
+[LIVE-531]
+title = "How-note quality on a verified task"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "After a verified task, open its how-note (the `how` field)."
+pass = "It reads as the steps that worked."
+sitting = "9"
+
+[LIVE-532]
+title = "A direct reply about the screen names its source"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Ask a direct question about what is on screen."
+pass = "The reply names its source and says a guess as a guess."
+sitting = "9"
+
+[LIVE-533]
+title = "Role blocks: loop, watch and delegated conversation"
+area = "prompts"
+surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
+request = "Run a loop, a watch and a delegated conversation."
+pass = "A loop round arms a probe and keeps its tab; a watch run alerts once and then stays quiet; a delegated conversation turn waits and hands over."
+sitting = "9"

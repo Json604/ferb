@@ -69,3 +69,19 @@ area = "app"
 kind = "bug"
 status = "open"
 why = "Seen on the owner's live run of the intro build, 2026-11-01. Cause unknown: find which access macOS blocked and why."
+
+[T-504]
+title = "Trim the wording and wiring tests inside the kept safety files"
+area = "tests"
+kind = "chore"
+status = "open"
+why = "Step 12d kept whole files and deleted 109 others; the per-test pass removing wording and wiring tests inside the kept files (e.g. most of test_question_clarity, test_front_window_context, test_install, test_setup_flow) is not done."
+decisions = ["TEST-500"]
+
+[T-505]
+title = "An upgrade test from a copy of a real older build's database"
+area = "tests"
+kind = "build"
+status = "open"
+why = "notes/tests.md (2026-11-01): storage decision 5 asks for upgrade tests on copies of real older databases and configs; tests/test_upgrade.py still builds its stores from migration files. A tracked copy must hold no personal data (PROJ-500)."
+decisions = ["TEST-505", "PROJ-500"]
