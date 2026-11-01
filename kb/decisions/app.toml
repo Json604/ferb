@@ -1067,3 +1067,24 @@ status = "active"
 rule = "A phrase the owner pasted, rather than typed, never runs a local notch command such as turning hover off."
 why = "Trust follows origin (AGENTS.md rule 9)."
 legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[APP-597]
+title = "A first run sits in the notch, and the handle carries whatever FERB shows"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "With nothing saved, FERB docks in the hardware notch; on a Mac without one its handle sits at the top centre. Only the owner's own drag changes that (tearing it out of the notch, dropping it on an edge), and the place is kept. A drag moves the handle together with FERB's shown surface whenever one shows (the chat, a tour line, a plan preview), not only with the chat open."
+why = "Owner's live run, 2026-11-01 (verbatim): \"the notch was on the side, not movable\". Docking needed a saved value, and with a tour line showing (chat closed) a drag moved an empty, hidden handle window. APP-550."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchDocking.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-678"]
+
+[APP-598]
+title = "A switch that applies after a restart is checked when the owner leaves System Settings"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "While a grant waits on a switch that reaches the daemon only after a restart (Screen Recording, Input Monitoring, Full Disk Access), FERB restarts its background service each time the owner leaves System Settings with the switch still reading off, never while a task runs. A grant's wait, and a resumed tour before its first beat, start the service (without killing a running one) when it stops answering for about three reads."
+why = "Owner's live run, 2026-11-01 (verbatim): \"the permission accepting, reopen and quit is broken\". FERB.app is an accessory app that never comes to the front, so the old trigger never fired."
+evidence = "macOS's Quit & Reopen can end the daemon cleanly, which launchd doesn't restart (KeepAlive SuccessfulExit false); its reopen of the agent app is refused (only -m ferb.daemon runs)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
+live = ["LIVE-678"]

@@ -120,6 +120,9 @@ struct PlaygroundServices {
         let setup = SetupModel(rpc: daemon, runner: PlaygroundRunner(state: state),
                                app: PlaygroundAppPermissions(state: state), system: opener, keys: PlaygroundKeys(),
                                service: service, background: PlaygroundBackground(state: state, opener: opener))
+        // System Settings is "in front" while its stand-in is open: closing it is leaving Settings, which checks a
+        // switch that applies only after a restart (the faked restart), as on a real Mac.
+        setup.frontmostApp = { [weak opener] in opener?.visibleFrame != nil ? SettingsAnchor.bundleID : PlaygroundMode.bundleID }
         let notch = NotchModel(rpc: daemon, preferences: defaults, microphone: PlaygroundMicrophone())
         let services = PlaygroundServices(home: home, state: state, daemon: daemon, setup: setup, notch: notch,
                                           opener: opener, service: service, sleeper: PlaygroundSleeper(state: state))

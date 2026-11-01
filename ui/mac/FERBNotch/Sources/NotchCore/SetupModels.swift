@@ -325,4 +325,7 @@ public enum LaunchctlPlan {
         if plistExists { commands.append(["bootstrap", "gui/\(uid)", plist]) }
         return commands
     }
+
+    /// Starts the job only if it isn't running (no -k: a running daemon is never killed).
+    public static func start(uid: uid_t) -> [String] { ["kickstart", "gui/\(uid)/\(label)"] }
 }

@@ -2073,3 +2073,12 @@ request = "A controlled reply on WhatsApp self-chat / FERB's Gmail/Discord tries
 pass = "Scope unchanged; the receiver shows what was really sent; owner typing pauses the next call."
 decisions = ["TEST-507"]
 sitting = "step 13, sitting 11"
+
+[LIVE-678]
+title = "The intro's grants after a restart, quit and reopen, and the notch's place"
+area = "app"
+surface = "A FERB.app build the owner installs as a fresh install, on a Mac with a hardware notch"
+request = "Start the intro. Drag FERB out of the notch while a tour line shows, drop it on an edge, drag it back. At Allow all: switch Input Monitoring and Screen Recording on and answer macOS's \"Quit & Reopen\" once with Quit & Reopen and once with Later, then leave System Settings. Quit FERB from its menu mid-tour and open it again."
+pass = "FERB starts in the notch and follows the drag with its line; each switch is confirmed within a few seconds of Quit & Reopen or of leaving System Settings, and the tour moves on; after Quit & Reopen `ferb ps`/`ferb doctor` show the daemon running; a reopened FERB lands on the same beat with the same grants, never asking to sign in again."
+decisions = ["APP-510", "APP-515", "APP-516", "APP-597", "APP-598"]
+sitting = "step 13, sitting 1"

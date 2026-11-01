@@ -82,6 +82,11 @@ final class PlaygroundService: DaemonServicing {
         state.applyRestart()
         return true
     }
+
+    func start() async -> Bool {
+        state.note("background service started (faked)")
+        return true
+    }
 }
 
 /// SMAppService for FERB's background service, faked. With "Login Items needs your OK" on, registering leaves it

@@ -135,20 +135,12 @@ status = "open"
 why = "notes/orchestration.md Rulings (2026-11-01): a schedule's recorded profile and account reach the planner and worker only as facts; nothing binds a browser call to a profile in the gateway yet (not for chat tasks either)."
 decisions = ["ORCH-313"]
 
-[T-500]
-title = "The intro's permission accepting, reopen and quit are broken"
-area = "app"
-kind = "bug"
-status = "open"
-why = "Owner's live run of the intro build, 2026-11-01 (verbatim): \"the flow is good but the permission accepting, reopen and quit is broken\". Reproduce in the intro playground or a fresh install, then fix."
-decisions = ["APP-510", "APP-516"]
-
 [T-501]
-title = "The intro's look and feel: notch on the side and not movable, orb not pretty, weak demo feedback"
+title = "The intro's look and feel: orb not pretty, weak demo feedback"
 area = "app"
 kind = "build"
 status = "open"
-why = "Owner's live run, 2026-11-01 (verbatim): \"the notch was on the side, not movable, the orb was not pretty enough, ... no good feedback in the demo etc etc so many wrong things.\" Iterate in the intro playground (ui/mac/FERBNotch/PLAYGROUND.md)."
+why = "Owner's live run, 2026-11-01 (verbatim): \"the notch was on the side, not movable, the orb was not pretty enough, ... no good feedback in the demo etc etc so many wrong things.\" Iterate in the intro playground. The notch's place and drag are fixed (APP-597)."
 decisions = ["APP-501", "APP-513", "APP-519"]
 
 [T-502]
@@ -179,7 +171,7 @@ area = "tests"
 kind = "live"
 status = "open"
 why = "notes/fix-order.md step 13: per-adapter live tests, the P20 injection eval, the patch re-test list and the safety scenarios, on the new FERB.app after the fresh start (LIVE-535). The checklist is the live checks with sitting \"step 13, sitting N\" (`kb live`); the owner's verdict accepts."
-after = ["T-500", "T-501", "T-502", "T-503", "T-510"]
+after = ["T-501", "T-502", "T-503", "T-510"]
 
 [T-509]
 title = "Docs cleanup last: the owner reviews each moved document, then CLAUDE.md/AGENTS.md"
@@ -394,14 +386,6 @@ kind = "build"
 status = "open"
 why = "No test checks that the intro never reaches speech output; IntroControllerTests only assert which family sounds play. An IntroController test can run the whole tour with a fake speech path and assert it is never called."
 decisions = ["APP-502"]
-
-[T-1001]
-title = "Write the test for APP-515: a resumed tour waits while the service is down"
-area = "app"
-kind = "build"
-status = "open"
-why = "No test resumes a tour with the daemon down; testAllowAllWaitsForTheDaemonsAnswer shows the same \"Getting my background part ready…\" wait only at the Allow all beat of a fresh tour."
-decisions = ["APP-515"]
 
 [T-26]
 title = "ferb doctor warns when SIP is off (DMN-506)"

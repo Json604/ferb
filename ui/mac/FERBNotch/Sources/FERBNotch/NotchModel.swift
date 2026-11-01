@@ -64,7 +64,7 @@ final class NotchModel: ObservableObject {
     @Published var preferredPanelWidth: CGFloat = 440
     @Published var preferredTranscriptHeight: CGFloat = 300
     @Published var localSettingReply: String?
-    @Published var indicatorEdge = "right"
+    @Published var indicatorEdge = "top"
     @Published var isNotchDocked = false
     var workSessions: [UUID: NotchSession] = [:] { didSet { taskListCache.invalidate() } }
     var taskListCache = TaskListCache()

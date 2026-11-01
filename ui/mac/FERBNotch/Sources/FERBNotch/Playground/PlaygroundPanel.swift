@@ -48,8 +48,7 @@ struct PlaygroundPanel: View {
         .frame(minWidth: 400, minHeight: 500)
         .onAppear {
             let defaults = UserDefaults.standard
-            placement = NotchDocking.isSaved(in: defaults) ? .notch
-                : .edge(FERBScreenEdge(rawValue: defaults.string(forKey: "notch.indicatorEdge") ?? "right") ?? .right)
+            placement = NotchDocking.isDocked(in: defaults, hasNotch: true) ? .notch : .edge(NotchDocking.edge(in: defaults))
             display = (defaults.object(forKey: "notch.indicatorDisplayID") as? NSNumber)?.uint32Value
         }
     }

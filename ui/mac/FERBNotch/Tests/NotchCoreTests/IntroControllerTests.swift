@@ -243,6 +243,61 @@ final class IntroControllerTests: XCTestCase {
         await eventually { t.progress.done }
     }
 
+    /// Owner's live run, 2026-11-01: "the permission accepting ... is broken". Screen Recording (and Input Monitoring,
+    /// Full Disk Access) reach the running daemon only after it restarts; FERB.app is an accessory app whose panels never
+    /// activate it, so "FERB came back to the front" never happened and the switch was never checked. Leaving System
+    /// Settings is the owner's signal: the service restarts then, each time while the switch still reads off.
+    // decision: APP-510, APP-598
+    func testASwitchThatAppliesAfterARestartIsCheckedWhenTheOwnerLeavesSettings() async {
+        let t = tour()
+        var front: String? = "com.ferb.FERB"
+        t.setup.frontmostApp = { front }
+        let off = SetupReplies.permissions(accessibility: "granted", screen: "denied", fda: "granted")
+        t.rig.rpc.replies["setup.permissions"] = off
+        t.controller.start(beats: [.permissions, .home])
+        await t.pick("allowAll")
+        await eventually { t.orb.docks.count == 1 }                       // Screen Recording's pane, the orb beside it
+        front = SettingsAnchor.bundleID
+        var polls = t.rig.rpc.params(of: "setup.permissions").count
+        await eventually { t.rig.rpc.params(of: "setup.permissions").count >= polls + 2 }
+        XCTAssertEqual(t.rig.service.restarts, 0)                         // still in Settings: nothing restarted
+        front = "com.apple.finder"                                        // left before switching it on
+        await eventually { t.rig.service.restarts == 1 }
+        XCTAssertEqual(t.controller.beat, .permissions)                   // still off: the beat waits
+        front = SettingsAnchor.bundleID                                   // back, switched on, left again
+        polls = t.rig.rpc.params(of: "setup.permissions").count
+        await eventually { t.rig.rpc.params(of: "setup.permissions").count >= polls + 2 }
+        t.rig.service.onRestart = { [rpc = t.rig.rpc] in
+            rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
+        }
+        front = "com.apple.finder"
+        await eventually { t.progress.done }
+        XCTAssertEqual(t.rig.service.restarts, 2)
+        XCTAssertEqual(t.orb.hops, 1)                                     // confirmed by the system, then the hop
+    }
+
+    /// macOS's "Quit & Reopen" can end the daemon with a clean exit, which launchd doesn't restart (KeepAlive
+    /// SuccessfulExit false), and its reopen of the agent app is refused (only `-m ferb.daemon` runs). A grant's wait
+    /// that stops hearing from the daemon starts it again, once per silence, and never kills a running one.
+    // decision: APP-510, APP-598
+    func testAGrantWaitStartsTheServiceWhenItStopsAnswering() async {
+        let t = tour()
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", screen: "denied",
+                                                                          fda: "granted")
+        t.controller.start(beats: [.permissions, .home])
+        await t.pick("allowAll")
+        await eventually { t.orb.docks.count == 1 }
+        t.rig.rpc.failures["setup.permissions"] = DaemonRPCError.invalidResponse   // the daemon is gone
+        await eventually { t.rig.service.starts == 1 }
+        let polls = t.rig.rpc.params(of: "setup.permissions").count
+        await eventually { t.rig.rpc.params(of: "setup.permissions").count >= polls + 4 }
+        XCTAssertEqual(t.rig.service.starts, 1)                           // once per silence
+        XCTAssertEqual(t.rig.service.restarts, 0)                         // never a kill
+        t.rig.rpc.failures = [:]
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
+        await eventually { t.progress.done }
+    }
+
     // MARK: Browsers and FERB's email
 
     // decision: APP-511, APP-512
@@ -503,6 +558,26 @@ final class IntroControllerTests: XCTestCase {
         old.resumeBeat = .tryIt                                           // not in this plan: the whole plan runs
         stale.controller.start(beats: [.signIn, .permissions, .home])
         await eventually { stale.controller.beat == .signIn }
+    }
+
+    /// A tour quit at Allow all and reopened while the daemon is down (macOS's "Quit & Reopen" ended it, or it is still
+    /// starting): the tour waits on "Getting my background part ready…" and starts the service, instead of reading the
+    /// silence as signed out and asking for sign-in again (which also moved the resume point back to sign-in).
+    // decision: APP-515, APP-516, APP-598
+    func testAResumedTourWaitsForTheServiceBeforeAnyBeat() async {
+        let t = tour()
+        var progress = t.progress
+        progress.resumeBeat = .permissions
+        for method in ["ping", "runtimes.status", "setup.permissions"] {
+            t.rig.rpc.failures[method] = DaemonRPCError.invalidResponse   // nothing answers yet
+        }
+        t.rig.service.onStart = { [rpc = t.rig.rpc] in rpc.failures = [:] }   // started, it answers
+        t.controller.start(beats: IntroBeat.allCases)
+        await eventually { t.controller.beat == .browsers }
+        XCTAssertTrue(t.lines.all.contains(IntroCopy.gettingReady))
+        XCTAssertFalse(t.lines.all.contains(IntroCopy.signIn))            // never asked to sign in again
+        XCTAssertEqual(t.rig.service.starts, 1)
+        XCTAssertTrue(t.rig.runner.runs.isEmpty)                          // Meet isn't run again
     }
 
     // MARK: Round 2

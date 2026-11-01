@@ -74,7 +74,7 @@ All paths are under `ui/mac/FERBNotch/Sources/`. Edit these; the playground pick
 
 | To change | Edit |
 |---|---|
-| Where the notch sits by default, docking into the camera housing | `FERBNotch/PanelCoordinator.swift` (`updateScreen`: the default edge is `"right"` and docking happens only once `notch.docked` is saved, which is why a first run shows FERB on the side), `FERBNotch/NotchDocking.swift`, `NotchCore/NotchGeometry.swift` |
+| Where the notch sits by default, docking into the camera housing | `FERBNotch/PanelCoordinator.swift` (`updateScreen`; a first run docks in the notch, or sits at the top centre without one: `NotchDocking.isDocked`, `edge`, APP-597), `FERBNotch/NotchDocking.swift`, `NotchCore/NotchGeometry.swift` |
 | Dragging the notch / edge handle | `FERBNotch/PanelCoordinator.swift` (`configureIndicator`, `moveIndicator`, `snapIndicator`), `FERBNotch/FerbIndicator.swift`, `FERBNotch/IndicatorPlacement.swift`, `FERBNotch/MagneticDocking.swift`, `FERBNotch/LiveDragLayout.swift` |
 | The notch's look and its open/close springs | `FERBNotch/NotchView.swift`, `FERBNotch/NotchBackdrop.swift`, `FERBNotch/NotchPresentation.swift`, `FERBNotch/NotchTracer.swift` (glow) |
 | How an intro line shows in the notch (text, buttons, typing field, the swell) | `FERBNotch/IntroNarration.swift` (`IntroNarrationView`, `pulseIntro`), `FERBNotch/NotchView.swift` |
@@ -95,11 +95,11 @@ To change what the fake world *does* (a new canned plan, a slower sign-in, anoth
 > "the notch was on the side, not movable, the orb was not pretty enough, the flow is good but the permission
 > accepting, reopen and quit is broken, no good feedback in the demo etc etc so many wrong things."
 
-- [ ] The notch was on the side (see the placement row above: the first run starts on the right edge).
-- [ ] Not movable.
+- [x] The notch was on the side (fixed: a first run docks in the notch, APP-597).
+- [x] Not movable (fixed: with a tour line showing, a drag moved a hidden handle window, APP-597).
 - [ ] The orb isn't pretty enough.
-- [ ] Permission accepting is broken.
-- [ ] Reopen and quit is broken (the controls' *Quit & reopen FERB* and the stand-in's *Quit & Reopen* exercise it).
+- [x] Permission accepting is broken (fixed: leaving System Settings restarts the service to read a switch that needs it; closing the stand-in counts as leaving, APP-598).
+- [x] Reopen and quit is broken (fixed: a resumed tour waits for, and starts, the background service before any beat, APP-515, APP-598; the controls' *Quit & reopen FERB* and the stand-in's *Quit & Reopen* exercise it).
 - [ ] No good feedback in the demo (Try: the preview rows, the orb at the app, the lines while it thinks).
 
 ## Rules for the UI agent
