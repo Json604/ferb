@@ -1,4 +1,4 @@
-# Decisions of area `memory` (kb/areas.toml). Moved from notes/memory.md on 2026-11-02.
+# Decisions of area `memory` (kb/areas.toml). Moved from notes/memory.md and notes/memory-import.md on 2026-11-02.
 # notes/memory.md wrote the owner's decisions as an agent's paraphrase, so the owner decisions carry `words_source`
 # instead of `words`.
 
@@ -360,3 +360,153 @@ status = "active"
 supersedes = ["MEM-19"]
 rule = "Code joins the owner's words about the owner (subject \"owner\") at once, under \"Recently said\" while it fits, except a fact the owner placed by search (memory.search_only). Code joins FERB's understanding / observed facts about the owner only on an event that shows them holding up (a save on a second day); \"standing 7 days\" is the weekly pass's to see. The pass places the rest and stays the only scheduled rewrite. The owner's \"Always on\" pins survive every pass."
 paths = ["ferb/memory/profile.py::CoreProfile.saved"]
+
+[MEM-400]
+title = "Import the owner's memory from the assistants they use, for accuracy and recall"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory-import.md opening paragraph (\"Owner, 2026-10-30: …\"): an agent's summary of the owner's request; no verbatim quote"
+rule = "FERB imports what matters about the owner from the major AI assistants they use (web, CLI and Mac apps), with schema-based extraction per assistant. Accuracy and recall are what count, and many model calls are acceptable; the result must make sense in FERB's memory and actually help it."
+paths = ["ferb/memory/import_sources.py", "ferb/memory/import_extract.py", "ferb/memory/import_job.py"]
+legacy = "notes/memory-import.md opening paragraph"
+
+[MEM-401]
+title = "Memory import reads only the last 3 months"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory-import.md owner decision 1: an agent's summary; no verbatim quote recorded"
+rule = "The import reads only the last 3 months of each assistant's transcripts, usage and saved memory; anything older is not read."
+paths = ["ferb/memory/import_sources.py::window_start"]
+legacy = "notes/memory-import.md decision 1"
+
+[MEM-402]
+title = "Imported facts are FERB's understanding, never the owner's words, and add no known destinations"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/memory-import.md owner decision 2: an agent's summary; no verbatim quote recorded"
+rule = "Every imported fact is saved as FERB's understanding (`inferred`), never as the owner's own words, and an import never adds known destinations."
+why = "Exports don't mark pasted text, so an imported \"owner\" line can't carry owner authority."
+paths = ["ferb/memory/import_extract.py"]
+legacy = "notes/memory-import.md decision 2"
+
+[MEM-403]
+title = "Import sources: ChatGPT, claude.ai, Claude Code, Codex CLI, Gemini"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/memory-import.md owner decision 3: an agent's summary; no verbatim quote recorded"
+rule = "The import reads ChatGPT and claude.ai from their data exports (web and Mac app, saved memories and projects where the export has them), Claude Code and Codex CLI from local transcripts on this Mac, and Gemini from Google Takeout."
+paths = ["ferb/memory/import_sources.py"]
+legacy = "notes/memory-import.md decision 3"
+
+[MEM-404]
+title = "Memory import keeps facts only, never the raw chats"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/memory-import.md owner decision 4: an agent's summary; no verbatim quote recorded"
+rule = "The import extracts facts, preferences, projects, people and recurring tasks (as FERB's understanding); the raw imported chats are held in memory only while read, never stored or made searchable."
+rejected = ["Tier 3 notes from imports and searchable imported conversations (the first outline)"]
+paths = ["ferb/memory/import_sources.py", "ferb/store/migrations/0055_memory_import.sql"]
+legacy = "notes/memory-import.md decision 4"
+
+[MEM-405]
+title = "Memory import may run on the hosted AI service, after redaction"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/memory-import.md owner decision 5: an agent's summary; no verbatim quote recorded"
+rule = "Extraction runs on the configured AI service; texts are redacted before they leave the reader module, and storage stays on the Mac."
+paths = ["ferb/memory/import_sources.py::read"]
+legacy = "notes/memory-import.md decision 5"
+
+[MEM-406]
+title = "Imported facts are reviewed like other FERB understanding: no questions, one notice"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/memory-import.md owner decision 6 (pointing to memory decisions 15/18, here MEM-12/MEM-15): an agent's summary; no verbatim quote"
+rule = "No Keep questions and no batch review: imported facts show on the Memory page (filterable by source) and in one summary notice, and join the core profile only once they hold up. Since they rest on the import day's journal row, in practice that is after a week uncorrected or when the owner says it again."
+paths = ["ferb/memory/import_job.py"]
+legacy = "notes/memory-import.md decision 6"
+
+[MEM-407]
+title = "Who counts as the owner in an imported transcript"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Owner lines are: ChatGPT `user`, claude.ai `human`, Gemini \"Prompted\" records, Claude Code typed turns (not meta, sidechain, tool result or compact summary; `turnOrigin` human where present; no SDK sessions or subagent files), Codex interactive sessions only (`source` cli/vscode). Custom instructions and claude.ai project instructions count; uploaded files, attachments and tool output are not read; injected tag blocks are dropped."
+why = "Trust follows origin: Codex exec runs and subagent prompts are written by programs, and assistant replies only corroborate."
+paths = ["ferb/memory/import_sources.py"]
+legacy = "notes/memory-import.md Rulings (2026-10-31): who is the owner"
+
+[MEM-408]
+title = "An imported fact needs an exact quote from the owner's own message"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Recall candidates are kept only when they cite an owner message (or a saved-memory claim) with a quote that is whole words of it; a verifier's supported verdict is kept only when its quote is whole words of an owner message shown as evidence. Saved memories (ChatGPT, claude.ai, Claude Code) are claims: kept only when the verifier cites an owner message of that source. An undated claude.ai memory is dated as of the import, its owner words still within the window."
+why = "Code, not the model, checks the quote, so a hallucinated or pasted line can't become a fact."
+paths = ["ferb/memory/import_extract.py::OwnerIndex", "ferb/memory/import_extract.py"]
+legacy = "notes/memory-import.md Rulings (2026-10-31): saved memories; What exists: extraction"
+
+[MEM-409]
+title = "Imports: newer wins by when the owner said it; the owner's own words are never replaced"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Facts merge by `same_as` or kind+subject+key, oldest first. Newer wins by when the owner said it (`memory_import_items.said_at`, else a held fact's save time): an older imported version is skipped, not inserted as history. A fact the owner stated in their own words is never replaced or duplicated by an import (counted `kept_owner`). `ended`/`until` set an expiry; `review_in_days` a review."
+rejected = ["Keeping the older imported version as history behind a newer one (the first outline)"]
+paths = ["ferb/memory/import_extract.py"]
+legacy = "notes/memory-import.md Rulings (2026-10-31): newer wins"
+
+[MEM-410]
+title = "Import progress is kept per conversation part, across runs"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Each conversation part's hash is recorded when done (`memory_import_done`), in the same step its facts are saved, so re-importing the same export later reads only what is new and a restart resumes. A forgotten fact is never re-imported (its fingerprint)."
+paths = ["ferb/memory/import_job.py::ImportJob", "ferb/store/migrations/0055_memory_import.sql"]
+legacy = "notes/memory-import.md Rulings (2026-10-31): progress"
+
+[MEM-411]
+title = "Import model calls never run during the owner's chat turn"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Every import model call (recall and each verify) waits while a chat turn runs (`_wait_idle` inside `_call`); running tasks don't block it. Three failed chunks in a row stop the run (\"failed\", told once); a later start goes on."
+why = "A long-running loop task would otherwise stall imports forever."
+paths = ["ferb/memory/import_job.py::ImportJob._call", "ferb/memory/import_job.py::ImportJob._wait_idle"]
+legacy = "notes/memory-import.md Rulings (2026-10-31): never on the owner's turn; fix list 2026-11-01"
+
+[MEM-412]
+title = "Import calls run tool-less on the worker runtime; traces never hold the input"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Import calls use the worker runtime with no tools and typed output (as the distill and profile pass). Their spans are `model.learning` with roles `memory_import_recall`/`memory_import_verify` and the goal \"import memory from <assistant>\", never the input. The estimate says 2 × chunks model calls; the run's actual count is in `counts.model_calls`."
+paths = ["ferb/memory/import_job.py"]
+legacy = "notes/memory-import.md Rulings (2026-10-31): runtime, model calls"
+
+[MEM-413]
+title = "Import text limits: owner 6,000, assistant 700, saved memory 6,000 chars; 24k/30k per call"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Texts are cut at a word boundary, the cut said in the text: an owner message at 6,000 chars, an assistant reply at 700 (it only corroborates), a saved memory at 6,000. A recall call reads chunks of about 24,000 chars; a verification call batches about 30,000."
+paths = ["ferb/memory/import_sources.py::OWNER_CHARS", "ferb/memory/import_sources.py::ASSISTANT_CHARS", "ferb/memory/import_sources.py::CLAIM_CHARS", "ferb/memory/import_extract.py::CHUNK_CHARS", "ferb/memory/import_job.py::VERIFY_CHARS"]
+legacy = "notes/memory-import.md What exists: readers and extraction"
+
+[MEM-414]
+title = "Localized Google Takeout records are not read"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Gemini Takeout records whose marker word isn't the English \"Prompted\" are not read; the JSON variant with `details` Request is. Gemini HTML times in a zone other than UTC/GMT are read in this Mac's zone."
+why = "A localized record carries its marker inside the same `title` string with no field or separator; telling it from the prompt would need a word list per language (rule 4) or a prefix guess that can eat a prompt's first words."
+rejected = ["A per-language word list for the marker", "Guessing the marker from prefixes the titles share"]
+paths = ["ferb/memory/import_sources.py"]
+legacy = "notes/memory-import.md fix list (step 12c): localized Takeout"

@@ -197,3 +197,12 @@ request = "Ask FERB to listen to the long speech; then ask for a recording with 
 pass = "The listen returns a transcript within the limit; the recording is refused."
 decisions = ["SENSE-400"]
 sitting = "step 13"
+
+[LIVE-419]
+title = "Import each real assistant once and judge the facts"
+area = "memory"
+surface = "FERB.app Memory page → Import from other assistants, the owner's own exports and local transcripts"
+request = "Import each source once (ChatGPT, claude.ai, Claude Code, Codex CLI, Gemini); read the estimate first, then the summary notice, the Memory page's source filter and a sample of facts. Also `uv run pytest -m real tests/test_memory_import.py::test_quality_live`."
+pass = "The estimate states model calls before starting; each run ends with one notice whose Open the Memory page button filters by source; the sampled facts are true to the owner's memory, saved as FERB's understanding, none older than 3 months; the live quality test passes."
+decisions = ["MEM-400", "MEM-401", "MEM-402", "MEM-403", "MEM-406"]
+sitting = "step 13"

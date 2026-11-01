@@ -96,3 +96,12 @@ area = "runtimes"
 kind = "chore"
 status = "open"
 why = "notes/runtimes.md Pin move 2026-11-01: Codex 0.166.0's bundled catalog adds gpt-6.1-terra, but FERB knows no OpenAI max output for it; openai_api.py and prices.py list gpt-6.1-sol only."
+
+[T-407]
+title = "Other assistants to import from (Perplexity, Cursor, Copilot…)?"
+area = "memory"
+kind = "question"
+status = "open"
+why = "notes/memory-import.md: \"Others the owner uses (Perplexity, Cursor, Copilot…): to list with the owner\"; open owner question, only if wanted."
+decisions = ["MEM-403"]
+ask = "Besides ChatGPT, claude.ai, Claude Code, Codex CLI and Gemini, are there other AI assistants you use (Perplexity, Cursor, Copilot, …) that FERB should import memory from?"
