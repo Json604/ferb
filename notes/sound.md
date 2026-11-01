@@ -157,6 +157,8 @@ here.
 - Integration is in notes/setup-intro-plan.md (Task 7 for the tour, Task 10 for everyday sounds).
 - The Material clips' licence (CC BY 4.0, credit shipped with FERB) is fine: owner, "the material license is green".
 - Standard is the default intensity; Subtle is the choice in Settings. The master volume stays at today's 0.18.
+- Quiet during calls only: while another app is using the microphone, FERB plays no sound except needs you, at Subtle;
+  the notch still shows everything. Focus, quiet hours and screen sharing get no rule (macOS already silences FERB's
+  banners in Focus; reading Focus would cost a permission). Owner chose this after the reasons were explained.
 
 ## Owner decisions still open
-- Context rules: quiet hours, whether calls/meetings mean silent or quieter, Focus behaviour.

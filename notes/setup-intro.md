@@ -122,8 +122,8 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   parts in notes/setup-intro-plan.md: the tour plays the decided family (Task 7), and the family replaces today's system
   sounds (SoundFeedback.swift: Tink, Pop, Bottle, Glass, Basso) with per-sound switches (Task 10). Defaults (owner,
   2026-11-01): on for needs you, error, done, notification, listening start/end and the tour; off for summon and
-  paused. The magnetic docking sound is removed (owner, 2026-11-01). The context rules' thresholds (e.g. what counts
-  as late at night) are the owner's (rule 18) and still open.
+  paused; Standard intensity. The magnetic docking sound is removed. Context: during a call (another app using the
+  microphone) only needs you plays, at Subtle; no Focus, quiet-hours or screen-sharing rule (all owner, 2026-11-01).
 - **Process** (done 2026-11-01): four rounds of directions, then the Crystal family refined over five more rounds;
   `demo/sound-family/render.py` renders it, `demo/sound-family/index.html` plays it.
 - **The decided family** (owner, 2026-11-01; details and levels in notes/sound.md):

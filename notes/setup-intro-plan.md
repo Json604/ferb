@@ -339,12 +339,14 @@ Owner, 2026-11-01: the decided family goes into this plan; big events only; the 
   paused. Every one can be switched; `feedback.enabled` and `feedback.volume` keep working as the master switch and
   volume (existing values kept on upgrade).
 - A notice shown both as a banner and in the notch sounds once (the banner carries it; the notch stays silent for it).
-- Context rules (calls, Focus, quiet hours) are not built here: their thresholds are owner decisions still open
-  (notes/sound.md).
+- During a call FERB stays quiet (owner, 2026-11-01): while a process other than FERB's own runs microphone input
+  (Core Audio process objects, `kAudioProcessPropertyIsRunningInput`, macOS 14+), nothing plays except `.needsYou`, at
+  Subtle. FERB's own dictation never counts as a call. No Focus, quiet-hours or screen-sharing rule.
 
 - [ ] **Step 1: Write the failing tests**: `testAFailedTaskPlaysErrorNotNeedsYou`, `testAQuestionPlaysNeedsYou`,
   `testSummonAndPausedAreSilentByDefault`, `testANoticeShownAsBannerAndInTheNotchSoundsOnce`,
-  `testTurningASoundOffSilencesOnlyThatSound`.
+  `testTurningASoundOffSilencesOnlyThatSound`, `testDuringACallOnlyNeedsYouPlaysAtSubtle` (a fake mic-in-use
+  feed: another app → only needs you, Subtle; FERB's own dictation → normal).
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement**, deleting the magnetic sound and its setting.
 - [ ] **Step 4: Run** `swift build`, `swift test` (scratch path) → PASS.
 - [ ] **Step 5: Commit** `git commit -m "Sound: FERB's family replaces the system sounds; one notification cue; magnetic sound removed"`.
