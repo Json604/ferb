@@ -2,18 +2,43 @@
 solid general task when it saw nothing clear), then shows that task's plan as rows without doing any of it. The preview
 cannot act by construction: the planner's turn alone, with no run token, no worker and no tool call, and nothing kept
 as a task or as chat; both methods are FERB.app's only (its code signature is stood in for here)."""
+import asyncio
+import json
+import threading
+import time
 from typing import Any
 
 import pytest
 
 from ferb.cli.client import Client, RpcError
-from ferb.daemon.areas.intro import GENERAL_TASK
+from ferb.core.types import ModelLimits, RunHandle
+from ferb.daemon.areas import intro
+from ferb.daemon.areas.intro import GENERAL_TASKS
+from ferb.daemon.server import LONG_WAITS
 from ferb.orchestrator.plans import Plan, Step
-from tests.conftest import FakeDistillRuntime, RunningDaemon, install, sup, task
+from tests.conftest import FakeDistillRuntime, RunningDaemon, chat, install, sup, task
 
 STEPS = ["Look through Downloads for old installers", "Find the largest files on the Desktop",
          "List the apps not opened in months"]
 SECRET = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+SEEN = {"summary": f"You seem to code most days in an editor (token {SECRET}).", "shown": "",
+        "facts": [{"id": "m1", "text": "The owner mostly codes on this Mac."}], "at": "2026-11-01T10:00:00+00:00"}
+
+
+class Silent:
+    """A model that never answers."""
+    name = "fake"
+    limits = ModelLimits("fake-model", 1_000_000, 100_000, "test double")
+
+    async def start(self, task: Any, request: Any, token: str) -> RunHandle:
+        return RunHandle("r", "fake", task.id, {})
+
+    async def events(self, run: RunHandle) -> Any:
+        await asyncio.sleep(3600)
+        yield None
+
+    async def cancel(self, run: RunHandle) -> None:
+        return None
 
 
 def _as_app(daemon: RunningDaemon) -> Client:
@@ -27,12 +52,27 @@ def _planned(daemon: RunningDaemon) -> Any:
     return install(daemon, [sup("task", "I'll look for three things you could tidy up.", spec)])
 
 
-def _preview(daemon: RunningDaemon, request: str = GENERAL_TASK) -> list[dict[str, Any]]:
+def _preview(daemon: RunningDaemon, request: str = GENERAL_TASKS[0]) -> list[dict[str, Any]]:
     c = _as_app(daemon)
     try:
         return list(c.stream("intro.preview", {"request": request}))
     finally:
         c.close()
+
+
+def _suggest(daemon: RunningDaemon) -> dict[str, Any]:
+    c = _as_app(daemon)
+    try:
+        return c.call("intro.suggest", {})
+    finally:
+        c.close()
+
+
+def _until(check: Any, timeout: float = 10.0) -> None:
+    end = time.monotonic() + timeout
+    while not check():
+        assert time.monotonic() < end, "timed out"
+        time.sleep(0.02)
 
 
 def _persona(daemon: RunningDaemon, *, seen: dict[str, Any] | None = None, error: str | None = None) -> None:
@@ -103,32 +143,85 @@ def test_suggest_falls_back_to_the_general_task_without_a_scan(daemon: RunningDa
         raise AssertionError("no model call without a scan")
     daemon.daemon._make_runtime = no_model                                  # type: ignore[method-assign]
     _persona(daemon, error="OSError: the scan failed" if state == "failed" else None)
-    c = _as_app(daemon)
-    try:
-        answer = c.call("intro.suggest", {})
-    finally:
-        c.close()
-    assert answer == {"request": GENERAL_TASK, "fits": False}
+    assert _suggest(daemon) == {"suggestions": [{"request": t} for t in GENERAL_TASKS], "fits": False}
+    assert _journal(daemon, "intro.suggested")[-1].data == {"fits": False, "from_scan": 0, "why": f"scan {state}"}
+    # a reply with fewer than two usable tasks (a blank one, and the same one twice) is topped up from the general ones
+    rt = FakeDistillRuntime({"requests": ["Tidy my Desktop screenshots into a folder", "",
+                                          "tidy my desktop  screenshots into a folder"]})
+    daemon.daemon._make_runtime = lambda *a, **k: rt                        # type: ignore[method-assign]
+    _persona(daemon, seen=SEEN)
+    assert _suggest(daemon) == {"suggestions": [{"request": "Tidy my Desktop screenshots into a folder"},
+                                                {"request": GENERAL_TASKS[0]}], "fits": True}
+    assert _journal(daemon, "intro.suggested")[-1].data == {"fits": True, "from_scan": 1, "why": "topped up"}
 
 
 def test_suggest_uses_the_scan_when_seen(daemon: RunningDaemon) -> None:
-    rt = FakeDistillRuntime({"request": "Sort the files in my Downloads folder into project folders"})
-    daemon.daemon._make_runtime = lambda *a, **k: rt                        # type: ignore[method-assign]
-    _persona(daemon, seen={"summary": f"You seem to code most days in an editor (token {SECRET}).",
-                           "shown": "", "facts": [{"id": "m1", "text": "The owner mostly codes on this Mac."}],
-                           "at": "2026-11-01T10:00:00+00:00"})
-    c = _as_app(daemon)
-    try:
-        answer = c.call("intro.suggest", {})
-    finally:
-        c.close()
-    assert answer == {"request": "Sort the files in my Downloads folder into project folders", "fits": True}
+    asked: list[dict[str, Any]] = []
+    rt = FakeDistillRuntime({"requests": ["Sort the files in my Downloads folder into project folders",
+                                          "Compare three code editors' pricing pages and summarize the differences"]})
+
+    def made(*args: Any, **kwargs: Any) -> Any:
+        asked.append(kwargs)
+        return rt
+    daemon.daemon._make_runtime = made                                      # type: ignore[method-assign]
+    _persona(daemon, seen=SEEN)
+    assert _suggest(daemon) == {"suggestions": [
+        {"request": "Sort the files in my Downloads folder into project folders"},
+        {"request": "Compare three code editors' pricing pages and summarize the differences"}], "fits": True}
+    assert asked and all(k["tool_names"] == [] for k in asked)              # the call can use no tool
     seen = str(rt.contexts)
     assert "code most days" in seen and SECRET not in seen                  # redacted before it reaches a model
+    rows = _journal(daemon, "intro.suggested")
+    assert rows[-1].data == {"fits": True, "from_scan": 2}
+    assert "code most days" not in json.dumps([r.data for r in rows])       # the journal never keeps the summary
     rt.answer = RuntimeError("the service is down")                         # a model failure never reaches the app
-    c = _as_app(daemon)
+    assert _suggest(daemon) == {"suggestions": [{"request": t} for t in GENERAL_TASKS], "fits": False}
+    assert _journal(daemon, "intro.suggested")[-1].data == {"fits": False, "from_scan": 0, "why": "RuntimeError"}
+
+
+def test_suggest_gives_the_general_tasks_when_the_model_stalls(daemon: RunningDaemon,
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    """The call ends just before the app stops waiting (SUGGEST_LIMIT_S, under server.LONG_WAITS): a model that never
+    answers still gives the app the two general tasks."""
+    assert intro.SUGGEST_LIMIT_S < LONG_WAITS["intro.suggest"]
+    monkeypatch.setattr(intro, "SUGGEST_LIMIT_S", 0.3)
+    daemon.daemon._make_runtime = lambda *a, **k: Silent()                  # type: ignore[method-assign]
+    _persona(daemon, seen=SEEN)
+    assert _suggest(daemon) == {"suggestions": [{"request": t} for t in GENERAL_TASKS], "fits": False}
+    assert _journal(daemon, "intro.suggested")[-1].data == {"fits": False, "from_scan": 0, "why": "timed out"}
+
+
+def test_preview_leaves_out_the_owners_running_tasks_and_open_questions(daemon: RunningDaemon) -> None:
+    """On "Replay intro" with work under way, the preview's planner turn sees none of it (no running task, open
+    question or earlier chat), so it plans the demo request and can't answer or control the owner's task."""
+    running = task("Rename the quarterly invoices by client")
+    running["plan"] = Plan(steps=[Step(id="pick", kind="ask", question="Which folder holds the invoices?",
+                                       options=["Documents", "Desktop"])]).model_dump()
+    demo = task("Find three things on this Mac to tidy up")
+    demo["plan"] = Plan(steps=[Step(id=f"s{i}", kind="do", goal=g) for i, g in enumerate(STEPS, 1)]).model_dump()
+    script = install(daemon, [sup("task", "Asking you which folder.", running),
+                              sup("task", "I'll look for three things you could tidy up.", demo)])
+    turn = threading.Thread(target=lambda: chat(daemon, "Rename the quarterly invoices by client"))
+    turn.start()
     try:
-        assert c.call("intro.suggest", {}) == {"request": GENERAL_TASK, "fits": False}
+        _until(lambda: any(ap.capability == "plan.ask" for ap in daemon.daemon.state.approvals.pending()))
+        events = _preview(daemon)
+        assert [p["label"] for p in events if p["type"] == "part"] == STEPS
+        context = [c for _, key, c, _ in script.contexts if key == "supervisor"][-1]
+        assert "quarterly invoices" not in context and "Which folder holds the invoices" not in context
+        assert GENERAL_TASKS[0] in context
+    finally:
+        for tree in list(daemon.daemon.supervisor._tree_of.values()):
+            daemon.daemon.supervisor.stop_tree(tree.id)
+        turn.join(10)
+
+
+def test_chat_send_refuses_ferbs_own_sessions(daemon: RunningDaemon) -> None:
+    c = Client(daemon.sock)
+    try:
+        with pytest.raises(RpcError) as refused:
+            list(c.stream("chat.send", {"session_id": intro.INTRO_SESSION, "text": "hello"}))
+        assert "FERB's own sessions" in str(refused.value)
     finally:
         c.close()
 
@@ -140,7 +233,7 @@ def test_intro_methods_refuse_any_other_program(daemon: RunningDaemon) -> None:
             c.call("intro.suggest", {})
         assert "FERB.app only" in str(suggested.value)
         with pytest.raises(RpcError) as previewed:
-            list(c.stream("intro.preview", {"request": GENERAL_TASK}))
+            list(c.stream("intro.preview", {"request": GENERAL_TASKS[0]}))
         assert "FERB.app only" in str(previewed.value)
     finally:
         c.close()

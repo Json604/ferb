@@ -173,8 +173,11 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       history, each with its message and exact quote) and ferb/memory/import_verify.md (keep what an owner line says,
       tighten, same_as, ended / until / review_in_days); notes/memory-import.md.)
       (Setup intro Task 4, notes/setup-intro.md step 6: new runtime prompt ferb/orchestrator/prompts/intro.md, one
-      tool-less call naming a first task in the owner's voice from what FERB saw on the Mac (redacted), safe to show as a
-      plan; "" when nothing is clear, and the daemon then shows its general task.)
+      tool-less call naming first tasks in the owner's voice from what FERB saw on the Mac (redacted), safe to show as a
+      plan. Owner 2026-11-01: two tasks, of different kinds where the facts allow (one on the Mac or in files, one in
+      the browser); code tops a reply with fewer than two up from its two general tasks (`GENERAL_TASKS`). The call
+      ends at `SUGGEST_LIMIT_S`, a technical bound just under the app's wait for the method (server.LONG_WAITS), never
+      an owner cap; then the general tasks.)
       (Step 10b: the rewrite keeps every one of these as one line of the field it describes: pause, cross-chat control
       and the restart rule's "messages read together", folders, keep_tabs_open, retry for identity/plan changes, parts,
       until/set_end, the remember/forget contract with login_origin (example removed), replaces, until, review_in_days and

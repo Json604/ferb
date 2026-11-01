@@ -168,9 +168,11 @@ Fares Farhan, "Sounds in User Experience" (Medium, 2023) to explain the intent: 
   assets).
 - How the preview task in step 6 is produced (a plan-only run with no acting tools), and how its rows are marked as a
   preview. Built (Task 4, daemon): `intro.suggest` (one tool-less call on the redacted scan summary for two
-  suggestions; the two general tasks when the scan isn't "seen" or the call fails) and the stream `intro.preview` (`Supervisor.preview`: the real planner
-  turn alone, no run token, worker, task row or chat entry; events `plan`, `part` per step, `done`, all `preview: true`),
-  both FERB.app only.
+  suggestions; the two general tasks when the scan isn't "seen" or the call fails or stalls past `SUGGEST_LIMIT_S`,
+  just under the app's wait) and the stream `intro.preview` (`Supervisor.preview`: the real planner turn alone, no run
+  token, worker, task row or chat entry, and no running task, open question, reminder or earlier chat in its context;
+  its session prefix `preview:` is one `chat.send` refuses; events `plan`, `part` per step, `done`, all
+  `preview: true`), both FERB.app only.
 - Which of today's eight permissions are list panes vs prompts, and their deep links on macOS 14–27.
 - The internal structure of the setup code it replaces, and tests (focused: grant confirmation logic, resume/skip state,
   the preview run having no acting tools, upgrade behaviour).

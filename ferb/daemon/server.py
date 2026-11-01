@@ -41,8 +41,9 @@ CLIENT_WAIT_S = 10.0
 # makes one model call (L34 C, the setup window), as the intro's suggested task does (notes/setup-intro.md step 6)
 LONG_WAITS = {"reports.build": 120.0, "reports.send": 600.0, "setup.browser_pair": 90.0, "setup.browsers_pair_all": 90.0, "reports.diagnostic": 60.0, "setup.permission_request": 120.0, "automation.request": 120.0,
               "runtimes.check": 60.0, "intro.suggest": 60.0}
-# Calls that end when their caller leaves (notes/preview.md): an abandoned preview request stops its capture
-CANCEL_WHEN_LEFT = frozenset({"tasks.preview"})
+# Calls that end when their caller leaves (notes/preview.md): an abandoned preview request stops its capture, and an
+# abandoned intro suggestion its model call (a stream, intro.preview, already ends when its caller leaves)
+CANCEL_WHEN_LEFT = frozenset({"tasks.preview", "intro.suggest"})
 LEFT_POLL_S = 0.1
 # The journal kinds the daemon records `on_internal` and `on_slow` under; `ferb stats` lists them
 INTERNAL_ERROR, SLOW_CALL = "daemon.internal_error", "daemon.slow_call"

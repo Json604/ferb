@@ -11,6 +11,7 @@ from ferb.core import origin as origin_
 from ferb.core.errors import FerbError, Refused
 from ferb.daemon.server import Session
 from ferb.orchestrator import acks
+from ferb.orchestrator.continuity import RESERVED_SESSIONS
 from ferb.orchestrator.worker import couldnt
 from ferb.sanitize.redact import Redactor
 
@@ -300,8 +301,10 @@ class Chat:
         speak = params.get("speak", False)
         if not isinstance(speak, bool):
             raise FerbError("speak must be true or false")
-        self.speech.interrupt()                         # the owner said something new: FERB stops talking
         session_id = str(params.get("session_id", "default"))
+        if session_id.startswith(RESERVED_SESSIONS):     # FERB's own planner sessions (a schedule's, the intro preview)
+            raise FerbError("session_id names one of FERB's own sessions, not a chat")
+        self.speech.interrupt()                         # the owner said something new: FERB stops talking
         text = self._hide_code_reply(self.redact(str(params.get("text", ""))), session_id)
         request_id = self.supervisor.ids.new_id()
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()

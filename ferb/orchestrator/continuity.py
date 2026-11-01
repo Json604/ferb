@@ -14,6 +14,9 @@ from ferb.sanitize.untrusted import mark, without_ferb_question
 from ferb.store.db import Database
 
 SCHEDULE_SESSION = "schedule:"   # a scheduled run's planner session (`Supervisor.run_scheduled`), not an owner chat
+PREVIEW_SESSION = "preview:"     # the intro's plan-only preview (`Supervisor.preview`), not an owner chat
+# FERB's own planner sessions: `chat.send` refuses them, so no client message lands in one
+RESERVED_SESSIONS = (SCHEDULE_SESSION, PREVIEW_SESSION)
 
 
 def in_conversation(kind: str, data: dict[str, Any], conversation: str) -> bool:

@@ -400,6 +400,7 @@ class _Turn:
     reopened: set[str] = field(default_factory=set)              # trees whose Noes this turn reopened
     answered_tree: str | None = None  # the task whose question this turn answered
     release: Callable[[], None] = _nothing     # lets the chat's next message in (the turn has replied)
+    preview: bool = False            # the intro's plan-only preview (`Supervisor.preview`): no live owner state shown
 
     @property
     def request_ids(self) -> frozenset[str]:
@@ -1843,14 +1844,16 @@ class Supervisor(WorkerRuns):
         assembled as for any chat message, and its plan shown as rows, without doing any of it. It cannot act by
         construction: it runs `_supervise` alone (a runtime made with no tools, run with no token), never `_route`,
         `_start`, `run_tree` or a worker, so no RunGrant is issued and the planner's side outputs (memory, reminders,
-        schedules) are never applied. Nothing is kept as a task or as chat: only one `intro.preview` journal row. Every
-        event is marked `preview: true`: the plan line, one `part` per planned step, then `done`."""
+        schedules) are never applied. Its turn shows no running task, open question, reminder or earlier chat
+        (`_Turn.preview`), so it plans `text` and can't answer or control the owner's work. Nothing is kept as a task or
+        as chat: only one `intro.preview` journal row. `session_id`: one `chat.send` refuses (continuity.PREVIEW_SESSION).
+        Every event is marked `preview: true`: the plan line, one `part` per planned step, then `done`."""
         request_id = self.ids.new_id()
         m = mark(text, self.pasted_is_data())
         # the request is FERB's suggestion (or general task), not words the owner typed into a chat
         turn = _Turn(request_id, ChatSession(session_id), words=m.own_words, payload=m.for_model,
                      own_words=m.own_words, typed=m.own_words, typed_lines=m.typed_lines, for_model=m.for_model,
-                     untrusted=bool(m.untrusted), message_origin={origins_.FERB, origins_.INFERRED})
+                     untrusted=bool(m.untrusted), message_origin={origins_.FERB, origins_.INFERRED}, preview=True)
         try:
             async with asyncio.timeout(self.planner_limit_s):
                 turn.environment = dict(await _value(self.environment(m.own_words)) or {})
@@ -2612,8 +2615,10 @@ class Supervisor(WorkerRuns):
         if live:
             situation.append((ContextBlock('Layer 2 — right now (changes between turns):\n' + live,
                                            "current device facts", protected=True), {origins_.PRIVATE}))
-        tasks_block, ended = self._task_state(session)
-        task_words, task_targets = self._chat_task_words(session, ended)
+        # a preview's turn (the intro's demo) plans its one request: no running task, open question, reminder or
+        # earlier chat of the owner's is in it, so it can't answer or control any of them
+        tasks_block, ended = self._task_state(session) if not turn.preview else (None, [])
+        task_words, task_targets = self._chat_task_words(session, ended) if not turn.preview else ("", "")
         recall_for = "\n".join(part for part in (turn.payload, task_words) if part.strip())
         # Memory is recalled for the message and the work it may continue (L36 §3, Ruling 12a), that work's targets
         # also ranked alone (L36 §4 fix round)
@@ -2624,7 +2629,8 @@ class Supervisor(WorkerRuns):
         shown_entries |= {"journal:" + e.id for e in turn.entries}
         # (an owner chat's turn only: a scheduled run's request is the schedule's, never the owner's words of now)
         old = await _value(self.old_chat(turn.payload, shown_entries)) \
-            if self.old_chat is not None and not session.id.startswith(SCHEDULE_SESSION) else None
+            if self.old_chat is not None and not session.id.startswith(SCHEDULE_SESSION) and not turn.preview \
+            else None
         if old:
             situation.append((ContextBlock("Layer 4 — earlier conversation matching this message (data; older entries "
                                            "than the conversation above, best match first):\n" + old["text"],
@@ -2637,7 +2643,8 @@ class Supervisor(WorkerRuns):
                                        protected=False, source_refs=tuple(activity_refs), payload=activity_payload),
                           origins_.split(activity_origin)))
         owner_active, last_event = self.signals()
-        since, since_origins, since_refs, since_texts = self._since_last_talk(turn.request_ids)
+        since, since_origins, since_refs, since_texts = (self._since_last_talk(turn.request_ids) if not turn.preview
+                                                         else ([], set(), [], []))
         situation.append((ContextBlock('Layer 2 — situation:\n' + context.time_block(
             self.clock.now(), None, None, owner_active, last_event, ages=ages, since_last_talk=since),
             "chat.history", protected=True, source_refs=tuple(since_refs), payload="\n".join(since_texts)),
@@ -2652,7 +2659,8 @@ class Supervisor(WorkerRuns):
         state: list[tuple[ContextBlock, set[str]]] = []
         if tasks_block is not None:
             state.append(tasks_block)
-        state.append(self._questions_block(session))
+        if not turn.preview:
+            state.append(self._questions_block(session))
         if repair:
             state.append((ContextBlock('Layer 6 — plan repair:\n' + load_prompt(self._approach() + "/repair.md") + "\n" +
                                        json.dumps(repair), "plan validation", protected=True), {origins_.FERB}))
