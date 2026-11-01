@@ -217,3 +217,19 @@ status = "open"
 why = "ui/AGENTS.md says \"Build and relaunch after edits\"; AGENTS.md rule 17 says not to restart the running FERB.app without the owner's authorization (building is allowed)."
 decisions = ["APP-567"]
 ask = "ui/AGENTS.md tells agents to \"Build and relaunch after edits\", but AGENTS.md rule 17 says not to restart the running FERB.app without your OK (building itself is allowed). For UI work, may an agent relaunch FERB.app after an edit, or only build and leave relaunching to you?"
+
+[T-508]
+title = "Step 13: the owner's live checks on the fresh install"
+area = "tests"
+kind = "live"
+status = "open"
+why = "notes/fix-order.md step 13: per-adapter live tests, the P20 injection eval, the patch re-test list and the safety scenarios, run in sittings on the new FERB.app after the fresh start. The checklist is the live checks (`kb live`); the owner's verdict accepts (AGENTS.md rule 15)."
+after = ["T-500", "T-501", "T-502", "T-503"]
+
+[T-509]
+title = "Docs cleanup last: the owner reviews each moved document, then CLAUDE.md/AGENTS.md"
+area = "project"
+kind = "chore"
+status = "open"
+why = "notes/fix-order.md step 14 (after step 13): each notes file moved into kb/ is removed only after the owner approves its reconciliation; CLAUDE.md and AGENTS.md are settled last, with the owner's approval of the exact text."
+after = ["T-508"]
