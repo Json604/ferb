@@ -15,10 +15,12 @@ struct NotchView: View {
                 .frame(width: presentation.size.width, height: presentation.size.height)
                 .offset(x: presentation.surfaceOffset.x, y: presentation.surfaceOffset.y)
             VStack(spacing: 0) {
-                if let line = model.introDisplayLine, !model.expanded {
+                if case .intro(let line)? = model.compactContent {
                     IntroNarrationView(line: line, cameraSpace: model.isNotchDocked ? model.cutoutHeight : 0)
                         .frame(height: presentation.size.height, alignment: .top)
-                } else if let text = model.compactPlanDisplayText, !model.expanded {
+                } else if model.compactContent == .pulse {
+                    Color.clear.frame(height: presentation.size.height)
+                } else if case .plan(let text)? = model.compactContent {
                     ScrollView {
                         Text(text)
                             .font(.system(size: 13))

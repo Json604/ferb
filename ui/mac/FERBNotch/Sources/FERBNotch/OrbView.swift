@@ -88,12 +88,12 @@ struct InstructionBubble: View {
 }
 
 /// The FERB icon the orb holds, to drag into a System Settings list: a drag source for the agent app's bundle URL
-/// (the file URL a privacy list accepts). A click alone does nothing.
+/// (the file URL a privacy list accepts). A faint fill makes the whole card grabbable, not only the icon's opaque
+/// pixels (the window server passes clicks on clear pixels through). A click alone does nothing.
 final class DragCardView: NSView, NSDraggingSource {
     var url: URL? {
         didSet {
             icon.image = url.map { NSWorkspace.shared.icon(forFile: $0.path) }
-            setAccessibilityLabel(url.map { "\($0.deletingPathExtension().lastPathComponent). Drag into the list." })
             window?.invalidateCursorRects(for: self)
         }
     }
@@ -103,12 +103,14 @@ final class DragCardView: NSView, NSDraggingSource {
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerRadius = 10
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
         icon.frame = bounds.insetBy(dx: 4, dy: 4)
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.unregisterDraggedTypes()
         addSubview(icon)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+        setAccessibilityLabel("FERB, drag into the list")
     }
 
     required init?(coder: NSCoder) { nil }

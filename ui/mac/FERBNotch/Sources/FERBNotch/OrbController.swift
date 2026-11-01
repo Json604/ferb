@@ -2,53 +2,14 @@ import AppKit
 import QuartzCore
 import NotchCore
 
-/// The orb the intro drives (Task 8 takes this, so its tests can use a fake).
-@MainActor
-protocol OrbControlling: AnyObject {
-    /// Drips off the notch and flies to `target` (AppKit global coordinates); returns once it has arrived.
-    func launch(to target: CGPoint, instruction: IntroLine?) async
-    /// Docks beside System Settings' window, holding `url` (the agent app) as a draggable icon, and follows it.
-    func dockBesideSettings(dragging url: URL)
-    /// The small happy hop when a step succeeds.
-    func hop()
-    /// Flies back and melts into the notch; returns once it is home.
-    func flyHome() async
-    /// Everything stops at once and the orb is gone; safe mid-flight and safe twice.
-    func tearDown()
-}
-
-/// What draws the orb (OrbPanel), in AppKit global coordinates.
-@MainActor
-protocol OrbSurface: AnyObject {
-    var isVisible: Bool { get }
-    func place(center: CGPoint)
-    func setAppearance(scale: CGFloat, opacity: CGFloat)
-    func setInstruction(_ line: IntroLine?)
-    func setDragItem(_ url: URL?)
-    func setWaiting(_ waiting: Bool)
-    func show()
-    func hide()
-}
-
-/// Frame ticks with the time since the last one, in seconds.
-@MainActor
-protocol OrbClock: AnyObject {
-    func start(_ tick: @escaping (Double) -> Void)
-    func stop()
-}
-
-@MainActor
-protocol SettingsWindowTracking: AnyObject {
-    var onChange: ((CGPoint?) -> Void)? { get set }
-    func start()
-    func stop()
-}
-
-extension SettingsWindowTracker: SettingsWindowTracking {}
-
 /// The orb's choreography: OrbMotion's springs at display refresh, retargetable mid-flight, with the family's orb
 /// sounds on its keyframes (drip-off as it sets off, hop, melt-back on arrival at its target and at home; nothing
 /// while it flies or lands). Reduce Motion: it fades in beside its target and fades out in place instead of flying.
+///
+/// Each keyframe sound is issued the output's latency before its keyframe shows, so it is heard as the orb moves
+/// (Bluetooth adds well over 100 ms). An arrival is foreseen: the spring is solved that far ahead (its closed form
+/// steps any interval exactly) and the melt is issued when it will have landed by then. A departure or a hop can't
+/// be foreseen, so its sound is issued at once and the motion waits that long before it starts.
 @MainActor
 final class OrbController: OrbControlling {
     nonisolated static let size = CGSize(width: 56, height: 56)
@@ -59,16 +20,24 @@ final class OrbController: OrbControlling {
     static let hopHeight: CGFloat = 12
     /// The orb's size as it leaves or rejoins the notch (a quick scale and fade stands in for a liquid split).
     static let dripScale: CGFloat = 0.35
+    /// The longest lead a sound gets over its keyframe.
+    static let maxLead = 0.5
 
     private enum Arrival {
         case target(IntroLine?)   // melt-back, show the instruction, release the caller
         case follow               // following Settings' window: silent
         case home                 // melt-back and into the notch
+
+        var melts: Bool {
+            if case .follow = self { return false }
+            return true
+        }
     }
     private struct Flight {
         var target: CGPoint
         var elapsed = 0.0
         var arrival: Arrival
+        var meltIssued = false
     }
     private struct Fade {
         var from: CGFloat
@@ -90,11 +59,16 @@ final class OrbController: OrbControlling {
     private var flight: Flight?
     private var fade: Fade?
     private var hopElapsed: Double?
+    /// The motion waits this long for a departure's sound to reach the speakers.
+    private var hold = 0.0
     private var waiter: CheckedContinuation<Void, Never>?
     private var tracker: SettingsWindowTracking?
     /// Away from the notch: on screen, or hidden while Settings isn't in front.
     private var out = false
     private var hiddenForDock = false
+    /// The orb has melted back into the notch (Task 8 swells the notch once: NotchModel.pulseIntro).
+    var onHomeArrival: (@MainActor () -> Void)?
+    private var lead: Double { min(max(sound.outputLatency, 0), Self.maxLead) }
 
     init(surface: OrbSurface? = nil, sound: FerbSoundPlaying, clock: OrbClock? = nil,
          home: @escaping @MainActor () -> CGPoint = { OrbController.notchHome() },
@@ -108,6 +82,10 @@ final class OrbController: OrbControlling {
         self.makeTracker = makeTracker
     }
 
+    deinit {
+        waiter?.resume()                             // a caller never waits on an orb that is gone
+    }
+
     func launch(to target: CGPoint, instruction: IntroLine?) async {
         release()                                   // a new flight replaces one still under way
         surface.setInstruction(nil)
@@ -118,6 +96,7 @@ final class OrbController: OrbControlling {
             await withCheckedContinuation { continuation in
                 waiter = continuation
                 reappear(at: target) { [weak self] in self?.release() }
+                hold = lead
             }
             return
         }
@@ -142,7 +121,7 @@ final class OrbController: OrbControlling {
         guard out, !hiddenForDock, surface.isVisible else { return }
         sound.play(.orbHop, at: position)
         guard !reduceMotion() else { return }
-        hopElapsed = 0
+        hopElapsed = -lead                           // the lift starts as the sound is heard
         startClock()
     }
 
@@ -159,7 +138,11 @@ final class OrbController: OrbControlling {
             sound.play(.orbMelt, at: home())
             await withCheckedContinuation { continuation in
                 waiter = continuation
-                beginFade(to: 0, scales: false) { [weak self] in self?.finishHome() }
+                beginFade(to: 0, scales: false) { [weak self] in
+                    self?.onHomeArrival?()
+                    self?.finishHome()
+                }
+                hold = lead
             }
             return
         }
@@ -175,6 +158,7 @@ final class OrbController: OrbControlling {
         flight = nil
         fade = nil
         hopElapsed = nil
+        hold = 0
         sound.stopAll()
         surface.setDragItem(nil)
         surface.setInstruction(nil)
@@ -193,6 +177,7 @@ final class OrbController: OrbControlling {
             flight = nil
             fade = nil
             hopElapsed = nil
+            hold = 0
             clock.stop()
             surface.hide()
             release()                                // a launch on its way there isn't left waiting
@@ -203,6 +188,7 @@ final class OrbController: OrbControlling {
                 out = true
                 reappear(at: point)
                 sound.play(.orbMelt, at: point)
+                hold = lead
             } else {
                 setOff()
                 fly(to: point, spec: .open, arrival: .target(nil))
@@ -231,6 +217,7 @@ final class OrbController: OrbControlling {
         surface.show()
         sound.play(.orbDrip, at: position)
         beginFade(to: 1, scales: true)
+        hold = lead
     }
 
     /// Fades in at a point without flying (Reduce Motion, or coming back beside Settings).
@@ -257,16 +244,17 @@ final class OrbController: OrbControlling {
         startClock()
     }
 
-    private func arrive(_ arrival: Arrival) {
+    private func arrive(_ arrival: Arrival, meltIssued: Bool) {
         switch arrival {
         case .target(let instruction):
-            sound.play(.orbMelt, at: position)
+            if !meltIssued { sound.play(.orbMelt, at: position) }
             if let instruction { surface.setInstruction(instruction) }
             release()
         case .follow:
             break
         case .home:
-            sound.play(.orbMelt, at: position)
+            if !meltIssued { sound.play(.orbMelt, at: position) }
+            onHomeArrival?()
             beginFade(to: 0, scales: true) { [weak self] in self?.finishHome() }
         }
     }
@@ -275,6 +263,7 @@ final class OrbController: OrbControlling {
         flight = nil
         fade = nil
         hopElapsed = nil
+        hold = 0
         surface.hide()
         out = false
         hiddenForDock = false
@@ -285,7 +274,14 @@ final class OrbController: OrbControlling {
         clock.start { [weak self] dt in self?.tick(dt) }
     }
 
-    private func tick(_ dt: Double) {
+    private func tick(_ elapsed: Double) {
+        var dt = elapsed
+        if hold > 0 {
+            let waited = min(hold, dt)
+            hold -= waited
+            dt -= waited
+            guard dt > 0 else { return }
+        }
         if var f = fade {
             f.elapsed += dt
             let p = CGFloat(min(f.elapsed / Self.fadeSeconds, 1))
@@ -302,8 +298,16 @@ final class OrbController: OrbControlling {
                 position = f.target                  // settled doesn't snap; land exactly
                 motion = OrbMotion(origin: f.target)
                 flight = nil
-                arrive(f.arrival)
+                arrive(f.arrival, meltIssued: f.meltIssued)
             } else {
+                if !f.meltIssued, lead > 0, f.arrival.melts {
+                    var ahead = motion
+                    _ = ahead.step(dt: lead)
+                    if ahead.settled || f.elapsed + lead >= Self.maxFlightSeconds {
+                        sound.play(.orbMelt, at: f.target)
+                        f.meltIssued = true
+                    }
+                }
                 flight = f
             }
         }
@@ -311,7 +315,7 @@ final class OrbController: OrbControlling {
         if let h = hopElapsed {
             let t = h + dt
             hopElapsed = t < Self.hopSeconds ? t : nil
-            if t < Self.hopSeconds { lift = Self.hopHeight * sin(.pi * t / Self.hopSeconds) }
+            if t > 0 && t < Self.hopSeconds { lift = Self.hopHeight * sin(.pi * t / Self.hopSeconds) }
         }
         if out { surface.place(center: CGPoint(x: position.x, y: position.y + lift)) }
         if fade == nil && flight == nil && hopElapsed == nil { clock.stop() }
@@ -344,36 +348,5 @@ final class OrbController: OrbControlling {
                                      leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
                                      rightAreaMinX: screen.auxiliaryTopRightArea?.minX, menuBarHeight: menuBar)
         return OrbOrigin.notchCentre(screenFrame: screen.frame, cutout: geometry.cutoutFrame, menuBarHeight: menuBar)
-    }
-}
-
-/// The display's refresh (CADisplayLink from the screen), as NotchPresentation drives its spring.
-@MainActor
-final class DisplayLinkClock: NSObject, OrbClock {
-    private var link: CADisplayLink?
-    private var last: CFTimeInterval?
-    private var tick: ((Double) -> Void)?
-
-    func start(_ tick: @escaping (Double) -> Void) {
-        self.tick = tick
-        guard link == nil, let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-        let l = screen.displayLink(target: self, selector: #selector(step(_:)))
-        l.add(to: .main, forMode: .common)
-        link = l
-        last = nil
-    }
-
-    func stop() {
-        link?.invalidate()
-        link = nil
-        last = nil
-        tick = nil
-    }
-
-    @objc private func step(_ l: CADisplayLink) {
-        let now = l.targetTimestamp
-        let dt = last.map { now - $0 } ?? (l.targetTimestamp - l.timestamp)
-        last = now
-        tick?(min(max(dt, 0), 1.0 / 20))            // a stalled frame doesn't jump the orb
     }
 }

@@ -1,7 +1,6 @@
 import AppKit
 import AVFAudio
 import AudioCapture
-import CoreAudio
 import NotchCore
 
 /// What plays FERB's sounds; the intro's controller and its tests take this, not the engine.
@@ -9,7 +8,12 @@ import NotchCore
 protocol FerbSoundPlaying: AnyObject {
     /// `point` is in AppKit global coordinates; nil plays it centred at the notch.
     func play(_ s: FerbSound, at point: CGPoint?)
+    /// Everything stops at once, the engine too, and keeping warm ends.
     func stopAll()
+    /// On (the whole tour): the engine stays running between sounds instead of stopping when idle.
+    func keepWarm(_ on: Bool)
+    /// How long a sound takes from `play` to leaving the current output device, in seconds.
+    var outputLatency: TimeInterval { get }
 }
 
 /// Where a sound sits: stereo position, the level drop and how far from the notch (0 at it, 1 a screen's height away).
@@ -35,7 +39,8 @@ struct SoundPlacement: Equatable {
 /// response, computed once per file, and mixed under the placed source at render.py's send. On headphones the
 /// source goes through an HRTF (AVAudioEnvironmentNode); on speakers it is panned with an equal-power law. Farther
 /// from the notch it is a little quieter, duller and roomier. The engine runs only while sounds play (and briefly
-/// after, so a run of cues stays warm), and stops at once on `stopAll()`.
+/// after, so a run of cues stays warm) or while kept warm, and stops at once on `stopAll()`. Every AVFAudio call
+/// that can raise an Objective-C exception goes through AudioCapture's wrappers.
 @MainActor
 final class FerbSoundEngine: FerbSoundPlaying {
     /// Today's master volume (SoundFeedback); at it, the family plays at the levels it was decided at.
@@ -44,39 +49,76 @@ final class FerbSoundEngine: FerbSoundPlaying {
     private static let stereo = AVAudioFormat(standardFormatWithSampleRate: FerbSoundData.sampleRate, channels: 2)!
     private static let mono = AVAudioFormat(standardFormatWithSampleRate: FerbSoundData.sampleRate, channels: 1)!
 
+    private(set) var outputLatency: TimeInterval = 0
     private let engine: AVAudioEngine
     private let environment = AVAudioEnvironmentNode()
     private var stereoPlayers: [AVAudioPlayerNode] = []
     private var spatialPlayers: [AVAudioPlayerNode] = []
+    private var graphReady = false
     private var nextStereo = 0
     private var nextSpatial = 0
     private let library = FerbSoundLibrary()
     private let defaults: UserDefaults
+    private let preference: @MainActor (String) -> Any?
     private let headphones: @MainActor () -> Bool
     private let screens: @MainActor () -> [(frame: CGRect, notch: CGPoint)]
+    private let measureLatency: @MainActor () -> TimeInterval
+    private let idleSleep: @Sendable (TimeInterval) async -> Void
+    private var warm = false
     private var busyUntil = Date.distantPast
     private var idleStop: Task<Void, Never>?
+    private var routeObserver: NSObjectProtocol?
 
     init(engine: AVAudioEngine = AVAudioEngine(), defaults: UserDefaults = .standard,
-         headphones: @escaping @MainActor () -> Bool = { FerbSoundEngine.headphonesAreTheOutput() },
-         screens: @escaping @MainActor () -> [(frame: CGRect, notch: CGPoint)] = { FerbSoundEngine.screensWithNotches() }) {
+         preference: @escaping @MainActor (String) -> Any? = { AudioOutputFacts.globalPreference($0) },
+         headphones: @escaping @MainActor () -> Bool = { AudioOutputFacts.headphonesAreTheOutput() },
+         screens: @escaping @MainActor () -> [(frame: CGRect, notch: CGPoint)] = { FerbSoundEngine.screensWithNotches() },
+         measureLatency: @escaping @MainActor () -> TimeInterval = { AudioOutputFacts.outputLatency() },
+         idleSleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(for: .seconds($0)) }) {
         self.engine = engine
         self.defaults = defaults
+        self.preference = preference
         self.headphones = headphones
         self.screens = screens
+        self.measureLatency = measureLatency
+        self.idleSleep = idleSleep
+        outputLatency = measureLatency()
+        // The output changed (headphones, a display's speakers): AVAudioEngine has stopped itself. Players are reset
+        // so the next sound starts cleanly; keeping warm survives the change.
+        routeObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                                               object: engine, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.outputChanged() }
+        }
     }
 
-    func play(_ s: FerbSound, at point: CGPoint?) {
-        guard SoundPolicy.shouldPlay(s, uiSoundsEnabled: Self.systemUISoundsEnabled(),
+    deinit {
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+        idleStop?.cancel()
+        FERBStopOutput(engine)
+    }
+
+    /// The gain at today's settings, before placement: FERB's volume (relative to the default) times the alert
+    /// volume. Nil when sound is off (the system's UI sounds or FERB's feedback).
+    var settingsGain: Float? {
+        guard SoundPolicy.shouldPlay(.done, uiSoundsEnabled: AudioOutputFacts.uiSoundsEnabled(preference),
                                      feedbackEnabled: defaults.object(forKey: "feedback.enabled") as? Bool ?? true)
-        else { return }
+        else { return nil }
         let volume = min(max(defaults.object(forKey: "feedback.volume") as? Double ?? Self.defaultVolume, 0), 0.5)
+        let gain = Float(volume / Self.defaultVolume) * AudioOutputFacts.alertVolume(preference)
+        return gain > 0 ? gain : nil
+    }
+
+    var isRunning: Bool { engine.isRunning }
+
+    func play(_ s: FerbSound, at point: CGPoint?) {
+        guard SoundPolicy.shouldPlay(s, uiSoundsEnabled: AudioOutputFacts.uiSoundsEnabled(preference),
+                                     feedbackEnabled: defaults.object(forKey: "feedback.enabled") as? Bool ?? true),
+              let gain = settingsGain else { return }
         let subtle = defaults.string(forKey: "feedback.intensity") == "subtle"
-        guard volume > 0, let url = FerbSoundFiles.files(for: s, subtle: subtle).randomElement(),
+        guard let url = FerbSoundFiles.files(for: s, subtle: subtle).randomElement(),
               let data = library.data(for: url, roomSend: FerbSoundFiles.isFinishedMix(s)
                                           ? nil : FerbSoundFiles.roomSend(s, subtle: subtle)),
               startIfNeeded() else { return }
-        let gain = Float(volume / Self.defaultVolume)
         let start = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.02))
         var seconds = Double(data.channels[0].count) / FerbSoundData.sampleRate
         if data.channels.count == 2 {
@@ -112,37 +154,56 @@ final class FerbSoundEngine: FerbSoundPlaying {
     }
 
     func stopAll() {
+        warm = false
+        halt()
+    }
+
+    func keepWarm(_ on: Bool) {
+        warm = on
+        if on {
+            idleStop?.cancel()
+            idleStop = nil
+            if settingsGain != nil { _ = startIfNeeded() }    // pre-rolled, so the first cue isn't late
+        } else if engine.isRunning {
+            scheduleIdleStop()
+        }
+    }
+
+    private func halt() {
         idleStop?.cancel()
         idleStop = nil
         busyUntil = .distantPast
-        for player in stereoPlayers + spatialPlayers { player.stop() }
-        FERBStopMagneticOutput(engine)
+        for player in stereoPlayers + spatialPlayers { FERBStopPlayer(player) }
+        FERBStopOutput(engine)
+    }
+
+    private func outputChanged() {
+        let keep = warm
+        stopAll()
+        outputLatency = measureLatency()
+        if keep { keepWarm(true) }
     }
 
     // MARK: - Engine
 
     private func startIfNeeded() -> Bool {
-        if stereoPlayers.isEmpty {
-            engine.attach(environment)
-            engine.connect(environment, to: engine.mainMixerNode, format: Self.stereo)
+        if !graphReady {
+            guard FERBAttachOutputNode(engine, environment, engine.mainMixerNode, Self.stereo) == nil else { return false }
             environment.reverbParameters.enable = false
             environment.distanceAttenuationParameters.rolloffFactor = 0  // distance is our own level and low-pass
-            for _ in 0..<3 {
-                let player = AVAudioPlayerNode()
-                engine.attach(player)
-                engine.connect(player, to: environment, format: Self.mono)
+            if spatialPlayers.isEmpty { spatialPlayers = (0..<3).map { _ in AVAudioPlayerNode() } }
+            if stereoPlayers.isEmpty { stereoPlayers = (0..<4).map { _ in AVAudioPlayerNode() } }
+            for player in spatialPlayers {
+                guard FERBAttachOutputNode(engine, player, environment, Self.mono) == nil else { return false }
                 player.renderingAlgorithm = .HRTFHQ
-                spatialPlayers.append(player)
             }
-            for _ in 0..<4 {
-                let player = AVAudioPlayerNode()
-                engine.attach(player)
-                engine.connect(player, to: engine.mainMixerNode, format: Self.stereo)
-                stereoPlayers.append(player)
+            for player in stereoPlayers {
+                guard FERBAttachOutputNode(engine, player, engine.mainMixerNode, Self.stereo) == nil else { return false }
             }
+            graphReady = true
         }
         if engine.isRunning { return true }
-        return FERBStartMagneticOutput(engine) == nil && engine.isRunning
+        return FERBStartOutput(engine) == nil && engine.isRunning
     }
 
     private func nextPlayer(_ pool: inout [AVAudioPlayerNode], _ index: inout Int) -> AVAudioPlayerNode {
@@ -160,21 +221,20 @@ final class FerbSoundEngine: FerbSoundPlaying {
             out[c].initialize(repeating: 0, count: frames)
             samples.withUnsafeBufferPointer { out[c].update(from: $0.baseAddress!, count: samples.count) }
         }
-        player.stop()                        // a reused player gives up its old sound
         player.volume = volume
-        player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
-        player.play(at: start)
+        _ = FERBPlayBuffer(player, buffer, start)    // a reused player gives up its old sound
     }
 
     private func scheduleIdleStop() {
         idleStop?.cancel()
+        idleStop = nil
+        guard !warm else { return }
         let wait = max(0, busyUntil.timeIntervalSinceNow) + Self.idleSeconds
+        let sleep = idleSleep
         idleStop = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(wait))
-            guard !Task.isCancelled, let self else { return }
-            for player in self.stereoPlayers + self.spatialPlayers { player.stop() }
-            FERBStopMagneticOutput(self.engine)
-            self.idleStop = nil
+            await sleep(wait)
+            guard !Task.isCancelled, let self, !self.warm else { return }
+            self.halt()
         }
     }
 
@@ -183,40 +243,6 @@ final class FerbSoundEngine: FerbSoundPlaying {
         for i in a.indices { out[i] += a[i] }
         for i in b.indices { out[i] += b[i] }
         return out
-    }
-
-    // MARK: - System facts
-
-    /// "Play user interface sound effects" (System Settings → Sound); absent means on.
-    static func systemUISoundsEnabled() -> Bool {
-        CFPreferencesAppSynchronize(kCFPreferencesAnyApplication)
-        let value = CFPreferencesCopyAppValue("com.apple.sound.uiaudio.enabled" as CFString, kCFPreferencesAnyApplication)
-        return (value as? NSNumber)?.boolValue ?? true
-    }
-
-    /// The default output is headphones: the built-in output's headphone jack, or a Bluetooth device (AirPods and
-    /// other headsets, the common case; a Bluetooth speaker also takes this path).
-    static func headphonesAreTheOutput() -> Bool {
-        var device = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-                                                 mScope: kAudioObjectPropertyScopeGlobal,
-                                                 mElement: kAudioObjectPropertyElementMain)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
-              device != 0 else { return false }
-        var transport = UInt32(0)
-        size = UInt32(MemoryLayout<UInt32>.size)
-        address.mSelector = kAudioDevicePropertyTransportType
-        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &transport) == noErr else { return false }
-        if transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE {
-            return true
-        }
-        guard transport == kAudioDeviceTransportTypeBuiltIn else { return false }
-        var source = UInt32(0)
-        address.mSelector = kAudioDevicePropertyDataSource
-        address.mScope = kAudioDevicePropertyScopeOutput
-        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &source) == noErr else { return false }
-        return source == 0x6864_706E                                   // 'hdpn', the headphone jack
     }
 
     static func screensWithNotches() -> [(frame: CGRect, notch: CGPoint)] {

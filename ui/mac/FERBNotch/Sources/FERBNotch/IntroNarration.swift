@@ -28,11 +28,50 @@ extension NotchModel {
     func introLineChanged(from old: IntroLine?) {
         guard introLine != old else { return }
         if let introLine { introDisplayLine = introLine }
-        // A new line of the same height doesn't restart the spring; its text updates in place.
-        guard !expanded, (old == nil) != (introLine == nil) || introSurfaceHeight(old) != introSurfaceHeight(introLine)
+        // A new line of the same size doesn't restart the spring; its text updates in place.
+        guard !expanded, introSurfaceBefore.visible != surfaceVisible || introSurfaceBefore.size != surfaceSize
         else { return }
         onBackgroundChange?(true)
     }
+
+    /// What the closed notch's surface shows. The live intro line wins while it is set; then a live plan preview;
+    /// then the orb's homecoming swell; then whichever surface is still closing.
+    var compactContent: NotchCompactContent? {
+        guard !expanded else { return nil }
+        if let introLine { return .intro(introLine) }
+        if compactPlanText != nil, let text = compactPlanDisplayText { return .plan(text) }
+        if introPulsing { return .pulse }
+        if let introDisplayLine { return .intro(introDisplayLine) }
+        return compactPlanDisplayText.map { .plan($0) }
+    }
+
+    var introPulseSize: CGSize { CGSize(width: handleWidth + 40, height: cutoutHeight + 10) }
+
+    /// The notch swells once and shrinks back, as it takes the orb back (Task 8 calls it on the orb's home arrival).
+    /// Nothing happens while the chat is open or a line is showing.
+    func pulseIntro(seconds: Double = 0.3) {
+        guard !expanded, introLine == nil else { return }
+        introDisplayLine = nil
+        introPulseTask?.cancel()
+        setIntroPulse(true)
+        introPulseTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.setIntroPulse(false)
+        }
+    }
+
+    private func setIntroPulse(_ on: Bool) {
+        let wasVisible = surfaceVisible, before = surfaceSize
+        introPulsing = on
+        if !expanded && (wasVisible != surfaceVisible || before != surfaceSize) { onBackgroundChange?(true) }
+    }
+}
+
+enum NotchCompactContent: Equatable {
+    case intro(IntroLine)
+    case plan(String)
+    case pulse
 }
 
 struct IntroNarrationView: View {

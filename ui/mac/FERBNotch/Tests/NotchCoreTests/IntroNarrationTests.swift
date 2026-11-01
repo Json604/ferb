@@ -81,43 +81,59 @@ final class IntroNarrationTests: XCTestCase {
     }
 }
 
+/// The closed notch shows one thing; the live intro line wins while set (fix round 1).
 @MainActor
-private final class FakeOrbSurface: OrbSurface {
-    var visible = false
-    var center = CGPoint.zero
-    var dragItem: URL?
-    var instruction: IntroLine?
-    var isVisible: Bool { visible }
-    func place(center: CGPoint) { self.center = center }
-    func setAppearance(scale: CGFloat, opacity: CGFloat) {}
-    func setInstruction(_ line: IntroLine?) { instruction = line }
-    func setDragItem(_ url: URL?) { dragItem = url }
-    func setWaiting(_ waiting: Bool) {}
-    func show() { visible = true }
-    func hide() { visible = false }
-}
+final class IntroPrecedenceTests: XCTestCase {
+    func testAPlanPreviewArrivingAsTheIntroLineClosesShowsThePlanNotTheOldLine() {
+        let model = NotchModel(preferences: scratchDefaults())
+        model.introLine = IntroLine(text: "Let's try one together.", detail: "Watch the notch.")
+        model.introLine = nil                                    // closing; its dismissal hasn't finished
+        model.acknowledgement.show("I'll check the weather.")
+        XCTAssertNil(model.introDisplayLine)
+        XCTAssertEqual(model.compactContent, .plan("I'll check the weather."))
+        XCTAssertEqual(model.surfaceSize.height, model.compactPlanHeight)
+    }
 
-@MainActor
-private final class FakeSoundPlayer: FerbSoundPlaying {
-    var played: [FerbSound] = []
-    var stops = 0
-    func play(_ s: FerbSound, at point: CGPoint?) { played.append(s) }
-    func stopAll() { stops += 1 }
-}
+    func testAnIntroLineOverAPlanPreviewWinsAndGivesItBack() {
+        let model = NotchModel(preferences: scratchDefaults())
+        model.acknowledgement.show("I'll check the weather.")
+        var presented: [Bool] = []
+        model.onBackgroundChange = { presented.append($0) }
+        let line = IntroLine(text: "That's FERB planning.", detail: nil)
+        model.introLine = line
+        XCTAssertEqual(model.compactContent, .intro(line))
+        XCTAssertEqual(model.surfaceSize.height, model.introSurfaceHeight(line))
+        model.introLine = nil
+        XCTAssertEqual(model.compactContent, .plan("I'll check the weather."))
+        XCTAssertEqual(model.surfaceSize.height, model.compactPlanHeight)
+        XCTAssertEqual(presented, [true, true])
+    }
 
-@MainActor
-private final class ManualClock: OrbClock {
-    private var tick: ((Double) -> Void)?
-    var running: Bool { tick != nil }
-    func start(_ tick: @escaping (Double) -> Void) { self.tick = tick }
-    func stop() { tick = nil }
-    func advance(_ dt: Double) { tick?(dt) }
-}
+    func testWithBothSetTheIntroLineWinsWhicheverCameFirst() {
+        let model = NotchModel(preferences: scratchDefaults())
+        let line = IntroLine(text: "Here's the plan.", detail: nil)
+        model.introLine = line
+        model.acknowledgement.show("I'll check the weather.")
+        XCTAssertEqual(model.compactContent, .intro(line))
+        XCTAssertEqual(model.introDisplayLine, line)
+        XCTAssertEqual(model.surfaceSize.height, model.introSurfaceHeight(line))
+        model.introLine = nil
+        XCTAssertEqual(model.compactContent, .plan("I'll check the weather."))
+    }
 
-@MainActor
-private final class FakeTracker: SettingsWindowTracking {
-    var onChange: ((CGPoint?) -> Void)?
-    var running = false
-    func start() { running = true }
-    func stop() { running = false }
+    func testThePulseSwellsTheNotchOnceAndShrinksBack() async throws {
+        let model = NotchModel(preferences: scratchDefaults())
+        let collapsed = model.surfaceSize
+        var presented: [Bool] = []
+        model.onBackgroundChange = { presented.append($0) }
+        model.pulseIntro(seconds: 0.05)
+        XCTAssertTrue(model.surfaceVisible)
+        XCTAssertFalse(model.expanded)
+        XCTAssertEqual(model.compactContent, .pulse)
+        XCTAssertGreaterThan(model.surfaceSize.height, collapsed.height)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertFalse(model.surfaceVisible)
+        XCTAssertEqual(model.surfaceSize, collapsed)
+        XCTAssertEqual(presented, [true, true])
+    }
 }

@@ -215,6 +215,7 @@ final class NotchModel: ObservableObject {
             let previousSize = self.surfaceSize
             self.compactPlanText = text
             if let text { self.compactPlanDisplayText = text }
+            if text != nil && self.introLine == nil { self.introDisplayLine = nil }   // a closed intro line can't show
             if self.expanded { self.compactPlanDisplayText = nil }
             // Text within the same measured lines does not restart the native reveal spring.
             if !self.expanded && (wasVisible != self.surfaceVisible || previousSize != self.surfaceSize) {
@@ -261,10 +262,20 @@ final class NotchModel: ObservableObject {
         if introLine == nil { introDisplayLine = nil }
     }
     /// FERB's line in the first-run intro (IntroNarration.swift): set, the notch swells to show it; nil, it shrinks back.
-    @Published var introLine: IntroLine? { didSet { introLineChanged(from: oldValue) } }
+    @Published var introLine: IntroLine? {
+        willSet { introSurfaceBefore = (surfaceVisible, surfaceSize) }
+        didSet {
+            if introLine != nil && compactPlanText == nil { compactPlanDisplayText = nil }   // a closed preview can't show
+            introLineChanged(from: oldValue)
+        }
+    }
+    var introSurfaceBefore = (visible: false, size: CGSize.zero)
     /// Kept while the surface closes, like the plan preview's text.
     @Published var introDisplayLine: IntroLine?
-    var surfaceVisible: Bool { expanded || compactPlanText != nil || introLine != nil }
+    /// The notch's single swell as it takes the orb back (`pulseIntro()`).
+    @Published var introPulsing = false
+    var introPulseTask: Task<Void, Never>?
+    var surfaceVisible: Bool { expanded || compactPlanText != nil || introLine != nil || introPulsing }
     var compactPlanHeight: CGFloat {
         guard let compactPlanText else { return 0 }
         let text = (compactPlanText as NSString).boundingRect(
@@ -373,11 +384,13 @@ final class NotchModel: ObservableObject {
     var surfaceSize: CGSize {
         if !expanded, let height = introSurfaceHeight(introLine) { return CGSize(width: bodyWidth, height: height) }
         if compactPlanText != nil && !expanded { return CGSize(width: bodyWidth, height: compactPlanHeight) }
+        if introPulsing && !expanded { return introPulseSize }
         return CGSize(width: expanded ? bodyWidth : handleWidth, height: cutoutHeight + (bodyVisible ? bodyHeight : 0))
     }
     var panelSize: CGSize {
         if !expanded, let height = introSurfaceHeight(introLine) { return CGSize(width: bodyWidth + 16, height: height + 12) }
         if compactPlanText != nil && !expanded { return CGSize(width: bodyWidth + 16, height: compactPlanHeight + 12) }
+        if introPulsing && !expanded { return CGSize(width: introPulseSize.width + 16, height: introPulseSize.height + 12) }
         if expanded { return CGSize(width: bodyWidth + 16, height: cutoutHeight + (bodyVisible ? bodyHeight : 0) + 12) }
         // The independent, mouse-transparent tracer owns its own glow margin.
         return CGSize(width: handleWidth, height: cutoutHeight)

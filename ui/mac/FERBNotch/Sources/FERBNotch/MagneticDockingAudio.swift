@@ -28,7 +28,7 @@ final class MagneticDockingAudio {
     private var completionTime: TimeInterval?
     private(set) var startError: Error?
 
-    init(feedback: SoundFeedback, startEngine: @escaping (AVAudioEngine) throws -> Void = { if let error = FERBStartMagneticOutput($0) { throw error } }) {
+    init(feedback: SoundFeedback, startEngine: @escaping (AVAudioEngine) throws -> Void = { if let error = FERBStartOutput($0) { throw error } }) {
         self.feedback = feedback
         self.startEngine = startEngine
         observation = feedback.objectWillChange.sink { [weak self] in
@@ -43,7 +43,7 @@ final class MagneticDockingAudio {
     }
 
     func outputRouteChanged() {
-        FERBStopMagneticOutput(engine)
+        FERBStopOutput(engine)
         if latest.phase == .dragging || latest.phase == .fusing { applyControls() }
     }
 
@@ -97,7 +97,7 @@ final class MagneticDockingAudio {
         stopTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled, let self else { return }
-            FERBStopMagneticOutput(self.engine)
+            FERBStopOutput(self.engine)
             self.stopTask = nil
         }
     }
@@ -113,13 +113,13 @@ final class MagneticDockingAudio {
         FERBMagneticSynthCancel(synth)
         stopTask?.cancel()
         stopTask = nil
-        FERBStopMagneticOutput(engine)
+        FERBStopOutput(engine)
     }
 
     deinit {
         stopTask?.cancel()
         if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
-        FERBStopMagneticOutput(engine)
+        FERBStopOutput(engine)
         if let source { FERBDetachMagneticOutput(engine, source) }
     }
 }

@@ -60,16 +60,40 @@ NSError *FERBConfigureMagneticOutput(AVAudioEngine *engine, AVAudioSourceNode *s
         return nil;
     } @catch (NSException *exception) { return MagneticOutputError(); }
 }
-NSError *FERBStartMagneticOutput(AVAudioEngine *engine) {
-    @try {
-        NSError *error = nil;
-        if (![engine startAndReturnError:&error]) return error ?: MagneticOutputError();
-        return nil;
-    } @catch (NSException *exception) { return MagneticOutputError(); }
-}
-void FERBStopMagneticOutput(AVAudioEngine *engine) {
-    @try { [engine stop]; } @catch (NSException *exception) {}
-}
 void FERBDetachMagneticOutput(AVAudioEngine *engine, AVAudioSourceNode *source) {
     @try { [engine disconnectNodeOutput:source]; [engine detachNode:source]; } @catch (NSException *exception) {}
+}
+
+static NSError *OutputError(void) {
+    return [NSError errorWithDomain:@"FERBOutput" code:1 userInfo:@{
+        NSLocalizedDescriptionKey: @"Audio output is unavailable."
+    }];
+}
+NSError *FERBStartOutput(AVAudioEngine *engine) {
+    @try {
+        NSError *error = nil;
+        if (![engine startAndReturnError:&error]) return error ?: OutputError();
+        return nil;
+    } @catch (NSException *exception) { return OutputError(); }
+}
+void FERBStopOutput(AVAudioEngine *engine) {
+    @try { [engine stop]; } @catch (NSException *exception) {}
+}
+NSError *FERBAttachOutputNode(AVAudioEngine *engine, AVAudioNode *node, AVAudioNode *destination, AVAudioFormat *format) {
+    @try {
+        if (node.engine == nil) [engine attachNode:node];
+        [engine connect:node to:destination format:format];
+        return nil;
+    } @catch (NSException *exception) { return OutputError(); }
+}
+NSError *FERBPlayBuffer(AVAudioPlayerNode *player, AVAudioPCMBuffer *buffer, AVAudioTime *time) {
+    @try {
+        [player stop];
+        [player scheduleBuffer:buffer atTime:nil options:0 completionHandler:nil];
+        [player playAtTime:time];
+        return nil;
+    } @catch (NSException *exception) { return OutputError(); }
+}
+void FERBStopPlayer(AVAudioPlayerNode *player) {
+    @try { [player stop]; } @catch (NSException *exception) {}
 }
