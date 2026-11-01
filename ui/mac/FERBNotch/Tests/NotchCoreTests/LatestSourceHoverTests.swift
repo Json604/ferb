@@ -109,6 +109,10 @@ final class LatestSourceHoverTests: XCTestCase {
         let tracker = try XCTUnwrap(descendants(host).compactMap { $0 as? PreviewHoverTrackingView }.first)
         let original = scroll.contentView.bounds.origin
         let originalHeight = scroll.documentView!.frame.height
+        // A Mac without a trackpad (GitHub's macOS runner) shows legacy scrollers, which take their width from the
+        // transcript; with overlay scrollers (a MacBook) they take none.
+        let scroller = scroll.scrollerStyle == .legacy && scroll.hasVerticalScroller
+            ? NSScroller.scrollerWidth(for: scroll.verticalScroller?.controlSize ?? .regular, scrollerStyle: .legacy) : 0
         for index in 0..<60 {
             let y = 100 + sin(Double(index) / 4) * 20.321
             let card = CGRect(x: 350 + cos(Double(index) / 3) * 30.321, y: y, width: size.width, height: size.height)
@@ -121,7 +125,7 @@ final class LatestSourceHoverTests: XCTestCase {
             XCTAssertEqual(presentation.surfaceOrigin.y * scale, (presentation.surfaceOrigin.y * scale).rounded(), accuracy: 0.000001)
             host.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(16))
-            XCTAssertEqual(scroll.contentView.bounds.width, size.width - 50, accuracy: 0.01)
+            XCTAssertEqual(scroll.contentView.bounds.width, size.width - 50 - scroller, accuracy: 0.01)
             XCTAssertEqual(scroll.contentView.bounds.origin.y, original.y, accuracy: 0.5)
             XCTAssertEqual(scroll.documentView!.frame.height, originalHeight, accuracy: 0.5)
             XCTAssertFalse(tracker.hoverRect.isEmpty)
