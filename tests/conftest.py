@@ -205,7 +205,8 @@ def no_report_relay(monkeypatch: pytest.MonkeyPatch) -> None:
 # them to a second, serial pass (kb/gate.toml). The sandbox's local-network tests fail when other tests run alongside;
 # the timing tests (linear redaction, connection starvation) measure the machine's free time.
 _SERIAL = ("test_local_direct.py", "test_local_egress.py", "test_local_sockets.py", "test_shell_sandbox.py",
-           "test_egress_proxy.py", "test_mac_shell.py", "test_redaction_scaling.py", "test_audio_listen.py")
+           "test_egress_proxy.py", "test_mac_shell.py", "test_redaction_scaling.py", "test_audio_listen.py",
+           "test_escape_hatch.py", "test_failure_report.py")
 
 
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
