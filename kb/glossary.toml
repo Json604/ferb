@@ -51,3 +51,23 @@ see = ["GATE-200"]
 ["escape hatch"]
 meaning = "A shell command run with a protection rule lifted after the owner's Yes; FERB state, its service definitions and the network rule are never lifted."
 see = ["HAND-217"]
+
+["sink rule"]
+meaning = "The owner's private data never goes, after outside content was read, to a destination the owner neither named nor approved without the owner's Yes."
+see = ["GATE-205", "GATE-215", "GATE-218"]
+
+["Need"]
+meaning = "One question a call may require (protection, payment, sink, foreground, terminal...), produced by the gateway and asked in its one find/ask/record/claim step."
+see = ["GATE-202", "GATE-221"]
+
+["tab chain"]
+meaning = "A task tab and every tab or popup it opened; one payment's Yes covers its chain only."
+see = ["GATE-204", "GATE-216"]
+
+["known destination"]
+meaning = "A recipient or site the owner approved, or a site named in a request; approved ones pass the sink rule, any known one passes the new-recipient check."
+see = ["GATE-205", "GATE-218"]
+
+["routine questions"]
+meaning = "The questions a \"don't ask for 30 minutes\" answer covers: foreground, protected-folder reads, a browser's own pages, new recipients, profile pairing."
+see = ["GATE-207"]

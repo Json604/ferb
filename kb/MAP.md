@@ -8,8 +8,8 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 |---|---|---|---|---|---|
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 0 | 0 | 1 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 0 | 0 | 0 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 2 | 0 | 0 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 44 | 1 | 6 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 25 | 1 | 0 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 45 | 1 | 6 |
 | memory | Memory and memory import | `ferb/memory` | 34 | 2 | 2 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 1 | 0 | 0 |
 | perception | Perception | `ferb/sense` | 7 | 1 | 1 |
@@ -23,4 +23,4 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 ## Terms
 
-Jev, P19, Tier 1, borrowed tab, daily distill, escape hatch, holds up, how-note, lift, playbook, set aside, visible folders (`tools/kb/run kb search <term>`)
+Jev, Need, P19, Tier 1, borrowed tab, daily distill, escape hatch, holds up, how-note, known destination, lift, playbook, routine questions, set aside, sink rule, tab chain, visible folders (`tools/kb/run kb search <term>`)

@@ -47,3 +47,11 @@ kind = "build"
 status = "open"
 why = "HAND-207 names it as later; notes/hands.md step 14b left it unbuilt. Its timing is the owner's call (launch scope puts it after launch)."
 decisions = ["HAND-207"]
+
+[T-201]
+title = "Native apps: find a structural source for pay, account-security and send facts"
+area = "gateway"
+kind = "build"
+status = "open"
+why = "In native apps these questions still rest on the worker's declaration (GATE-202): the only cheap pre-call Accessibility fact is a secure field, which can't tell a sign-in from a password change; no card, amount or recipient markup. Needs a structural source first."
+decisions = ["GATE-202"]

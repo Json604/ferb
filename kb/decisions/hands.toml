@@ -466,3 +466,15 @@ why = "`deny file-write-unlink` alone still allows creating, moving a new file i
 evidence = "sandbox-exec on scratch folders, 2026-10-30: file-write* blocked all ten operations; .git/index.lock creation and its rename onto .git/index were allowed by the hidden-component allow."
 paths = ["ferb/act/shell/sandbox.py"]
 legacy = "notes/hands.md Measurements (step 0): sandbox semantics"
+
+[HAND-245]
+title = "Shell egress stays free and recorded"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words = "Free, recorded"
+words_source = "The owner's 2026-10-13 choice, confirmed 2026-11-01; the rule's wording is an agent's paraphrase"
+rule = "The shell can reach any site; every connection is recorded in the trace. Sending private data from the browser still asks (the sink rule). The browser URL sink therefore guards only browser navigation (accepted residual)."
+rejected = ["Ask the first time a host is reached (2026-10-10)", "The old docs' L2 egress limit"]
+paths = ["ferb/act/shell/proxy.py", "ferb/daemon/areas/egress.py"]
+legacy = "notes/gateway.md decision 9"

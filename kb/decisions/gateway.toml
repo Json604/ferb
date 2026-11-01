@@ -20,3 +20,233 @@ rule = "The foreground Need is keyed by confirm.app_key: the running app's bundl
 evidence = "Live 2026-10-31: asked about \"Terminal\", then again about \"pid:9040\"."
 paths = ["ferb/policy/confirm.py::app_key"]
 legacy = "notes/hands.md Rulings (step 12e part 2): one foreground question per app"
+
+[GATE-202]
+title = "Tool facts raise pay, account-security, delete and send questions; the declaration only adds"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/gateway.md owner decision 1: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Tools report structural facts (a form submit and its action host, card/password field types, the checkout amount on the page, the recipient a mail/message tool uses); facts raise the question. The worker's `effect` declaration can only add a question, never remove one."
+evidence = "Before: 11,328 of 13,318 live tool calls declared no effect; a \"Place order\" click with no effect asked nothing."
+paths = ["ferb/policy/confirm.py", "ferb/daemon/gateway.py", "ferb/core/types.py::ActionFacts"]
+legacy = "notes/gateway.md decision 1; target design 2"
+
+[GATE-203]
+title = "File tools follow the never-read and never-write lists, like the shell"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/gateway.md owner decision 2: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "File tools are bound by the never-read and never-write protection lists, like the shell. A task that needs a listed place asks the owner: reads once per protected folder per task (GATE-200), writes per action."
+rejected = ["File tools skipping the never-read list (`fs_reads_never_read = true`, the 2026-10-11 setting, reversed)"]
+paths = ["ferb/policy/protection.py"]
+legacy = "notes/gateway.md decision 2"
+
+[GATE-204]
+title = "One payment, one question"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/gateway.md owner decision 4: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Asked once when the final amount is known, with amount and merchant read from the page by code (never the worker's number; if unreadable, the question says so). The Yes covers that payment in this task's tab and what it opens until it completes or 10 minutes pass; another tab or task asks again. A bank page whose amount or merchant differs asks again showing both; an OTP question repeats them. With no bank page, it asks at the final pay click; a changed amount asks again. Known sites never skip it."
+rejected = ["Same amount, any site, 10 minutes (the earlier rule this replaces)"]
+evidence = "Zomato order 400d67fb asked 6 times in 5 minutes for one payment (one-click Yes, card choice, bank page, an outside-value question on the amount)."
+paths = ["ferb/policy/payments.py::Payments"]
+legacy = "notes/gateway.md decision 4"
+
+[GATE-205]
+title = "Known destinations stay known; only private-data sends after outside reads ask"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/gateway.md owner decision 5: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Recipients and sites the owner approved stay known for good. Sites mentioned in a request are known for normal use in that and later tasks; only sending private data there after outside content was read still asks once."
+paths = ["ferb/policy/destinations.py"]
+legacy = "notes/gateway.md decision 5"
+
+[GATE-206]
+title = "Card details are secret like passwords and filled only through the sealed path"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/gateway.md owner decision 6 (owner confirmed): an agent's paraphrase; no verbatim quote recorded"
+rule = "Card fields (autocomplete cc-number / cc-csc / cc-exp) are secret fields like password and OTP fields: values never captured in snapshots, boxes masked in screenshots; card details are filled only through the sealed path (stored once in the Keychain) or the site's / browser's saved card. The redactor masks CVV beside its label and expiry beside a card. Storing a card works like other owner secrets: asked, hidden input, models see only a handle."
+paths = ["extensions/chromium/content.js", "ferb/sanitize", "ferb/identity/owner_secrets.py"]
+legacy = "notes/gateway.md decision 6"
+
+[GATE-207]
+title = "\"Allow all for a short time\" covers only routine questions"
+by = "owner"
+date = 2026-10-27
+status = "active"
+words = "YES to all and above too"
+words_source = "The owner's reply (2026-10-26/27) to a tester's ask, recorded 2026-10-31 from the 10-27 decision list; the rule's wording is an agent's paraphrase"
+rule = "One \"don't ask for 30 minutes\" answer covers routine questions only: the foreground question, protected-folder read lifts, a browser's own pages, new recipients and profile pairing. It never covers payments, account security, permanent deletion, terminal typing, certificate checks turned off or the sink question. The window is one value for the gateway, spanning tasks until it ends; Yeses inside it record destinations like normal Yeses."
+paths = ["ferb/policy/confirm.py::ROUTINE", "ferb/policy/confirm.py::ALLOW_WINDOW_S"]
+legacy = "notes/gateway.md decision 7"
+
+[GATE-208]
+title = "Questions read plainly"
+by = "owner"
+date = 2026-10-26
+status = "active"
+words = "just ask simply what you want with a small reason below"
+words_source = "The owner, 2026-10-24 and 2026-10-26; the rule's details are an agent's paraphrase"
+rule = "Every question is one plain line of what FERB wants plus a small reason line built from page facts (the field's label, the currency, the merchant rather than a bank's verification domain); the step and the raw call go under Details."
+paths = ["ferb/policy/confirm.py"]
+legacy = "notes/gateway.md decision 8"
+
+[GATE-209]
+title = "A pasted secret is hidden and FERB names its kind"
+by = "owner"
+date = 2026-11-01
+status = "active"
+words_source = "notes/gateway.md owner decision 10: an agent's paraphrase; the quoted notices are example wording, not the owner's words"
+rule = "A secret the owner pastes into the chat is masked before any model sees it, and a code-made notice under the message names the kind found (or says it is one of the owner's saved secrets) and that FERB hid it from the AI and didn't save it. No advice to revoke it: the value never left the Mac."
+paths = ["ferb/sanitize/redact.py", "ferb/daemon/areas/chat.py"]
+legacy = "notes/gateway.md decision 10"
+
+[GATE-210]
+title = "Owner-decided redaction details stay"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/gateway.md target design 4 names these as owner-decided; the original decisions and their dates aren't in this file; no verbatim quote"
+rule = "The redaction rebuild keeps the owner-decided details: the address-code exemption, CODE_REACH 8 (a code word reaches a code across at most 8 words), and dictionary-word secrets (a sealed dictionary word is matched as a whole word)."
+paths = ["ferb/sanitize/labels.py::CODE_REACH"]
+legacy = "notes/gateway.md target design 4 (owner-decided details)"
+
+[GATE-211]
+title = "The reviewed OTP redaction rules stay"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "All reviewed OTP rules are kept (email layouts, markup, backup-code lists)."
+why = "Their tests guard real past leaks."
+paths = ["ferb/sanitize/labels.py"]
+legacy = "notes/gateway.md Rulings (step 6a): OTP rules"
+
+[GATE-212]
+title = "Cards are checked over every digit window; expiry and CVV only in context"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Card numbers are checked (Luhn) over every window of digit groups, so `qty 2 <card>` is caught. Expiry is masked only in MM/YY form after an expiry label or right after a card; CVV only beside its label (or after a card and expiry)."
+why = "Grouped order numbers get masked a bit more often (about 19% vs 11%); hiding too much is the safe side."
+paths = ["ferb/sanitize/formats.py", "ferb/sanitize/redact.py"]
+legacy = "notes/gateway.md Rulings (step 6a): cards, expiry, CVV"
+
+[GATE-213]
+title = "Saved secrets are preloaded at start; test daemons never preload"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "The daemon preloads saved-secret values (and API keys only for runtimes in use) into the known-value registry at start, so they are masked before their first fill. Test daemons never preload."
+why = "An early test run read API-key entries from the owner's login Keychain inside a short-lived test process (only a count was written, in a temp home since deleted); guarded by a test."
+paths = ["ferb/daemon/areas/environment.py", "ferb/sanitize/known.py"]
+legacy = "notes/gateway.md Rulings (step 6a): preload"
+
+[GATE-214]
+title = "Which facts raise pay, account security and permanent delete"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "A submitted form with a card field (cc-number/cc-csc/cc-exp) asks as a payment. A current-password field together with a new_password field asks as account security; a sign-up's new-password field alone asks nothing. A tool's `deletes` outside the Trash ask as permanent delete of each path (counted first if a folder). Each fact kind is decided with its own target and provenance; the union with the declaration's needs is asked."
+why = "2FA and recovery fields aren't structurally detectable yet."
+paths = ["ferb/daemon/gateway.py", "ferb/policy/confirm.py"]
+legacy = "notes/gateway.md Rulings (step 6b): facts to kinds (coordinator rulings)"
+
+[GATE-215]
+title = "A submitted form is a sink question only when it carries the owner's private data"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Every submitted form goes to the sink rule only: asked when a value typed or chosen into that tab carries the owner's private data by provenance, after outside content was read, to the form's action host (else the page's) that the owner neither named in this request nor approved. A submit with no private value never asks (GET or POST) and never raises the new-recipient question. The test-mode allowlist covers fact payments, not fact form submits."
+paths = ["ferb/policy/confirm.py::text_carries_private", "ferb/store/spans.py"]
+legacy = "notes/gateway.md Rulings (step 6b): facts to kinds, form submits (coordinator ruling)"
+
+[GATE-216]
+title = "A payment's Yes is scoped to its tab chain; what counts as a bank page"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "A browser payment's Yes is keyed to its tab chain (the first task tab that opened it). A Mac app's payment is scoped to its app window (bundle + window id) for 10 minutes; a payment with neither asks every run, showing an unread amount unless the capability describes it. The worker's declared amount is never shown or keyed. Bank page = the tab moved to another host, or the input is in a frame of another host (a payment gateway's card frame too: only a differing amount/merchant asks there)."
+paths = ["ferb/policy/payments.py"]
+legacy = "notes/gateway.md Rulings (step 6b): one payment, one question (scope)"
+
+[GATE-217]
+title = "When a payment is complete, and how amounts compare"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Complete (next payment asks): a call ran on another host and the chain came back to the checkout's host; a second card form is submitted there; or a one-click paying submit with no card form or bank page before it. Amounts compare by currency and number (a side with no currency compares the number); merchants case- and space-insensitively; an amount read where the approved one was unread asks again. Approvals live in memory (a restart asks again); a No is keyed by chain + amount + merchant and stays final."
+why = "Residual: a one-click script button (no submit fact) can't be told from the same payment's later clicks, so a second identical order there within 10 minutes isn't asked again."
+paths = ["ferb/policy/payments.py"]
+legacy = "notes/gateway.md Rulings (step 6b): one payment, one question (completion)"
+
+[GATE-218]
+title = "Approved destinations pass the sink rule; stored keys never hold secrets"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "KnownDestinations.approved (answered or confirmed) is the sink rule's test; known (any how) stays the new-recipient and outside-value test. A named destination is upgraded when the owner later approves it, never downgraded. Stored keys and values: the text when the redactor leaves it alone, sha256:<digest> when it would change it without a specific hit, never stored or matched when Redactor.hit finds a saved secret or credential format."
+paths = ["ferb/policy/destinations.py"]
+legacy = "notes/gateway.md Rulings (step 6b): known destinations"
+
+[GATE-219]
+title = "Saved card details fill only their own field kind; typed card digits are refused"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Owner secrets saved from a card field keep their kind and fill only a field of the same kind; a card field takes only an entry of its kind or a one-time hidden input. The gateway refuses typed text into a card field and a Luhn-valid card number typed anywhere."
+paths = ["ferb/identity/owner_secrets.py", "ferb/daemon/gateway.py"]
+legacy = "notes/gateway.md Rulings (step 6b): cards"
+
+[GATE-220]
+title = "A tool that failed before acting is failed, not unknown"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "An exception from a tool counts as failed (retry not blocked, the owner's Yes released) when it is Refused (any subclass), a pydantic ValidationError, or carries attempted = False; anything else is unknown for the repeat check (P19). The call's span is finished whatever escapes."
+why = "Every exception used to mark the ledger row unknown even before acting (live: 20 unknown rows, 0 retry approvals)."
+paths = ["ferb/daemon/gateway.py"]
+legacy = "notes/gateway.md Rulings (step 6b): P19"
+
+[GATE-221]
+title = "A standing permission covers a need only for that need's own target"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "Each confirm.Need carries `reaches` (the target it was decided for: the call's, a fact's, a counted folder) and StandingPermissions.covers compares the scope's site and recipients with that target; tool, identity, account and content stay the call's."
+why = "A scope for the page's site covered a private value a form posted to another host (ran unasked with effect=send)."
+paths = ["ferb/policy/standing.py", "ferb/policy/confirm.py"]
+legacy = "notes/gateway.md Rulings (review 2026-11-01): standing scope"
+
+[GATE-222]
+title = "A script for a browser is Mac input in that browser"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "mac.applescript addressed to a web browser (the one browser list) takes the same foreground question as Mac input there (same key: one Yes covers the browser for the task whichever Mac tool acts); a quoted browser page address in the script (chrome://extensions…) asks every time like input on that page. Not refused."
+paths = ["ferb/act/mac/tools.py", "ferb/policy/confirm.py"]
+legacy = "notes/gateway.md Rulings (review 2026-11-01): script for a browser"
+
+[GATE-223]
+title = "Paths a script names follow the protection lists as changes"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "MacAppleScript.file_paths reports each quoted POSIX path and HFS path on a mounted volume as a change, so the one gateway file check applies: FERB's own state, FERB.app and its service definitions refused whatever the owner said, a listed place asks per call."
+why = "The app a script tells acts outside FERB's sandbox. Residual: paths built at run time or relative to a folder aren't seen; a folder named for removal is checked as that folder."
+paths = ["ferb/act/mac/applescript.py::named_paths"]
+legacy = "notes/gateway.md Rulings (review 2026-11-01): script's named paths"
+
+[GATE-224]
+title = "Every browser's credential store is never-read, from the one browser list"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "protection.BROWSER_STORES is browsers.data_folders(): each Chromium browser's user-data folder and the other browsers' data (Safari and its container, Firefox, makers' shared folders). An older config.toml gets each default it was never offered once (journal config.defaults_added), so the owner's own entries and removals stay."
+paths = ["ferb/policy/protection.py::BROWSER_STORES", "ferb/act/mac/browsers.py::data_folders"]
+legacy = "notes/gateway.md Rulings (review 2026-11-01): browser credential stores"
