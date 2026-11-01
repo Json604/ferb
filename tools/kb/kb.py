@@ -138,7 +138,7 @@ def any_match(globs: list[str], path: str) -> bool:
 
 def norm_text(s: str) -> str:
     s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)
-    s = re.sub(r"^\s*(?:#{1,6}|>|\||[-*+]|\d+[.)])\s*", "", s)
+    s = re.sub(r"^\s*(?:#{1,6}|>|\||[-*+]|\d+[.)])(?=\s|$)\s*", "", s)   # a marker is followed by a space ("0.27.0" stays)
     s = re.sub(r"[*_`~|]", "", s)
     return re.sub(r"\s+", " ", s).strip().lower()
 
@@ -770,8 +770,9 @@ def reconcile_path(kb: KB, src: str) -> Path:
 
 def item_covers(item: dict, unit: dict) -> bool:
     if item.get("section"):
-        sec = norm_text(str(item["section"]))
-        return any(h[1].startswith(sec) for h in unit["section"])
+        raw = str(item["section"]).strip()
+        secs = [x for x in dict.fromkeys((raw.lower(), norm_text(raw))) if x]   # as `init` wrote it, or normalized once
+        return any(h[1].startswith(sec) for h in unit["section"] for sec in secs)
     raw = str(item.get("src", "")).strip()
     # `init` writes src already normalized; normalizing it again would strip a leading "#" from a "| # |" table row
     for src in dict.fromkeys((raw, norm_text(raw))):
