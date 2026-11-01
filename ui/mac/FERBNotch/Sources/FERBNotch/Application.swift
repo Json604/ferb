@@ -6,6 +6,8 @@ import UserNotifications
 @MainActor
 struct FERBNotchApp {
     static func main() {
+        // A hearing mode (L26) runs and exits here, before NSApplication, the delegate or any window
+        if let code = Hearing.run(CommandLine.arguments) { exit(code) }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         let delegate = AppDelegate()

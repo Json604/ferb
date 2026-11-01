@@ -481,7 +481,7 @@ def test_ferb_app_is_its_processes_outside_the_daemons_tree(tmp_path: Path) -> N
     fake.run(500, 103.0)
     fake.run(200, 10.0)
     fake.procs[600] = Process(600, 5, 0.5, 7 * MB, 7 * MB)            # opened later, by launchd (not a descendant)
-    fake.paths[600] = "/Applications/FERB.app/Contents/Helpers/FERB Voice.app/Contents/MacOS/FERB"
+    fake.paths[600] = "/Applications/FERB.app/Contents/MacOS/FERBNotch"
     fake.run(700, 60.0)
     row = _sample(log, clock)
     assert row["app_cpu_s"] == pytest.approx(3.5) and row["app_footprint"] == 87 * MB
@@ -495,8 +495,7 @@ def test_ferb_app_is_its_processes_outside_the_daemons_tree(tmp_path: Path) -> N
 def test_a_process_leaving_the_daemons_tree_for_ferb_app_is_counted_once(tmp_path: Path) -> None:
     fake = Fake()
     fake.spawn(200, DAEMON, start=4, cpu=1.0)                                       # a shell
-    fake.spawn(300, 200, start=5, cpu=2.0, path="/Applications/FERB.app/Contents/Helpers/FERB Voice.app/Contents/"
-                                               "MacOS/FERB")                         # something inside FERB.app it ran
+    fake.spawn(300, 200, start=5, cpu=2.0, path="/Applications/FERB.app/Contents/MacOS/FERBNotch")                         # something inside FERB.app it ran
     db, clock, log = _log(tmp_path, fake)
     fake.run(300, 3.0)
     row = _sample(log, clock)

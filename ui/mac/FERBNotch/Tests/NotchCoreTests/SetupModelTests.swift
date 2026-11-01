@@ -196,19 +196,18 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(rig.opener.revealed, [SetupReplies.agent])
     }
 
-    func testHearingIsProbedOnEnteringTheStepAndAskedThroughFERBVoice() async {
+    func testSetupPermissionsHaveNoSeparateHearingRow() async {
+        // Hearing is the same Speech Recognition grant as dictation: the microphone row covers both
+        XCTAssertEqual(SetupModel.askedAtSetup.count, 7)
+        XCTAssertEqual(SetupModel.askedAtSetup, ["accessibility", "screen_recording", "full_disk_access",
+                                                 "input_monitoring", "notifications", "microphone", "clipboard"])
+        XCTAssertFalse(SetupModel.allowAllSequence.contains("hearing"))
         let rig = SetupRig()
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(hearing: "not_determined")
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()
         let model = rig.model()
         await model.enter(.permissions)
-        XCTAssertEqual(rig.rpc.params(of: "setup.permissions").first?["hearing"] as? Bool, true)
-        XCTAssertEqual(model.hearingRow?.process, "voice")
-        XCTAssertEqual(model.allRows.filter { $0.id == "hearing" }.count, 1)
-        await model.refreshPermissions()                         // a poll: no probe, the row stays
-        XCTAssertNil(rig.rpc.params(of: "setup.permissions").last?["hearing"])
-        XCTAssertNotNil(model.hearingRow)
-        await model.grant(model.hearingRow!)
-        XCTAssertEqual(rig.rpc.params(of: "setup.permission_request").last?["permission"] as? String, "hearing")
+        XCTAssertNil(rig.rpc.params(of: "setup.permissions").first?["hearing"])   // no probe of a second app
+        XCTAssertTrue(model.allRows.filter { $0.id == "hearing" }.isEmpty)
     }
 
     func testAutomationAllowAsksMacOSThroughTheDaemonOrOpensThePaneWhenOff() async {

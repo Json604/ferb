@@ -84,7 +84,12 @@ def test_hear_a_tab_then_with_the_mac_muted_then_record_it_with_sound(tmp_path: 
     try:
         with browser_lab() as (d, chrome, front):
             app = d.daemon.home / "FERB.app"
-            subprocess.run([str(ROOT / "macapp" / "FERB" / "build.sh"), str(app)], check=True, capture_output=True)
+            notch = ROOT / "ui" / "mac" / "FERBNotch"                 # the notch app answers the hearing modes itself
+            subprocess.run([str(notch / "build.sh"), "release"], check=True, capture_output=True)
+            shutil.rmtree(app, ignore_errors=True)
+            subprocess.run(["/usr/bin/ditto", str(notch / "build" / "FERB Notch.app"), str(app)], check=True)
+            subprocess.run(["codesign", "--force", "--deep", "--sign", "FERB Local Code Signing", str(app)], check=True,
+                           capture_output=True)
             shown = subprocess.run(["codesign", "-d", "-r-", str(app)], capture_output=True, text=True)
             req = next(ln.split("=>", 1)[1].strip() for ln in (shown.stdout + shown.stderr).splitlines()
                        if ln.startswith("designated =>"))

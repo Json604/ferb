@@ -30,7 +30,7 @@ ferb_size_report() {
         "$(( std_all - site_all ))|Python standard library"
         "$libpy|libpython"
         "$notch|Notch app (MacOS)"
-        "$helpers|Helpers (agent, voice, secrets)"
+        "$helpers|Helpers (agent, secrets)"
         "$(( total - codex - std_all - libpy - notch - helpers ))|Everything else")
   printf 'FERB.app (%s): %.1f MB\n' "$arch" $(( total / 1e6 ))
   local bytes name

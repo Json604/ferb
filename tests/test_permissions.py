@@ -232,19 +232,11 @@ def test_full_disk_access_waits_for_containment() -> None:
     assert P.fda_ready({"profile_ok": True, "shell": True, "proxy": True, "proxy_alive": True})
 
 
-def test_hearing_row_is_ferb_voices_and_only_when_probed() -> None:
-    def hearing(**probe: object) -> dict[str, object]:
-        return next(r for r in P.rows({}, {}, dict(probe)) if r["id"] == "hearing")
-    assert hearing(installed=True, signed=True, speech="granted")["status"] == "granted"
-    assert hearing(installed=True, signed=True, speech="restricted")["status"] == "denied"
-    assert hearing(installed=True, signed=True, speech="not_determined")["status"] == "not_determined"
-    unsigned = hearing(installed=True, signed=False)
-    assert unsigned["status"] == "unknown" and "signature" in str(unsigned["blocked"])
-    assert "FERB Voice" in str(hearing(installed=False)["blocked"])
-    row = hearing(installed=True, signed=True, speech="denied")
-    assert row["process"] == "voice" and row["pane"] == PANE + "Privacy_SpeechRecognition"
-    assert row["requestable"] and row["required"]
+def test_setup_permissions_have_no_separate_hearing_row() -> None:
+    """Hearing is FERB.app's own Speech Recognition, the grant dictation asks for: the app's microphone row covers it."""
     assert all(r["id"] != "hearing" for r in P.rows({}, {}))
+    assert all(r["id"] != "hearing" for r in P.report_rows({"permissions": {}, "hearing": {"installed": True}}))
+    assert "hearing" not in P.REQUESTABLE and "hearing" not in P.PANES
 
 
 def test_clipboard_row_says_whether_macos_lets_ferb_read_what_you_copy() -> None:
@@ -276,14 +268,9 @@ def test_request_asks_macos_only_for_the_three_with_an_api(monkeypatch: pytest.M
     assert P.request("screen_recording") is P.Status.DENIED
     assert P.request("input_monitoring") is P.Status.GRANTED
     assert asked[2:] == [("screen", None), ("hid", None)]
-    for other in ("full_disk_access", "automation", "hearing", "clipboard", "nope"):
+    for other in ("full_disk_access", "automation", "hearing", "clipboard", "nope"):   # hearing: the app's own
         with pytest.raises(ValueError):
             P.request(other)
-
-
-def test_speech_request_is_ferb_voices_own_and_waits() -> None:
-    app = Path("/Applications/FERB.app/Contents/Helpers/FERB Voice.app")
-    assert P.speech_request_argv(app) == ["/usr/bin/open", "-n", "-W", str(app), "--args", "request-speech"]
 
 
 def test_automation_candidates_are_the_running_scriptable_apps() -> None:

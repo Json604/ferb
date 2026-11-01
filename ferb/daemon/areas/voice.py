@@ -1,6 +1,6 @@
 """Own the daemon's voice: speaking a voice turn's replies (notes/voice.md decisions 2, 3) and hearing's FERB.app
-plumbing (where FERB Voice is, its recorded signature, its Speech Recognition probe, quitting it before an update). Must
-not listen: FERB Voice only transcribes sound a task captured from an app (L26). Push-to-talk is the FERB app's own
+plumbing (where the app is, its recorded signature, its Speech Recognition probe, ending its hearing before an update).
+Must not listen: hearing only transcribes sound a task captured from an app (L26). Push-to-talk is the FERB app's own
 dictation; a turn it sends with `speak: true` is answered aloud from the turn's structured events, never from rendered
 text."""
 
@@ -43,7 +43,7 @@ class VoiceGlue:
 
     @property
     def voice_bundle(self) -> Path:
-        """~/.ferb/FERB.app from a checkout install; the voice helper nested in FERB.app when the daemon runs from it."""
+        """~/.ferb/FERB.app from a checkout install; FERB.app itself when the daemon runs from it."""
         from ferb.device import install
         return install.voice_app(self.home, install.app_bundle())
 
@@ -69,10 +69,17 @@ class VoiceGlue:
         return out
 
     def _quit_voice_app(self) -> None:
-        """FERB Voice runs from the app an update replaces. One transcribing is never killed: it ends through its lease
-        when its ask ends (the daemon's shutdown cancels it, deleting the lease), and FERB Voice then exits itself."""
-        if self.hearing.transcriber.busy:
+        """Hearing runs in the app an update replaces. One transcribing is never ended: it stops through its lease when
+        its ask ends (the daemon's shutdown cancels it, deleting the lease), and the process then exits itself. Only the
+        hearing instances this daemon launched are ended, by process id and only while they are still FERB.app: the
+        bundle id is also the running notch's, which the update quits itself."""
+        transcriber = self.hearing.transcriber
+        if transcriber.busy:
             return
         from AppKit import NSRunningApplication
-        for app in NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.ferb.app"):
-            app.terminate()
+        for pid in sorted(transcriber.lingering):
+            running = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+            url = running.bundleURL() if running is not None else None
+            if url is not None and Path(str(url.path())) == transcriber.app:
+                running.terminate()
+        transcriber.lingering.clear()

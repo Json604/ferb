@@ -39,7 +39,7 @@ from ferb.core.errors import Refused
 from ferb.sanitize.redact import EXCLUDED
 
 # FERB's own apps, as their bundles declare them: ui/mac/FERBNotch/Info.plist (the packaged FERB.app, L27, and the
-# development build ui/mac/FERBNotch/build.sh makes from it), macapp/FERB/Info.plist (its voice helper) and
+# development build ui/mac/FERBNotch/build.sh makes from it), the old FERB Voice helper's id com.ferb.app (an older build may still run during an update) and
 # ui/mac/FERBAgent/Info.plist (the daemon's agent app, whatever process of it shows a window)
 # plus the code identifiers the packaged app signs its non-bundle programs with (scripts/signing.sh, L34): the
 # bundled interpreter and the secret helper

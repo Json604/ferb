@@ -330,7 +330,8 @@ Audit (what an older build or an uninstall without purge leaves, and what a FERB
   replaced), the extension folder, the native-host launcher and every installed browser's manifest, the `ferb` link (a
   link into a deleted FERB.app is relinked; a file that isn't FERB's link is left alone), `node` (a link into a deleted
   app, or another Codex version, relinked), `service.json`, the old user LaunchAgent (only a plist naming FERB's
-  label: an unreadable one is left alone, launchd can't load it either), `[hearing] requirement`. A checkout's
+  label: an unreadable one is left alone, launchd can't load it either), `[hearing] requirement` (now FERB.app's own sealed requirement; an older pin naming `com.ferb.app` is replaced by the first app
+  setup). A checkout's
   `venv`/`python`/`~/.ferb/FERB.app` are kept on an app install (valid, unused; a checkout setup rebuilds them).
 - **The daemon's start** clears its own leftovers: a socket nothing answers on, sandbox profiles, recording frames; a
   Codex catalog dump cut short is now dumped again (before: kept forever, so every limits read failed).
@@ -388,9 +389,9 @@ Rulings (technical):
   `extensions/chromium/icons` and `extensions/store/src`; `site/favicon.ico` (16/32/48) and
   `site/apple-touch-icon.png` (180 px, full-bleed).
 - **Mac**: FERB.app, its daemon helper `Helpers/FERB.app` (what Privacy & Security lists and Activity Monitor show
-  as "FERB") and `Helpers/FERB Voice.app` each name `CFBundleIconFile` AppIcon in their Info.plist; build-app.sh copies
-  the icns into the app's and the helper's Resources, macapp/FERB/build.sh into FERB Voice's (and the dev notch build
-  into its own). Dock, Finder, Launchpad, notifications, Login Items, alerts and Sparkle's update dialog take the
+  as "FERB") names `CFBundleIconFile` AppIcon in its Info.plist (FERB Voice, a third bundle, merged into FERB.app on 2026-11-01:
+  voice.md decision 10); build-app.sh copies the icns into the app's and the helper's Resources (and the dev notch
+  build into its own). Dock, Finder, Launchpad, notifications, Login Items, alerts and Sparkle's update dialog take the
   bundle's icon. build-dmg.sh puts the icns on the disk image as `.VolumeIcon.icns` and sets the volume's custom-icon
   flag (a writable image, then compressed). The menu-bar item keeps its state symbols (a status indicator, not a
   brand mark); no other Swift view drew a logo.

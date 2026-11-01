@@ -38,13 +38,12 @@ def test_ferb_app_info_plist_names_ferb_and_declares_its_usage_descriptions() ->
     assert info["CFBundleExecutable"] == "FERBNotch" and info["CFBundlePackageType"] == "APPL"
     assert info["LSUIElement"] is True                                       # background first: no Dock icon
     assert info["NSMicrophoneUsageDescription"].strip() and info["NSSpeechRecognitionUsageDescription"].strip()
-    voice = plistlib.loads((ROOT / "macapp" / "FERB" / "Info.plist").read_bytes())
-    assert voice["CFBundleIdentifier"] != info["CFBundleIdentifier"]        # the nested voice helper keeps its own id
+    assert "listens to" in info["NSSpeechRecognitionUsageDescription"]       # dictation and hearing, one grant
+    assert not (ROOT / "macapp").exists()                                    # FERB Voice merged into the app
 
 
-# The bundles macOS shows as FERB: the app, its daemon helper (Privacy lists, Activity Monitor) and the voice helper
-BUNDLES = {"FERB.app": NOTCH_PLIST, "Helpers/FERB.app": ROOT / "ui" / "mac" / "FERBAgent" / "Info.plist",
-           "Helpers/FERB Voice.app": ROOT / "macapp" / "FERB" / "Info.plist"}
+# The bundles macOS shows as FERB: the app and its daemon helper (Privacy lists, Activity Monitor)
+BUNDLES = {"FERB.app": NOTCH_PLIST, "Helpers/FERB.app": ROOT / "ui" / "mac" / "FERBAgent" / "Info.plist"}
 APP_ICON = ROOT / "assets" / "logo" / "AppIcon.icns"
 
 
@@ -113,7 +112,7 @@ def test_size_report_lists_ferb_apps_parts_largest_first(tmp_path: Path) -> None
     named = {name: float(mb) for mb, name in rows}
     assert named == {"Codex (Resources/node)": 3.0, "Claude Code (claude_agent_sdk/_bundled)": 2.0,
                      "Python packages (site-packages without Claude Code)": 0.5, "Python standard library": 0.3,
-                     "libpython": 0.7, "Helpers (agent, voice, secrets)": 0.1,
+                     "libpython": 0.7, "Helpers (agent, secrets)": 0.1,
                      "Notch app (MacOS)": round(notch / 1e6, 1), "Everything else": 0.0}
     sizes = [float(mb) for mb, _ in rows]
     assert sizes == sorted(sizes, reverse=True)
@@ -242,7 +241,7 @@ def _fake_app(root: Path) -> Path:
     machos = ["MacOS/FERBNotch", "Resources/python/bin/python3.12", "Resources/python/lib/libpython3.12.dylib",
               "Resources/python/lib/python3.12/site-packages/pkg/_ext.cpython-312-darwin.so",
               "Resources/python/lib/python3.12/site-packages/vendor_sdk/_bundled/vendor-tool",
-              "Helpers/ferb-secrets", "Helpers/FERB Voice.app/Contents/MacOS/FERB", "Helpers/FERB.app/Contents/MacOS/FERB"]
+              "Helpers/ferb-secrets", "Helpers/FERB.app/Contents/MacOS/FERB"]
     for rel in machos:
         (c / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy("/usr/bin/true", c / rel)
@@ -253,7 +252,6 @@ def _fake_app(root: Path) -> Path:
     (c / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.ferb.FERB",
                                                     "CFBundleShortVersionString": "0.27.0",
                                                     "CFBundleVersion": "202610140201"}))
-    (c / "Helpers/FERB Voice.app/Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.ferb.app"}))
     (c / "Helpers/FERB.app/Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.ferb.daemon"}))
     return app
 
@@ -284,7 +282,7 @@ def test_ad_hoc_is_the_default_and_signs_every_nested_binary_inside_out(tmp_path
     python = str(c / "Resources/python/bin/python3.12")
     for path in (python, str(c / "Resources/python/lib/libpython3.12.dylib"), str(c / "Helpers/ferb-secrets"),
                  str(c / "Resources/python/lib/python3.12/site-packages/pkg/_ext.cpython-312-darwin.so"),
-                 str(c / "Helpers/FERB Voice.app"), str(c / "Helpers/FERB.app"), str(app)):
+                 str(c / "Helpers/FERB.app"), str(app)):
         assert path in signed, (path, signed)
     assert signed[-1] == str(app)                                             # the app last, after everything in it
     assert not any("vendor-tool" in s or s.endswith((".py", "/ferb", "/MacOS/FERB")) for s in signed)
@@ -298,10 +296,28 @@ def test_ad_hoc_is_the_default_and_signs_every_nested_binary_inside_out(tmp_path
     assert "com.apple.security.cs.disable-library-validation" in _ent(tmp_path, Path(python))
     assert "apple-events" not in _ent(tmp_path, Path(python))                # the plain interpreter sends none
     assert "com.apple.security.device.audio-input" in _ent(tmp_path, app)
-    assert "com.apple.security.device.audio-input" in _ent(tmp_path, c / "Helpers/FERB Voice.app")
     assert not any(s.endswith("/Helpers/FERB.app/Contents/MacOS/FERB") for s in signed)   # signed with its app
     assert any(c.startswith("codesign|--verify|--deep|--strict") and c.endswith(str(app)) for c in calls)
     assert not any(c.startswith("xcrun") for c in calls)                    # no notarization without a Developer ID
+
+
+def test_the_bundle_has_no_voice_helper(tmp_path: Path) -> None:
+    """Hearing is FERB.app's own modes: nothing is built, listed, signed or pinned as a nested voice app."""
+    app, calls, done = _sign_only(tmp_path)
+    assert done.returncode == 0, done.stderr + done.stdout
+    assert not (app / "Contents/Helpers/FERB Voice.app").exists()
+    assert not any("Voice" in piece for piece in _signed(calls))                # no piece signed, no entitlements file
+    for script in ("build-app.sh", "signing.sh", "app-parts.sh"):
+        text = (ROOT / "scripts" / script).read_text()
+        assert "FERB Voice" not in text and "macapp" not in text, script
+    assert not any(ident == "com.ferb.app" for _, ident in RELEASE_PIECES)
+    stray = _fake_app(tmp_path / "stray")                                       # an unknown nested app isn't signed
+    (stray / "Contents/Helpers/Other.app/Contents").mkdir(parents=True)
+    (stray / "Contents/Helpers/Other.app/Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "x"}))
+    (tmp_path / "stray-run").mkdir()
+    refused = subprocess.run([str(BUILD_APP), "--sign-only", str(stray)], capture_output=True, text=True,
+                             env=_stubs(tmp_path / "stray-run"))
+    assert refused.returncode != 0 and "no piece of FERB.app" in refused.stderr
 
 
 def test_developer_id_signs_with_a_timestamp_then_notarizes_and_staples_without_rebuilding(tmp_path: Path) -> None:
@@ -356,7 +372,6 @@ def test_developer_id_without_notary_credentials_stops_before_signing(tmp_path: 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 RELEASE_LISTED = f'  1) {SHA.upper()} "FERB Release Signing" (CSSMERR_TP_NOT_TRUSTED)'
 RELEASE_PIECES = (("", "com.ferb.FERB"), ("Contents/Helpers/FERB.app", "com.ferb.daemon"),
-                  ("Contents/Helpers/FERB Voice.app", "com.ferb.app"),
                   ("Contents/Resources/python/bin/python3.12", "com.ferb.python"),
                   ("Contents/Helpers/ferb-secrets", "com.ferb.secrets"))
 
@@ -542,11 +557,10 @@ def test_real_bundle_structure_signature_and_embedded_cli(real_bundle: Path, tmp
     assert info["CFBundleIdentifier"] == APP_BUNDLE_ID and info["CFBundleShortVersionString"]
     assert info["CFBundleVersion"].isdigit()
     for rel in ("MacOS/FERBNotch", "Resources/python/bin/python3.12", "Resources/bin/ferb", "Helpers/ferb-secrets",
-                "Helpers/FERB Voice.app/Contents/MacOS/FERB", "Helpers/FERB.app/Contents/MacOS/FERB",
+                "Helpers/FERB.app/Contents/MacOS/FERB",
                 "Resources/node/" + str(native_bin(_bundle_arch(app)))):
         assert (c / rel).is_file(), rel
-    voice = plistlib.loads((c / "Helpers/FERB Voice.app/Contents/Info.plist").read_bytes())
-    assert voice["CFBundleIdentifier"] == "com.ferb.app" and voice["NSSpeechRecognitionUsageDescription"]
+    assert not (c / "Helpers/FERB Voice.app").exists() and info["NSSpeechRecognitionUsageDescription"]
     agent = plistlib.loads((c / "Helpers/FERB.app/Contents/Info.plist").read_bytes())
     assert (agent["CFBundleIdentifier"], agent["CFBundleName"]) == ("com.ferb.daemon", "FERB")   # what macOS shows
     assert agent["LSBackgroundOnly"] is True and agent["NSAppleEventsUsageDescription"]

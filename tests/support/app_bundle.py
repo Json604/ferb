@@ -11,7 +11,7 @@ from ferb.runtimes.codex_exec import _NATIVE_BIN as CODEX_BIN   # this Mac's arc
 CDHASH = "8a144e4088377ef93330e517658dfe41eb6f997d"
 PINNED = f'cdhash H"{CDHASH}"'
 AGENT = Path("Contents/Helpers/FERB.app/Contents/MacOS/FERB")
-NESTED = ("Helpers/ferb-secrets", "Helpers/FERB Voice.app", "Helpers/FERB.app")
+NESTED = ("Helpers/ferb-secrets", "Helpers/FERB.app")
 
 
 def make_ferb_app(root: Path, build: str = "202610140201", bundle_id: str = "com.ferb.FERB",
@@ -20,7 +20,7 @@ def make_ferb_app(root: Path, build: str = "202610140201", bundle_id: str = "com
     app = root / "FERB.app"
     contents = app / "Contents"
     for rel in ("MacOS/FERBNotch", "Resources/python/bin/python3.12", "Resources/bin/ferb", "Helpers/ferb-secrets",
-                "Helpers/FERB Voice.app/Contents/MacOS/FERB", str(AGENT.relative_to("Contents")),
+                str(AGENT.relative_to("Contents")),
                 "Resources/node/" + str(CODEX_BIN)):
         f = contents / rel
         f.parent.mkdir(parents=True, exist_ok=True)

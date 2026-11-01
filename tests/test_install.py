@@ -669,11 +669,11 @@ def test_uninstall_removes_the_cli_link_ferb_app_made(tmp_path: Path) -> None:
     assert not (tmp_path / "bin" / "ferb").exists() and str(tmp_path / "bin" / "ferb") in removed
 
 
-def test_voice_app_lives_in_the_bundle_when_ferb_runs_from_one(tmp_path: Path) -> None:
+def test_hearing_app_is_ferb_app_itself_when_ferb_runs_from_one(tmp_path: Path) -> None:
     from ferb.device.install import voice_app
     app = make_ferb_app(tmp_path / "Applications")
     assert voice_app(tmp_path / ".ferb", None) == tmp_path / ".ferb" / "FERB.app"
-    assert voice_app(tmp_path / ".ferb", app) == app / "Contents" / "Helpers" / "FERB Voice.app"
+    assert voice_app(tmp_path / ".ferb", app) == app
 
 
 def test_designated_requirement_reads_explicit_and_implicit_lines() -> None:
@@ -689,7 +689,7 @@ def test_designated_requirement_reads_explicit_and_implicit_lines() -> None:
     assert not trusted_requirement('cdhash H"ab" or identifier "x"', pinned_ok=True)
 
 
-def test_daemon_running_from_ferb_app_uses_the_nested_voice_helper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_daemon_running_from_ferb_app_hears_through_the_app_itself(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
     import ferb.device.install as install
     from ferb.daemon.main import Daemon
@@ -697,7 +697,7 @@ def test_daemon_running_from_ferb_app_uses_the_nested_voice_helper(tmp_path: Pat
     home = SimpleNamespace(home=tmp_path / ".ferb")
     assert Daemon.voice_bundle.fget(home) == tmp_path / ".ferb" / "FERB.app"  # type: ignore[attr-defined]
     monkeypatch.setattr(install, "app_bundle", lambda prefix=None: app)
-    assert Daemon.voice_bundle.fget(home) == app / "Contents" / "Helpers" / "FERB Voice.app"  # type: ignore[attr-defined]
+    assert Daemon.voice_bundle.fget(home) == app  # type: ignore[attr-defined]
 
 
 def test_mcp_shim_never_imports_a_ferb_package_planted_in_its_working_folder(tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ uses macOS's own SVG support (AppKit, through the checkout's PyObjC) and iconuti
 
 Writes, all from the master:
   assets/logo/ferb-logo-1024.png              the master at 1024 px (transparent margin, as the SVG draws it)
-  assets/logo/AppIcon.icns                    FERB.app, its daemon helper, FERB Voice and the DMG's volume icon, on
+  assets/logo/AppIcon.icns                    FERB.app, its daemon helper and the DMG's volume icon, on
                                               Apple's macOS icon grid (824 of 1024 px, centered, with a soft shadow)
   extensions/store/src/icon.svg               the master itself; icon-small.svg: the same, cropped to the square
   ui/mac/FERBNotch/Sources/FERBNotch/Resources/ferb-mark.svg   the master itself (the notch's handle)

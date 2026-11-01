@@ -2,7 +2,8 @@
 
 Area: `ferb/voice/*` (controller, mic, push_to_talk, speak), `ferb/sense/transcribe.py`, `ferb/act/listen.py`,
 `ferb/act/recording.py`, `ferb/act/mac/audio.py`, voice/hearing wiring in `ferb/daemon/main.py`, the CLI voice parts,
-and the FERB Voice helper (`macapp/FERB/main.swift`). The notch app (ui/) is the owner's side; read only for the RPCs
+and FERB.app's hearing modes (`ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift`; the FERB Voice helper `macapp/FERB`
+merged into it, decision 10). The notch app (ui/) is the owner's side; read only for the RPCs
 and dictation it already has.
 Basis: a read of every line (2026-10-30), read-only DB counts. Nothing was recorded or spoken.
 
@@ -144,13 +145,28 @@ Basis: a read of every line (2026-10-30), read-only DB counts. Nothing was recor
 7. **Send on release is off by default** (it changes when a message leaves; the owner turns it on in Settings →
    General). A draft counts as a voice turn while it still holds the last dictated words, so a dictated message the
    owner edits a little and sends with Return is still answered aloud.
-8. **Update and FERB Voice**: a transcription in flight that no listed task covers (a setup or doctor probe) holds
-   `update.prepare` like a running task; with Quit and Install, FERB Voice isn't terminated mid-transcription: the
-   daemon's shutdown cancels the ask, which deletes the lease, and FERB Voice exits itself.
+8. **Update and hearing**: a transcription in flight that no listed task covers (a setup or doctor probe) holds
+   `update.prepare` like a running task; with Quit and Install, hearing isn't terminated mid-transcription: the
+   daemon's shutdown cancels the ask, which deletes the lease, and the hearing process exits itself. Only the hearing
+   instances the daemon launched are ended, by process id (decision 10).
 9. **Redact before reshaping (12e review).** `Speech.say` redacts the raw text, then reshapes it for speech
    (`spoken`), then redacts again: `spoken` strips `** __ # $ { } ~` and the like, so a saved value holding them no
    longer matched once reshaped and was spoken and published in `voice.said`. tests/test_voice.py
    `test_a_saved_value_with_markdown_marks_is_redacted_before_speech_reshapes_it`.
+
+10. **FERB Voice merges into FERB.app (owner, 2026-11-01: "ok lets merge it").** The helper kept since 10-14 "until it
+   merges" (`macapp/FERB`, `Helpers/FERB Voice.app`, `com.ferb.app`) is gone. FERB.app's own executable answers
+   `transcribe`, `status` and `request-speech` (same arguments, answer files, lease and exit codes) before it starts
+   the app (`Application.swift` `main()`; no window, no microphone), and the daemon opens FERB.app itself with
+   `open -g -n -W --env FERB_HOME=… <FERB.app> --args <mode> …`. The home rule moved to
+   `NotchCore/FerbHomeRule.swift`. Hearing's signature pin is FERB.app's own sealed requirement
+   (`Installer.own_requirement`); an older pin naming `com.ferb.app` is replaced by the first app setup, no owner step.
+   Speech Recognition is one grant for dictation and hearing: setup has no separate "hearing" row (the microphone row
+   covers Microphone and Speech Recognition; seven rows are asked), and `ferb doctor` still probes hearing. Quitting
+   before an update ends only the processes `Transcriber.lingering` holds (instances still running when their ask
+   stopped), never by bundle id, because `com.ferb.FERB` is also the running notch. `com.ferb.app` stays in the
+   "FERB's own process" lists (`front_window.py` `FERB_APPS`, `sandbox.py` `APP_PREFERENCE_DOMAINS`) for an older
+   build running during an update.
 
 ## Live checks (step 13)
 - With "Send dictation when I let go of the keys" on: hold Right Command + Option, ask "what time is it", release:

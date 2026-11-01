@@ -135,22 +135,18 @@ enum SetupReplies {
     static let agent = "/Applications/FERB.app/Contents/Helpers/FERB.app"
 
     static func permissions(accessibility: String = "denied", screen: String = "granted", fda: String = "denied",
-                            fdaBlocked: String = "", setupDone: Bool = false, hearing: String? = nil) -> [String: Any] {
+                            fdaBlocked: String = "", setupDone: Bool = false) -> [String: Any] {
         func row(_ id: String, _ status: String, _ anchor: String, required: Bool, requestable: Bool,
                  restart: Bool = false, blocked: String = "", process: String = "daemon") -> [String: Any] {
             ["id": id, "status": status, "process": process, "required": required, "pane": pane + anchor,
              "requestable": requestable, "restart_to_check": restart, "blocked": blocked]
         }
-        var rows = [row("accessibility", accessibility, "Privacy_Accessibility", required: true, requestable: true),
+        let rows = [row("accessibility", accessibility, "Privacy_Accessibility", required: true, requestable: true),
                     row("screen_recording", screen, "Privacy_ScreenCapture", required: true, requestable: true,
                         restart: true),
                     row("full_disk_access", fda, "Privacy_AllFiles", required: true, requestable: false, restart: true,
                         blocked: fdaBlocked),
                     row("input_monitoring", "granted", "Privacy_ListenEvent", required: false, requestable: true)]
-        if let hearing {
-            rows.append(row("hearing", hearing, "Privacy_SpeechRecognition", required: false, requestable: true,
-                            process: "voice"))
-        }
         return ["rows": rows, "automation": [["name": "Notes", "bundle_id": "com.apple.Notes", "status": "denied"],
                                              ["name": "Mail", "bundle_id": "com.apple.mail", "status": "not_determined"]],
                 "automation_pane": pane + "Privacy_Automation", "grant_target": agent,

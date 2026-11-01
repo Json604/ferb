@@ -349,14 +349,15 @@ def test_a_tab_that_cant_be_told_is_left_out_and_the_block_says_so() -> None:
 def test_ferbs_own_app_ids_are_the_ones_their_bundles_declare() -> None:
     import re
     declared = {plistlib.loads((REPO / p).read_bytes())["CFBundleIdentifier"]
-                for p in ("ui/mac/FERBNotch/Info.plist", "macapp/FERB/Info.plist", "ui/mac/FERBAgent/Info.plist")}
+                for p in ("ui/mac/FERBNotch/Info.plist", "ui/mac/FERBAgent/Info.plist")}
     # integrated with L27: Info.plist names the packaged FERB.app (com.ferb.FERB); the development build that
     # ui/mac/FERBNotch/build.sh makes from it keeps its own id, and both are FERB's own windows; so is anything the
     # daemon's agent app (com.ferb.daemon) shows
     dev = re.search(r"CFBundleIdentifier (\S+)", (REPO / "ui/mac/FERBNotch/build.sh").read_text())
     assert dev is not None
     signed_ids = {"com.ferb.python", "com.ferb.secrets"}      # the bundled interpreter and the secret helper (L34)
-    assert {i.lower() for i in declared | {dev.group(1)} | signed_ids} == set(fw.FERB_APPS)   # case-insensitively
+    old_voice = {"com.ferb.app"}          # FERB Voice's id: merged into FERB.app, but an older build may run mid-update
+    assert {i.lower() for i in declared | {dev.group(1)} | signed_ids | old_voice} == set(fw.FERB_APPS)   # case-insensitively
     for own in signed_ids:
         assert fw.ferb_process(4321, own, daemon_pid=1234, parent=lambda pid: None)
     for own in declared | {dev.group(1)}:                    # the packaged app's setup console is FERB's own window

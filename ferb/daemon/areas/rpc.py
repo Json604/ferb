@@ -98,13 +98,13 @@ class Rpc:
                 if p.running and p.owner_task.split(".", 1)[0] not in listed:
                     running.append({"task_id": p.owner_task,
                                     "goal": "process: " + self._redact_text(p.command)[:120]})
-        if not running and self.hearing.transcriber.busy:     # FERB Voice runs from the app the update replaces
+        if not running and self.hearing.transcriber.busy:     # hearing runs from the app the update replaces
             running.append({"task_id": "", "goal": "turning captured sound into text"})
         return running
 
     async def _update_prepare(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """FERB.app is about to install an update. Ready only when nothing runs that a restart would cut, unless the
-        owner chose Quit and Install (`even_if_busy`). When ready, in one step: nothing new starts, FERB Voice quits (it
+        owner chose Quit and Install (`even_if_busy`). When ready, in one step: nothing new starts, FERB's hearing ends (it
         runs from the app being replaced) and the daemon shuts down at once. The new FERB.app's quiet service update
         starts it on the new code, and suspended plans, loops included, resume (L31)."""
         running = self._update_blockers()
@@ -447,13 +447,12 @@ class Rpc:
 
     async def _setup_permissions(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """L34 C: the setup window's Permissions step (and Settings → Permissions): each grant as this daemon's own
-        process holds it, never a prompt. `hearing: true` also probes FERB Voice's Speech Recognition (it starts FERB
-        Voice in the background), so the window asks for it only on entering the step and after a request."""
+        process holds it, never a prompt. Speech Recognition (dictation and hearing, one grant) is FERB.app's own
+        row, which the app checks itself."""
         from ferb.device import permissions
         from ferb.device.install import APP_BUNDLE_ID
         from ferb.paths import app_bundle
         grants = await asyncio.to_thread(self.permission_check)
-        hearing = await self._hearing_status(True) if params.get("hearing") is True else None
         profile = self._device_profile()
         running = {bundle for bundle, _, _ in self._running_apps()}
         apps = permissions.automation_candidates(profile.apps if profile is not None else [], running)
@@ -465,7 +464,7 @@ class Rpc:
                 return permissions.Status.UNKNOWN.value
         statuses = await asyncio.gather(*(automation(bundle) for _, bundle in apps))
         clipboard = permissions.clipboard_row(await asyncio.to_thread(self._clipboard_access))   # owner decision 2
-        return {"rows": permissions.rows(grants, self._setup_containment(), hearing) + [clipboard],
+        return {"rows": permissions.rows(grants, self._setup_containment()) + [clipboard],
                 "automation": [{"name": name, "bundle_id": bundle, "status": status}
                                for (name, bundle), status in zip(apps, statuses)],
                 "automation_pane": permissions.pane_url("automation"),
@@ -475,16 +474,12 @@ class Rpc:
 
     async def _setup_permission_request(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """L34 C: the owner's Grant on one row: macOS's own prompt, which also lists FERB in that pane; made here so the
-        grant attaches to this daemon's process. Hearing is FERB Voice asking for itself, and returns after the owner
-        answered. Journaled."""
+        grant attaches to this daemon's process. Journaled."""
         from ferb.device import permissions
         permission = str(params.get("permission", ""))
         if permission not in permissions.REQUESTABLE:
             raise FerbError(f"{permission or 'That permission'} has no request; add FERB in its System Settings pane")
-        if permission == "hearing":
-            await asyncio.to_thread(self.speech_request, self.voice_bundle)
-            status, _ = permissions.hearing_row_status(await self._hearing_status(True))
-        elif permission == "clipboard":           # as `clipboard.request`: one read, journaled; nothing read is kept
+        if permission == "clipboard":           # as `clipboard.request`: one read, journaled; nothing read is kept
             access = await asyncio.to_thread(self.clipboard_request)
             self._journal().append("clipboard.access", {"access": access, "requested": True})
             status = str(permissions.clipboard_row(access)["status"])
@@ -496,12 +491,12 @@ class Rpc:
     async def _setup_finish(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """L34 C: the setup window's Done (FERB.app's alone, auth.APP_ONLY). Setup is recorded as done
         (`permissions_version`, so launch stops showing the window) only when every permission is granted: this
-        daemon's own (its four grants, FERB Voice's Speech Recognition, the clipboard) and the ones FERB.app reports for
-        itself (`app`: Notifications, Microphone); else `missing` names what isn't, and the window comes back at the
+        daemon's own (its four grants, the clipboard) and the ones FERB.app reports for
+        itself (`app`: Notifications, Microphone with Speech Recognition); else `missing` names what isn't, and the window comes back at the
         next launch. Journaled either way."""
         from ferb.device import permissions
         grants = await asyncio.to_thread(self.permission_check)
-        rows = permissions.rows(grants, self._setup_containment(), await self._hearing_status(True)) + [
+        rows = permissions.rows(grants, self._setup_containment()) + [
             permissions.clipboard_row(await asyncio.to_thread(self._clipboard_access))]
         app = params.get("app") if isinstance(params.get("app"), dict) else {}
         rows += [{"id": str(name), "status": str(status)} for name, status in app.items()]

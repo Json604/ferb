@@ -9,6 +9,7 @@ Setup never opens, quits or kills a browser and never writes a browser's Prefere
 FERB's own files (the native host, the Web Store install request) and reads each profile's state (L25)."""
 
 import json
+import shutil
 import signal
 import subprocess
 import threading
@@ -30,7 +31,7 @@ from ferb.config import Config, InsecureConfig
 from ferb.core.errors import FerbError, NotRunning, Unsupported
 from ferb.device import permissions
 from ferb.device.install import (BUNDLE_CLI, MARKER, NATIVE_HOST_MANIFEST, InstallError, Installer, app_bundle, code_hash,
-                                 designated_requirement, repo_root, trusted_requirement, voice_app)
+                                 designated_requirement, repo_root, trusted_requirement)
 from ferb.device.profile import ProfileStore, diff, summarize
 from ferb.device.scan import scan
 from ferb.device.persona import app_usage
@@ -204,7 +205,7 @@ def service_setup(env: Env, update: bool = False) -> int:
     if not update:                                # the app list behind the Permissions step's Automation rows
         ProfileStore(inst.home).save(scan(device_id(Config(inst.home))), "setup scan")
     if inst.bundle is not None or (inst.home / "FERB.app").exists():
-        _voice_helper(env)                        # pins FERB Voice for hearing; never a prompt
+        _voice_helper(env)                        # pins FERB.app for hearing; never a prompt
     client = _started(env)
     if client is not None:
         client.close()
@@ -286,7 +287,7 @@ def setup(env: Env, update: bool = False) -> int:
 
 
 def _permissions_state(env: Env, client: Any) -> None:
-    """The macOS permissions as the running daemon reports them, hearing (FERB Voice) and the clipboard included. FERB's
+    """The macOS permissions as the running daemon reports them, hearing and the clipboard included. FERB's
     setup window asks for them (the CLI has no permission walkthrough). Setup is never recorded as done here
     (`permissions_version`): every row decides it, FERB.app's own Notifications and Microphone included, and only the
     window's Done (`setup.finish`) can read those."""
@@ -402,8 +403,8 @@ def _run_cleanup(env: Env, ok: str, stop: Callable[[], bool]) -> dict[str, Any]:
 
 
 def _app_installed(env: Env) -> None:
-    """After installing from FERB.app: say where `ferb` is. Hearing is pinned to this app's own
-    voice helper by `_voice_helper` (an update replaces it, and an ad-hoc signature pins the exact code)."""
+    """After installing from FERB.app: say where `ferb` is. Hearing is pinned to this app's own signature by
+    `_voice_helper` (an update replaces it, and an ad-hoc signature pins the exact code)."""
     inst = env.inst
     if inst.bundle is None:
         return
@@ -959,8 +960,8 @@ CERTIFICATE = "FERB Local Code Signing"
 
 
 def _build_app(env: Env, run: Callable[..., Any]) -> str | None:
-    """From a checkout: build FERB.app into ~/.ferb and sign it with the local certificate (so its permissions survive
-    rebuilds). Returns its signature requirement, or None (said why)."""
+    """From a checkout: build the notch app (ui/mac/FERBNotch/build.sh), copy it to ~/.ferb/FERB.app and sign it with the
+    local certificate (so its permissions survive rebuilds). Returns its signature requirement, or None (said why)."""
     # not `-v`: that lists only certificates macOS trusts, and a self-made one never is (it still signs fine)
     found = run(["security", "find-identity", "-p", "codesigning"], capture_output=True, text=True)
     if CERTIFICATE not in (found.stdout or ""):
@@ -968,10 +969,18 @@ def _build_app(env: Env, run: Callable[..., Any]) -> str | None:
         env.say("Certificate Assistant → Create a Certificate (name it exactly that, type Code Signing), then run this again.")
         return None
     app = env.inst.home / "FERB.app"
-    env.say("Building FERB.app (on-device speech recognition for hearing; no windows, no Dock icon)…")
-    built = run([str(repo_root() / "macapp" / "FERB" / "build.sh"), str(app)], capture_output=True, text=True)
+    env.say("Building FERB.app (the notch app, which also turns an app's sound into text for hearing)…")
+    notch = repo_root() / "ui" / "mac" / "FERBNotch"
+    built = run([str(notch / "build.sh"), "release"], capture_output=True, text=True)
     if built.returncode != 0:
         env.say("Build failed:\n" + ((built.stderr or built.stdout or "").strip()[-1500:]))
+        return None
+    shutil.rmtree(app, ignore_errors=True)
+    copied = run(["/usr/bin/ditto", str(notch / "build" / "FERB Notch.app"), str(app)], capture_output=True, text=True)
+    signed = run(["/usr/bin/codesign", "--force", "--deep", "--sign", CERTIFICATE, str(app)],
+                 capture_output=True, text=True) if copied.returncode == 0 else copied
+    if signed.returncode != 0:
+        env.say("Signing failed:\n" + ((signed.stderr or signed.stdout or "").strip()[-1500:]))
         return None
     shown = run(["/usr/bin/codesign", "-d", "-r-", str(app)], capture_output=True, text=True)
     req = designated_requirement((shown.stdout or "") + (shown.stderr or ""))
@@ -982,26 +991,20 @@ def _build_app(env: Env, run: Callable[..., Any]) -> str | None:
 
 
 def _shipped_app(env: Env) -> str | None:
-    """From the packaged FERB.app: its own shipped, signed voice helper, used as is (nothing is built and no local
-    certificate is needed). Returns its signature requirement, or None (said why)."""
-    bundle = env.inst.bundle
-    assert bundle is not None
-    app = voice_app(env.inst.home, bundle)
-    if not (app / "Contents" / "MacOS" / "FERB").is_file():
-        env.say(f"{bundle} has no voice helper; download FERB again.")
-        return None
-    try:                                      # the very helper FERB.app's verified signature seals
+    """From the packaged FERB.app: hearing runs the app itself, whose verified signature is pinned as it is (nothing is
+    built and no local certificate is needed). Returns its signature requirement, or None (said why)."""
+    try:                                      # check_bundle verifies the app's own signature first
         env.inst.check_bundle()
-        return env.inst.sealed_requirement(app, "Helpers/FERB Voice.app")
+        return env.inst.own_requirement()
     except InstallError as e:
-        env.say(f"FERB won't use its voice helper: {e}")
+        env.say(f"FERB won't use FERB.app for hearing: {e}")
         return None
 
 
 def _voice_helper(env: Env, run: Callable[..., Any] | None = None) -> str | None:
-    """FERB's voice/speech app (hearing, L26): built from a checkout, or the packaged FERB.app's shipped helper (L27).
-    Records its signature for the daemon's checks (`[voice] requirement` from an older push-to-talk setup follows it).
-    Returns the requirement, or None (said why)."""
+    """The app hearing runs (L26): built from a checkout, or the packaged FERB.app itself. Records its signature for the
+    daemon's checks (an older pin, which named the old helper's bundle id com.ferb.app, is replaced here, and `[voice] requirement` from
+    an older push-to-talk setup follows it). Returns the requirement, or None (said why)."""
     req = _shipped_app(env) if env.inst.bundle is not None else _build_app(env, run or env.run)
     if req is None:
         return None

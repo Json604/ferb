@@ -46,7 +46,8 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
         `Preferences/dev.ferb.notch.plist`, `Application Support/FERB Notch`, CrashReporter `FERB*`, the old Safari spike's
         `Containers/com.ferb.spike5*` and `Application Scripts/com.ferb.spike5*`, and the test-run leftovers
         `Preferences/FERBNotchTests-*`, `ferb-login-*`, `ferb-update-*` (~11,000 files);
-      - macOS permissions: `tccutil reset All com.ferb.FERB` (owner: reset);
+      - macOS permissions: `tccutil reset All com.ferb.FERB` (owner: reset) and
+        `tccutil reset SpeechRecognition com.ferb.app` (FERB Voice's old grant; the helper merged into FERB.app);
       - old builds in the checkout: `ui/mac/FERBNotch/build`, `ui/mac/FERBNotch/.build`, `macapp/FERB/build`,
         `spikes/17_voice_audio/build`, `build/store/*.zip`.
       Keep (the owner's data): `~/.ferb/ferb.db` (+ `-wal`, `-shm`), `memory`, `workspace`, `evidence`, `exports`,
@@ -56,7 +57,7 @@ Run in order; each sitting can be a separate session. `[source]` names the notes
 
 ### Sitting 1: build, install, upgrade
 - [ ] FERB's logo (owner, 2026-11-01, daemon.md decision 12): the new build shows the dark "f." icon in the Dock,
-      Finder and Launchpad, Login Items, Privacy & Security lists (FERB and FERB Voice), Activity Monitor (FERB),
+      Finder and Launchpad, Login Items, Privacy & Security lists (only FERB; no FERB Voice), Activity Monitor (FERB),
       notifications, Sparkle's update dialog and the mounted DMG's volume; on macOS 26+ it isn't shrunk into a grey
       frame. The site's tab shows the favicon and both pages show the mark. [daemon.md Logo]
 - [ ] Build FERB.app (`source scripts/swiftpm-anonymous.sh; SIGN_IDENTITY=release scripts/build-app.sh --arch arm64

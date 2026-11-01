@@ -24,7 +24,7 @@ from tests.conftest import RunningDaemon, gateway_request as request, gateway_se
 from tests.support.hearing import FakeApp, FakeCapture, sine, wait_started, words
 
 ROOT = Path(__file__).resolve().parents[1]
-SWIFT = ROOT / "macapp" / "FERB" / "main.swift"
+SWIFT = ROOT / "ui" / "mac" / "FERBNotch" / "Sources" / "FERBNotch" / "Hearing.swift"
 STARTUP = "Here is the startup he means. It is called Ferb Labs, and they build agents."
 CARD = "Pay with 4111 1111 1111 1111 today. Thanks."
 
@@ -38,7 +38,7 @@ def _hearing(tmp_path: Path, capture: FakeCapture | None = None, text: str = STA
     app.mkdir(exist_ok=True)
     fake = FakeApp(app, text, words(text), error=error)
     capture = capture or FakeCapture()
-    t = Transcriber(app, lambda: "identifier com.ferb.app", launch=fake, signed=lambda bundle, req: True)
+    t = Transcriber(app, lambda: "identifier com.ferb.FERB", launch=fake, signed=lambda bundle, req: True)
     apps = {"Music": RunningApp("com.apple.Music", "Music", 77, False),
             "com.google.Chrome": RunningApp("com.google.Chrome", "Google Chrome", 88, False),
             "pid:91": RunningApp("com.google.Chrome", "Google Chrome", 91, False)}
@@ -131,13 +131,13 @@ def test_on_device_unavailable_is_a_clear_error_and_nothing_reaches_the_network(
 
 def test_ferb_app_transcribes_on_device_only_and_never_asks_for_permission_from_a_task() -> None:
     src = SWIFT.read_text()
-    body = src[src.index("func transcribe("):src.index("let args = Array(CommandLine.arguments")]
+    body = src[src.index("static func transcribe("):]
     assert "requiresOnDeviceRecognition = true" in body
     assert body.index("supportsOnDeviceRecognition") < body.index("recognitionTask(")   # checked before any request
     assert "on_device_unavailable" in body and "requestAuthorization" not in body
     # No request anywhere may fall back to the network (rule 15).
     assert "requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition" not in src
-    # FERB Voice opens no microphone (push-to-talk is the app's own dictation, notes/voice.md decision 3)
+    # hearing opens no microphone (push-to-talk is the app's own dictation, notes/voice.md decision 3)
     assert "AVCaptureDevice" not in src and "AudioDeviceCreateIOProcID" not in src
 
 
@@ -220,13 +220,12 @@ def test_transcriber_launches_ferb_app_in_the_background_and_deletes_the_raw_ans
     assert not fake.raw_paths[0].exists()
 
 
-def test_the_packaged_apps_voice_helper_is_told_ferbs_home_not_its_own_folder(tmp_path: Path) -> None:
-    """L26 x L27 integration: FERB.app's nested voice helper (Contents/Helpers/FERB Voice.app) accepts audio and
-    answer files only in $FERB_HOME/workspace/audio, so it must be told the daemon's FERB home, never the folder it
-    happens to sit in."""
+def test_the_packaged_app_is_told_ferbs_home_not_its_own_folder(tmp_path: Path) -> None:
+    """L26 x L27 integration: FERB.app accepts audio and answer files only in $FERB_HOME/workspace/audio, so it must be
+    told the daemon's FERB home, never the folder it happens to sit in."""
     from ferb.sense.transcribe import Transcriber
     home = tmp_path / ".ferb"
-    app = tmp_path / "Applications" / "FERB.app" / "Contents" / "Helpers" / "FERB Voice.app"
+    app = tmp_path / "Applications" / "FERB.app"
     app.mkdir(parents=True)
     audio = home / "workspace" / "audio" / "a.wav"
     audio.parent.mkdir(parents=True)
@@ -237,15 +236,26 @@ def test_the_packaged_apps_voice_helper_is_told_ferbs_home_not_its_own_folder(tm
     assert fake.argv[0][4:7] == ["--env", f"FERB_HOME={home}", str(app)]
 
 
-def test_the_daemon_tells_ferb_apps_voice_helper_its_own_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_hearing_launches_the_app_itself(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """After the merge there is no voice helper: the daemon opens FERB.app with the hearing mode as its arguments."""
     import ferb.device.install as install
     from ferb.daemon.main import Daemon
+    from ferb.sense.transcribe import Transcriber
     from tests.support.app_bundle import make_ferb_app
     app = make_ferb_app(tmp_path / "Applications")
+    assert install.voice_app(tmp_path / ".ferb", app) == app
     monkeypatch.setattr(install, "app_bundle", lambda prefix=None: app)
     d = Daemon(tmp_path / ".ferb", resources=False)
     t = d.hearing.transcriber
-    assert t.app == app / "Contents" / "Helpers" / "FERB Voice.app" and t.home == tmp_path / ".ferb"
+    assert t.app == app and t.home == tmp_path / ".ferb"
+    audio = tmp_path / ".ferb" / "workspace" / "audio"
+    audio.mkdir(parents=True)
+    (audio / "a.wav").write_bytes(b"RIFF")
+    fake = FakeApp(app, "hello", [("hello", 0.0, 0.3)], home=tmp_path / ".ferb")
+    asyncio.run(Transcriber(t.app, lambda: "req", launch=fake, signed=lambda a, r: True, home=t.home)
+                .transcribe(audio / "a.wav", None))
+    assert fake.argv[0][:3] == ["/usr/bin/open", "-g", "-n"] and str(app) in fake.argv[0]
+    assert fake.argv[0][fake.argv[0].index("--args") + 1] == "transcribe"
 
 
 def test_transcriber_refuses_a_missing_or_unsigned_ferb_app(tmp_path: Path) -> None:
@@ -750,85 +760,19 @@ def test_hearing_sweeps_sound_and_answers_a_restart_left_behind(tmp_path: Path) 
     assert not list(folder.iterdir())
 
 
-# ---------- FERB Voice runs only with the owner's own FERB home (controller ruling, as the agent stub's NEW-3) ----------
-
-HOME_SWIFT = ROOT / "macapp" / "FERB" / "home.swift"
-_HARNESS = """
-import Darwin
-let a = Array(CommandLine.arguments.dropFirst())
-switch resolveFerbHome(a[0] == "-unset-" ? nil : a[0], account: a[1] == "-none-" ? nil : a[1]) {
-case .home(let h): print("home:" + h)
-case .refused(let why): print("refused:" + why)
-}
-"""
+# ---------- hearing runs only with the owner's own FERB home (the rule's checks: T/FerbHomeRuleTests.swift, T/HearingTests.swift) ----------
 
 
-def _swiftc(*args: str) -> None:
-    if shutil.which("swiftc") is None:
-        pytest.skip("needs swiftc")
-    subprocess.run(["swiftc", "-O", "-target", "arm64-apple-macos14.2", *args], check=True, capture_output=True,
-                   timeout=600)
-
-
-@pytest.fixture(scope="module")
-def home_rule(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """macapp/FERB/home.swift's rule alone, with a test main that names the account folder itself."""
-    out = tmp_path_factory.mktemp("voice-home")
-    (out / "main.swift").write_text(_HARNESS)
-    _swiftc("-o", str(out / "rule"), str(out / "main.swift"), str(HOME_SWIFT))
-    return out / "rule"
-
-
-def _rule(binary: Path, given: str | None, account: Path | None) -> str:
-    done = subprocess.run([str(binary), "-unset-" if given is None else given, str(account) if account else "-none-"],
-                          capture_output=True, text=True, timeout=30)
-    assert done.returncode == 0, done.stderr
-    return done.stdout.strip()
-
-
-def test_ferb_voice_takes_ferb_home_only_unset_or_as_the_accounts_own_folder(home_rule: Path, tmp_path: Path) -> None:
-    account = tmp_path / "Users" / "owner" / ".ferb"
-    account.mkdir(parents=True)
-    link = tmp_path / "link-to-ferb"
-    link.symlink_to(account)
-    other = tmp_path / "x"
-    other.mkdir()
-    assert _rule(home_rule, None, account) == f"home:{account}"            # unset: the account's own ~/.ferb
-    assert _rule(home_rule, "", account) == f"home:{account}"              # empty counts as unset (as main.c)
-    assert _rule(home_rule, str(account), account) == f"home:{account}"
-    assert _rule(home_rule, str(link), account) == f"home:{account}"      # the same folder by device and inode
-    for foreign in (str(other), str(tmp_path / "missing")):
-        got = _rule(home_rule, foreign, account)
-        assert got.startswith("refused:") and "FERB_HOME" in got, got     # never another folder
-    assert _rule(home_rule, str(account), tmp_path / "gone").startswith("refused:")
-    assert _rule(home_rule, None, None).startswith("refused:")           # no account record: nothing to trust
-
-
-def test_ferb_voice_refuses_a_foreign_ferb_home_before_anything_else(tmp_path: Path) -> None:
-    """The whole helper, built as build.sh builds it but as a bare executable (no bundle, never opened): a process
-    that starts it with its own FERB_HOME gets nothing: no socket, no answer, no microphone or Speech Recognition."""
-    exe = tmp_path / "FERB"
-    _swiftc("-o", str(exe), str(SWIFT), str(HOME_SWIFT), "-framework", "AppKit", "-framework", "Speech")
-    foreign = tmp_path / "x"
-    (foreign / "workspace" / "audio").mkdir(parents=True)
-    answer = foreign / "workspace" / "audio" / ".status-1.json"
-    answer.write_bytes(b"")
-    answer.chmod(0o600)
-    env = {"PATH": "/usr/bin:/bin", "FERB_HOME": str(foreign)}
-    for argv in (["status", str(answer)], ["transcribe", str(answer), str(answer)], []):
-        done = subprocess.run([str(exe), *argv], capture_output=True, text=True, timeout=60, env=env)
-        assert done.returncode == 64 and "FERB_HOME" in done.stderr, (argv, done.returncode, done.stderr)
-        assert answer.read_bytes() == b""
+def test_hearing_takes_ferb_home_only_through_the_one_rule() -> None:
     src = SWIFT.read_text()
     assert 'environment["FERB_HOME"]' not in src                            # the rule is the only way in
-    entry = src[src.index("import Speech"):src.index("// ---------- permissions")]
-    assert "_ = ferbHome" in entry                                          # checked first, for every mode
-    assert "ferbHome" in src[src.index("func inAudioFolder("):src.index("func writeAnswer(")]
-    assert "home.swift" in (ROOT / "macapp" / "FERB" / "build.sh").read_text()
+    run = src[src.index("static func run("):src.index("// ---------- permissions")]
+    assert run.index("resolveFerbHome") < run.index('case "request-speech"')   # checked first, for every mode
+    assert "home:" in src[src.index("static func inAudioFolder("):src.index("static func writeAnswer(")]
 
 
-def test_the_daemon_tells_ferb_voice_the_accounts_ferb_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The daemon keeps passing the owner's home, which is what FERB Voice accepts."""
+def test_the_daemon_tells_ferb_app_the_accounts_ferb_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The daemon keeps passing the owner's home, which is what FERB.app's hearing accepts."""
     from ferb.daemon.main import Daemon
     from ferb.sense.transcribe import launch_args
     monkeypatch.delenv("FERB_HOME", raising=False)
@@ -841,15 +785,15 @@ def test_the_daemon_tells_ferb_voice_the_accounts_ferb_home(tmp_path: Path, monk
 
 def test_ferb_app_writes_only_into_the_daemons_answer_file_and_stops_when_it_goes() -> None:
     src = SWIFT.read_text()
-    body = src[src.index("// ---------- hearing (L26)"):src.index("let args = Array(CommandLine.arguments")]
-    opened = body[body.index("func answerFile("):body.index("func recognizer(")]
+    body = src[src.index("// ---------- hearing (L26)"):]
+    opened = body[body.index("static func answerFile("):body.index("private static func recognizer(")]
     assert "O_CREAT" not in opened and "O_NOFOLLOW" in opened and "st_size" in opened   # never creates or replaces
     assert "workspace/audio" in opened and "realpath" in opened                       # only FERB's audio folder
     assert "makeFileSystemObjectSource" in body and ".delete" in body                 # deleting it means stop
     assert "rename(" not in body                                                      # no file appears afterwards
     assert "st_nlink == 1" in opened                                                  # no second name for it
-    write = body[body.index("func writeAnswer("):]
-    write = write[:write.index("\n}\n")]
+    write = body[body.index("static func writeAnswer("):]
+    write = write[:write.index("\n    }\n")]
     assert "leaseWatch" in write and ".cancel()" in write                             # unwatched before closing
     assert "setCancelHandler" in opened                                               # the watch closes its fd
 

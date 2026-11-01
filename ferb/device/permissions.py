@@ -206,7 +206,6 @@ PANES = {
     "automation": "Privacy_Automation",
     "microphone": "Privacy_Microphone",
     "speech_recognition": "Privacy_SpeechRecognition",
-    "hearing": "Privacy_SpeechRecognition",          # FERB Voice's Speech Recognition (L26)
     "clipboard": "Privacy_Pasteboard",               # Paste from Other Apps (macOS 15.4+; I3)
 }
 
@@ -243,7 +242,7 @@ def check_all() -> dict[str, str]:
 # one Allow all; Automation is asked per app at first use. `required` stays on the rows for older apps (always true).
 DAEMON_PERMISSIONS = ("accessibility", "screen_recording", "full_disk_access", "input_monitoring")
 SETUP_VERSION = 27                      # `[setup] permissions_version` once every permission was granted
-REQUESTABLE = frozenset({"accessibility", "screen_recording", "input_monitoring", "clipboard", "hearing"})
+REQUESTABLE = frozenset({"accessibility", "screen_recording", "input_monitoring", "clipboard"})
 # a new grant of these reaches a running process only after it restarts (Screen Recording: CGPreflight… stays false;
 # Input Monitoring likewise on a friend's Macs, 2026-10-27; Full Disk Access may need it too): the window restarts the
 # service when FERB comes back to the front after the Grant, and offers "Restart FERB to check"
@@ -259,36 +258,15 @@ def fda_ready(containment: dict[str, Any]) -> bool:
                 and containment.get("proxy_alive", True))
 
 
-def hearing_row_status(hearing: dict[str, Any]) -> tuple[str, str]:
-    """(status, blocked) of FERB Voice's Speech Recognition from the daemon's hearing probe (`_hearing_status`)."""
-    if not hearing.get("installed"):
-        return Status.UNKNOWN.value, "FERB Voice isn't in this FERB.app; download FERB again"
-    if not hearing.get("signed"):
-        return Status.UNKNOWN.value, "FERB Voice's signature isn't the one setup recorded; set up FERB again"
-    speech = str(hearing.get("speech") or "")
-    if speech == "granted":
-        return Status.GRANTED.value, ""
-    if speech in ("denied", "restricted"):
-        return Status.DENIED.value, ""
-    if speech == "not_determined":
-        return Status.NOT_DETERMINED.value, ""
-    return Status.UNKNOWN.value, ""
-
-
-def rows(grants: dict[str, str], containment: dict[str, Any],
-         hearing: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """The daemon's own grants as setup rows: `process` "daemon" is FERB's agent app (the daemon's TCC identity);
-    "voice" is FERB Voice, included only when its hearing probe was asked for."""
+def rows(grants: dict[str, str], containment: dict[str, Any]) -> list[dict[str, Any]]:
+    """The daemon's own grants as setup rows: `process` "daemon" is FERB's agent app (the daemon's TCC identity).
+    Hearing's Speech Recognition is FERB.app's own, the grant dictation already asks for: the app's microphone row."""
     ready = fda_ready(containment)
     out: list[dict[str, Any]] = [
         {"id": p, "status": grants.get(p, Status.UNKNOWN.value), "process": "daemon", "required": True,
          "pane": pane_url(p), "requestable": p in REQUESTABLE, "restart_to_check": p in RESTART_TO_CHECK,
          "blocked": "" if p != "full_disk_access" or ready else FDA_WAITS}
         for p in DAEMON_PERMISSIONS]
-    if hearing is not None:
-        status, blocked = hearing_row_status(hearing)
-        out.append({"id": "hearing", "status": status, "process": "voice", "required": True,
-                    "pane": pane_url("hearing"), "requestable": True, "restart_to_check": False, "blocked": blocked})
     return out
 
 
@@ -311,10 +289,10 @@ def missing(rows: Iterable[dict[str, Any]]) -> list[tuple[str, str]]:
 
 
 def report_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
-    """The daemon's own rows from a `doctor.check` reply asked with `hearing: true`: its four grants, FERB Voice's
-    Speech Recognition and the clipboard (FERB.app's own Notifications and Microphone are the app's to check)."""
+    """The daemon's own rows from a `doctor.check` reply: its four grants and the clipboard (FERB.app's own
+    Notifications, Microphone and Speech Recognition are the app's to check)."""
     grants = {p: str(report.get("permissions", {}).get(p, Status.UNKNOWN.value)) for p in DAEMON_PERMISSIONS}
-    return rows(grants, report.get("containment") or {}, report.get("hearing") or {}) + [
+    return rows(grants, report.get("containment") or {}) + [
         clipboard_row(report.get("clipboard"))]
 
 
@@ -335,8 +313,8 @@ def _request_listen_event() -> None:
 def request(permission: str) -> Status:
     """Ask macOS for one grant on the owner's Grant (setup only): macOS shows its own prompt and lists FERB in that
     pane. Run in the daemon, so the grant attaches to the daemon's process. Full Disk Access has no request API (the
-    owner adds FERB in the pane); Automation is per app (`automation(bundle_id, ask=True)`); hearing is FERB Voice's
-    own request (`speech_request_argv`); the clipboard is one read by the daemon (`clipboard.request_access`)."""
+    owner adds FERB in the pane); Automation is per app (`automation(bundle_id, ask=True)`); Speech Recognition is
+    FERB.app's own request (dictation); the clipboard is one read by the daemon (`clipboard.request_access`)."""
     if permission == "accessibility":
         _ax_trusted(True)
         return accessibility()
@@ -347,11 +325,6 @@ def request(permission: str) -> Status:
         _request_listen_event()
         return input_monitoring()
     raise ValueError(f"{permission!r} has no macOS request; add FERB in its System Settings pane")
-
-
-def speech_request_argv(app: Path) -> list[str]:
-    """FERB Voice asks macOS once for Speech Recognition (L26); `open -W` returns after the owner answered."""
-    return ["/usr/bin/open", "-n", "-W", str(app), "--args", "request-speech"]
 
 
 def automation_candidates(apps: Iterable[Any], running: set[str]) -> list[tuple[str, str]]:

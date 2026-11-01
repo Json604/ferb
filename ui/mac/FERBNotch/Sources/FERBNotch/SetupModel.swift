@@ -17,7 +17,6 @@ final class SetupModel: ObservableObject {
     @Published private(set) var signingIn = false
     @Published private(set) var claudeSigningIn = false
     @Published private(set) var permissions: PermissionSnapshot?
-    @Published private(set) var hearingRow: PermissionRow?
     @Published private(set) var appRows: [PermissionRow] = []
     @Published private(set) var askedRestart: Set<String> = []
     /// Rows a Grant asked for: one still off gets "Show FERB in Finder" to drag it into its pane's list (a friend's
@@ -69,15 +68,15 @@ final class SetupModel: ObservableObject {
     /// What the setup window asks for: what every task needs. The rest are asked when first needed (owner 2026-10-26:
     /// "ask when first needed, like Claude and ChatGPT"); Settings → Permissions lists them all.
     static let askedAtSetup: Set<String> = ["accessibility", "screen_recording", "full_disk_access", "input_monitoring",
-                                            "notifications", "microphone", "hearing", "clipboard"]
+                                            "notifications", "microphone", "clipboard"]
     /// "Allow all" (owner 2026-10-26: "lets just have them all at the start only with the one allow all"): every setup
     /// row not yet on, one-click popups first; Screen Recording last, since macOS restarts FERB after it (setup reopens
     /// on this page). Automation can't be granted ahead (macOS asks per app at first use).
     /// Notifications late (2026-10-27): its banner is answered whenever the owner gets to it, and nothing waits on it.
-    static let allowAllSequence = ["microphone", "hearing", "clipboard", "input_monitoring",
+    static let allowAllSequence = ["microphone", "clipboard", "input_monitoring",
                                    "accessibility", "full_disk_access", "notifications", "screen_recording"]
     /// Answered in macOS's own popup: no wait for a switch afterwards.
-    static let answeredInPopup: Set<String> = ["notifications", "microphone", "hearing", "clipboard"]
+    static let answeredInPopup: Set<String> = ["notifications", "microphone", "clipboard"]
     static func allowAllOrder(_ rows: [PermissionRow]) -> [String] {
         allowAllSequence.filter { id in rows.contains { $0.id == id && $0.status != .granted && $0.blocked.isEmpty } }
     }
@@ -102,7 +101,7 @@ final class SetupModel: ObservableObject {
     }
     var setupRows: [PermissionRow] { allRows.filter { Self.askedAtSetup.contains($0.id) } }
 
-    var allRows: [PermissionRow] { (permissions?.rows ?? []) + appRows + (hearingRow.map { [$0] } ?? []) }
+    var allRows: [PermissionRow] { (permissions?.rows ?? []) + appRows }
 
     var offersRestart: Bool { allRows.contains { askedRestart.contains($0.id) && $0.status != .granted } }
 
@@ -142,7 +141,7 @@ final class SetupModel: ObservableObject {
     /// What a step reads on entering it; polling keeps it fresh afterwards.
     func enter(_ step: SetupStep) async {
         switch step {
-        case .permissions: await refreshPermissions(probeHearing: true)
+        case .permissions: await refreshPermissions()
         case .persona: await refreshPersona()
         case .identity: await refreshIdentity()
         default: await refreshCurrentStep()
@@ -363,15 +362,10 @@ final class SetupModel: ObservableObject {
 
     // MARK: Permissions
 
-    func refreshPermissions(probeHearing: Bool = false) async {
+    func refreshPermissions() async {
         do {
-            let reply = try await rpc.call("setup.permissions", params: probeHearing ? ["hearing": true] : [:],
-                                           wait: probeHearing ? 30 : 10)
-            if var snapshot = PermissionSnapshot(reply: reply) {
-                if probeHearing { hearingRow = snapshot.rows.first { $0.id == "hearing" } }
-                snapshot.rows.removeAll { $0.id == "hearing" }       // shown from hearingRow, probed on demand
-                permissions = snapshot
-            }
+            let reply = try await rpc.call("setup.permissions", params: [:], wait: 10)
+            if let snapshot = PermissionSnapshot(reply: reply) { permissions = snapshot }
             clearNotAnswering()
         } catch { message = Self.notAnswering }
         let notifications = await app.notifications()
@@ -402,12 +396,6 @@ final class SetupModel: ObservableObject {
         case "microphone":
             if row.status == .notDetermined { _ = await app.requestMicrophone() }
             else if let pane = row.pane { system.open(pane) }
-        case "hearing":
-            if row.status == .notDetermined {
-                _ = try? await rpc.call("setup.permission_request", params: ["permission": "hearing"], wait: 120)
-            } else if let pane = row.pane { system.open(pane) }
-            await refreshPermissions(probeHearing: true)
-            return
         default:
             if row.requestable {
                 _ = try? await rpc.call("setup.permission_request", params: ["permission": row.id], wait: 120)

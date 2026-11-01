@@ -89,8 +89,7 @@ FERB needs all of these; setup isn't done until each is on.
 | Screen Recording | To take the redacted screenshots it looks at, show the live preview of a task, and hear an app's sound. |
 | Input Monitoring | To know when you are typing or using the mouse, so it stays out of your way, and to record what you type per field (never in password fields, secure input or terminals). |
 | Full Disk Access | To work with files in your folders and run commands on them. The sandbox and protection lists still apply. |
-| Hearing app sound (Speech Recognition, for FERB Voice) | To turn an app's sound into text, on your Mac only. |
-| Microphone | For dictation in the notch. |
+| Microphone and Speech Recognition (one row in setup) | To turn your voice into text for dictation in the notch, and an app's sound into text during a task, on your Mac only. |
 | Notifications | To tell you when something needs you and the notch can't show it. |
 | Paste from Other Apps | To read what you copy, for FERB's activity history (the text is kept 7 days). |
 | Automation (asked per app, when first needed) | To script an app FERB works with, such as reading a browser's current tab. |

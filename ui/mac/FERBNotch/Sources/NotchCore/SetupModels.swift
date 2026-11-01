@@ -22,7 +22,7 @@ public enum GrantStatus: String, Equatable {
 }
 
 /// One Permissions row. `process` is whose grant it is: "daemon" (FERB's agent app, Contents/Helpers/FERB.app, which
-/// runs the daemon), "voice" (FERB Voice) or "app" (FERB.app itself).
+/// runs the daemon), or "app" (FERB.app itself).
 public struct PermissionRow: Equatable, Identifiable {
     public let id: String
     public let status: GrantStatus
@@ -271,7 +271,7 @@ public enum PermissionCopy {
     public static func label(_ id: String) -> String {
         ["accessibility": "Accessibility", "screen_recording": "Screen Recording", "full_disk_access": "Full Disk Access",
          "input_monitoring": "Input Monitoring", "clipboard": "Paste from Other Apps",
-         "notifications": "Notifications", "microphone": "Microphone", "hearing": "Hearing app sound"][id] ?? id
+         "notifications": "Notifications", "microphone": "Microphone"][id] ?? id
     }
 
     public static func reason(_ id: String) -> String {
@@ -281,8 +281,7 @@ public enum PermissionCopy {
          "input_monitoring": "FERB notices when you're typing, so it stays out of your way.",
          "clipboard": "FERB keeps what you copy on this Mac for 7 days. After macOS asks, set FERB to Allow.",
          "notifications": "FERB tells you when it needs you or finishes.",
-         "microphone": "Dictate requests by voice (Microphone and Speech Recognition).",
-         "hearing": "FERB turns an app's sound into text during a task, on this Mac only (FERB Voice)."][id] ?? ""
+         "microphone": "FERB turns your voice, and the sound of an app it listens to during a task, into text on this Mac (Microphone and Speech Recognition)."][id] ?? ""
     }
 
     public static func status(_ status: GrantStatus) -> String {

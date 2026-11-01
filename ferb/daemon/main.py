@@ -9,7 +9,6 @@ import asyncio
 import contextlib
 import os
 import signal
-import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -275,8 +274,6 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         self._input_monitoring_asked = False                  # asked with the owner's first request
         self.automation_check: Callable[[str], Awaitable[Any]] = (
             lambda bundle: _permissions.automation_async(bundle, ask=False))
-        self.speech_request: Callable[[Path], Any] = (
-            lambda app: subprocess.run(_permissions.speech_request_argv(app), check=False))
         # notes/voice.md decisions 2-3: a voice turn's replies, spoken by the configured provider through one shared
         # path that redacts first; a new turn or a stop interrupts it. Tests replace `build_speaker` (nothing speaks).
         from ferb.voice import speak

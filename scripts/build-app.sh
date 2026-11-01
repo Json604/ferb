@@ -10,8 +10,8 @@
 # below) with the ferb package and its locked dependencies; the agent app FERB (Helpers/FERB.app: a native stub that
 # embeds that Python and runs the daemon, so macOS names FERB in permission prompts); the `ferb` launcher; the pinned
 # Codex; the secret helper; the local embedding model; the background service's definition (Contents/Library/
-# LaunchAgents, registered by the app with SMAppService); and the voice helper built from macapp/FERB (nested until it
-# merges into the main app). First launch sets the daemon up from inside the app (ferb/device/install.py).
+# LaunchAgents, registered by the app with SMAppService). Hearing (an app's sound to text) is the main executable's own
+# modes (ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift); there is no helper. First launch sets the daemon up from inside the app (ferb/device/install.py).
 # Env: SIGN_IDENTITY (default "-", ad-hoc) and, for a Developer ID, the notary credentials described in signing.sh.
 set -euo pipefail
 ROOT="${0:A:h:h}"
@@ -202,12 +202,6 @@ print "==> Secret helper"
 xcrun swiftc -O -target "$ARCH-apple-macos14.2" -file-prefix-map "$ROOT=." -o "$CONTENTS/Helpers/ferb-secrets" \
   "$ROOT/ferb/identity/secret_helper.swift" -framework Security -framework CryptoKit
 strip -S "$CONTENTS/Helpers/ferb-secrets"
-
-print "==> Voice helper (macapp/FERB; merges into the main app after Task 20)"
-VOICE="$CONTENTS/Helpers/FERB Voice.app"
-ARCH="$ARCH" IDENTITY=- "$ROOT/macapp/FERB/build.sh" "$VOICE" >/dev/null
-plist "Set :CFBundleName FERB Voice" "$VOICE/Contents/Info.plist"   # its own name in permission prompts; same id
-plist "Add :CFBundleDisplayName string FERB Voice" "$VOICE/Contents/Info.plist"
 
 print "==> Trimming what FERB never runs ($ARCH only)"
 ferb_trim_app "$APP" "$ARCH"

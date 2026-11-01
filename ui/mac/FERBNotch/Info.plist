@@ -17,5 +17,5 @@
 <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
 <key>NSHumanReadableCopyright</key><string>FERB. Third-party notices are in Contents/Resources.</string>
 <key>NSMicrophoneUsageDescription</key><string>FERB uses your microphone while you dictate a request.</string>
-<key>NSSpeechRecognitionUsageDescription</key><string>FERB turns your spoken request into text on this Mac.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>FERB turns your spoken requests, and the sound of an app it listens to during a task, into text on this Mac.</string>
 </dict></plist>

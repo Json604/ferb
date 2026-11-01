@@ -69,7 +69,6 @@ DEV_APP_BUNDLE_ID = "dev.ferb.notch"        # the development notch build (ui/ma
 BUNDLE_CLI = Path("Contents/Resources/bin/ferb")
 BUNDLE_NODE = Path("Contents/Resources/node")                 # node_modules/@openai/codex-darwin-<arm64|x64>
 BUNDLE_SECRET_HELPER = Path("Contents/Helpers/ferb-secrets")
-BUNDLE_VOICE_APP = Path("Contents/Helpers/FERB Voice.app")    # macapp/FERB, nested until it merges into the app
 # The daemon: an app named FERB whose executable embeds the bundled Python, always isolated (no PYTHON* variables,
 # no user site-packages, no working folder on sys.path) and never writing bytecode into the sealed bundle
 BUNDLE_AGENT_APP = Path("Contents/Helpers/FERB.app")
@@ -93,8 +92,9 @@ def repo_root() -> Path:
 
 
 def voice_app(home: Path, bundle: Path | None) -> Path:
-    """FERB's voice/speech app: nested in FERB.app when FERB runs from one, else built into ~/.ferb by setup."""
-    return bundle / BUNDLE_VOICE_APP if bundle else home / "FERB.app"
+    """The app hearing runs (L26): FERB.app itself when FERB runs from one, else the copy of the notch app a checkout's
+    setup builds into ~/.ferb."""
+    return bundle if bundle else home / "FERB.app"
 
 
 def designated_requirement(codesign_output: str) -> str:
@@ -657,6 +657,17 @@ class Installer:
                 raise InstallError(f"{self.bundle} is incomplete (no {part}); download FERB again")
         self._ok(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(self.bundle)],
                  "checking FERB.app's signature (download FERB again if it was damaged)")
+
+    def own_requirement(self) -> str:
+        """The requirement to pin for FERB.app itself (hearing's signature check): its own designated requirement, once
+        check_bundle verified its signature: the exact code hash (ad-hoc), FERB's release certificate or a Developer ID
+        team. An identifier alone proves nothing."""
+        assert self.bundle is not None
+        shown = self.run(['/usr/bin/codesign', '-d', '-r-', str(self.bundle)])
+        requirement = designated_requirement((shown.stdout or '') + (shown.stderr or ''))
+        if not trusted_requirement(requirement, pinned_ok=True):
+            raise InstallError("FERB.app's signature names neither its exact code nor a certificate; download FERB again")
+        return requirement
 
     def install_secret_helper(self) -> None:
         """Owner-invoked setup only. A checkout builds it and signs it with the stable local code-signing identity

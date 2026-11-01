@@ -125,7 +125,7 @@ final class SetupModelsTests: XCTestCase {
 
     func testEveryRowHasWordsForTheOwner() {
         for id in ["accessibility", "screen_recording", "full_disk_access", "input_monitoring", "clipboard",
-                   "notifications", "microphone", "hearing"] {
+                   "notifications", "microphone"] {
             XCTAssertNotEqual(PermissionCopy.label(id), id)
             XCTAssertFalse(PermissionCopy.reason(id).isEmpty)
         }

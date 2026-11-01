@@ -83,7 +83,7 @@ final class NotificationPosterTests: XCTestCase {
     /// Notifications. Screen Recording goes last: macOS restarts FERB after it, and setup reopens on this page.
     func testSetupAsksForFourAndAllowAllLeavesScreenRecordingLast() {
         XCTAssertEqual(SetupModel.askedAtSetup, ["accessibility", "screen_recording", "full_disk_access", "input_monitoring",
-                                                 "notifications", "microphone", "hearing", "clipboard"])
+                                                 "notifications", "microphone", "clipboard"])
         func row(_ id: String, _ status: GrantStatus) -> PermissionRow {
             PermissionRow(id: id, status: status, process: "daemon", required: true, pane: nil, requestable: true)
         }
