@@ -64,3 +64,19 @@ status = "open"
 why = "notes/daemon.md 12e review, not built: AppPeers derives the requirement again from whatever bundle with FERB's id sits at /Applications/FERB.app, so a program running as the owner that replaces that bundle passes the APP_ONLY check."
 decisions = ["DMN-23"]
 ask = "For a daemon run outside FERB.app, should FERB pin the installed FERB.app's signing identity at setup (the certificate leaf survives updates; an ad-hoc build's code hash changes every build and would lock the notch out until setup runs again), and who records it again after an app update?"
+
+[T-200]
+title = "Keep a tab playing while the owner switches away (a general ability)"
+area = "hands"
+kind = "build"
+status = "open"
+why = "HAND-207 names it as later; notes/hands.md step 14b left it unbuilt. Its timing is the owner's call (launch scope puts it after launch)."
+decisions = ["HAND-207"]
+
+[T-201]
+title = "Native apps: find a structural source for pay, account-security and send facts"
+area = "gateway"
+kind = "build"
+status = "open"
+why = "In native apps these questions still rest on the worker's declaration (GATE-202): the only cheap pre-call Accessibility fact is a secure field, which can't tell a sign-in from a password change; no card, amount or recipient markup. Needs a structural source first."
+decisions = ["GATE-202"]
