@@ -11,3 +11,341 @@ why = "Lookups would add model round trips that each re-send the whole context, 
 rejected = ["Lookup tools for the planner (an earlier yes, reversed 2026-10-30)"]
 paths = ["ferb/orchestrator/supervisor.py::TOOLLESS_ROLES", "ferb/orchestrator/prompts/supervisor.md"]
 legacy = "notes/memory.md decision 10"
+
+# Moved from notes/orchestration.md and notes/prompts.md on 2026-11-02 (batch C). Those documents wrote the owner's
+# decisions as an agent's paraphrase, so most owner decisions carry `words_source` instead of `words`.
+
+[ORCH-300]
+title = "Notification rules are removed"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 1: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "FERB has no notification rules: no planner field, side entry, RPC, CLI command or policy hook for them."
+why = "0 uses, and they depended on the paused perception."
+legacy = "notes/orchestration.md decision 1"
+
+[ORCH-301]
+title = "Delegated conversations and answering questions in chat stay"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 2: an agent's paraphrase (\"not selected for removal\"); no verbatim quote recorded"
+rule = "Delegated conversations (converse steps) and answering FERB's questions in chat stay."
+legacy = "notes/orchestration.md decision 2"
+
+[ORCH-302]
+title = "The checker and the dispatcher are one role"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 3: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "One checker role judges an attempt's conditions and chooses what comes next (accept, fix the answer, retry with instructions, ask the owner, accept as unconfirmed, fail). There is no separate dispatcher."
+paths = ["ferb/orchestrator/schemas.py::CHECKER_SCHEMA", "ferb/orchestrator/prompts/verifier.md"]
+legacy = "notes/orchestration.md decision 3"
+
+[ORCH-303]
+title = "The planner reads the last 20 exchanges word for word plus the running summary"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 4: the owner chose \"Recent + summary\" (2026-10-30); the rest is an agent's paraphrase"
+rule = "The planner gets the running summary for everything older plus the last 20 exchanges word for word (20 owner messages and FERB's replies to them), never history filling the model's window. Long task reports appear in their short form. The last 20 exchanges are never shortened, folded or dropped, however long they are."
+rejected = ["History filling the model's window", "A 15k-token cap that could shorten the last 20 exchanges (an agent's figure, never the owner's; removed 2026-11-01)"]
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._recent_entries", "ferb/orchestrator/supervisor.py::Supervisor._keep_recent"]
+legacy = "notes/orchestration.md decision 4"
+
+[ORCH-304]
+title = "The running summary holds the recent two weeks and what is still open"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/orchestration.md owner decision 4, the owner's 2026-10-31 addition: an agent's paraphrase; no verbatim quote recorded"
+rule = "The summary holds the recent ~2 weeks plus what is still open (waiting tasks, open questions, promises); older settled material falls out of it, since memory facts and episodes hold what lasts. It folds about every 20-40 exchanges, in the background after the reply; the planner reads only the latest summary."
+paths = ["ferb/orchestrator/prompts/summary.md", "ferb/orchestrator/supervisor.py::Supervisor._keep_recent"]
+legacy = "notes/orchestration.md decision 4 (2026-10-31)"
+
+[ORCH-305]
+title = "Map stays as an ability; its separate code goes"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 5: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "There is no separate map step: a do step may carry an input list, independent steps run in parallel, and plan validation keeps the check that every input is covered exactly once."
+paths = ["ferb/orchestrator/plans.py"]
+legacy = "notes/orchestration.md decision 5"
+
+[ORCH-306]
+title = "Standing sends stay"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 6: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Standing sends stay: they are the only way to send to recipients FERB found itself (not in the owner's words, not already known), and the only way an unattended run can do so. Recipients in the owner's words or approved once never ask anyway."
+paths = ["ferb/policy/confirm.py"]
+legacy = "notes/orchestration.md decision 6"
+
+[ORCH-307]
+title = "Check-in after 5 failed attempts"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 7 (the owner changed 10 to 5; \"Definition confirmed by the owner\"): an agent's paraphrase"
+rule = "Attempts are counted per task or plan step: worker runs in one attempt loop, not model calls, tool calls or time; each loop round starts at 0. After 5 failed attempts FERB pauses and asks whether to keep going: Yes allows 5 more, No stops with what it found. An unattended run can't ask, so it stops at 5 and reports."
+rejected = ["10 attempts (the first figure, changed by the owner 2026-10-30)"]
+paths = ["ferb/orchestrator/attempts.py"]
+legacy = "notes/orchestration.md decision 7"
+
+[ORCH-308]
+title = "Pause and resume a task"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 8: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Pause ends the current attempt and marks the task paused, not cancelled: no task-end clean-up, no final answer, loop state kept. Resume continues in place with the owner's discussion as the update, on the shared wait-for-the-owner mechanism. The planner pauses a running task when the owner's words question, doubt or rethink it (its reading, no keyword list); a plain correction still steers live. No pause button in the app."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor.pause_tree", "ferb/orchestrator/prompts/supervisor.md"]
+legacy = "notes/orchestration.md decision 8"
+
+[ORCH-309]
+title = "Done is about the outcome asked for; the answer comes first"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 9: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "A task is done when every outcome condition is verified; an unproven side detail is removed from the answer or marked inline (fix the answer, no redo), so FERB never states unseen things as fact. How the work was done is judged from code facts, not by the model. Done-unconfirmed only when an outcome itself can't be verified. Every answer: the answer first, then at most one short \"Couldn't confirm: ...\" line; no \"Why work stopped\" on finished work, no restated goal."
+evidence = "Task 810e9973 (2026-10-30, a question about an F1 race) became done-unconfirmed over one uncaptured timing graphic, with the answer buried under \"Why work stopped\"."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/evidence.py::how_facts"]
+legacy = "notes/orchestration.md decision 9"
+
+[ORCH-310]
+title = "A new message restarts the planner turn"
+by = "owner"
+date = 2026-10-30
+status = "superseded"
+superseded_by = "ORCH-318"
+words_source = "notes/orchestration.md owner decision 10: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "The planner changes nothing until it returns, so a message sent while it is still thinking cancels that turn and starts again with both messages; nothing waits behind a slow turn."
+legacy = "notes/orchestration.md decision 10"
+
+[ORCH-311]
+title = "Planner time limit 90 s"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 11: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "A planner turn may take 90 s, then it replies plainly instead of hanging. The 180 s silence guard stays for the other non-worker calls; workers keep no time limit."
+rejected = ["900 s for the planner, like every other non-worker call (before 2026-10-30)"]
+paths = ["ferb/runtimes/catalog.py::call_limit"]
+legacy = "notes/orchestration.md decision 11"
+
+[ORCH-312]
+title = "What a pause stops, and the daily paused-task mention"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 13: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Pausing stops the task's running terminal commands and audio listening and keeps only its tabs and progress. FERB mentions a paused task once a day (\"<task> is still paused. Resume?\"). Pausing a scheduled run pauses that schedule's next runs."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor.mention_paused", "ferb/daemon/areas/desktop.py"]
+legacy = "notes/orchestration.md decision 13"
+
+[ORCH-313]
+title = "Scheduled runs and reminders use what the original request recorded"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 14: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Folders, recipients and sites, profile/account, worker type and standing scope are fixed when a schedule or reminder is made, and stated then so the owner can correct them; unattended runs never re-guess them."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._apply_run_scope"]
+legacy = "notes/orchestration.md decision 14"
+
+[ORCH-314]
+title = "No failure check-in across scheduled runs"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 15: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "Failed scheduled runs add no check-in across runs: each failed run already reports in chat."
+evidence = "2026-10-30: a six-hourly schedule recovered by itself after 4 failures (13 of the next 15 runs succeeded)."
+legacy = "notes/orchestration.md decision 15"
+
+[ORCH-315]
+title = "AI service down: say so once and offer a one-tap switch"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 16: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "When the configured runtime reports a usage limit or a sign-in failure, FERB says so once and offers another signed-in runtime with one tap. It never switches by itself (billing)."
+paths = ["ferb/orchestrator/worker.py::ServiceDown"]
+legacy = "notes/orchestration.md decision 16"
+
+[ORCH-316]
+title = "\"When you're back at your Mac\" trigger (input idleness)"
+by = "owner"
+date = 2026-10-30
+status = "superseded"
+superseded_by = "ORCH-317"
+words_source = "notes/orchestration.md owner decision 17 as first written: an agent's paraphrase; no verbatim quote recorded"
+rule = "Reminders and schedules can fire when the owner becomes active at the Mac (idle to active, or wake) instead of polling; a scheduled run that did nothing posts nothing."
+evidence = "2026-10-30: \"remind me everyday whenever I'm on my mac\" became a run every 15 minutes, 14 runs and \"nothing to report\" messages."
+legacy = "notes/orchestration.md decision 17"
+
+[ORCH-317]
+title = "\"On my Mac\" means the Mac coming back into use"
+by = "owner"
+date = 2026-10-31
+status = "active"
+supersedes = ["ORCH-316"]
+words_source = "notes/orchestration.md decision 17 as clarified by the owner 2026-10-31: an agent's paraphrase; no verbatim quote recorded"
+rule = "Reminders and schedules can fire when the owner is back at the Mac instead of polling; a scheduled run that did nothing posts nothing. Back at the Mac means the Mac coming back into use: lid opened or wake from sleep, screen unlocked, login or restart. Input idleness is not away: watching a film without touching anything is still being at the Mac. The paused-task mention uses the same signal."
+rejected = ["Input idleness (2 minutes without input, step 14b)"]
+paths = ["ferb/sense/watchers/presence.py::MacPresence"]
+legacy = "notes/orchestration.md decision 17 (clarified 2026-10-31)"
+
+[ORCH-318]
+title = "The restart rule, narrow: only before FERB's first reply, at most once"
+by = "owner"
+date = 2026-10-30
+status = "active"
+supersedes = ["ORCH-310"]
+words_source = "notes/orchestration.md owner decision 18 (decision 10 clarified): an agent's paraphrase; no verbatim quote recorded"
+rule = "Only messages sent before FERB's first reply to the previous one restart the turn: FERB restarts once and reads them together (related: folded in; unrelated: both answered). Later messages wait their turn, and messages that queued are read together in the next turn. Once FERB has replied, a running task is unaffected. Code enforces at most one restart per turn, and the 90 s planner limit covers the turn including its restart."
+paths = ["ferb/orchestrator/supervisor.py::_ChatLine"]
+legacy = "notes/orchestration.md decision 18"
+
+[ORCH-319]
+title = "Answers in steps: one row per ask, each posted once"
+by = "owner"
+date = 2026-10-30
+status = "active"
+words_source = "notes/orchestration.md owner decision 19: the owner approved a mock (2026-10-30); the decision text is an agent's paraphrase"
+rule = "A part is one of the owner's asks, not a plan step. The planner declares parts in the owner's order, each answered directly or by one answer step; code validates them (one answer source each, answer steps distinct and not wait/ask, each success condition in exactly one part, no summing-up step). Tool-free parts answer in the first reply. Each other part posts once, when its answer step's check accepts, recorded durably, never twice, also across restarts. No final summarizing call: code adds only its fixed lines and \"N of M done\"."
+why = "The reverted dc11e6ba sent a duplicate in every one of its 5 tasks: parts were plan steps, usually the last one, plus two summary layers."
+paths = ["ferb/orchestrator/parts.py::Card", "ferb/orchestrator/plans.py::part_problems"]
+legacy = "notes/orchestration.md decision 19"
+
+[ORCH-320]
+title = "Schedules get an end date from the owner's words"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/orchestration.md owner decision 22: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "When the request gives an end (\"until Nov 3\", \"for 2 weeks\"), the schedule stores it (quote-checked like every side entry), stops after it, and its card counts down to it. No end date in the words: it runs until stopped."
+paths = ["ferb/clock/when.py::end_at", "ferb/orchestrator/schedules.py"]
+legacy = "notes/orchestration.md decision 22"
+
+[ORCH-321]
+title = "Payment cards name the saved card, never its digits"
+by = "owner"
+date = 2026-10-31
+status = "active"
+words_source = "notes/orchestration.md owner decision 23: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
+rule = "A payment card shows the name the owner saved the card under in FERB (recorded with the payment when a saved card entry filled it), never any card digits."
+paths = ["ferb/orchestrator/cards.py", "ferb/daemon/gateway.py::Gateway._card_entry"]
+legacy = "notes/orchestration.md decision 23"
+
+[ORCH-322]
+title = "One execution path: a single task is a one-step plan"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Every tree runs as a plan of worker steps with dependencies; a single task is a one-step plan. Step kinds are do (optional input list; an optional repeat rule makes it a loop), wait, ask and converse. A loop is a do step with a repeat rule on the same path, ending on a verified condition or a stop."
+why = "The same concern was implemented separately per path (single worker, map, reduce, loops), each with its own status, retry and stop handling."
+paths = ["ferb/orchestrator/plans.py::single", "ferb/orchestrator/supervisor.py::Supervisor._execute_plan"]
+legacy = "notes/orchestration.md target design 1"
+
+[ORCH-323]
+title = "One status, finish and stop path; needing the owner means pause and ask"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Tree, step, loop round and conversation turn share one status function, one finish function, one stop check and one injected clock. \"Needs the owner\" means one thing everywhere: pause in place and ask; an unattended run declines at once. task.finished is published once per tree."
+why = "2026-10-30: tasks.status was written in 17 places, \"needs the owner\" had 4 meanings, and a plan step needing the owner was relaunched forever."
+paths = ["ferb/orchestrator/supervisor.py"]
+legacy = "notes/orchestration.md target design 2"
+
+[ORCH-324]
+title = "One chat-turn path with one quote check"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "A typed per-turn object carries a chat turn; one exit applies side entries, records the reply and lets the chat go. One quote check (memory.items.quoted) serves every side entry (remember, until, timers, schedules, changes, cancels, forget, conversation changes). One continue verb corrects running and ended tasks."
+why = "2026-10-30: _send had 8 exits, 4 reply recorders and ~24 untyped keys; 7 quote checks existed."
+paths = ["ferb/orchestrator/supervisor.py::_Turn", "ferb/memory/items.py"]
+legacy = "notes/orchestration.md target design 3"
+
+[ORCH-325]
+title = "Planner context is ordered most-stable first so the prefix caches"
+by = "agent"
+date = 2026-10-30
+status = "active"
+rule = "Planner context goes: instructions, stable facts, running summary, recent conversation (append-only), then memory, activity, time, front window, task state, then the new message. Live values stay out of the cached prefix: {capabilities} names the paired owner profiles only, and whether each is connected now is in \"Layer 2 - right now\"."
+evidence = "2026-10-30: 125 of 398 planner calls since 10-20 had any cache hit; on average 2.3k of 98k input tokens were cached."
+paths = ["ferb/daemon/areas/environment.py", "ferb/orchestrator/supervisor.py"]
+legacy = "notes/orchestration.md target design 5; Rulings (2026-11-01)"
+
+[ORCH-326]
+title = "Conversation folding figures"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Beyond the last 20 exchanges the conversation folds into the summary once that tail holds FOLD_CHUNK_TOKENS (20k) or the whole tail passes RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS (35k), in calls of at most 20k each. The summary is asked to stay within SUMMARY_TOKENS (2k) and is cut to it when shown; SUMMARY_DAYS (14) is its ~2 weeks. A report's short form is its first paragraph, 300 chars."
+evidence = "Live 2026-10-28: one fold call read 533k tokens."
+paths = ["ferb/orchestrator/supervisor.py::FOLD_CHUNK_TOKENS", "ferb/orchestrator/supervisor.py::SUMMARY_TOKENS", "ferb/orchestrator/supervisor.py::SUMMARY_DAYS"]
+legacy = "notes/orchestration.md Rulings (step 8c): conversation bounds"
+
+[ORCH-327]
+title = "A folder names one specific place"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Task and schedule folders must each name one specific folder: the disk root, the home folder itself, /Volumes and iCloud Drive's root are sent back to the planner for repair (argument validity)."
+paths = ["ferb/orchestrator/supervisor.py"]
+legacy = "notes/orchestration.md Rulings (step 8c): folders"
+
+[ORCH-328]
+title = "Question kinds are structural; a chat answer counts only as one of its options"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A question's kind comes from structure (the capability or approval kind, or the asker's tag); answers record state and the chosen option, never typed words. An answer in chat to a question with options counts only as one of them: the owner's words exactly, else the planner's reading exactly, else FERB asks which. The owner's words stay the recorded answer."
+why = "A free-text chat answer to a check-in, paused mention or closed tab counted as \"carry on\" (fixed 2026-11-01)."
+paths = ["ferb/orchestrator/supervisor.py::_plain_choice"]
+legacy = "notes/orchestration.md Rulings (step 8c); Rulings (2026-11-01)"
+
+[ORCH-329]
+title = "Cards come only from FERB's own records"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "Typed cards come only from rows FERB itself wrote: timer and schedule rows, memory items, a tool call's recorded kinds, target and page facts with the owner's Yes, the sites list, the artifacts, a schedule's run. No text is read to choose or fill a card. A card standing for one of code's lines names it, and the notch leaves that line out."
+paths = ["ferb/orchestrator/cards.py"]
+legacy = "notes/orchestration.md Rulings (step 8e)"
+
+[ORCH-330]
+title = "The planner's schema adds no union or nullable fields"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "New planner schema fields add no union or nullable types: unused fields are \"\" or 0, and flags are plain booleans."
+why = "SUPERVISOR_SCHEMA sits at Anthropic's limit of union-typed parameters (ferb/runtimes/schema_shape.py); a nullable object costs none."
+paths = ["ferb/orchestrator/schemas.py", "ferb/runtimes/schema_shape.py"]
+legacy = "notes/orchestration.md Rulings (step 8e follow-up, 14b, 2026-11-01)"
+
+[ORCH-331]
+title = "A scheduled run that acted always posts"
+by = "agent"
+date = 2026-11-01
+status = "active"
+rule = "A one-step scheduled run (not a watch) that found nothing its request asks to tell and did nothing posts nothing (nothing_to_tell). The worker's word alone never silences a run: one whose tree has an acting call that ran without an error (cards.ACTING_KINDS) posts whatever its worker reported. Multi-step scheduled plans and planner replies always post."
+paths = ["ferb/orchestrator/cards.py::acted", "ferb/orchestrator/prompts/roles/scheduled.md"]
+legacy = "notes/orchestration.md Rulings (step 14b): a run that did nothing"
+
+[ORCH-332]
+title = "A part record's seq is an ISO microsecond string"
+by = "agent"
+date = 2026-10-31
+status = "active"
+rule = "A chat.part record's seq is the UTC time to the microsecond as an ISO string, strictly increasing also across a restart."
+why = "A millisecond integer was masked by the journal's redactor as a long number and crashed the read-back."
+paths = ["ferb/orchestrator/parts.py"]
+legacy = "notes/orchestration.md Rulings (step 8d): records"

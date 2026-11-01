@@ -39,3 +39,19 @@ kind = "build"
 status = "open"
 why = "Built since 2026-11-01 for the owner's words about anything (the old MEM-19); the owner answered \"about myself\" on 2026-11-02."
 decisions = ["MEM-35", "MEM-36"]
+
+[T-300]
+title = "Measure the planner's whole-history reads on a 10x store before changing them"
+area = "orchestration"
+kind = "chore"
+status = "open"
+why = "notes/orchestration.md fix list (open): _timeline reads a chat's whole history each turn (supervisor.py:2792) and _keep_recent reads it again (supervisor.py:2924)."
+decisions = ["ORCH-303"]
+
+[T-301]
+title = "Bind a run's recorded browser profile and account in the gateway"
+area = "orchestration"
+kind = "build"
+status = "open"
+why = "notes/orchestration.md Rulings (2026-11-01): a schedule's recorded profile and account reach the planner and worker only as facts; nothing binds a browser call to a profile in the gateway yet (not for chat tasks either)."
+decisions = ["ORCH-313"]

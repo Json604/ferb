@@ -10,3 +10,6 @@ paths:
 The Mac app the owner uses: notch, chat, settings, setup intro, orb, sounds, preview window, playground. The owner's side; talks to the daemon only through its RPC.
 
 Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing one file, their tests and open work; never reword an owner decision (supersede it).
+
+- **APP-300** (owner): The notch shows the turn card with one row per part and its states (working spinner, done check, asks amber, couldn't-do red, updated tag, paused violet), the done/sites footer, questions with buttons inside a row, the plan-line bubble style and the typing-dots bubble; not the mock's dashed explanation labels or "code" chips. The UI work is functional; the owner polishes.
+- **APP-301** (owner): When a part needs the owner (a question or a Yes) and when the whole task finishes, the notch opens itself without taking keyboard focus or switching apps. Rows that fill quietly only update the card. A macOS banner is the fallback only when the notch can't show (a full-screen app or video covers it, the display is asleep, FERB.app is quit); tapping it opens the notch.

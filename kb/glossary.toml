@@ -31,3 +31,31 @@ see = ["SENSE-2", "SENSE-3"]
 ["daily distill"]
 meaning = "The once-a-day model pass over the day's chat and activity that saves durable facts and retires stale ones."
 see = ["MEM-8", "MEM-22"]
+
+["exchange"]
+meaning = "One owner message (or several read together) and FERB's reply to it; the unit the planner's recent conversation counts."
+see = ["ORCH-303", "ORCH-318"]
+
+["part"]
+meaning = "One of the owner's asks in a message (not a plan step); each gets its own row in the turn card and posts once."
+see = ["ORCH-319", "APP-300"]
+
+["answer step"]
+meaning = "The one plan step whose checked answer answers a part; a summing-up step is refused."
+see = ["ORCH-319"]
+
+["check-in"]
+meaning = "FERB's \"keep going?\" question after 5 failed attempts at a task or plan step."
+see = ["ORCH-307"]
+
+["standing send"]
+meaning = "A scope the owner approved for sending to recipients FERB finds itself, including in unattended runs."
+see = ["ORCH-306"]
+
+["unattended run"]
+meaning = "A run with no owner to ask (a scheduled run): it declines at once where an attended run would pause and ask."
+see = ["ORCH-307", "ORCH-323"]
+
+["typed card"]
+meaning = "A structured card (reminder, event, note, payment, send, link, file) built from FERB's own records and drawn by the notch next to the answer."
+see = ["ORCH-329", "ORCH-321"]
