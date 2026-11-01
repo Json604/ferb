@@ -146,7 +146,7 @@ switched off until there is a design without it. FERB still records activity, bu
 
 ## Current limitations
 
-- Prerelease: many checks on a real Mac are still pending (notes/test-tasks.md).
+- Prerelease: many checks on a real Mac are still pending (`kb/live.toml`).
 - No Apple Developer ID yet: the first open needs **Open Anyway**. The Intel build is untested on an Intel Mac.
 - Commands and the browser can reach any site without asking. After FERB reads a malicious page, a command could send
   one of your files somewhere; it is recorded, not prevented.
@@ -176,7 +176,7 @@ git diff --check
 ```
 
 Live tests (`uv run pytest -m real`) use real models and disposable targets on surfaces you control, and need someone
-watching; see notes/test-tasks.md.
+watching; the live checks are in `kb/live.toml`.
 
 - `uv run ferb setup --update` installs the checkout as a development background service (it refuses while FERB.app's
   service is registered). The checkout's `.venv` is separate from the installed `~/.ferb/venv`.
@@ -202,11 +202,10 @@ watching; see notes/test-tasks.md.
 
 ## Where things are written down
 
-- `notes/`: one file per area (memory, orchestration, prompts, gateway, runtimes, hands, daemon, storage, tests, voice,
-  preview, memory import) with the owner's decisions, what exists, the target design and the fix list;
-  `notes/fix-order.md` is the order of work and `notes/test-tasks.md` the real tasks FERB is tested on.
-- `AGENTS.md`: how to work on FERB, for every agent (`CLAUDE.md` imports it); `kb/` holds the decisions, work list
-  and live checks (`kb/MAP.md`).
+- `kb/`: the owner's decisions and agents' rulings (`kb/decisions/`), the work list (`kb/tasks.toml`), the live checks
+  (`kb/live.toml`) and terms, validated by `tools/kb/kb.py`; overview in `kb/MAP.md`, one file's context with
+  `tools/kb/run kb show <file>`. Git hooks run the checks in `kb/gate.toml` on every commit and push.
+- `AGENTS.md`: how to work on FERB, for every agent (`CLAUDE.md` imports it).
 - `THIRD_PARTY_NOTICES.md`: attribution for bundled third-party code.
 
 ## License

@@ -8,7 +8,6 @@ paths:
   - "NOTICE/**"
   - "THIRD_PARTY_NOTICES.md"
   - ".gitignore"
-  - "notes/**"
   - "kb/**"
   - "tools/**"
   - "spikes/**"
