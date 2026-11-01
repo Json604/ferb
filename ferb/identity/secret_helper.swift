@@ -28,7 +28,7 @@ func perform(_ request: [String: Any]) throws -> [String: Any] {
         guard status == errSecSuccess else { throw NSError(domain: "keychain", code: Int(status)) }
         return ["ok": true]
     }
-    if operation == "delete" {                  // the owner's Delete in FERB.app (daemon decision 8): never read first
+    if operation == "delete" {                  // the owner's Delete in FERB.app (APP-2): never read first
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw NSError(domain: "keychain", code: Int(status))

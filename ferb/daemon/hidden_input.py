@@ -1,8 +1,8 @@
 """Owns FERB's hidden-input questions: an owner secret (a password, a card detail, a private answer), a login code,
 and the Mac password for one approved admin command. The value goes straight to the sealed fill (D8, D12, D28) and is
 never returned in a tool result, a span, a log or a model's context; models see a handle only. Kept apart from the
-gateway's authorization (notes/gateway.md target 1): asking for a hidden value is not a decision about whether a call
-may run. An OTP question for a payment repeats the bank page's amount and merchant (gateway decision 4)."""
+gateway's authorization (kb area gateway): asking for a hidden value is not a decision about whether a call
+may run. An OTP question for a payment repeats the bank page's amount and merchant (GATE-204)."""
 
 import asyncio
 import logging
@@ -32,7 +32,7 @@ class HiddenInput:
                      field: str | None = None, kind: str | None = None) -> str | None:
         """D12 hidden input goes directly to the bound native/browser fill. The model sees handles only. `shown`: the
         app's name as macOS reports it, for an `app:` target's one-line question; `kind`: the field's kind as the page
-        marks it (a card detail saved from a card field fills only that kind of field, decision 6)."""
+        marks it (a card detail saved from a card field fills only that kind of field, GATE-206)."""
         from ferb.identity.owner_secrets import OwnerSecrets, refuse_whole_browser
         from ferb.sanitize.redact import Redactor
         refuse_whole_browser(target)                   # before any question, for every caller (D12)
@@ -124,7 +124,7 @@ class HiddenInput:
         return typed if len({h.removeprefix("www.") for h in typed}) == 1 else []
 
     def _payment_line(self, ctx: ToolContext, target: str, exact: bool) -> str:
-        """Decision 4: a code or secret asked on the bank page of a payment the owner approved in this task repeats what
+        """GATE-204: a code or secret asked on the bank page of a payment the owner approved in this task repeats what
         the bank page shows (amount and merchant, when code read them); "" when no approved payment is that page's."""
         parsed = urls.parse(target)
         host = parsed.host if parsed is not None and parsed.host else ""

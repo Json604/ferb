@@ -69,7 +69,7 @@ Protocol 18 (step 5c, extension 0.16.0, the minimum; one bump for all of it, so 
   HMAC-SHA256 with the pairing key over "<nonce>|<seq>|<type>|<body>", the nonce fresh in each hello and seq strictly
   increasing per connection (`daemon_envelope`), so a message can't be forged without the key nor replayed on another
   connection; the extension acts on nothing else. It takes a `paired` only while its own pairing page is pending.
-- Tab groups (owner decision 3): `open` takes `group` {root, task, title}: the tab joins its task's collapsed group;
+- Tab groups (HAND-201): `open` takes `group` {root, task, title}: the tab joins its task's collapsed group;
   `adopt_tab` records a popup (grouped) or the owner's borrowed tab (never grouped). The hello's `tabs` lists the
   records still valid in this browser session ({tab_id, task, root, borrowed, cid, url}), so a reconnect or a daemon
   restart re-adopts them or closes those of an ended task; `close` closes only a tab FERB opened; a `taken` event says
@@ -83,7 +83,7 @@ Protocol 18 (step 5c, extension 0.16.0, the minimum; one bump for all of it, so 
   then. `list_tabs` URLs are masked. The page hook's events and the linking attributes have random names per
   service-worker start (no fixed `ferb-armed` / `data-ferb-*` marker).
 
-Protocol 19 (step 14b, extension 0.17.0, the minimum; hands decision 5, "sound is part of background-first"):
+Protocol 19 (step 14b, extension 0.17.0, the minimum; HAND-207, "sound is part of background-first"):
 - `open` and `adopt_tab` (a popup of a FERB tab) take `muted`: the tab is muted through the browser's own tab mute
   before anything loads (the page is untouched) and the reply says whether it is (`muted`). `mute_tab {tab_id, muted}`
   mutes or unmutes only a tab FERB opened (its records hold it, not borrowed, not handed over); any other answers
@@ -94,7 +94,7 @@ Protocol 19 (step 14b, extension 0.17.0, the minimum; hands decision 5, "sound i
   one in a tab that isn't FERB's, near a FERB call, as a disturbance fact.
 An older extension would open loud tabs and send no sound events, so the minimum moves with the protocol.
 
-Protocol 20 (step 12e, extension 0.18.0, the minimum; hands decision 7, download limits, and the bugs the research
+Protocol 20 (step 12e, extension 0.18.0, the minimum; HAND-210, download limits, and the bugs the research
 found):
 - `download_part` reads parts of DOWNLOAD_PART = 512 KiB (was 72,000 bytes): its reply (about 700,000 base64
   characters) goes whole, never split into result parts. The host relays at most 1 MiB a message (MAX_MESSAGE; Chrome
@@ -106,7 +106,7 @@ found):
   minute in one event, each `download` event with detail "dropped" carrying `count`.
 An older extension would hand a capped popup to the browser and report drops once a minute at most.
 
-Protocol 21 (step 12e, extension 0.19.0, the minimum; hands decision 11, owner 2026-10-31):
+Protocol 21 (step 12e, extension 0.19.0, the minimum; HAND-213, owner 2026-10-31):
 - A `sound` tab event carries `muted_reason`: who last changed the tab's mute, as the browser reports it
   (`mutedInfo.reason`: "user", "capture" or "extension"; null when it was never changed). The owner's own mute or
   unmute ("user") is never recorded as a disturbance fact.

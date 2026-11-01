@@ -31,7 +31,7 @@ class Approval:
     task_id: str = ""                         # the task that asked: only its own retry may wait on it (rule 5)
     about: tuple[str, ...] = ()               # P19: the attempts this retry question named, as asked
     part: str = ""                            # the part of a multi-part request FERB's own question is about (8d)
-    runtime_switch: dict[str, Any] | None = None   # the offer of another AI service it carries (decision 16)
+    runtime_switch: dict[str, Any] | None = None   # the offer of another AI service it carries (ORCH-315)
     hidden: tuple[str, ...] = ()              # the kinds of secret FERB hid in the typed answer, by name (task 11)
 
     def option_for(self, text: str) -> int | None:

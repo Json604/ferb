@@ -126,7 +126,7 @@ def write_token_file(run_token: str) -> Path:
 
 
 
-# The Agent SDK's AssistantMessageError kinds that are account facts no model can change (step 8b, owner decision 16)
+# The Agent SDK's AssistantMessageError kinds that are account facts no model can change (step 8b, ORCH-315)
 ACCOUNT_ERRORS = {"authentication_failed": "signed_out", "billing_error": "usage_limit", "rate_limit": "usage_limit"}
 
 class ClaudeRuntime:

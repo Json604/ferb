@@ -302,7 +302,7 @@ def _permissions_state(env: Env, client: Any) -> None:
             "window checks FERB.app's own and records setup as done.")
 
 
-# ---------- the store's one-time clean-up (notes/storage.md decision 4; step 12a) ----------
+# ---------- the store's one-time clean-up (STORE-402; step 12a) ----------
 
 def _daemon_answers(env: Env) -> bool:
     try:
@@ -415,7 +415,7 @@ def _app_installed(env: Env) -> None:
 
 
 def _review_persona(env: Env, client: Any, *, refresh: bool = False) -> int:
-    """What FERB saw on this Mac (decision 16): started, waited for, and shown once; nothing to answer (decision 15)."""
+    """What FERB saw on this Mac (MEM-13): started, waited for, and shown once; nothing to answer (MEM-12)."""
     from ferb.sanitize.terminal import printable
     result = client.call('setup.persona', {'refresh': refresh})
     if result['state'] == 'scanning':
@@ -606,7 +606,7 @@ def protection_check(home: Path) -> Check:
 
 
 def database_check(home: Path) -> Check | None:
-    """The store's size on disk, and whether its one-time clean-up waits for the owner's OK (decision 4)."""
+    """The store's size on disk, and whether its one-time clean-up waits for the owner's OK (STORE-402)."""
     from ferb.store import cleanup
     from ferb.store.db import store_size
     path = home / "ferb.db"
@@ -916,7 +916,7 @@ def doctor(env: Env) -> int:
 
 def uninstall(env: Env, purge: bool, confirmed: bool = False) -> int:
     """Remove FERB's background service, browser connection and `ferb` link; `purge` (after the owner types
-    'delete', or `confirmed`: they said yes to FERB.app's one question, daemon decision 8) also deletes FERB's home and
+    'delete', or `confirmed`: they said yes to FERB.app's one question, APP-2) also deletes FERB's home and
     every FERB Keychain item (API keys, the Jev key, FERB's own secrets, the owner's saved secrets and cards, FERB's
     Claude sign-in). FERB.app unregisters its own service itself. FERB's own shell can't run this to any effect: its
     sandbox denies FERB's home, the Keychain service and launchd (ferb/act/shell/sandbox.py)."""

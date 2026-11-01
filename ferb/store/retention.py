@@ -1,5 +1,5 @@
-"""Owns age-based retention in one place: what goes when, table by table (notes/storage.md decisions 1 and 3, target
-design 1; memory decision 3), read first and deleted in short batches. Must not delete what nothing else preserves.
+"""Owns age-based retention in one place: what goes when, table by table (STORE-400 and 3, target
+design 1; SENSE-1), read first and deleted in short batches. Must not delete what nothing else preserves.
 
 Kept forever (never named here): the task list and task results, episodes and how-notes, memory and learned nodes,
 owner verdicts, schedules and reminders still to come, known destinations, conversations, and the journal's owner and
@@ -21,7 +21,7 @@ Aged out:
 
 Reads that scan (the intake planner's spans by request id) run off the daemon's loop on a read-only connection
 (`plan`); deletes run on the loop's own connection, `BATCH` rows a transaction, dependents first (`delete_rows`), so no
-write lock is held long and a worker thread's write never waits on a whole purge (notes/daemon.md)."""
+write lock is held long and a worker thread's write never waits on a whole purge (kb area daemon)."""
 
 from dataclasses import dataclass, field
 from typing import Any, Iterator
@@ -29,14 +29,14 @@ from typing import Any, Iterator
 from ferb.store.spans import tree_where
 
 MIN_DAYS = 1        # a retention of 0 days would purge what was just kept, before the checker or the owner could use it
-OPERATIONAL_DAYS = 90                   # decision 3 (owner, 2026-10-30)
-ACCESSIBILITY_DAYS = 7                  # memory decision 3 (owner): accessibility rows are kept 7 days
+OPERATIONAL_DAYS = 90                   # STORE-401 (owner, 2026-10-30)
+ACCESSIBILITY_DAYS = 7                  # SENSE-1 (owner): accessibility rows are kept 7 days
 TYPED_DAYS = 7                          # D14/P8 (owner): typed and copied text expires after 7 days
 # Ruling (step 12a): rows a delete transaction takes; small enough that a write elsewhere waits a few milliseconds
 BATCH = 200
-# Decision 3's "operational journal kinds": the daemon's own bookkeeping, failures and progress records. Owner and chat
+# STORE-401's "operational journal kinds": the daemon's own bookkeeping, failures and progress records. Owner and chat
 # kinds, day summaries, schedule, timer-set and memory records, and audit records (security, network, escape, clipboard)
-# are not among them and stay (ruling, step 12a; the audit kinds are the owner's call, notes/storage.md).
+# are not among them and stay (ruling, step 12a; the audit kinds are the owner's call, kb area storage).
 OPERATIONAL_KINDS = frozenset({
     "daemon.started", "daemon.stopped", "daemon.slow_call", "daemon.internal_error", "daemon.unhandled",
     "daemon.background_failed", "daemon.loop_failed",
@@ -91,7 +91,7 @@ class Rule:
     default: int | None = None
 
 
-# The rule table (decisions 1 and 3; memory decision 3). Evidence, recovery and resource samples are purged by their
+# The rule table (STORE-400 and STORE-401; SENSE-1). Evidence, recovery and resource samples are purged by their
 # own stores in the same pass, with the days read here; the Keychain row is no retention rule but belongs in "what FERB
 # keeps about you".
 RULES: tuple[Rule, ...] = (
@@ -204,7 +204,7 @@ def _with_descendants(conn: Any, seeds: list[str]) -> list[str]:
 
 
 def operational(conn: Any, cutoff: str) -> dict[str, list[int]]:
-    """Decision 3: the rowids of operational records whose task or timer ended before `cutoff`, by table."""
+    """STORE-401: the rowids of operational records whose task or timer ended before `cutoff`, by table."""
     args = {"cutoff": cutoff}
     found: dict[str, list[int]] = {}
     for table, column, written in _BY_TASK:

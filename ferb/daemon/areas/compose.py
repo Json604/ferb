@@ -173,10 +173,10 @@ class Compose:
                                       lambda ctx, place: self.gateway.hidden._question_sites(ctx, place) if self.gateway
                                       else [], self._username_sources))
         from ferb.daemon.about import AboutRead
-        self.registry.add(AboutRead(self._about_document))             # decision 6: read-only, redacted
+        self.registry.add(AboutRead(self._about_document))             # DMN-6: read-only, redacted
         from ferb.orchestrator.conversation_tools import ConversationRead
         self.registry.add(ConversationRead(self.supervisor.conversations, self.tasks.tree_of))
-        # the live preview's state over its last frame (notes/preview.md decision 2), from the supervisor's records
+        # the live preview's state over its last frame (APP-404), from the supervisor's records
         self.gateway.hooks.previews.status = self.supervisor.preview_status
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
@@ -206,7 +206,7 @@ class Compose:
                 self.supervisor.notify_plan_event(topic, data)
 
         def activity(topic: str, data: dict[str, Any]) -> None:
-            # Memory decision 3: accessibility rows stay in the trail only (pull-only, trail.query), never in today's
+            # SENSE-1: accessibility rows stay in the trail only (pull-only, trail.query), never in today's
             # activity or its per-turn search. Each row's data is stored once (fix list: it was also copied as
             # `where`).
             if data.get('source') == 'accessibility':
@@ -229,7 +229,7 @@ class Compose:
         self.events.on(None, lambda topic, data: self.bus.publish(topic, data))   # the bus as it is then
         self.events.on({'approval.requested'}, lambda topic, data: self._approval_notice(data))
         self.events.on({'approval.requested', 'approval.resolved'}, self._question_record)
-        # orchestration decision 13: a pause stops the task's terminal commands and listening, and a scheduled run's
+        # ORCH-312: a pause stops the task's terminal commands and listening, and a scheduled run's
         # pause pauses its schedule (resumed with it)
         self.events.on({'task.paused', 'task.resumed'}, lambda topic, data: self._spawn(
             self._task_paused(data) if topic == 'task.paused' else self._task_resumed(data), topic))

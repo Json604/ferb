@@ -38,10 +38,10 @@ CLIENT_WAIT_S = 10.0
 # Calls the notch waits longer for (seconds; its `wait:` calls): a failed task's report renders and redacts the task's
 # whole record first (L35; NotchModel.reportWait), and Send posts it to the report relay (reports.SEND_TIMEOUT_S); a
 # permission request and an Automation request wait for the owner's answer to macOS's prompt, and a runtime check
-# makes one model call (L34 C, the setup window), as the intro's suggested task does (notes/setup-intro.md step 6)
+# makes one model call (L34 C, the setup window), as the intro's suggested task does (kb area app)
 LONG_WAITS = {"reports.build": 120.0, "reports.send": 600.0, "setup.browser_pair": 90.0, "setup.browsers_pair_all": 90.0, "reports.diagnostic": 60.0, "setup.permission_request": 120.0, "automation.request": 120.0,
               "runtimes.check": 60.0, "intro.suggest": 60.0}
-# Calls that end when their caller leaves (notes/preview.md): an abandoned preview request stops its capture, and an
+# Calls that end when their caller leaves (kb area app): an abandoned preview request stops its capture, and an
 # abandoned intro suggestion its model call (a stream, intro.preview, already ends when its caller leaves)
 CANCEL_WHEN_LEFT = frozenset({"tasks.preview", "intro.suggest"})
 LEFT_POLL_S = 0.1

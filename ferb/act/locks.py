@@ -46,7 +46,7 @@ class ResourceLocks:
     @asynccontextmanager
     async def try_hold(self, keys: list[str], holder: str) -> AsyncIterator[bool]:
         """Take every lock only if each is free and nobody waits for it, else take none and yield False at once: a
-        bystander (the live preview, notes/preview.md) never queues ahead of a worker's next call. Free locks are taken
+        bystander (the live preview, kb area app) never queues ahead of a worker's next call. Free locks are taken
         on asyncio's fast path, without yielding to the loop, so no worker can slip in between the look and the take.
         (Whether anyone waits is read from asyncio.Lock's private waiter list: a lock just released to a waiter that
         hasn't woken yet looks free otherwise.)"""

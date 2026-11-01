@@ -74,7 +74,7 @@ PLAN_SCHEMA = _obj({"steps": {"type": "array", "items": STEP_SCHEMA}, "input_pat
                     "big_job": {"type": "boolean"}, "time_estimate": {"type": "string"},
                     "cost_estimate": {"type": "string"},
                     "standing_sends": {"type": "array", "items": SEND_SCOPE_SCHEMA}})
-# Decision 19 (answers in steps): one of the owner's asks, in their order; exactly one of direct / answer_step
+# ORCH-319 (answers in steps): one of the owner's asks, in their order; exactly one of direct / answer_step
 PART_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}, "label": {"type": "string"},
                     "direct": _nullable("string"), "answer_step": _nullable("string"),
                     "conditions": {"type": "array", "items": {"type": "integer"}}})
@@ -85,12 +85,12 @@ TASK_SCHEMA: dict[str, Any] = _obj({
     "targets": TARGETS_SCHEMA,
     "success_conditions": {"type": "array", "items": CONDITION_SCHEMA, "minItems": 1},
     "plan": {"anyOf": [{"type": "null"}, PLAN_SCHEMA]},
-    # hands decision 4: the folders the owner meant, resolved to paths (a typo resolved, "~/Downloads"); the plan line
+    # HAND-204: the folders the owner meant, resolved to paths (a typo resolved, "~/Downloads"); the plan line
     # states them, and they are the only visible folders the task's terminal commands may change
     "folders": _strings(),
-    # hands decision 3: the owner asked to keep the task's tabs open (at its end they leave the group and stay open)
+    # HAND-201: the owner asked to keep the task's tabs open (at its end they leave the group and stay open)
     "keep_tabs_open": {"type": "boolean"},
-    # decision 19: the owner's separate asks (empty for one ask): each posts once, in its own row, when checked
+    # ORCH-319: the owner's separate asks (empty for one ask): each posts once, in its own row, when checked
     "parts": {"type": "array", "items": PART_SCHEMA},
 })
 
@@ -110,14 +110,14 @@ REMEMBER_SCHEMA = _obj({
     # step 9a: a period fact without an end date in the owner's words: days until FERB checks it still holds; 0 = none
     "review_in_days": {"type": "integer"},
 })
-# Decision 22: a schedule's end, the remembered item's `until` with a time of day or a span from now as well ("until 6
+# ORCH-320: a schedule's end, the remembered item's `until` with a time of day or a span from now as well ("until 6
 # pm", "for the next 2 hours"); code works out the time (`when.end_at`). Unused fields are "" / 0, not null: the
 # planner's schema is at Anthropic's union-type limit (ferb/runtimes/schema_shape.py), and an object that is null when
 # absent costs none
 SCHEDULE_UNTIL_SCHEMA = _obj({"quote": {"type": "string"}, "day": {"type": "string", "enum": ["", *DAY_WORDS]},
                               "date": {"type": "string"}, "in_days": {"type": "integer"}, "time": {"type": "string"},
                               "in_minutes": {"type": "number"}})
-# Decision 17 ("when you're back at your Mac"): true when the owner wants it when they're at their Mac; code holds each
+# ORCH-317 ("when you're back at your Mac"): true when the owner wants it when they're at their Mac; code holds each
 # run or reminder until they're active there. A plain boolean: the planner's schema is at the union-type limit
 WHEN_ACTIVE_SCHEMA = {"type": "boolean", "description": (
     "true when the owner's words want it when they're at their Mac (\"whenever I'm on my Mac\", \"when I'm back at my "
@@ -134,10 +134,10 @@ SCHEDULE_SCHEMA = _obj({
     "standing_sends": {"type": "array", "items": SEND_SCOPE_SCHEMA},
     # "tell me when …": until_met ends itself once a confirmed run finds the condition met; standing keeps watching
     "watch": {"type": "string", "enum": ["none", "until_met", "standing"]},
-    # decision 22: the end the owner's words give it ("until Nov 3", "for 2 weeks"); null = runs until stopped
+    # ORCH-320: the end the owner's words give it ("until Nov 3", "for 2 weeks"); null = runs until stopped
     "until": {"anyOf": [{"type": "null"}, SCHEDULE_UNTIL_SCHEMA]},
-    "when_active": WHEN_ACTIVE_SCHEMA,          # decision 17: each run waits until the owner is at the Mac
-    # orchestration decision 14: what every run uses, resolved now (as for a task) and fixed for every run, never
+    "when_active": WHEN_ACTIVE_SCHEMA,          # ORCH-317: each run waits until the owner is at the Mac
+    # ORCH-313: what every run uses, resolved now (as for a task) and fixed for every run, never
     # re-guessed: its folders, whose identity, the worker type, the owner's browser profile and the account ("" none)
     "folders": _strings(), "identity": {"type": "string", "enum": ["owner", "ferb"]},
     "worker_type": {"type": "string"}, "profile": {"type": "string"}, "account": {"type": "string"},
@@ -174,8 +174,8 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "text": {"type": "string"},
 })
 
-# The worker's report (step 8b, notes/orchestration.md "Attempt loop"): done or not done, the reason and an optional
-# question for the owner when not done, the owner's answer, the artifacts and a `how` note for memory (notes/memory.md
+# The worker's report (step 8b, kb area orchestration "Attempt loop"): done or not done, the reason and an optional
+# question for the owner when not done, the owner's answer, the artifacts and a `how` note for memory (kb area memory
 # Tier 3). A role's own fields are added only to that role's schema (`worker_schema`).
 _REPORT = {
     "status": {"type": "string", "enum": ["done", "not_done"]},
@@ -190,13 +190,13 @@ _INPUT_NOTES = {"input_notes": {"type": "array", "items": _obj({"input": {"type"
 _PROPOSALS = {"conversation_proposals": {"type": "array", "items": CONVERSATION_SCHEMA}}
 _CONVERSATION = {"conversation_action": {"type": "string", "enum": ["wait", "handover", "finished", "blocked"]}}
 _WATCH = {"watch_met": {"type": ["boolean", "null"]}}       # whether the watched condition holds now (null: unseen)
-# decision 17: a scheduled run (not a watch) that found nothing to tell the owner and did nothing posts nothing
+# ORCH-317: a scheduled run (not a watch) that found nothing to tell the owner and did nothing posts nothing
 _SCHEDULED = {"nothing_to_tell": {"type": "boolean", "description": (
     "true only when this scheduled run found nothing its request asks to tell the owner and did nothing for them: "
     "FERB records it without posting it. false whenever the answer has anything for the owner.")}}
 _LOOP = {"loop_action": {"type": "string", "enum": ["continue", "finished", "blocked"]},
          "probe": {"anyOf": [{"type": "null"}, PROBE_SCHEMA]}}
-# decision 19: a step of a multi-part task that finds an answer already posted to the owner is wrong or out of date
+# ORCH-319: a step of a multi-part task that finds an answer already posted to the owner is wrong or out of date
 _PARTS = {"part_updates": {"type": "array", "items": _obj({"part": {"type": "string"}, "text": {"type": "string"},
                                                            "why": {"type": "string"}})}}
 
@@ -224,7 +224,7 @@ WORKER_LOOP_SCHEMA: dict[str, Any] = worker_schema(loop=True)
 WORKER_ALL_SCHEMA: dict[str, Any] = worker_schema(inputs=True, proposals=True, conversation=True, watch=True, loop=True,
                                                   parts=True)
 
-# The merged checker (owner decision 3, prompts decision 1): it judges each condition and chooses what's next. Code
+# The merged checker (ORCH-302, ORCH-333): it judges each condition and chooses what's next. Code
 # checks the choice against the checker's own verdicts (`Supervisor._next`); it never judges content.
 NEXT = ["accept", "fix_answer", "retry", "ask", "accept_unconfirmed", "fail"]
 CHECKER_SCHEMA: dict[str, Any] = _obj({
@@ -301,9 +301,9 @@ class TaskSpec(BaseModel):
     targets: TargetsSpec = TargetsSpec()
     success_conditions: list[Condition] = []
     plan: Plan | None = None
-    folders: list[str] = []          # resolved folders (hands decision 4); a spec saved before step 8c has none
-    keep_tabs_open: bool = False     # the owner asked to keep its tabs open (hands decision 3)
-    parts: list[Part] = []           # the owner's separate asks (decision 19); a spec saved before step 8d has none
+    folders: list[str] = []          # resolved folders (HAND-204); a spec saved before step 8c has none
+    keep_tabs_open: bool = False     # the owner asked to keep its tabs open (HAND-201)
+    parts: list[Part] = []           # the owner's separate asks (ORCH-319); a spec saved before step 8d has none
 
 
 class Until(BaseModel):
@@ -315,7 +315,7 @@ class Until(BaseModel):
 
 
 class ScheduleUntil(Until):
-    """A schedule's end in the owner's words (decision 22): a day as for `Until`, optionally a time on it, or a span from
+    """A schedule's end in the owner's words (ORCH-320): a day as for `Until`, optionally a time on it, or a span from
     now; code works out the time (`when.end_at`)."""
     time: str | None = None
     in_minutes: float | None = None
@@ -364,7 +364,7 @@ class TaskControl(BaseModel):
     (no default, rule 6) the task's stated standing scope, "unchanged" or the revised scopes (D30), and names the open
     question ids the correction changes, which alone are set aside (L3)."""
     task_id: str
-    # pause (owner decision 8): a running task stops where it is, losing nothing; the owner's next correction (continue)
+    # pause (ORCH-308): a running task stops where it is, losing nothing; the owner's next correction (continue)
     # resumes it in place
     action: Literal["stop", "retry", "continue", "pause"]
     # continue on an ended task: the planner's judgment that the follow-up asks for a different result (a new goal),
@@ -407,9 +407,9 @@ class ScheduleRequest(BaseModel):
     targets: TargetsSpec = TargetsSpec()
     standing_sends: list[SendScope] = []   # stated now, with the owner here; a run can't add to them (D30)
     watch: Literal["none", "until_met", "standing"] = "none"      # a spec written before watches is ordinary work
-    until: ScheduleUntil | None = None     # decision 22: its end in the owner's words; None runs until stopped
-    when_active: bool = False              # decision 17: each run fires when the owner is at the Mac
-    # decision 14: what every run uses, fixed now; identity None = a spec written before it (its runs re-plan as before)
+    until: ScheduleUntil | None = None     # ORCH-320: its end in the owner's words; None runs until stopped
+    when_active: bool = False              # ORCH-317: each run fires when the owner is at the Mac
+    # ORCH-313: what every run uses, fixed now; identity None = a spec written before it (its runs re-plan as before)
     folders: list[str] = []
     identity: Literal["owner", "ferb"] | None = None
     worker_type: str = ""
@@ -417,7 +417,7 @@ class ScheduleRequest(BaseModel):
     account: str = ""
 
     def run_scope(self) -> dict[str, Any] | None:
-        """What every run uses (decision 14), as the schedule records it; None when the planner stated none."""
+        """What every run uses (ORCH-313), as the schedule records it; None when the planner stated none."""
         if self.identity is None:
             return None
         return {"folders": list(self.folders), "identity": self.identity, "worker_type": self.worker_type or "default",
@@ -443,7 +443,7 @@ class TimerRequest(BaseModel):
     when: When
     message: str
     quote: str
-    when_active: bool = False    # decision 17: it fires when the owner is at the Mac
+    when_active: bool = False    # ORCH-317: it fires when the owner is at the Mac
 
 
 class ConversationChange(BaseModel):

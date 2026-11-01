@@ -1,4 +1,4 @@
-"""Playbooks (notes/memory.md Tier 3, step 9b): verified how-notes of the same kind of work merged into one note, and
+"""Playbooks (kb area memory): verified how-notes of the same kind of work merged into one note, and
 the measure of "gets better at repeated tasks". Must not let a model choose which tasks it sees, rewrite the owner's own
 edit of a playbook, or count a run that wasn't verified.
 

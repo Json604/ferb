@@ -50,14 +50,14 @@ _EPERM = "Operation not permitted"
 
 def _scope_note(out: dict[str, Any], failed: bool) -> None:
     """A failed command whose output shows macOS refusing an operation gets the folder scope's reason and what to do
-    instead (hands decision 4). A fact about the result, never a judgment of the command: other sandbox rules refuse
+    instead (HAND-203). A fact about the result, never a judgment of the command: other sandbox rules refuse
     with the same words, so it says what the scope means rather than claiming it was the cause."""
     if failed and _EPERM in str(out.get("output") or ""):
         out["sandbox_note"] = SCOPE_REFUSED
 
 
 def _stopped_note(out: dict[str, Any], stopped: str | None) -> None:
-    """FERB stopped the command (hands decision 7: the task's download budget or the free-disk floor): why, as a fact."""
+    """FERB stopped the command (HAND-210: the task's download budget or the free-disk floor): why, as a fact."""
     if stopped:
         out["stopped_by_ferb"] = stopped
 

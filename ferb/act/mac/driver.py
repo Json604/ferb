@@ -389,7 +389,7 @@ class MacComputerDriver:
         # them (`ui.click_through`); the point check skips exactly those while that app runs
         self._click_through: dict[int, frozenset[int]] = {}
         self._click_lock = threading.Lock()
-        # L39 / owner decision 2: the apps each task launched (launched.LaunchedApps, set by the daemon): ⌘Q / ⌘H
+        # L39 / HAND-200: the apps each task launched (launched.LaunchedApps, set by the daemon): ⌘Q / ⌘H
         # reach only those, through its safe quit/hide
         self.launched: Any = None
 
@@ -541,7 +541,7 @@ class MacComputerDriver:
         self._armed.pop(a.pid, None)                     # D31: any other input ends a covered Return
         combo = await asyncio.to_thread(self._menu_combo, a, path)
         if combo and (handled := await self._guarded_combo(a, combo, task)) is not None:
-            return handled.ok                            # ⌘Q / ⌘H's item: FERB's safe quit/hide (decision 2)
+            return handled.ok                            # ⌘Q / ⌘H's item: FERB's safe quit/hide (HAND-200)
         if terminals.run_menu(path):                     # a menu that runs things in its terminal (finding 2)
             if refusal := await asyncio.to_thread(self._run_refusal, a, terminal, " > ".join(path)):
                 raise Refused(refusal)
@@ -701,7 +701,7 @@ class MacComputerDriver:
         return n
 
     def element_identity(self, bundle_id: str, element: str) -> dict[str, Any] | None:
-        """P19's stable identity of a snapshot element (notes/gateway.md target 3): the window the snapshot read (its
+        """P19's stable identity of a snapshot element (kb area gateway): the window the snapshot read (its
         window-server id) and the element's role path, role, subrole and label (`AxNode.identity`), never the
         snapshot-scoped id; None when the id isn't from this app's latest snapshot. In memory, no I/O."""
         st = self._state.get(bundle_id)
@@ -967,7 +967,7 @@ class MacComputerDriver:
         if kind in ("click", "dblclick") and \
                 (combo := await asyncio.to_thread(lambda: self._item_combo(self._hit(a, shot_id, x, y)))) and \
                 (handled := await self._guarded_combo(a, combo, task)) is not None:
-            return handled                               # a ⌘Q / ⌘H menu item: FERB's safe quit/hide (decision 2)
+            return handled                               # a ⌘Q / ⌘H menu item: FERB's safe quit/hide (HAND-200)
         points = [(x, y), end or (x, y)]
         if any(not all(math.isfinite(v) for v in pt) or not (0 <= pt[0] < shot.size[0] and 0 <= pt[1] < shot.size[1]) for pt in points):
             raise Refused("pointer point outside the screenshot")
@@ -1028,7 +1028,7 @@ class MacComputerDriver:
                             observed=facts)
 
     def _changed_at(self, a: Any, shot: Shot, px: float, py: float) -> str | None:
-        """Blocking (the staleness check, notes/hands.md: works for apps with any number of windows): why the
+        """Blocking (the staleness check, kb area hands: works for apps with any number of windows): why the
         screenshot's window no longer shows what the worker saw at this screen point, else None. The element the
         app's own hit test finds there now is compared with the one the capture's walk of that window found there
         (the same element, one inside it, or one with its role and frame). When either is unknown (a window on
@@ -1107,7 +1107,7 @@ class MacComputerDriver:
             raise Refused(f"({x}, {y}) is outside the {shot.size[0]}x{shot.size[1]} screenshot")
         if (combo := await asyncio.to_thread(lambda: self._item_combo(self._hit(a, shot_id, x, y)))) and \
                 (handled := await self._guarded_combo(a, combo, task)) is not None:
-            return handled                               # a ⌘Q / ⌘H menu item: FERB's safe quit/hide (decision 2)
+            return handled                               # a ⌘Q / ⌘H menu item: FERB's safe quit/hide (HAND-200)
         if mechanism == "pointer":
             return await self.pointer_at(name_or_bundle, shot_id, x, y, "click", holder=holder, terminal=terminal,
                                          task=task)
@@ -1152,7 +1152,7 @@ class MacComputerDriver:
 
     async def _foreground_at(self, a: Any, x: float, y: float, steps: list[Step], bounds: Rect, window: int,
                              holder: str, what: str, task: str | None) -> ActionResult:
-        """Real input at a screen point (a click, a wheel), the one foreground path (notes/hands.md): the app is
+        """Real input at a screen point (a click, a wheel), the one foreground path (kb area hands): the app is
         brought forward and its window raised (`_bring_forward`), and right before each event FERB checks that no
         FERB window would take it (`_own_point`), that the window is still where it was, and that the point reaches
         that window, not another one over it. Any of those failing: nothing more is posted."""
@@ -1751,7 +1751,7 @@ class MacComputerDriver:
             raise Refused(refusal)
         return terminal is not None and await asyncio.to_thread(self._terminal_why, a, el) is not None
 
-    # ---------- facts (gateway decision 1) and the key-combination guard (decision 2) ----------
+    # ---------- facts (GATE-202) and the key-combination guard (HAND-200) ----------
 
     def _secure(self, el: Any) -> bool:
         """Blocking: the element is a secure (password-class) text field by its own facts (never its value)."""
@@ -1792,7 +1792,7 @@ class MacComputerDriver:
 
     async def _facts(self, a: Any, target: Any, received: Any = None, terminal: bool | None = None,
                      after: bool = False) -> ActionFacts:
-        """The structural facts of one input (gateway decision 1): the target element's (`_element_facts`), what
+        """The structural facts of one input (GATE-202): the target element's (`_element_facts`), what
         received it (`received`; with `after`, the app's keyboard focus read after the input, where keystrokes went)
         and whether it reached a terminal. Read off the event loop; never fails the action."""
         def read() -> ActionFacts:
@@ -1824,7 +1824,7 @@ class MacComputerDriver:
         return shortcut_combo(*found) if found else None
 
     async def _guarded_combo(self, a: Any, combo: str, task: str | None) -> ActionResult | None:
-        """Owner decision 2 (minimal shortcut guard), whatever delivers the combination (a key, its menu item by AX or
+        """HAND-200 (minimal shortcut guard), whatever delivers the combination (a key, its menu item by AX or
         a click): a screen-wide one is refused; ⌘Q and ⌘H go through FERB's safe quit / hide (launched.py: only an
         app FERB opened for this task, and quit only without unsaved work), which is the result; ⌥⌘H (hide others,
         the owner's apps) is refused. Any other combination: None, delivered as asked (in-app shortcuts unchanged)."""
@@ -1881,7 +1881,7 @@ class MacComputerDriver:
                 raise Refused(refusal)
             if n.ax_role == "AXMenuItem" and (combo := await asyncio.to_thread(self._item_combo, n.ref)) and \
                     (handled := await self._guarded_combo(a, combo, task)) is not None:
-                return handled                           # ⌘Q / ⌘H's item: FERB's safe quit/hide (decision 2)
+                return handled                           # ⌘Q / ⌘H's item: FERB's safe quit/hide (HAND-200)
         if n.secret and action.kind in ("set_value", "type", "edit"):
             raise Refused("that's a password field; FERB never types passwords for the owner")
         r, into, received, after = await self._act_element(a, n, action, holder, task, terminal, mechanism)
@@ -1890,7 +1890,7 @@ class MacComputerDriver:
     async def _act_key(self, a: Any, combo: str, holder: str, task: str | None, terminal: TerminalGrant | None,
                        mechanism: str) -> ActionResult:
         """A key press, which goes to the app's keyboard focus (D31), on any route: the shortcut guard first
-        (decision 2), then the run-command and terminal checks, and no text-entering key into a password field."""
+        (HAND-200), then the run-command and terminal checks, and no text-entering key into a password field."""
         if not combo or not valid_combo(combo):
             raise Refused(f"unsupported key {combo!r}")
         if (handled := await self._guarded_combo(a, combo, task)) is not None:

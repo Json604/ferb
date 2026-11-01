@@ -1,4 +1,4 @@
-"""Own the retention pass (D21; notes/storage.md decisions 1 and 3) and the resource log's samples (L30). The rules are
+"""Own the retention pass (D21; STORE-400 and 3) and the resource log's samples (L30). The rules are
 ferb/store/retention.py's; this runs them hourly. Must not purge the task list, episodes, chat, results or memory."""
 
 import asyncio
@@ -18,7 +18,7 @@ from ferb.store.db import BUSY_TIMEOUT_MS, VACUUM_PASS_PAGES, VACUUM_SLICE_PAGES
 
 
 ROOTS_PER_PURGE = 200
-# Ruling (step 12e, hands decision 8): after a No, or while the question waits, the downloads cap question comes again
+# Ruling (step 12e, HAND-211): after a No, or while the question waits, the downloads cap question comes again
 # only once the folder has grown past the size it was asked at by this share of the cap (2 GB of the default 20 GB)
 DOWNLOADS_REASK = 0.1
 
@@ -149,7 +149,7 @@ class Retention:
             self._journal().append("retention.failed", {"task_id": root, "error": f"{type(e).__name__}: {e}"})
 
     def _purge_trail(self, plan: _PurgePlan, counts: dict[str, int]) -> Iterator[None]:
-        """Activity rows: accessibility after 7 days (memory decision 3), the rest after `sense.trail_retention_days`
+        """Activity rows: accessibility after 7 days (SENSE-1), the rest after `sense.trail_retention_days`
         once their day's summary exists. Journaled `trail.purged` when any went."""
         if getattr(self, "trail", None) is None:
             return
@@ -239,7 +239,7 @@ class Retention:
             return 0
 
     def _purge_downloads(self) -> int:
-        """Hands decision 8: the retention pass checks FERB's downloads folder against its cap (`_downloads_cap`);
+        """HAND-211: the retention pass checks FERB's downloads folder against its cap (`_downloads_cap`);
         nothing is deleted without the owner's Yes. 0: nothing went in this pass."""
         try:
             self._downloads_cap()
@@ -248,7 +248,7 @@ class Retention:
         return 0
 
     def _downloads_cap(self) -> None:
-        """Hands decision 8 (owner 2026-10-31): FERB's downloads folder over browser.download_total_gb: the owner is
+        """HAND-211 (owner 2026-10-31): FERB's downloads folder over browser.download_total_gb: the owner is
         asked, outside any task, whether to delete for good the oldest files that bring it back under, with how many
         and how much. Asked once: after a No, or while the question waits, not again until the folder has grown past
         the size it was asked at by a further DOWNLOADS_REASK of the cap (ruling, step 12e); a Yes deletes exactly the

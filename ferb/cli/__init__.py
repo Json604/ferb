@@ -1,6 +1,6 @@
 """Register CLI commands and common connection helpers. Must not implement task orchestration.
 
-`ferb` is plumbing and a developer toolbox, never a user interface (the FERB app is; notes/daemon.md decisions 3, 4):
+`ferb` is plumbing and a developer toolbox, never a user interface (the FERB app is; DMN-3, 4):
 setup --service/--update/--cleanup/--codex-login/--codex-logout/--claude-logout/--cli, uninstall, mcp and daemon run
 for the app and the models (`APP_COMMANDS`); a checkout's `setup [--update]`; trace, logs, stats, doctor, memory,
 restore, ps, verdict, runtimes and browsers for debugging. Errors are one plain line (`plain_error`), never a
@@ -16,7 +16,7 @@ from ferb.paths import ferb_home, socket_path
 
 LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions", "timers")
 # What FERB.app runs (ui/mac/FERBNotch: AppSetup.swift, SetupModel.swift, SettingsPages.swift; `--cleanup` is for its
-# clean-up screen, notes/storage.md decision 4); tests keep them working
+# clean-up screen, STORE-402); tests keep them working
 APP_COMMANDS = (("setup", "--service"), ("setup", "--service", "--update"), ("setup", "--codex-login"),
                 ("setup", "--codex-logout"), ("setup", "--claude-logout"), ("setup", "--cli"), ("setup", "--cleanup"),
                 ("uninstall",), ("uninstall", "--purge", "--yes"), ("mcp",))

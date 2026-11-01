@@ -84,7 +84,7 @@ class Chat:
             if started is not None:
                 r["started_at"] = started
             card = self.supervisor.card_state(r["task_id"]) if self.supervisor else None
-            if card is not None:          # decision 19: a multi-part task's rows, rebuilt from the record
+            if card is not None:          # ORCH-319: a multi-part task's rows, rebuilt from the record
                 r["card"] = self.redact(card)
         results = []
         for row in rows:
@@ -93,7 +93,7 @@ class Chat:
             results.append({key: row[key] for key in ('task_id', 'request_id', 'at', 'status', 'goal', 'answer')} |
                            {'artifacts': recorded.get('artifacts', []), 'verified': recorded.get('verified'),
                             'verification': recorded.get('verification', [])} |
-                           # the answer's own fields (a multi-part task's card and footer; its lines; decision 19)
+                           # the answer's own fields (a multi-part task's card and footer; its lines; ORCH-319)
                            {key: recorded[key] for key in ('card', 'note', 'correction', 'lines', 'runtime_switch')
                             if recorded.get(key)} |
                            # its typed cards as told (step 8e)
@@ -157,8 +157,8 @@ class Chat:
 
     async def _task_stop(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """The owner's stop of exactly these tasks (the app sends their ids), recorded as stopped by the owner. Ids are
-        required: stopping everything is the global stop (`stop.engage`), never an empty list (notes/daemon.md
-        decision 1)."""
+        required: stopping everything is the global stop (`stop.engage`), never an empty list (kb area daemon
+        DMN-1)."""
         assert self.supervisor is not None
         ids = [str(t) for t in params.get("task_ids") or []]
         if not ids:
@@ -299,7 +299,7 @@ class Chat:
         """One chat turn: an acknowledgement on receipt, then the supervisor's events, merged with bus events about
         the tasks this turn started (tool calls, owner questions and action observations) so the app can show them
         inline. Every event names this message's request_id and when it was sent (L7). `speak: true` (the app's
-        dictation, notes/voice.md decision 3): the turn's replies and its task's answer are also spoken. Any new message
+        dictation, VOICE-402): the turn's replies and its task's answer are also spoken. Any new message
         interrupts what FERB was saying."""
         received = self.clock.now()
         if self._shutting_down:

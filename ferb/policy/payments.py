@@ -1,4 +1,4 @@
-"""Owns "one payment, one question" (gateway decision 4, owner 2026-10-30) for payments in a task's browser tab: which
+"""Owns "one payment, one question" (GATE-204, owner 2026-10-30) for payments in a task's browser tab: which
 Yes covers a payment-class call, from the facts code read on the page. Must not judge intent or read the worker's
 numbers: the amount and merchant are the page's (`ActionFacts.page_amount` / `page_merchant`, read by the extension),
 never what the worker declared; where the page shows none, the question says FERB couldn't read it.

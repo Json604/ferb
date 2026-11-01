@@ -1,9 +1,9 @@
-"""The one fused memory search (notes/memory.md decision 8, target design 2; step 9b). Must not grant authority to what
+"""The one fused memory search (MEM-6, target design 2; step 9b). Must not grant authority to what
 it finds, read a whole store to answer one query, or let a prompt grow with memory.
 
 One search serves what FERB remembers, each kind from its own store, ranked the same way:
 - facts: `memory_items` directly (its `memory_fts` keyword index; no copy anywhere else), what may shape prompts only
-  (`prompt_ready`; a fact the owner set aside is not, decision 17);
+  (`prompt_ready`; a fact the owner set aside is not, MEM-14);
 - learned nodes: episode cards with their how-notes, playbooks, day summaries (`Learning.search`, NODE_KINDS);
 - old chat: the owner's own words of each message and FERB's replies, answers, questions and notices (`chat_fts`,
   filled from the journal as it grows, `index_chat`).
@@ -12,7 +12,7 @@ target words ranked alone (`focus`), and the local embedding model's nearest (em
 fused by reciprocal rank, plus a small recency nudge (the owner's words don't age). A query whose every word most
 documents share finds nothing, by similarity too.
 
-What each role is given is bounded by one set of limits (`PLANNER`, `WORKER`; Ruling under decision 7): prompts
+What each role is given is bounded by one set of limits (`PLANNER`, `WORKER`; Ruling under MEM-5): prompts
 don't grow with memory; what is left out is counted in one line and stays findable with the lookup tools.
 
 Embeddings are computed in the background (`embed_pending`, a batch at a time on a connection of its own), never in
@@ -47,7 +47,7 @@ CHARS_PER_TOKEN = 4                 # as FERB's context counts text
 
 @dataclass(frozen=True)
 class Limits:
-    """What one role is given of retrieved memory each time (Ruling under decision 7, step 9b, coordinator 2026-10-31):
+    """What one role is given of retrieved memory each time (Ruling under MEM-5, step 9b, coordinator 2026-10-31):
     facts and learned items together within `memory_tokens` and at most `memory_items`; old chat exchanges within
     `chat_tokens` and at most `chat_exchanges`; today's activity within `activity_tokens`."""
     memory_tokens: int

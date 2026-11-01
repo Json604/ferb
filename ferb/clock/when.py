@@ -146,7 +146,7 @@ def _end_day(w: When, now: datetime, zone: ZoneInfo) -> tuple[date, date]:
 
 
 def end_at(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime:
-    """When something the owner gave an end stops (decision 22: a schedule's end), strictly after `now`: in_minutes
+    """When something the owner gave an end stops (ORCH-320: a schedule's end), strictly after `now`: in_minutes
     alone is an exact span from now ("for the next 2 hours"); a day (day, date or in_days, as `end_of_day` reads them:
     "for 2 weeks" = in_days 14, the last day) ends at its end, or at `time` on it when one is given ("until 6 pm
     today")."""
@@ -218,7 +218,7 @@ def resolve(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime:
 
 def when_present(w: When, repeat: str, now: datetime, every_minutes: int | None = None,
                  zone: ZoneInfo | None = None) -> tuple[datetime, datetime | None]:
-    """Orchestration decision 17 ("when you're back at your Mac"): when something the owner wants at the Mac is first
+    """Orchestration ORCH-317 ("when you're back at your Mac"): when something the owner wants at the Mac is first
     due, and the time a return of theirs must come after (None: being active when it is due is enough). A time in their
     words (time, in_minutes) is that time. Without one, it is due from the start of the day they named (today when
     none): a one-time reminder or run then waits for the owner's next return to the Mac from then (or from now: "when

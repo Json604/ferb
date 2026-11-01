@@ -7,7 +7,7 @@ can't reach (the sandbox names the socket last: sandbox.py, test_shell_sandbox),
 never operate FERB.app (driver.OWN_APP). Each value is checked here (rule 5). A key not in SETTINGS can't be written
 this way: [protection], secrets and API keys, models, the report relay address, exclude_paths and watch_folders stay in
 config.toml; the runtimes have `runtimes.use` and the banner switches `notifications.categories`, each owner-only and
-checked where it is defined. FERB's own account (`[mailbox] address`, `[identity] browser/profile`, daemon decision 7)
+checked where it is defined. FERB's own account (`[mailbox] address`, `[identity] browser/profile`, APP-1)
 is written only by `write_identity`, which FERB.app's `identity.choose` calls after code found exactly that account
 in that profile (auth.APP_ONLY)."""
 
@@ -97,7 +97,7 @@ SETTINGS: dict[str, Setting] = {s.name: s for s in (
     Setting("sense", "window_titles", _bool, True),
     # how long records are kept: every retention rule with a setting (ferb/store/retention.py RULES, one table)
     *(Setting(r.setting[0], r.setting[1], _days, r.default) for r in RULES if r.setting and r.default is not None),
-    Setting("browsing", "owner_profile", _profile, ""),         # daemon decision 7: browsing as the owner, when chosen
+    Setting("browsing", "owner_profile", _profile, ""),         # APP-1: browsing as the owner, when chosen
 )}
 
 
@@ -131,7 +131,7 @@ IDENTITY_KEYS = (("mailbox", "provider"), ("mailbox", "address"), ("identity", "
 
 
 def write_identity(config: Config, address: str, browser: str, folder: str) -> dict[str, str]:
-    """FERB's own Google account and the browser profile it is signed into (daemon decision 7), in one checked write
+    """FERB's own Google account and the browser profile it is signed into (APP-1), in one checked write
     each; or, with every value empty, none (the owner removed it: all four keys go). Returns what was stored."""
     from ferb.act.browser.profiles import BROWSERS
     import tomlkit

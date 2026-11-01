@@ -725,7 +725,7 @@ RETRY_AFTER_FAILURE_S = 60                # after a failed snapshot, the next at
 
 
 class Snapshots:
-    """S1 snapshots (hands decision 4, owner 2026-10-30): a fresh local APFS snapshot before each shell command and
+    """S1 snapshots (HAND-206, owner 2026-10-30): a fresh local APFS snapshot before each shell command and
     each permanent delete (`changes=True`), and when an agent asks (`recovery.snapshot`; agents judge what is bulk,
     rule 6). The last snapshot is reused only when no such call ran since it was taken: nothing a command could change
     has happened since. Across tasks; a restart starts with none to reuse. Concurrent requests share one attempt.

@@ -17,10 +17,10 @@ from ferb.trace.lines import choices    # noqa: F401  (re-exported: daemon/areas
 
 CONVERSATION_ASK = 'conversation.approve'   # F9: the owner's Yes/No to a delegated conversation's scope
 FORGET_ASK = 'memory.forget'                 # memory review I2: the owner's Yes/No to a forget asked in chat
-DOWNLOADS_ASK = 'downloads.delete'           # hands decision 8: delete the oldest downloads for good, past the cap
+DOWNLOADS_ASK = 'downloads.delete'           # HAND-211: delete the oldest downloads for good, past the cap
 # FERB's own questions outside any task, by `memory_questions.kind` (before any ':'): their capability and options. A
-# forget (permanent deletion, rule 5; decision 15 removed the Keep / Edit / Drop and Retire / Keep questions) and the
-# downloads folder's cap (permanent deletion, hands decision 8)
+# forget (permanent deletion, rule 5; MEM-12 removed the Keep / Edit / Drop and Retire / Keep questions) and the
+# downloads folder's cap (permanent deletion, HAND-211)
 MEMORY_QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {'forget': (FORGET_ASK, ('Yes', 'No')),
                                                             'downloads': (DOWNLOADS_ASK, ('Yes', 'No'))}
 # Checks whose typed answer must be one of their options (none left among memory's: a forget's Yes / No is a FERB check)

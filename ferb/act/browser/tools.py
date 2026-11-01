@@ -167,7 +167,7 @@ class _Base:
 
     def preview_target(self, args: BaseModel, owner: str,
                        observed: dict[str, Any] | None = None) -> PreviewTarget | None:
-        """The live preview's surface (notes/preview.md): the tab the call names, only while it is `owner`'s (each frame
+        """The live preview's surface (kb area app): the tab the call names, only while it is `owner`'s (each frame
         checks that again). Nothing is looked up here; a result adds nothing (None)."""
         tab = getattr(args, "tab", None)
         if not tab or observed is not None:
@@ -576,7 +576,7 @@ class BrowserRecord(_Base):
         target, capture = self.driver.recording_source(tab, ctx.task_id)
         sound: dict[str, Any] = {}
         if audio is not None and (let_heard := getattr(self.driver, "tab_sound", None)) is not None:
-            sound = await let_heard(tab, True)          # hands decision 5: heard for the rest of the task
+            sound = await let_heard(tab, True)          # HAND-207: heard for the rest of the task
         result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps,
                                              audio=audio, language=args.language, sources=(('web', page),),
                                              closed=write_check(ctx))
@@ -618,7 +618,7 @@ class BrowserMedia(_Base):
 
     def describe(self, args: Any) -> ActionSpec:
         # Page playback only, reversible like scroll: no ledger row, so a timed-out play stays retryable (P19 is for
-        # consequential actions). Not on_screen: it plays in a task tab and raises no window (daemon decision 5).
+        # consequential actions). Not on_screen: it plays in a task tab and raises no window (DMN-5).
         return self._spec(Kind.READ, args, content=f"media:{args.action}:{args.media_id or args.index}:{args.to}")
 
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
@@ -722,7 +722,7 @@ class BrowserAct(_Base):
         return json.dumps(found, sort_keys=True) if isinstance(found, dict) else str(element)
 
     def ledger_args(self, args: BaseModel, hashed: dict[str, Any]) -> dict[str, Any]:
-        """P19 (notes/gateway.md target 3): the element as what it is (the page's origin and path, the frame's, its role
+        """P19 (kb area gateway): the element as what it is (the page's origin and path, the frame's, its role
         and the node: the debugger's node id, else its DOM path: `driver.element_identity`), never the snapshot-scoped
         id or the tab alias, so after an unknown outcome a new snapshot doesn't make the same act look new. An id the
         driver doesn't know stays as it is (the call fails anyway)."""
@@ -830,7 +830,7 @@ class BrowserSecret(BrowserLoginCode):
 
 
 def _fill_facts(tool: Any, args: BaseModel) -> ActionFacts | None:
-    """A sealed fill's facts (gateway decision 1): the field's secret kind, from the latest snapshot."""
+    """A sealed fill's facts (GATE-202): the field's secret kind, from the latest snapshot."""
     el = tool._element(args)
     if el is None:
         return None

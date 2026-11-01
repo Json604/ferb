@@ -456,7 +456,7 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
 
 
 def _repeats(c: Any, out: TextIO) -> None:
-    """"Gets better at repeated tasks", measured (notes/memory.md, step 9b): each playbook's verified runs of one kind
+    """"Gets better at repeated tasks", measured (kb area memory): each playbook's verified runs of one kind
     of work, first and latest, with attempts and time, and how many later runs were shown its memory."""
     from ferb.memory.playbooks import repeat_stats
     books = repeat_stats(c)

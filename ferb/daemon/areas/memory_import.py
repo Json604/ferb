@@ -1,4 +1,4 @@
-"""Own the daemon's side of memory import (notes/memory-import.md): the RPCs the app calls, the one background job, its
+"""Own the daemon's side of memory import (kb area memory): the RPCs the app calls, the one background job, its
 resume after a restart and its cancel. Must not run an import on the owner's turn, or keep what it read."""
 
 import asyncio

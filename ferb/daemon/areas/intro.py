@@ -1,4 +1,4 @@
-"""Own the daemon's side of the intro's "Try" beat (notes/setup-intro.md step 6): `intro.suggest`, two first tasks that
+"""Own the daemon's side of the intro's "Try" beat (kb area app): `intro.suggest`, two first tasks that
 fit what FERB saw on this Mac (topped up with general tasks), and `intro.preview`, the picked task's plan shown as rows
 without doing any of it. Must not act, start a task or record chat: the preview is the planner's turn alone
 (Supervisor.preview) and the suggestion one tool-less model call; both are FERB.app's only (auth.APP_ONLY)."""
@@ -70,7 +70,7 @@ class Intro:
 
     async def _intro_suggest(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """`intro.suggest {}`: {"suggestions": [{"request", "app"}, {"request", "app"}], "fits"}. With what FERB saw on
-        this Mac (decision 16, state "seen"), one model call with no tools reads its summary and facts, redacted, and
+        this Mac (MEM-13, state "seen"), one model call with no tools reads its summary and facts, redacted, and
         names two tasks in the owner's voice, of different kinds where it can, each with the one main app it would use
         (as macOS names it; "" for the default browser), so the intro's orb can point there; fewer than two usable are
         topped up from GENERAL_TASKS (with GENERAL_APPS). `fits`: at least one came from the scan. Without a scan (not

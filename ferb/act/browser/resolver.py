@@ -28,7 +28,7 @@ class Resolver:
     identity_profile: Callable[[], tuple[str, str] | None]       # FERB's own profile, never for OWNER tasks
     aliases: Callable[[], dict[str, tuple[str, str]]] = lambda: {}
     # the owner's own pick (Settings, `browsing.owner_profile`) for browsing as them while FERB has no profile of its own
-    # (daemon decision 7): an explicit owner setting, never inferred
+    # (APP-1): an explicit owner setting, never inferred
     owner_default: Callable[[], tuple[str, str] | None] = lambda: None
 
     def owner_paired(self) -> list[Binding]:

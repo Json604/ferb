@@ -34,11 +34,11 @@ class ProviderError(Exception):
         self.overflow, self.account = overflow, account
 
 
-# HTTP statuses that are account facts no model can change (step 8b, owner decision 16): a key the provider refused,
+# HTTP statuses that are account facts no model can change (step 8b, ORCH-315): a key the provider refused,
 # or a quota or rate limit still in force after the retries
 ACCOUNT_STATUS = {401: 'signed_out', 403: 'signed_out', 402: 'usage_limit', 429: 'usage_limit'}
 # The plain cause of a provider's HTTP refusal, from its status code alone (a fact), said before the provider's own
-# technical words (notes/runtimes.md: owner-facing errors in app words, plain cause first)
+# technical words (kb area runtimes: owner-facing errors in app words, plain cause first)
 HTTP_CAUSES = {400: "it refused the request FERB sent", 401: "it didn't accept FERB's API key",
                403: "it didn't accept FERB's API key", 402: "the account's usage limit is reached",
                404: "it doesn't know the model FERB asked for", 408: "it timed out",

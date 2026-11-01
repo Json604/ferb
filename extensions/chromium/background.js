@@ -1,7 +1,7 @@
 // Owns authenticated browser transport and exact-target CDP mechanics; must not select a source/account or infer permission.
 // Commands carry a connection generation and journaled ID. Stale/duplicate commands never execute.
 // Task tabs open inactive (in the task's window, else the FERB minimized window), in one collapsed group per task
-// (owner decision 3, notes/hands.md). CDP focus emulation targets the tab only; the daemon sentinel measures OS effects
+// (HAND-201, kb area hands). CDP focus emulation targets the tab only; the daemon sentinel measures OS effects
 // rather than assuming every browser build stays background.
 // A download in a tab FERB drives is held here and handed to the daemon in parts, never to the browser (D35).
 // Daemon messages that act (welcome, cmd) are verified (HMAC, this connection's nonce, a counter) before anything runs.
@@ -69,7 +69,7 @@ function mutateSession(change) {
   return next;
 }
 
-// ---------- FERB's tabs in this browser session (owner decision 3: tab groups) ----------
+// ---------- FERB's tabs in this browser session (HAND-201: tab groups) ----------
 // In local storage, so a worker restart or an extension reload keeps them (a new browser session clears them:
 // onStartup). tabs: tab id -> {task, root, cid (the opening command), borrowed?, group?}; groups: group id -> {root,
 // windowId, title}. A tab FERB opened is in its task's collapsed group; a borrowed owner tab is recorded only so it is
@@ -186,7 +186,7 @@ async function taskWindow(g) {
   return null;
 }
 
-// Sound is part of background-first (hands decision 5, protocol 19): a tab FERB opens for a task is muted (the browser
+// Sound is part of background-first (HAND-207, protocol 19): a tab FERB opens for a task is muted (the browser
 // mutes its output; the page itself is untouched), unless the task needs its sound (`mute_tab`). A tab that becomes the
 // owner's (handed over, or moved out of its group) gets its sound back, only when FERB's extension muted it.
 async function soundBack(tabId) {
@@ -1393,7 +1393,7 @@ async function trusted(tabId, a) {
     const p = await topPoint(tabId, a.frame_id, a.snap, a.el);
     if (p.error) return { ok: false, detail: p.error };
     // A secret field (password, login code, card: content.js `fieldKind`) takes no typed text and no key that puts
-    // text in (entersText); Return, Tab and the like still go (notes/hands.md rulings).
+    // text in (entersText); Return, Tab and the like still go (kb area hands).
     if (p.secret && (a.kind === "type" || (a.kind === "press" && entersText(a.text)))) return {ok: false, detail: "secret_field"};
     if (p.disabled) return {ok: false, detail: "target_disabled"};
     if (p.occluded) return { ok: false, detail: "target_occluded; take a fresh snapshot" };
@@ -1619,7 +1619,7 @@ const commands = {
     await mutateRecords(r => { r.tabs[tab.id] = { task: g && typeof g.task === "string" ? g.task : null,
                                                   root: g && typeof g.root === "string" ? g.root : null, cid: id }; });
     try { await chrome.tabs.update(tab.id, { autoDiscardable: false }); } catch (_) { /* Memory Saver opt-out is best effort */ }
-    let silent = false;                               // protocol 19: muted before anything loads (hands decision 5)
+    let silent = false;                               // protocol 19: muted before anything loads (HAND-207)
     if (muted === true) {
       try { silent = !!((await chrome.tabs.update(tab.id, { muted: true })).mutedInfo || {}).muted; } catch (_) { /* said */ }
     }
@@ -1638,7 +1638,7 @@ const commands = {
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "", window_id: t.windowId,
              group_id: groupId, muted: silent };
   },
-  // Protocol 19 (hands decision 5): mute or unmute one tab FERB opened (its records hold it, never borrowed), through the
+  // Protocol 19 (HAND-207): mute or unmute one tab FERB opened (its records hold it, never borrowed), through the
   // browser's own tab mute; the owner's tabs are never touched. Returns the tab's sound state afterwards.
   async mute_tab({ tab_id, muted }) {
     if (typeof muted !== "boolean") throw Error("muted must be true or false");
@@ -1680,7 +1680,7 @@ const commands = {
       const released = await commands.release_tab({tab_id, keep_open:true});
       return {...released, closed:false};
     }
-    // FERB never closes a tab it didn't open (owner decision 3): only one its records hold as opened by FERB.
+    // FERB never closes a tab it didn't open (HAND-201): only one its records hold as opened by FERB.
     const rec = (await records()).tabs[tab_id];
     if (!rec || rec.borrowed) {
       let open = true;
@@ -2098,7 +2098,7 @@ chrome.tabs.onCreated.addListener((t) => tabEvent("created", t));
 chrome.tabs.onUpdated.addListener((id, info, t) => { if (info.status === "complete") { ensurePort(); tabEvent("updated", t); } });
 chrome.tabs.onActivated.addListener(async ({ tabId }) => { try { tabEvent("activated", await chrome.tabs.get(tabId)); } catch (_) {} });
 chrome.tabs.onRemoved.addListener((tabId) => tabEvent("removed", { id: tabId }));
-// Protocol 19 (hands decision 5): a tab's sound started or stopped, or it was muted or unmuted: the browser's own facts,
+// Protocol 19 (HAND-207): a tab's sound started or stopped, or it was muted or unmuted: the browser's own facts,
 // with whether the tab is FERB's (as list_tabs says it) and, protocol 21, who last changed its mute (`muted_reason`).
 // The daemon records a change in a tab that isn't FERB's as a
 // disturbance fact when a FERB call was near; nothing about the page is sent.

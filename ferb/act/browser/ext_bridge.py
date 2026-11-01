@@ -8,7 +8,7 @@ A download caught in a task tab goes to `Hub.on_download` (downloads.py takes it
 WakeServer serves only the temporary local pairing page; ordinary wake launches no window or URL.
 
 Protocol 18 (step 5c): the daemon signs what the extension acts on (`daemon_envelope`); a connection is taken only from
-a browser app FERB knows (`peer_refusal`); a task's tabs live in one collapsed tab group (owner decision 3) and are
+a browser app FERB knows (`peer_refusal`); a task's tabs live in one collapsed tab group (HAND-201) and are
 known by browser tab id, so a reconnect or a daemon restart re-adopts them from the extension's records or closes those
 of an ended task (`_TabDriver.readopt`); the owner closing or taking a FERB tab is published for the supervisor
 (`browser.owner_stopped`, `browser.owner_took`); a read that fails is a known failure, never "outcome unknown"."""
@@ -66,7 +66,7 @@ MEDIA_ID = re.compile(r"m[0-9]{1,9}-[0-9a-f]{6}")
 def frame_urls(frames: list[dict[str, Any]]) -> list[str]:
     """The addresses of a snapshot's embedded frames, in order, once each: each child frame's own address (its content
     script reports it) and each frame element's `src` (a frame no script reaches, such as one in a closed shadow root,
-    still names it). Structural facts, read like a field's kind (hands decision 6)."""
+    still names it). Structural facts, read like a field's kind (HAND-208)."""
     found: list[str] = []
     for f in frames:
         urls = [str(i.get("src") or "") for i in f.get("iframes") or [] if isinstance(i, dict)]
@@ -158,7 +158,7 @@ def enters_text(spec: str | None) -> bool:
 
 
 def group_title(text: str) -> str:
-    """A task's tab-group label (owner decision 3): "FERB · <short task>", the task's first words, at most about 30
+    """A task's tab-group label (HAND-201): "FERB · <short task>", the task's first words, at most about 30
     characters; "FERB" when it has none."""
     words = " ".join(str(text or "").split())
     if len(words) > 30:
@@ -383,7 +383,7 @@ class Hub:
         self.on_tab_closed: Callable[["Bridge", int], Awaitable[None] | None] = lambda br, tab_id: None
         self.paused: Callable[[], bool] = lambda: False
         self.owned: Callable[["Bridge", int], bool] = lambda br, tab_id: False
-        # Hands decision 5 (protocol 19): a tab's sound changed; the daemon records one in a tab that isn't FERB's as a
+        # HAND-207 (protocol 19): a tab's sound changed; the daemon records one in a tab that isn't FERB's as a
         # disturbance fact (never in the activity trail)
         self.on_sound: Callable[["Bridge", TabEvent], None] = lambda br, e: None
         # A download the extension holds (D35); the daemon sets downloads.Downloads.receive. Unset: back to the browser.
@@ -580,7 +580,7 @@ class Hub:
                 "gen": br.gen, "identity": br.binding.identity.value})).encode() + b"\n")
             await conn.writer.drain()
             self.publish("browser.connected", {"profile": br.name, "version": hello.version, "gen": br.gen})
-            for d in self.drivers:                           # FERB's tabs here, by browser tab id (owner decision 3)
+            for d in self.drivers:                           # FERB's tabs here, by browser tab id (HAND-201)
                 if getattr(d, "identity", None) is br.binding.identity:
                     for settle in d.readopt(br, hello.tabs):
                         self._spawn(settle)
@@ -868,7 +868,7 @@ class _Tab:
     held: bool = False              # it counts in its bridge's keepalive holds
     frame_urls: dict[int, str] = field(default_factory=dict)   # the latest snapshot's frames' URLs (masked)
     commerce: dict[str, Any] = field(default_factory=dict)     # the page's structured amount/merchant (protocol 18)
-    muted: bool = False             # hands decision 5: FERB muted it (the browser's tab mute); its task may unmute it
+    muted: bool = False             # HAND-207: FERB muted it (the browser's tab mute); its task may unmute it
     page: _Page | None = None       # where the latest snapshot saw the tab, for FERB's cursor (L33)
     motion: dict[str, tuple[str | None, bool]] = field(default_factory=dict)   # element id -> its scroll facts (L33)
     moved: bool = False             # FERB scrolled the page since the snapshot: its rects aren't where they were (L33)
@@ -919,7 +919,7 @@ class _TabDriver:
         self.redact_text: Callable[[str], str] = Redactor().text      # daemon supplied: its redactor (rule 14)
         self._opening: dict[str, int] = {}                            # task tree -> tabs being opened now (tab cap)
         self._released: set[str] = set()                              # tasks that let go of their tabs
-        # Owner decision 3 (tab groups), daemon supplied: a task tree's words for its group's label ("FERB · <short
+        # HAND-201 (tab groups), daemon supplied: a task tree's words for its group's label ("FERB · <short
         # task>", group_title); whether the task is paused (its group stays: nothing closes at its end); and the task
         # trees whose owner asked to keep the tabs (`keep_tabs_open`: at the end they leave the group, open).
         self.task_title: Callable[[str], str] = lambda root: ""
@@ -1018,9 +1018,9 @@ class _TabDriver:
             args["window_id"] = window_id
         if allow_foreground:
             args["allow_foreground"] = True
-        if owner and not attached:                       # the task's collapsed group (owner decision 3)
+        if owner and not attached:                       # the task's collapsed group (HAND-201)
             args["group"] = self._group(owner)
-        if not attached:                                 # hands decision 5: a tab FERB opens is muted (protocol 19)
+        if not attached:                                 # HAND-207: a tab FERB opens is muted (protocol 19)
             args["muted"] = True
         v = await br.call("open", args, timeout=30)
         if (v.get("opened") is False and v.get("reason") == "window_selection_required" and window_id is None
@@ -1082,7 +1082,7 @@ class _TabDriver:
             t.bridge.unhold()
 
     def keep_tabs_open(self, task: str) -> None:
-        """The owner asked to keep this task's tabs (owner decision 3): at its end they leave the group and stay open,
+        """The owner asked to keep this task's tabs (HAND-201): at its end they leave the group and stay open,
         each handed over like a result (`keep_open`). Task-level: the whole tree."""
         self._keep_roots.add(self.task_root(task))
 
@@ -1093,7 +1093,7 @@ class _TabDriver:
 
     def readopt(self, br: Bridge, listed: list[dict[str, Any]]) -> list[Awaitable[Any]]:
         """After a hello (an extension reconnect, a worker or extension restart, or this daemon's own restart): FERB's
-        tabs are known by browser tab id, which holds for the browser session, not by connection (owner decision 3).
+        tabs are known by browser tab id, which holds for the browser session, not by connection (HAND-201).
         Each tab of this profile the daemon holds is re-adopted when the extension's records still list it (its element
         ids go: take a new snapshot) and dropped otherwise (closed or the owner's meanwhile, never closed by FERB). A
         listed tab the daemon doesn't hold (it restarted) becomes its task's again while the task runs; any tab whose
@@ -1131,7 +1131,7 @@ class _TabDriver:
             pass                                         # the next hello lists it again
 
     def tab_taken(self, br: Bridge, chrome_id: int, how: str = "") -> None:
-        """The owner moved a tab FERB opened out of its task's group (owner decision 3): it is theirs now. FERB stops
+        """The owner moved a tab FERB opened out of its task's group (HAND-201): it is theirs now. FERB stops
         using it (the extension already let go of it) and never closes it; the supervisor hears of it."""
         for alias, t in self._tabs.items():
             if t.bridge is br and t.chrome_id == chrome_id and not t.closed:
@@ -1187,7 +1187,7 @@ class _TabDriver:
 
     def tab_closed(self, br: Bridge, chrome_id: int) -> None:
         """The browser closed this tab: the task's inventory says so; a reopened tab is a new one. Not FERB's own close,
-        while its task runs: the owner stopped that part of the task (owner decision 3), published for the supervisor
+        while its task runs: the owner stopped that part of the task (HAND-201), published for the supervisor
         (`browser.owner_stopped`; step 8 asks the owner whether to continue). `part` is "group" when no other tab FERB
         opened for that task tree is left on this profile (the owner closed the group), else "tab"."""
         for alias, t in self._tabs.items():
@@ -1293,7 +1293,7 @@ class _TabDriver:
             return None
         record = {"tab_id": chrome_id, "task": opener.owner, "root": self.task_root(opener.owner),
                   "borrowed": opener.attached, "title": self._group(opener.owner)["title"],
-                  "muted": not opener.attached}         # a popup of a FERB tab is FERB's: muted (hands decision 5)
+                  "muted": not opener.attached}         # a popup of a FERB tab is FERB's: muted (HAND-207)
         if any(t.bridge is br and t.chrome_id == chrome_id for t in self._tabs.values()):
             return record
         if (why := self._tab_cap(opener.owner)) is not None:
@@ -1518,7 +1518,7 @@ class _TabDriver:
                             {k:value for k,value in v.items() if k not in {"ok","detail"}}, observed=facts)
 
     def act_facts(self, tab_id: str, element_id: str, kind: str, text: str | None) -> ActionFacts | None:
-        """What code reads, from the latest snapshot, about an act on this element (gateway decision 1, protocol 18):
+        """What code reads, from the latest snapshot, about an act on this element (GATE-202, protocol 18):
         whether it submits a form (a click on a submit control, Enter in a field whose form submits) with the form's
         action host and method; the kinds of the secret fields it fills or the submitted form holds; an amount the
         control's own label shows, else the one the page states in structured form; the page's merchant; the target's
@@ -1548,7 +1548,7 @@ class _TabDriver:
                            frame_host=here if here and here != page else None, tab_chain=self.tab_chain(tab_id))
 
     def element_identity(self, tab_id: str, element_id: str) -> dict[str, Any] | None:
-        """P19's identity of an element of the latest snapshot (notes/gateway.md target 3): the page (origin and path,
+        """P19's identity of an element of the latest snapshot (kb area gateway): the page (origin and path,
         never the query), the frame's when it is a child frame's, its role, and the node itself: the debugger's node id
         while it lives (a fresh snapshot of the same page finds the same node), else its DOM path. Never the
         snapshot-scoped id or the tab alias, so a new look after an unknown outcome doesn't make the same act new.
@@ -1776,14 +1776,14 @@ class _TabDriver:
         own = next((qid for qid, i in t.media_ids.items() if i == index), None)
         sound: dict[str, Any] = {}
         if action in ("mute", "unmute") and not t.attached and not v.get("error"):
-            # hands decision 5: in a tab FERB opened, the task's own unmute lets the tab be heard (it is muted
+            # HAND-207: in a tab FERB opened, the task's own unmute lets the tab be heard (it is muted
             # otherwise), and its mute silences it again; the owner's tabs keep their own sound setting
             sound = await self.tab_sound(tab, action == "unmute")
         return ({k: v[k] for k in (*MEDIA_FIELDS, "error") if k in v} | {"index": index}
                 | ({"id": own} if own else {}) | ({"frame": frame} if frame else {}) | sound)
 
     async def tab_sound(self, tab: TabRef, on: bool) -> dict[str, Any]:
-        """Hands decision 5: let a tab FERB opened be heard (`on`: a task that listens to it, records it with sound, or
+        """HAND-207: let a tab FERB opened be heard (`on`: a task that listens to it, records it with sound, or
         unmutes its media) or mute it again, through the browser's tab mute (`mute_tab`, protocol 19). The owner's own
         tabs are never touched. Returns `tab_muted` as the browser reports it, or why it couldn't change ({} for the
         owner's tab). A failure never fails the caller: the fact is said instead."""
@@ -2138,7 +2138,7 @@ class _TabDriver:
 
     def tab_chain(self, tab_id: str) -> str:
         """The first task tab of the chain this tab was opened from (itself when it opened on its own): a payment's
-        checkout and the bank page it opens share it (gateway decision 4)."""
+        checkout and the bank page it opens share it (GATE-204)."""
         seen, at = {tab_id}, tab_id
         while (t := self._tabs.get(at)) is not None and (opener := getattr(t, "opener", None)) and opener not in seen:
             seen.add(opener)
@@ -2214,7 +2214,7 @@ class _TabDriver:
         t = self._tabs.get(ref.tab_id)
         if t is None:
             raise StaleRef(f"tab {ref.tab_id} is gone")
-        if t.closed:                                   # closed, or taken / lost (owner decision 3): never driven again
+        if t.closed:                                   # closed, or taken / lost (HAND-201): never driven again
             raise StaleRef(f"tab {ref.tab_id} is no longer FERB's: {t.left or 'it was closed in the browser'}")
         if t.bridge.gen != ref.generation or t.bridge.conn is None:
             raise StaleRef(f"tab {ref.tab_id} belongs to an older browser connection")
@@ -2244,7 +2244,7 @@ class _TabDriver:
                 for t in self._tabs.values() if t.owner == owner]
 
     async def release(self, owner: str) -> list[dict[str, Any]]:
-        """Task end (owner decision 3): a borrowed owner tab is let go of where the work finished; a tab FERB opened
+        """Task end (HAND-201): a borrowed owner tab is let go of where the work finished; a tab FERB opened
         that holds the result (`keep_open`), or every one when the owner asked to keep the task's tabs
         (`keep_tabs_open`), leaves the group and stays open; the others close with the group. A paused task keeps its
         group: nothing closes. Each retried once; a tab that still can't be let go of becomes no task's: its downloads

@@ -29,7 +29,7 @@ class Runtimes:
 
     def _runtime_for(self, role: str) -> str:
         """The runtime a role uses: a planner-chosen worker type, or the runtime the owner chose for one task's checker
-        ("checker:<runtime>", owner decision 16), else [runtimes] orchestrator / worker / checker."""
+        ("checker:<runtime>", ORCH-315), else [runtimes] orchestrator / worker / checker."""
         if role.startswith(("worker:", "checker:")) and role != "worker:default":
             return role.partition(":")[2]
         if role == "orchestrator":
@@ -191,7 +191,7 @@ class Runtimes:
         return {"roles": assigned, "usable": usable, "fix": fix}
 
     async def _runtimes_switch_task(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """Owner decision 16, the app's one tap: a task that stopped on a usage limit or a sign-in failure waits with
+        """ORCH-315, the app's one tap: a task that stopped on a usage limit or a sign-in failure waits with
         FERB's offer of each other signed-in runtime; this answers it with `runtime` for that task (`scope` "task", the
         default), or first points the role that failed at it from its next call ("role", as `runtimes.use` does), then
         answers. Owner-only (auth.py); journaled. FERB never calls it itself."""

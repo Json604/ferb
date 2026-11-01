@@ -17,7 +17,7 @@ An owner-pinned local port whose listener runs its pinned executable when the co
 connections the kernel reported for this command (`DirectReports`), and the record keeps the ones it connected to, or
 all of them when the kernel's reports couldn't be read.
 
-Downloads (hands decision 7): while any FERB command runs, every WATCH_S the bytes each one received through the proxy
+Downloads (HAND-210): while any FERB command runs, every WATCH_S the bytes each one received through the proxy
 since the last look go to `on_received` (the daemon counts them against the task tree's download budget, shared with
 the browser, and checks the free-disk floor); when it answers why, that command's whole group is stopped and the
 command's results say so (`stopped`, FERB's words), a fact, never a judgment of the command. Only a command receiving
@@ -110,7 +110,7 @@ class ShellManager:
         self._owner_input: dict[str, str] = {}
         self._report_on_exit: set[str] = set()   # running when their task ended: retired when they exit
         self._retiring: set[str] = set()         # finished, task ended: dropped once the proxy reports their record
-        # Downloads (hands decision 7, daemon supplied): (task, bytes received since the last look) -> why the command
+        # Downloads (HAND-210, daemon supplied): (task, bytes received since the last look) -> why the command
         # must stop now, or None. Called on the event loop only.
         self.on_received: Callable[[str, int], str | None] | None = None
         self._received: dict[str, int] = {}      # process -> bytes received through the proxy, as last counted
@@ -188,7 +188,7 @@ class ShellManager:
         self._watch_downloads()
         return ProcHandle(pid, owner_task)
 
-    # ---------- downloads: the task tree's budget and the free-disk floor (hands decision 7) ----------
+    # ---------- downloads: the task tree's budget and the free-disk floor (HAND-210) ----------
 
     def _watch_downloads(self) -> None:
         """Start the download watch while commands run (it ends by itself when none is left)."""
@@ -385,7 +385,7 @@ class ShellManager:
         return n
 
     async def stop_running(self, owned: Callable[[str], bool]) -> int:
-        """A task paused (orchestration decision 13): the still-running commands of the tasks `owned` names stop, their
+        """A task paused (ORCH-312): the still-running commands of the tasks `owned` names stop, their
         whole groups, except long-lived ones (which outlive the task anyway); their records stay, so a resumed attempt
         can still read what they printed. Returns how many were stopped."""
         n = 0

@@ -7,7 +7,7 @@ authorized" (D33): the target is in the owner's own words for this request or in
 anyway (SQ1).
 
 - The floor: a payment and an account-security change always ask, and their Yes covers one run (a payment in a task's
-  browser tab is one question per payment instead: ferb/policy/payments.py, decision 4); a permanent delete of
+  browser tab is one question per payment instead: ferb/policy/payments.py, GATE-204); a permanent delete of
   a path the owner didn't name, and a send to a recipient the owner didn't name, ask once per task tree. A send whose
   recipient FERB can't see (a click declared to send or call, with no contact or recipients: a post) is a send to
   someone the owner didn't name, asked once per tree for its place and the account it declared it sends as, unless
@@ -15,7 +15,7 @@ anyway (SQ1).
   declared to delete is asked about once per page (or place) and declared item.
 - The sink rule (a): a send-class call to a place with no recipient (a post, a submit, a page input declared to send)
   asks when the tree has read the owner's own data and outside content and the owner hasn't named that place in this
-  request or approved it before (`approved`: a site only mentioned in an earlier request doesn't count, decision 5).
+  request or approved it before (`approved`: a site only mentioned in an earlier request doesn't count, GATE-205).
   With recipients, the floor's new-recipient question already covers it.
 - The sink rule (b): a recipient or an amount that came only from outside content (never from the owner's words or
   answers) asks, unless the recipient is a destination FERB already knows.
@@ -44,7 +44,7 @@ from ferb.policy.destinations import destination_of
 from ferb.policy.rules import Kind
 
 ALWAYS = {Kind.PAY: "floor:pay", Kind.ACCOUNT_SECURITY: "floor:account_security"}
-UNREAD_AMOUNT = "an amount FERB couldn't read"   # a payment whose amount code couldn't read (decision 4)
+UNREAD_AMOUNT = "an amount FERB couldn't read"   # a payment whose amount code couldn't read (GATE-204)
 # What an account-security change is, as FERB's question names it (the worker prompt's and the effect help's words)
 ACCOUNT_SECURITY = "a password, two-factor or recovery setting, or deleting the account"
 SEND_CLASS = frozenset({Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.CALL})
@@ -81,7 +81,7 @@ ALLOW_WINDOW_S = 1800.0
 
 
 def read_lift_key(rule: str) -> str:
-    """The one question key for reading a protected folder in a task tree (hands decision 1): every read of it there,
+    """The one question key for reading a protected folder in a task tree (GATE-200): every read of it there,
     by FERB's file tools or a shell read escape, is covered by one Yes."""
     return "lift:read:" + rule
 
@@ -532,7 +532,7 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
     declared purpose or effect adds (SEND / CALL / PAY / ACCOUNT_SECURITY / DELETE_PERMANENT; one or several), which
     only widens what is checked. `arg_sources` is provenance.arg_sources of the target; `known(kind, value)` says
     whether a destination is known for normal use, `approved(kind, value)` whether the owner approved it (the sink rule's
-    test, decision 5; `known` when not given); `outside_read` is the outside content the tree read (origin labels), named in the
+    test, GATE-205; `known` when not given); `outside_read` is the outside content the tree read (origin labels), named in the
     sink question; `place` is where the call happens as the owner knows it (an app's name), else the target's site;
     `content` is what a send carries, sized in the bulk question. A permanent delete of a folder (S4(c)) needs the
     folder counted: the gateway adds it (`bulk_delete`)."""
@@ -550,7 +550,7 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
                      "account": target.account or "",
                      "recipients": ", ".join(v for _, v in who)}
             # one run per Yes (SQ1). A payment in a task's browser tab is asked once per payment instead, from the
-            # page's amount and merchant (ferb/policy/payments.py, decision 4): the gateway replaces this need
+            # page's amount and merchant (ferb/policy/payments.py, GATE-204): the gateway replaces this need
             needs.append(Need(rule, key(rule, target.site, target.account, target.amount,
                                         sorted(v for _, v in who)), shown, always=True))
     if Kind.DELETE_PERMANENT in kinds and not _owner(arg_sources.get("path", [])):
@@ -697,7 +697,7 @@ def _terminal(v: dict[str, str]) -> str:
 
 
 def _pays(verb: str, v: dict[str, str]) -> str:
-    """A payment as the owner reads it (decision 4): the amount and merchant code read on the page (never the
+    """A payment as the owner reads it (GATE-204): the amount and merchant code read on the page (never the
     worker's number; "an amount FERB couldn't read" when none), where, from which account; on a bank page that shows
     another payment than the one approved, both."""
     to = v.get("merchant") or v.get("recipients") or ""
@@ -779,7 +779,7 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
 
 
 _LIFTED = {   # what an escape lifts, in the owner's terms (D31): the protection list's kinds (protection.rules)
-    # hands decision 1: a read covers the task (file tools and shell alike); a change one call or one command
+    # GATE-200: a read covers the task (file tools and shell alike); a change one call or one command
     "read": "read {path} for this task (normally off-limits: a private store FERB stays out of)",
     "write": "change {path} once (normally off-limits: FERB never changes it on its own)",
     "admin": ("run one command as administrator (sudo), with your Mac password (normally off-limits: FERB's shell "

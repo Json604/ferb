@@ -1,4 +1,4 @@
-"""Answers in steps (orchestration decision 19): one card per multi-part turn, a row per part, each answer posted once.
+"""Answers in steps (ORCH-319): one card per multi-part turn, a row per part, each answer posted once.
 
 A part is one of the owner's asks, not a plan step (plans.Part). A part answered directly is said in the first reply;
 every other part has a row that fills once, when its answer step's checker accepts it (accept or accept-unconfirmed),
@@ -79,7 +79,7 @@ class Card:
         return out
 
     def tally(self) -> tuple[int, int]:
-        """(done, total) over the task's asks: direct parts count as done, a failed part doesn't (decision 19's "N of
+        """(done, total) over the task's asks: direct parts count as done, a failed part doesn't (ORCH-319's "N of
         M done")."""
         records = self.records()
         done = sum(1 for p in self.parts if p.direct is not None or records.get(p.id, {}).get("state") in DONE)

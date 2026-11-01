@@ -2,7 +2,7 @@
 content, or decide whether a call needs the owner (ferb/policy/confirm.py decides from these facts).
 
 A known destination is one the owner named in a request (emails, URL hosts and phone numbers in their own words, by
-shape), chose in an answer, or confirmed to FERB's question (gateway decision 5): every known one is known for normal
+shape), chose in an answer, or confirmed to FERB's question (GATE-205): every known one is known for normal
 use in later tasks (no new-recipient question), but only one the owner approved (chose in an answer or confirmed) is
 known for the sink rule, so sending the owner's private data to a site only mentioned in a request, after outside
 content was read, still asks once (`approved`).
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 KINDS = ("email", "phone", "host", "name")
 HOW = ("named", "answered", "confirmed")
-APPROVED = ("answered", "confirmed")      # how a destination the owner approved became known (decision 5)
+APPROVED = ("answered", "confirmed")      # how a destination the owner approved became known (GATE-205)
 Redact = Callable[[Any], Any]
 
 
@@ -84,7 +84,7 @@ class KnownDestinations:
             "SELECT 1 FROM known_destinations WHERE kind = ? AND value = ?", (kind, stored)).fetchone() is not None
 
     def approved(self, kind: str, value: str) -> bool:
-        """Known for the sink rule (decision 5): the owner chose it in an answer or confirmed it to FERB's question;
+        """Known for the sink rule (GATE-205): the owner chose it in an answer or confirmed it to FERB's question;
         a destination only named in a request is not."""
         stored = self._stored(kind, value)
         return stored is not None and self.db.conn.execute(
@@ -94,7 +94,7 @@ class KnownDestinations:
     def record(self, kind: str, value: str, how: str, request_id: str | None = None,
                span_id: str | None = None) -> None:
         """Keep a destination; one already known keeps how it first became known, except that the owner's approval
-        of one only named before upgrades it (decision 5)."""
+        of one only named before upgrades it (GATE-205)."""
         stored = self._stored(kind, value)
         if stored is None or how not in HOW:
             return

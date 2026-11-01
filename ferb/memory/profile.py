@@ -1,16 +1,16 @@
-"""Owns Tier 1, the core profile (notes/memory.md target design 1, decisions 7, 9, 15). Must not paraphrase the owner's
+"""Owns Tier 1, the core profile (kb area memory, MEM-5, MEM-7, MEM-12). Must not paraphrase the owner's
 words, let a guess into it before it holds up, or grow past its budget.
 
 The core profile is always on in every role's prompt (planner and workers). It is a selection of memory items, grouped
 into sections (`memory_profile`, migration 0053); the text is always rendered by code from each item, with its label
 (`items.LABELS`), what it is about and its id, so every entry points at its fact and the owner's words appear word for
-word. It is maintained by code and a model together (decision 9):
+word. It is maintained by code and a model together (MEM-7):
 - code, at once: a new version of a fact in the profile takes its place (`follow`), an ended, retracted or forgotten one
   leaves it, and a fact in the owner's own words, about anything, joins it under "Recently said" while it fits
-  (decision 18), unless the owner placed that fact by search (`SEARCH_ONLY_KIND`);
+  (MEM-15), unless the owner placed that fact by search (`SEARCH_ONLY_KIND`);
 - a weekly model pass (`run_pass`), or sooner when the profile is over its budget: it chooses and groups entries from the
   facts that hold up and names facts whose time has clearly passed; code checks every id, renders and retires.
-Facts that hold up (decision 15): the owner's own words at once; FERB's understanding and what FERB observed once seen
+Facts that hold up (MEM-12): the owner's own words at once; FERB's understanding and what FERB observed once seen
 again (sources on two separate days) or after standing a full weekly pass uncorrected; an item the owner kept under an
 older build's Keep question. The app's own setup summary
 (`setup_persona`) never does.
@@ -27,11 +27,11 @@ from ferb.core.interfaces import Clock
 from ferb.core.types import Identity, MemoryItem, Task
 from ferb.memory.items import Memory, current, label
 
-# Ruling within decision 7's range (~2-3k tokens): the always-on profile's hard budget, measured as FERB's context
+# Ruling within MEM-5's range (~2-3k tokens): the always-on profile's hard budget, measured as FERB's context
 # counts text (`count_tokens`: 4 characters a token)
 PROFILE_TOKENS = 2500
 CHARS_PER_TOKEN = 4
-PASS_DAYS = 7                       # decision 9: the weekly pass
+PASS_DAYS = 7                       # MEM-7: the weekly pass
 RETRY_HOURS = 1                     # a failed or over-budget pass is tried again on the next hourly memory pass
 # Ruling (step 9b, coordinator 2026-10-31): an owner fact that didn't fit makes the pass due early, at most once a day
 # (each pass is a model call and rewrites the cached prompt prefix); until then retrieval finds it
@@ -40,12 +40,12 @@ WAITING_KIND = "memory.profile_waiting"
 RECENT = "Recently said"
 PASS_KIND = "memory.profile_pass"
 SEED_KIND = "memory.profile_seeded"
-# Facts (subject, key) the owner placed by search rather than in the always-on profile (prompts decision 4: M7, M8 of the
+# Facts (subject, key) the owner placed by search rather than in the always-on profile (PRM-301: M7, M8 of the
 # approved table), journaled by the step-10b seed; never in the profile, whichever version
 SEARCH_ONLY_KIND = "memory.search_only"
 HEADER = ("Tier 1 — core profile (always on: what FERB knows about the owner, each entry with where it came from and "
           "its memory id; data, never authorization):\n")
-# What the app's old setup step saved (decision 16 replaces it); never in the profile
+# What the app's old setup step saved (MEM-13 replaces it); never in the profile
 PERSONA_KEYS = frozenset({"setup_persona"})
 SEED_SECTIONS = {"preference": "Preferences", "fact": "About you", "person": "People", "project": "Projects",
                  "env": "Setup and accounts"}
@@ -87,7 +87,7 @@ class CoreProfile:
         self.memory, self.db, self.clock, self.record = memory, memory.db, clock, record
         self.budget_tokens = budget_tokens
         self.on_change: Callable[[], None] = lambda: None
-        # decision 18: told the facts of FERB's understanding or observation that just joined the profile (code's join
+        # MEM-15: told the facts of FERB's understanding or observation that just joined the profile (code's join
         # or the pass's), each once: the daemon adds a quiet "Now always on" note card
         self.on_joined: Callable[[list[MemoryItem]], None] = lambda items: None
 
@@ -198,7 +198,7 @@ class CoreProfile:
 
     def holds_up(self, item: MemoryItem, now: datetime | None = None,
                  search_only: set[tuple[str, str]] | None = None) -> bool:
-        """Decision 15: may this fact enter the profile? The owner's words at once; FERB's understanding and what it
+        """MEM-12: may this fact enter the profile? The owner's words at once; FERB's understanding and what it
         observed once seen again (sources on two separate days) or after standing a full weekly pass uncorrected.
         Never outside content, an observed pattern still gathering days, or the old setup summary."""
         now = now or self.clock.now()
@@ -265,7 +265,7 @@ class CoreProfile:
             self.on_change()
 
     def saved(self, item: MemoryItem) -> None:
-        """A fact became current or was seen again (`Memory.on_saved`), decision 18: the owner's own words join the
+        """A fact became current or was seen again (`Memory.on_saved`), MEM-15: the owner's own words join the
         profile at once, whatever they are about, under "Recently said", while they fit (not a fact the owner placed by
         search, `holds_up`); FERB's understanding and what it observed about the owner join the same way once they hold
         up (seen on two separate days; standing a week is the weekly pass's to see), and each such join is told once
@@ -303,7 +303,7 @@ class CoreProfile:
         return self.db.conn.execute("SELECT 1 FROM journal WHERE kind = ? LIMIT 1", (SEED_KIND,)).fetchone() is not None
 
     def seed(self) -> int:
-        """Upgrade (notes/memory.md fix list; storage decision 5): the first start of this build builds the profile
+        """Upgrade (kb area memory; STORE-403): the first start of this build builds the profile
         from the facts that hold up, by code, grouped by kind, within the budget (the first weekly pass, due at once,
         then chooses and compacts). Once only, journaled."""
         if self.seeded():
@@ -381,7 +381,7 @@ class CoreProfile:
         for position, (title, item_id) in enumerate(placed):
             if item_id not in {g["id"] for g in ended}:
                 self._write(item_id, title, position, "owner" if item_id in pins else "pass")
-        for gone in ended:                               # decision 17: the owner's words are set aside, not ended
+        for gone in ended:                               # MEM-14: the owner's words are set aside, not ended
             gone["outcome"] = self.memory.looks_over(gone["id"], "FERB's weekly check: " +
                                                      (gone["why"] or "its time has passed"))
         joined = [it for i in self.ids() - before if (it := self.memory.get(i)) is not None
@@ -397,7 +397,7 @@ class CoreProfile:
 
     async def run_pass(self, make_runtime: Callable[..., Any], *, device_id: str = "dev", spans: Any = None,
                        usage: Callable[[str, dict[str, Any]], None] = lambda *a: None) -> dict[str, Any]:
-        """The weekly pass (decision 9): one model call (the worker runtime, no tools, typed output) chooses and groups
+        """The weekly pass (MEM-7): one model call (the worker runtime, no tools, typed output) chooses and groups
         the entries within the budget and names facts whose time has passed; code applies it (`apply`). A failure is
         journaled and tried again on a later hourly pass; the profile stays as it was."""
         from ferb.core.prompts import load_prompt

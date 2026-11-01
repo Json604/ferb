@@ -1,20 +1,20 @@
 """Observe desktop changes FERB could have caused; never activate, restore, block or infer authorization.
 
-Daemon decision 5 (owner 2026-10-30): the desktop is sampled only right before and right after a tool call that can
+DMN-5 (owner 2026-10-30): the desktop is sampled only right before and right after a tool call that can
 change the owner's screen (its capability declares `on_screen`: Mac input, foreground, opening an app), never around
 read-only tools and never on a timer, plus one baseline when a task starts. Only what FERB could have changed is
 compared and recorded: the front app, the focused window, fullscreen and the Space (FERB_KEYS); the owner's cursor and
 window order are not read. What changed during one call is returned to the gateway as that call's facts (the merged
-checker reads them, notes/orchestration.md decision 9); a change found when the next on-screen call starts, with no
+checker reads them, ORCH-309); a change found when the next on-screen call starts, with no
 FERB on-screen call in flight, is recorded as that fact, with when the last one ended and the processes FERB started
 that were running (P26). Who did it stays the reader's conclusion (rule 6). No window titles, content, pixels or
 keystrokes are collected. Public Space notifications report transitions, not IDs.
-Sound is part of background-first too (hands decision 5): a browser tab that isn't FERB's starting or stopping sound, or
+Sound is part of background-first too (HAND-207): a browser tab that isn't FERB's starting or stopping sound, or
 being muted or unmuted (the extension's `sound` event, protocol 19), while one of FERB's acting calls is in flight or
 ended within SOUND_NEAR_S, is recorded for that call's task as a `tab_sound` change (the browser's own facts, the tab's
 id and the task holding it if any; never its page). With no FERB call near it is the owner's own and nothing is kept;
 nor when the owner used the keyboard or mouse within OWNER_NEAR_S of it, or muted or unmuted the tab themselves (the
-browser's `mutedInfo.reason` "user", left out by the daemon): only changes FERB could have caused (hands decision 11).
+browser's `mutedInfo.reason` "user", left out by the daemon): only changes FERB could have caused (HAND-213).
 While the owner has paused sensing (`ferb pause`), nothing about the desktop is recorded; a read already under way
 when the pause begins is dropped. Space switches may still be counted in memory meanwhile; the baseline taken after
 `ferb resume` discards them.
@@ -33,13 +33,13 @@ from typing import Any, Callable
 from ferb.trace import lines
 
 NO_ON_SCREEN_KEPT = 10   # the newest plain statements an agent's context carries; every change stays in the records
-# hands decision 5: how long after one of FERB's acting calls a sound change in another tab counts as near it (a pause
+# HAND-207: how long after one of FERB's acting calls a sound change in another tab counts as near it (a pause
 # takes effect at once; the browser's audible flag drops about 2 s after the sound stops)
 SOUND_NEAR_S = 5.0
-# hands decision 11 (owner 2026-10-31): a sound change within this long of the owner's own keyboard or mouse input (the
+# HAND-213 (owner 2026-10-31): a sound change within this long of the owner's own keyboard or mouse input (the
 # input tap's last unmarked event) is theirs, never recorded: the browser's audible flag trails a pause by about 2 s
 OWNER_NEAR_S = 3.0
-# What FERB could change on the owner's screen, and all that is compared (daemon decision 5): never the cursor
+# What FERB could change on the owner's screen, and all that is compared (DMN-5): never the cursor
 FERB_KEYS = ("frontmost_app", "key_window", "fullscreen", "active_space_epoch")
 PAUSED = "sensing paused by the owner (Pause FERB): nothing about the desktop is read or recorded until Resume"
 
@@ -148,7 +148,7 @@ def screen_changes(before: dict[str, Any] | None, after: dict[str, Any] | None) 
 
 def told(changed: dict[str, Any]) -> dict[str, Any]:
     """What changed on the owner's screen during one call (`after_action`'s facts), briefly, for the worker's own tool
-    result (hands decision 9, owner 2026-10-31): an app that came to the front by itself after a background call is let
+    result (HAND-212, owner 2026-10-31): an app that came to the front by itself after a background call is let
     be, never put back and never asked about; the worker is told, so it can take a route that opens no window. Facts
     only: who did it stays the reader's conclusion."""
     def name(app: Any) -> Any:
@@ -242,7 +242,7 @@ class DisturbanceSentinel:
 
     def call_started(self, task_id: str, span_id: str, tool: str) -> None:
         """One of FERB's acting calls (not an observation) starts: a sound change in another tab meanwhile, or within
-        SOUND_NEAR_S of its end, is near it (hands decision 5). Nothing is read."""
+        SOUND_NEAR_S of its end, is near it (HAND-207). Nothing is read."""
         self._acting[span_id] = {"task_id": task_id, "span_id": span_id, "tool": tool}
 
     def call_ended(self, span_id: str) -> None:
@@ -252,7 +252,7 @@ class DisturbanceSentinel:
     def sound_changed(self, tab: dict[str, Any], change: dict[str, Any]) -> None:
         """A tab that isn't FERB's changed its sound (`change`: {audible|muted: {before, after}}): recorded as a
         `tab_sound` change for each active task with an acting call in flight or just ended (temporal correlation,
-        never who did it); nothing when no FERB call is near, the owner's own input was (hands decision 11), or sensing
+        never who did it); nothing when no FERB call is near, the owner's own input was (HAND-213), or sensing
         is paused."""
         if not self.active or not change or self.paused() or self._owner_input_near():
             return

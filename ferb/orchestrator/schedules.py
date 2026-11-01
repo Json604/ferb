@@ -14,15 +14,15 @@ A schedule can be a watch ("tell me when …"), marked by the planner when the o
 once a confirmed run finds its condition met (code applying the owner's stored words, never a run widening anything);
 "standing" keeps watching. A watch survives restarts and updates as every schedule does.
 
-A schedule can wait for the owner (decision 17, "when you're back at your Mac"): `Rule.when_active`. Its runs come due
+A schedule can wait for the owner (ORCH-317, "when you're back at your Mac"): `Rule.when_active`. Its runs come due
 as its rule says and each fires when the owner is at the Mac then, or when they're back (its timers are booked
 `when_active`, ferb/clock/timers.py); the rule alone sets how often (no limit of its own).
 
-A schedule can have an end (decision 22): the time code worked out from the end the owner's words gave it ("until Nov
+A schedule can have an end (ORCH-320): the time code worked out from the end the owner's words gave it ("until Nov
 3", "for 2 weeks"), stored beside it (`schedule_ends`, migration 0052). No run is booked after it; a schedule without
 one (every schedule made before) runs until stopped.
 
-A schedule records what every run uses (orchestration decision 14): its folders, whose identity, the worker type, the
+A schedule records what every run uses (ORCH-313): its folders, whose identity, the worker type, the
 owner's browser profile and the account, resolved by the turn that made it and stated then (`run_scope`, kept in its
 recorded targets as `run_scope`). Each run's task uses those, never re-guessed; a schedule made before has none, and its
 runs plan them as before."""
@@ -54,11 +54,11 @@ def until_said(end: datetime) -> str:
     return f"until {local:%a %d %b %H:%M}"
 
 
-RUN_SCOPE = "run_scope"             # the key of what every run uses (decision 14) in a schedule's recorded targets
+RUN_SCOPE = "run_scope"             # the key of what every run uses (ORCH-313) in a schedule's recorded targets
 
 
 def scope_said(scope: dict[str, Any]) -> str:
-    """What every run of a schedule uses (decision 14), in the owner's words, so they can correct it when it's made."""
+    """What every run of a schedule uses (ORCH-313), in the owner's words, so they can correct it when it's made."""
     from pathlib import Path
     from ferb.runtimes.catalog import label
     home = str(Path.home())
@@ -92,7 +92,7 @@ class Rule:
     weekday: int | None = None   # 0 = Monday (weekly)
     every_minutes: int | None = None
     tz: str = "UTC"
-    when_active: bool = False    # decision 17: each run fires when the owner is at the Mac (a rule saved before: no)
+    when_active: bool = False    # ORCH-317: each run fires when the owner is at the Mac (a rule saved before: no)
 
     @classmethod
     def build(cls, repeat: str, first: datetime, weekday: str | None = None, every_minutes: int | None = None,
@@ -161,11 +161,11 @@ class Schedule:
     first_run: datetime
     watch: str = "none"              # WATCHES
     last_reported_met: bool | None = None   # a watch: what its latest finished check that reported it found
-    until: datetime | None = None    # decision 22: no run after it; None runs until stopped
+    until: datetime | None = None    # ORCH-320: no run after it; None runs until stopped
 
     @property
     def run_scope(self) -> dict[str, Any] | None:
-        """What every run uses (decision 14), recorded when it was made; None for a schedule made before."""
+        """What every run uses (ORCH-313), recorded when it was made; None for a schedule made before."""
         scope = self.targets.get(RUN_SCOPE)
         return dict(scope) if isinstance(scope, dict) else None
 
@@ -180,7 +180,7 @@ class Schedule:
         return None if nxt is None or (self.until is not None and nxt > self.until) else nxt
 
     def ends_after(self, after: datetime) -> bool:
-        """Its end, not its rule, leaves it no run after `after`: it has run its course (decision 22)."""
+        """Its end, not its rule, leaves it no run after `after`: it has run its course (ORCH-320)."""
         return self.until is not None and self.rule.next_after(after, self.first_run) is not None and \
             self.next_after(after) is None
 
@@ -220,7 +220,7 @@ class Schedules:
         return s
 
     def set_until(self, sid: str, until: datetime) -> None:
-        """Its end (decision 22), replacing any earlier one."""
+        """Its end (ORCH-320), replacing any earlier one."""
         self.db.conn.execute("INSERT INTO schedule_ends (schedule_id, ends_at) VALUES (?, ?) ON CONFLICT(schedule_id) "
                              "DO UPDATE SET ends_at = excluded.ends_at",
                              (sid, until.astimezone(timezone.utc).isoformat()))

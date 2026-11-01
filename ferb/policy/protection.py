@@ -8,7 +8,7 @@ except its workspace, and the workspace's upload staging (a copy the browser is 
 them and no escape hatch lifts them (rule 10). A path nobody may read is a path nobody may write.
 
 FERB's own tools that name files (`fs.*`, uploads, recordings: each declares `file_paths`) never touch FERB's own
-state, and follow the never-read and never-write lists like the shell (gateway decision 2, 2026-10-30): a never-read
+state, and follow the never-read and never-write lists like the shell (GATE-203, 2026-10-30): a never-read
 store is closed to their reads, writes and removals, a never-write place to their writes and removals. A task that
 needs one asks the owner (the gateway): a read once per protected folder per task, a change per action (hands decision
 1). The old `protection.fs_reads_never_read` switch is gone; an old config.toml that still has it is read harmlessly.
@@ -52,7 +52,7 @@ _PLAN_NEVER_READ = (
     "~/Library/Application Support/Bitwarden",
     "~/.ssh", "~/.aws", "~/.config/gh", "~/.netrc", "~/.npmrc", "~/.docker",
 )
-# Every browser's profiles, cookies and saved passwords (gateway decision 2: credential stores are closed), from the
+# Every browser's profiles, cookies and saved passwords (GATE-203: credential stores are closed), from the
 # one browser list (ferb/act/mac/browsers.py `data_folders`): Safari's container, every Chromium channel, Opera, Firefox…
 BROWSER_STORES = browsers.data_folders()
 # OPEN QUESTION 2 (asked 2026-10-09), built as recommended: more credential stores of the same class. If the owner
@@ -71,7 +71,7 @@ NEVER_READ_OFFERED = _PLAN_NEVER_READ + EXTRA_NEVER_READ + (
     "~/Library/Application Support/Arc", "~/Library/Application Support/Vivaldi",
     "~/Library/Application Support/Firefox")
 NEW_DEFAULTS = "config.defaults_added"      # the journal kind
-# SQ5: where FERB's shell and file tools never write (gateway decision 2: the owner can lift it for one change).
+# SQ5: where FERB's shell and file tools never write (GATE-203: the owner can lift it for one change).
 DEFAULT_NEVER_WRITE = (
     "~/.ssh", "~/Library/Keychains", "~/Library/LaunchAgents", "/Library/LaunchAgents", "/Library/LaunchDaemons",
     "~/.zshrc", "~/.zprofile", "~/.zshenv", "~/.zlogin", "~/.bash_profile", "~/.bashrc", "~/.profile",

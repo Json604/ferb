@@ -2,16 +2,16 @@
 
 Dedicated interpreter + venv + the background service, `ferb setup --update`, and uninstall.
 
-- The daemon never imports code from a checkout or from its working folder (notes/daemon.md, 2026-10-31): a checkout's
+- The daemon never imports code from a checkout or from its working folder (kb area daemon): a checkout's
   launch definition runs `python -P -m ferb.daemon` (no working folder on sys.path) with FERB's home as its working
   folder; FERB.app's agent always runs isolated.
 - From a packaged FERB.app (L27) nothing is built or downloaded: the background service's definition is inside the
   signed app (`BUNDLE_SERVICE`, Contents/Library/LaunchAgents) and FERB.app registers it with macOS itself
-  (SMAppService, notes/daemon.md decision 2), so nothing outside the app can edit it, deleting the app removes it and
+  (SMAppService, DMN-2), so nothing outside the app can edit it, deleting the app removes it and
   Login Items lists it under FERB. launchd starts the app's nested agent app (FERB, a native stub embedding the app's
   own Python), so macOS names FERB in permission prompts and Privacy & Security; the secret helper, the pinned Codex
   and the embedding model come from the app, exactly as its signature seals them; `ferb` is a link to the app's
-  launcher. Setup from the app retires the old `~/Library/LaunchAgents/com.ferb.daemon.plist` (storage decision 5)
+  launcher. Setup from the app retires the old `~/Library/LaunchAgents/com.ferb.daemon.plist` (STORE-403)
   and records which build it set up (`SERVICE_RECORD`), which the app reads.
 - A checkout (no app bundle) keeps a development launch path: the same label as a user LaunchAgent in
   ~/Library/LaunchAgents, running ~/.ferb/venv's python (Rulings, step 12b). The interpreter lives in ~/.ferb/python
@@ -56,7 +56,7 @@ APP_BUNDLE_ID = "com.ferb.FERB"
 # The background service's definition inside FERB.app, which the app registers with SMAppService.agent(plistName:)
 # (ui/mac/FERBAgent/com.ferb.daemon.plist, copied there by scripts/build-app.sh)
 BUNDLE_SERVICE = Path("Contents/Library/LaunchAgents") / f"{LABEL}.plist"
-# The local embedding model shipped in FERB.app (notes/memory.md decision 8; scripts/build-app.sh fetches it once)
+# The local embedding model shipped in FERB.app (MEM-6; scripts/build-app.sh fetches it once)
 BUNDLE_MODELS = Path("Contents/Resources/models")
 # What FERB.app's setup last installed (build, app), for the app to tell a new build from the one set up
 SERVICE_RECORD = "service.json"
@@ -244,7 +244,7 @@ class Installer:
     def daemon_command(self) -> list[str]:
         """FERB.app's agent accepts exactly `-m ferb.daemon` and always runs isolated; a checkout's venv python gets
         `-P`, so `-m` never puts the working folder first on sys.path (a checkout there once ran instead of the
-        installed copy, notes/daemon.md 2026-10-31)."""
+        installed copy, kb area daemon)."""
         if self.bundle:
             return [str(self.daemon_python), "-m", "ferb.daemon"]
         return [str(self.daemon_python), "-P", "-m", "ferb.daemon"]
@@ -355,7 +355,7 @@ class Installer:
 
     def codex_wanted(self) -> bool:
         """A role uses Codex ([runtimes] orchestrator/worker/checker; Codex when unset), so it is (re)installed; else
-        it is left as it is (notes/runtimes.md: Codex re-pinned only if a role uses it). Signing in to Codex installs
+        it is left as it is (kb area runtimes: Codex re-pinned only if a role uses it). Signing in to Codex installs
         it too (`ferb setup --codex-login`)."""
         from ferb.config import Config, InsecureConfig
         from ferb.runtimes.catalog import ROLES
@@ -457,7 +457,7 @@ class Installer:
 
     def retire_legacy_agent(self) -> bool:
         """FERB.app is about to register its own service: the old user LaunchAgent is stopped and removed first (the
-        same label can't be loaded twice; storage decision 5). Only a plist naming FERB's label is removed. True when
+        same label can't be loaded twice; STORE-403). Only a plist naming FERB's label is removed. True when
         one was."""
         if not self.legacy_plist():
             return False

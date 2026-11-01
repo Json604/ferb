@@ -265,7 +265,7 @@ class Trail:
         return purged, [d for d in old if d not in done], steps
 
     def purge_source(self, source: str, days: int, today: date | None = None, chunk: int = retention.BATCH) -> int:
-        """Delete one source's rows of days older than `days` (memory decision 3: accessibility rows are kept 7 days),
+        """Delete one source's rows of days older than `days` (SENSE-1: accessibility rows are kept 7 days),
         summarized or not. Returns how many went (`purge_source_steps`, run to the end)."""
         return sum(self.purge_source_steps(source, days, today, chunk))
 

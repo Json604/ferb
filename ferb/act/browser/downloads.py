@@ -3,12 +3,12 @@
 The extension catches a download only in a tab FERB drives for a task and holds it there; nothing reaches the browser's
 own download flow, so no Save dialog. This side takes it only while that tab is a live task tab: otherwise the response
 goes back to the browser untouched (the owner's own download, never cancelled or read). It pulls the bytes in parts
-(`download_part`), one transfer per tab, within the task tree's budget (hands decision 7, owner 2026-10-31: no size cap
+(`download_part`), one transfer per tab, within the task tree's budget (HAND-210, owner 2026-10-31: no size cap
 per file; 300 files and 32 GB per request), failed only when it stops moving (no bytes for STALL_S), never for how long
 it takes; hashes what it received; writes `~/.ferb/workspace/downloads/<id>-<safe name>` (never elsewhere) and records
 facts, never content. The file is FERB's working copy, outside content (MP2: `external:download`, the folder is always
 an untrusted fs root). It stays until the owner deletes it; when the folder passes `browser.download_total_gb` the
-daemon asks the owner whether to delete the oldest for good (hands decision 8, owner 2026-10-31, replacing the move to
+daemon asks the owner whether to delete the oldest for good (HAND-211, owner 2026-10-31, replacing the move to
 the Trash, which freed no space); no time-based clearing. A download that would leave less than
 `browser.download_min_free_gb` free on the disk is refused: by its declared size before any byte moves, and before each
 part is written while it streams. A download the extension couldn't intercept, or one it could not take, is a fact for
@@ -46,7 +46,7 @@ STALL_S = 60.0
 TAB_WAIT_S = 20.0                       # a second download in a tab waits this long for the first (the extension's
                                         # hold lasts 30 s), then is refused
 SETTLE_S = 60.0                         # a navigation/open waits this long for a download its tab started
-# [browser] limits: per task tree (hands decision 7, owner 2026-10-31: 300 files and 32 GB, replacing 2026-10-09's 50
+# [browser] limits: per task tree (HAND-210, owner 2026-10-31: 300 files and 32 GB, replacing 2026-10-09's 50
 # files and 4 GB; no per-file cap, replacing 512 MB), FERB's folder (20 GB, 2026-10-09) and the free disk a download must
 # leave (10 GB, 2026-10-09). No time-based clearing (retention.download_days is gone). Decimal GB throughout.
 DEFAULTS = {"download_task_max_files": 300, "download_task_max_gb": 32, "download_total_gb": 20,
@@ -159,7 +159,7 @@ class Downloads:
         #                                                     shell_downloads row; the row survives a restart)
         self.free_bytes: Callable[[], int] = self._disk_free   # tests replace it
         self.monotonic: Callable[[], float] = time.monotonic   # the stall clock (tests replace it)
-        self.on_over_cap: Callable[[], None] = lambda: None   # the daemon's cap check (hands decision 8)
+        self.on_over_cap: Callable[[], None] = lambda: None   # the daemon's cap check (HAND-211)
 
     def limits(self) -> Limits:
         """The owner's limits; an old config's per-file key (`download_max_mb`) or MB keys are not read."""
@@ -536,7 +536,7 @@ class Downloads:
         return rows
 
     def over_cap(self) -> OverCap | None:
-        """The folder over browser.download_total_gb (hands decision 8, owner 2026-10-31): the oldest files whose
+        """The folder over browser.download_total_gb (HAND-211, owner 2026-10-31): the oldest files whose
         permanent deletion brings it back under, with their count and bytes; None while it is within. Nothing is
         changed: the owner decides (the daemon asks)."""
         lim = self.limits()
@@ -554,7 +554,7 @@ class Downloads:
                        lim.total_bytes)
 
     def delete(self, ids: Iterable[str]) -> tuple[int, int]:
-        """The owner's Yes (hands decision 8): these downloads' files deleted for good, through the open downloads
+        """The owner's Yes (HAND-211): these downloads' files deleted for good, through the open downloads
         folder and only there: a regular file in it, never a link (nothing outside the folder is ever reached). Each
         row stays with its path cleared (`kept` deleted, or gone when the file had already gone). (files deleted,
         their bytes)."""

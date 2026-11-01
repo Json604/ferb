@@ -7,13 +7,13 @@ line (`line`, exactly as the text carries it), so an app that draws the card lea
 
 Card types and their fields (every field but `type` may be absent when FERB has no record of it):
 - reminder: a schedule's run came due. `title` (the schedule's recorded request), `due` (when the run was due),
-  `repeat` (FERB's words for the rule), `next_run` (the next run's time), `until` (its recorded end, decision 22: the
+  `repeat` (FERB's words for the rule), `next_run` (the next run's time), `until` (its recorded end, ORCH-320: the
   countdown is to it when present, else to `next_run`), `schedule_id`.
 - event: a reminder or schedule just set. `kind` (reminder | schedule), `id`, `what`, `when` (its first time),
   `repeat`, `watch` (FERB's words for a watch), `until` (a schedule's recorded end: a countdown), `line`.
 - note: a remembered item. `item_id`, `text`, `state` (saved | proposed), `line`.
 - payment: a payment-class call that ran under the owner's Yes to a payment. `amount` and `merchant` (as code read them
-  on the page; never the worker's numbers), `site`, `card` (decision 23: the name of the owner's saved card entry that
+  on the page; never the worker's numbers), `site`, `card` (ORCH-321: the name of the owner's saved card entry that
   filled the checkout's card number, as the gateway recorded it with the payment; none for a one-time hidden input).
   Never a card digit: FERB's facts carry none.
 - send: a send-class call that ran. `recipient` (the call's checked destination), `kind` (send, reply, post,
@@ -33,7 +33,7 @@ PAY_RULE = "floor:pay"                    # confirm.ALWAYS[Kind.PAY]: the owner'
 # Calls that send something to someone as the owner (the gateway's send class without a plain form submit, which is a
 # site's form, not a message to a person)
 SEND_KINDS = (Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.CALL)
-# Calls that did something for the owner (decision 17: a scheduled run that did any of these posts, whatever its worker
+# Calls that did something for the owner (ORCH-317: a scheduled run that did any of these posts, whatever its worker
 # reported): a send, a payment, a submitted form, a written, trashed or deleted file, an account-security change
 ACTING_KINDS = frozenset({*SEND_KINDS, Kind.PAY, Kind.SUBMIT, Kind.WRITE_FILE, Kind.TRASH, Kind.DELETE_PERMANENT,
                           Kind.ACCOUNT_SECURITY})
@@ -99,7 +99,7 @@ def payments(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
     """One expense row per payment the owner said Yes to that then ran: payment-class calls covered by a granted
     `floor:pay` confirmation, grouped by that Yes. Amount and merchant are the page's (`ActionFacts.page_amount` /
     `page_merchant`, read by code): the first the payment's calls recorded, i.e. the checkout's; the card is the saved
-    entry's name the gateway recorded with them (`card_entry`, decision 23)."""
+    entry's name the gateway recorded with them (`card_entry`, ORCH-321)."""
     calls = [c for c in _calls(spans, tree_id) if Kind.PAY in _kinds(c)]
     ids = {str(i) for c in calls for i in [*(c.get("confirmations") or []),
                                            (c.get("payment") or {}).get("covered_by")] if i}

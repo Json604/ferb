@@ -2,7 +2,7 @@
 
 CodexRuntime: isolated app-server for steerable workers and typed supervisor output streaming.
 
-Tool containment (measured in spikes 1 and 21; re-checked offline on 0.166.0, notes/runtimes.md "Moving the Codex/Claude
+Tool containment (measured in spikes 1 and 21; re-checked offline on 0.166.0, kb area runtimes "Moving the Codex/Claude
 pins"): pinned Codex 0.166.0 and the model in FERB's runtime table
 (ferb/runtimes/catalog.py), run without code mode / sub-agents via
 FERB's own model catalog, user config and rules ignored,
@@ -80,7 +80,7 @@ SKILLS_OFF = ["-c", "skills.include_instructions=false", "-c", "skills.bundled.e
 # its threshold is put out of reach. Codex reads `model_auto_compact_token_limit` (strings of 0.157.1, 2026-10-30;
 # 0.166.0 accepts it under --strict-config, 2026-11-01); an input still too large comes back as Codex's
 # contextWindowExceeded, which FERB handles. Worker runs keep Codex's default: a long tool loop may compact rather than
-# fail (the owner's call, notes/runtimes.md).
+# fail (the owner's call, kb area runtimes).
 NO_AUTO_COMPACT = ["-c", "model_auto_compact_token_limit=1000000000000"]
 # How long Codex waits for FERB's MCP shim (Codex `mcp_servers.<name>`, keys 0.166.0's --strict-config accepts; its
 # defaults are 10 s to start and 60 s per call). Start: the shim is a Python process that imports FERB's MCP code and

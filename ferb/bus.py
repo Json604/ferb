@@ -21,16 +21,16 @@ class EventClass(Enum):
 CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "task.steered", "approval.requested", "approval.resolved",
             "device.changed", "browser.profile_paired", "timer.fired", "memory.committed",
             "memory.retired", "memory.expires",   # L36 §6: an item stops holding now, or gets the end its words give
-            "memory.set_aside", "memory.restored",   # decision 17: the owner's words set aside as over, or used again
+            "memory.set_aside", "memory.restored",   # ORCH-317: the owner's words set aside as over, or used again
             "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed",
-            "browser.debugger_detached", "voice.said",   # what FERB said aloud (notes/voice.md decision 3)
-            "browser.owner_stopped", "browser.owner_took",   # owner decision 3: the owner closed / took a FERB tab
+            "browser.debugger_detached", "voice.said",   # what FERB said aloud (VOICE-402)
+            "browser.owner_stopped", "browser.owner_took",   # ORCH-302: the owner closed / took a FERB tab
             "task.result", "task.resumed_event", "conversation.paused", "attention.notice",
-            "task.paused", "task.resumed",   # owner decision 8: a task waits for the owner in place / carries on
+            "task.paused", "task.resumed",   # ORCH-308: a task waits for the owner in place / carries on
             "loop.status",       # a loop's state change (L31): the notch's standing work must never miss its last
             "memory.confirmed_derived", "memory.forgot_derived", "memory.rollback",
             "memory.forgot",   # a forget the owner said Yes to from the notch's buttons (I2)
-            "task.part"}       # decision 19: a multi-part task's row filled, failed, asks, was updated (never missed)
+            "task.part"}       # ORCH-319: a multi-part task's row filled, failed, asks, was updated (never missed)
 TELEMETRY = {"tool.called", "tool.finished", "trail.event", "action.observed", "browser.connected", "browser.disconnected", "browser.profiles_changed",
              "memory.proposed", "browser.dialog", "browser.file_chooser", "browser.download", "browser.cleanup_failed",
              "browser.connection_refused",   # protocol 18: a native-host connection no known browser started

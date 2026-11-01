@@ -263,7 +263,7 @@ def reopen(pid: int) -> str | None:
     """Blocking (step 12e fix 4): ask a running app for a window the way a Dock click does (the core `reopen` Apple
     Event, kAEReopenApplication), without bringing it forward: sent without `kAECanSwitchLayer`, never interacting,
     no reply awaited. An app may still come forward by itself in answer; that is the call's screen fact (hands
-    decision 9).
+    HAND-212).
     None when sent, else why not."""
     from Foundation import NSAppleEventDescriptor
     target = NSAppleEventDescriptor.descriptorWithProcessIdentifier_(pid)

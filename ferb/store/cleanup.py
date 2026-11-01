@@ -1,9 +1,9 @@
-"""Owns the one-time clean-up of data no code uses any more (notes/storage.md decision 4), run by setup with the daemon
+"""Owns the one-time clean-up of data no code uses any more (STORE-402), run by setup with the daemon
 stopped, only after the owner's OK on exactly what it removes. Must not touch memory, episodes, chat, tasks, schedules
 or traces still in their window.
 
 What it removes (`preview` lists each with its row count; nothing else is ever deleted):
-- the data of switched-off code, whose tables keep their schema (memory decision 4): Jev's decisions, perception
+- the data of switched-off code, whose tables keep their schema (SENSE-2): Jev's decisions, perception
   receipts, batches and labels, notification receipts, and Jev's relevance labels on activity rows;
 - data of removed code: the old embedding model's vectors and evaluations (step 9b), the memory refs tasks were given
   (writers removed in step 3), and the day/week/month rollup nodes (step 3) with their source rows;
@@ -55,7 +55,7 @@ DROPPED = (
 # Tables of EMPTIED whose rows the hourly retention pass also trims while the daemon runs (decisions after 30 days,
 # perception receipts with their activity rows): their steps are `live` (see `plan`)
 TRIMMED = frozenset({"decisions", "perception_receipts"})
-# Never written by a run (the test asserts it): what decision 4 protects and what FERB keeps forever
+# Never written by a run (the test asserts it): what STORE-402 protects and what FERB keeps forever
 PROTECTED = ("memory_items", "memory_sources", "memory_profile", "memory_context", "memory_set_aside",
              "memory_import_runs", "memory_import_done", "memory_import_items", "memory_forgotten", "forgotten_refs",
              "episodes", "episode_how", "journal", "tasks", "task_results", "task_result_cards", "task_context",

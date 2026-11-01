@@ -1,9 +1,9 @@
-"""Owns the one-time memory clean-up before the core profile is first built (notes/memory.md fix list, "Clean memory
-before Tier 1 is seeded"; storage decision 5). Must not delete a memory or lose its history.
+"""Owns the one-time memory clean-up before the core profile is first built (kb area memory, "Clean memory
+before Tier 1 is seeded"; STORE-403). Must not delete a memory or lose its history.
 
 Runs at the first start of the step-9a build, journaled once (`CLEANUP_KIND`), idempotent (each step finds nothing to do
 a second time):
-1. FERB's guesses still waiting for a Keep become FERB's understanding (decision 15: no Keep questions); their waiting
+1. FERB's guesses still waiting for a Keep become FERB's understanding (MEM-12: no Keep questions); their waiting
    questions are dropped by the daemon (`_restore_memory_questions`). The ones the owner already kept are recorded
    (`owner_kept`): they hold up for the core profile at once.
 2. Subjects are normalized like keys (`subject_key`), so "project:home-move" and "project:home_move" are one.

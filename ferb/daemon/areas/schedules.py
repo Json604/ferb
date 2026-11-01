@@ -24,9 +24,9 @@ class Schedules:
 
     def _build_timers(self) -> None:
         """Start the timer loop and the held-banner flush (the timers and schedules were built with the stores), after
-        every active schedule has its next run booked (`_reconcile_schedules`). Decision 17 (clarified 2026-10-31):
+        every active schedule has its next run booked (`_reconcile_schedules`). ORCH-317 (clarified 2026-10-31):
         timers held for the owner follow the Mac's presence signal (wake, unlock, login: `MacPresence`, never input
-        idleness); its return wakes the timers and brings the day's paused-task mentions (decision 13)."""
+        idleness); its return wakes the timers and brings the day's paused-task mentions (ORCH-312)."""
         from datetime import datetime as _dt
         mac = self.presence
         self.timers.owner_away = mac.away
@@ -49,7 +49,7 @@ class Schedules:
         return hashlib.sha256(str(ident).encode()).hexdigest()[:16] if ident else None
 
     def _mac_started(self, new_session: bool) -> None:
-        """Decision 17: the daemon starting in a new login session (after a restart or a login) is the Mac coming back
+        """ORCH-317: the daemon starting in a new login session (after a restart or a login) is the Mac coming back
         into use, a return, unless the Mac is out of use right now (its unlock is the return then). A start in the same
         session (an update, a crash) is no return: the current stretch began at the last return recorded."""
         mac = self.presence
@@ -93,13 +93,13 @@ class Schedules:
 
     def _book(self, s: Any, due: datetime, message: str = "", return_after: datetime | None = None) -> Any:
         """A timer for one of a schedule's runs (`message`: its id, or a retry's), held for the owner when the schedule
-        waits for them (decision 17): the one place every run of a schedule is booked."""
+        waits for them (ORCH-317): the one place every run of a schedule is booked."""
         return self.timers.add("schedule", due, message or s.id, when_active=s.rule.when_active,
                                return_after=return_after)
 
     def _owner_back(self, signal: str = "") -> None:
-        """The Mac came back into use (decision 17: woken, unlocked, logged in or restarted; `signal` says which):
-        what was held for the owner fires now, and paused tasks get their mention of the day (decision 13)."""
+        """The Mac came back into use (ORCH-317: woken, unlocked, logged in or restarted; `signal` says which):
+        what was held for the owner fires now, and paused tasks get their mention of the day (ORCH-312)."""
         if self._shutting_down:
             return
         self._journal().append("mac.back_in_use", {"signal": signal})
@@ -190,20 +190,20 @@ class Schedules:
             self._journal().append("schedule.refused", {"why": "quote not in the owner's words"})
             return "I couldn't set that up — could you ask me again in your own words?", None
         ends = getattr(spec, "until", None)
-        if ends is not None and not quoted(own_words, ends.quote):     # decision 22: the one quote check, as for both
+        if ends is not None and not quoted(own_words, ends.quote):     # ORCH-320: the one quote check, as for both
             self._journal().append("schedule.refused", {"why": "end date words not in the owner's words"})
             return ("I couldn't set that up: the end date words I quoted from you aren't in what you typed — could you "
                     "say when it should stop?"), None
         try:
             from ferb.clock.when import end_at, resolve, when_present
             now = self.clock.now()
-            present = bool(getattr(spec, "when_active", False))                 # decision 17: when they're at the Mac
+            present = bool(getattr(spec, "when_active", False))                 # ORCH-317: when they're at the Mac
             return_after = None
             if present:
                 first, return_after = when_present(spec.when, spec.repeat, now, spec.every_minutes)
             else:
                 first = resolve(spec.when, now)                                 # code computes the date, not the model
-            until = end_at(ends.when(), now) if ends is not None else None      # and the end (decision 22)
+            until = end_at(ends.when(), now) if ends is not None else None      # and the end (ORCH-320)
             rule = Rule.build(spec.repeat, first, spec.weekday, spec.every_minutes, when_active=present)
             if present and spec.repeat in ("daily", "weekdays", "weekly") and spec.when.time is None:
                 # due from the start of a day its rule names: the first such day from the one `when` gave
@@ -217,7 +217,7 @@ class Schedules:
             # D30: the standing scope stated now, with the owner here, is the only one the unattended runs get; only a
             # scope whose destinations the owner typed (now, or when stating a remembered item) is recorded (S3, MP2)
             scopes, unnamed = self._schedule_scopes(getattr(spec, "standing_sends", []), own_words, request_id)
-            # decision 14: what every run uses, as this turn resolved it (folders normalized as the task's are)
+            # ORCH-313: what every run uses, as this turn resolved it (folders normalized as the task's are)
             run_scope = spec.run_scope() if hasattr(spec, "run_scope") else None
             if run_scope is not None:
                 run_scope["folders"] = list(dict.fromkeys(normalize_path(f, str(self.home / "workspace"))
@@ -241,7 +241,7 @@ class Schedules:
         # The owner's line in plain words (L11); the schedule's id stays in the journal row above
         local = first.astimezone()
         at = f"{local:%a %d %b}" if rule.when_active and (local.hour, local.minute) == (0, 0) else \
-            f"{local:%a %d %b %H:%M}"                    # decision 17: due from a day's start, held for the owner
+            f"{local:%a %d %b %H:%M}"                    # ORCH-317: due from a day's start, held for the owner
         if rule.repeat != "none":
             when = f"{rule.describe()}, first on {at}"
         elif not rule.when_active:
@@ -258,7 +258,7 @@ class Schedules:
                            until=s.until.isoformat() if s.until else None)
         from ferb.orchestrator.plans import SendScope
         from ferb.policy import confirm
-        if s.run_scope is not None:          # decision 14: stated now, so the owner can correct it
+        if s.run_scope is not None:          # ORCH-313: stated now, so the owner can correct it
             said += "\n" + confirm.from_task_lines(scope_said(s.run_scope))
         if scopes:
             said += "\n" + confirm.from_task_lines("Each run will send these without asking each time:\n" + "\n".join(
@@ -345,7 +345,7 @@ class Schedules:
         return self._schedule_change(ch.id, ch.action)
 
     def _schedule_set_end(self, sid: str, ends: Any) -> str:
-        """Decision 22: an active or paused schedule gets the end the owner's words give it (code works out the time);
+        """ORCH-320: an active or paused schedule gets the end the owner's words give it (code works out the time);
         a booked run after it is cancelled and the schedule ends now."""
         from ferb.clock.when import end_at
         from ferb.orchestrator.schedules import until_said
@@ -370,7 +370,7 @@ class Schedules:
 
     @staticmethod
     def _ended_line(request: str, until: datetime) -> str:
-        """The owner's line when a schedule's end leaves it no more runs (decision 22)."""
+        """The owner's line when a schedule's end leaves it no more runs (ORCH-320)."""
         from ferb.orchestrator.schedules import until_said
         return f"🗓 Schedule ended: {request} (it ran {until_said(until)})"
 
@@ -399,7 +399,7 @@ class Schedules:
         return self.schedules.all() + [s for s in self.schedules.all(("done",)) if self._last_run_holds_scope(s.id)]
 
     def _schedule_change(self, sid: str, action: str, with_task: str = "") -> str:
-        """`with_task`: a pause or resume that follows the owner's pause or resume of the schedule's run (decision 13)."""
+        """`with_task`: a pause or resume that follows the owner's pause or resume of the schedule's run (ORCH-312)."""
         s = self.schedules.get(sid)
         if s is None or not self._changeable(sid, action):
             return f"There's no active schedule {sid}."
@@ -480,7 +480,7 @@ class Schedules:
         else:
             self.schedules.set_timer(sid, None, None)
             self.schedules.set_state(sid, "done")
-            if s.ends_after(now):                        # decision 22: its end, not its rule, makes this the last run
+            if s.ends_after(now):                        # ORCH-320: its end, not its rule, makes this the last run
                 self._journal().append("schedule.ended", {"schedule_id": sid, "until": s.until.isoformat()
                                                           if s.until else None})
         if self.supervisor is None:
@@ -561,14 +561,14 @@ class Schedules:
             line = f"🗓 Stopped checking: {s.request}"
             answer = f"{answer}\n\n{line}"
             self._record_stop_line(str(final.get("task_id")), line)
-        # decision 22: the last run its end left it ends it, said once (never by a retry, which books nothing)
+        # ORCH-320: the last run its end left it ends it, said once (never by a retry, which books nothing)
         expired = not ended and not retry and self._schedule_expired(sid)
         if expired:                      # like the stop line: always reaches the owner
             current = self.schedules.get(sid)
             line = self._ended_line(s.request, current.until if current is not None and current.until else now)
             answer = f"{answer}\n\n{line}"
             self._record_stop_line(str(final.get("task_id")), line)
-        # decision 17: an ordinary run that found nothing to tell and did nothing (its worker's report) posts nothing,
+        # ORCH-317: an ordinary run that found nothing to tell and did nothing (its worker's report) posts nothing,
         # as a watch check with nothing new doesn't: recorded, never published
         idle_run = s.watch == "none" and status in FINISHED and final.get("nothing_to_tell") is True
         quiet = not ended and not expired and (idle_run or s.watch != "none" and (
@@ -581,7 +581,7 @@ class Schedules:
 
     def _run_card(self, sid: str, due: datetime) -> dict[str, Any]:
         """A scheduled run's reminder card (step 8e), from the schedule's row as it stands after the run: its recorded
-        request, when this run was due, its rule, its next run and its end (decision 22: the notch counts down to the
+        request, when this run was due, its rule, its next run and its end (ORCH-320: the notch counts down to the
         end when there is one, else to the next run). An end only in the request's words, never recorded, gets no
         countdown: nothing here reads the words."""
         s = self.schedules.get(sid)
@@ -593,7 +593,7 @@ class Schedules:
                 **({"until": s.until.isoformat()} if s.until is not None and active else {})}
 
     def _schedule_expired(self, sid: str) -> bool:
-        """Its end left it no more runs (`schedule.ended`) and nothing restarted it since (decision 22)."""
+        """Its end left it no more runs (`schedule.ended`) and nothing restarted it since (ORCH-320)."""
         s = self.schedules.get(sid)
         return s is not None and s.state == "done" and bool(self._journal().of_kind("schedule.ended", "schedule_id",
                                                                                    sid))

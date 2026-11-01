@@ -1,4 +1,4 @@
-"""Own the check that a socket peer is FERB.app (notes/preview.md fix list: the live preview is FERB.app's alone, not
+"""Own the check that a socket peer is FERB.app (kb area app: the live preview is FERB.app's alone, not
 every program running as the owner). Must not grant anything else: auth.py's APP_ONLY names what needs it.
 
 The kernel's audit token of the connected process (LOCAL_PEERTOKEN: its pid and pid version, so a reused pid can't stand

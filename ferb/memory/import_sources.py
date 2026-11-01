@@ -1,8 +1,8 @@
-"""Owns reading other AI assistants' records into one normalized form, in memory only (notes/memory-import.md decision
-4: the raw chats are never kept). Must not persist or log what it reads, mark anything as the owner's own authority, or
+"""Owns reading other AI assistants' records into one normalized form, in memory only (MEM-404:
+the raw chats are never kept). Must not persist or log what it reads, mark anything as the owner's own authority, or
 let an unredacted text out of this module.
 
-Five sources (decision 3), each read from where the owner keeps it:
+Five sources (MEM-403), each read from where the owner keeps it:
 - `chatgpt`: the account's data export (Settings → Data controls → Export data), a zip holding `conversations.json`
   (larger exports: `conversations-000.json`, `-001`, …): each conversation's `mapping` of message nodes, the shown
   branch followed from `current_node` up its parents. `author.role` user → owner, assistant → assistant, tool → tool;
@@ -30,7 +30,7 @@ Five sources (decision 3), each read from where the owner keeps it:
   word(s) in the same title with nothing structural around them (no separate field, no markup), so they aren't read:
   telling the marker from the prompt would take a list of words per language (step 12c ruling).
 
-What every reader shares (`finish`): only messages from the last three months by their own time (decision 1); text
+What every reader shares (`finish`): only messages from the last three months by their own time (MEM-401); text
 blocks a client injected into a turn (`<tag>…</tag>`: command output, environment context, pasted content) are not the
 owner's words and are dropped, pasted ones named as such; every text is cut at a word boundary to its cap (said in the
 text) and redacted before it leaves this module (rule 7), so nothing a model, a trace or the database sees holds a
@@ -50,7 +50,7 @@ from typing import Any
 SOURCES = {"chatgpt": "ChatGPT", "claude": "Claude", "claude_code": "Claude Code", "codex": "Codex CLI",
            "gemini": "Gemini"}
 EXPORTS = ("chatgpt", "claude", "gemini")          # read from a file the owner gives; the other two from this Mac
-WINDOW_MONTHS = 3                                  # decision 1 (owner, 2026-10-30)
+WINDOW_MONTHS = 3                                  # MEM-401 (owner, 2026-10-30)
 OWNER_CHARS = 6000                                 # one owner message as the model reads it
 ASSISTANT_CHARS = 700                              # an assistant reply corroborates: its start is enough
 CLAIM_CHARS = 6000                                 # one saved memory note
@@ -121,7 +121,7 @@ def owner_words(text: str) -> str:
 
 
 def finish(conversations: Iterable[Conversation], since: datetime, redact: Callable[[str], str]) -> list[Conversation]:
-    """Shared by every reader: the window (decision 1), the caps, redaction, and only conversations holding an owner
+    """Shared by every reader: the window (MEM-401), the caps, redaction, and only conversations holding an owner
     message (or saved claims) in the window; oldest first by their last message."""
     out = []
     for conv in conversations:

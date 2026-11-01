@@ -16,7 +16,7 @@ starts the notch: ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift) does it:
   it. Deleting the file means stop: FERB.app watches it and exits without answering. Killing `open -W` alone wouldn't
   stop an app LaunchServices started, and an answer written after the deletion lands in an unlinked file, so no raw
   transcript is left behind. This side reads the answer once and deletes it. Nothing goes to stdout, stderr or a log.
-- a technical time limit (step 11 ruling, notes/voice.md): LIMIT_S plus PER_AUDIO_S for each second of sound, since
+- a technical time limit (step 11 ruling, kb area voice): LIMIT_S plus PER_AUDIO_S for each second of sound, since
   recognition time grows with the sound's length; past it the lease is deleted (FERB.app stops) and hearing says so.
   `busy` tells an update not to end hearing while a transcription is in flight; `hearing_pids` finds the hearing
 instances at update time (never by bundle id: it is also the running notch's).

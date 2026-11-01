@@ -33,7 +33,7 @@ class Environment:
         stable, live = svc.summary(svc.Environment(apps, paired), macos, running)
         profiles = [{'browser': p.browser, 'profile': p.folder, 'name': p.display_name, 'account_hint': p.email,
                      'identity': 'ferb' if (p.browser, p.folder) == ferb else 'owner'} for p in found]
-        # each profile's connection changes between turns: with the live facts, after the conversation (decision 4)
+        # each profile's connection changes between turns: with the live facts, after the conversation (ORCH-325)
         connections = [{'browser': p.browser, 'profile': p.folder,
                         'connection': self._profile_state(p, extension.get((p.browser, p.folder)))} for p in found]
         if alignment:
@@ -119,7 +119,7 @@ class Environment:
         from ferb.memory.search import PLANNER, tokens
         from ferb.sense.daily import without_queries
         activity = without_queries(activity)               # addresses without query strings (live 2026-10-28)
-        # decision 7 (step 9b): within the activity limit, best first, never a row cut; the rest counted
+        # ORCH-307 (step 9b): within the activity limit, best first, never a row cut; the rest counted
         kept, used = [], 0
         for row in activity:
             cost = tokens(json.dumps(row, ensure_ascii=False))
@@ -140,7 +140,7 @@ class Environment:
     def _availability(self) -> Any:
         """What the planner may use, and what's missing with how to fix it (owner decision, 2026-09-30). Only facts
         that hold across turns (the installed groups, the paired profiles, permissions): it sits in every role's
-        instructions, the planner's cached prefix included (decision 4); whether a paired profile is connected right now
+        instructions, the planner's cached prefix included (ORCH-303); whether a paired profile is connected right now
         is a live fact (`_live_facts`, "Layer 2 — right now")."""
         from ferb.orchestrator.availability import build
         registered = set().union(*(c.scopes for c in self.registry.capabilities.values()))
@@ -216,7 +216,7 @@ class Environment:
         lines = [self._about_summary()]
         if address:
             lines.append(f"- FERB's own email (its identity, never the owner's): {address}")
-        else:                                       # daemon decision 7: the owner skipped FERB's own account
+        else:                                       # APP-1: the owner skipped FERB's own account
             browser, _, folder = str(self.config.get("browsing", "owner_profile", "") or "").partition("/")
             lines.append("- FERB has no Google account or browser profile of its own (the owner can add one in "
                          "FERB.app → Settings → Browsers): what needs FERB's own inbox (one-time codes for FERB's own "
@@ -230,7 +230,7 @@ class Environment:
         return "\n".join(lines)
 
     def _live_facts(self, owner_state: bool = True) -> str:
-        """Facts that change between turns (decision 4: after the conversation in the planner's context, so the prefix
+        """Facts that change between turns (ORCH-325: after the conversation in the planner's context, so the prefix
         before it stays cacheable): the schedules and reminders, and the owner's paired browser profiles as FERB can
         use them now. `owner_state=False` (the intro's preview, `Supervisor.preview`): only the browser profiles, a
         capability the plan needs; the owner's schedules and reminders stay out."""
@@ -258,7 +258,7 @@ class Environment:
         return "\n".join(lines)
 
     def _keep_tabs_open(self, task_id: str) -> None:
-        """Hands decision 3: the owner asked to keep this task's tabs; at its end they leave the group and stay open."""
+        """HAND-201: the owner asked to keep this task's tabs; at its end they leave the group and stay open."""
         for drv in (self.router, self.ferb_identity):
             if drv is not None:
                 drv.keep_tabs_open(task_id)

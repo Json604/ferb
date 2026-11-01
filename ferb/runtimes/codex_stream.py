@@ -79,7 +79,7 @@ class ProtocolError(ValueError):
 
 
 # Codex's CodexErrorInfo (app-server protocol v2) values that are account facts no model can change (step 8b, owner
-# decision 16): the plan's usage limit, or a sign-in the service refused
+# ORCH-315): the plan's usage limit, or a sign-in the service refused
 ACCOUNT_INFO = {'usageLimitExceeded': 'usage_limit', 'unauthorized': 'signed_out'}
 
 

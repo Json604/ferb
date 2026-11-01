@@ -1,4 +1,4 @@
-"""Owns the one list of web browsers (notes/hands.md fix list, gateway decision fixes): the browsers FERB knows by
+"""Owns the one list of web browsers (kb area hands): the browsers FERB knows by
 bundle id, plus every installed app that registers with Launch Services as opening http or https links. Must not
 judge what a browser shows or choose a browser for a task.
 

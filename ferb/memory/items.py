@@ -2,7 +2,7 @@
 
 Memory items: SQLite is the source of truth; every rule about where an item may come from is here.
 
-No Keep questions (notes/memory.md decision 15): FERB saves facts itself, each labelled by where it came from
+No Keep questions (MEM-12): FERB saves facts itself, each labelled by where it came from
 (`LABELS`), and the owner corrects by talking or on the memory page. Memory never authorizes an action.
 Origins, enforced in code:
 - `owner_stated` ("your words"): the owner's own words (`ferb memory add`, `edit`, or chat capture whose saved text
@@ -12,7 +12,7 @@ Origins, enforced in code:
 - `observed` ("observed"): from the owner's own activity. Its sources are trail rows with actor "owner" (FERB's own
   activity never becomes the owner's habits), active once that evidence spans 3 separate days; or the code-gathered
   facts of the owner's Mac (installed apps, their use, browsers and profiles: a `MAC_PROFILE_KIND` journal row,
-  decision 16), active at once.
+  MEM-13), active at once.
 - `third_party`: pages, emails, pasted text. A fact about the world only: never a preference, never about the owner.
 
 Versions: kind + subject + key name one fact (subject and key normalized alike, `subject_key` / `slug`). A newer version
@@ -23,12 +23,12 @@ version never ends something the owner stated (both stay; the owner's wins). `sa
 line names it. An item also ends at the end of a day the owner's words give it (`expire_at`) or when it no longer holds
 (`retire`); it stays as history, and `items` and `prompt_ready` treat it as current until then (L36 §6).
 
-`forget` is simple (notes/memory.md decision 2): the item, all its versions, their source links and the
+`forget` is simple (MEM-2): the item, all its versions, their source links and the
 watcher-captured trail rows they came from (unless the owner keeps them), the search index, the WAL; days whose trail
 rows went are re-summarized (or their summary deleted once the raw rows are gone). The owner's chat message that stated
 it stays (chat history is the owner's own record), other facts from the same message stay, and FERB's past answers and
 traces are not scrubbed. A person or site the item names leaves the known destinations too, so a send there asks again
-(decision 14). A one-way fingerprint stops distillation from proposing it again."""
+(MEM-11). A one-way fingerprint stops distillation from proposing it again."""
 
 import hashlib
 import json
@@ -46,11 +46,11 @@ from ferb.store.db import Database
 
 KINDS = ("fact", "preference", "person", "project", "env")
 ORIGINS = ("owner_stated", "observed", "inferred", "third_party")
-# Decision 15: how each origin is named to the owner and to every role (the memory page, FERB's lines, the prompts)
+# MEM-12: how each origin is named to the owner and to every role (the memory page, FERB's lines, the prompts)
 LABELS = {"owner_stated": "your words", "inferred": "FERB's understanding", "observed": "observed",
           "third_party": "from outside content"}
 OBSERVED_DAYS = 3
-# Decision 16: the journal row holding the code-gathered facts of the owner's Mac an observed item may rest on
+# MEM-13: the journal row holding the code-gathered facts of the owner's Mac an observed item may rest on
 MAC_PROFILE_KIND = "memory.mac_profile"
 Source = tuple[Literal["journal", "trail"], str]
 # Stamps are compared as text in SQL; their UTC offsets can differ by 26 hours, so a bound there is this much wider
@@ -263,7 +263,7 @@ class ForgetPlan:
     rebuild_days: list[str] = field(default_factory=list)     # summaries rebuilt from the rows that remain
     delete_summaries: list[str] = field(default_factory=list)  # days whose raw rows are gone: summary deleted
     kept: int = 0                                              # the owner's own messages it came from (they stay)
-    # decision 14: known destinations (people, sites, addresses) the item names: a send to them asks again
+    # MEM-11: known destinations (people, sites, addresses) the item names: a send to them asks again
     destinations: list[tuple[str, str]] = field(default_factory=list)   # (kind, value)
 
     def describe(self, db: Database) -> list[str]:
@@ -305,7 +305,7 @@ class Memory:
         self.on_ended: Callable[[list[str], str | None], None] = lambda ids, new: None
         # told an item that became current (a new fact, or a new version of one): the core profile follows its fact
         self.on_saved: Callable[[MemoryItem], None] = lambda item: None
-        # decision 17: told the owner's items FERB set aside as over (the core profile drops them; nothing else ends)
+        # MEM-14: told the owner's items FERB set aside as over (the core profile drops them; nothing else ends)
         self.on_set_aside: Callable[[list[str]], None] = lambda ids: None
 
     # ---------- reads ----------
@@ -395,7 +395,7 @@ class Memory:
             "AND actor = 'owner'", (item_id,)).fetchone()["n"])
 
     def _mac_sources_only(self, item_id: str) -> bool:
-        """Whether every source of an item is the code-gathered facts of the owner's Mac (decision 16)."""
+        """Whether every source of an item is the code-gathered facts of the owner's Mac (MEM-13)."""
         rows = self.db.conn.execute(
             "SELECT s.kind, j.kind AS jkind FROM memory_sources s LEFT JOIN journal j ON j.id = s.source_id "
             "AND s.kind = 'journal' WHERE s.item_id = ?", (item_id,)).fetchall()
@@ -414,7 +414,7 @@ class Memory:
         """Every item enters here. Enforces the origin rules; observed evidence accumulates on one proposal.
         `from_owner` (default: owner_stated): the version rests on the owner's words now, so it ends every current
         version of its fact and the current items it `replaces` (ids the planner named, checked here). `about`: what the
-        owner's words are about (decision 13), stored next to them, never in them."""
+        owner's words are about (MEM-10), stored next to them, never in them."""
         kind, subject, key = kind.strip(), subject_key(self.redact(subject)), slug(self.redact(key))
         content = self.redact(content.strip())
         srcs = list(dict.fromkeys(sources))
@@ -432,7 +432,7 @@ class Memory:
                 "AND status = 'proposed' AND valid_to IS NULL ORDER BY seq LIMIT 1", (kind, subject, key)).fetchone()
         if same is not None:                                     # the same fact again: more evidence, no new item
             item_id = same["id"]
-            if owner_now:                                        # decision 17: saying it again says it still holds
+            if owner_now:                                        # MEM-14: saying it again says it still holds
                 self.restore(item_id)
         else:
             item_id = self.ids.new_id()
@@ -459,7 +459,7 @@ class Memory:
         it = self.get(item_id)
         assert it is not None
         if same is not None and it.status == "active" and not replaced:
-            self.on_saved(it)                     # seen again: the core profile may now take it (decision 18)
+            self.on_saved(it)                     # seen again: the core profile may now take it (MEM-15)
         return Saved(it, replaced, [i for i, _ in refused])
 
     def _replaceable(self, ids: list[str]) -> tuple[list[MemoryItem], list[tuple[str, str]]]:
@@ -566,7 +566,7 @@ class Memory:
         return items
 
     def set_about(self, item_id: str, about: str) -> None:
-        """Decision 13: what the owner's words are about, next to them (redacted; one line)."""
+        """MEM-10: what the owner's words are about, next to them (redacted; one line)."""
         text = " ".join(self.redact(about).split())[:200]
         self.db.conn.execute("INSERT INTO memory_context (item_id, about) VALUES (?, ?) "
                              "ON CONFLICT(item_id) DO UPDATE SET about = excluded.about", (item_id, text))
@@ -617,7 +617,7 @@ class Memory:
         self.on_change()
 
     def looks_over(self, item_id: str, why: str) -> str:
-        """Decision 17 (owner, 2026-10-31): FERB's check found this current item over. FERB's understanding and what it
+        """MEM-14 (owner, 2026-10-31): FERB's check found this current item over. FERB's understanding and what it
         observed are retired ("retired"); the owner's own words are only set aside ("set_aside"): no longer used,
         kept as history, restored by the owner saying it still holds (`restore`). Their end date, when they gave one,
         ends them by itself (`expire_at`). The caller tells the owner once."""
@@ -635,7 +635,7 @@ class Memory:
         return "set_aside"
 
     def restore(self, item_id: str) -> bool:
-        """The owner says a fact FERB set aside still holds (decision 17): it is used again. False when it wasn't set
+        """The owner says a fact FERB set aside still holds (MEM-14): it is used again. False when it wasn't set
         aside."""
         if self.db.conn.execute("DELETE FROM memory_set_aside WHERE item_id = ?", (item_id,)).rowcount == 0:
             return False
@@ -685,7 +685,7 @@ class Memory:
         return plan
 
     def _named_destinations(self, items: list[str]) -> list[tuple[str, str]]:
-        """Decision 14: the known destinations these items name (as stored values: whole words of what they say, their
+        """MEM-11: the known destinations these items name (as stored values: whole words of what they say, their
         label, or their subject's name; a site by its host or its name, "example" for www.example.com; a phone number by
         its digits). Structural matching of stored values, never a judgment of intent; one matched too eagerly only
         makes the next send ask again."""
@@ -744,7 +744,7 @@ class Memory:
             c.execute(f"DELETE FROM memory_profile WHERE item_id IN ({marks})", plan.items)
             c.execute(f"DELETE FROM memory_set_aside WHERE item_id IN ({marks})", plan.items)
             c.execute(f"DELETE FROM memory_items WHERE id IN ({marks})", plan.items)
-            for kind, value in plan.destinations:          # decision 14: a send there asks again
+            for kind, value in plan.destinations:          # MEM-11: a send there asks again
                 c.execute("DELETE FROM known_destinations WHERE kind = ? AND value = ?", (kind, value))
             for tid in plan.trail:
                 c.execute("DELETE FROM trail WHERE id = ?", (tid,))

@@ -10,7 +10,7 @@ FIELD_KINDS = frozenset({"password", "new_password", "one_time_code", "card_numb
 
 MAX_TEXT = 8000  # initial tool preview only; browser.read retrieves the complete saved snapshot
 
-# Hands decision 6: the frames bot-check widgets draw in, by their address (host, and a path prefix where the host
+# HAND-208: the frames bot-check widgets draw in, by their address (host, and a path prefix where the host
 # serves other things too). A structural fact like a field's kind: the widget's own frame, never the page's words.
 CHALLENGE_FRAMES = (("challenges.cloudflare.com", "", "Cloudflare Turnstile"), ("hcaptcha.com", "", "hCaptcha"),
                     ("google.com", "/recaptcha/", "reCAPTCHA"), ("recaptcha.net", "/recaptcha/", "reCAPTCHA"),
@@ -18,7 +18,7 @@ CHALLENGE_FRAMES = (("challenges.cloudflare.com", "", "Cloudflare Turnstile"), (
                     ("captcha-delivery.com", "", "DataDome"), ("awswaf.com", "", "AWS WAF"),
                     ("geetest.com", "", "GeeTest"))
 BOT_CHECK_ABILITY = "browser_verification"
-# Prompts decision 6 (ruling, 2026-10-31): the fact says plainly what code saw, a widget's frame, and that it may be only
+# HAND-300 (ruling, 2026-10-31): the fact says plainly what code saw, a widget's frame, and that it may be only
 # a passive badge (a reCAPTCHA v3 or Turnstile footer badge draws in the same frames); no wording about bypasses
 BOT_CHECK_FACT = ("A bot-check widget's frame is on this page. It may be only a passive badge that blocks nothing; "
                   "the page's own words say whether a check is asked.")
@@ -132,7 +132,7 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
     text = snap.text if full else snap.text[:MAX_TEXT]
     out: dict[str, Any] = {"tab": snap.tab.tab_id, "url": snap.url, "title": snap.title}
     check = bot_check(snap.frame_urls)
-    if check is not None:                          # hands decision 6: stated first, with the ability that covers it
+    if check is not None:                          # HAND-208: stated first, with the ability that covers it
         out["bot_check"] = check
     # L26: confirm playback before listening or recording. First, ahead of up to 24,000 characters of elements and the
     # text, so whoever reads the recorded result sees whether it plays without paging to its end (L31, live 2026-10-25)

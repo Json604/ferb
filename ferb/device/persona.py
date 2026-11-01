@@ -1,4 +1,4 @@
-"""Local facts about how the owner uses this Mac (notes/memory.md decision 16): installed apps (Info.plist only), their
+"""Local facts about how the owner uses this Mac (MEM-13): installed apps (Info.plist only), their
 use (Spotlight's use counts, the owner's own focus events), the browsers and their profiles. Code only gathers; a model
 interprets them (ferb/memory/mac_profile.py). Installed software alone never establishes an owner's occupation."""
 import asyncio
@@ -9,10 +9,10 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
-# The memory key the old setup step saved its app-use dump under (decision 16 replaced it; the step 9a clean-up made it
+# The memory key the old setup step saved its app-use dump under (MEM-13 replaced it; the step 9a clean-up made it
 # observed and keeps it out of the core profile); never words the owner typed (D30, MP2)
 PERSONA_KEY = "setup-persona"
-PERSONA_FILE = "persona.json"          # FERB's home: what FERB saw on this Mac and when (decision 16)
+PERSONA_FILE = "persona.json"          # FERB's home: what FERB saw on this Mac and when (MEM-13)
 # Ruling: the most-used apps FERB gathers and gives the model to interpret (the rest are counted)
 TOP_APPS = 25
 # Where these lived before they moved out of config.toml (a 10 KB proposal there was parsed on every config read)
@@ -172,7 +172,7 @@ def mac_facts(rows: list[dict[str, Any]], scanned_at: str, browsers: list[str],
 
 
 def facts_fingerprint(facts: dict[str, Any]) -> str:
-    """What makes a refresh worth interpreting again (decision 16, "refreshed as usage changes"): the set of the most-used
+    """What makes a refresh worth interpreting again (MEM-13, "refreshed as usage changes"): the set of the most-used
     apps, the browsers and their profiles; never the counts alone, which change every day."""
     import hashlib
     key = {'apps': sorted(str(a.get('bundle_id') or a.get('app')) for a in facts.get('apps', [])[:10]),

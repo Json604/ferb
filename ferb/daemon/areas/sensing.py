@@ -58,7 +58,7 @@ class Sensing:
             self.hub.on_tab = self._on_tab
             self.hub.paused = lambda: self.sense is not None and self.sense.paused
             self.hub.owned = lambda br, tab_id: self._tab_task(br, tab_id) is not None
-            self.hub.on_sound = self._tab_sound            # hands decision 5: playback changes as disturbance facts
+            self.hub.on_sound = self._tab_sound            # HAND-207: playback changes as disturbance facts
         from ferb.sense.perception import Perception
         self.perception = Perception(self)
         self.perception.bind_clipboard()
@@ -92,10 +92,10 @@ class Sensing:
         return None
 
     def _tab_sound(self, br: Any, e: Any) -> None:
-        """Hands decision 5: a tab that isn't FERB's started or stopped sound, or was muted or unmuted (the browser's
+        """HAND-207: a tab that isn't FERB's started or stopped sound, or was muted or unmuted (the browser's
         own facts): a disturbance fact when one of FERB's calls was near (`DisturbanceSentinel.sound_changed`). FERB's
         own tabs (opened by it, or in its window) are left out, and so is a mute the owner changed themselves (the
-        browser's `mutedInfo.reason` "user", protocol 21: hands decision 11). Nothing about the page is kept."""
+        browser's `mutedInfo.reason` "user", protocol 21: HAND-213). Nothing about the page is kept."""
         if e.ferb:
             return
         owners_mute = getattr(e, "muted_reason", None) == "user"

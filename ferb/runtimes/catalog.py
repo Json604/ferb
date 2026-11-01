@@ -15,7 +15,7 @@ from ferb.core.errors import Unsupported
 from ferb.core.types import ModelLimits
 
 ROLES = ("orchestrator", "worker", "checker")
-# Owner, 2026-10-30 (notes/orchestration.md decision 11): the planner's call has 90 s. Every other call that isn't a
+# Owner, 2026-10-30 (ORCH-311): the planner's call has 90 s. Every other call that isn't a
 # worker's (a dispatch, a question, a summary, distillation) has one overall limit, beside the 180 s silence guard in
 # ferb/orchestrator/worker.py; a worker has none (it may wait on the owner for as long as the owner takes).
 PLANNER_LIMIT_S = 90.0
@@ -31,7 +31,7 @@ def call_limit(mode: str, planner: bool) -> float | None:
 
 
 class SignedOut(Unsupported):
-    """A runtime that can't start because FERB's own sign-in for it is missing (step 8b, owner decision 16): an account
+    """A runtime that can't start because FERB's own sign-in for it is missing (step 8b, ORCH-315): an account
     fact, which the orchestrator offers to work around with another signed-in runtime; never with a model's judgment."""
     account = "signed_out"
 

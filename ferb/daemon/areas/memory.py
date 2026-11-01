@@ -1,7 +1,7 @@
 """Own the daemon's memory glue: learning stores' wiring, searches, forgets, the core profile (Tier 1), what FERB saw on
 this Mac, the hourly distillation, the weekly profile pass and episode cards, chat capture and the memory RPCs. Must not
 let memory authorize an action or save a secret. FERB saves facts itself, labelled by where they came from, and asks
-no Keep question (notes/memory.md decision 15)."""
+no Keep question (MEM-12)."""
 
 import asyncio
 import json
@@ -24,12 +24,12 @@ def _named_node(node: dict[str, Any]) -> str:
     return f"learned item “{' '.join(str(node['key']).split())}” ({node['kind']})"
 
 
-# Step 9a: FERB's questions about memory that no longer exist (decision 15: no Keep / Edit / Drop, no Retire / Keep);
+# Step 9a: FERB's questions about memory that no longer exist (MEM-12: no Keep / Edit / Drop, no Retire / Keep);
 # rows an older build left waiting are dropped at start
 GONE_QUESTIONS = ("confirm", "edit", "retire")
-# A fact FERB's weekly check found out of date, told once in chat (decision 15: quiet, corrected by talking)
+# A fact FERB's weekly check found out of date, told once in chat (MEM-12: quiet, corrected by talking)
 ENDED_NOTICE = "Memory: I stopped using {items}, which look out of date. Tell me if any still holds."
-# Decision 17: the owner's own words FERB's check found over are set aside (kept, restored by saying they still hold)
+# MEM-14: the owner's own words FERB's check found over are set aside (kept, restored by saying they still hold)
 SET_ASIDE_NOTICE = ("Memory: {items} look over, so I'll stop using them. They're kept; tell me if any still holds and "
                     "I'll use it again.")
 
@@ -63,7 +63,7 @@ class MemoryGlue:
                                    device_id=str(self.config.get("device", "id", "dev")),
                                    record_usage=self._record_learning_usage("distill"), spans=self.spans)
         self.distiller.tell = self._tell_owner
-        # step 9a upgrade (storage decision 5): memory cleaned once, then the core profile seeded from it, both journaled
+        # step 9a upgrade (STORE-403): memory cleaned once, then the core profile seeded from it, both journaled
         clean_before_tier1(self.memory, lambda kind, data: self._journal().append(kind, data))
         self.profile.seed()
         # step 9b upgrade: the old fact-node copies close once (search reads memory_items itself)
@@ -75,7 +75,7 @@ class MemoryGlue:
             self._retention_task = asyncio.get_running_loop().create_task(self._retention_loop())
         if self.resource_log is not None:
             self._resources_task = asyncio.get_running_loop().create_task(self._resources_loop())
-        if self.run_embeddings:                      # decision 8: the local model, then new text in the background
+        if self.run_embeddings:                      # MEM-6: the local model, then new text in the background
             self._embed_task = asyncio.get_running_loop().create_task(self._embed_loop())
         self._resume_imports()                       # memory import: a run a restart interrupted goes on
 
@@ -198,7 +198,7 @@ class MemoryGlue:
         return {"status": "done"}
 
     def _core_profile_text(self) -> str:
-        """Tier 1 for every role's instructions (planner and workers; notes/memory.md target design 1)."""
+        """Tier 1 for every role's instructions (planner and workers; kb area memory)."""
         profile = getattr(self, "profile", None)
         return profile.prompt_text() if profile is not None and self.memory is not None else ""
 
@@ -299,10 +299,10 @@ class MemoryGlue:
             return memory_origin(item_origin)
 
     async def _learning_candidates(self, words: str, limits: Any = None, *, focus: str = '') -> list[dict[str, Any]]:
-        """Relevant memory for a role, within its limits (`search.PLANNER` / `search.WORKER`, decision 7): facts from
+        """Relevant memory for a role, within its limits (`search.PLANNER` / `search.WORKER`, MEM-5): facts from
         `memory_items` and learned nodes (past tasks with how-notes, playbooks, day summaries), ranked by the one fused
         search and merged best first; a fact already in the core profile (in every prompt) takes no room. Each line says
-        what it is, its id and where it came from (decision 15), so the planner can name a fact a new statement
+        what it is, its id and where it came from (MEM-12), so the planner can name a fact a new statement
         replaces. What doesn't fit is counted in one closing line, findable with the lookup tools. `focus`: the target
         words of the tasks the turn or worker serves, also ranked alone (L36 §4 fix round)."""
         from ferb.memory.items import label
@@ -409,7 +409,7 @@ class MemoryGlue:
                                                   str(row["request"])))
         return [hit.doc.removeprefix("journal:") for hit in hits]
 
-    # ---------- the local embedding model (decision 8) ----------
+    # ---------- the local embedding model (MEM-6) ----------
 
     # Ruling (step 9b): how often the background embedder looks for new text, and its pause between batches
     EMBED_EVERY_S = 60
@@ -473,7 +473,7 @@ class MemoryGlue:
 
     async def _embed_loop(self) -> None:
         """Background: the model once, then new text embedded every EMBED_EVERY_S (a cheap check when nothing is new).
-        First start of this build: everything already stored is embedded here (upgrade, storage decision 5)."""
+        First start of this build: everything already stored is embedded here (upgrade, STORE-403)."""
         await self._load_embedder()
         while not self._shutting_down:
             try:
@@ -489,7 +489,7 @@ class MemoryGlue:
         index nodes (`drop_fact_index`: nothing built on them), the copies of the trail rows it came from (today's
         activity file, delegated conversations' evidence), and a pending clarifying question holding its words. The
         login-record usernames it gave are cleared after (L36 §5). FERB's past answers and traces are not scrubbed
-        (notes/memory.md decision 2)."""
+        (MEM-2)."""
         texts = [str(r[0]) for r in self.db.conn.execute(
             f"SELECT content FROM memory_items WHERE id IN ({','.join('?' * len(plan.items))})", plan.items)]
         if self.learning is not None:
@@ -507,7 +507,7 @@ class MemoryGlue:
     def _memory_ended(self, ids: list[str], new: str | None) -> None:
         """Current memory items that stopped holding now (`Memory.on_ended`, L36 §6): superseded by a newer version
         (`new`) or retired or retracted (None). The core profile follows at once (the new version takes each one's
-        place; a retired one leaves it, decision 9), and the login-record usernames the owner's items among them gave
+        place; a retired one leaves it, MEM-7), and the login-record usernames the owner's items among them gave
         are cleared (`_clear_login_names`, queued like a forget's). A newer version whose own login entry names the
         username in the owner's words, in the same turn, has moved them to its spelling first (`_save_login_name`
         takes the username lock before the queued clear runs; review m-8)."""
@@ -546,7 +546,7 @@ class MemoryGlue:
             self._journal().append("memory.login_cleared", {"places": cleared})
 
     def _forget_memory(self, item_id: str, keep_sources: bool = False) -> Any:
-        """The simple forget (notes/memory.md decision 2), now, on the event loop: `Memory.forget`."""
+        """The simple forget (MEM-2), now, on the event loop: `Memory.forget`."""
         plan = self.memory.forget(item_id, keep_sources)
         self._journal().append("memory.forgot", {"items": len(plan.items), "trail": len(plan.trail)})
         return plan
@@ -639,7 +639,7 @@ class MemoryGlue:
     def _restore_memory_questions(self) -> None:
         """At start: a forget's Yes / No still waiting is asked again, with its id, words and options; one whose memory
         has gone meanwhile is dropped. Keep / Edit / Drop and Retire / Keep questions an older build left waiting are
-        dropped (decision 15: FERB asks none; the guess they were about is already saved as FERB's understanding)."""
+        dropped (MEM-12: FERB asks none; the guess they were about is already saved as FERB's understanding)."""
         questions = self._memory_questions()
         questions.drop_kinds(GONE_QUESTIONS)
         for row in questions.waiting():
@@ -686,7 +686,7 @@ class MemoryGlue:
         if l is None:
             raise LearningRefused("learning store unavailable")
         op, ident = params.get("op", "inventory"), str(params.get("id", ""))
-        if op == "backlog":                # decision 15: FERB keeps no guesses waiting (an older app asks)
+        if op == "backlog":                # MEM-12: FERB keeps no guesses waiting (an older app asks)
             return {"backlog": None}
         if op in ("guess", "guess_state"):
             raise LearningRefused("FERB no longer asks about its guesses: it saves what it understands, labelled as "
@@ -705,7 +705,7 @@ class MemoryGlue:
             return {"item": node, "history": l.versions(node["kind"], node["key"]) if node else []}
         if op == "confirm":
             node = l.get(ident)
-            if node and node["kind"] == "fact":           # decision 15: a memory item is never waiting for a Keep
+            if node and node["kind"] == "fact":           # MEM-12: a memory item is never waiting for a Keep
                 raise LearningRefused("memories need no confirming; correct one with edit or forget")
             return {"item": l.confirm(ident)}
         if op == "edit":
@@ -747,7 +747,7 @@ class MemoryGlue:
         if op == "eval_export":
             from ferb.eval.memory import history_queries
             return history_queries(l)
-        if op == "embedding":            # decision 8: the pinned local model, always on once its files are here
+        if op == "embedding":            # MEM-6: the pinned local model, always on once its files are here
             embedder = l.embedder
             root, fetch = self._embedding_root()
             return {"active": getattr(embedder, "name", None), "path": str(root), "fetched_by_ferb": fetch,
@@ -808,7 +808,7 @@ class MemoryGlue:
         return {"playbooks": repeat_stats(self.db.conn)}
 
     async def _memory_restore(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """Decision 17: the owner says a fact FERB set aside still holds (the memory page's Restore)."""
+        """MEM-14: the owner says a fact FERB set aside still holds (the memory page's Restore)."""
         item_id = str(params.get("id") or "")
         if self.memory.get(item_id) is None:
             raise FerbError("no memory with that id")
@@ -816,9 +816,9 @@ class MemoryGlue:
         return {"restored": restored, "item": self._item_dict(self.memory.get(item_id))}
 
     async def _profile_pass(self, *, force: bool = False) -> dict[str, Any] | None:
-        """The weekly core-profile pass (decision 9), when due (`CoreProfile.due`: a week since the last, or the profile
+        """The weekly core-profile pass (MEM-7), when due (`CoreProfile.due`: a week since the last, or the profile
         over its budget) or forced (the `memory.profile` RPC's op "pass"). Facts it found out of date are told once,
-        quietly (decision 15)."""
+        quietly (MEM-12)."""
         profile = getattr(self, "profile", None)
         if profile is None or not (force or profile.due()):
             return None
@@ -831,14 +831,14 @@ class MemoryGlue:
             text = ENDED_NOTICE.format(items=", ".join(f"“{e['text']}”" for e in ended))
             await self._tell_owner(f"memory-profile-ended-{stamp}", ["memory:" + e["id"] for e in ended], text,
                                    origin_.join({origin_.FERB, origin_.INFERRED}))
-        if aside:                                    # decision 17: the owner's words, told once, kept
+        if aside:                                    # MEM-14: the owner's words, told once, kept
             text = SET_ASIDE_NOTICE.format(items=", ".join(f"“{e['text']}”" for e in aside))
             await self._tell_owner(f"memory-profile-aside-{stamp}", ["memory:" + e["id"] for e in aside], text,
                                    origin_.join({origin_.FERB, origin_.OWNER}))
         return out
 
     def _now_always_on(self, items: list[Any]) -> None:
-        """Decision 18: facts of FERB's understanding or observation that just joined the core profile, each told once
+        """MEM-15: facts of FERB's understanding or observation that just joined the core profile, each told once
         by a quiet notice with its note card (the 8e note card, `always_on`), Correct / Forget on it; never a
         question."""
         from ferb.memory.items import label
@@ -853,7 +853,7 @@ class MemoryGlue:
                         "always-on notice")
 
     async def _refresh_mac_profile(self) -> None:
-        """Decision 16, "refreshed as usage changes": weekly, with the profile pass's cadence (Ruling), FERB gathers the
+        """MEM-13, "refreshed as usage changes": weekly, with the profile pass's cadence (Ruling), FERB gathers the
         Mac's facts again and re-interprets them only when they changed; quiet."""
         from ferb.memory.profile import PASS_DAYS
         if self._shutting_down:
@@ -879,11 +879,11 @@ class MemoryGlue:
         `own_words`: what the owner typed (pasted parts left out). The quote must be whole words of it. Saved as
         owner_stated ("your words") is only the owner's own text: the whole sentence(s) of their words that hold the
         planner's content (`owner_sentences`), so a slice never drops a negation or a condition. Any other content is
-        FERB's wording of what they said, saved at once as FERB's understanding (decision 15: no Keep question); one
+        FERB's wording of what they said, saved at once as FERB's understanding (MEM-12: no Keep question); one
         whose quote shares no word with it rests on nothing the owner said and is refused. Either rests on the owner's
         words now, so it replaces every current version of its fact (same kind, subject and key) and the items the
         planner named in `replaces` (code checks each holds), and FERB's line names what it replaced. `about`: what the
-        words are about (decision 13: the turn's task, else the item's key), stored next to them. Per saved item: its
+        words are about (MEM-10: the turn's task, else the item's key), stored next to them. Per saved item: its
         receipt, the quiet "Memory: noted …" line code adds to the reply and its note card; per refused item: why, in
         plain words (owner 2026-10-24). An entry with `login_origin` also gives that site's login record its username
         (`_save_login_name`, in a worker thread; `sites`: the sites the turn's task names, L36 §5; `elsewhere`: those
@@ -1035,7 +1035,7 @@ class MemoryGlue:
                 "imported_from": imported}
 
     async def _memory_profile(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """The app's memory page (decision 15: it shows and edits everything): the core profile as markdown and as
+        """The app's memory page (MEM-12: it shows and edits everything): the core profile as markdown and as
         sections, its budget and use. op "add" (an item into the profile, the owner's choice), "remove" (out of it; the
         memory stays), "pass" (run the weekly pass now). Facts themselves change through memory.edit / retract /
         forget."""
@@ -1113,7 +1113,7 @@ class MemoryGlue:
                 "more": len(rows) > limit}
 
     def _mac_profile_service(self) -> Any:
-        """What FERB saw on this Mac (decision 16): built once per daemon, its collector reading only owner-attributed
+        """What FERB saw on this Mac (MEM-13): built once per daemon, its collector reading only owner-attributed
         app names and counts (no window titles or content) on the database thread."""
         if self.persona is None:
             from ferb.daemon.persona import PersonaReview
@@ -1145,19 +1145,19 @@ class MemoryGlue:
         return dict(self._mac_profile_service().start(refresh=refresh, shown_by=shown_by))
 
     async def _build_mac_profile(self, facts: dict[str, Any]) -> dict[str, Any]:
-        """Decision 16: a model interprets the gathered facts; code stores them as observed memory."""
+        """MEM-13: a model interprets the gathered facts; code stores them as observed memory."""
         from ferb.memory.mac_profile import interpret, store
         answer = await interpret(self._make_runtime, facts, device_id=str(self.config.get("device", "id", "dev")),
                                  spans=self.spans, usage=self._record_learning_usage("mac_profile"))
         return store(self.memory, lambda kind, data: self._journal().append(kind, data), facts, answer)
 
     async def _tell_mac_profile(self, text: str) -> None:
-        """Shown once in chat when the setup step didn't show it (decision 16: "here's what I saw", no yes/no)."""
+        """Shown once in chat when the setup step didn't show it (MEM-13: "here's what I saw", no yes/no)."""
         await self._tell_owner(f"memory-mac-profile-{self.clock.now().isoformat()}", [], text,
                                origin_.join({origin_.FERB, origin_.PRIVATE}))
 
     async def _setup_persona(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """The setup step (decision 16): {} starts what FERB saw on this Mac, once; {"refresh": true} again;
+        """The setup step (MEM-13): {} starts what FERB saw on this Mac, once; {"refresh": true} again;
         {"status": true} only reads it. The answer's state "seen" carries the summary to show and the facts saved."""
         if params.get('status') and self.persona is not None:
             return dict(self.persona.status())

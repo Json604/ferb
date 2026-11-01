@@ -1,4 +1,4 @@
-"""What FERB saw on this Mac (notes/memory.md decision 16), shared by the app's setup step and chat. It replaces the P28
+"""What FERB saw on this Mac (MEM-13), shared by the app's setup step and chat. It replaces the P28
 persona question: nothing waits for the owner's yes.
 
 `start()` gathers the facts (`collect`: code only, ferb/device/persona.py), has a model interpret them and stores the

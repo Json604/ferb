@@ -1,4 +1,4 @@
-"""The live preview of a task's work (notes/preview.md): masked frames of the one surface (a task's browser tab, or the
+"""The live preview of a task's work (kb area app): masked frames of the one surface (a task's browser tab, or the
 app window a call targets) its latest call works on, for FERB.app only. Pixels live in memory only: never journaled,
 saved, traced or logged.
 
@@ -7,10 +7,10 @@ resolved then, so a call never waits for the preview and a declaration can't fai
 the surface. A capture never queues on the worker's resource locks: it takes them only when free (`try_hold`), else the
 last frame is returned with the state. One capture at a time per task, within PREVIEW_LIMIT_S (under the app's 10 s
 reply wait); a request whose caller left, or that ran out of time, cancels the capture when nobody else waits for it.
-Each answer carries the state (owner decision 2): working here, working elsewhere (the latest call left this surface),
+Each answer carries the state (APP-404): working here, working elsewhere (the latest call left this surface),
 asking, waiting, paused, done; while FERB isn't working here the surface is frozen on its last frame and nothing is
 captured. Parallel steps of one task each keep their own surface (by the step's task id); the answer names the step it
-shows. Frames and capture time are counted for the heat measurement (decision 3); no frame-rate cap."""
+shows. Frames and capture time are counted for the heat measurement (APP-405); no frame-rate cap."""
 from __future__ import annotations
 
 import asyncio
@@ -60,7 +60,7 @@ class _Job:
 
 @dataclass
 class Counts:
-    """Cumulative counters for resource_samples.work_json (decision 3)."""
+    """Cumulative counters for resource_samples.work_json (APP-405)."""
     requests: int = 0
     frames: int = 0
     capture_ms: float = 0.0

@@ -179,7 +179,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         # The owner's Mac + shell
         self.watch_owner_input = watch_owner_input
         self.owner_input = OwnerInput(wall=lambda: self.clock.now().timestamp())   # the daemon's clock
-        # whether the Mac is in use (decision 17, clarified 2026-10-31): wake, unlock, login; never input idleness
+        # whether the Mac is in use (ORCH-317, clarified 2026-10-31): wake, unlock, login; never input idleness
         self.presence = MacPresence(wall=lambda: self.clock.now().timestamp())
         from ferb.daemon.disturbance import DesktopProbe, DisturbanceSentinel
         self.disturbance = DisturbanceSentinel(DesktopProbe(), self._record_disturbance,
@@ -209,7 +209,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         self.learning: Any = None
         self.distiller: Any = None
         self._distill_task: asyncio.Task[None] | None = None
-        # Decision 8: the local embedding model, fetched once and loaded, then new text embedded in the background.
+        # MEM-6: the local embedding model, fetched once and loaded, then new text embedded in the background.
         # Tests turn it off (never a download) and put a fake embedder in place themselves.
         self.run_embeddings = embeddings
         self._embed_task: asyncio.Task[None] | None = None
@@ -275,7 +275,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         self._input_monitoring_asked = False                  # asked with the owner's first request
         self.automation_check: Callable[[str], Awaitable[Any]] = (
             lambda bundle: _permissions.automation_async(bundle, ask=False))
-        # notes/voice.md decisions 2-3: a voice turn's replies, spoken by the configured provider through one shared
+        # VOICE-401-3: a voice turn's replies, spoken by the configured provider through one shared
         # path that redacts first; a new turn or a stop interrupts it. Tests replace `build_speaker` (nothing speaks).
         from ferb.voice import speak
         self.build_speaker: Callable[[], Any] = lambda: speak.build(self.config)

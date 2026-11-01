@@ -3,11 +3,11 @@
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
 // Protocol 18 (extension 0.16.0): daemon messages signed (DAEMON_SIGNED), tab groups and connection-independent tab
 // records (adopt_tab, hello `tabs`, `taken`), card fields secret, read errors known failures (READ_OPS).
-// Protocol 19 (extension 0.17.0, hands decision 5): FERB's tabs muted (`open`/`adopt_tab` `muted`, `mute_tab`), sound
+// Protocol 19 (extension 0.17.0, HAND-207): FERB's tabs muted (`open`/`adopt_tab` `muted`, `mute_tab`), sound
 // back when a tab becomes the owner's, and `sound` tab events.
-// Protocol 20 (extension 0.18.0, hands decision 7): download parts of 512 KiB sent whole, `popup_refused` (a popup past
+// Protocol 20 (extension 0.18.0, HAND-210): download parts of 512 KiB sent whole, `popup_refused` (a popup past
 // the task's tab cap is closed while blank), and every dropped page save reported (`count`).
-// Protocol 21 (extension 0.19.0, hands decision 11): a `sound` tab event says who last changed the tab's mute
+// Protocol 21 (extension 0.19.0, HAND-213): a `sound` tab event says who last changed the tab's mute
 // (`muted_reason`, the browser's mutedInfo.reason: user / capture / extension), so the owner's own mute is never a
 // disturbance fact.
 const FERB_PROTOCOL = 21;
@@ -339,7 +339,7 @@ const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "adopt_tab", "mute_tab", "popup_refused"];
 
 // Whether a key press puts text into the focused field (a character without ⌘/⌃/⌥, Space, or a paste): such a press
-// into a secret field is refused, as typing is; Return, Tab, Escape, arrows and other shortcuts still go (notes/hands.md
+// into a secret field is refused, as typing is; Return, Tab, Escape, arrows and other shortcuts still go (kb area hands
 // rulings, step 5b). Mirrored by ext_bridge.enters_text.
 function entersText(spec) {
   const k = keyEvent(spec);

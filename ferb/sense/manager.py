@@ -19,7 +19,7 @@ class Sense:
                  on_fail: Callable[[str, str], None] = lambda source, error: None, presence: Any = None) -> None:
         self.marker = home / "PAUSED"
         self.trail, self.watchers, self.owner_input, self.on_pause = trail, watchers, owner_input, on_pause
-        self.presence = presence                                  # whether the Mac is in use (decision 17)
+        self.presence = presence                                  # whether the Mac is in use (ORCH-317)
         self.on_fail = on_fail
         self.failed: dict[str, str] = {}                          # source -> why it last failed (doctor shows it)
         self.retry_s = 60.0                                      # a failed watcher tries again after this, doubling

@@ -41,7 +41,7 @@ TASK_COLUMNS = frozenset({"request_id", "created_at", "updated_at", "goal", "sta
                           "parent_id"})
 
 
-# What a task row's status can be (migration 0049). `paused`: the task waits for the owner in place (owner decision 8);
+# What a task row's status can be (migration 0049). `paused`: the task waits for the owner in place (ORCH-308);
 # `interrupted`: FERB restarted while it ran and it didn't resume.
 STATUSES = ("planned", "running", "paused", "done", "done_unverified", "failed", "cancelled", "needs_user",
             "interrupted")

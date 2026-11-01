@@ -47,13 +47,13 @@ METHODS: dict[Role, frozenset[str]] = {
 }
 
 
-# Methods of the cli role that only FERB.app's own process may call (notes/preview.md: the live preview's masked window
+# Methods of the cli role that only FERB.app's own process may call (kb area app: the live preview's masked window
 # pictures borrow FERB's Screen Recording permission; any other program running as the owner gets "unauthorized").
 # Step 12c: what lists or deletes the owner's saved secrets, writes FERB's own account into config or pairs its
-# profile, and FERB.app's guide that becomes FERB's self-description (daemon decisions 6-8).
+# profile, and FERB.app's guide that becomes FERB's self-description (DMN-6, APP-1, APP-2).
 # Step 12e: "What FERB saw", the stored redacted screenshots and their facts; the setup window's Done, which records
 # setup as done from the grants FERB.app reports for itself (only FERB.app can read them).
-# The intro's Try beat (notes/setup-intro.md step 6): the suggested first task and its plan-only preview.
+# The intro's Try beat (kb area app): the suggested first task and its plan-only preview.
 # The server checks the peer's code signature (app_peer.py) once per connection.
 APP_ONLY: frozenset[str] = frozenset({"tasks.preview", "secrets.saved", "secrets.delete", "identity.find",
                                       "identity.choose", "identity.pair", "about.guide", "seen.list", "seen.image",
@@ -125,7 +125,7 @@ class RunTokens:
 
     def revoke_tree(self, tree_id: str) -> int:
         """A task tree ended: every token of its tasks goes, so a token never outlives its task (a task with no
-        deadline has no expiry of its own; notes/gateway.md fix list)."""
+        deadline has no expiry of its own; kb area gateway)."""
         root = tree_id.split(".", 1)[0]
         doomed = [d for d, g in self._grants.items() if g.task_id == root or g.task_id.startswith(root + ".")]
         for d in doomed:

@@ -1,7 +1,7 @@
-"""Local text embeddings for memory search (notes/memory.md decision 8). Must not send text anywhere, run downloaded
+"""Local text embeddings for memory search (MEM-6). Must not send text anywhere, run downloaded
 code, or embed anything but redacted text.
 
-The model is a static embedding table (model2vec's potion-base-8M, MIT; Ruling in notes/memory.md, step 9b): each
+The model is a static embedding table (model2vec's potion-base-8M, MIT; Ruling in kb area memory): each
 token of a WordPiece vocabulary has one 256-number vector; a text's embedding is the mean of its tokens' vectors,
 normalized. No neural network runs at query time, so the cost is a table lookup per token (pure Python, no new
 framework), the files are ~31 MB, and the table is memory-mapped (only the rows a text touches are read in).

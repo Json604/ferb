@@ -103,7 +103,7 @@ class SendScope(BaseModel):
 
 
 class Part(BaseModel):
-    """One of the owner's asks in a message that asks for several things (orchestration decision 19), in the owner's
+    """One of the owner's asks in a message that asks for several things (ORCH-319), in the owner's
     order: not a plan step. Its words (`quote`, quote-checked), a short label for its row, and exactly one answer
     source: `direct` (answered in the first reply, no tools; "" when code's receipt for this turn's reminder, memory or
     schedule entry answers it) or `answer_step` (the step whose checked answer is the part's answer; SINGLE when the
@@ -178,7 +178,7 @@ def card(parts: list[Part]) -> bool:
 
 
 def answer_steps(plan: Plan | None, parts: list[Part]) -> list[str]:
-    """The steps whose checked answers are the task's answer (decision 19: no summing-up call after them): each part's
+    """The steps whose checked answers are the task's answer (ORCH-319: no summing-up call after them): each part's
     answer step, in the owner's order; with no part naming one, a single task's one step, or a plan's last step (the one
     no other step depends on; a plan saved before step 8d may end in several)."""
     named = [p.answer_step for p in parts if p.answer_step]
@@ -191,7 +191,7 @@ def answer_steps(plan: Plan | None, parts: list[Part]) -> list[str]:
 
 
 def part_problems(parts: list[Part], plan: Plan | None, conditions: int) -> list[str]:
-    """Structural facts about the planner's parts (decision 19), told back for repair; the quote check is the
+    """Structural facts about the planner's parts (ORCH-319), told back for repair; the quote check is the
     supervisor's (`memory.items.quoted`, against the owner's typed words). Each part has exactly one answer source; an
     answer step is a step of the plan (SINGLE without one) that isn't a wait or an ask, and answers one part only;
     every success condition belongs to exactly one part, a direct part has none; every step leads to a part's answer

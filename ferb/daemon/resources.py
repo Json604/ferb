@@ -191,7 +191,7 @@ class ResourceLog:
                  perception: Callable[[], tuple[int, dict[str, int]]] = lambda: (0, {}),
                  pid: int | None = None, preview: Callable[[], dict[str, float]] = lambda: {}) -> None:
         self.db, self.clock, self.readings, self.redact, self.perception = db, clock, readings, redact, perception
-        self.preview = preview                  # the live preview's cumulative counters (notes/preview.md decision 3)
+        self.preview = preview                  # the live preview's cumulative counters (APP-405)
         self.pid = os.getpid() if pid is None else pid
         tree, walked = self._walk()
         app = self._app(walked | {self.pid})
@@ -216,7 +216,7 @@ class ResourceLog:
                        for cpu, key in busiest]
         counts = self._perception()
         previews = self._preview()
-        # the live preview's work in the window (decision 3: measured before any frame-rate cap is decided)
+        # the live preview's work in the window (APP-405: measured before any frame-rate cap is decided)
         work["preview"] = {key: round(value - mark.preview.get(key, 0), 1) if isinstance(value, float)
                            else value - int(mark.preview.get(key, 0)) for key, value in previews.items()}
         work["perception"] = {"wakes": max(0, counts[0] - mark.perception[0]),

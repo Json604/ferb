@@ -22,7 +22,7 @@ class JevGlue:
         return key or None
 
     def _jev_on(self) -> bool:
-        """The one switch (`[jev] on`, off by default; notes/memory.md decision 4). While off nothing in Jev, decide,
+        """The one switch (`[jev] on`, off by default; SENSE-2). While off nothing in Jev, decide,
         perception batches or attention runs: no batcher work, no decisions or receipts, no shadow checks, no
         Keychain read or request to Jev at start."""
         return self.config.get("jev", "on", False) is True

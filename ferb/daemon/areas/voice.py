@@ -1,4 +1,4 @@
-"""Own the daemon's voice: speaking a voice turn's replies (notes/voice.md decisions 2, 3) and hearing's FERB.app
+"""Own the daemon's voice: speaking a voice turn's replies (VOICE-401, 3) and hearing's FERB.app
 plumbing (where the app is, its recorded signature, its Speech Recognition probe, ending its hearing before an update).
 Must not listen: hearing only transcribes sound a task captured from an app (L26). Push-to-talk is the FERB app's own
 dictation; a turn it sends with `speak: true` is answered aloud from the turn's structured events, never from rendered

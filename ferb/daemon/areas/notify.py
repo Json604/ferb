@@ -93,8 +93,8 @@ class Notify:
                 self.perception.banner_failed(banner)
 
     def owner_idle(self) -> bool:
-        """The Mac is out of use (asleep, its displays asleep, locked or switched away: `MacPresence.away`, decision 17
-        clarified 2026-10-31), when the notch can't show (decision 21) and a banner would go unseen; never input
+        """The Mac is out of use (asleep, its displays asleep, locked or switched away: `MacPresence.away`, ORCH-317
+        clarified 2026-10-31), when the notch can't show (APP-301) and a banner would go unseen; never input
         idleness (a film watched without touching anything is being at the Mac). Unknown counts as present."""
         return self.presence.away()
 

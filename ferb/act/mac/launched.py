@@ -124,7 +124,7 @@ class LaunchedApps:
 
     def _own(self, task_id: str, app: Any, verb: str) -> Launched:
         """The task tree's launch record for this exact process (bundle id and pid), else Refused: FERB quits or
-        hides only an app it opened for this task (owner decision 2, notes/hands.md)."""
+        hides only an app it opened for this task (HAND-200, kb area hands)."""
         mine = [x for x in self.of(task_id) if x.pid == app.pid and x.bundle_id == app.bundle_id]
         if not mine:
             raise Refused(f"{app.name} isn't an app FERB opened for this task, so FERB doesn't {verb} it: the "
@@ -132,7 +132,7 @@ class LaunchedApps:
         return mine[0]
 
     async def quit_now(self, task_id: str, app: Any) -> str:
-        """⌘Q, the safe way (decision 2): only an app this task tree launched, and only when it reads as having no
+        """⌘Q, the safe way (HAND-200): only an app this task tree launched, and only when it reads as having no
         unsaved changes (as at release); then the app is asked to quit, as ⌘Q does, and is no longer the task's. Else
         Refused, saying why (nothing was sent)."""
         mine = self._own(task_id, app, "quit")
@@ -147,7 +147,7 @@ class LaunchedApps:
         return f"asked {mine.name} to quit (FERB opened it for this task; it shows no unsaved changes)"
 
     async def hide_now(self, task_id: str, app: Any) -> str:
-        """⌘H, the safe way (decision 2): only an app this task tree launched is hidden (nothing is lost by hiding)."""
+        """⌘H, the safe way (HAND-200): only an app this task tree launched is hidden (nothing is lost by hiding)."""
         mine = self._own(task_id, app, "hide")
         if not await asyncio.to_thread(self.hide, mine.pid, mine.bundle_id):
             raise Refused(f"{mine.name} didn't hide when FERB asked")

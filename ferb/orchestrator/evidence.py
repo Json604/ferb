@@ -206,10 +206,10 @@ CONTEXT_READS = ("task.evidence", "chat.history", "memory.read")
 
 
 def how_facts(conn: Any, task_id: str, since: int = 0) -> dict[str, Any]:
-    """Code facts about how a task's work was done, read from its own tool-call records (owner decision 9, daemon
-    decision 5): how many calls and failures per tool; the screen changes the disturbance sampler recorded around each
+    """Code facts about how a task's work was done, read from its own tool-call records (ORCH-309,
+    DMN-5): how many calls and failures per tool; the screen changes the disturbance sampler recorded around each
     call that can change the screen (front app, focused window, fullscreen, Space: `screen` on the call's record);
-    sound changes in tabs that aren't FERB's near this task's calls (hands decision 5);
+    sound changes in tabs that aren't FERB's near this task's calls (HAND-207);
     the calls that asked for the foreground; each call's structural facts (ActionFacts: where input landed, forms,
     deletes, writes); and the accounts and sites the calls targeted. Never the worker's words. `since`: a span cursor
     (a loop round's own calls). FERB's own context reads are left out. Each list keeps its newest HOW_KEPT."""
@@ -242,7 +242,7 @@ def how_facts(conn: Any, task_id: str, since: int = 0) -> dict[str, Any]:
         for key, kind in (("account", "accounts"), ("site", "sites")):
             if target.get(key):
                 targets[kind].add(str(target[key]))
-    # hands decision 5: sound started, stopped, muted or unmuted in a tab that isn't FERB's while this task's acting
+    # HAND-207: sound started, stopped, muted or unmuted in a tab that isn't FERB's while this task's acting
     # call was in flight or had just ended (the disturbance sampler's `tab_sound` records, kept under the tree)
     sound: list[dict[str, Any]] = []
     for span_id, raw_out in conn.execute(
@@ -432,7 +432,7 @@ def _listed_status(item: dict[str, Any], now: Any) -> str:
     """An item's status as memory.read shows it: "ended" for an active item that no longer holds (superseded, retired
     or past the end date the owner gave it: those set only `valid_to`; final review M2), else its stored status."""
     end = item["valid_to"]
-    if item.get("set_aside"):                       # decision 17: kept, no longer used
+    if item.get("set_aside"):                       # ORCH-317: kept, no longer used
         return "set aside"
     return "ended" if item["status"] == "active" and end is not None and now is not None and end <= now \
         else str(item["status"])

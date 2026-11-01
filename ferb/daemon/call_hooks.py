@@ -1,6 +1,6 @@
-"""Owns what happens around a tool call without deciding whether it may run (notes/gateway.md target 1, fix list:
+"""Owns what happens around a tool call without deciding whether it may run (kb area gateway:
 "non-authorization features out of the authorization path"): the task's live preview and FERB's cursor point before
-it, the desktop samples around a call that can change the screen (daemon decision 5), the change record's copies of
+it, the desktop samples around a call that can change the screen (DMN-5), the change record's copies of
 the files it names (L39), the working app's first picture, image sanitizing and the evidence store (V1, D26, L13), the
 advisory shadow check (D23, shadow only) and the live line. Each hook only records or shows; a failing hook never
 stops or changes the call's authorization, and none is run before the owner's questions are answered."""
@@ -45,7 +45,7 @@ def image_facts(tool: str, content: dict[str, Any]) -> dict[str, Any]:
 
 def on_screen(cap: Any) -> bool:
     """A capability that can change what is on the owner's screen (bring an app or window forward, switch the Space,
-    move the cursor, open a dialog) declares `on_screen = True`: only those calls are sampled (daemon decision 5). A
+    move the cursor, open a dialog) declares `on_screen = True`: only those calls are sampled (DMN-5). A
     declaration, like `observation`, never a name list (rule 6)."""
     return bool(getattr(cap, "on_screen", False))
 
@@ -87,10 +87,10 @@ class CallHooks:
 
     async def screen_before(self, grant: RunGrant, span_id: str, name: str, arguments: dict[str, Any],
                             cap: Any) -> None:
-        """Daemon decision 5: the desktop is sampled before a call only when it can change the owner's screen."""
+        """DMN-5: the desktop is sampled before a call only when it can change the owner's screen."""
         sentinel = self.gw.disturbance
         if sentinel is not None and not getattr(cap, "observation", False) and hasattr(sentinel, "call_started"):
-            sentinel.call_started(grant.task_id, span_id, name)   # hands decision 5: a sound change near it is noted
+            sentinel.call_started(grant.task_id, span_id, name)   # HAND-207: a sound change near it is noted
         if sentinel is not None and on_screen(cap):
             self._sampled.add(span_id)
             await sentinel.before_action(grant.task_id, span_id, name, arguments, True)
@@ -139,7 +139,7 @@ class CallHooks:
         it works on (none: a call on no surface, which freezes the preview on its last frame); after a successful call,
         what its result shows (`observed`, e.g. a snapshot's current window), when that says more. Nothing is resolved
         or captured now (the first frame request does that), so it never delays the call; a declaration that fails is
-        no surface, and never touches the call or its result (notes/preview.md fix list)."""
+        no surface, and never touches the call or its result (kb area app)."""
         declare = getattr(cap, "preview_target", None)
         target = None
         try:

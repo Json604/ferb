@@ -200,7 +200,7 @@
   const codeField = (el) => /one-time-code/.test(el.autocomplete || "") ||
     SECRET_NAME.test((el.name || "") + " " + (el.id || "") + " " + label(el)) || codeGroup(el).length > 1;
   // A card field, by the page's own autocomplete token (cc-number, cc-csc, cc-exp, cc-exp-month, cc-exp-year, with
-  // any section-/billing/shipping prefix): an input, or a select for the expiry (gateway decision 6).
+  // any section-/billing/shipping prefix): an input, or a select for the expiry (GATE-206).
   const CARD = /(?:^|\s)cc-(number|csc|exp|exp-month|exp-year)(?:\s|$)/;
   const cardKind = (el) => {
     if (el.tagName !== "INPUT" && el.tagName !== "SELECT") return null;
@@ -228,7 +228,7 @@
     (el.type || "").toLowerCase() !== "password" &&
     !/\bcurrent-password\b/.test(el.autocomplete || "") && (codeField(el) || !passwordField(el));
 
-  // What submitting from this control would do (protocol 18, gateway decision 1), from the form's own markup: a click
+  // What submitting from this control would do (protocol 18, GATE-202), from the form's own markup: a click
   // on a submit control (`click`), or Enter in a field whose form submits implicitly (`enter`), with the action's host
   // (formaction first), the method (formmethod first) and the secret field kinds the form holds. Read through the
   // prototypes' getters, so a field named "action" or "method" can't stand in. null: no form, or neither.

@@ -2,7 +2,7 @@
 
 Marked FERB events do not count as owner activity; field capture receives their FERB mark.
 Recent activity is a fact for yielding, never a saved focus target. Input quiet time is not "away from the Mac"
-(orchestration decision 17, clarified 2026-10-31): that is the Mac's presence signal (ferb/sense/watchers/presence.py:
+(ORCH-317, clarified 2026-10-31): that is the Mac's presence signal (ferb/sense/watchers/presence.py:
 wake, unlock, login)."""
 
 import threading

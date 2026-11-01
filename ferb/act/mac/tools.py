@@ -196,7 +196,7 @@ class _Base:
 
     def preview_target(self, args: BaseModel, owner: str,
                        observed: dict[str, Any] | None = None) -> PreviewTarget | None:
-        """The live preview's surface (notes/preview.md): the app the call names; its window only when the call names
+        """The live preview's surface (kb area app): the app the call names; its window only when the call names
         it exactly (a window, the shot the worker saw, an element's own window) or, after a snapshot, the one window it
         reports current. Never the app's front window. Nothing is looked up here: `resolve` does it, off the loop,
         when a frame is wanted. `observed` without a `windows` list adds nothing (None)."""
@@ -301,7 +301,7 @@ class MacOpen(_Base):
 
     def describe(self, args: BaseModel) -> ActionSpec:
         url = getattr(args, "url", None)
-        if url:                                          # its site, for the address checks (S4, decision 5)
+        if url:                                          # its site, for the address checks (S4, HAND-207)
             return ActionSpec(Kind.OPEN_TAB, Target(site=(urlsplit(url).hostname or "").lower()))
         return ActionSpec(Kind.OPEN_TAB, Target(site=str(getattr(args, "bundle_id")).lower(),
                                                 path=self._path(args)))
@@ -410,7 +410,7 @@ class MacMenu(_Base):
         if "mac:act" not in ctx.scopes:
             return _err(f"pressing “{items[-1]}” is acting, which needs mac:act")
         granted: dict[str, Any] = {"terminal": ctx.terminal} if ctx.terminal is not None else {}
-        ok = await self.driver.press_menu(app, items, task=ctx.task_id, **granted)   # the task: ⌘Q's item (decision 2)
+        ok = await self.driver.press_menu(app, items, task=ctx.task_id, **granted)   # the task: ⌘Q's item (HAND-200)
         return ToolResult({"pressed": " > ".join(items)} if ok else {"error": f"no menu item {' > '.join(items)}"},
                           is_error=not ok)
 
@@ -528,7 +528,7 @@ class MacAct(_Base):
         return [f"app:{self._bundle(args)}"]
 
     def ledger_args(self, args: BaseModel, hashed: dict[str, Any]) -> dict[str, Any]:
-        """P19 (notes/gateway.md target 3): the element as what it is (the snapshot's window, its role path, role and
+        """P19 (kb area gateway): the element as what it is (the snapshot's window, its role path, role and
         label: `driver.element_identity`), not the snapshot-scoped id, so after an unknown outcome a new snapshot
         doesn't make the same press look new. An id the driver doesn't know stays as it is (the call fails anyway)."""
         element = hashed.get("element")
@@ -692,7 +692,7 @@ class MacClick(_Base):
         return [f"app:{self._bundle(args)}"]
 
     def ledger_args(self, args: BaseModel, hashed: dict[str, Any]) -> dict[str, Any]:
-        """P19 (notes/gateway.md target 3): where the click lands as what it is (the captured window and the element
+        """P19 (kb area gateway): where the click lands as what it is (the captured window and the element
         the screenshot's walk found under the point, else the point on a coarse grid of that window:
         `driver.click_identity`), not the shot id and pixels, so a new screenshot after an unknown outcome doesn't
         make the same click look new. A shot the driver doesn't know stays as it is (the call fails anyway)."""

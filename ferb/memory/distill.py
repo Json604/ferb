@@ -8,8 +8,8 @@ Daily distillation: for each past day, in order —
 
 Code checks every proposal before `Memory.save` (which checks the sources again): handles must exist; an observed
 item cites only the owner's own trail (E); nothing about the owner or their preferences may rest on FERB's activity
-(F) or on pasted third-party text (P); a third-party item must cite pasted text. No Keep questions (notes/memory.md
-decision 15): an inferred item is saved at once as FERB's understanding. It may quote the owner's words from one of its
+(F) or on pasted third-party text (P); a third-party item must cite pasted text. No Keep questions (kb area memory
+MEM-12): an inferred item is saved at once as FERB's understanding. It may quote the owner's words from one of its
 C handles: when chat capture's check passes on that message's typed lines, the owner's sentence is saved as theirs
 (`owner_said`). A fact already stored (its kind, subject and key hold a current item, whatever its origin) is skipped,
 unless the owner's own quoted words replace it (the live store's duplicate pairs came from re-proposing stored keys).
@@ -50,7 +50,7 @@ NOTHING_SHARED = "the quote shares no telling word with what FERB remembers"
 RETIRED_NOTICE = "I retired “{item}” because you said “{quote}” ({day}). Reply to undo."
 REPLACED_NOTICE = "I replaced “{item}” because you said “{quote}” ({day}). Reply to undo."
 STALE_NOTICE = "Memory: I stopped using “{item}”: it looks out of date ({day}). Tell me if it still holds."
-# Decision 17: the owner's own words FERB's check finds over are set aside, kept as history
+# MEM-14: the owner's own words FERB's check finds over are set aside, kept as history
 ASIDE_NOTICE = ("Memory: “{item}” looks over ({day}), so I'll stop using it. It's kept; tell me if it still holds and "
                 "I'll use it again.")
 ALREADY_STORED = "already remembered (its kind, subject and key hold a current item)"
@@ -192,7 +192,7 @@ class Distiller:
                 refused.append("a second check found it not worth keeping")
                 continue
             try:
-                if item.get("retire"):                 # L36 §6, decision 15: retired and told once, never asked
+                if item.get("retire"):                 # L36 §6, MEM-12: retired and told once, never asked
                     check(item, ev)
                     target = next(iter(self._current(item)), None)
                     if target is None:
@@ -208,7 +208,7 @@ class Distiller:
                         assert stated is not None
                         await self._tell(RETIRED_NOTICE, "retired", target, item, stated[1])
                         continue
-                    # FERB's own check (decision 17): its understanding is retired, the owner's words set aside
+                    # FERB's own check (MEM-14): its understanding is retired, the owner's words set aside
                     outcome = self.memory.looks_over(target.id, f"FERB's check of {day}: {why}")
                     retired.append(target.id)
                     stale.append({"item": target.id, "why": why, "outcome": outcome})
@@ -288,7 +288,7 @@ class Distiller:
                         origin.join({origin.FERB, origin.OWNER, memory_origin(ended.origin)}))
 
     async def _tell_stale(self, ended: Any, day: str, *, aside: bool = False) -> None:
-        """Decisions 15 and 17: an item FERB retired (or, the owner's own words, set aside) on its own check of the day
+        """MEM-12 and MEM-14: an item FERB retired (or, the owner's own words, set aside) on its own check of the day
         is told once, quietly; a reply undoes it."""
         from ferb.memory.learning import memory_origin
         text = (ASIDE_NOTICE if aside else STALE_NOTICE).format(item=" ".join(ended.content.split()), day=day)

@@ -33,7 +33,7 @@ ID_KEYED = frozenset({'episode', 'episode_annotation', 'episode_intent'})
 # an action ran on nor a call the gateway records no provenance for is outside (plan 2026-10-23 Task 2). A card an
 # older composer built is rebuilt once by the hourly pass.
 CARD_MAKER = 'code:evidence-card/4'
-# The error the redactor before step 6a parked cards with (redaction wasn't idempotent; notes/memory.md): such a card
+# The error the redactor before step 6a parked cards with (redaction wasn't idempotent; kb area memory): such a card
 # is read again (`cards_to_read`); a second failure records a new error, so it is tried once.
 PARKED_BY_REDACTION = 'redaction would still change it'
 # The composer before C1 (fixed in e0e344b): it copied into a card the refs of every block its planner was shown, and
@@ -182,7 +182,7 @@ def recorded_steps(actions: list[dict[str, Any]]) -> str:
 
 
 def how_note(body: dict[str, Any]) -> str:
-    """An episode's how-note (Tier 3, notes/memory.md): the worker's own note on what worked, the owner's hints during
+    """An episode's how-note (Tier 3, kb area memory): the worker's own note on what worked, the owner's hints during
     the task in their words (`owner_hints`: their corrections to it), and the steps its recorded tool calls show."""
     parts = []
     if str(body.get('how') or '').strip():
@@ -603,7 +603,7 @@ class Learning:
                            | ({'declared': inp['declared']} if inp.get('declared') else {}))
         feedback = [dict(r) for r in self.db.conn.execute(
             'SELECT verdict,note,at FROM owner_verdicts WHERE task_id=? ORDER BY seq', (task_id,))]
-        # notes/memory.md decision 5: the owner's latest verdict decides (their pass counts as verified, as the checker's
+        # MEM-3: the owner's latest verdict decides (their pass counts as verified, as the checker's
         # does; their fail overrides); without one, the checker's
         valid = (feedback[-1]['verdict'] == 'pass') if feedback else ep['verified'] is True
         hints, hint_refs = self._owner_hints(task_id)
@@ -686,7 +686,7 @@ class Learning:
 
     def card_source_plan(self, stop: Callable[[], bool] = lambda: False,
                          removing: Iterable[str] = ()) -> dict[str, Any]:
-        """What the one-time clean-out removes from episode cards' source rows (notes/storage.md decision 4), read
+        """What the one-time clean-out removes from episode cards' source rows (STORE-402), read
         without writing: each version of a card, in any state, keeps only what the current card rule gives it. A
         traced task's versions keep what its trace gives (the composer before memory review C1, COPYING_CARD_MAKER,
         copied in every ref its planner was shown, and each earlier version's); a version whose trace aged out keeps
@@ -1193,7 +1193,7 @@ def index_summaries(learning: Learning, stop: Callable[[], bool] = lambda: False
     """Index each day summary and narrative for search (the daily distill's output as `activity_summary` nodes). A
     day is indexed again only when its journal row changed (a rebuilt summary has a new one), so a pass indexes only
     new days. `stop`, asked before each day, ends the pass there. (No other rollups: the day/week/month episode and
-    entity summaries went with procedure learning, notes/memory.md.)"""
+    entity summaries went with procedure learning, kb area memory.)"""
     from ferb.memory.summary import NARRATIVE_KIND, SUMMARY_KIND, build
     l = learning
     for row in l.db.conn.execute('SELECT id,kind,data_json FROM journal WHERE kind IN (?,?)',

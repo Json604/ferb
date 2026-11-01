@@ -1,5 +1,5 @@
-"""Own the daemon's side of FERB's self-description (decision 6: `about.get`, `about.guide`, the always-on summary, the
-`about.read` tool's document), of FERB.app's Settings → Data saved secrets (decision 8: `secrets.saved`,
+"""Own the daemon's side of FERB's self-description (DMN-6: `about.get`, `about.guide`, the always-on summary, the
+`about.read` tool's document), of FERB.app's Settings → Data saved secrets (APP-2: `secrets.saved`,
 `secrets.delete`) and of "What FERB saw" (step 12e: `seen.list`, `seen.image`, the stored redacted screenshots). Must
 not change a setting, show a secret's value, let anything but FERB.app delete one or see a screenshot, take a capture
 anew, or show an image of an app or site on the owner's exclusion list."""
@@ -118,7 +118,7 @@ class About:
         return {"howtos": len(self._app_guide["howtos"]), "shortcuts": len(self._app_guide["shortcuts"]),
                 "places": len(self._app_guide["places"])}
 
-    # ---------- saved secrets and cards (decision 8) ----------
+    # ---------- saved secrets and cards (APP-2) ----------
 
     def _owner_secrets(self) -> Any:
         from ferb.identity.owner_secrets import OwnerSecrets

@@ -139,7 +139,7 @@ class Browsers:
 
     def _owner_browsing_profile(self) -> tuple[str, str] | None:
         """The owner's profile FERB browses in while it has no profile of its own (`browsing.owner_profile`, chosen in
-        FERB.app; daemon decision 7), else None."""
+        FERB.app; APP-1), else None."""
         browser, _, folder = str(self.config.get("browsing", "owner_profile", "") or "").partition("/")
         return (browser, folder) if browser and folder else None
 
@@ -162,7 +162,7 @@ class Browsers:
         self.downloads = downloads.Downloads(self.home / "workspace" / downloads.FOLDER, self.db, self.clock.now,
                                              self.config.get, lambda text: str(self.redact({"u": text})["u"]),
                                              self._publish)
-        self.downloads.on_over_cap = self._downloads_cap     # hands decision 8: over the cap, the owner is asked
+        self.downloads.on_over_cap = self._downloads_cap     # HAND-211: over the cap, the owner is asked
         for name, step in (("sweep", self.downloads.sweep), ("finalize_stale", self.downloads.finalize_stale)):
             try:                                         # what a restart cut off, each step on its own
                 step()
@@ -204,8 +204,8 @@ class Browsers:
             drv.task_root = self._task_root
             drv.max_tabs = lambda: int(self.config.get("browser", "task_max_tabs", 50))
             drv.redact_text = lambda text: str(self.redact({"u": text})["u"])
-            # owner decision 3: the task's tab group is labelled with its request's first words (group_title); a paused
-            # task keeps its group (owner decision 8: nothing of it is released). "Keep the tabs open" (keep_tabs_open)
+            # HAND-201: the task's tab group is labelled with its request's first words (group_title); a paused
+            # task keeps its group (ORCH-308: nothing of it is released). "Keep the tabs open" (keep_tabs_open)
             # waits for the planner's wiring (step 8c).
             drv.task_title = self._task_title
             drv.task_paused = lambda task_id: self.supervisor is not None and self.supervisor.task_paused(task_id)
@@ -297,7 +297,7 @@ class Browsers:
         return out
 
     async def _identity_find(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """FERB.app's "Give FERB its own Google account" (daemon decision 7; auth.APP_ONLY): FERB's account as set now
+        """FERB.app's "Give FERB its own Google account" (APP-1; auth.APP_ONLY): FERB's account as set now
         and whether its profile is paired, and, for `address` (the account the owner made), each profile signed into
         it. The owner made the account and signed it in; FERB only looks."""
         address = str(params.get("address") or self.config.get("mailbox", "address", "") or "").strip().lower()

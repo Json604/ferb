@@ -190,7 +190,7 @@ class Rpc:
         return task_id
 
     async def _task_preview(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """`tasks.preview {task_id, worker?}` (FERB.app only, auth.APP_ONLY): the live preview now (notes/preview.md).
+        """`tasks.preview {task_id, worker?}` (FERB.app only, auth.APP_ONLY): the live preview now (kb area app).
         `state`: working (here) / working_elsewhere / asking / waiting / paused / done / none (no window yet); `line`:
         what FERB is doing, for the app to draw over the frame; `image`: the masked frame (base64 JPEG/PNG), fresh or
         the frozen last one (`fresh`); `step`/`worker`: which step's surface it shows (parallel steps each have one);
@@ -413,7 +413,7 @@ class Rpc:
         out["clipboard"] = await asyncio.to_thread(self._clipboard_access)     # I3: never reads the contents
         from ferb.core.context import token_method
         out["tokenizer"] = token_method()                 # FERB's pinned o200k copy, or the byte ceiling (8a)
-        if self.db is not None:                       # FERB.app's Health: the store and its clean-up (storage decision 4)
+        if self.db is not None:                       # FERB.app's Health: the store and its clean-up (STORE-402)
             from ferb.store import cleanup
             from ferb.store.db import store_size
             out["database"] = {"bytes": await asyncio.to_thread(store_size, self.db.path),

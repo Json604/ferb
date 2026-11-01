@@ -108,9 +108,9 @@ class MemoryItem:
     confidence: float
     origin: Literal["owner_stated", "observed", "inferred", "third_party"]
     status: Literal["proposed", "active", "retracted"]
-    about: str = ""                           # decision 13: what the owner's words are about (from the task)
+    about: str = ""                           # MEM-10: what the owner's words are about (from the task)
     review_at: datetime | None = None         # when FERB checks a period fact still holds (no end in their words)
-    set_aside: bool = False                   # decision 17: the owner's words FERB stopped using as over (kept)
+    set_aside: bool = False                   # MEM-14: the owner's words FERB stopped using as over (kept)
 
 
 # ---------- actions (descriptive execution metadata) ----------
@@ -143,7 +143,7 @@ class ReceivedBy:
 
 @dataclass(frozen=True)
 class ActionFacts:
-    """Structural facts a capability reports about its call (gateway decision 1, notes/gateway.md): read by code from
+    """Structural facts a capability reports about its call (GATE-202, kb area gateway): read by code from
     the page, the app or the file system, never the worker's words and never a judgment of intent. Every field is
     optional; None or empty means not known. The gateway raises questions from them (step 6b: pay, account security,
     permanent delete, a form submitted to a site) and records them on the call's span."""
@@ -342,7 +342,7 @@ class ToolContext:
     path_closed: Callable[[Path, str], str | None] | None = None
     escape: EscapeGrant | None = None
     terminal: TerminalGrant | None = None    # the owner's Yes to the one terminal input this call makes (D31)
-    # The task's folders, resolved by the planner from the owner's words (hands decision 4): the only visible folders
+    # The task's folders, resolved by the planner from the owner's words (HAND-204): the only visible folders
     # FERB's shell may change. Empty until the planner sets them (step 8).
     folders: tuple[str, ...] = ()
 
@@ -412,7 +412,7 @@ class ActionResult:
     ok: bool
     detail: str = ""
     facts: dict[str, Any] = field(default_factory=dict)
-    observed: ActionFacts | None = None      # structural facts code read around the action (gateway decision 1)
+    observed: ActionFacts | None = None      # structural facts code read around the action (GATE-202)
 
 
 @dataclass(frozen=True)
@@ -469,7 +469,7 @@ class PageSnapshot:
     # in_view[, frame]}
     media: list[dict[str, Any]] = field(default_factory=list)
     # the addresses of the page's embedded frames (each child frame's own and each frame element's src, query strings
-    # masked): structural facts such as a bot-check widget's challenge frame (hands decision 6)
+    # masked): structural facts such as a bot-check widget's challenge frame (HAND-208)
     frame_urls: list[str] = field(default_factory=list)
 
 

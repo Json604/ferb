@@ -108,7 +108,7 @@ def typed_site(host: str, typed: Any) -> bool:
     return bool(bare) and bool({bare, 'www.' + bare} & (typed.tokens | typed.hosts))
 
 
-# Gateway decision 6: a card's details saved from a card field (autocomplete cc-number / cc-csc / cc-exp, the field
+# GATE-206: a card's details saved from a card field (autocomplete cc-number / cc-csc / cc-exp, the field
 # kinds the extension reports) keep that kind, and fill only a field of the same kind; a card field takes only a saved
 # entry of its kind (or the owner's one-time hidden input). Models see the name and the kind, never the value.
 CARD_KINDS = frozenset({'card_number', 'card_csc', 'card_expiry'})
@@ -215,7 +215,7 @@ class OwnerSecrets:
         self.keychain_delete = (lambda account: _keychain_delete(account, home)) if delete is _keychain_delete else delete
 
     def inventory(self) -> list[dict[str, Any]]:
-        """Every saved entry by name, for FERB.app's Settings → Data (daemon decision 8): its place, its name (the
+        """Every saved entry by name, for FERB.app's Settings → Data (APP-2): its place, its name (the
         handle a model sees), its kind (a card detail's, else "secret") and whether it is unusable. Never a value, a
         Keychain account or a username."""
         data = self._load()
@@ -225,7 +225,7 @@ class OwnerSecrets:
         return out
 
     def delete(self, place: str, name: str) -> dict[str, Any]:
-        """The owner's Delete on one saved entry (daemon decision 8): its Keychain item goes first (through the helper,
+        """The owner's Delete on one saved entry (APP-2): its Keychain item goes first (through the helper,
         never read), then its name; a record left with no entries, username or sites goes too. Refused for a name not
         saved there. Returns what was deleted (names only)."""
         with self._edit() as data:
@@ -331,7 +331,7 @@ class OwnerSecrets:
 
     def reveal(self, handle: str, target: str, kind: str | None = None) -> str:
         """The value saved as `handle` for `target`, for a field of kind `kind` (a card detail fills only its own kind
-        of field, decision 6)."""
+        of field, GATE-206)."""
         refuse_whole_browser(target)                    # a handle saved that way before the rule is never filled
         record = self._load()['records'].get(target, _empty())
         account = record['entries'].get(handle)
@@ -361,7 +361,7 @@ class OwnerSecrets:
                                   'another name')
             self.keychain(account, value)
             record['entries'][handle] = account
-            if kind in CARD_KINDS:                       # decision 6: a card detail keeps its field's kind
+            if kind in CARD_KINDS:                       # GATE-206: a card detail keeps its field's kind
                 record['kinds'][handle] = kind
             else:
                 record['kinds'].pop(handle, None)

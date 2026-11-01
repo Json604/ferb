@@ -1,5 +1,5 @@
 """L33: where FERB is about to act, for FERB's on-screen cursor (`point`), and the surface it works on, for the live
-preview (`preview_target`, notes/preview.md): both are a capability's declarations about one call, beside `on_screen`.
+preview (`preview_target`, kb area app): both are a capability's declarations about one call, beside `on_screen`.
 The point is geometry only: never a label, value, URL or text.
 
 A capability's `point()` must not block the event loop: synchronous Accessibility or Quartz work goes through

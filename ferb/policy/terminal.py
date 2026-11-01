@@ -1,4 +1,4 @@
-"""Owns which on-screen element is a terminal (D31, CLAUDE.md rule 10) and the owner's question before FERB types into
+"""Owns which on-screen element is a terminal (D31, AGENTS.md rule 10) and the owner's question before FERB types into
 one. A where/what boundary decided by code from the app and from the element's own structural Accessibility facts and
 its ancestors' (rule 5). Must not read what an element shows, judge what is typed or decide intent (rule 6): any input
 into a terminal asks, whatever it is.

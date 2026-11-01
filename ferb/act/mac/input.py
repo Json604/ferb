@@ -273,7 +273,7 @@ def screen_wide(combo: str) -> bool:
 
 
 def quit_or_hide(combo: str) -> str | None:
-    """"quit" for ⌘Q, "hide" for ⌘H, "hide_others" for ⌥⌘H (owner decision 2: they go through FERB's safe quit/hide,
+    """"quit" for ⌘Q, "hide" for ⌘H, "hide_others" for ⌥⌘H (HAND-200: they go through FERB's safe quit/hide,
     never straight to the app), else None."""
     parts = normalize(combo)
     if not parts:

@@ -8,7 +8,7 @@ Durable timers: SQLite-backed; survive restarts and sleep; delivered exactly onc
   then acknowledged (-> delivered). A crash between claim and acknowledgement leaves it claimed; on start it's
   handed over again, and the consumer skips a timer id it already acted on (`timer_deliveries`, written in the same
   transaction as the consumer's own record).
-- When the owner is at the Mac (orchestration decision 17): a timer added `when_active` (a row in
+- When the owner is at the Mac (ORCH-317): a timer added `when_active` (a row in
   `timer_when_active`) is not claimed while the Mac is out of use (`owner_away`: the Mac's presence signal, asleep,
   displays asleep, locked or switched away; never input idleness); it fires at
   its time when they're active then, else when they're back (`wake()` on their return). One with `return_after` waits
@@ -59,7 +59,7 @@ class Timers:
         self.consume = consume
         # told of a consumer that raised (the timer) or a check that failed (None); the daemon journals it
         self.on_error = on_error
-        # decision 17: whether the Mac is out of use, and when its current stretch of use began (None: not known); the
+        # ORCH-317: whether the Mac is out of use, and when its current stretch of use began (None: not known); the
         # daemon sets both from its presence signal (MacPresence), and calls `wake()` when the Mac is back in use
         self.owner_away: Callable[[], bool] = lambda: False
         self.present_since: Callable[[], datetime | None] = lambda: None   # None: FERB can't tell (unknown = present)
@@ -70,7 +70,7 @@ class Timers:
     def add(self, kind: str, fire_at: datetime, message: str = "", task_id: str | None = None,
             request_id: str | None = None, *, when_active: bool = False,
             return_after: datetime | None = None) -> Timer:
-        """`when_active` (decision 17): it fires only while the owner is at the Mac; `return_after`: only in an active
+        """`when_active` (ORCH-317): it fires only while the owner is at the Mac; `return_after`: only in an active
         stretch that began after that time."""
         now = self.clock.now()
         if fire_at.tzinfo is None or (return_after is not None and return_after.tzinfo is None):
@@ -94,7 +94,7 @@ class Timers:
         return _row(r) if r else None
 
     def when_active(self, tid: str) -> bool:
-        """It fires only while the owner is at the Mac (decision 17)."""
+        """It fires only while the owner is at the Mac (ORCH-317)."""
         return self.db.conn.execute("SELECT 1 FROM timer_when_active WHERE timer_id = ?", (tid,)).fetchone() is not None
 
     def wake(self) -> None:
@@ -103,7 +103,7 @@ class Timers:
 
     def _held(self) -> tuple[str, dict[str, Any]]:
         """The SQL condition (on `timers`) for a pending timer held for the owner now, and its arguments: when-active
-        while they're away, or one waiting for a return that hasn't come (decision 17)."""
+        while they're away, or one waiting for a return that hasn't come (ORCH-317)."""
         since = self.present_since()
         return ("id IN (SELECT timer_id FROM timer_when_active WHERE :away OR (return_after IS NOT NULL AND "
                 ":since IS NOT NULL AND julianday(return_after) >= julianday(:since)))",

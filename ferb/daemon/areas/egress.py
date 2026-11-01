@@ -71,7 +71,7 @@ class Egress:
         self._journal_from_any_thread("shell.network", {"task_id": info.owner_task, "process": info.id, **facts})
 
     def _shell_received(self, task: str, n: int) -> str | None:
-        """Hands decision 7 (on the loop): a shell command of `task` received `n` more bytes through the proxy. They
+        """HAND-210 (on the loop): a shell command of `task` received `n` more bytes through the proxy. They
         count against the task tree's download budget, the one the browser's downloads use; the answer is why the
         command must stop (past that budget, or the disk under the free-disk floor), journaled, or None."""
         downloads = getattr(self, "downloads", None)

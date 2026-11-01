@@ -388,7 +388,7 @@ class WorkerRuns:
             if task.role == 'worker':
                 # Runtime construction can itself fail (for example missing subscription login).
                 tree.result_revision = len(tree.steering.messages)
-            # the owner's one-tap switch for this task (owner decision 16) runs its worker and its checker there
+            # the owner's one-tap switch for this task (ORCH-315) runs its worker and its checker there
             role = (("checker:" + tree.runtime if tree.runtime else "checker") if task.role == "verifier"
                     else "worker:" + (tree.runtime or tree.spec.worker_type))
             rt = self.make_runtime(role, mode="worker", tool_names=tools, schema=schema,

@@ -1,6 +1,6 @@
-"""Owns one memory import as a background job (notes/memory-import.md): its estimate, run record, progress, resume,
+"""Owns one memory import as a background job (kb area memory): its estimate, run record, progress, resume,
 cancel and the one summary notice. Must not keep what the conversations said (only ids, counts and hashes), run a
-model call while the owner's chat turn is under way, or ask the owner to approve the facts (decision 6).
+model call while the owner's chat turn is under way, or ask the owner to approve the facts (MEM-406).
 
 A run reads its source again each time it starts or resumes (the export path the owner chose is kept), skips the
 conversation parts already read (`memory_import_done`, by hash), and works chunk by chunk: wait while the owner's turn
@@ -262,7 +262,7 @@ class ImportJob:
         return self.row(run_id) or {}
 
     async def tell_done(self, run_id: str) -> None:
-        """The one summary notice (decision 6): how many facts, a few examples as note cards, and the memory page."""
+        """The one summary notice (MEM-406): how many facts, a few examples as note cards, and the memory page."""
         from ferb.core import origin
         from ferb.orchestrator import cards
         row = self.row(run_id)

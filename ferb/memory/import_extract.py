@@ -1,4 +1,4 @@
-"""Owns turning imported conversations into memory facts (notes/memory-import.md, Shape 2-5). Must not let anything but
+"""Owns turning imported conversations into memory facts (kb area memory, Shape 2-5). Must not let anything but
 the owner's own messages state a fact about them, save an imported fact as the owner's words, add a known destination,
 or keep the conversations themselves.
 
@@ -17,8 +17,8 @@ or keep the conversations themselves.
 4. **Merge and save**: candidates naming one fact share its kind, subject and key (a held fact's, when `same_as` names
    it); within a fact the newer words win (`save` in the order the owner said them: a newer version ends the older,
    kept as history); a fact FERB holds in the owner's own words, or holds as of a later date, is left as it is. Every
-   fact is saved as FERB's understanding (`inferred`, never `owner_stated`: decision 2), its label "imported from
-   <assistant>", resting on the run's journal row; it joins the core profile only once it holds up (decision 6)."""
+   fact is saved as FERB's understanding (`inferred`, never `owner_stated`: MEM-402), its label "imported from
+   <assistant>", resting on the run's journal row; it joins the core profile only once it holds up (MEM-406)."""
 
 import hashlib
 import json

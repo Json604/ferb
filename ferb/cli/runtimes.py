@@ -94,7 +94,7 @@ def use(home: Path, role: str, runtime: str, model: str | None, out: TextIO) -> 
 
 
 # `ferb runtimes pins` (developer toolbox): FERB's Codex and Claude Agent SDK pins against what npm and PyPI publish.
-# It informs only: it never changes a pin (moving one is the checklist in notes/runtimes.md "Moving the Codex/Claude
+# It informs only: it never changes a pin (moving one is the checklist in RUN-411, "Moving the Codex and Claude
 # pins"), and it reaches the network only when a developer runs it.
 NPM_TAGS = "https://registry.npmjs.org/-/package/@openai/codex/dist-tags"
 NPM_SEARCH = "https://registry.npmjs.org/-/v1/search?text=%40openai%2Fcodex&size=5"

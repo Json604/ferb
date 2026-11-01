@@ -1,7 +1,7 @@
 """Speak FERB's own replies aloud through the speech provider the owner configured. Must not choose what is said or
 when, or let any provider receive text that hasn't been through the Redactor.
 
-Owner decisions (notes/voice.md 2, 3): macOS's own voice now; other providers plug in later the way model runtimes do
+Owner decisions (kb area voice 2, 3): macOS's own voice now; other providers plug in later the way model runtimes do
 (ferb/runtimes/catalog.py). A reply is spoken when the app's turn asked for it (`chat.send` with `speak: true`, sent
 from the app's dictation); its words come from the turn's structured reply and answer events (ferb/daemon/areas/voice.py).
 - `[voice]` in config.toml: `tts` names a provider in PROVIDERS (default "macos"), `voice` the provider's voice

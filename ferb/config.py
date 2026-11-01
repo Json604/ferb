@@ -32,7 +32,7 @@ FERB_WRITTEN = {("browser", "download_max_mb"): (100, 512), ("browser", "downloa
                 ("browser", "download_task_max_mb"): (500, 4096), ("browser", "download_total_mb"): (2048, 20480),
                 ("browser", "task_max_tabs"): (20, 50)}
 RETIRED = (("retention", "download_days"),)
-# Hands decision 7 (owner, 2026-10-31) replaces 2026-10-09's download limits: no size cap per file (the key goes: an old
+# HAND-210 (owner, 2026-10-31) replaces 2026-10-09's download limits: no size cap per file (the key goes: an old
 # config still setting it is never read), 300 files and 32 GB per task tree (50 files and 4 GB before), and every
 # limit in decimal GB, as Finder shows it (ruling, step 12e: the MB keys were binary, the free-disk floor decimal). A
 # key holding the 2026-10-09 value takes the new one; an owner's own MB value is kept, converted to GB.
@@ -223,7 +223,7 @@ class Config:
         return changed
 
     def upgrade_downloads(self) -> list[dict[str, Any]]:
-        """Hands decision 7 (DOWNLOADS_DECIDED), all or nothing in one atomic write: the per-file key goes; the files
+        """HAND-210 (DOWNLOADS_DECIDED), all or nothing in one atomic write: the per-file key goes; the files
         limit still at 2026-10-09's 50 becomes 300; each MB key goes, and an owner's own value (anything but
         2026-10-09's) carries over to its GB key, converted (MiB to decimal GB). Returns what changed."""
         doc = self.load()

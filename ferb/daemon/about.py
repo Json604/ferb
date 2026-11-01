@@ -1,4 +1,4 @@
-"""Own FERB's read-only self-description (notes/daemon.md decision 6): built from code and config each time, so it never
+"""Own FERB's read-only self-description (DMN-6): built from code and config each time, so it never
 goes stale. Must not change anything, or carry a secret or a value the redactor would hide.
 
 Three readers, one source:
@@ -55,7 +55,7 @@ def clean_guide(value: Any) -> dict[str, Any]:
 
 
 class AboutRead:
-    """FERB's self-description for a worker (decision 6): read-only, redacted, the same document FERB.app shows."""
+    """FERB's self-description for a worker (DMN-6): read-only, redacted, the same document FERB.app shows."""
     name = "about.read"
     description = ("Read FERB's own self-description: version and models, FERB's own account, permissions, the owner's "
                    "current settings and where each is changed in FERB.app, what FERB records about the owner (where "

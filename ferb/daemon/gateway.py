@@ -1,7 +1,7 @@
 """Own tool validation, authorization, execution locks and recording. Must not infer intent, targets or authorization
 from words: agents decide intent; code decides from facts whether the owner must be asked (rule 5, rule 6).
 
-One pipeline per call (notes/gateway.md target 1, step 6b): admission (FERB not stopped, the task running, the tool in
+One pipeline per call (kb area gateway): admission (FERB not stopped, the task running, the tool in
 the worker's scopes and identity, an acting tool never for the final checker) → validate (arguments, the agent's notes
 stripped: why / effect / destination) → facts (the capability's description and the structural facts its tool reads:
 `ActionSpec.facts`) → boundaries that need nobody (a delegated conversation's scope, FERB's own files, card digits typed
@@ -15,11 +15,11 @@ cursor, desktop samples, change record copies, the first picture, evidence, shad
 hook around the call (ferb/daemon/call_hooks.py), never deciding; hidden-input questions (secrets, login codes, the
 admin password) are ferb/daemon/hidden_input.py.
 
-Facts before declarations (gateway decision 1, W2): a form submitted with card fields is a payment, with a new-password
+Facts before declarations (GATE-202, W2): a form submitted with card fields is a payment, with a new-password
 field an account-security change, a tool's reported delete outside the Trash a permanent delete, any form submit a send
 to the site it posts to; the worker's `effect` (and a generic input's declared destination) can only add a question.
-One payment, one question (decision 4): a payment in a task's browser tab asks once, showing the amount and merchant
-code read on the page (ferb/policy/payments.py). Known destinations (decision 5): only a destination the owner approved
+One payment, one question (GATE-204): a payment in a task's browser tab asks once, showing the amount and merchant
+code read on the page (ferb/policy/payments.py). Known destinations (GATE-205): only a destination the owner approved
 excuses the sink rule; one only mentioned in a request is known for normal use.
 A tool's image goes to the model and to the evidence store (V1), never into a span, the journal or a log (L13, D29).
 The final checker's token is observe-only: it is offered, and may run, only capabilities marked `observation` (V3, W4).
@@ -32,9 +32,9 @@ S1: before a call changes an existing file, a copy of the file it really writes 
 no copy, no change. A trash keeps where the item came from and went, and a copy of a file too (L39). A local APFS
 snapshot before a permanent delete and before each shell command, best effort.
 Rule 10: a tool that names files declares them (`file_paths(args)`); none of them may be FERB's own state, FERB.app or
-FERB's launchd definitions. Gateway decision 2: one inside or holding a never-read store, or a never-write place it
+FERB's launchd definitions. GATE-203: one inside or holding a never-read store, or a never-write place it
 changes, asks the owner first: a read once per protected folder per task tree (shared with the shell's read escape,
-hands decision 1), a change per call.
+GATE-200), a change per call.
 FERB asks directly in chat with its own labelled line and Yes/No, never through the orchestrator (`ask_confirmation`).
 The answer is a confirmations row keyed by the task tree, so it carries across retries; a No is final for the tree
 until the owner's own follow-up reopens it; a confirmed destination is known to later tasks. A scheduled run (nobody
@@ -143,9 +143,9 @@ TERMINAL_SECRET = ("{field} holds a saved secret, so FERB neither shows it in a 
                    "a saved secret goes in only through mac.secret, the owner's hidden input (D31)")
 NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report that it is waiting for the owner."
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
-# Decision 23: the owner-secret fills (ferb/daemon/hidden_input.py), whose `secret` argument names a saved entry
+# ORCH-321: the owner-secret fills (ferb/daemon/hidden_input.py), whose `secret` argument names a saved entry
 SEALED_FILLS = ("browser.secret", "ferb_browser.secret", "mac.secret")
-# Decision 6: card details go in only sealed (browser.secret / mac.secret with the owner's saved card or hidden input)
+# GATE-206: card details go in only sealed (browser.secret / mac.secret with the owner's saved card or hidden input)
 CARD_TYPED = ("card details go into a page only through FERB's sealed fill (browser.secret, with a card the owner saved "
               "or the owner's hidden input), never typed: nothing was typed")
 NO_SITE = "this address names no site FERB can check, so it didn't run"
@@ -224,7 +224,7 @@ def lift_how(access: str) -> str:
 
 
 def lift_need(protection: Protection, rule: str, how: str, call: str) -> confirm.Need:
-    """FERB's question for lifting a protection rule (gateway decision 2, hands decision 1): a read covers every read
+    """FERB's question for lifting a protection rule (GATE-203, GATE-200): a read covers every read
     of that folder in the task tree (its key names the rule only, shared by the file tools and the shell's read
     escape); a change covers this one call (always asked)."""
     entry = protection.entry(rule)
@@ -283,7 +283,7 @@ def hashed_args(cap: Any, args: Any) -> dict[str, Any]:
     "Chat" and its bundle id, are one action; and how the call is delivered (`method_args`: a mechanism, page_mode,
     background), since another method for the same action is exactly the retry P19 forbids. A key named path elsewhere
     (mac.menu's menu item) stays. A capability whose arguments name a target only for one observation (a snapshot's
-    element id, a screenshot's pixels) gives its stable form (`ledger_args`: notes/gateway.md target 3), so a fresh
+    element id, a screenshot's pixels) gives its stable form (`ledger_args`: kb area gateway), so a fresh
     look after an unknown outcome doesn't make the same action look new."""
     dropped = set(getattr(cap, "target_args", ())) | set(getattr(cap, "method_args", ()))
     hashed = {k: v for k, v in args.model_dump(mode="json").items() if k not in dropped}
@@ -419,7 +419,7 @@ def _window_of(found: Any) -> str | None:
 
 
 def _screen_told(screen: dict[str, Any] | None) -> dict[str, Any]:
-    """The call's screen change for the worker's result (hands decision 9), else nothing."""
+    """The call's screen change for the worker's result (HAND-212), else nothing."""
     from ferb.daemon.disturbance import told
     fact = told(screen) if screen else {}
     return {"screen_changed_during_call": fact} if fact else {}
@@ -460,7 +460,7 @@ class Call:
     ident: tuple[str, str] | Refused | None     # P19's (ledger key, payload hash); None for a reversible call
     lock_keys: list[str]
     armed: str | None                           # D31: the Yes an approved terminal text left for its one Return
-    fact_targets: list[tuple[str, Target]] = field(default_factory=list)   # what the tool's facts add (decision 1)
+    fact_targets: list[tuple[str, Target]] = field(default_factory=list)   # what the tool's facts add (GATE-202)
     extra: dict[str, Any] = field(default_factory=dict)                     # what the span records beside the call
     lifts: dict[tuple[str, str], confirm.Need] = field(default_factory=dict)   # protected folders it opens
     found: list[tuple[Path, str, list[str]]] = field(default_factory=list)
@@ -468,7 +468,7 @@ class Call:
     escape_need: confirm.Need | None = None
     terminal: TerminalInput | None = None                           # D31: what would go into a terminal
     terminal_need: confirm.Need | None = None
-    pay: payments.PayFacts | None = None                            # a payment in a task's tab (decision 4)
+    pay: payments.PayFacts | None = None                            # a payment in a task's tab (GATE-204)
     pay_cid: str | None = None                                      # the Yes that covers it
     pay_key: str | None = None
 
@@ -512,7 +512,7 @@ class Gateway:
         self.locks = ResourceLocks()
         self.hooks = CallHooks(self)                       # what only records or shows, around a call
         self.hidden = HiddenInput(self)                    # hidden-input questions (secrets, codes, admin password)
-        self.payments = payments.Payments(lambda: clock.now())   # decision 4: each tab's approved payment
+        self.payments = payments.Payments(lambda: clock.now())   # GATE-204: each tab's approved payment
         # where a fault the gateway survives is journaled (the daemon's journal): kind, redacted data
         self.journal_problem: Callable[[str, dict[str, Any]], None] = deps.journal_problem
         self.profile_name: Callable[[str, str], str] = deps.profile_name
@@ -550,7 +550,7 @@ class Gateway:
         # D31: the Yes a task's approved terminal text left for its one Return, valid only as the task's very next
         # acting call (review round 1, finding 3): any other acting call clears it
         self._terminal_arms: dict[str, str] = {}
-        # Hands decision 4: each task tree's folders, resolved by the planner from the owner's words, the only visible
+        # HAND-204: each task tree's folders, resolved by the planner from the owner's words, the only visible
         # folders its shell commands may change (ToolContext.folders). Step 8 sets them from the planner's `folders`
         # field; until then none, so commands change only hidden folders, ~/Library, temp and the workspace.
         self.task_folders: dict[str, tuple[str, ...]] = {}
@@ -726,7 +726,7 @@ class Gateway:
                 job.cancel()
 
     def interrupt_tasks(self, task_ids: set[str]) -> None:
-        """A pause (owner decision 8): the calls these tasks have in flight end, as a stop ends them, but the tasks may
+        """A pause (ORCH-308): the calls these tasks have in flight end, as a stop ends them, but the tasks may
         call again once they resume."""
         for job, tid in list(self._in_flight.items()):
             if tid in task_ids:
@@ -923,7 +923,7 @@ class Gateway:
     async def _build(self, grant: RunGrant, rec: Any, cap: Any, name: str, arguments: dict[str, Any],
                      reply: Callable[..., dict[str, Any]]) -> "Call | dict[str, Any]":
         """Validate (the agent's notes stripped), precheck, owner.ask's own path, then the capability's description,
-        the worker's declaration (W2: it only adds), the tool's facts (decision 1), P19's identity and the locks."""
+        the worker's declaration (W2: it only adds), the tool's facts (GATE-202), P19's identity and the locks."""
         armed = None if observes(cap) else self._terminal_arms.pop(grant.task_id, None)   # D31: next action only
         arguments = dict(arguments)
         why = str(arguments.pop("why", "") or "").strip()
@@ -981,7 +981,7 @@ class Gateway:
             c.extra["fact_kinds"] = sorted({k for k, _ in c.fact_targets})
         if name in SEALED_FILLS and c.facts is not None and "card_number" in c.facts.field_kinds and \
                 isinstance(entry := c.arguments.get("secret") or c.arguments.get("remember"), str) and entry.strip():
-            # decision 23: the saved card entry this fill puts into a card-number field, by its name: the one it fills
+            # ORCH-321: the saved card entry this fill puts into a card-number field, by its name: the one it fills
             # from (`secret`), else the one the owner saves it under in this fill (`remember`; the fill runs only once
             # the save succeeded, HiddenInput.secret). `secret` is masked on the record as a secret-named key; the
             # name alone is no secret: models see it
@@ -989,7 +989,7 @@ class Gateway:
         return c
 
     def _fact_targets(self, c: "Call") -> list[tuple[str, Target]]:
-        """Decision 1: the kinds the tool's structural facts add, each with what it reaches: a form submitted with card
+        """GATE-202: the kinds the tool's structural facts add, each with what it reaches: a form submitted with card
         fields is a payment; with a current-password and a new-password field, an account-security change (a sign-up's
         new-password field alone is not); any form submit, a send to the site it posts to, asked only when what was
         typed into it carries the owner's private data (`_submit_sink`); a path a tool reports removing, other than to
@@ -1012,7 +1012,7 @@ class Gateway:
 
     async def _boundaries(self, c: "Call", reply: Callable[..., dict[str, Any]]) -> dict[str, Any] | None:
         """What refuses a call without asking anyone: a delegated conversation's scope, FERB's own files (never
-        lifted), card details typed in the clear (decision 6), an address with no site, an escape the rules never
+        lifted), card details typed in the clear (GATE-206), an address with no site, an escape the rules never
         lift, test mode's allowlist (D17), an identical call that already ran for a caller who left, P19's unresolved
         repeat. The reply, else None."""
         grant, rec, cap, name = c.grant, c.rec, c.cap, c.name
@@ -1060,7 +1060,7 @@ class Gateway:
         return None
 
     def _card_typed(self, c: "Call") -> bool:
-        """Decision 6: text typed into a card field, or a payment card's number typed anywhere (a Luhn-valid number,
+        """GATE-206: text typed into a card field, or a payment card's number typed anywhere (a Luhn-valid number,
         `Redactor.hit`), outside the sealed fill. A sealed fill carries no text (its content is None)."""
         if c.spec.kind not in (Kind.FILL_FORM, Kind.MAC_INPUT) or not isinstance(c.spec.content, str):
             return False
@@ -1075,7 +1075,7 @@ class Gateway:
         """Every reason this call needs the owner, each a Need produced from facts; a reply when it can't run at all
         (a folder delete FERB can't count, a saved secret bound for a terminal)."""
         needs: list[confirm.Need] = []
-        needs += self._lift_needs(c)                     # rule 10, decision 2: protected folders
+        needs += self._lift_needs(c)                     # rule 10, GATE-203: protected folders
         url = await self._url_sink_need(c)               # S4: a browser address carrying the owner's data
         if url is not None:
             needs.append(url)
@@ -1111,7 +1111,7 @@ class Gateway:
         return list(unique.values())
 
     def _lift_needs(self, c: "Call") -> list[confirm.Need]:
-        """Gateway decision 2, hands decision 1: a file inside or holding a never-read store, or a never-write place
+        """GATE-203, GATE-200: a file inside or holding a never-read store, or a never-write place
         the call changes: a read once per protected folder per task tree (the Yes covers every later read of it in the
         tree, the shell's read escape of that folder included), a change (write or removal) for this one call."""
         protection = self.roots.protection
@@ -1125,7 +1125,7 @@ class Gateway:
 
     async def _url_sink_need(self, c: "Call") -> confirm.Need | None:
         """S4, SQ6, carried item 8, Q8: a browser open/navigate whose URL carries a value from the owner's own data to
-        a host the owner hasn't named or approved (decision 5), after the task read outside content. The tree's earlier
+        a host the owner hasn't named or approved (GATE-205), after the task read outside content. The tree's earlier
         answer for that host decides (a Yes runs; a No stays final, even if this URL no longer carries private data,
         until the owner's own follow-up reopens it); never asked for a literal loopback address, a host the owner named
         in this request or approved, a URL the tree read (a followed link), or one carrying nothing of the owner's."""
@@ -1167,7 +1167,7 @@ class Gateway:
         kind its facts add with what that reaches; the targets' provenance; what this tree has read (its own tool
         results, the request's pasted parts and private or outside content retrieved into model context; L4: only
         context whose stored origin is outside counts as outside); the known and approved destinations. A payment in
-        a task's browser tab is one question per payment (decision 4); a permanent delete of a folder is counted
+        a task's browser tab is one question per payment (GATE-204); a permanent delete of a folder is counted
         first: one FERB can't fully count is refused, named or not; one the owner didn't name asks with its count,
         size and a sample (S4(c))."""
         root = c.root
@@ -1175,7 +1175,7 @@ class Gateway:
         outside = self._outside_read(root)
         common = dict(read_private=origin.PRIVATE in read, read_external=bool(outside), known=self.destinations.known,
                       approved=self.destinations.approved, outside_read=outside)
-        # the amount is the capability's or the page's, never the worker's declared number (decision 4)
+        # the amount is the capability's or the page's, never the worker's declared number (GATE-204)
         target = dataclasses.replace(c.checked.target, amount=c.spec.target.amount, currency=c.spec.target.currency)
         sources = c.extra["arg_sources"]
         needs = confirm.decide(c.spec.kind, declared_kinds(c.checked), target, sources, place=c.spec.place,
@@ -1234,7 +1234,7 @@ class Gateway:
                             destinations=(("host", host),), reaches=target)
 
     def _card_entry(self, root: str, chain: str) -> str | None:
-        """Decision 23: the name of the owner's saved card entry that filled a card-number field in this tab chain: the
+        """ORCH-321: the name of the owner's saved card entry that filled a card-number field in this tab chain: the
         latest such sealed fill of the task tree that ran without an error (its `card_entry`, recorded when the call was
         built). `OwnerSecrets.reveal` fills a card field only with an entry saved from that kind of field, and a fill
         that saves the card (`remember`) saves it with the field's kind, so the name is a saved card's. A one-time
@@ -1251,7 +1251,7 @@ class Gateway:
         return None
 
     async def _payment(self, c: "Call", needs: list[confirm.Need]) -> list[confirm.Need]:
-        """Decision 4: a payment in a task's browser tab is asked once per payment: its tab chain's approval covers it
+        """GATE-204: a payment in a task's browser tab is asked once per payment: its tab chain's approval covers it
         unless the page shows another payment (ferb/policy/payments.py); outside a tab each run asks (SQ1)."""
         pays = [n for n in needs if n.rule == confirm.ALWAYS[Kind.PAY]]
         f = c.facts
@@ -1263,7 +1263,7 @@ class Gateway:
                                       f.page_amount, f.page_merchant, bool(f.submits_form and kinds & CARD_KINDS),
                                       submits=bool(f.submits_form))
             if (entry := self._card_entry(c.root, f.tab_chain)) is not None:
-                c.extra["card_entry"] = entry            # decision 23: the payment card names the saved card
+                c.extra["card_entry"] = entry            # ORCH-321: the payment card names the saved card
         elif c.name.startswith("mac.") and c.spec.target.site and \
                 (window := _window_of(await self._off_loop(c.cap, hashed_args, c.cap, c.args))) is not None:
             # coordinator ruling 4: a Mac app's payment is scoped like a tab, to that app window for 10 minutes
@@ -1294,7 +1294,7 @@ class Gateway:
 
     def _escape_need(self, c: "Call") -> confirm.Need:
         """D31: a read escape is one Yes per protected folder per task tree, shared with the file tools' reads of it
-        (hands decision 1); any other lift covers this exact command once, spent when given."""
+        (GATE-200); any other lift covers this exact command once, spent when given."""
         assert c.escape is not None
         rule, command, cwd, kind = c.escape
         protection = self.roots.protection
@@ -1309,7 +1309,7 @@ class Gateway:
         return c.escape_need
 
     async def _terminal_need(self, c: "Call") -> confirm.Need | dict[str, Any] | None:
-        """D31, CLAUDE.md rule 10: typing into any terminal (terminal apps and terminals inside other apps, e.g. VS
+        """D31, AGENTS.md rule 10: typing into any terminal (terminal apps and terminals inside other apps, e.g. VS
         Code's) asks the owner first, showing the exact input, every time, with no standing permission; a No types
         nothing. The capability says what would go in, from the driver's facts now (`terminal_input`). A Yes covers that
         one input (and the one Return after its text, as the task's very next acting call: `armed`) and is spent when
@@ -1342,7 +1342,7 @@ class Gateway:
         or spent when given (`spent_on_ask`)."""
         out = Covered()
         if c.pay_cid is not None:
-            out.ids.append(c.pay_cid)                    # decision 4: the tab's approved payment covers it
+            out.ids.append(c.pay_cid)                    # GATE-204: the tab's approved payment covers it
         if not needs:
             return out
         confirmations, root = self.confirmations, c.root
@@ -1394,7 +1394,7 @@ class Gateway:
                                 confirmations.use(cid)
                                 if not need.spent_on_ask:
                                     out.spent.append(cid)
-                            if c.pay is not None and need.key == c.pay_key:   # decision 4: this tab's payment
+                            if c.pay is not None and need.key == c.pay_key:   # GATE-204: this tab's payment
                                 self.payments.approve(root, c.pay, cid)
                                 c.pay_cid = cid
                     else:
@@ -1563,7 +1563,7 @@ class Gateway:
                 self.ledger.mark(intent_id, 'failed', ['conversation paused before input'])
             self._finish_call(span, name, {'error': conversation_refusal}, True, error=conversation_refusal)
             return reply({'error': conversation_refusal}, True, {origin.FERB})
-        if c.facts is not None and c.facts.tab_chain:    # decision 4: a bank page this chain reached, what it shows
+        if c.facts is not None and c.facts.tab_chain:    # GATE-204: a bank page this chain reached, what it shows
             f = c.facts
             self.payments.observe(c.root, f.tab_chain, (f.frame_host or "").lower() or host_of(f.page_url),
                                   f.page_amount, f.page_merchant)
@@ -1598,7 +1598,7 @@ class Gateway:
                               output=(kept_out or {}) | ({"screen": screen} if screen else {}) or None, error=detail)
             return reply({"error": f"{name} failed: {detail}; outcome unknown"} | (kept_out or {})
                          | _screen_told(screen), True)
-        screen = await self.hooks.screen_after(span.id)  # daemon decision 5: what FERB changed on the screen
+        screen = await self.hooks.screen_after(span.id)  # DMN-5: what FERB changed on the screen
         if intent_id:                                    # the span id is already its evidence (marked executing)
             self.ledger.mark(intent_id, "failed" if result.is_error else "done")
         if result.is_error:
@@ -1608,7 +1608,7 @@ class Gateway:
         raw = result.content
         if spec.kind not in REVERSIBLE:                  # V2: what the action read back (a failure's too), never a guess
             raw = {**raw, "after": aftercheck.after_of(aftercheck.facts_of(raw))}
-        raw = {**raw, **snap, **_screen_told(screen)}   # hands decision 9: the worker is told, nothing is put back
+        raw = {**raw, **snap, **_screen_told(screen)}   # HAND-212: the worker is told, nothing is put back
         origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
                                          self.excluded_host)
         try:
@@ -1845,7 +1845,7 @@ class Gateway:
         return Answer(yes, ids, "" if yes else SAID_NO.format(line=text), "" if yes else OWNER_DECIDED_NEXT)
 
     def _known_from(self, needs: list[confirm.Need], rec: Any, span_id: str) -> None:
-        """SQ6, decision 5: the destinations the owner's Yes approved stay known (approved) for good."""
+        """SQ6, GATE-205: the destinations the owner's Yes approved stay known (approved) for good."""
         for kind, value in {d for n in needs for d in n.destinations}:
             self.destinations.record(kind, value, "confirmed", request_id=rec.task.request_id, span_id=span_id)
 
@@ -1887,7 +1887,7 @@ class Gateway:
         return None
 
     def _reads_lifted(self, root: str) -> frozenset[tuple[str, str]]:
-        """The protected folders the owner let this task tree read (hands decision 1): Yeses already recorded."""
+        """The protected folders the owner let this task tree read (GATE-200): Yeses already recorded."""
         protection = self.roots.protection
         if protection is None:
             return frozenset()
@@ -2082,7 +2082,7 @@ class Gateway:
 
     async def _snapshot_before(self, name: str, grant: RunGrant, rec: Any, before: str) -> dict[str, Any]:
         """S1: a local APFS snapshot before a permanent delete or a shell command (recovery.Snapshots: a fresh one,
-        unless no such call ran since the last, hands decision 4), on its own span; returns what the call's result
+        unless no such call ran since the last, HAND-204), on its own span; returns what the call's result
         says about it
         (`snapshot_facts`). Code can't tell a shell delete from a build (rule 6), so every shell command gets one.
         Best effort: a failure is recorded and never stops the call (OPEN QUESTION 3: `ferb doctor` shows the last

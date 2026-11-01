@@ -60,7 +60,7 @@ class Desktop:
         return resources
 
     async def _task_paused(self, data: dict[str, Any]) -> None:
-        """Orchestration decision 13: a paused task keeps only its tabs and progress. Its terminal commands still
+        """ORCH-312: a paused task keeps only its tabs and progress. Its terminal commands still
         running (not long-lived ones) and its listening and recordings stop now (a listen's sound is deleted
         untranscribed, as at a task's end); apps and tabs stay. The owner's pause of a scheduled run pauses that
         schedule's next runs (journaled `with_task`, so resuming the run resumes it)."""
@@ -89,7 +89,7 @@ class Desktop:
                 self._schedule_change(s.id, "pause", with_task=tree)
 
     async def _task_resumed(self, data: dict[str, Any]) -> None:
-        """A scheduled run resumed: the schedule its pause paused (decision 13) runs again, unless the owner paused,
+        """A scheduled run resumed: the schedule its pause paused (ORCH-312) runs again, unless the owner paused,
         resumed or cancelled it themselves since."""
         sid, tree = data.get("schedule_id"), str(data.get("task_id") or "")
         if not sid or self.schedules is None:
@@ -319,7 +319,7 @@ class Desktop:
                                        "task_id": task, "rule": grant.rule, "command": grant.command,
                                        "cwd": grant.cwd, "confirmation": grant.confirmation_id}),
                                    reports=self.direct_reports, local_refused=self._local_refused)
-        self.shells.on_received = self._shell_received   # hands decision 7: the tree's download budget and the floor
+        self.shells.on_received = self._shell_received   # HAND-210: the tree's download budget and the floor
         if contained is not None:
             add_shell(self.registry, self.shells, self.protection)
         else:

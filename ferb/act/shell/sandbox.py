@@ -9,7 +9,7 @@ Seatbelt (`sandbox-exec`) profiles, as measured on this Mac (F5a Task 2 report, 
   written resolved now. The workspace allow is the literal folder only: an allow must never widen. On the Mac's
   case-insensitive volume a rule also matches every case and Unicode-normalization spelling, even of a path that
   doesn't exist yet (measured).
-- The owner's visible folders (hands decision 4, owner 2026-10-30; measured on scratch folders): no write, truncate,
+- The owner's visible folders (HAND-203, owner 2026-10-30; measured on scratch folders): no write, truncate,
   delete or rename in each non-hidden entry of the home folder, iCloud Drive (~/Library/Mobile Documents) or /Volumes,
   except the task's `folders` (resolved by the planner from the owner's words); any path with a component starting
   with "." is writable again (git in any repo, tool caches), and so are ~/Library, temp folders and the workspace.
@@ -125,11 +125,11 @@ APPS_LOCKDOWN = ("(deny lsopen)", "(deny process-exec)", f'(allow process-exec (
 # FERB.app's own preferences (rule 10, L34 Phase G): Sparkle keeps FERB's update switches there, and the app its own.
 # The shell and AppleScript never write these domains, through cfprefsd or the plist files.
 APP_PREFERENCE_DOMAINS = ("com.ferb.FERB", "com.ferb.app", "com.ferb.daemon", "dev.ferb.notch")
-# The window server (measured 2026-10-30, notes/hands.md): with these lookups denied a command can't post input
+# The window server (measured 2026-10-30, kb area hands): with these lookups denied a command can't post input
 # events or capture the screen with FERB.app's grants, while git, python and ordinary commands keep working. The
 # shell profile only: no script types into a terminal or reads the screen around FERB's always-ask rules.
 WINDOW_SERVER = ("com.apple.windowserver.active", "com.apple.windowserver")
-# The owner's visible folders (hands decision 4, owner 2026-10-30): iCloud Drive and other disks, beside the
+# The owner's visible folders (HAND-203, owner 2026-10-30): iCloud Drive and other disks, beside the
 # non-hidden folders in the home folder (`_scope`)
 ICLOUD = Path("Library") / "Mobile Documents"
 VOLUMES = "/Volumes"
@@ -212,7 +212,7 @@ class Sandbox:
         return self._profile(lift, apps, direct, report, events_to, folders)[0]
 
     def _scope(self, folders: tuple[str, ...]) -> list[str]:
-        """Hands decision 4 (owner, 2026-10-30), as measured on scratch folders: no write, truncate, delete or rename in
+        """HAND-203 (owner, 2026-10-30), as measured on scratch folders: no write, truncate, delete or rename in
         the owner's visible folders (each non-hidden entry in the home folder and everything in it, iCloud Drive,
         /Volumes) except the task's `folders`; then any path with a component starting with "." is writable again
         (last match wins: .git, .venv, a tool's cache, wherever it sits), and ~/Library minus iCloud Drive stays

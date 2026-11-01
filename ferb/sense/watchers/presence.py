@@ -1,7 +1,7 @@
 """Whether the Mac is in use: asleep, its displays asleep, its screen locked or its login session switched away, or not.
 Must not read input, windows or content, and must not treat input idleness as being away.
 
-FERB's one presence signal (orchestration decision 17, clarified by the owner 2026-10-31): "on my Mac" means the Mac
+FERB's one presence signal (ORCH-317, clarified by the owner 2026-10-31): "on my Mac" means the Mac
 coming back into use: the lid opened or the Mac woken from sleep, the screen unlocked, the owner logging in, or a
 restart (the daemon starting in a new login session, `Daemon._mac_started`). Watching a film without touching anything
 is still being at the Mac, so no keyboard or mouse quiet time counts as away.
