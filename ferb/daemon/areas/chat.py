@@ -243,6 +243,7 @@ class Chat:
                     self._add_secret_value(text)
         try:
             ap = self.state.approvals.resolve(approval_id, granted, choice, text)
+            ap.hidden = tuple(hidden)                       # the worker gets FERB's note beside the answer (gateway)
             followed = self._question_answered(ap)          # a chat forget answered with the notch's buttons (I2)
             if followed and ap.capability == "memory.forget":
                 self._publish("memory.forgot", {"approval_id": ap.id, "text": followed})

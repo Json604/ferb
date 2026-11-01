@@ -44,7 +44,7 @@ from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conver
 from ferb.orchestrator.reply_stream import ReplyDraft
 from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, JUST_ENDED, Steering,
                                        apply as apply_steering, choices, grant_stated, not_covered, not_typed)
-from ferb.sanitize.formats import named_kinds
+from ferb.sanitize.formats import hidden_note
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.orchestrator.plans import (DONE, SINGLE, Part, Plan, SendScope, Step, answer_steps, inventory, part_problems,
@@ -669,6 +669,7 @@ class OwnerReply:
     words: str = ''
     choice: str | None = None
     question: str = ''
+    hidden: tuple[str, ...] = ()        # the kinds of secret FERB hid in their typed answer, by name (task 11)
 
 
 @dataclass
@@ -1435,7 +1436,7 @@ class Supervisor(WorkerRuns):
                         self.journal.append('loop.answer' if loop else 'plan.answer',
                                             {'task_id': tree.id, 'step': step_id, 'approval_id': ap.id,
                                              'answer': words}, origin=origins_.OWNER)
-                        reply = OwnerReply('answer', words, ap.choice, question)
+                        reply = OwnerReply('answer', words, ap.choice, question, ap.hidden)
                     elif ap.state in ('denied', 'granted'):     # a No, or skipped with no answer
                         reply = OwnerReply('denied', question=question)
                     else:                       # set aside by the owner's correction (L3): it carries on from that
@@ -2001,7 +2002,7 @@ class Supervisor(WorkerRuns):
                 wrap_untrusted(json.dumps({'input_paths': paths}))
         held = list(dict.fromkeys(kind for a in run.arrivals for kind in a.hidden))
         if held:                          # a fact FERB measured, so no reply asks the owner to paste it again (rule 7)
-            payload += f"\n\nThe owner's message held {named_kinds(held)}; FERB hid {'it' if len(held) == 1 else 'them'}."
+            payload += "\n\n" + hidden_note(held)
         words = typed                     # what the environment and memory read: may add FERB's earlier question
         if start.asked:
             words += "\n" + EARLIER_QUESTION + wrap_untrusted(start.asked)
@@ -4856,7 +4857,9 @@ class Supervisor(WorkerRuns):
         """What the next attempt is told after the owner answered or replied (their reply itself reaches it as the
         latest owner correction)."""
         if reply.kind == 'answer' and reply.question:
-            return f"\nThe owner's answer to the question “{reply.question}”: {reply.words}"
+            # FERB's note on a secret it hid goes beside the answer, never into it (task 11)
+            note = "\n" + hidden_note(list(reply.hidden), "answer") if reply.hidden else ""
+            return f"\nThe owner's answer to the question “{reply.question}”: {reply.words}{note}"
         return "\nThe owner replied: their words are in the latest owner corrections. Carry on from there."
 
     async def _check_in(self, tree: _Tree, task: Task, attempts: Attempts) -> str | Literal[False] | None:

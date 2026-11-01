@@ -93,9 +93,12 @@ redact, image redaction, origins).
 - Runs 4-5 times per tool result and per trail event, synchronously (~50-85 ms per pass on large results).
 - Known-value registry not preloaded at startup; `daemon.err.log` is raw stderr with no exception hook.
 - Chat (decision 10, setup intro task 11): `chat.send` and `chat.answer` read the kinds from the owner's raw words
-  before masking (`Redactor.kinds`: a saved value or a named format, each once, names only); the ack carries
-  `hidden`, the journal `chat.secret_hidden`, the planner's message one line "The owner's message held a <kind>; FERB
-  hid it.", and the notch shows the notice under the message (`ConversationTurn.hiddenNotice`).
+  before masking (`Redactor.kinds`: a saved value or a named format, each once, names only; a card's expiry and CVV
+  fold into the card and a Twilio auth token into its key, and an expiry or CVV with no card names nothing); the ack
+  carries `hidden`, the journal `chat.secret_hidden`, the planner's message one line "FERB's note: the owner's message
+  held a <kind>; FERB hid it.", and the notch shows the notice under the message (`ConversationTurn.hiddenNotice`).
+  An answer shows no notice (no owner bubble); the worker gets FERB's note beside it (owner.ask's `ferb_note`, a
+  plan.ask answer's continuation line), never inside the answer.
 - "Redaction would change it" also gates actions: terminal input refused (G:1469-1501; false refusals like
   `echo 'PIN 1234'`), input paths refused (main.py:4863), learning cards refused.
 

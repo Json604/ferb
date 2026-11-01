@@ -324,10 +324,18 @@ def first_format(s: str) -> str | None:
 
 def named_kinds(kinds: list[str]) -> str:
     """Named kinds as a sentence says them: each with its article, joined with "and" ("a GitHub token and a Stripe
-    key"). An acronym (all capitals, or no vowel: "AWS", "npm") takes the article its first letter's name does."""
+    key"). An acronym (all capitals, or no vowel: "AWS", "npm") takes the article its first letter's name does. The
+    notch's notice applies the same rule (ConversationTurn.named in ConversationArchive.swift): change both."""
     def article(kind: str) -> str:
         word = kind.split()[0] if kind.strip() else kind
         acronym = word.isupper() or not any(c in "aeiouAEIOU" for c in word)
         return ("an " if word[:1].upper() in ("AEFHILMNORSX" if acronym else "AEIO") else "a ") + kind
     named = [article(k) for k in kinds]
     return " and ".join(named) if len(named) < 3 else ", ".join(named[:-1]) + " and " + named[-1]
+
+
+def hidden_note(kinds: list[str], held_in: str = "message") -> str:
+    """The fact line a model is given beside the owner's words when FERB hid secrets in them, labelled as FERB's own
+    (rule 9); names only, never a value. The notch words its notice the same way (ConversationTurn.named)."""
+    return (f"FERB's note: the owner's {held_in} held {named_kinds(kinds)}; "
+            f"FERB hid {'it' if len(kinds) == 1 else 'them'}.")

@@ -80,6 +80,7 @@ from ferb.policy.escape import escape_key
 from ferb.policy.protection import FERB_APP, FERB_SERVICE, FERB_STATE, NEVER_LIFTED, READ, Protection
 from ferb.policy.rules import (EFFECTS, READING_KINDS, REVERSIBLE, ActionRequest, Kind, declare, declared_kinds,
                                payload_hash)
+from ferb.sanitize.formats import hidden_note
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import earlier_questions, pasted_parts
@@ -2224,6 +2225,8 @@ class Gateway:
         for kind, value in self.destinations.from_words(text):   # SQ6: one the owner chose or typed is approved
             self.destinations.record(kind, value, "answered", request_id=rec.task.request_id, span_id=span.id)
         given: dict[str, Any] = {"answer": text}
+        if ap.hidden:                                # FERB's note beside the answer, never in it (task 11)
+            given["ferb_note"] = hidden_note(list(ap.hidden), "answer")
         if retry:                                    # the owner's own pick of FERB's Yes, never the worker's word
             given |= (self._settle_retry(retry, span.id, asked_about) if ap.choice == RETRY_YES
                       else {"retry_approved": False})

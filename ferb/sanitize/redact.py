@@ -31,6 +31,10 @@ __all__ = ["CODE_LINK", "CODE_REACH", "CODE_VALUE", "CODE_WORD", "EXCLUDED", "IN
 
 EXCLUDED = "[excluded]"
 SAVED_SECRET = "saved secret"                  # `Redactor.kinds`' name for a known value: one of the owner's own
+# A part `Redactor.kinds` names as the whole it belongs to, when that whole is in the same text (structural: a card's
+# expiry and CVV are the card; a Twilio auth token comes with its account key). A card's part alone names no kind.
+_PART_OF = {"card expiry": "payment card", "CVV": "payment card", "Twilio auth token": "Twilio key"}
+_ONLY_A_PART = frozenset({"card expiry", "CVV"})
 _MASKS = re.compile(r"\[redacted\]|\[excluded\]")
 _DIGIT = re.compile(r"[0-9]")
 _code_alone = code_alone                       # the OCR path's name for it
@@ -235,12 +239,16 @@ class Redactor:
     def kinds(self, s: str) -> list[str]:
         """Each kind of specific secret in `s`, once, in the order they stand: a known value (SAVED_SECRET) or a named
         format; names only, never a value. A format inside a known value's place or an earlier format's is that one
-        (an Anthropic key is not also an OpenAI key). Labelled text is no kind: as for `hit`."""
+        (an Anthropic key is not also an OpenAI key); a part is named as its whole (`_PART_OF`), and a card's expiry
+        or CVV with no card names nothing ("valid until 03/27"). Labelled text is no kind: as for `hit`. What is
+        masked is unchanged: these are only the names."""
         taken = [(a, b, SAVED_SECRET) for a, b in known_spans(s, self.registry.values())]
         for h in format_hits(s):
             if holds_value(s, h) and not any(a <= h.start and h.end <= b for a, b, _ in taken):
                 taken.append((h.start, h.end, h.kind))
-        return list(dict.fromkeys(kind for _, _, kind in sorted(taken)))
+        found = [kind for _, _, kind in sorted(taken)]
+        return list(dict.fromkeys(_PART_OF[k] if _PART_OF.get(k) in found else k for k in found
+                                  if k not in _ONLY_A_PART or _PART_OF[k] in found))
 
     def field(self, text: str, *, role: str = "", label: str = "", secure_input: bool = False,
               concealed: bool = False, metadata: tuple[str, ...] = (), kind: str | None = None) -> str:

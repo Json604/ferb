@@ -32,6 +32,7 @@ class Approval:
     about: tuple[str, ...] = ()               # P19: the attempts this retry question named, as asked
     part: str = ""                            # the part of a multi-part request FERB's own question is about (8d)
     runtime_switch: dict[str, Any] | None = None   # the offer of another AI service it carries (decision 16)
+    hidden: tuple[str, ...] = ()              # the kinds of secret FERB hid in the typed answer, by name (task 11)
 
     def option_for(self, text: str) -> int | None:
         """The option (1-based) a typed answer picks: its exact words in any case, else its number."""
