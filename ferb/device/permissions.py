@@ -13,7 +13,7 @@ import threading
 from concurrent.futures import Future
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import ApplicationServices as AX
 import Quartz
@@ -31,13 +31,53 @@ def _ax_trusted(prompt: bool) -> bool:
     return bool(AX.AXIsProcessTrustedWithOptions({AX.kAXTrustedCheckOptionPrompt: prompt}))
 
 
+def _ax_read_works() -> bool:
+    """A real Accessibility read: the frontmost app's role. The trust flag can be stale; a read cannot."""
+    from AppKit import NSWorkspace
+    app = NSWorkspace.sharedWorkspace().frontmostApplication()
+    if app is None:
+        return False
+    err, _ = AX.AXUIElementCopyAttributeValue(AX.AXUIElementCreateApplication(app.processIdentifier()), "AXRole", None)
+    return err == 0
+
+
+def _other_app_window_title_readable() -> bool:
+    """A real Screen Recording read: another process's window title is only listed with the grant."""
+    me = os.getpid()
+    for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID) or []:
+        if w.get("kCGWindowOwnerPID") != me and w.get("kCGWindowName"):
+            return True
+    return False
+
+
+_PROBES: dict[str, Callable[[], bool]] = {"accessibility": _ax_read_works,
+                                         "screen_recording": _other_app_window_title_readable}
+
+
+def _api_says_granted(name: str) -> bool:
+    if name == "accessibility":
+        return _ax_trusted(False)
+    return bool(Quartz.CGPreflightScreenCaptureAccess())
+
+
+def confirmed(name: str, probe: Callable[[str], bool] | None = None) -> bool:
+    """A grant counts only when the plain API says so and a real read of what it protects works (the API alone can be
+    stale). Never prompts. `probe` is injectable; it defaults to the real read for `name`."""
+    if not _api_says_granted(name):
+        return False
+    try:
+        return bool(probe(name)) if probe is not None else _PROBES[name]()
+    except Exception:
+        return False
+
+
 def accessibility() -> Status:
-    return Status.GRANTED if _ax_trusted(False) else Status.DENIED
+    return Status.GRANTED if confirmed("accessibility") else Status.DENIED
 
 
 def screen_recording() -> Status:
     """Note: macOS only reflects a new Screen Recording grant after the process restarts."""
-    return Status.GRANTED if Quartz.CGPreflightScreenCaptureAccess() else Status.DENIED
+    return Status.GRANTED if confirmed("screen_recording") else Status.DENIED
 
 
 _iokit = ctypes.CDLL("/System/Library/Frameworks/IOKit.framework/IOKit")
@@ -157,7 +197,7 @@ PANES = {
 
 def pane_url(permission: str) -> str:
     """The exact System Settings anchor for one Privacy & Security pane."""
-    return f"x-apple.systempreferences:com.apple.preference.security?{PANES[permission]}"
+    return f"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?{PANES[permission]}"
 
 
 def notifications_pane_url(bundle_id: str) -> str:

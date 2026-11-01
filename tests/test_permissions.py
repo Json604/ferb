@@ -19,6 +19,36 @@ def test_automation_without_asking_for_an_app_that_isnt_running() -> None:
     assert P.automation("com.ferb.no-such-app", ask=False) is P.Status.TARGET_NOT_RUNNING
 
 
+def test_accessibility_counts_only_when_a_real_ax_read_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(P, "_ax_trusted", lambda prompt: True)
+    assert P.confirmed("accessibility", probe=lambda name: False) is False
+    assert P.confirmed("accessibility", probe=lambda name: True) is True
+    monkeypatch.setitem(P._PROBES, "accessibility", lambda: False)
+    assert P.accessibility() is P.Status.DENIED
+
+
+def test_screen_recording_counts_only_when_another_apps_window_title_is_readable(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(P.Quartz, "CGPreflightScreenCaptureAccess", lambda: True)
+    assert P.confirmed("screen_recording", probe=lambda name: False) is False
+    monkeypatch.setitem(P._PROBES, "screen_recording", lambda: True)
+    assert P.screen_recording() is P.Status.GRANTED
+    monkeypatch.setattr(P.Quartz, "CGPreflightScreenCaptureAccess", lambda: False)
+    assert P.screen_recording() is P.Status.DENIED
+
+
+def test_input_monitoring_uses_iohid_check_access(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(P._iokit, "IOHIDCheckAccess", lambda kind: 0, raising=False)
+    assert P.input_monitoring() is P.Status.GRANTED
+    monkeypatch.setattr(P._iokit, "IOHIDCheckAccess", lambda kind: 1, raising=False)
+    assert P.input_monitoring() is P.Status.DENIED
+
+
+def test_pane_urls_use_the_privacy_security_extension_form() -> None:
+    assert P.pane_url("accessibility") == (
+        "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility")
+
+
 def test_every_permission_has_a_settings_pane() -> None:
     assert set(P.PANES) >= {"accessibility", "screen_recording", "input_monitoring", "full_disk_access", "automation"}
 
@@ -131,7 +161,7 @@ from pathlib import Path
 
 from ferb.device.profile import AppInfo
 
-PANE = "x-apple.systempreferences:com.apple.preference.security?"
+PANE = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?"
 
 
 def test_rows_name_whose_grant_and_the_exact_pane() -> None:
