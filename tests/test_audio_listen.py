@@ -137,7 +137,7 @@ def test_ferb_app_transcribes_on_device_only_and_never_asks_for_permission_from_
     assert "on_device_unavailable" in body and "requestAuthorization" not in body
     # No request anywhere may fall back to the network (rule 15).
     assert "requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition" not in src
-    # hearing opens no microphone (push-to-talk is the app's own dictation, VOICE-402)
+    # hearing opens no microphone (push-to-talk is the app's own dictation, VOICE-403)
     assert "AVCaptureDevice" not in src and "AudioDeviceCreateIOProcID" not in src
 
 

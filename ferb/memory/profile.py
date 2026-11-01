@@ -40,7 +40,7 @@ WAITING_KIND = "memory.profile_waiting"
 RECENT = "Recently said"
 PASS_KIND = "memory.profile_pass"
 SEED_KIND = "memory.profile_seeded"
-# Facts (subject, key) the owner placed by search rather than in the always-on profile (PRM-301: M7, M8 of the
+# Facts (subject, key) the owner placed by search rather than in the always-on profile (PRM-319: M7, M8 of the
 # approved table), journaled by the step-10b seed; never in the profile, whichever version
 SEARCH_ONLY_KIND = "memory.search_only"
 HEADER = ("Tier 1 — core profile (always on: what FERB knows about the owner, each entry with where it came from and "
