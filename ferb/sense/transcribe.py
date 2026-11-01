@@ -18,15 +18,15 @@ starts the notch: ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift) does it:
   transcript is left behind. This side reads the answer once and deletes it. Nothing goes to stdout, stderr or a log.
 - a technical time limit (step 11 ruling, notes/voice.md): LIMIT_S plus PER_AUDIO_S for each second of sound, since
   recognition time grows with the sound's length; past it the lease is deleted (FERB.app stops) and hearing says so.
-  `busy` tells an update not to quit FERB.app's hearing while a transcription is in flight; `lingering` holds the process
-ids of the hearing instances this side launched that were still running when their ask ended (a time limit, a stop), the
-only ones an update may end: FERB.app's bundle id is also the running notch's.
+  `busy` tells an update not to end hearing while a transcription is in flight; `hearing_pids` finds the hearing
+instances at update time (never by bundle id: it is also the running notch's).
 `redacted` builds what a model may see: the transcript through the Redactor, and sentence segments cut from that
 redacted text only, so a secret spoken across several words never survives in any one segment."""
 
 import asyncio
 import json
 import os
+import re
 import secrets
 import subprocess
 from dataclasses import dataclass, field
@@ -80,15 +80,23 @@ async def launch(argv: list[str]) -> int:
         raise
 
 
-def running_pids(answer: Path) -> set[int]:
-    """The process ids of the hearing instances working on this answer file: the processes whose command line names it
-    (the lease path is unique to one ask). Empty when the process table can't be read."""
-    r = subprocess.run(["/bin/ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True)
-    out: set[int] = set()
+def hearing_pids(app: Path, folder: Path) -> list[int]:
+    """The process ids of hearing instances: processes running FERB.app's executable with `transcribe` or `status`
+    and a path inside FERB's audio folder (the sound and the answer file). The running notch has neither, so it never
+    matches; `request-speech` has no such path and is left alone. Empty when the process table can't be read."""
+    try:
+        r = subprocess.run(["/bin/ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if r.returncode != 0:
+        return []
+    pattern = re.compile(rf"{re.escape(str(app))}/Contents/MacOS/\S+ (transcribe|status) .*{re.escape(str(folder))}/")
+    out = []
     for line in r.stdout.splitlines():
         pid, _, command = line.strip().partition(" ")
-        if pid.isdigit() and int(pid) != os.getpid() and str(answer) in command:
-            out.add(int(pid))
+        if pid.isdigit() and int(pid) != os.getpid() and pattern.match(command.strip()):
+            out.append(int(pid))
     return out
 
 
@@ -101,14 +109,13 @@ def signed(app: Path, requirement: str) -> bool:
 class Transcriber:
     def __init__(self, app: Path, requirement: Callable[[], str | None], launch: Launch = launch,
                  signed: Callable[[Path, str], bool] = signed, *, home: Path | None = None,
-                 pids: Callable[[Path], set[int]] = running_pids) -> None:
+                 pids: Callable[[Path, Path], list[int]] = hearing_pids) -> None:
         """`home`: FERB's home, whose workspace/audio folder FERB.app reads and answers in (None: the folder `app`
         is in, ~/.ferb for a checkout install's ~/.ferb/FERB.app)."""
         self.app, self.requirement, self.launch, self.signed = app, requirement, launch, signed
         self.home = home
         self.pids = pids
         self.in_flight = 0                       # FERB.app runs now for this many asks
-        self.lingering: set[int] = set()         # hearing instances still running after their ask ended
 
     @property
     def busy(self) -> bool:
@@ -133,12 +140,9 @@ class Transcriber:
             argv = launch_args(self.app, mode, *args[:1], str(answer), *args[1:], home=self.home)
             try:
                 code = await asyncio.wait_for(self.launch(argv), limit_s)
-            except BaseException as e:            # the lease goes below: FERB.app stops without answering
-                self.lingering |= self.pids(answer)        # one `ps`: it may be mid-stop, still running
-                if isinstance(e, asyncio.TimeoutError):
-                    raise HearingUnavailable(f"FERB didn't finish turning the sound into text within {limit_s:.0f} s, "
-                                             "so it stopped; nothing was transcribed") from None
-                raise
+            except asyncio.TimeoutError:          # the lease goes below: FERB.app stops without answering
+                raise HearingUnavailable(f"FERB didn't finish turning the sound into text within {limit_s:.0f} s, "
+                                         "so it stopped; nothing was transcribed") from None
             try:
                 raw = answer.read_text()
             except OSError:

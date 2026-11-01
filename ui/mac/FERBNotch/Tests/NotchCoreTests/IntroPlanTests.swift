@@ -2,11 +2,11 @@ import XCTest
 @testable import NotchCore
 
 final class IntroPlanTests: XCTestCase {
-    private let all8 = ["accessibility", "screen_recording", "full_disk_access", "input_monitoring",
+    private let allRequired = ["accessibility", "screen_recording", "full_disk_access", "input_monitoring",
                         "notifications", "microphone", "clipboard"]
 
     func testNewInstallGetsEveryBeatInOrder() {
-        let needs = IntroNeeds(setupDone: false, signedIn: false, missingPermissions: all8, unpairedBrowsers: true, firstRun: true)
+        let needs = IntroNeeds(setupDone: false, signedIn: false, missingPermissions: allRequired, unpairedBrowsers: true, firstRun: true)
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), IntroBeat.allCases)
     }
 

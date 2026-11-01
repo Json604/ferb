@@ -5,6 +5,9 @@ dictation; a turn it sends with `speak: true` is answered aloud from the turn's 
 text."""
 
 import asyncio
+import contextlib
+import os
+import signal
 from pathlib import Path
 from typing import Any
 
@@ -70,16 +73,13 @@ class VoiceGlue:
 
     def _quit_voice_app(self) -> None:
         """Hearing runs in the app an update replaces. One transcribing is never ended: it stops through its lease when
-        its ask ends (the daemon's shutdown cancels it, deleting the lease), and the process then exits itself. Only the
-        hearing instances this daemon launched are ended, by process id and only while they are still FERB.app: the
-        bundle id is also the running notch's, which the update quits itself."""
+        its ask ends (the daemon's shutdown cancels it, deleting the lease), and the process then exits itself. Otherwise
+        one process scan finds the hearing instances (FERB.app's executable run with `transcribe` or `status` on a file in
+        FERB's audio folder) and ends them with SIGTERM: they have no run loop for a quit event, and the bundle id is also
+        the running notch's, which the update quits itself and which never matches."""
         transcriber = self.hearing.transcriber
         if transcriber.busy:
             return
-        from AppKit import NSRunningApplication
-        for pid in sorted(transcriber.lingering):
-            running = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
-            url = running.bundleURL() if running is not None else None
-            if url is not None and Path(str(url.path())) == transcriber.app:
-                running.terminate()
-        transcriber.lingering.clear()
+        for pid in transcriber.pids(transcriber.app, self.hearing.folder):
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGTERM)

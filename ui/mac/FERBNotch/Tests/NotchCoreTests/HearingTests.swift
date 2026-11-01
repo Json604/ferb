@@ -17,7 +17,12 @@ final class HearingTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
     }
 
-    override func tearDown() { Hearing.onLeaseLost = { exit(0) } }
+    override func setUp() {
+        // a stray lease watch must fail the test, never end the run through exit(0)
+        Hearing.onLeaseLost = { XCTFail("a lease watch fired outside its test") }
+    }
+
+    override func tearDown() { Hearing.onLeaseLost = { XCTFail("a lease watch fired outside its test") } }
 
     private func lease(_ name: String = ".status-1.json", in folder: String? = nil) -> String {
         let path = (folder ?? audio) + "/" + name
@@ -67,6 +72,7 @@ final class HearingTests: XCTestCase {
 
     func testDeletingTheAnswerFileStopsHearingAndNothingIsLeftBehind() throws {
         let stopped = expectation(description: "stopped")
+        stopped.assertForOverFulfill = false
         Hearing.onLeaseLost = { stopped.fulfill() }
         let path = lease()
         let fd = try XCTUnwrap(Hearing.answerFile(path, home: home))

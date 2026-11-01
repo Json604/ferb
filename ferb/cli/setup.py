@@ -9,6 +9,7 @@ Setup never opens, quits or kills a browser and never writes a browser's Prefere
 FERB's own files (the native host, the Web Store install request) and reads each profile's state (L25)."""
 
 import json
+import os
 import shutil
 import signal
 import subprocess
@@ -225,7 +226,7 @@ def setup(env: Env, update: bool = False) -> int:
         env.say(env.tokenizer(inst.home))          # before the restart: the new daemon counts tokens with it
         _install(env, update=True)
         if inst.bundle is not None or (inst.home / "FERB.app").exists():
-            _voice_helper(env)        # L26: hearing's helper; L27: the new app's own helper; no permission dialog
+            _voice_helper(env)        # L26: pins FERB.app for hearing; no permission dialog
         client = _started(env)
         if client is not None:
             _permissions_state(env, client)
@@ -267,7 +268,7 @@ def setup(env: Env, update: bool = False) -> int:
     env.say(f"     {s['apps']} apps, {s['scriptable']} scriptable; browsers: {', '.join(s['browsers']) or 'none'}")
 
     env.say("3/4  Permissions (checked by the daemon itself)")
-    if _voice_helper(env) is None:            # hearing's helper (L26): built or pinned, never a permission dialog
+    if _voice_helper(env) is None:            # hearing's app (L26): built or pinned, never a permission dialog
         env.say("     Hearing isn't set up; `ferb doctor` will remind you.")
     if client is None:
         env.say("     FERB's setup window asks for them once its background service runs.")
@@ -287,7 +288,7 @@ def setup(env: Env, update: bool = False) -> int:
 
 
 def _permissions_state(env: Env, client: Any) -> None:
-    """The macOS permissions as the running daemon reports them, hearing and the clipboard included. FERB's
+    """The macOS permissions as the running daemon reports them, and the clipboard included. FERB's
     setup window asks for them (the CLI has no permission walkthrough). Setup is never recorded as done here
     (`permissions_version`): every row decides it, FERB.app's own Notifications and Microphone included, and only the
     window's Done (`setup.finish`) can read those."""
@@ -975,13 +976,22 @@ def _build_app(env: Env, run: Callable[..., Any]) -> str | None:
     if built.returncode != 0:
         env.say("Build failed:\n" + ((built.stderr or built.stdout or "").strip()[-1500:]))
         return None
-    shutil.rmtree(app, ignore_errors=True)
-    copied = run(["/usr/bin/ditto", str(notch / "build" / "FERB Notch.app"), str(app)], capture_output=True, text=True)
-    signed = run(["/usr/bin/codesign", "--force", "--deep", "--sign", CERTIFICATE, str(app)],
-                 capture_output=True, text=True) if copied.returncode == 0 else copied
+    staged = app.with_name(".FERB.app.new")     # the app in use stays until the copy is built and signed
+    shutil.rmtree(staged, ignore_errors=True)
+    copied = run(["/usr/bin/ditto", str(notch / "build" / "FERB Notch.app"), str(staged)], capture_output=True, text=True)
+    if copied.returncode != 0:
+        env.say("Copying the build failed:\n" + ((copied.stderr or copied.stdout or "").strip()[-1500:]))
+        shutil.rmtree(staged, ignore_errors=True)
+        return None
+    # build.sh signs ad hoc and not hardened; a hardened build would need `--options runtime` and the entitlements here
+    signed = run(["/usr/bin/codesign", "--force", "--deep", "--sign", CERTIFICATE, str(staged)],
+                 capture_output=True, text=True)
     if signed.returncode != 0:
         env.say("Signing failed:\n" + ((signed.stderr or signed.stdout or "").strip()[-1500:]))
+        shutil.rmtree(staged, ignore_errors=True)
         return None
+    shutil.rmtree(app, ignore_errors=True)
+    os.replace(staged, app)
     shown = run(["/usr/bin/codesign", "-d", "-r-", str(app)], capture_output=True, text=True)
     req = designated_requirement((shown.stdout or "") + (shown.stderr or ""))
     if not trusted_requirement(req, pinned_ok=False):

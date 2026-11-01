@@ -226,8 +226,8 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
 - [x] Setup: `permissions_version` only when granted; install into a new venv and swap after success (no mixed code);
       pinned checkout installs (lockfiles); Codex installed only if a role uses it; doctor fixes; uninstall removes
       every FERB Keychain item; CLI errors shown plainly.
-      (Step 12b: `permissions.missing` over every row (the daemon's four, FERB Voice's hearing, the clipboard and the
-      app's own Notifications/Microphone, which the app's Done now sends) decides both the window's `setup.finish` and
+      (Step 12b: `permissions.missing` over every row (the daemon's four, the clipboard and the
+      app's own Notifications/Microphone with Speech Recognition (hearing's row folded into it 2026-11-01), which the app's Done now sends) decides both the window's `setup.finish` and
       `ferb setup`; nothing is recorded otherwise and `missing` says what isn't granted. A checkout installs into
       `~/.ferb/venv.new` (`uv venv --relocatable`, `uv export --frozen` → `uv pip install --require-hashes`, FERB with
       `--no-deps`), the secret helper into `.ferb-secrets.new`, Codex with `npm ci` from package-lock.json into

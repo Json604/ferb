@@ -96,6 +96,7 @@ class FakeRun:
 
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
+        self.ditto_fails = False
 
     def __call__(self, argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
         self.calls.append([str(a) for a in argv])
@@ -103,7 +104,9 @@ class FakeRun:
             return subprocess.CompletedProcess(argv, 0, '  1) ABC "FERB Local Code Signing"\n', "")
         if str(argv[0]).endswith("build.sh"):                # the notch app's own build (agents never run it)
             return subprocess.CompletedProcess(argv, 0, "", "")
-        if argv[0] == "/usr/bin/ditto":                      # the build copied to ~/.ferb/FERB.app
+        if argv[0] == "/usr/bin/ditto":                      # the build copied beside ~/.ferb/FERB.app
+            if self.ditto_fails:
+                return subprocess.CompletedProcess(argv, 1, "", "no space left")
             Path(argv[2]).mkdir(parents=True, exist_ok=True)
             return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[:2] == ["/usr/bin/codesign", "--force"]:
@@ -333,8 +336,10 @@ def test_plain_setup_builds_ferb_app_for_hearing_without_a_permission_dialog(wor
     run: FakeRun = world["run"]
     app = str(world["home"] / "FERB.app")
     assert len([c for c in run.calls if c[0].endswith("build.sh")]) == 1
-    assert run.calls[[c[0] for c in run.calls].index("/usr/bin/ditto")][-1] == app    # the notch app, as ~/.ferb/FERB.app
-    assert run.ran("/usr/bin/codesign", "--force", "--deep", "--sign", S.CERTIFICATE, app)
+    staged = str(world["home"] / ".FERB.app.new")
+    assert run.calls[[c[0] for c in run.calls].index("/usr/bin/ditto")][-1] == staged    # copied beside the app in use
+    assert run.ran("/usr/bin/codesign", "--force", "--deep", "--sign", S.CERTIFICATE, staged)
+    assert Path(app).is_dir() and not Path(staged).exists()                              # then moved over it
     assert not run.ran("/usr/bin/open")                    # Speech Recognition is asked by FERB's setup window
     assert Config(world["home"]).get("hearing", "requirement") == FakeRun.REQUIREMENT
 
@@ -354,6 +359,17 @@ def test_doctor_reports_ferb_apps_speech_permission(world: dict[str, Any]) -> No
     S.doctor(env)
     assert "! hearing: on-device speech recognition isn't available for en-IN" in out.getvalue()
     assert not world["run"].calls                                    # doctor never builds or asks
+
+
+def test_a_failed_copy_of_the_build_says_so_and_keeps_the_app_in_use(world: dict[str, Any]) -> None:
+    (world["home"] / "FERB.app").mkdir()
+    (world["home"] / "FERB.app" / "marker").write_text("old")
+    world["run"].ditto_fails = True
+    env, out = make_env(world, [], daemon_up=False)
+    S.setup(env)
+    assert "Copying the build failed" in out.getvalue() and "Signing failed" not in out.getvalue()
+    assert (world["home"] / "FERB.app" / "marker").read_text() == "old"
+    assert not (world["home"] / ".FERB.app.new").exists()
 
 
 def test_update_rebuilds_an_installed_ferb_app_without_asking_for_anything(world: dict[str, Any]) -> None:
@@ -471,7 +487,7 @@ def test_doctor_from_the_app_checks_the_bundled_interpreter_not_a_venv(app_world
 
 # ---------- packaged FERB.app × hearing (L26 + L27 integration) ----------
 
-def test_plain_setup_from_the_app_hears_through_its_shipped_helper_without_building(app_world: dict[str, Any]) -> None:
+def test_plain_setup_from_the_app_hears_through_the_app_itself_without_building(app_world: dict[str, Any]) -> None:
     env, out = make_env(app_world, [], daemon_up=False)
     assert S.setup(env) == 0, out.getvalue()
     run: FakeRun = app_world["run"]
@@ -491,6 +507,10 @@ def test_an_old_voice_pin_is_replaced_by_app_setup(app_world: dict[str, Any]) ->
     assert not run.calls                                              # nothing built, no permission dialog
     assert Config(app_world["home"]).get("hearing", "requirement") == PINNED
     assert Config(app_world["home"]).get("voice", "requirement") is None     # push-to-talk stays as it was (off)
+    Config(app_world["home"]).set("hearing", "requirement", 'identifier "com.ferb.app" and certificate leaf = H"old"')
+    env, out = make_env(app_world, [], daemon_up=False)                      # FERB.app's own quiet update path
+    assert S.service_setup(env, update=True) == 0, out.getvalue()
+    assert Config(app_world["home"]).get("hearing", "requirement") == PINNED
 
 
 def test_setup_from_the_app_refuses_an_app_signature_that_names_no_code(app_world: dict[str, Any]) -> None:

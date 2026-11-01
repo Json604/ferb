@@ -19,12 +19,30 @@ Basis: a read of every line (2026-10-30), read-only DB counts. Nothing was recor
    `transcribe`, `status`, `request-speech` for hearing. (App changes are the owner's side.)
 4. **Music recognition: not now.** Workers keep being told FERB can't recognise music by its sound.
 5. **Muting while FERB listens: not now.** Today's behavior stays (FERB hears the whole app, unmuted).
+6. **FERB Voice merges into FERB.app** (owner, 2026-11-01: "ok lets merge it"). Later decisions supersede decision 3's
+   "FERB Voice keeps `transcribe`, `status`, `request-speech`": those modes now belong to FERB.app itself, and
+   Speech Recognition is one grant for dictation and hearing.
+
+### Rulings that carry the merge (built 2026-11-01, Task 3 of notes/setup-intro-plan.md)
+- FERB.app's own executable answers `transcribe`, `status` and `request-speech` (same arguments, answer files, lease and
+  exit codes) before it starts the app (`Application.swift` `main()`; no window, no microphone). The daemon opens FERB.app
+  itself with `open -g -n -W --env FERB_HOME=… <FERB.app> --args <mode> …`. The home rule is
+  `NotchCore/FerbHomeRule.swift`; the modes are `Sources/FERBNotch/Hearing.swift`.
+- Hearing's signature pin is FERB.app's own designated requirement (`Installer.own_requirement`, after the bundle's
+  signature checked out); an older pin naming `com.ferb.app` is replaced by the first app setup or update, no owner step.
+- Setup has no separate "hearing" row: the microphone row covers Microphone and Speech Recognition (seven rows are
+  asked); `ferb doctor` still probes hearing.
+- Quitting before an update (`_quit_voice_app`) does nothing while a transcription runs. Otherwise one `ps` scan finds
+  processes running FERB.app's executable with `transcribe`/`status` on a file in FERB's audio folder (a normal notch has
+  neither; `request-speech` is left alone, it ends when the owner answers) and sends them SIGTERM. Never by bundle id:
+  `com.ferb.FERB` is also the running notch. `com.ferb.app` stays in `front_window.py` `FERB_APPS` and `sandbox.py`
+  `APP_PREFERENCE_DOMAINS` for an older build running during an update.
 
 ## What exists today (verified)
 
 ### Two separate push-to-talk systems
-- **Daemon push-to-talk**: hold **Right Option** (push_to_talk.py:10); the daemon's input tap forwards keys while
-  `push_to_talk` is on; FERB Voice (macapp/FERB, macOS 14.2+) records the chosen mic (never Bluetooth) and recognizes
+- **Daemon push-to-talk (historical, removed in step 3)**: hold **Right Option** (push_to_talk.py:10); the daemon's input tap forwards keys while
+  `push_to_talk` is on; the FERB Voice helper (then `macapp/FERB`, merged into FERB.app on 2026-11-01) recorded the chosen mic (never Bluetooth) and recognizes
   on-device, **hard-coded to en-US** (main.swift:117); the transcript runs a chat turn in session "voice"; the reply is
   spoken with `say`. Enabling it needs `ferb setup --voice` (writes `voice.requirement`); the app calls no `voice.*`
   RPC. **Not used since 10-02** (34 `voice.attached` on 10-01/02, 0 voice turns, `push_to_talk = false`).
@@ -41,7 +59,7 @@ Basis: a read of every line (2026-10-30), read-only DB counts. Nothing was recor
 
 ### Hearing and recordings
 - ScreenCaptureKit captures **one app's** audio (16 kHz mono WAV; audio.py:182-209); a tab listen hears the whole
-  browser (every tab and profile of that instance). FERB Voice transcribes on-device through a lease-file protocol,
+  browser (every tab and profile of that instance). FERB.app itself transcribes on-device (FERB Voice, a separate helper until 2026-11-01, merged into it) through a lease-file protocol,
   codesign-checked; the sound file is deleted after transcription; transcripts redacted.
 - Live: 5 `audio.listen` calls (all by tab): 2 captured nothing, 3 captured sound, 1 non-empty transcript; 2 strong
   signals with empty transcripts (consistent with music); 5 browser recordings.
@@ -110,15 +128,15 @@ Basis: a read of every line (2026-10-30), read-only DB counts. Nothing was recor
 - [x] Voice replies from structured events (no CLI rendering); strings point to the app.
       (Step 11: words come from `reply.text`, `plan.text` and `outcome.answer` with code's own `lines` (or the card's)
       cut off the end; no CLI rendering or prompt matching (`spoken` lost its "ferb>"/"[y/N]" handling). Hearing's
-      strings: FERB Voice missing → "download FERB again", signature → "set up FERB again", Speech Recognition and the
+      strings (then FERB Voice, now FERB.app): missing → "download FERB again", signature → "set up FERB again", Speech Recognition and the
       Screen Recording hearing problem → "FERB's Settings → Permissions"; "`ferb doctor`" pointers in hearing errors
       gone. The `ferb chat --speak` test and its docstring went with it.)
 - [x] Transcription timeout; alignment off the loop; `_quit_voice_app` spares transcriptions; record-with-audio
       excluded-host check.
       (Step 11: ferb/sense/transcribe.py `LIMIT_S` + `PER_AUDIO_S` x the sound's seconds (Hearing passes `audio_s`);
-      past it the launch is cancelled, the lease deleted (FERB Voice exits) and a HearingUnavailable says so.
+      past it the launch is cancelled, the lease deleted (the hearing process exits) and a HearingUnavailable says so.
       `redacted` (Redactor + SequenceMatcher alignment) runs in a worker thread from `Hearing.transcript`, so listens
-      and recordings both. `Transcriber.busy` counts asks in flight: `_quit_voice_app` leaves FERB Voice alone while
+      and recordings both. `Transcriber.busy` counts asks in flight: `_quit_voice_app` leaves hearing alone while
       one runs (its lease ends it when the ask ends), and `update.prepare` waits for one no listed task covers.
       `browser.record with_audio` refuses a tab on an excluded host, as `audio.listen` does. Suspected bugs checked:
       "IOProc reads only the first buffer" was in FERB Voice's microphone code, removed in step 3 (git e8a483cd);
@@ -147,26 +165,12 @@ Basis: a read of every line (2026-10-30), read-only DB counts. Nothing was recor
    owner edits a little and sends with Return is still answered aloud.
 8. **Update and hearing**: a transcription in flight that no listed task covers (a setup or doctor probe) holds
    `update.prepare` like a running task; with Quit and Install, hearing isn't terminated mid-transcription: the
-   daemon's shutdown cancels the ask, which deletes the lease, and the hearing process exits itself. Only the hearing
-   instances the daemon launched are ended, by process id (decision 10).
+   daemon's shutdown cancels the ask, which deletes the lease, and the hearing process exits itself. Only hearing
+   instances are ended, by a process scan (ruling under decision 6).
 9. **Redact before reshaping (12e review).** `Speech.say` redacts the raw text, then reshapes it for speech
    (`spoken`), then redacts again: `spoken` strips `** __ # $ { } ~` and the like, so a saved value holding them no
    longer matched once reshaped and was spoken and published in `voice.said`. tests/test_voice.py
    `test_a_saved_value_with_markdown_marks_is_redacted_before_speech_reshapes_it`.
-
-10. **FERB Voice merges into FERB.app (owner, 2026-11-01: "ok lets merge it").** The helper kept since 10-14 "until it
-   merges" (`macapp/FERB`, `Helpers/FERB Voice.app`, `com.ferb.app`) is gone. FERB.app's own executable answers
-   `transcribe`, `status` and `request-speech` (same arguments, answer files, lease and exit codes) before it starts
-   the app (`Application.swift` `main()`; no window, no microphone), and the daemon opens FERB.app itself with
-   `open -g -n -W --env FERB_HOME=… <FERB.app> --args <mode> …`. The home rule moved to
-   `NotchCore/FerbHomeRule.swift`. Hearing's signature pin is FERB.app's own sealed requirement
-   (`Installer.own_requirement`); an older pin naming `com.ferb.app` is replaced by the first app setup, no owner step.
-   Speech Recognition is one grant for dictation and hearing: setup has no separate "hearing" row (the microphone row
-   covers Microphone and Speech Recognition; seven rows are asked), and `ferb doctor` still probes hearing. Quitting
-   before an update ends only the processes `Transcriber.lingering` holds (instances still running when their ask
-   stopped), never by bundle id, because `com.ferb.FERB` is also the running notch. `com.ferb.app` stays in the
-   "FERB's own process" lists (`front_window.py` `FERB_APPS`, `sandbox.py` `APP_PREFERENCE_DOMAINS`) for an older
-   build running during an update.
 
 ## Live checks (step 13)
 - With "Send dictation when I let go of the keys" on: hold Right Command + Option, ask "what time is it", release:

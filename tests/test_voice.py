@@ -4,6 +4,8 @@ Hearing's technical guards: a transcription time limit, FERB's hearing spared mi
 refused on an excluded site. Nothing is spoken or recorded: fake providers and fake processes stand in."""
 
 import asyncio
+import signal
+import subprocess
 import sys
 import threading
 import time
@@ -323,64 +325,67 @@ def test_the_transcript_alignment_runs_off_the_event_loop(tmp_path: Path) -> Non
     assert out["transcript"] and threads and loop_thread[0] not in threads
 
 
-def _quit(monkeypatch: pytest.MonkeyPatch, running: dict[int, str], app: Path, *, busy: bool, lingering: set[int]
-          ) -> list[int]:
-    """`_quit_voice_app` with a fake AppKit: `running` maps a process id to the bundle its app runs from."""
-    from ferb.daemon.areas.voice import VoiceGlue
-    ended: list[int] = []
-
-    def process(pid: int) -> Any:
-        if pid not in running:
-            return None
-        return SimpleNamespace(bundleURL=lambda: SimpleNamespace(path=lambda: running[pid]),
-                               terminate=lambda: ended.append(pid))
-    fake = types.ModuleType("AppKit")
-    fake.NSRunningApplication = SimpleNamespace(  # type: ignore[attr-defined]
-        runningApplicationWithProcessIdentifier_=process,
-        runningApplicationsWithBundleIdentifier_=lambda bid: pytest.fail("never ended by bundle id"))
-    monkeypatch.setitem(sys.modules, "AppKit", fake)                 # never the owner's real FERB
-    transcriber = SimpleNamespace(busy=busy, lingering=set(lingering), app=app)
-    VoiceGlue._quit_voice_app(SimpleNamespace(hearing=SimpleNamespace(transcriber=transcriber)))  # type: ignore[arg-type]
-    return ended
-
-
 def test_update_quit_never_terminates_the_notch(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
-    """FERB.app's bundle id is the running notch's too: only the hearing instance FERB launched ends, by process id,
-    and one transcribing is spared (it stops through its lease)."""
-    app = Path("/Applications/FERB.app")
-    both = {100: str(app), 200: str(app)}                            # 100 is the notch, 200 an idle hearing instance
-    assert _quit(monkeypatch, both, app, busy=False, lingering={200}) == [200]
-    assert _quit(monkeypatch, both, app, busy=True, lingering={200}) == []
-    assert _quit(monkeypatch, both, app, busy=False, lingering=set()) == []
-    assert _quit(monkeypatch, {200: "/Applications/Other.app"}, app, busy=False, lingering={200}) == []   # reused pid
-    t = daemon.daemon.hearing.transcriber
+    """FERB.app's bundle id is the running notch's too: one process scan ends only hearing instances (FERB.app's
+    executable run with a hearing mode on a file in the audio folder), by SIGTERM, and never while transcribing."""
+    import ferb.daemon.areas.voice as voice
+    from ferb.sense.transcribe import hearing_pids
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(voice.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    d = daemon.daemon
+    app, folder = d.hearing.transcriber.app, d.hearing.folder
+    exe = f"{app}/Contents/MacOS/FERBNotch"
+    table = "\n".join([f"  100 {exe}", f"  101 {exe} --service",
+                       f"  200 {exe} transcribe {folder}/a.wav {folder}/.transcribe-1.json",
+                       f"  201 {exe} status {folder}/.status-2.json",
+                       f"  202 {exe} request-speech",
+                       f"  203 {exe} transcribe /elsewhere/a.wav /elsewhere/.t.json",
+                       f"  204 /usr/bin/other transcribe {folder}/a.wav"])
+    from ferb.sense import transcribe
+
+    def table_answer(code: int) -> Any:                                   # only hearing_pids sees the fake table
+        return SimpleNamespace(run=lambda *a, **k: SimpleNamespace(returncode=code, stdout=table),
+                               DEVNULL=subprocess.DEVNULL, SubprocessError=subprocess.SubprocessError)
+    monkeypatch.setattr(transcribe, "subprocess", table_answer(0))
+    assert hearing_pids(app, folder) == [200, 201]
+    t = d.hearing.transcriber
+    d._quit_voice_app()
+    assert killed == [(200, signal.SIGTERM), (201, signal.SIGTERM)]       # not the notch (100, 101), not request-speech
+    killed.clear()
     t.in_flight += 1
     try:
-        assert [r["goal"] for r in daemon.daemon._update_blockers()] == ["turning captured sound into text"]
+        d._quit_voice_app()
+        assert killed == []                                               # transcribing: nothing is ended
+        assert [r["goal"] for r in d._update_blockers()] == ["turning captured sound into text"]
     finally:
         t.in_flight -= 1
-    assert daemon.daemon._update_blockers() == []
+    assert d._update_blockers() == []
+    monkeypatch.setattr(transcribe, "subprocess", table_answer(1))
+    assert hearing_pids(app, folder) == []                                # an unreadable table finds nothing
 
 
-def test_a_hearing_instance_still_running_when_its_ask_stops_is_remembered_by_pid(tmp_path: Path,
-                                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
-    from ferb.sense import transcribe
-    from ferb.sense.transcribe import HearingUnavailable, Transcriber
-    monkeypatch.setattr(transcribe, "LIMIT_S", 0.05)
-    app, audio = _app(tmp_path)
-    seen: list[Path] = []
+def test_a_recording_with_sound_refuses_an_excluded_site(tmp_path: Path) -> None:
+    from ferb.act.browser.tools import FERB_BROWSER, BrowserRecord
+    started: list[Any] = []
+    hearing = SimpleNamespace(excluded_host=lambda host: host == "bank.example",
+                              resolve=lambda name: ("com.google.Chrome", 88))
+    recordings = SimpleNamespace(hearing=hearing, start=lambda *a, **k: started.append(a))
+    ref = TabRef("device", "chrome", "Profile 7", 1, "t1")
+    driver = SimpleNamespace(owned_by=lambda tab, owner: ref, tab_url=lambda tab: "https://bank.example/statement",
+                             recording_source=lambda tab, owner: ({"kind": "tab"}, None))
+    tool = BrowserRecord(driver, FERB_BROWSER, recordings)  # type: ignore[arg-type]
+    ctx = ToolContext("task", "w", "r", Identity.FERB, frozenset({"identity:browse", "fs:write", "audio"}), "device",
+                      None, str(tmp_path), (), ())
+    r = asyncio.run(tool.run(tool.Input(tab="t1", path=str(tmp_path / "x.mp4"), with_audio=True), ctx))
+    assert r.is_error and "exclusion" in r.content["error"] and started == []
 
-    async def stuck(argv: list[str]) -> int:
-        await asyncio.sleep(5)
-        return 0
 
-    def pids(answer: Path) -> set[int]:
-        seen.append(answer)
-        return {4242}
-    t = Transcriber(app, lambda: "req", launch=stuck, signed=lambda a, r: True, pids=pids)
-    with pytest.raises(HearingUnavailable):
-        asyncio.run(t.transcribe(audio, None))
-    assert t.lingering == {4242} and seen[0].parent == audio.parent
-    done = Transcriber(app, lambda: "req", launch=FakeApp(app, "hi", words("hi")), signed=lambda a, r: True, pids=pids)
-    asyncio.run(done.transcribe(audio, None))
-    assert done.lingering == set()                                   # an ask that ended normally leaves nothing
+def test_codes_own_lines_after_an_answer_are_not_read_out() -> None:
+    from ferb.daemon.areas.voice import answer_words
+    lines = ["Sites contacted: example.com", "Left open: Notes"]
+    assert answer_words({"type": "outcome", "answer": "Booked it.\n\n" + "\n".join(lines), "lines": lines}) == "Booked it."
+    assert answer_words({"type": "outcome", "answer": "A: done\n\n1 of 1 done\n" + lines[0],
+                         "card": {"lines": lines[:1]}}) == "A: done\n\n1 of 1 done"
+    assert answer_words({"type": "plan", "text": "On it.\n" + lines[1], "lines": lines[1:]}) == "On it."
+    assert answer_words({"type": "plan", "text": "On it.", "resumed": True}) == ""
+    assert answer_words({"type": "subtask", "summary": "internal"}) == ""
