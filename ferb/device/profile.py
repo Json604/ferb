@@ -1,13 +1,13 @@
 """Represent and persist device inventory and capability observations. Must not treat a historical probe as authorization.
 
-DeviceProfile: load / save / diff, method resolution, and the local git history.
+DeviceProfile: load / save / diff, method resolution, and the Mac's change history.
 
-Saved to ~/.ferb/device/<device_id>.json and committed to a local git repo in ~/.ferb/device/ (history of the
-Mac's changes). Never pushed: no remote is ever added."""
+Saved to ~/.ferb/device/<device_id>.json; each change appends one line to ~/.ferb/device/history.jsonl (when, why,
+which apps were added, removed or changed). Plain files only: no git or any other developer tool, which a Mac without
+the Command Line Tools doesn't have (its /usr/bin/git is Apple's install-tools stub). A device folder an older FERB
+kept as a git repository is read as is: its profile JSON is the same file, and its .git folder is left untouched."""
 
 import json
-import os
-import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -83,43 +83,41 @@ class ProfileStore:
         p = self.path(device_id)
         return DeviceProfile.from_json(p.read_text()) if p.exists() else None
 
+    @property
+    def history_path(self) -> Path:
+        return self.dir / "history.jsonl"
+
     def save(self, profile: DeviceProfile, message: str = "device scan") -> bool:
-        """Write and commit to the local repo. Returns True if the profile changed (a commit was made)."""
+        """Write the profile and append its change to the history. Returns True if the profile changed."""
         self.dir.mkdir(parents=True, exist_ok=True)
         self.dir.chmod(0o700)
-        if not (self.dir / ".git").exists():
-            self._git("init", "--quiet")
         old = self.load(profile.device_id)
         if old is not None and _same_except_time(old, profile):
-            return False                     # only the scan time changed: no rewrite, no noise commit
-        self.path(profile.device_id).write_text(profile.to_json() + "\n")
-        self._git("add", "--", self.path(profile.device_id).name)
-        if self._git("diff", "--cached", "--quiet", check=False).returncode == 0:
-            return False
-        self._git("commit", "--quiet", "-m", message)
+            return False                     # only the scan time changed: no rewrite, no noise entry
+        target = self.path(profile.device_id)
+        staged = target.with_name(f".{target.name}.new")
+        staged.write_text(profile.to_json() + "\n")
+        staged.replace(target)               # a reader never sees half a profile
+        d = diff(old, profile) if old is not None else ProfileDiff(sorted(a.bundle_id for a in profile.apps), [], [])
+        entry = {"at": profile.scanned_at, "device_id": profile.device_id, "message": message,
+                 "added": d.added, "removed": d.removed, "changed": d.changed}
+        with self.history_path.open("a") as f:
+            f.write(json.dumps(entry, sort_keys=True) + "\n")
         return True
 
     def history(self) -> list[str]:
-        r = self._git("log", "--format=%s", check=False)
-        return r.stdout.splitlines() if r.returncode == 0 else []
-
-    def remotes(self) -> list[str]:
-        return self._git("remote", check=False).stdout.split()
-
-    def _git(self, *args: str, check: bool = True) -> "subprocess.CompletedProcess[str]":
-        # Local identity only for this repo's commits; the owner's global git config is never touched. Git's
-        # repository variables are left out (`git rev-parse --local-env-vars`): inherited from a git hook or a
-        # shell inside another repo, GIT_DIR made `add` stage the profile into that repository's index.
-        env = {k: v for k, v in os.environ.items() if k not in _REPO_ENV}
-        return subprocess.run(["git", "-C", str(self.dir), "-c", "user.name=FERB", "-c", "user.email=ferb@localhost",
-                               "-c", "commit.gpgsign=false", *args], capture_output=True, text=True, check=check,
-                              env=env)
-
-
-_REPO_ENV = frozenset({"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
-                       "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE",
-                       "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_PREFIX",
-                       "GIT_SHALLOW_FILE", "GIT_COMMON_DIR"})
+        """The messages of the recorded changes, oldest first; a line that doesn't parse is skipped."""
+        try:
+            lines = self.history_path.read_text().splitlines()
+        except FileNotFoundError:
+            return []
+        messages = []
+        for line in lines:
+            try:
+                messages.append(str(json.loads(line)["message"]))
+            except (ValueError, KeyError, TypeError):
+                continue
+        return messages
 
 
 def _same_except_time(a: DeviceProfile, b: DeviceProfile) -> bool:

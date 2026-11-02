@@ -3,11 +3,15 @@ exception handler, background work kept and reported, read-only chat.status, liv
 
 import asyncio
 import json
-from typing import Any
+import threading
+from pathlib import Path
+from typing import Any, Literal
 
 import pytest
 
 from ferb.cli.client import Client
+from ferb.clock.clock import FakeClock
+from ferb.core.ids import SequentialIds
 from tests.conftest import RunningDaemon
 
 
@@ -145,3 +149,60 @@ def test_work_on_the_daemons_threads_drains_its_autorelease_pool(daemon: Running
     daemon.run(one_poll())
     gc.collect()
     assert _FREED == [1]
+
+
+class _SeenWait(asyncio.Event):
+    """The server's start gate, telling the test (from the daemon's thread) once a call is waiting on it."""
+
+    def __init__(self, waiting: threading.Event) -> None:
+        super().__init__()
+        self.waiting = waiting
+
+    async def wait(self) -> Literal[True]:
+        self.waiting.set()
+        return await super().wait()
+
+
+# decision: DMN-510
+def test_the_daemon_answers_ping_while_its_slow_start_up_work_runs(home: Path) -> None:
+    """Audit 2026-11-02 (item 5): the daemon dumped Codex's catalog (the 270 MB binary's first run on a new Mac) before
+    it served, so FERB.app's 30 s wait for `ping` could run out on a slow Mac. It serves first: `ping` is answered while
+    that work runs, and every other call waits until the start is done."""
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    entered, release, waiting = threading.Event(), asyncio.Event(), threading.Event()
+    d = asyncio.run_coroutine_threadsafe(RunningDaemon._make(home, {"clock": FakeClock(), "ids": SequentialIds("id"),
+                                                                     "watch_owner_input": False}), loop).result(10)
+    d._runtime_available = lambda name: name in ("codex", "claude")                  # type: ignore[method-assign]
+    d.server.ready = _SeenWait(waiting)
+
+    async def slow_codex() -> None:
+        entered.set()
+        await release.wait()
+    d._prepare_codex = slow_codex                                                   # type: ignore[method-assign]
+    started = asyncio.run_coroutine_threadsafe(d.start(), loop)
+    try:
+        assert entered.wait(10)
+        first = Client(d.server.path)
+        assert first.call("ping")["pid"] > 0                                       # answered mid-start
+        first.close()
+        answers: list[dict[str, Any]] = []
+
+        def other() -> None:
+            second = Client(d.server.path)
+            answers.append(second.call("schedules.list"))
+            second.close()
+        caller = threading.Thread(target=other)
+        caller.start()
+        assert waiting.wait(10)                                                     # it reached the gate and waits
+        assert answers == [] and not started.done()
+        loop.call_soon_threadsafe(release.set)
+        started.result(10)
+        caller.join(10)
+        assert len(answers) == 1                                                    # answered once the start is done
+    finally:
+        loop.call_soon_threadsafe(release.set)
+        asyncio.run_coroutine_threadsafe(d.shutdown(), loop).result(10)
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(5)

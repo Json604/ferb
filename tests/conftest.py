@@ -73,6 +73,7 @@ class RunningDaemon:
         kwargs.setdefault("preload_secrets", False)     # never read the owner's Keychain values (step 6a)
         kwargs.setdefault("embeddings", False)          # never download the embedding model (tests use a fake)
         kwargs.setdefault("data_access", lambda: False)  # never look at the owner's browser folders (DMN-507)
+        kwargs.setdefault("developer_tools", lambda: [])  # never ask this Mac which developer tools it has (DMN-511)
         return Daemon(home=home, **kwargs)
 
     def run(self, coro: Any, timeout: float = 10) -> Any:
@@ -194,6 +195,16 @@ def offline_trash(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
     tests.support.trash.use_trash."""
     if not request.node.get_closest_marker("real"):
         no_real_trash(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def no_launch_services(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline, a browser's executable never depends on which browsers this Mac has (HAND-247): Launch Services knows
+    none, so it is /Applications/<app>.app. Tests about the lookup set `profiles.locate` themselves."""
+    if not request.node.get_closest_marker("real"):
+        import ferb.act.browser.profiles as profiles
+        monkeypatch.setattr(profiles, "locate", lambda bundle_id: None)
+        monkeypatch.setattr(profiles, "_located", {})
 
 
 @pytest.fixture(autouse=True)

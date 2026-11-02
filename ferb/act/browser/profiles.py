@@ -14,16 +14,46 @@ from typing import Any, Callable, Literal
 SUPPORT = Path.home() / "Library" / "Application Support"
 
 
+def _launch_services(bundle_id: str) -> Path | None:
+    """The executable of the app Launch Services knows for this bundle id, wherever it is installed (/Applications,
+    ~/Applications, another volume); None when there is none."""
+    import objc
+    from AppKit import NSWorkspace
+    from Foundation import NSBundle
+    with objc.autorelease_pool():
+        url = NSWorkspace.sharedWorkspace().URLForApplicationWithBundleIdentifier_(bundle_id)
+        bundle = NSBundle.bundleWithURL_(url) if url is not None else None
+        executable = bundle.executableURL() if bundle is not None else None
+        return Path(str(executable.path())) if executable is not None else None
+
+
+locate: Callable[[str], Path | None] = _launch_services     # tests replace it
+_located: dict[str, Path] = {}
+
+
 @dataclass(frozen=True)
 class Browser:
     label: str          # as the owner knows it
     data: str           # its user-data folder, relative to ~/Library/Application Support
     bundle_id: str
-    app: str            # /Applications/<app>.app; also its executable's and process's name
+    app: str            # <app>.app as the browser installs it; also its executable's and process's name
 
     @property
     def binary(self) -> str:
-        return f"/Applications/{self.app}.app/Contents/MacOS/{self.app}"
+        """The browser's executable, found by bundle id through Launch Services (HAND-247: a Standard user's Chrome is
+        often in ~/Applications), remembered while it is there; /Applications/<app>.app when Launch Services knows
+        none."""
+        known = _located.get(self.bundle_id)
+        if known is None or not known.is_file():
+            _located.pop(self.bundle_id, None)
+            try:
+                found = locate(self.bundle_id)
+            except Exception:                    # PyObjC missing or Launch Services unavailable: the usual place
+                found = None
+            if found is None:
+                return f"/Applications/{self.app}.app/Contents/MacOS/{self.app}"
+            known = _located[self.bundle_id] = found
+        return str(known)
 
 
 # User-data folders: Chromium's docs/user_data_dir.md (Chrome, its channels, Chromium), Microsoft's Edge docs (Edge

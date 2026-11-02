@@ -47,6 +47,9 @@ CANCEL_WHEN_LEFT = frozenset({"tasks.preview", "intro.suggest"})
 LEFT_POLL_S = 0.1
 # The journal kinds the daemon records `on_internal` and `on_slow` under; `ferb stats` lists them
 INTERNAL_ERROR, SLOW_CALL = "daemon.internal_error", "daemon.slow_call"
+# Answered while the daemon is still starting (DMN-510): FERB.app's wait for its service and the CLI's wait for the
+# daemon ask only this. Every other call waits until the start is done (`ready`).
+ANSWERED_WHILE_STARTING = frozenset({"ping"})
 
 
 class Request(BaseModel):
@@ -141,6 +144,12 @@ class Server:
         # whether a cli connection's process is FERB.app (its audit token -> bool; app_peer.AppPeers in the daemon):
         # the gate of auth.APP_ONLY methods. Fails closed until the daemon sets it.
         self.is_app: Callable[[bytes | None], bool] = Server.is_app_default
+        # DMN-510: the daemon serves before its slow start-up work (Codex's first run on a new Mac) and sets this when
+        # the start is done; until then only ANSWERED_WHILE_STARTING is answered and every other call waits. Set by
+        # default: a server nobody marks as starting answers everything.
+        self.ready = asyncio.Event()
+        self.ready.set()
+        self._closing = False
 
     @staticmethod
     def is_app_default(token: bytes | None) -> bool:
@@ -191,6 +200,8 @@ class Server:
     async def close(self) -> None:
         """Stop accepting, then close open connections (e.g. a running `ferb logs`); since Python 3.12
         wait_closed() waits for every connection, so without this shutdown would hang."""
+        self._closing = True
+        self.ready.set()                          # calls waiting for a start that won't finish end (`_dispatch`)
         if self._server:
             self._server.close()
             for w in list(self._writers):
@@ -283,6 +294,10 @@ class Server:
         if req.method in APP_ONLY and not self._app(session):
             await self._send(writer, _error(req.id, APP_ONLY_REFUSED, f"{req.method} is for FERB.app only"))
             return True
+        if not self.ready.is_set() and req.method not in ANSWERED_WHILE_STARTING:
+            await self.ready.wait()
+            if self._closing:                     # the start failed or the daemon is stopping: nothing to answer with
+                return False
         if req.method in self.unary:
             started = time.monotonic()
             try:

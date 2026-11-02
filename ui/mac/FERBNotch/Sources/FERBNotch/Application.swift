@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import NotchCore
 import UserNotifications
 
 @main
@@ -36,6 +37,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         dock.start()
+        if AppBundle.isApp {          // APP-601: the owner approved this copy; its nested code shouldn't be stopped later
+            let bundle = Bundle.main.bundleURL
+            Task.detached(priority: .utility) { OwnQuarantine.clear(bundle: bundle) }
+        }
         clicks.poster = poster
         if AppBundle.isApp { UNUserNotificationCenter.current().delegate = clicks }    // before launching finishes
         let menu = NSMenu()

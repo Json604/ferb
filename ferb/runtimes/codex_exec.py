@@ -126,8 +126,8 @@ def bundled_catalog(ferb_home: Path) -> Path | None:
     """The model catalog shipped with the pinned Codex (`codex debug models --bundled`), dumped once per Codex version
     into FERB's run folder. Codex itself prints it: offline, with an empty Codex home (no login, no owner settings).
     None when the pinned binary is missing or prints no catalog. It runs a process, so only the daemon's start (in a
-    worker thread, before serving) and `ferb setup --codex-login` call it; a limits read never does (final review
-    M8)."""
+    worker thread, before it answers calls other than ping) and `ferb setup --codex-login` call it; a limits read never
+    does (final review M8)."""
     out = _bundled_path(ferb_home)
     if out.exists():
         try:

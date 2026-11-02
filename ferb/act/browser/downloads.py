@@ -133,6 +133,29 @@ def _low_disk(free: int, floor: int, what: str) -> str:
             f"{what}; not taken")
 
 
+def _important_usage(where: Path) -> int | None:
+    """The volume's available capacity for important usage (NSURLVolumeAvailableCapacityForImportantUsageKey): free
+    space plus what macOS frees on demand (purgeable local snapshots, optimised iCloud files), as Finder shows it.
+    None when macOS doesn't give it. Its own autorelease pool: the shell's download watch reads it every second on the
+    daemon's loop (DMN-26)."""
+    import objc
+    from Foundation import NSURL, NSURLVolumeAvailableCapacityForImportantUsageKey as key
+    with objc.autorelease_pool():
+        values, _error = NSURL.fileURLWithPath_(str(where)).resourceValuesForKeys_error_([key], None)
+        value = values.get(key) if values is not None else None
+        return int(value) if value is not None and int(value) > 0 else None
+
+
+def available_bytes(where: Path, important: Callable[[Path], int | None] | None = None) -> int:
+    """Free bytes on the volume holding `where`, as Finder and the owner count them (HAND-236, HAND-246): its capacity
+    for important usage; statvfs free space (which leaves out purgeable space) when that can't be read."""
+    try:
+        value = (important or _important_usage)(where)
+    except Exception:                       # PyObjC missing or the key unsupported: the plain measure
+        value = None
+    return value if value is not None else shutil.disk_usage(where).free
+
+
 def _number(value: Any, default: float) -> float:
     try:
         return max(float(value), 0.0)
@@ -168,11 +191,11 @@ class Downloads:
                       int(b["download_total_gb"] * _GB), int(b["download_min_free_gb"] * _GB))
 
     def _disk_free(self) -> int:
-        """Free bytes on the disk that holds FERB's downloads folder (its nearest existing folder)."""
+        """Free bytes on the disk that holds FERB's downloads folder (its nearest existing folder), as Finder counts."""
         where = self.root
         while not where.exists() and where != where.parent:
             where = where.parent
-        return shutil.disk_usage(where).free
+        return available_bytes(where)
 
     def _free(self, what: str, size: int | None) -> int:
         """Free bytes now, for the floor. Unreadable: the floor can't be checked, so the download is refused."""

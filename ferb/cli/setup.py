@@ -225,6 +225,8 @@ def service_setup(env: Env, update: bool = False) -> int:
     if client is not None:
         client.close()
     extension_setup(env)
+    if not update:
+        _filevault_line(env)                      # DMN-502
     env.say("FERB's background service is running." if client is not None else
             "FERB's background service is ready for FERB.app to turn on.")
     return 0
@@ -280,6 +282,7 @@ def setup(env: Env, update: bool = False) -> int:
     store.save(profile, "setup scan")
     s = summarize(profile)
     env.say(f"     {s['apps']} apps, {s['scriptable']} scriptable; browsers: {', '.join(s['browsers']) or 'none'}")
+    _filevault_line(env)                          # DMN-502
 
     env.say("3/4  Permissions (checked by the daemon itself)")
     if _voice_helper(env) is None:            # hearing's app (L26): built or pinned, never a permission dialog
@@ -606,6 +609,48 @@ def clipboard_check(state: str | None) -> Check | None:
     return Check("clipboard", "warn", f"FERB doesn't record what you copy: {why}", fix)
 
 
+def _first_line(run: Callable[..., Any], argv: list[str]) -> str | None:
+    """The first output line of a status command that needs no root (csrutil, fdesetup); None when it can't run."""
+    try:
+        done = run(argv, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = (done.stdout or "").strip().splitlines()
+    return lines[0].strip() if done.returncode == 0 and lines else None
+
+
+def sip_check(run: Callable[..., Any]) -> Check:
+    """DMN-506: System Integrity Protection off (or partly off, a custom configuration) is a problem, with what it
+    exposes. `csrutil status` needs no root."""
+    line = _first_line(run, ["/usr/bin/csrutil", "status"])
+    if line is not None and line.lower().endswith("status: enabled."):
+        return Check("system integrity protection", "ok", "on")
+    what = "couldn't be read" if line is None else "is off" if "disabled" in line.lower() else "is partly off"
+    return Check("system integrity protection", "warn",
+                 f"System Integrity Protection {what}: any process can then read a running command's proxy credential "
+                 "from its environment, and no sandbox rule stops it",
+                 "turn it back on from macOS Recovery (`csrutil enable`)")
+
+
+def filevault_check(run: Callable[..., Any]) -> Check:
+    """DMN-502: FileVault encrypts the disk FERB's database, traces and screenshots live on; FERB adds no encryption of
+    its own. `fdesetup status` needs no root."""
+    line = _first_line(run, ["/usr/bin/fdesetup", "status"])
+    if line is not None and line.startswith("FileVault is On"):
+        return Check("filevault", "ok", "on")
+    what = "couldn't be read" if line is None else "is off"
+    return Check("filevault", "warn", f"FileVault {what}: what FERB keeps in ~/.ferb (its database, traces and "
+                 "screenshots) sits unencrypted on this Mac's disk", "turn it on in System Settings → Privacy & "
+                 "Security → FileVault")
+
+
+def _filevault_line(env: Env) -> None:
+    """Setup's FileVault check (DMN-502): one line when it isn't on; nothing otherwise."""
+    check = filevault_check(env.run)
+    if check.status != "ok":
+        env.say(f"     {check.detail}; {check.hint}.")
+
+
 def protection_check(home: Path) -> Check:
     """[protection] and FERB's workspace as the daemon reads them at start (rule 10): when this fails, FERB doesn't
     start, and this says why."""
@@ -757,6 +802,8 @@ def doctor(env: Env) -> int:
     except InsecureConfig as e:
         add(Check("config permissions", "fail", str(e), "chmod 600 ~/.ferb/config.toml; chmod 700 ~/.ferb"))
     add(protection_check(inst.home))
+    add(sip_check(env.run))                       # DMN-506
+    add(filevault_check(env.run))                 # DMN-502
     if (database := database_check(inst.home)) is not None:
         add(database)
     if inst.bundle:

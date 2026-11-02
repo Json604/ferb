@@ -101,8 +101,15 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
                  snapshots: bool = True,
                  persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True,
                  preload_secrets: bool = True, embeddings: bool = True,
-                 data_access: Callable[[], bool] | None = None) -> None:
+                 data_access: Callable[[], bool] | None = None,
+                 developer_tools: Callable[[], list[str]] | None = None) -> None:
         self.home = home or ferb_home()
+        # DMN-511, DMN-512: the developer tools a terminal command would reach only as Apple's stubs, read once at start
+        # (tests give their own); workers get them as a fact until the tools' folder appears (`dev_tools_installed`)
+        from ferb.device.devtools import installed_now
+        self.developer_tools: Callable[[], list[str]] = developer_tools or _missing_developer_tools
+        self.missing_dev_tools: list[str] = []
+        self.dev_tools_installed: Callable[[], bool] = installed_now
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
         self.config = Config(self.home)
@@ -422,16 +429,20 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         await self._build_jev()
         self._build_timers()
         self._register_rpc()
-        await self._prepare_codex()
+        # DMN-510: serve before the slow part (Codex's catalog dump is the 270 MB binary's first run on a new Mac, which
+        # macOS scans), so FERB.app's wait for `ping` succeeds; every other call waits until the start is done.
+        self.server.ready.clear()
         await self.server.start()          # refuses to start if another daemon answers on the socket
+        await self._prepare_codex()
+        self.missing_dev_tools = await asyncio.to_thread(self.developer_tools)
         session = self._login_session()
         previous = self.journal.recent_values("daemon.started", "session", 1)
         self.journal.append("daemon.started", {"pid": os.getpid()} | ({"session": session} if session else {}))
         await self._tell_set_aside()
         self._mac_started(session is not None and previous != [session])
         # L28: an unknown window is said, never guessed. The catalog shipped with the pinned binary was dumped before
-        # serving (`_prepare_codex`), so a fresh install knows each model's window before Codex has ever fetched
-        # a catalog for FERB's login.
+        # any call but ping is answered (`_prepare_codex`), so a fresh install knows each model's window before Codex
+        # has ever fetched a catalog for FERB's login.
         for role, problem in self._runtime_limits().items():
             if "problem" in problem:
                 self.journal.append("runtime.limits_unknown", {"role": role, **problem})
@@ -451,6 +462,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
             resumed = asyncio.create_task(self.supervisor.resume_plans())
             self._turns.add(resumed)
             resumed.add_done_callback(self._turns.discard)
+        self.server.ready.set()            # the calls that waited for the start are answered now
 
     async def _with_full_disk_access(self) -> None:
         """DMN-507: at start, once FERB has Full Disk Access (the setup tour restarts the service after Allow all, and
@@ -653,6 +665,13 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         if self.journal is None:
             raise FerbError("daemon not started")
         return self.journal
+
+
+def _missing_developer_tools() -> list[str]:
+    """The stubs a FERB terminal command would reach, on the shell's own PATH (DMN-511)."""
+    from ferb.act.shell.manager import clean_env
+    from ferb.device.devtools import missing_tools
+    return missing_tools(clean_env()["PATH"])
 
 
 def redacting_hooks(redact: Callable[[str], str], err: Any = None) -> None:

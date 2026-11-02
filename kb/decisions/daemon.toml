@@ -488,3 +488,41 @@ status = "active"
 rule = "FERB.app's `ferb setup --service` lists no browser folder and reads no profile (a checkout's setup still does). One daemon gate, `data_access` (Full Disk Access granted), guards every browser-folder read and write. With it the daemon writes the native-host manifest and Web Store request into every installed browser at each `setup.browsers` and at start (again on a change or after a failure), reads each manifest back and names a refusing browser in `problem` and the journal. Scan facts gathered without access say `profiles_read` false and are refreshed at start once access is there."
 why = "DMN-507: FERB.app itself never holds Full Disk Access (it is granted to the background agent), so only the daemon may touch browser folders; a write that fails silently left Chrome unconnected."
 paths = ["ferb/daemon/areas/browsers.py::Browsers._connect_browsers", "ferb/daemon/areas/browsers.py::Browsers._setup_browsers", "ferb/daemon/main.py::Daemon._with_full_disk_access", "ferb/device/install.py::write_native_hosts", "ferb/daemon/persona.py::PersonaReview.needs_browser_part", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift"]
+
+[DMN-509]
+title = "FERB runs no developer tool on the owner's Mac; the device profile's history is a plain file"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "Code that runs on the owner's Mac (setup, the daemon, FERB.app's commands) starts no developer tool (git, python3 from the system, make, clang, xcrun, swift); only a checkout's own install builds with them. The device profile is ~/.ferb/device/<id>.json written whole, and each change appends one line (when, why, apps added/removed/changed) to ~/.ferb/device/history.jsonl. A device folder an older FERB kept in git loads as is; its .git folder is left untouched."
+why = "On a Mac without the Command Line Tools /usr/bin/git is Apple's stub: it opens the install-tools dialog and exits non-zero, so FERB.app's `ferb setup --service` died at the device profile's `git commit` (audit 2026-11-02, item 1)."
+paths = ["ferb/device/profile.py::ProfileStore"]
+
+[DMN-510]
+title = "The daemon answers ping before its slow start-up work; other calls wait for the start"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The daemon starts serving once its RPCs are registered, before Codex's catalog dump and version check and the rest of the start. Until the start is done only `ping` (server.ANSWERED_WHILE_STARTING) is answered; every other call waits for it, and a start that fails ends the waiting connections."
+why = "FERB.app waits 30 s for `ping`; the catalog dump is the 270 MB Codex binary's first run on a new Mac, so a slow Mac could miss the wait (audit 2026-11-02, item 5). Other calls wait so none races the restart bookkeeping (unknown intents, the stop marker)."
+paths = ["ferb/daemon/server.py::Server._dispatch", "ferb/daemon/main.py::Daemon._start"]
+
+[DMN-511]
+title = "Workers are told when a terminal's python3, git and compilers are only Apple's stubs"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "At start the daemon reads `xcode-select -p` once (it opens no dialog). With no developer folder, each of python3, pip3, git, make, cc and clang whose first match on the shell's PATH is in /usr/bin (or that has none) is named in one line of \"Facts about this FERB\": running it fails and opens macOS's install dialog. FERB installs nothing and refuses no command for it."
+why = "Workers reach for `python3 -c` constantly; on a Mac without the Command Line Tools that opens macOS's install-tools dialog in front of the owner (rule 10) and the step fails (audit 2026-11-02, item 6). A fact, not a gate (rule 4)."
+paths = ["ferb/device/devtools.py", "ferb/daemon/areas/environment.py::Environment._facts"]
+
+[DMN-512]
+title = "Without developer tools the worker asks the owner once to install them when a task needs them"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "i want the worker would ask you to installthe tools once if a task needs it."
+why = "Chosen over offering FERB's bundled Python as python3 in the shell (audit 2026-11-02, item 6)."
+rule = "When the Command Line Tools are missing, the worker is told so (DMN-511) and never runs python3, git, clang and the like itself (that opens Apple's install dialog). When a task needs them, it asks the owner once, through the normal owner question, to install the developer tools (`xcode-select --install` opens Apple's installer); FERB doesn't install them itself. Once they are installed the fact is gone and nothing asks again. FERB's shell offers no bundled python3."
+rejected = ["Offering FERB's bundled Python as python3 in the shell."]
+paths = ["ferb/device/devtools.py::missing_fact", "ferb/daemon/areas/environment.py::Environment._facts"]
