@@ -1088,3 +1088,12 @@ why = "Owner's live run, 2026-11-01 (verbatim): \"the permission accepting, reop
 evidence = "macOS's Quit & Reopen can end the daemon cleanly, which launchd doesn't restart (KeepAlive SuccessfulExit false); its reopen of the agent app is refused (only -m ferb.daemon runs)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
 live = ["LIVE-678"]
+
+[APP-599]
+title = "Setting up or updating registers the background service afresh"
+by = "agent"
+date = 2026-11-02
+status = "active"
+why = "Live 2026-11-02: a registration left by an earlier build (macOS keeps it after the app is deleted) carried that build's launch constraint; without a Team ID it names the exact build, so macOS killed the new daemon at launch (SIGKILL, Launch Constraint Violation; launchd: needs LWCR update)."
+rule = "When FERB.app installs or updates its service and macOS already lists it as enabled, FERB.app unregisters it first and then registers this build, so macOS records this build's launch constraint."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift"]

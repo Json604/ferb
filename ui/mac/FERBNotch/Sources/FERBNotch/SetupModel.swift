@@ -252,6 +252,10 @@ final class SetupModel: ObservableObject {
     func registerService() async -> Bool {
         guard let background else { return true }
         serviceLine = "Turning on FERB's background service…"
+        // APP-599: this runs only to install or update, so a registration macOS already lists is another build's. It
+        // carries that build's launch constraint (no Team ID: the exact build), and macOS kills this build's daemon at
+        // launch ("Launch Constraint Violation") until the service is registered afresh.
+        if background.status == .enabled { try? await background.unregister() }
         do {
             try background.register()
         } catch {

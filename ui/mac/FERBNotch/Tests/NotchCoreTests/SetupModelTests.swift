@@ -39,6 +39,23 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.serviceAction, .none)
     }
 
+    /// DMN-2, live 2026-11-02: a registration left by another build carries that build's launch constraint (no Team
+    /// ID: the exact build), so macOS killed the new daemon at launch. Setting up or updating registers afresh.
+    // decision: APP-599
+    func testAnInstallOrUpdateReplacesARegistrationLeftByAnotherBuild() async {
+        let rig = SetupRig()
+        let background = FakeBackgroundService()
+        background.status = .enabled                                // macOS still lists the old build's service
+        let model = rig.model(.update, background: background)
+        await model.primary()
+        rig.runner.finish(0)
+        await eventually { model.step == .ai }
+        XCTAssertEqual(background.unregistrations, 1)
+        XCTAssertEqual(background.registrations, 1)
+        XCTAssertEqual(background.status, .enabled)
+        XCTAssertNil(model.serviceError)
+    }
+
     func testAServiceWaitingForTheOwnersOKSaysWhereAndStaysOnWelcome() async {
         let rig = SetupRig()
         let background = FakeBackgroundService()
