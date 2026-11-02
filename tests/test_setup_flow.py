@@ -97,9 +97,15 @@ class FakeRun:
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
         self.ditto_fails = False
+        self.sip = "System Integrity Protection status: enabled.\n"          # `csrutil status` (DMN-506)
+        self.filevault = "FileVault is On.\n"                                # `fdesetup status` (DMN-502)
 
     def __call__(self, argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
         self.calls.append([str(a) for a in argv])
+        if argv == ["/usr/bin/csrutil", "status"]:
+            return subprocess.CompletedProcess(argv, 0, self.sip, "")
+        if argv == ["/usr/bin/fdesetup", "status"]:
+            return subprocess.CompletedProcess(argv, 0, self.filevault, "")
         if argv[:2] == ["security", "find-identity"]:
             return subprocess.CompletedProcess(argv, 0, '  1) ABC "FERB Local Code Signing"\n', "")
         if str(argv[0]).endswith("build.sh"):                # the notch app's own build (agents never run it)
@@ -347,7 +353,8 @@ def test_doctor_reports_ferb_apps_speech_permission(world: dict[str, Any]) -> No
     env, out = make_env(world, [])
     S.doctor(env)
     assert "! hearing: on-device speech recognition isn't available for en-IN" in out.getvalue()
-    assert not world["run"].calls                                    # doctor never builds or asks
+    status_reads = (["/usr/bin/csrutil", "status"], ["/usr/bin/fdesetup", "status"])     # DMN-506, DMN-502
+    assert not [c for c in world["run"].calls if c not in status_reads]  # doctor never builds or asks
 
 
 def test_a_failed_copy_of_the_build_says_so_and_keeps_the_app_in_use(world: dict[str, Any]) -> None:
@@ -957,3 +964,34 @@ def test_a_device_folder_an_older_ferb_kept_in_git_still_loads_and_saves(tmp_pat
     assert store.load("dev-1") == newer and store.history() == ["app added: com.example.maps"]
     assert (home / "device" / ".git" / "HEAD").read_text() == "ref: refs/heads/master\n"
     assert not ran.exists()
+
+
+def _doctor_line(world: dict[str, Any], name: str) -> str:
+    env, out = make_env(world, [])
+    S.doctor(env)
+    return next(line for line in out.getvalue().splitlines() if f" {name}:" in line)
+
+
+# decision: DMN-506
+def test_doctor_warns_when_system_integrity_protection_is_off(world: dict[str, Any]) -> None:
+    world["inst"].install()
+    assert _doctor_line(world, "system integrity protection").startswith("✓")
+    world["run"].sip = "System Integrity Protection status: disabled.\n"
+    line = _doctor_line(world, "system integrity protection")
+    assert line.startswith("!") and "proxy credential" in line and "csrutil enable" in line
+    world["run"].sip = ("System Integrity Protection status: unknown (Custom Configuration).\n\n"
+                        "Configuration:\n\tFilesystem Protections: disabled\n")
+    assert _doctor_line(world, "system integrity protection").startswith("!")
+
+
+# decision: DMN-502
+def test_setup_and_doctor_say_when_filevault_is_off(world: dict[str, Any], app_world: dict[str, Any]) -> None:
+    app_world["run"].filevault = "FileVault is Off.\n"
+    env, out = make_env(app_world, [], daemon_up=False)
+    assert S.service_setup(env) == 0, out.getvalue()                       # a warning, never a failed setup
+    assert "FileVault is off" in out.getvalue() and "Privacy & Security → FileVault" in out.getvalue()
+    assert _doctor_line(app_world, "filevault").startswith("!")
+    app_world["run"].filevault = "FileVault is On.\n"
+    env, out = make_env(app_world, [], daemon_up=False)
+    assert S.service_setup(env, update=True) == 0 and "FileVault" not in out.getvalue()
+    assert _doctor_line(app_world, "filevault").startswith("✓")

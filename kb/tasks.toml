@@ -195,13 +195,6 @@ kind = "build"
 status = "open"
 decisions = ["STORE-419"]
 
-[T-11]
-title = "Setup and doctor check that FileVault is on (DMN-502)"
-area = "daemon"
-kind = "build"
-status = "open"
-decisions = ["DMN-502"]
-
 [T-12]
 title = "Build code watchers (ORCH-506)"
 area = "orchestration"
@@ -386,13 +379,6 @@ kind = "build"
 status = "open"
 why = "No test checks that the intro never reaches speech output; IntroControllerTests only assert which family sounds play. An IntroController test can run the whole tour with a fake speech path and assert it is never called."
 decisions = ["APP-502"]
-
-[T-26]
-title = "ferb doctor warns when SIP is off (DMN-506)"
-area = "daemon"
-kind = "build"
-status = "open"
-decisions = ["DMN-506"]
 
 [T-500]
 title = "The intro's permission accepting, reopen and quit are broken"
