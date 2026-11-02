@@ -247,8 +247,8 @@ class Runtimes:
         return {"ok": False, "detail": detail or "no answer"}
 
     async def _prepare_codex(self) -> None:
-        """Before the daemon serves, when a role runs on Codex or Codex is signed in for FERB (a worker type): the catalog
-        shipped with the pinned binary is dumped (L28, final review M8: once per Codex version, in a worker thread, so
+        """Before the daemon answers any call but ping (DMN-510), when a role runs on Codex or Codex is signed in for
+        FERB (a worker type): the catalog shipped with the pinned binary is dumped (L28, final review M8: once per Codex version, in a worker thread, so
         no limits read on the event loop runs a process), then the pinned version is checked and FERB's locked model
         catalog written, once for the daemon's life instead of on every call. A failure is journaled; a run checks again
         and fails loudly."""

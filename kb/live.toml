@@ -2109,3 +2109,12 @@ request = "Install FERB.app from the DMG and go through the intro to the first t
 pass = "Meet finishes without \"service failed\"; macOS never shows \"The git command requires the command line developer tools\" (or the python3 one) during setup or the task; the worker's answer says python3 isn't installed instead of running it."
 decisions = ["DMN-509"]
 sitting = "step 13"
+
+[LIVE-682]
+title = "A slow or first-run Mac's background service answers within FERB.app's wait"
+area = "daemon"
+surface = "An Intel or older Mac (or a second macOS user) that never ran FERB's Codex, a FERB.app build with DMN-510, signed in with Codex"
+request = "Install FERB.app from the DMG and go through Meet and Sign in, watching the notch's lines."
+pass = "Meet never shows \"FERB's background service didn't start\"; the Sign in beat's first answers may take a moment but arrive without a Retry."
+decisions = ["DMN-510"]
+sitting = "step 13"

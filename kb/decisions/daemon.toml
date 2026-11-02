@@ -497,3 +497,12 @@ status = "active"
 rule = "Code that runs on the owner's Mac (setup, the daemon, FERB.app's commands) starts no developer tool (git, python3 from the system, make, clang, xcrun, swift); only a checkout's own install builds with them. The device profile is ~/.ferb/device/<id>.json written whole, and each change appends one line (when, why, apps added/removed/changed) to ~/.ferb/device/history.jsonl. A device folder an older FERB kept in git loads as is; its .git folder is left untouched."
 why = "On a Mac without the Command Line Tools /usr/bin/git is Apple's stub: it opens the install-tools dialog and exits non-zero, so FERB.app's `ferb setup --service` died at the device profile's `git commit` (audit 2026-11-02, item 1)."
 paths = ["ferb/device/profile.py::ProfileStore"]
+
+[DMN-510]
+title = "The daemon answers ping before its slow start-up work; other calls wait for the start"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The daemon starts serving once its RPCs are registered, before Codex's catalog dump and version check and the rest of the start. Until the start is done only `ping` (server.ANSWERED_WHILE_STARTING) is answered; every other call waits for it, and a start that fails ends the waiting connections."
+why = "FERB.app waits 30 s for `ping`; the catalog dump is the 270 MB Codex binary's first run on a new Mac, so a slow Mac could miss the wait (audit 2026-11-02, item 5). Other calls wait so none races the restart bookkeeping (unknown intents, the stop marker)."
+paths = ["ferb/daemon/server.py::Server._dispatch", "ferb/daemon/main.py::Daemon._start"]
