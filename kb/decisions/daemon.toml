@@ -526,3 +526,13 @@ why = "Chosen over offering FERB's bundled Python as python3 in the shell (audit
 rule = "When the Command Line Tools are missing, the worker is told so (DMN-511) and never runs python3, git, clang and the like itself (that opens Apple's install dialog). When a task needs them, it asks the owner once, through the normal owner question, to install the developer tools (`xcode-select --install` opens Apple's installer); FERB doesn't install them itself. Once they are installed the fact is gone and nothing asks again. FERB's shell offers no bundled python3."
 rejected = ["Offering FERB's bundled Python as python3 in the shell."]
 paths = ["ferb/device/devtools.py::missing_fact", "ferb/daemon/areas/environment.py::Environment._facts"]
+
+[DMN-513]
+title = "FERB.app's background service is a user LaunchAgent until FERB has a Developer ID"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "so i want you to shift to library implementation. - note thsi decision down along with the shoft hat we are going to do on apple dev id also if we can solve the issue for people with old ferb version with library version adn transiiton smoothly withoutb any errors on their devices. also note it down that weve to update ferb.kartikey.xyz (i'll do it with the UI agent i spawn for ferb setup)"
+why = "Without an Apple Team ID, an SMAppService registration's launch constraint names one exact build, so macOS killed every later build's daemon (Launch Constraint Violation, 2026-11-02). The owner wants FERB ready for people to try now; the Developer ID comes later."
+rule = "FERB.app's setup writes and loads the daemon's definition as a user LaunchAgent (~/Library/LaunchAgents, label com.ferb.daemon, running the agent app inside FERB.app), as FERB did until 2026-10-31. A Mac with the older LaunchAgent install (friends' builds) or with an SMAppService registration from a 2026-11 build moves to it on its next launch with no error and no step for the user. SMAppService returns with the Developer ID (T-27). Replaces DMN-2 once built (T-29)."
+rejected = ["Keeping SMAppService without a Team ID: every update's daemon is killed at launch."]

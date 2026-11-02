@@ -403,3 +403,28 @@ kind = "bug"
 status = "open"
 why = "DMN-507: `ferb uninstall`, run by FERB.app, still deletes com.ferb.native_host.json and install requests in every browser folder from FERB.app's child (never Full Disk Access), so macOS 27 may show the banner then. The daemon should remove them (an RPC the app calls first)."
 decisions = ["DMN-507"]
+
+[T-27]
+title = "Switch to the Apple Developer ID: notarized builds, team-based identity, SMAppService back"
+area = "release"
+kind = "build"
+status = "blocked"
+why = "Owner 2026-11-02: buy the Developer ID (Individual) and adopt it after FERB is ready to try; blocked on the account. Plan: kb/plans/developer-id.md (what changes, what could break, migration)."
+decisions = ["DMN-513", "REL-403"]
+after = ["T-29"]
+
+[T-28]
+title = "Update ferb.kartikey.xyz for people to try FERB (owner, with the UI agent)"
+area = "release"
+kind = "chore"
+status = "open"
+why = "Owner 2026-11-02: accelerator applications need a site and a build people can try; the owner updates the site with the UI agent that polishes setup."
+decisions = ["DMN-513"]
+
+[T-29]
+title = "Build DMN-513: the daemon as a user LaunchAgent, with smooth moves from older installs"
+area = "daemon"
+kind = "build"
+status = "open"
+why = "Supersede DMN-2 in the fixing commit; migrate friends' LaunchAgent installs and 2026-11 SMAppService registrations with no error or user step."
+decisions = ["DMN-513", "DMN-2"]
