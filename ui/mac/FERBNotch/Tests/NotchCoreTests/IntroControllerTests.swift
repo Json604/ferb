@@ -79,7 +79,7 @@ final class IntroControllerTests: XCTestCase {
 
     /// `realOrb`: the tour flies a real OrbController (on a fake surface and clock) sharing the tour's sound player,
     /// instead of the fake orb.
-    func tour(_ action: AppSetupAction = .none, background: BackgroundServiceRegistering? = nil,
+    func tour(_ action: AppSetupAction = .none, background: BackgroundServiceManaging? = nil,
               clipSeconds: Double = 7.3, apps: IntroAppLocating? = nil, realOrb: Bool = false) -> Tour {
         let rig = SetupRig()
         rig.rpc.replies["runtimes.status"] = Self.connected
@@ -113,16 +113,18 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Meet
 
-    // decision: APP-506
+    /// DMN-513: FERB switched off under Login Items → Allow in the Background makes `ferb setup --service` exit with
+    /// `ServicePlan.switchedOffStatus`; the orb guides that one visit, then the tour sets the service up again.
+    // decision: APP-506, DMN-513
     func testMeetInstallsTheServiceAndGuidesLoginItemsOnlyWhenAsked() async {
         for needsOK in [true, false] {
             let service = FakeBackgroundService()
-            service.after = needsOK ? .requiresApproval : .enabled
+            service.off = needsOK
             let t = tour(.install, background: service)
             t.rig.rpc.replies["runtimes.status"] = Self.notConnected      // the tour waits at sign-in
             t.controller.start(beats: [.meet, .signIn, .home])
             await eventually { t.rig.runner.isRunning }                  // installed silently, nothing asked
-            t.rig.runner.finish(0)
+            t.rig.runner.finish(needsOK ? ServicePlan.switchedOffStatus : 0)
             if needsOK {
                 await eventually { t.notch.introLine?.choices.contains { $0.id == "openLoginItems" } == true }
                 XCTAssertEqual(service.openedSettings, 0)                 // System Settings opens only on the owner's tap
@@ -132,8 +134,10 @@ final class IntroControllerTests: XCTestCase {
                 XCTAssertEqual(service.openedSettings, 1)                 // the one Login Items visit
                 XCTAssertNil(t.orb.docks[0].url)                          // nothing to drag there
                 XCTAssertEqual(t.controller.beat, .meet)                  // sign-in waits for the service
-                service.after = .enabled
-                service.status = .enabled                                 // the owner switched FERB on
+                service.off = false                                       // the owner switched FERB on
+                await eventually { t.rig.runner.isRunning }               // set up again, now loaded
+                XCTAssertEqual(t.rig.runner.runs.count, 2)
+                t.rig.runner.finish(0)
             }
             await eventually { t.controller.beat == .signIn }
             XCTAssertEqual(t.orb.docks.count, needsOK ? 1 : 0)

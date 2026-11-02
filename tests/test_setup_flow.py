@@ -404,8 +404,8 @@ from tests.support.app_bundle import PINNED, BundleRunner, make_ferb_app  # noqa
 
 @pytest.fixture
 def app_world(world: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
-    """The same Mac, with FERB installed from a packaged FERB.app instead of a checkout; the app has registered its
-    background service (macOS loaded it)."""
+    """The same Mac, with FERB installed from a packaged FERB.app instead of a checkout; its background service is
+    loaded."""
     app = make_ferb_app(tmp_path / "Applications")
     runner = BundleRunner(world["home"])
     runner.loaded = True
@@ -455,19 +455,26 @@ def test_an_old_voice_pin_is_replaced_by_app_setup(app_world: dict[str, Any]) ->
     assert Config(app_world["home"]).get("hearing", "requirement") == PINNED
 
 
-# decision: APP-599
-def test_the_apps_setup_command_never_waits_for_a_daemon_the_app_will_register(app_world: dict[str, Any],
-                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
-    """Live 2026-11-02: macOS still listed the old build's service, whose launch constraint can't start this build's
-    daemon; `ferb setup --service --update` waited 30 s for it and failed, so FERB.app never re-registered. The app's
-    setup command leaves starting and waiting to FERB.app."""
-    app_world["inst"].install()
+# decision: DMN-513, APP-506
+def test_the_apps_setup_command_waits_for_its_daemon_or_says_where_to_switch_it_on(app_world: dict[str, Any],
+                                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    """The LaunchAgent is loaded by the setup command itself, so it waits for the daemon (no other build's launch
+    constraint can stop it, as SMAppService's did). Switched off in Login Items, it loads nothing, says where to switch
+    it on and exits SWITCHED_OFF_STATUS, which FERB.app turns into its one guided System Settings visit."""
+    from ferb.device.install import SWITCHED_OFF_HOW, SWITCHED_OFF_STATUS
     waited: list[bool] = []
-    monkeypatch.setattr(S, "wait_for_daemon", lambda env, timeout=30: waited.append(True) or (_ for _ in ()).throw(
-        S.NotRunning("the daemon didn't come up")))
+    real = S.wait_for_daemon
+    monkeypatch.setattr(S, "wait_for_daemon", lambda env, timeout=30: waited.append(True) or real(env, timeout))
+    app_world["runner"].loaded = False
     env, out = make_env(app_world, [], daemon_up=False)
     assert S.service_setup(env, update=True) == 0, out.getvalue()
-    assert not waited and "ready for FERB.app to turn on" in out.getvalue()
+    assert waited and app_world["runner"].loaded
+    app_world["runner"].disabled.add("com.ferb.test")
+    app_world["runner"].loaded = False
+    bootstraps = app_world["runner"].ran("launchctl", "bootstrap")
+    env, out = make_env(app_world, [], daemon_up=False)
+    assert S.service_setup(env, update=True) == SWITCHED_OFF_STATUS
+    assert SWITCHED_OFF_HOW in out.getvalue() and app_world["runner"].ran("launchctl", "bootstrap") == bootstraps
 
 
 # decision: DMN-400
@@ -813,7 +820,7 @@ def test_the_cleanup_runs_with_the_daemon_stopped_removes_only_what_was_shown_an
     assert "✓ database: " in out.getvalue()
 
 
-# decision: DMN-17
+# decision: DMN-515
 def test_the_cleanup_waits_while_another_daemon_answers_or_the_stopped_one_hasnt_exited(
         world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     import math
@@ -884,13 +891,14 @@ def test_without_room_to_compact_the_rows_go_and_a_later_run_compacts(world: dic
 
 # ---------- FERB.app's setup window (L34 C): `ferb setup --service` ----------
 
-# decision: DMN-15
+# decision: DMN-513
 def test_the_setup_window_installs_the_service_without_asking_anything(app_world: dict[str, Any]) -> None:
+    app_world["runner"].loaded = False
     env, out = make_env(app_world, [], daemon_up=False)        # no answers: any question would fail the test
     assert S.service_setup(env) == 0, out.getvalue()
     text = out.getvalue()
-    assert "ready for FERB.app to turn on" in text               # FERB.app registers it and waits (APP-599)
-    assert app_world["runner"].loaded
+    assert "background service is running" in text              # the LaunchAgent is loaded and answered
+    assert app_world["runner"].loaded and app_world["inst"].definition_current()
     assert app_world["panes"] == []                             # permissions are the window's own step
     calls = [m for m, _ in app_world["daemon"].calls]
     assert "setup.permission_request" not in calls and "setup.persona" not in calls and "doctor.check" not in calls

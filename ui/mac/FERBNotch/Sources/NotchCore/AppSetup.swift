@@ -1,15 +1,16 @@
+import CryptoKit
 import Foundation
 
-/// What the packaged FERB.app does at launch or from its menu (L27, L34 C). `ferb setup --service` does the file work
-/// and enforces where FERB may be installed from; the app then registers the background service whose definition is
-/// inside the signed app (SMAppService, DMN-2). This only reads facts: an old user LaunchAgent
-/// (~/Library/LaunchAgents/com.ferb.daemon.plist, from before the app registered its own, or a checkout's), the app
-/// service's status, what setup last recorded (~/.ferb/service.json) and whether launchd has FERB running.
+/// What the packaged FERB.app does at launch or from its menu (L27, L34 C). FERB's background service is a user
+/// LaunchAgent (~/Library/LaunchAgents/com.ferb.daemon.plist, DMN-513) that `ferb setup --service` writes and loads;
+/// the command also enforces where FERB may be installed from. This only reads facts: that LaunchAgent (this app's, an
+/// older install's or a checkout's) and its digest, any SMAppService registration a 2026-11 build left, what setup last
+/// recorded (~/.ferb/service.json) and whether launchd has FERB running.
 public enum AppSetupAction: Equatable {
-    case none                               // this app's own build is set up and running
+    case none                               // this app's own build is set up, unchanged and running
     case install                            // nothing set up yet: `ferb setup --service`
-    case update                             // this app replaced by another build, not running, or an old agent to retire
-    case confirmReplace(current: String)    // another installation (a checkout, or a FERB.app elsewhere): ask first
+    case update                             // another build, an older install, a changed definition or not running
+    case confirmReplace(current: String)    // a checkout's LaunchAgent (another installation): ask first
 }
 
 /// What launch shows (L34 C, kb area app).
@@ -20,50 +21,57 @@ public enum SetupLaunch: Equatable {
     case quietUpdate             // `ferb setup --service --update`, then the intro only if a grant is missing
 }
 
-/// The background service's status as macOS reports it (SMAppService.Status).
+/// An SMAppService registration's status as macOS reports it (SMAppService.Status): only a 2026-11 build's, which
+/// FERB.app unregisters (DMN-513; SMAppService returns with the Developer ID, T-27).
 public enum ServiceStatus: Equatable {
     case notRegistered, enabled, requiresApproval, notFound
+
+    /// macOS still lists the registration, so launchd would start that build's constrained job.
+    public var listed: Bool { self == .enabled || self == .requiresApproval }
 }
 
 /// What the setup window says about the background service, in the app's words (plain cause first).
 public enum ServicePlan {
-    /// The definition's file name inside FERB.app (Contents/Library/LaunchAgents; ferb/device/install.py BUNDLE_SERVICE).
+    /// The definition's file name inside FERB.app (Contents/Library/LaunchAgents; ferb/device/install.py BUNDLE_SERVICE):
+    /// the name a 2026-11 build registered with SMAppService, which FERB.app unregisters.
     public static let plistName = "com.ferb.daemon.plist"
+    /// The owner switched FERB off under Login Items → Allow in the Background.
     public static let approval = "macOS needs your OK to run FERB in the background: System Settings → General → " +
         "Login Items → allow FERB."
-    public static let notFound = "This copy of FERB.app has no background service inside it. Download FERB again."
-    public static let notStarted = "FERB's background service didn't start. Try again; if it keeps failing, " +
-        "export a diagnostic file from Settings → Advanced."
-
-    /// Why registering failed: the reason macOS gave, plain.
-    public static func failed(_ reason: String) -> String {
-        "macOS didn't turn on FERB's background service (\(reason)). Try again."
-    }
-
-    /// After `register()`: nil when the service is on, else what the owner reads.
-    public static func problem(_ status: ServiceStatus) -> String? {
-        switch status {
-        case .enabled: return nil
-        case .requiresApproval: return approval
-        case .notFound: return notFound
-        case .notRegistered: return failed("it stayed off")
-        }
-    }
+    /// `ferb setup --service` exits with this when launchd lists FERB's service as switched off
+    /// (ferb/device/install.py SWITCHED_OFF_STATUS): the window guides the Login Items visit instead of an error.
+    public static let switchedOffStatus: Int32 = 3
 }
 
 public enum AppSetupPlan {
-    /// `legacyAgent`: the old user LaunchAgent (com.ferb.daemon) if one is there; `record`: what `ferb setup --service`
-    /// last recorded ("build", "app"). The old agent always goes (the app's service replaces it): quietly when it runs
-    /// this very app, after the owner's yes when it runs another installation.
-    public static func decide(legacyAgent: [String: Any]?, service: ServiceStatus, record: [String: Any]?,
-                              agentExecutable: String, appPath: String, build: String,
+    /// `launchAgent`: ~/Library/LaunchAgents/com.ferb.daemon.plist if it names FERB's label, and `launchAgentDigest`
+    /// its SHA-256; `registration`: a 2026-11 build's SMAppService registration; `record`: what `ferb setup --service`
+    /// last recorded ("build", "app", "definition": the SHA-256 of the LaunchAgent it wrote). Only a checkout's
+    /// LaunchAgent asks first; any other (an older build's agent, ~/.ferb/venv's python, a definition someone changed)
+    /// and a listed registration are updated quietly (DMN-513, DMN-514).
+    public static func decide(launchAgent: [String: Any]?, launchAgentDigest: String?, registration: ServiceStatus,
+                              record: [String: Any]?, agentExecutable: String, appPath: String, build: String,
                               daemonRunning: Bool = true) -> AppSetupAction {
-        if let arguments = legacyAgent?["ProgramArguments"] as? [String], let program = arguments.first {
-            return program == agentExecutable ? .update : .confirmReplace(current: program)
+        if let arguments = launchAgent?["ProgramArguments"] as? [String], let program = arguments.first,
+           program != agentExecutable, isCheckout(arguments) {
+            return .confirmReplace(current: program)
         }
-        guard let record else { return service == .enabled ? .update : .install }
+        guard let record else { return launchAgent != nil || registration.listed ? .update : .install }
         let ours = record["build"] as? String == build && record["app"] as? String == appPath
-        return ours && service == .enabled && daemonRunning ? .none : .update
+            && launchAgentDigest != nil && record["definition"] as? String == launchAgentDigest
+        return ours && !registration.listed && daemonRunning ? .none : .update
+    }
+
+    /// A checkout's LaunchAgent, by its exact shape (ferb/device/install.py daemon_command without a bundle): a venv
+    /// python with `-P -m ferb.daemon`. Older installs ran `-m ferb.daemon` without `-P`, or an app's agent.
+    public static func isCheckout(_ arguments: [String]) -> Bool {
+        arguments.count == 4 && Array(arguments[1...]) == ["-P", "-m", "ferb.daemon"]
+            && !arguments[0].hasSuffix(".app/Contents/MacOS/FERB")
+    }
+
+    /// The SHA-256 of a definition's bytes, as `ferb setup --service` records it.
+    public static func digest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The bundled command that installs or updates the background service with no questions; nil when this app's own

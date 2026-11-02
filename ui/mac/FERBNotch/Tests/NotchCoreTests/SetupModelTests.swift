@@ -23,66 +23,62 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.serviceAction, .none)              // going back to Welcome never reinstalls
     }
 
-    /// DMN-2: after `ferb setup --service` FERB.app turns its own background service on with macOS
-    /// (SMAppService), waits until FERB answers, then goes on.
-    func testWelcomeTurnsTheAppsBackgroundServiceOnAfterTheSetupCommand() async {
+    /// DMN-513 (live 2026-11-02: a 2026-11 build's SMAppService registration carried that build's launch constraint, so
+    /// macOS killed every later build's daemon). Setup unregisters a registration macOS still lists, once, before
+    /// `ferb setup --service` writes and loads the LaunchAgent; nothing is registered.
+    // decision: DMN-513, APP-602
+    func testARegistrationLeftByA2026_11BuildIsUnregisteredOnceBeforeSetup() async {
+        for listed in [ServiceStatus.enabled, .requiresApproval] {
+            let rig = SetupRig()
+            let background = FakeBackgroundService()
+            background.registration = listed
+            let model = rig.model(.update, background: background)
+            await model.primary()
+            await eventually { rig.runner.isRunning }
+            XCTAssertEqual(background.unregistrations, 1)            // before the command runs
+            XCTAssertEqual(rig.runner.runs, [["setup", "--service", "--update"]])
+            rig.runner.finish(0)
+            await eventually { model.step == .ai }
+            XCTAssertNil(model.serviceError)
+            XCTAssertEqual(model.serviceAction, .none)
+            model.go(.welcome)
+            model.serviceAction = .update
+            await model.primary()                                    // a later run: nothing listed, nothing to undo
+            XCTAssertEqual(background.unregistrations, 1)
+            rig.runner.finish(0)
+        }
+    }
+
+    func testANewInstallWithNoRegistrationRunsTheCommandAtOnce() async {
         let rig = SetupRig()
         let background = FakeBackgroundService()
         let model = rig.model(.install, background: background)
         await model.primary()
+        XCTAssertEqual(rig.runner.runs, [["setup", "--service"]])  // no wait on macOS first
         rig.runner.finish(0)
-        await eventually { model.step == .ai }
-        XCTAssertEqual(background.registrations, 1)
-        XCTAssertEqual(background.status, .enabled)
-        XCTAssertTrue(rig.rpc.methods().contains("ping"))
-        XCTAssertNil(model.serviceError)
-        XCTAssertEqual(model.serviceAction, .none)
+        XCTAssertEqual(model.step, .ai)
+        XCTAssertEqual(background.unregistrations, 0)
     }
 
-    /// DMN-2, live 2026-11-02: a registration left by another build carries that build's launch constraint (no Team
-    /// ID: the exact build), so macOS killed the new daemon at launch. Setting up or updating registers afresh.
-    // decision: APP-599
-    func testAnInstallOrUpdateReplacesARegistrationLeftByAnotherBuild() async {
+    /// FERB switched off under Login Items → Allow in the Background: the command says so (its exit status), and
+    /// Welcome shows where to switch it on with the button, never a crash loop.
+    // decision: DMN-513, APP-602
+    func testAServiceSwitchedOffInLoginItemsSaysWhereAndStaysOnWelcome() async {
         let rig = SetupRig()
         let background = FakeBackgroundService()
-        background.status = .enabled                                // macOS still lists the old build's service
+        background.off = true
         let model = rig.model(.update, background: background)
         await model.primary()
-        rig.runner.finish(0)
-        await eventually { model.step == .ai }
-        XCTAssertEqual(background.unregistrations, 1)
-        XCTAssertEqual(background.registrations, 1)
-        XCTAssertEqual(background.status, .enabled)
-        XCTAssertNil(model.serviceError)
-    }
-
-    func testAServiceWaitingForTheOwnersOKSaysWhereAndStaysOnWelcome() async {
-        let rig = SetupRig()
-        let background = FakeBackgroundService()
-        background.after = .requiresApproval
-        let model = rig.model(.update, background: background)
-        await model.primary()
-        rig.runner.finish(0)
-        await eventually { !model.serviceRunning }
+        rig.runner.say("FERB's background service is switched off: System Settings → General → Login Items → …")
+        rig.runner.finish(ServicePlan.switchedOffStatus)
+        XCTAssertFalse(model.serviceRunning)
         XCTAssertEqual(model.step, .welcome)
         XCTAssertEqual(model.serviceError, ServicePlan.approval)
         XCTAssertTrue(model.serviceNeedsApproval)
+        XCTAssertEqual(rig.runner.runs.count, 1)                    // nothing runs again by itself
         model.openLoginItems()
         XCTAssertEqual(background.openedSettings, 1)
-        XCTAssertEqual(model.serviceAction, .update)                // Try Again turns it on once the owner allowed it
-    }
-
-    func testAServiceMacOSRefusesSaysWhyPlainly() async {
-        let rig = SetupRig()
-        let background = FakeBackgroundService()
-        background.refusal = NSError(domain: "SMAppServiceErrorDomain", code: 1,
-                                     userInfo: [NSLocalizedDescriptionKey: "Operation not permitted"])
-        let model = rig.model(.install, background: background)
-        await model.primary()
-        rig.runner.finish(0)
-        await eventually { !model.serviceRunning }
-        XCTAssertEqual(model.serviceError, ServicePlan.failed("Operation not permitted"))
-        XCTAssertFalse(model.serviceNeedsApproval)
+        XCTAssertEqual(model.serviceAction, .update)                // Try Again sets it up once the owner allowed it
     }
 
     func testAFailedServiceRunShowsItsLastLinesAndStaysOnWelcome() async {

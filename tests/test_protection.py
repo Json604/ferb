@@ -237,7 +237,7 @@ def test_ferbs_own_service_definition_is_never_changed_or_lifted(tmp_path: Path)
 
 # decision: GATE-1
 def test_the_service_definition_inside_ferb_app_is_never_changed_or_lifted(tmp_path: Path) -> None:
-    """Rule 10, DMN-2: the background service's definition FERB.app registers with macOS
+    """Rule 10: the background service's definition inside FERB.app (for SMAppService, T-27)
     (Contents/Library/LaunchAgents/com.ferb.daemon.plist) is refused to FERB's file tools as FERB's own service, not
     only as part of the app; reading it stays open, no lift reopens it, and the shell profile denies writing it."""
     from ferb.act.shell.sandbox import Sandbox

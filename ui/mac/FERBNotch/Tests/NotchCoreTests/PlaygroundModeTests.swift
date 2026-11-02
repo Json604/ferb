@@ -84,7 +84,7 @@ final class PlaygroundModeTests: XCTestCase {
         XCTAssertTrue(services.setup.service is PlaygroundService)
         XCTAssertFalse(services.setup.service is DaemonService)
         XCTAssertTrue(services.setup.background is PlaygroundBackground)
-        XCTAssertFalse(services.setup.background is AppServiceAgent)
+        XCTAssertFalse(services.setup.background is LaunchAgentService)
         XCTAssertTrue(services.notch.microphone is PlaygroundMicrophone)
         XCTAssertFalse(services.notch.microphone is Microphone)
         // The playground's own setup controller uses that model (never building the real one).

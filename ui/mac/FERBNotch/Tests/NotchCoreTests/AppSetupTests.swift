@@ -3,65 +3,101 @@ import XCTest
 @testable import FERBNotch
 @testable import NotchCore
 
-/// Launch of the packaged FERB.app (L27): what to run, from the old LaunchAgent, the app service's status and setup's record.
+/// Launch of the packaged FERB.app (L27): what to run, from the user LaunchAgent (DMN-513), a 2026-11 build's
+/// SMAppService registration and setup's record.
 final class AppSetupTests: XCTestCase {
     let agentExecutable = "/Applications/FERB.app/Contents/Helpers/FERB.app/Contents/MacOS/FERB"
     let app = "/Applications/FERB.app"
+    let digest = "d1"
 
-    private func legacy(_ program: String) -> [String: Any] {
-        ["Label": "com.ferb.daemon", "ProgramArguments": [program, "-m", "ferb.daemon"]]
+    private func agent(_ arguments: [String]) -> [String: Any] {
+        ["Label": "com.ferb.daemon", "ProgramArguments": arguments]
     }
 
-    private func decide(legacy agent: [String: Any]? = nil, _ service: ServiceStatus, record: [String: Any]?,
-                        build: String = "202610140201", running: Bool = true) -> AppSetupAction {
-        AppSetupPlan.decide(legacyAgent: agent, service: service, record: record, agentExecutable: agentExecutable,
+    private var ours: [String: Any] { agent([agentExecutable, "-m", "ferb.daemon"]) }
+
+    private func record(build: String = "202610140201", app: String? = nil, definition: String? = nil) -> [String: Any] {
+        ["build": build, "app": app ?? self.app, "label": "com.ferb.daemon", "definition": definition ?? digest]
+    }
+
+    private func decide(_ launchAgent: [String: Any]?, digest: String? = nil, _ registration: ServiceStatus = .notRegistered,
+                        record: [String: Any]?, build: String = "202610140201", running: Bool = true) -> AppSetupAction {
+        AppSetupPlan.decide(launchAgent: launchAgent, launchAgentDigest: launchAgent == nil ? nil : digest ?? self.digest,
+                            registration: registration, record: record, agentExecutable: agentExecutable,
                             appPath: app, build: build, daemonRunning: running)
     }
 
     func testNothingSetUpRunsSetup() {
-        XCTAssertEqual(decide(.notRegistered, record: nil), .install)
+        XCTAssertEqual(decide(nil, record: nil), .install)
         XCTAssertEqual(AppSetupPlan.serviceArguments(for: .install), ["setup", "--service"])
     }
 
+    // decision: DMN-513
     func testThisAppsBuildSetUpAndRunningNeedsNothing() {
-        XCTAssertEqual(decide(.enabled, record: ["build": "202610140201", "app": app]), .none)
+        XCTAssertEqual(decide(ours, record: record()), .none)
         XCTAssertNil(AppSetupPlan.serviceArguments(for: .none))
     }
 
-    func testReplacedAppUpdatesWithoutAsking() {
-        XCTAssertEqual(decide(.enabled, record: ["build": "202610140201", "app": app], build: "202610150900"), .update)
+    /// Build A, then build B over it: B's launch updates quietly (the setup command rewrites and reloads the plist).
+    // decision: DMN-513
+    func testAReplacedAppUpdatesWithoutAsking() {
+        XCTAssertEqual(decide(ours, record: record(), build: "202610150900"), .update)
         XCTAssertEqual(AppSetupPlan.serviceArguments(for: .update), ["setup", "--service", "--update"])
     }
 
-    /// STORE-403: an install from before the app registered its own service has the old user LaunchAgent
-    /// running this very app; it is retired by a quiet update, never by a question.
-    func testAnOldLaunchAgentOfThisAppIsRetiredByAQuietUpdate() {
-        XCTAssertEqual(decide(legacy: legacy(agentExecutable), .notRegistered, record: nil), .update)
-        XCTAssertEqual(decide(legacy: legacy(agentExecutable), .enabled, record: ["build": "202610140201", "app": app]),
-                       .update)
+    /// A friend's Mac: the LaunchAgent an older FERB wrote (an older build's agent at another path, or ~/.ferb/venv's
+    /// python without -P) is replaced by a quiet update, never by a question.
+    // decision: DMN-513, APP-602
+    func testAnOlderInstallsLaunchAgentIsReplacedByAQuietUpdate() {
+        let olderApp = agent(["/Users/o/Downloads/FERB.app/Contents/Helpers/FERB.app/Contents/MacOS/FERB", "-m",
+                              "ferb.daemon"])
+        let venv = agent(["/Users/o/.ferb/venv/bin/python", "-m", "ferb.daemon"])
+        for older in [olderApp, venv, ours] {
+            XCTAssertEqual(decide(older, record: nil), .update)
+        }
+        XCTAssertEqual(decide(venv, digest: "other", record: record()), .update)
     }
 
-    func testAnotherInstallationIsReplacedOnlyAfterTheOwnerSaysSo() {
-        let action = decide(legacy: legacy("/Users/o/.ferb/venv/bin/python"), .notRegistered, record: nil)
+    /// The owner's Mac: a 2026-11 build left an SMAppService registration (and a record, but no LaunchAgent).
+    // decision: DMN-513, APP-602
+    func testA2026_11BuildsRegistrationIsMovedByAQuietUpdate() {
+        XCTAssertEqual(decide(nil, .enabled, record: ["build": "202611020100", "app": app, "label": "com.ferb.daemon"]),
+                       .update)
+        XCTAssertEqual(decide(nil, .requiresApproval, record: nil), .update)
+        XCTAssertEqual(decide(ours, .enabled, record: record()), .update)     // set up, but still listed
+    }
+
+    /// Rule 6 (DMN-514): a LaunchAgent that isn't what setup wrote (its digest differs from the record's) is set up again.
+    // decision: DMN-514
+    func testAChangedLaunchAgentIsSetUpAgain() {
+        XCTAssertEqual(decide(ours, digest: "tampered", record: record()), .update)
+    }
+
+    // decision: APP-602
+    func testACheckoutsLaunchAgentIsReplacedOnlyAfterTheOwnerSaysSo() {
+        let checkout = agent(["/Users/o/.ferb/venv/bin/python", "-P", "-m", "ferb.daemon"])
+        let action = decide(checkout, record: record())
         XCTAssertEqual(action, .confirmReplace(current: "/Users/o/.ferb/venv/bin/python"))
         XCTAssertEqual(AppSetupPlan.serviceArguments(for: action), ["setup", "--service"])
         XCTAssertTrue(AppSetupPlan.needsConfirmation(action))
     }
 
-    func testAServiceTheOwnerTurnedOffOrThatIsntRunningIsRepairedByAnUpdate() {
-        let record: [String: Any] = ["build": "202610140201", "app": app]
-        XCTAssertEqual(decide(.requiresApproval, record: record), .update)
-        XCTAssertEqual(decide(.notRegistered, record: record), .update)
-        XCTAssertEqual(decide(.enabled, record: record, running: false), .update)
-        XCTAssertEqual(decide(.enabled, record: ["build": "202610140201", "app": "/Users/o/Downloads/FERB.app"]), .update)
-        XCTAssertEqual(decide(.enabled, record: nil), .update)
+    func testAServiceThatIsntRunningIsRepairedByAnUpdate() {
+        XCTAssertEqual(decide(ours, record: record(), running: false), .update)
+        XCTAssertEqual(decide(ours, record: record(app: "/Users/o/Downloads/FERB.app")), .update)
+        XCTAssertEqual(decide(nil, record: record()), .update)               // the LaunchAgent was deleted
     }
 
-    func testTheServiceProblemsAreSaidInTheAppsWords() {
-        XCTAssertNil(ServicePlan.problem(.enabled))
-        XCTAssertTrue(ServicePlan.problem(.requiresApproval)?.contains("Login Items") == true)
-        XCTAssertTrue(ServicePlan.problem(.notFound)?.contains("Download FERB again") == true)
+    // decision: DMN-513
+    func testLaunchdsSwitchedOffListIsRead() {
+        XCTAssertTrue(LaunchctlPlan.disabled("disabled services = {\n\t\"com.apple.x\" => enabled\n" +
+                                             "\t\"com.ferb.daemon\" => disabled\n}\n"))
+        XCTAssertTrue(LaunchctlPlan.disabled("\t\"com.ferb.daemon\" => true\n"))
+        XCTAssertFalse(LaunchctlPlan.disabled("\t\"com.ferb.daemon\" => enabled\n\t\"com.ferb.daemon.x\" => disabled\n"))
+        XCTAssertFalse(LaunchctlPlan.disabled(""))
         XCTAssertEqual(ServicePlan.plistName, "com.ferb.daemon.plist")
+        XCTAssertEqual(AppSetupPlan.digest(Data("abc".utf8)),
+                       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     }
 
     private func needs(done: Bool, signedIn: Bool = true, missing: [String] = [], unpaired: Bool = false,

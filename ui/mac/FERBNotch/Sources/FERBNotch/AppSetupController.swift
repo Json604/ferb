@@ -7,13 +7,13 @@ enum AppName {
 }
 
 /// FERB.app's setup (L27, L34 C, kb area app). A first launch runs the first-run intro (IntroController): its
-/// Meet sets the background service up from this app (`ferb setup --service`, no questions) and turns it on with macOS
-/// (SMAppService: its definition is inside this signed app, DMN-2), and every later beat reads and
-/// acts through the daemon. After the app is replaced by a new build, or when launchd doesn't have FERB running, launch
-/// updates the service quietly (`ferb setup --service --update`) and runs only the intro's beats for a required grant
-/// that's missing. A skipped intro (or a grant still off at its end) leaves the compact setup window on the first
-/// required step left. Another installation (a checkout, or FERB.app elsewhere) is replaced only after the owner says
-/// so, from the menu too. Replay intro (Settings → General, the menu's Set Up FERB…) runs every beat again. Closing
+/// Meet sets the background service up from this app (`ferb setup --service`, no questions: it writes and loads the
+/// user LaunchAgent, DMN-513), and every later beat reads and acts through the daemon. After the app is replaced by a
+/// new build, an older install's LaunchAgent or a 2026-11 build's SMAppService registration is found, the LaunchAgent
+/// differs from what setup wrote (DMN-514) or launchd doesn't have FERB running, launch updates the service quietly
+/// (`ferb setup --service --update`) and runs only the intro's beats for a required grant that's missing. A skipped
+/// intro (or a grant still off at its end) leaves the compact setup window on the first required step left. A
+/// checkout's LaunchAgent is replaced only after the owner says so, from the menu too. Replay intro (Settings → General, the menu's Set Up FERB…) runs every beat again. Closing
 /// the window doesn't stop a service run; quitting FERB stops it, and setup finishes reinstalling the service first.
 /// A development build, which has no Python inside, never installs anything.
 @MainActor
@@ -58,7 +58,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     private var python: URL { bundle.appendingPathComponent("Contents/Resources/python/bin/python3.12") }
     private var agentExecutable: URL { bundle.appendingPathComponent("Contents/Helpers/FERB.app/Contents/MacOS/FERB") }
     private var launcher: URL { bundle.appendingPathComponent("Contents/Resources/bin/ferb") }
-    /// The user LaunchAgent FERB wrote before this app registered its own service (or a checkout's): setup retires it.
+    /// The background service's user LaunchAgent (this app's, an older install's or a checkout's; DMN-513).
     private var agentPlist: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/com.ferb.daemon.plist")
     }
@@ -66,8 +66,9 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     private var serviceRecord: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ferb/service.json")
     }
-    /// Made on first use: a setup with an injected model (tests, the intro playground) never touches SMAppService.
-    lazy var background = AppServiceAgent()
+    /// Made on first use: a setup with an injected model (tests, the intro playground) never touches SMAppService or
+    /// launchd.
+    lazy var background = LaunchAgentService()
 
     lazy var model = injectedModel ?? SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
                                                  app: SystemAppPermissions(), system: SystemOpener(),
@@ -227,20 +228,22 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     func stop() { model.runner.cancel() }
 
     private func currentAction() -> AppSetupAction {
-        let legacy = (NSDictionary(contentsOf: agentPlist) as? [String: Any]).flatMap {
-            $0["Label"] as? String == LaunchctlPlan.label ? $0 : nil
-        }
+        let data = try? Data(contentsOf: agentPlist)
+        let agent = data.flatMap {
+            try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any]
+        }.flatMap { $0["Label"] as? String == LaunchctlPlan.label ? $0 : nil }
         let record = (try? Data(contentsOf: serviceRecord)).flatMap {
             try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
         }
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
-        return AppSetupPlan.decide(legacyAgent: legacy, service: background.status, record: record,
+        return AppSetupPlan.decide(launchAgent: agent, launchAgentDigest: agent == nil ? nil : data.map(AppSetupPlan.digest),
+                                   registration: background.registration, record: record,
                                    agentExecutable: agentExecutable.path, appPath: bundle.path, build: build,
                                    daemonRunning: daemonRunning())
     }
 
-    /// Uninstall: the background service unregistered from macOS (the definition goes with the app itself), before
-    /// `ferb uninstall` runs. Nil when it's off, else why not.
+    /// Uninstall: a 2026-11 build's SMAppService registration unregistered from macOS, before `ferb uninstall` boots
+    /// the LaunchAgent out and deletes it. Nil when macOS lists none, else why not.
     func unregisterService() async -> String? {
         guard isPackaged else { return nil }
         return await background.unregisterForUninstall()

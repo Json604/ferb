@@ -10,7 +10,8 @@
 # below) with the ferb package and its locked dependencies; the agent app FERB (Helpers/FERB.app: a native stub that
 # embeds that Python and runs the daemon, so macOS names FERB in permission prompts); the `ferb` launcher; the pinned
 # Codex; the secret helper; the local embedding model; the background service's definition (Contents/Library/
-# LaunchAgents, registered by the app with SMAppService). Hearing (an app's sound to text) is the main executable's own
+# LaunchAgents: unused while FERB has no Developer ID, kept so FERB.app can unregister a 2026-11 build's SMAppService
+# registration, and for T-27; first launch writes the user LaunchAgent instead, DMN-513). Hearing (an app's sound to text) is the main executable's own
 # modes (ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift); there is no helper. First launch sets the daemon up from inside the app (ferb/device/install.py).
 # Env: SIGN_IDENTITY (default "-", ad-hoc) and, for a Developer ID, the notary credentials described in signing.sh.
 set -euo pipefail
@@ -177,7 +178,7 @@ xcrun clang -O2 -arch "$ARCH" -mmacosx-version-min=14.2 -ffile-prefix-map="$ROOT
   -Wl,-rpath,@executable_path/../../../../Resources/python/lib -o "$AGENT/Contents/MacOS/FERB"
 strip -S "$AGENT/Contents/MacOS/FERB"
 
-print "==> Background service definition (FERB.app registers it with SMAppService; DMN-2)"
+print "==> Background service definition (kept for SMAppService's unregister and T-27; the daemon runs as a user LaunchAgent, DMN-513)"
 SERVICE="$CONTENTS/Library/LaunchAgents/com.ferb.daemon.plist"     # ferb/device/install.py BUNDLE_SERVICE
 mkdir -p "${SERVICE:h}"
 cp "$ROOT/ui/mac/FERBAgent/com.ferb.daemon.plist" "$SERVICE"

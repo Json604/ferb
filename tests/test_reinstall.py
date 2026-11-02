@@ -283,7 +283,7 @@ def test_a_cut_short_codex_catalog_dump_is_dumped_again(tmp_path: Path) -> None:
 def test_reinstall_over_an_older_builds_leftovers_rewrites_every_program_file(tmp_path: Path) -> None:
     """Uninstalled (or deleted) without purge, then a new FERB.app opened: the helper missing or not the one the app
     seals, a stale record naming the older build and app, the `ferb` link and the Codex link into the deleted app, an
-    old user LaunchAgent: setup recreates or retires each; the owner's data stays."""
+    older build's LaunchAgent: setup recreates or rewrites each; the owner's data stays."""
     import json
     import plistlib
     from ferb.device.install import Installer
@@ -312,10 +312,11 @@ def test_reinstall_over_an_older_builds_leftovers_rewrites_every_program_file(tm
     inst.install(update_only=True)
     assert (home / "bin" / "ferb-secrets").read_bytes() == (app / "Contents/Helpers/ferb-secrets").read_bytes()
     assert (home / "bin" / "ferb-secrets.requirement").read_text().strip() == PINNED
-    assert inst.recorded() == {"build": "202611010900", "app": str(app), "label": "com.ferb.test"}
+    assert {k: v for k, v in inst.recorded().items() if k != "definition"} == {
+        "build": "202611010900", "app": str(app), "label": "com.ferb.test"}
     assert (tmp_path / "bin" / "ferb").resolve() == (app / "Contents/Resources/bin/ferb").resolve()
     assert (home / "node").resolve() == (app / "Contents/Resources/node").resolve()
-    assert not (agents / "com.ferb.test.plist").exists()
+    assert inst.definition_current()                                             # this build's LaunchAgent
     assert json.loads((tmp_path / "Chrome" / "NativeMessagingHosts" / "com.ferb.native_host.json").read_text())["path"] \
         == str(home / "bin" / "ferb-native-host")
     assert str(app) in (home / "bin" / "ferb-native-host").read_text()

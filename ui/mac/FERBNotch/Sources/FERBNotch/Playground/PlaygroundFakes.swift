@@ -29,8 +29,10 @@ final class PlaygroundRunner: SetupCommandRunning {
             }
             let fails = codex ? state.saved.signInFails : state.saved.serviceInstallFails
             if fails { line(codex ? "Sign-in was cancelled in the browser." : "Setup stopped: the playground is set to fail here.") }
-            if !codex && !fails { state.saved.serviceInstalled = true }
-            self?.finish(fails ? 1 : 0)
+            let switchedOff = !codex && !fails && state.saved.loginItemsNeedOK && !state.saved.loginItemsAllowed
+            if switchedOff { line("FERB's background service is switched off in Login Items (faked).") }
+            if !codex && !fails && !switchedOff { state.saved.serviceInstalled = true }
+            self?.finish(fails ? 1 : switchedOff ? ServicePlan.switchedOffStatus : 0)
         }
         return true
     }
@@ -89,31 +91,22 @@ final class PlaygroundService: DaemonServicing {
     }
 }
 
-/// SMAppService for FERB's background service, faked. With "Login Items needs your OK" on, registering leaves it
-/// waiting until the owner allows it in the stand-in Login Items pane (or the control panel).
+/// macOS's side of FERB's background service, faked: no SMAppService registration to retire, and Login Items'
+/// switch. With "Login Items needs your OK" on, the faked setup command reports FERB switched off until the owner
+/// allows it in the stand-in Login Items pane (or the control panel).
 @MainActor
-final class PlaygroundBackground: BackgroundServiceRegistering {
+final class PlaygroundBackground: BackgroundServiceManaging {
     private let state: PlaygroundState
     private let opener: PlaygroundSettingsOpener
-    private var registered = false
 
     init(state: PlaygroundState, opener: PlaygroundSettingsOpener) {
         self.state = state
         self.opener = opener
     }
 
-    var status: ServiceStatus {
-        guard registered || state.saved.serviceInstalled else { return .notRegistered }
-        return state.saved.loginItemsNeedOK && !state.saved.loginItemsAllowed ? .requiresApproval : .enabled
-    }
-
-    func register() throws {
-        registered = true
-        state.note("background service registered (faked): \(status)")
-    }
-
-    func unregister() async throws { registered = false }
-
+    var registration: ServiceStatus { .notRegistered }
+    func unregister() async throws {}
+    func switchedOff() async -> Bool { state.saved.loginItemsNeedOK && !state.saved.loginItemsAllowed }
     func openLoginItems() { opener.showLoginItems() }
 }
 

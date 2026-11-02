@@ -331,4 +331,19 @@ public enum LaunchctlPlan {
 
     /// Starts the job only if it isn't running (no -k: a running daemon is never killed).
     public static func start(uid: uid_t) -> [String] { ["kickstart", "gui/\(uid)/\(label)"] }
+
+    /// From `launchctl print-disabled gui/<uid>`: FERB's service is switched off (Login Items → Allow in the
+    /// Background). Older macOS prints `=> true`, newer `=> disabled` (ferb/device/install.py Installer.disabled).
+    public static func disabled(_ output: String) -> Bool {
+        for line in output.split(separator: "\n") {
+            let parts = line.components(separatedBy: "=>")
+            guard parts.count == 2 else { continue }
+            let name = parts[0].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            if name == label {
+                let state = parts[1].trimmingCharacters(in: .whitespaces)
+                return state == "disabled" || state == "true"
+            }
+        }
+        return false
+    }
 }

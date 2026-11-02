@@ -340,6 +340,22 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
                 await self.shutdown()
             raise
 
+    async def _restore_service_definition(self) -> None:
+        """DMN-514 (rule 6): started by launchd as FERB's background service (its parent is launchd, which names the
+        job in XPC_SERVICE_NAME), the daemon puts its user-writable LaunchAgent back to exactly what setup writes when
+        it differs, and journals that it did. A daemon started any other way (a terminal, a test) leaves it alone."""
+        from ferb.device.install import LABEL, Installer, app_bundle
+        if os.getppid() != 1 or os.environ.get("XPC_SERVICE_NAME") != LABEL:
+            return
+        inst = Installer(self.home, bundle=app_bundle())
+        try:
+            restored = await asyncio.to_thread(inst.restore_definition)
+        except OSError as e:
+            self.journal.append("service.definition_restore_failed", {"error": f"{type(e).__name__}: {e}"})
+            return
+        if restored:
+            self.journal.append("service.definition_restored", {"path": str(inst.plist_path)})
+
     def _new_protection_defaults(self) -> None:
         """A never-read default config.toml was never offered (a browser added to the one browser list) is added once
         and journaled with every default offered so far; one the owner removed after that stays removed. The lists
@@ -438,6 +454,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         session = self._login_session()
         previous = self.journal.recent_values("daemon.started", "session", 1)
         self.journal.append("daemon.started", {"pid": os.getpid()} | ({"session": session} if session else {}))
+        await self._restore_service_definition()
         await self._tell_set_aside()
         self._mac_started(session is not None and previous != [session])
         # L28: an unknown window is said, never guessed. The catalog shipped with the pinned binary was dumped before
