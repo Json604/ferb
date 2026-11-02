@@ -50,6 +50,11 @@ public struct IntroProgress {
     public static let beatKey = "FERBIntroBeat"
     public static let doneKey = "FERBIntroDone"
     public static let planKey = "FERBIntroPlan"
+    public static let tourKey = "FERBIntroTour"
+    /// The tour's version. Every install whose last whole tour was an older version plays this one once, as a first
+    /// run, keeping its data, sign-in and grants (APP-635). Raise it only on the owner's word that a new tour should
+    /// reach existing installs.
+    public static let currentTour = 2
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults) { self.defaults = defaults }
@@ -68,6 +73,12 @@ public struct IntroProgress {
     public var done: Bool {
         get { defaults.bool(forKey: Self.doneKey) }
         set { defaults.set(newValue, forKey: Self.doneKey) }
+    }
+
+    /// Whether this install has started the whole current tour (a first run, a replay or a resumed whole tour).
+    public var tourSeen: Bool {
+        get { defaults.integer(forKey: Self.tourKey) >= Self.currentTour }
+        set { defaults.set(newValue ? Self.currentTour : 0, forKey: Self.tourKey) }
     }
 
     /// The beats of the tour running now (written when it starts), so a quit tour resumes with its own plan.

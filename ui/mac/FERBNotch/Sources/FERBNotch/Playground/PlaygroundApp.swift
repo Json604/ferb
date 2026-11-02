@@ -14,7 +14,6 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: PanelCoordinator?
     private var appSetup: AppSetupController?
     private var controls: NSWindow?
-    private let arrival = PlaygroundArrival()
     private var appReview: PlaygroundAppReview?
     private let dock = DockPresence()
 
@@ -39,14 +38,6 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
         let coordinator = PanelCoordinator(model: services.notch)
         coordinator.service = services.service            // the menu's Restart: faked, never launchctl
         let sound = PlaygroundSound(state: state, defaults: defaults)
-        if PlaygroundMode.usesArrival {
-            sound.onPlay = { [weak self] cue in
-                if cue == .firstLaunch {
-                    self?.arrival.show(seconds: (IntroController.firstLaunchClipSeconds() ?? 2) / state.speed)
-                } else if cue == .intro { self?.arrival.hide() }
-            }
-            sound.onStop = { [weak self] in self?.arrival.hide() }
-        }
         coordinator.model.feedback.player = sound
         self.coordinator = coordinator
         services.opener.avoidFrame = { [weak coordinator] in coordinator?.introScreenFrame }
@@ -54,6 +45,8 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
 
         let appSetup = AppSetupController(model: services.setup, defaults: defaults)
         appSetup.introSleeper = services.sleeper
+        // The arrival concept draws FERB.app's own entrance (StartupArrival) with the picked study at the tour's speed.
+        appSetup.makeArrival = { PlaygroundMode.usesArrival ? PlaygroundArrival(state: state) : nil }
         appSetup.makeTourParts = { [opener = services.opener] in
             (OrbController(sound: sound, clock: PlaygroundClock(clock: DisplayLinkClock(), state: state),
                            makeTracker: { PlaygroundSettingsTracker(opener: opener) }), sound)
@@ -97,7 +90,6 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        arrival.hide()
         appSetup?.stop()
         coordinator?.tearDown()
     }
@@ -204,7 +196,6 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
             finishTask: { services.daemon.workspace.finishRunning() },
             showTaskPreview: { [weak self] in self?.appReview?.showPreview() },
             previewSetup: { [weak self] in
-                self?.arrival.hide()
                 self?.appSetup?.repair(.none)
                 services.setup.go(.ai)
             })
@@ -235,5 +226,19 @@ enum PlaygroundPlacement: Hashable {
         case .edge(let edge): return "\(edge.rawValue.capitalized) edge"
         }
     }
+}
+
+/// FERB.app's entrance with the controls' study choice (APP-608) and the tour's speed.
+@MainActor
+final class PlaygroundArrival: IntroArrivalShowing {
+    private let state: PlaygroundState
+    private let arrival = StartupArrival()
+    init(state: PlaygroundState) { self.state = state }
+    func show(seconds: Double) {
+        arrival.study = StartupStudy(rawValue: UserDefaults.standard.string(forKey: "concept.arrivalStyle") ?? "")
+            ?? .gravityDense
+        arrival.show(seconds: seconds / state.speed)
+    }
+    func hide() { arrival.hide() }
 }
 #endif

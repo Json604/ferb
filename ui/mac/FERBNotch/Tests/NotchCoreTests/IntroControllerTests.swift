@@ -80,7 +80,8 @@ final class IntroControllerTests: XCTestCase {
     /// `realOrb`: the tour flies a real OrbController (on a fake surface and clock) sharing the tour's sound player,
     /// instead of the fake orb.
     func tour(_ action: AppSetupAction = .none, background: BackgroundServiceManaging? = nil,
-              clipSeconds: Double = 7.3, apps: IntroAppLocating? = nil, realOrb: Bool = false) -> Tour {
+              clipSeconds: Double = 7.3, apps: IntroAppLocating? = nil, realOrb: Bool = false,
+              arrival: IntroArrivalShowing? = nil) -> Tour {
         let rig = SetupRig()
         rig.rpc.replies["runtimes.status"] = Self.connected
         rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
@@ -103,7 +104,8 @@ final class IntroControllerTests: XCTestCase {
             : orb
         let controller = IntroController(setup: setup, orb: flown, sound: sound, notch: notch,
                                          progress: IntroProgress(defaults: defaults), controls: controls,
-                                         apps: apps ?? Self.mac(), sleeper: sleeper, clipSeconds: clipSeconds)
+                                         apps: apps ?? Self.mac(), sleeper: sleeper, clipSeconds: clipSeconds,
+                                         arrival: arrival)
         let log = LineLog()
         notch.$introLine.compactMap { $0 }.sink { log.all.append($0) }.store(in: &subscriptions)
         addTeardownBlock { @MainActor in controller.skip() }
@@ -181,6 +183,39 @@ final class IntroControllerTests: XCTestCase {
         await eventually { resumed.controller.beat == .signIn }
         XCTAssertFalse(resumed.sound.played.contains(.firstLaunch))
         XCTAssertFalse(resumed.sound.played.contains(.intro))
+    }
+
+    /// The first run's Dense entrance is drawn for exactly the clip and is gone when the clip ends; a replay draws
+    /// none, and a tour torn down mid-clip takes it down with it.
+    // decision: APP-618, APP-612
+    func testFirstRunDrawsTheStartupArrivalOverTheClipOnly() async {
+        let arrival = FakeArrival()
+        let t = tour(.install, clipSeconds: 7.3, arrival: arrival)
+        t.rig.rpc.replies["runtimes.status"] = Self.notConnected
+        t.sleeper.hold(7.3)
+        t.controller.start(beats: IntroBeat.allCases, firstRun: true)
+        XCTAssertEqual(arrival.shown, [7.3])
+        XCTAssertTrue(arrival.visible)
+        await eventually { t.sleeper.isWaiting(7.3) }
+        t.sleeper.release(7.3)
+        await eventually { t.sound.played.contains(.intro) }
+        XCTAssertFalse(arrival.visible)
+
+        let quiet = FakeArrival()
+        let replay = tour(arrival: quiet)
+        replay.rig.rpc.replies["runtimes.status"] = Self.notConnected
+        replay.controller.start(beats: IntroBeat.allCases)
+        await eventually { replay.sound.played.contains(.intro) }
+        XCTAssertEqual(quiet.shown, [])
+
+        let cut = FakeArrival()
+        let ended = tour(.install, arrival: cut)
+        ended.rig.rpc.replies["runtimes.status"] = Self.notConnected
+        ended.sleeper.hold(7.3)
+        ended.controller.start(beats: IntroBeat.allCases, firstRun: true)
+        XCTAssertTrue(cut.visible)
+        ended.controller.skip()
+        XCTAssertFalse(cut.visible)
     }
 
     // MARK: Sign in
@@ -743,4 +778,13 @@ final class IntroAppTargetsTests: XCTestCase {
                                                      exists: { $0 == "/System/Applications/Notes.app" }),
                        "/System/Applications/Notes.app")
     }
+}
+
+/// Records the first-launch entrance's shows and hides.
+@MainActor
+final class FakeArrival: IntroArrivalShowing {
+    var shown: [Double] = []
+    var visible = false
+    func show(seconds: Double) { shown.append(seconds); visible = true }
+    func hide() { visible = false }
 }

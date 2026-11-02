@@ -69,6 +69,8 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     /// Made on first use: a setup with an injected model (tests, the intro playground) never touches SMAppService or
     /// launchd.
     lazy var background = LaunchAgentService()
+    /// The first-launch entrance a first run's tour draws over the clip (APP-618); the playground picks its own.
+    var makeArrival: () -> IntroArrivalShowing? = { StartupArrival() }
 
     lazy var model = injectedModel ?? SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
                                                  app: SystemAppPermissions(), system: SystemOpener(),
@@ -153,9 +155,11 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         var progress = self.progress
         if firstRun { progress.resumeBeat = nil }            // a new install starts at Meet, whatever a quit left
         progress.plan = beats
+        if beats == IntroBeat.allCases { progress.tourSeen = true }    // this install has had the whole tour (APP-635)
         let (orb, sound) = makeTourParts()
         let controller = IntroController(setup: model, orb: orb, sound: sound, notch: notch, progress: progress,
-                                         controls: introControls, sleeper: introSleeper)
+                                         controls: introControls, sleeper: introSleeper,
+                                         arrival: firstRun ? makeArrival() : nil)
         controller.onFinished = { [weak self, weak controller] in
             self?.tourEnded(left: controller?.remainingRequired ?? [])
         }
@@ -194,7 +198,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         let done = await model.setupDone()
         let progress = self.progress
         let firstRun = AppSetupPlan.firstRun(action, setupDone: done, introDone: progress.done,
-                                             resuming: progress.resumeBeat != nil)
+                                             resuming: progress.resumeBeat != nil, tourSeen: progress.tourSeen)
         if progress.interrupted == nil && !firstRun {
             if !done || action == .update { await model.refreshPermissions() }
             if !done {

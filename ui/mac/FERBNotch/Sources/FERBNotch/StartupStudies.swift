@@ -1,7 +1,8 @@
-#if FERB_PLAYGROUND
 import AppKit
 import SwiftUI
 
+/// The startup studies. FERB.app shows only Gravity — Dense (APP-612, APP-618); the rest stay for the playground's
+/// comparison picker (APP-608, APP-610).
 enum StartupStudy: String, CaseIterable, Identifiable {
     case still = "Still", silk = "Silk", gravity = "Gravity", gravityDense = "Gravity — Dense", gravityTwirl = "Gravity — Twirl", interference = "Interference"
     var id: String { rawValue }
@@ -17,9 +18,6 @@ enum StartupStudy: String, CaseIterable, Identifiable {
         case .gravityTwirl: return "Dense material winding inward, with faster rotation near the logo."
         case .interference: return "Two wave fields forming impossible-looking patterns."
         }
-    }
-    static var selected: StartupStudy {
-        StartupStudy(rawValue: UserDefaults.standard.string(forKey: "concept.arrivalStyle") ?? "") ?? .gravityDense
     }
 }
 
@@ -223,4 +221,3 @@ private enum StudyGrain {
         return image
     }()
 }
-#endif

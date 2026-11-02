@@ -37,6 +37,8 @@ final class IntroController {
     let apps: IntroAppLocating
     var progress: IntroProgress
     private let clipSeconds: Double
+    /// The first-launch entrance drawn over the clip (StartupArrival); nil draws none (tests).
+    private let arrival: IntroArrivalShowing?
     /// The tour ended (finished or skipped); `remainingRequired` says what a skip left.
     var onFinished: (() -> Void)?
     private(set) var beat: IntroBeat?
@@ -72,7 +74,8 @@ final class IntroController {
     /// `clipSeconds`: the first-launch clip's length (nil: read from the bundled file).
     init(setup: SetupModel, orb: OrbControlling, sound: FerbSoundPlaying, notch: NotchModel, progress: IntroProgress,
          controls: IntroControlFeeding, apps: IntroAppLocating? = nil, sleeper: IntroSleeping? = nil,
-         clipSeconds: Double? = nil) {
+         clipSeconds: Double? = nil, arrival: IntroArrivalShowing? = nil) {
+        self.arrival = arrival
         self.setup = setup
         self.orb = orb
         self.sound = sound
@@ -118,6 +121,7 @@ final class IntroController {
         notch.introHoldsWork = true
         if firstRun && resume == nil && plan.first == .meet {
             sound.play(.firstLaunch, at: nil)
+            arrival?.show(seconds: clipSeconds)
             clipEnded = false
             Task { [weak self, sleeper, clipSeconds] in
                 await sleeper.sleep(seconds: clipSeconds)
@@ -239,6 +243,7 @@ final class IntroController {
         orb.onHomeArrival = nil
         orb.tearDown()
         sound.keepWarm(false)
+        arrival?.hide()
         if stoppingSound { sound.stopAll() }
         notch.onIntroAction = nil
         notch.introLine = nil
@@ -329,6 +334,7 @@ final class IntroController {
     }
 
     private func endClip() {
+        arrival?.hide()
         clipEnded = true
         let waiting = clipWaiter
         clipWaiter = nil

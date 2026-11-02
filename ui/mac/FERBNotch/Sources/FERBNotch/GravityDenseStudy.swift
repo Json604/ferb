@@ -1,4 +1,3 @@
-#if FERB_PLAYGROUND
 import SwiftUI
 
 /// Dense material with a fade-only ending; the optional twirl retains its differential inward motion.
@@ -132,5 +131,3 @@ struct DenseGravitySurface {
         return t * t * (3 - 2 * t)
     }
 }
-
-#endif

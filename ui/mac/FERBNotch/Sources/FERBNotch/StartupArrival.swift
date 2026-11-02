@@ -1,12 +1,21 @@
-#if FERB_PLAYGROUND
 import AppKit
 import SwiftUI
 import AVFAudio
 
-/// A separate startup experiment. Uses the same sound cue as the intro; never installs anything.
+/// The first-launch entrance (APP-612, APP-618): the Dense field resonating with the first-launch clip, then the logo
+/// reveal, over every Space and never key. The intro shows it for the clip's length and hides it when the clip ends or
+/// the tour ends. It only draws; it never installs or asks anything.
 @MainActor
-final class PlaygroundArrival {
+protocol IntroArrivalShowing: AnyObject {
+    func show(seconds: Double)
+    func hide()
+}
+
+@MainActor
+final class StartupArrival: IntroArrivalShowing {
     private var panel: NSPanel?
+    /// FERB.app shows the finalized Dense; the playground's study picker sets another to compare.
+    var study: StartupStudy = .gravityDense
     func show(seconds: Double) {
         hide()
         guard let screen = NSScreen.main else { return }
@@ -19,7 +28,7 @@ final class PlaygroundArrival {
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 4)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
-        panel.contentView = NSHostingView(rootView: ArrivalReveal(start: Date(), duration: max(0.1, seconds), envelope: ArrivalEnvelope.load(), study: StartupStudy.selected))
+        panel.contentView = NSHostingView(rootView: ArrivalReveal(start: Date(), duration: max(0.1, seconds), envelope: ArrivalEnvelope.load(), study: study))
         panel.orderFrontRegardless()
         self.panel = panel
     }
@@ -187,4 +196,3 @@ private struct ArrivalEnvelope {
                                seconds: Double(count) / file.processingFormat.sampleRate)
     }
 }
-#endif

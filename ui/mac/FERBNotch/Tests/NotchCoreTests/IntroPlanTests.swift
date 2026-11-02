@@ -2,21 +2,21 @@ import XCTest
 @testable import NotchCore
 
 final class IntroPlanTests: XCTestCase {
-    // decision: APP-517, APP-618
+    // decision: APP-635, APP-618
     func testFinishedSetupGetsNoTourUnlessReplayed() {
         let needs = IntroNeeds(setupDone: true, signedIn: true, missingPermissions: [], unpairedBrowsers: false, firstRun: false)
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), [])
         XCTAssertEqual(IntroPlan.beats(needs, replay: true), IntroBeat.allCases)
     }
 
-    // decision: APP-517
+    // decision: APP-635
     func testMissingGrantsOnlyGetsThePermissionsBeatAndHome() {
         let needs = IntroNeeds(setupDone: false, signedIn: true, missingPermissions: ["screen_recording"],
                                unpairedBrowsers: false, firstRun: false)
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), [.permissions, .home])
     }
 
-    // decision: APP-517
+    // decision: APP-635
     func testFirstRunGetsEveryBeatEvenIfAlreadySignedIn() {
         let needs = IntroNeeds(setupDone: false, signedIn: true, missingPermissions: [], unpairedBrowsers: false,
                                firstRun: true)

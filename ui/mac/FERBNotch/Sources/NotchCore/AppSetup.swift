@@ -103,6 +103,7 @@ public enum AppSetupPlan {
     public static func afterUpdate(_ needs: IntroNeeds, tour: [IntroBeat]? = nil,
                                    resume: SetupStep? = nil) -> SetupLaunch {
         if let tour, !tour.isEmpty { return .intro(tour) }
+        if needs.firstRun { return .intro(IntroBeat.allCases) }
         if needs.setupDone && !needs.missingPermissions.isEmpty { return .intro([.permissions, .home]) }
         return settled(needs, tour: nil, resume: resume)
     }
@@ -114,12 +115,15 @@ public enum AppSetupPlan {
         return beats.isEmpty ? .nothing : .intro(beats)
     }
 
-    /// Whether this launch is the install's first run (the tour opens with the first-launch clip): a new install or
-    /// another installation, or an install that has neither finished setup nor seen the tour and isn't resuming one.
-    public static func firstRun(_ action: AppSetupAction, setupDone: Bool, introDone: Bool, resuming: Bool) -> Bool {
+    /// Whether this launch is the install's first run (the tour opens with the first-launch clip and the whole tour
+    /// plays): a new install or another installation; an install that has neither finished setup nor seen the tour; or
+    /// one that hasn't seen this version of the tour yet (`tourSeen` false: an upgrade from an older FERB, APP-635),
+    /// in each case unless it is resuming a tour a quit interrupted.
+    public static func firstRun(_ action: AppSetupAction, setupDone: Bool, introDone: Bool, resuming: Bool,
+                                tourSeen: Bool = true) -> Bool {
         switch action {
         case .install, .confirmReplace: return true
-        case .update, .none: return !setupDone && !introDone && !resuming
+        case .update, .none: return (!setupDone && !introDone || !tourSeen) && !resuming
         }
     }
 

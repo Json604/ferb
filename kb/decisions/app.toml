@@ -356,7 +356,8 @@ legacy = "notes/setup-intro.md Constraints (Skippable)"
 title = "Who sees the tour after an upgrade"
 by = "owner"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-635"
 words_source = "notes/setup-intro.md Constraints (design agreed 2026-11-01): an agent's write-up; no verbatim quote"
 rule = "An install that finished setup never sees the tour (Settings offers Replay intro); one that finished setup but is missing grants gets only those beats plus Home. An install that never finished setup and predates the intro gets the full tour, as a first run."
 why = "The last case is an agent ruling of 2026-11-01."
@@ -1139,7 +1140,7 @@ status = "active"
 words = "why not a list of all is shown heere?? ... the nothc comming down at the start is too direct - keep tha tapple lively moving feel in tha nimation ... theres too many overlapping in this orb thigny. also if you can make a fully moving orb if possible. ... just a version apart from the notch only"
 rule = "In the isolated setup concept, show the permissions before Allow all, refine the notch entrance's spring, separate the draggable icon from the orb, and try a continuously moving orb material. Keep a logo-reveal startup as a separate variant from the notch-only entrance. These are experiments for the owner's review, not changes to the installed app or acceptance of a final design."
 why = "Motion references: MarceloDesignX/status/2113496453134082147 and davidhaz/status/2114310744183578783; their media is not shipped. The requested continuous orb overrides APP-504 for this concept. Reduce Motion stays still."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupArrival.swift"]
 live = ["LIVE-699"]
 
 [APP-603]
@@ -1150,7 +1151,7 @@ status = "active"
 words = "lets drop teh orb completlty. letd the logo fly."
 rule = "In the isolated setup concept, remove the orb and use FERB's existing logo as the flying guide and the draggable app icon. Keep the logo-reveal startup, adding visual movement alongside its sound."
 why = "Owner also said: i really like the new logo statrup approach youve tried, BUT there needs to be some visual thigny there, otherewuse its just a logo there and a sound playing. This replaces APP-501/APP-634 orb direction in the isolated concept only."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupArrival.swift"]
 live = ["LIVE-699"]
 
 [APP-604]
@@ -1161,7 +1162,7 @@ status = "active"
 words = "try somethign grainny, wavy and magical. it shsuodl feeel mindboggling. the music's lit, make the visual feel that too"
 rule = "In the isolated playground, bring setup windows into the notch's visual identity. Replace the rejected amber-light startup experiment with several distinct grainy, wavy visual studies for the owner to compare. Keep the simple stationary logo available and as the default until the owner chooses a direction."
 why = "The owner rejected the basic setup window and the amber-light treatment, requested multiple pieces before choosing, and explicitly allowed falling back to the stationary logo. This is exploration, not approval of a final visual."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupArrival.swift"]
 live = ["LIVE-699"]
 
 [APP-605]
@@ -1172,7 +1173,7 @@ status = "active"
 words = "i like the gravity one. but maybe if we can somw more better movement there and soemthign more in it. think see adn iterate adn then come back with teh best version you can think of."
 rule = "Refine Gravity in the isolated playground: develop its movement and visual detail, inspect the result and iterate before presenting it again. Gravity is the preferred direction for this review; the final execution still awaits the owner's verdict."
 why = "The owner explicitly requested visual inspection and iteration for this study, so offline frame rendering and review are authorized. The other studies and stationary-logo fallback remain available."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupArrival.swift"]
 live = ["LIVE-699"]
 
 [APP-606]
@@ -1183,7 +1184,7 @@ status = "superseded"
 superseded_by = "APP-607"
 words = "good concept, but shose lines moving are not dense, look cheap. but the timing, the flow si ok. work ona better version"
 rule = "In the isolated Gravity startup concept, retain the timing and flow the owner liked while replacing the sparse-looking moving lines with a denser, more refined material. The revised appearance remains subject to the owner's review."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift"]
 live = ["LIVE-699"]
 
 [APP-607]
@@ -1195,7 +1196,7 @@ superseded_by = "APP-608"
 words = "revert back to the old. i'll tell more clearly now"
 rule = "Revert the latest dense-material Gravity experiment to the preceding line-based Gravity in the isolated playground. Preserve its timing and flow and wait for the owner's clearer direction."
 supersedes = ["APP-606"]
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift"]
 live = ["LIVE-699"]
 
 [APP-608]
@@ -1206,7 +1207,7 @@ status = "active"
 words = "in the study selection. keep thsi versiona dnthe new veriosn i jsut said you to revert. i jsut wanna perfect this starting"
 rule = "Keep both the line-based Gravity and the reverted dense-material Gravity as separate choices in the isolated playground's startup-study picker. Preserve each version and their shared timing and flow while the owner refines the startup."
 supersedes = ["APP-607"]
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPanel.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupArrival.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPanel.swift"]
 live = ["LIVE-699"]
 
 [APP-609]
@@ -1217,7 +1218,7 @@ status = "active"
 words = "i wanna go frward witha modified dense version. current one doesnt revolvce good and comes inward as a whoel and not as a twirl. so try this version."
 rule = "Develop a modified dense Gravity with a visible revolving, inward twirl rather than moving the entire field inward as one object. Keep the prior Lines and Dense studies available for comparison."
 why = "The owner prefers the dense material but wants its motion revised. The new Twirl study uses faster rotation and stronger inward pull near the logo while the outer material moves more slowly; the previous variants retain their behavior."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift"]
 live = ["LIVE-699"]
 
 [APP-610]
@@ -1227,7 +1228,7 @@ date = 2026-11-02
 status = "active"
 words = "lets go with dense but remove the inward of its ring at the end"
 rule = "Use Gravity — Dense as the chosen startup concept. Remove its final whole-field inward contraction; the dense field fades out into the existing reveal at its existing scale. Keep the other study choices available."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/GravityDenseStudy.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/GravityDenseStudy.swift"]
 live = ["LIVE-699"]
 
 [APP-611]
@@ -1237,7 +1238,7 @@ date = 2026-11-02
 status = "active"
 words = "amazing this works. but theres some space empty around logo fi that. also a better resonant movement of the rings to the music sound"
 rule = "Refine the accepted Dense startup in the isolated playground: fill the empty space around the logo and make the rings' movement resonate more closely with the startup music. Preserve its dense material, timing and fade-only ending."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupArrival.swift"]
 live = ["LIVE-699"]
 
 [APP-612]
@@ -1247,7 +1248,7 @@ date = 2026-11-02
 status = "active"
 words = "yes this versional is finalized for the start"
 rule = "Keep the accepted Dense startup with material reaching the logo, music-driven resonance and its fade-only ending. This startup is finalized; continue the isolated setup work without changing it."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupArrival.swift"]
 live = ["LIVE-700"]
 
 [APP-613]
@@ -1311,7 +1312,7 @@ status = "active"
 supersedes = ["APP-515", "APP-516"]
 words = "ok this is finlaized at the startup adn setup - with a small change: remove skip intro button completely, we wont have that button at all anywhere."
 rule = "Startup and setup in the isolated concept are accepted. Default to the approved Gravity — Dense. Remove Skip intro and its action everywhere, including playground controls, with no reserved footer. A quit resumes at the same beat; Settings can replay the tour. A resumed tour waits for the service; quitting interrupts it. Repair and teardown can interrupt internally and leave required work in compact setup. Keep automatic termination disabled during the tour. Acceptance is for the concept, not installation."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift"]
 live = ["LIVE-689"]
 
 [APP-619]
@@ -1471,3 +1472,26 @@ words = "why these sharp corners??? either remove or round them. or somthing bet
 rule = "Replace the old outlined form groups shown in Permissions and Privacy with the app window's soft rounded surfaces. Apply the same shared treatment to the remaining settings pages so they match the accepted window design and continuous gradient. Preserve every setting, action, confirmation and saved preference; the accepted startup/setup and original notch interaction stay unchanged."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift"]
 live = ["LIVE-698"]
+
+[APP-635]
+title = "An install from an older FERB plays the new tour once, as a first run"
+by = "owner"
+date = 2026-11-02
+status = "active"
+supersedes = ["APP-517"]
+words = "i run teh setup on my  mac as a ew then ship that dmg to my toehr friedns who installed a prev version - how to ensure that it plays out the demo for them or whole as a new app??? do they hafve to do anything??"
+rule = "FERB.app keeps a tour version (IntroProgress.currentTour). An install whose last whole tour is older, or that never had one, plays the current tour once as a first run after its quiet update (the clip with the Dense entrance, every beat), keeping its data, sign-in and grants. Starting the whole tour records the version; an interrupted tour still resumes. Then as before: setup finished means no tour (Settings: Replay intro); missing grants get those beats plus Home; setup never finished gets the full tour. The version rises only on the owner's word."
+why = "The owner asked how friends with an earlier version get the new demo, or the whole app as new; the agent's reading is the whole first run with nothing deleted. The owner's own Mac takes the same path."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift", "ui/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift"]
+live = ["LIVE-701", "LIVE-702"]
+
+[APP-636]
+title = "The accepted playground UI ships in FERB.app, with the Dense entrance on a first run"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "ok works. also the whole ui is done and finalized. its now just connecting it"
+rule = "The UI accepted in the isolated playground (APP-603..APP-633) is FERB.app's UI, against the real daemon's RPCs. The Dense entrance (StartupArrival, Gravity — Dense) is product code: a first run's tour shows it for the first-launch clip and hides it when the clip or the tour ends. The other startup studies and their picker stay playground-only choices."
+why = "Before this, the Dense entrance was compiled only into debug playground builds, so FERB.app had none."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/StartupArrival.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift"]
+live = ["LIVE-701"]

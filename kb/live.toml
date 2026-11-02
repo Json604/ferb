@@ -2287,3 +2287,21 @@ pass = "The owner accepts the material around the logo, music response and fade-
 decisions = ["APP-610", "APP-611", "APP-612"]
 sitting = "isolated UI concept review"
 result = "passed 2026-11-02: owner said yes this versional is finalized for the start"
+
+[LIVE-701]
+title = "The owner's Mac gets the whole new first run once after installing the connected build"
+area = "app"
+surface = "The owner's Mac with an earlier 2026-11 build set up (data in ~/.ferb, Codex, grants); the connected release FERB.app installed the usual way."
+request = "Install the build and open FERB. Watch the start, then go through the tour; quit once mid-tour and reopen. After Home, quit and reopen FERB again."
+pass = "The Dense field resonates with the first-launch music and reveals the logo, then the whole tour runs on the real daemon: sign-in says FERB is connected, already-given permissions are ticked, nothing is lost from chat, memory or settings. The quit resumes at the same beat. The last reopen shows no tour."
+decisions = ["APP-635", "APP-636", "APP-618"]
+sitting = "step 13"
+
+[LIVE-702]
+title = "A friend with an earlier FERB installs the DMG over it and gets the new first run with no error"
+area = "app"
+surface = "A friend's Mac with a FERB build from before 2026-11-02 installed and set up; the new DMG shared by the owner."
+request = "The friend quits FERB, opens the DMG, drags FERB onto Applications and chooses Replace, opens it, and allows it once under System Settings > Privacy & Security > Open Anyway if macOS asks."
+pass = "No error and no setup question about the old service; the Dense start and the whole tour play once; their earlier grants and data are kept; the background part runs from ~/Library/LaunchAgents/com.ferb.daemon.plist."
+decisions = ["APP-635", "DMN-513", "APP-602"]
+sitting = "after step 13"

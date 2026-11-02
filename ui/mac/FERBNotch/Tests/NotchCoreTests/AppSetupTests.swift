@@ -109,7 +109,7 @@ final class AppSetupTests: XCTestCase {
     /// kb area app: a new install (or another installation, after the owner's yes) meets FERB through the
     /// whole tour, with the first-launch clip; so does an install that never finished setup nor saw the tour. A quit
     /// tour picks up its own plan, and the intro's resume wins over the old window's.
-    // decision: APP-517, APP-618
+    // decision: APP-635, APP-618
     func testNewInstallLaunchesTheIntro() {
         let fresh = needs(done: false, signedIn: false, missing: ["accessibility"], unpaired: true, firstRun: true)
         XCTAssertEqual(AppSetupPlan.atLaunch(.install, needs: fresh), .intro(IntroBeat.allCases))
@@ -132,7 +132,7 @@ final class AppSetupTests: XCTestCase {
 
     /// An existing install that has finished setup sees nothing new (Settings offers Replay intro), as before the
     /// intro, even with a grant turned off since; a replaced build still updates quietly first.
-    // decision: APP-517
+    // decision: APP-635
     func testFinishedSetupLaunchesNothing() {
         XCTAssertFalse(AppSetupPlan.firstRun(.none, setupDone: true, introDone: false, resuming: false))
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true)), .nothing)
@@ -142,9 +142,33 @@ final class AppSetupTests: XCTestCase {
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: false)), .nothing)     // the tour seen, all set
     }
 
+    /// An install that finished setup on an older FERB plays this version of the tour once, as a first run (clip and
+    /// every beat), after its quiet update; once it has started the whole tour, launches settle as before. A tour a
+    /// quit interrupted still resumes where it was.
+    // decision: APP-635
+    func testAnUpgradeFromAnOlderTourPlaysTheWholeTourOnce() {
+        XCTAssertTrue(AppSetupPlan.firstRun(.update, setupDone: true, introDone: true, resuming: false, tourSeen: false))
+        XCTAssertTrue(AppSetupPlan.firstRun(.none, setupDone: true, introDone: true, resuming: false, tourSeen: false))
+        XCTAssertFalse(AppSetupPlan.firstRun(.none, setupDone: true, introDone: true, resuming: true, tourSeen: false))
+        XCTAssertFalse(AppSetupPlan.firstRun(.none, setupDone: true, introDone: true, resuming: false, tourSeen: true))
+        let upgraded = needs(done: true, missing: ["screen_recording"], firstRun: true)
+        XCTAssertEqual(AppSetupPlan.atLaunch(.update, needs: upgraded), .quietUpdate)
+        XCTAssertEqual(AppSetupPlan.afterUpdate(upgraded), .intro(IntroBeat.allCases))
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true, firstRun: true)), .intro(IntroBeat.allCases))
+        XCTAssertEqual(AppSetupPlan.afterUpdate(upgraded, tour: [.permissions, .home]), .intro([.permissions, .home]))
+
+        let defaults = scratchDefaults("TourVersion")
+        var progress = IntroProgress(defaults: defaults)
+        XCTAssertFalse(progress.tourSeen)                                   // an install from before the marker
+        defaults.set(IntroProgress.currentTour - 1, forKey: IntroProgress.tourKey)
+        XCTAssertFalse(progress.tourSeen)                                   // an older tour
+        progress.tourSeen = true
+        XCTAssertTrue(IntroProgress(defaults: defaults).tourSeen)
+    }
+
     /// An install missing a grant gets only that beat, then home: after a quiet update even with setup done (the old
     /// window's permissions step), and at launch while setup isn't finished.
-    // decision: APP-517, APP-508
+    // decision: APP-635, APP-508
     func testMissingGrantLaunchesOnlyThatBeat() {
         let missing = needs(done: true, missing: ["screen_recording"])
         XCTAssertEqual(AppSetupPlan.afterUpdate(missing), .intro([.permissions, .home]))
