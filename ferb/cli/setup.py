@@ -219,7 +219,9 @@ def service_setup(env: Env, update: bool = False) -> int:
         ProfileStore(inst.home).save(scan(device_id(Config(inst.home))), "setup scan")
     if inst.bundle is not None or (inst.home / "FERB.app").exists():
         _voice_helper(env)                        # pins FERB.app for hearing; never a prompt
-    client = _started(env)
+    # FERB.app registers its service afresh right after this command and waits for the daemon itself (APP-599): a
+    # registration left by another build can't start this build's daemon, so waiting here would only fail.
+    client = None if inst.app_service else _started(env)
     if client is not None:
         client.close()
     extension_setup(env)

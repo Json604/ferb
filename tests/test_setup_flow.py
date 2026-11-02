@@ -448,6 +448,21 @@ def test_an_old_voice_pin_is_replaced_by_app_setup(app_world: dict[str, Any]) ->
     assert Config(app_world["home"]).get("hearing", "requirement") == PINNED
 
 
+# decision: APP-599
+def test_the_apps_setup_command_never_waits_for_a_daemon_the_app_will_register(app_world: dict[str, Any],
+                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 2026-11-02: macOS still listed the old build's service, whose launch constraint can't start this build's
+    daemon; `ferb setup --service --update` waited 30 s for it and failed, so FERB.app never re-registered. The app's
+    setup command leaves starting and waiting to FERB.app."""
+    app_world["inst"].install()
+    waited: list[bool] = []
+    monkeypatch.setattr(S, "wait_for_daemon", lambda env, timeout=30: waited.append(True) or (_ for _ in ()).throw(
+        S.NotRunning("the daemon didn't come up")))
+    env, out = make_env(app_world, [], daemon_up=False)
+    assert S.service_setup(env, update=True) == 0, out.getvalue()
+    assert not waited and "ready for FERB.app to turn on" in out.getvalue()
+
+
 # decision: DMN-400
 def test_setup_from_the_app_refuses_an_app_signature_that_names_no_code(app_world: dict[str, Any]) -> None:
     runner = app_world["runner"]
@@ -867,7 +882,7 @@ def test_the_setup_window_installs_the_service_without_asking_anything(app_world
     env, out = make_env(app_world, [], daemon_up=False)        # no answers: any question would fail the test
     assert S.service_setup(env) == 0, out.getvalue()
     text = out.getvalue()
-    assert "FERB's background service is running." in text
+    assert "ready for FERB.app to turn on" in text               # FERB.app registers it and waits (APP-599)
     assert app_world["runner"].loaded
     assert app_world["panes"] == []                             # permissions are the window's own step
     calls = [m for m, _ in app_world["daemon"].calls]
