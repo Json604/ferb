@@ -362,8 +362,8 @@ final class IntroController {
         }
     }
 
-    /// `ferb setup --service` and registering it with macOS (SetupModel.runService): nothing to do on an install
-    /// already set up.
+    /// `ferb setup --service`, which writes and loads the LaunchAgent (SetupModel.runService): nothing to do on an
+    /// install already set up.
     private func installService() async -> Bool {
         await suspend { [weak self] (resume: @escaping (Bool?) -> Void) in
             guard let self else { return resume(false) }
@@ -371,8 +371,9 @@ final class IntroController {
         } ?? false
     }
 
-    /// The Login Items OK: System Settings opens only when the owner taps "Open Login Items" (rule 10: the tour never
-    /// moves them to another app by itself), with the orb beside it from then on; the beat waits for the system.
+    /// The Login Items OK (FERB switched off under Allow in the Background, DMN-513): System Settings opens only when
+    /// the owner taps "Open Login Items" (rule 10: the tour never moves them to another app by itself), with the orb
+    /// beside it from then on; the beat waits until launchd lists FERB as switched on, then sets the service up again.
     private func approveInLoginItems() async -> Bool {
         var docked = false
         sideChoices = [Pick.openLoginItems: { [weak self] in
@@ -385,7 +386,7 @@ final class IntroController {
         }]
         defer { sideChoices = [:] }
         say(IntroCopy.loginItems)
-        while live && setup.background?.status != .enabled { await dwell(Timing.poll) }
+        while live, let background = setup.background, await background.switchedOff() { await dwell(Timing.poll) }
         guard live else { return false }
         if docked {
             orb.hop()
@@ -393,9 +394,7 @@ final class IntroController {
         }
         guard live else { return false }
         say(IntroCopy.gettingReady)
-        let ready = await setup.registerService()
-        if ready { setup.serviceAction = .none }
-        return ready
+        return await installService()                 // switched on: the setup command loads the LaunchAgent now
     }
 
     // MARK: 8. Home

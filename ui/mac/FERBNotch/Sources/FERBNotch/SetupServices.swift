@@ -44,22 +44,28 @@ protocol DaemonServicing: AnyObject {
     func start() async -> Bool
 }
 
-/// FERB's background service as FERB.app registers it with macOS (DMN-2): its definition is inside
-/// the signed app, so nothing can edit it, deleting the app removes it, and Login Items lists it under FERB.
+/// FERB's background service as macOS knows it (DMN-513): a user LaunchAgent that `ferb setup --service` writes and
+/// loads, listed under Login Items → Allow in the Background, where the owner can switch it off; plus any SMAppService
+/// registration a 2026-11 build left, which FERB.app unregisters once before setup (macOS would keep starting that
+/// build's job, and without a Team ID its launch constraint kills every later build's daemon).
 @MainActor
-protocol BackgroundServiceRegistering: AnyObject {
-    var status: ServiceStatus { get }
-    func register() throws
+protocol BackgroundServiceManaging: AnyObject {
+    /// A 2026-11 build's SMAppService registration of FERB's plist, as macOS lists it.
+    var registration: ServiceStatus { get }
+    /// That registration removed, waited for; nothing when macOS lists none.
     func unregister() async throws
+    /// The owner switched FERB's LaunchAgent off (launchd lists com.ferb.daemon as disabled).
+    func switchedOff() async -> Bool
     func openLoginItems()
 }
 
-/// SMAppService.agent for Contents/Library/LaunchAgents/com.ferb.daemon.plist.
+/// SMAppService.agent for Contents/Library/LaunchAgents/com.ferb.daemon.plist (only to unregister it: SMAppService
+/// returns with the Developer ID, T-27) and launchd's list of switched-off services.
 @MainActor
-final class AppServiceAgent: BackgroundServiceRegistering {
+final class LaunchAgentService: BackgroundServiceManaging {
     private let service = SMAppService.agent(plistName: ServicePlan.plistName)
 
-    var status: ServiceStatus {
+    var registration: ServiceStatus {
         switch service.status {
         case .enabled: return .enabled
         case .requiresApproval: return .requiresApproval
@@ -69,28 +75,41 @@ final class AppServiceAgent: BackgroundServiceRegistering {
         }
     }
 
-    /// Registering again is harmless: macOS reports it as already registered, which counts as on.
-    func register() throws {
-        do { try service.register() } catch let error as NSError where error.code == kSMErrorAlreadyRegistered {}
+    func unregister() async throws {
+        guard registration.listed else { return }
+        try await service.unregister()
     }
 
-    func unregister() async throws {
-        guard service.status != .notRegistered else { return }
-        try await service.unregister()
+    /// `launchctl print-disabled gui/<uid>` only reads launchd's state.
+    func switchedOff() async -> Bool {
+        let output: String = await Task.detached {
+            let launchctl = Process()
+            launchctl.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            launchctl.arguments = ["print-disabled", "gui/\(getuid())"]
+            let pipe = Pipe()
+            launchctl.standardOutput = pipe
+            launchctl.standardError = FileHandle.nullDevice
+            do { try launchctl.run() } catch { return "" }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            launchctl.waitUntilExit()
+            return String(decoding: data, as: UTF8.self)
+        }.value
+        return LaunchctlPlan.disabled(output)
     }
 
     func openLoginItems() { SMAppService.openSystemSettingsLoginItems() }
 }
 
-extension BackgroundServiceRegistering {
-    /// Uninstall's first step: the service unregistered from macOS, waited for and checked. Nil when macOS no longer has
-    /// it registered, else why not (`ferb uninstall` then doesn't run: it would leave launchd running FERB).
+extension BackgroundServiceManaging {
+    /// Uninstall's first step: a 2026-11 build's registration unregistered from macOS, waited for and checked (`ferb
+    /// uninstall` then boots the LaunchAgent out and deletes it). Nil when macOS lists none, else why not (`ferb
+    /// uninstall` then doesn't run: macOS would keep starting FERB).
     func unregisterForUninstall() async -> String? {
         do { try await unregister() } catch {
             return "macOS didn't turn off FERB's background service (\(error.localizedDescription)), so nothing was " +
                 "uninstalled. Try again, or turn FERB off in System Settings → General → Login Items first."
         }
-        if status == .notRegistered || status == .notFound { return nil }
+        if !registration.listed { return nil }
         return "macOS still lists FERB's background service as on, so nothing was uninstalled. Try again, or turn " +
             "FERB off in System Settings → General → Login Items first."
     }
@@ -291,7 +310,7 @@ struct KeychainAPIKeyStore: APIKeyStoring {
 
 /// FERB's background service through launchd (`LaunchctlPlan`): restarted after a Screen Recording or Full Disk Access
 /// grant (macOS applies those to a new process), and by the menu's Restart (Phase D). Running tasks stop. The service is
-/// the app's registered one (an old user LaunchAgent is loaded only while one is still there).
+/// the user LaunchAgent (DMN-513), loaded again from its plist when launchd has no job to restart.
 @MainActor
 final class DaemonService: DaemonServicing {
     private let plist = FileManager.default.homeDirectoryForCurrentUser

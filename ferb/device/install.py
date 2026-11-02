@@ -5,16 +5,19 @@ Dedicated interpreter + venv + the background service, `ferb setup --update`, an
 - The daemon never imports code from a checkout or from its working folder (kb area daemon): a checkout's
   launch definition runs `python -P -m ferb.daemon` (no working folder on sys.path) with FERB's home as its working
   folder; FERB.app's agent always runs isolated.
-- From a packaged FERB.app (L27) nothing is built or downloaded: the background service's definition is inside the
-  signed app (`BUNDLE_SERVICE`, Contents/Library/LaunchAgents) and FERB.app registers it with macOS itself
-  (SMAppService, DMN-2), so nothing outside the app can edit it, deleting the app removes it and
-  Login Items lists it under FERB. launchd starts the app's nested agent app (FERB, a native stub embedding the app's
-  own Python), so macOS names FERB in permission prompts and Privacy & Security; the secret helper, the pinned Codex
-  and the embedding model come from the app, exactly as its signature seals them; `ferb` is a link to the app's
-  launcher. Setup from the app retires the old `~/Library/LaunchAgents/com.ferb.daemon.plist` (STORE-403)
-  and records which build it set up (`SERVICE_RECORD`), which the app reads.
-- A checkout (no app bundle) keeps a development launch path: the same label as a user LaunchAgent in
-  ~/Library/LaunchAgents, running ~/.ferb/venv's python (Rulings, step 12b). The interpreter lives in ~/.ferb/python
+- From a packaged FERB.app (L27) nothing is built or downloaded. The background service is a user LaunchAgent
+  (~/Library/LaunchAgents/com.ferb.daemon.plist, DMN-513) that setup writes and loads with launchctl, running the app's
+  nested agent app (FERB, a native stub embedding the app's own Python) with exactly `-m ferb.daemon`, so macOS names
+  FERB in permission prompts and Privacy & Security and lists it under "Allow in the Background". SMAppService waits
+  for the Developer ID (T-27): without a Team ID its launch constraint names one exact build, so macOS killed every
+  later build's daemon. FERB.app unregisters a registration a 2026-11 build left before it runs setup; setup
+  replaces whatever plist an older install left (another build's agent, ~/.ferb/venv's python) and records which build
+  and which definition it set up (`SERVICE_RECORD`), which the app reads. The plist is user-writable, so FERB.app's
+  launch and the daemon's start put back a definition that isn't exactly what setup writes (`restore_definition`).
+  The secret helper, the pinned Codex and the embedding model come from the app, exactly as its signature seals them;
+  `ferb` is a link to the app's launcher.
+- A checkout (no app bundle) uses the same LaunchAgent code path under the same label, running ~/.ferb/venv's python
+  (Rulings, step 12b). The interpreter lives in ~/.ferb/python
   (uv-managed, used only by FERB); TCC grants attach to it (spike 8/15). FERB is installed as a copy, never a link to
   the repo, from the locked dependencies (uv.lock, package-lock.json), into a new venv that replaces the old one only
   after everything installed, with the daemon stopped: a failed install leaves the old venv and the running daemon as
@@ -53,12 +56,14 @@ NATIVE_HOST_MANIFEST = NATIVE_HOST_NAME + ".json"
 
 # The packaged app's layout (scripts/build-app.sh builds it; ui/mac/FERBNotch/Info.plist names it).
 APP_BUNDLE_ID = "com.ferb.FERB"
-# The background service's definition inside FERB.app, which the app registers with SMAppService.agent(plistName:)
-# (ui/mac/FERBAgent/com.ferb.daemon.plist, copied there by scripts/build-app.sh)
+# The background service's definition inside FERB.app, for SMAppService.agent(plistName:) (ui/mac/FERBAgent/
+# com.ferb.daemon.plist, copied there by scripts/build-app.sh). Unused while FERB has no Developer ID (DMN-513, T-27),
+# but kept in the app: FERB.app unregisters a registration a 2026-11 build left by this name, and T-27 brings it back.
 BUNDLE_SERVICE = Path("Contents/Library/LaunchAgents") / f"{LABEL}.plist"
 # The local embedding model shipped in FERB.app (MEM-6; scripts/build-app.sh fetches it once)
 BUNDLE_MODELS = Path("Contents/Resources/models")
-# What FERB.app's setup last installed (build, app), for the app to tell a new build from the one set up
+# What FERB.app's setup last installed (build, app, label and the sha256 of the LaunchAgent it wrote), for the app to
+# tell a new build, or a definition someone changed, from the one set up
 SERVICE_RECORD = "service.json"
 # Every Keychain service FERB writes: its own items (API keys, the Jev key, [secrets]) and the owner's saved
 # secrets and cards (ferb/identity/owner_secrets.py). FERB's Claude sign-in adds Claude Code's own item for FERB's
@@ -85,6 +90,17 @@ def default_runner(cmd: list[str]) -> "subprocess.CompletedProcess[str]":
 
 class InstallError(FerbError):
     pass
+
+
+# `ferb setup --service` exits with this when the owner switched the service off in Login Items (FERB.app's
+# ServicePlan.switchedOffStatus): the app guides that one System Settings visit instead of showing an error.
+SWITCHED_OFF_STATUS = 3
+SWITCHED_OFF_HOW = ("FERB's background service is switched off: System Settings → General → Login Items → Allow in "
+                    "the Background → switch FERB on.")
+
+
+class ServiceSwitchedOff(InstallError):
+    """launchd lists FERB's label as disabled (`Installer.disabled`): nothing was loaded."""
 
 
 def repo_root() -> Path:
@@ -244,16 +260,6 @@ class Installer:
         return self.home / "venv.old"
 
     @property
-    def app_service(self) -> bool:
-        """The background service is FERB.app's own (registered by the app with SMAppService), not a user LaunchAgent."""
-        return self.bundle is not None
-
-    @property
-    def service_definition(self) -> Path:
-        """The launch definition launchd runs: inside FERB.app, or the checkout's user LaunchAgent."""
-        return self.bundle / BUNDLE_SERVICE if self.bundle else self.plist_path
-
-    @property
     def record_path(self) -> Path:
         return self.home / SERVICE_RECORD
 
@@ -296,7 +302,7 @@ class Installer:
 
     def active_program(self) -> str | None:
         """What the installed service runs now (another installation's, maybe): the user LaunchAgent's program, else
-        the FERB.app agent setup last recorded."""
+        the FERB.app agent setup last recorded (a 2026-11 build's SMAppService registration)."""
         try:
             args = plistlib.loads(self.plist_path.read_bytes()).get("ProgramArguments") or [None]
         except (OSError, plistlib.InvalidFileException, AttributeError):
@@ -318,7 +324,8 @@ class Installer:
         """Which build of which FERB.app was set up (FERB.app compares it with its own build at launch)."""
         assert self.bundle is not None
         data = json.dumps({"build": str(self.bundle_info().get("CFBundleVersion", "")), "app": str(self.bundle),
-                           "label": self.label}, indent=2)
+                           "label": self.label, "definition": hashlib.sha256(self.plist_bytes()).hexdigest()},
+                          indent=2)
         staged = self.record_path.with_name("." + SERVICE_RECORD + ".new")
         staged.write_text(data + "\n")
         os.replace(staged, self.record_path)
@@ -461,13 +468,17 @@ class Installer:
         install_extension(self.home)
 
     def plist(self) -> dict[str, object]:
-        """The checkout's development launch definition (a user LaunchAgent): the venv's python with `-P`, FERB's home
-        as its working folder. FERB.app's definition is inside the app (`BUNDLE_SERVICE`)."""
+        """The background service's user LaunchAgent (DMN-513, DMN-516): FERB.app's agent with exactly `-m ferb.daemon`
+        (which build runs in FERB_APP_BUILD; Login Items lists it under FERB.app), or a checkout's venv python with
+        `-P`; FERB's home as its working folder and its logs either way."""
         logs = self.home / "logs"
-        return {
+        env = {"FERB_HOME": str(self.home)}
+        if self.bundle is not None:
+            env["FERB_APP_BUILD"] = str(self.bundle_info().get("CFBundleVersion", ""))
+        agent: dict[str, object] = {
             "Label": self.label,
             "ProgramArguments": self.daemon_command(),
-            "EnvironmentVariables": {"FERB_HOME": str(self.home)},
+            "EnvironmentVariables": env,
             "WorkingDirectory": str(self.home),
             "RunAtLoad": True,
             "KeepAlive": {"SuccessfulExit": False},       # restart after a crash, not after a clean exit
@@ -477,31 +488,57 @@ class Installer:
             "StandardOutPath": str(logs / "daemon.out.log"),
             "StandardErrorPath": str(logs / "daemon.err.log"),
         }
+        if self.bundle is not None:          # System Settings → Login Items lists the agent under FERB (launchd.plist(5))
+            agent["AssociatedBundleIdentifiers"] = [str(self.bundle_info().get("CFBundleIdentifier", APP_BUNDLE_ID))]
+        return agent
+
+    def plist_bytes(self) -> bytes:
+        """Exactly what setup writes (the record keeps its sha256; FERB.app compares the file with it at launch)."""
+        return plistlib.dumps(self.plist())
+
+    def definition_current(self) -> bool:
+        """The LaunchAgent on disk is exactly what setup writes."""
+        try:
+            return self.plist_path.read_bytes() == self.plist_bytes()
+        except OSError:
+            return False
 
     def write_plist(self) -> bool:
-        """Returns True if the plist changed."""
+        """Writes the LaunchAgent (whole, through a staged file) unless it is already exactly that: whatever an older
+        install left there (another build's agent, ~/.ferb/venv's python) or someone changed is replaced. Returns True
+        if the plist changed."""
         (self.home / "logs").mkdir(parents=True, exist_ok=True)
         self.launch_agents.mkdir(parents=True, exist_ok=True)
-        data = plistlib.dumps(self.plist())
-        if self.plist_path.exists() and self.plist_path.read_bytes() == data:
+        if self.definition_current():
             return False
-        self.plist_path.write_bytes(data)
+        staged = self.plist_path.with_name(f".{self.plist_path.name}.new")
+        staged.write_bytes(self.plist_bytes())
+        os.replace(staged, self.plist_path)
         return True
 
-    def legacy_plist(self) -> bool:
-        """The user LaunchAgent FERB wrote before FERB.app registered its service (or a checkout's)."""
+    def restore_definition(self) -> bool:
+        """Rule 6 (DMN-514): the LaunchAgent is user-writable, so at each daemon start an existing plist that isn't
+        exactly what setup writes is written again; launchd reads it at its next load. A missing one is left to
+        FERB.app's launch, which sets the service up again. True when it was rewritten (the daemon journals it)."""
+        if not self.plist_path.exists() or self.definition_current():
+            return False
+        return self.write_plist()
+
+    def labelled_plist(self) -> bool:
+        """A plist at the LaunchAgent's path naming FERB's label (this setup's, an older install's or a checkout's)."""
         return _labelled(self.plist_path, self.label)
 
-    def retire_legacy_agent(self) -> bool:
-        """FERB.app is about to register its own service: the old user LaunchAgent is stopped and removed first (the
-        same label can't be loaded twice; STORE-403). Only a plist naming FERB's label is removed. True when
-        one was."""
-        if not self.legacy_plist():
+    def disabled(self) -> bool:
+        """The owner switched FERB's background service off (System Settings → General → Login Items → Allow in the
+        Background): launchd lists its label as disabled and won't load it until it is switched on."""
+        r = self.run(["launchctl", "print-disabled", self.domain])
+        if r.returncode != 0:
             return False
-        if self._loaded_from(self.plist_path):
-            self.unload()
-        self.plist_path.unlink()
-        return True
+        for line in (r.stdout or "").splitlines():
+            name, _, state = line.strip().partition("=>")
+            if name.strip().strip('"') == self.label:
+                return state.strip() in ("disabled", "true")
+        return False
 
     def _printed(self) -> str | None:
         r = self.run(["launchctl", "print", f"{self.domain}/{self.label}"])
@@ -520,8 +557,8 @@ class Installer:
         return path is None or Path(path) == definition
 
     def foreign_service(self) -> str | None:
-        """For a checkout: launchd runs FERB's label from a definition that isn't this LaunchAgent (FERB.app's
-        registered service). A checkout can't take it over: only FERB.app can unregister it."""
+        """For a checkout: launchd runs FERB's label from a definition that isn't the LaunchAgent (a 2026-11 FERB.app's
+        SMAppService registration). A checkout can't take it over: only FERB.app can unregister it (DMN-516)."""
         out = self._printed()
         if self.bundle is not None or out is None:
             return None
@@ -530,11 +567,13 @@ class Installer:
         return path if path is not None and Path(path) != self.plist_path else None
 
     def check_not_foreign(self, then: str) -> None:
-        """A checkout refuses to install or uninstall over FERB.app's registered service (`foreign_service`): booting
-        it out would leave FERB.app's registration behind with nothing running, and only FERB.app can unregister it."""
+        """A checkout refuses to install or uninstall over a FERB.app's SMAppService registration (`foreign_service`):
+        booting it out would leave the registration behind, and only FERB.app can unregister it (opening a current
+        FERB.app does, DMN-513)."""
         if refusal := self.foreign_service():
-            raise InstallError(f"FERB.app's background service is registered ({refusal}); turn it off in FERB.app "
-                               f"(Settings → Advanced → Uninstall FERB…) {then}")
+            raise InstallError(f"FERB.app's background service is registered ({refusal}); open FERB.app once (it "
+                               f"moves it to a LaunchAgent) or turn it off in FERB.app (Settings → Advanced → "
+                               f"Uninstall FERB…) {then}")
 
     def agent_pid(self) -> int | None:
         out = self._printed() or ""
@@ -544,7 +583,11 @@ class Installer:
         return None
 
     def load(self) -> None:
-        """The checkout's LaunchAgent, loaded again (FERB.app's service is loaded by macOS once the app registers it)."""
+        """The LaunchAgent loaded again: whatever launchd runs under FERB's label (an older definition, a 2026-11
+        build's SMAppService job) is booted out first. Switched off in Login Items, nothing is loaded and
+        ServiceSwitchedOff says where to switch it on."""
+        if self.disabled():
+            raise ServiceSwitchedOff(SWITCHED_OFF_HOW)
         self.unload()
         self._ok(["launchctl", "bootstrap", self.domain, str(self.plist_path)], "loading the LaunchAgent")
 
@@ -557,23 +600,6 @@ class Installer:
         end = time.monotonic() + 10
         while (self.loaded() or self.exiting() is not None) and time.monotonic() < end:
             time.sleep(0.1)
-
-    def stop(self) -> None:
-        """FERB.app's service stopped but kept registered: the daemon is asked to end (SIGTERM through launchd) and
-        exits cleanly, so launchd doesn't start it again (KeepAlive SuccessfulExit false) until `start`. Waits, up to
-        10 s, for its process to exit (`exiting` names one that outlived the wait)."""
-        self._stopped = self.agent_pid()
-        if self._stopped is None:
-            return
-        self.run(["launchctl", "kill", "SIGTERM", f"{self.domain}/{self.label}"])
-        end = time.monotonic() + 10
-        while (self.agent_pid() is not None or self.exiting() is not None) and time.monotonic() < end:
-            time.sleep(0.1)
-
-    def start(self) -> None:
-        """FERB.app's registered service started again after `stop` (nothing when macOS hasn't loaded it)."""
-        if self.loaded():
-            self._ok(["launchctl", "kickstart", f"{self.domain}/{self.label}"], "starting the daemon")
 
     def running(self) -> bool:
         """launchd runs FERB's daemon now (a loaded job with a process)."""
@@ -591,7 +617,7 @@ class Installer:
     def installed(self) -> bool:
         """Something to update: FERB.app's setup ran (its record), or the checkout's venv is there."""
         if self.bundle is not None:
-            return self.record_path.exists() or self.legacy_plist()
+            return self.record_path.exists() or self.labelled_plist()
         return self.venv_python.exists()
 
     def install(self, update_only: bool = False, while_stopped: Callable[[], None] | None = None) -> None:
@@ -637,37 +663,30 @@ class Installer:
                 self.load()
 
     def _install_from_bundle(self, while_stopped: Callable[[], None] | None = None) -> None:
-        """Nothing is built or downloaded: everything comes from the checked, signed FERB.app. The old user
-        LaunchAgent is retired; the daemon is restarted when the app's registered service is loaded, else FERB.app
-        registers it next (SMAppService) and macOS starts it."""
+        """Nothing is built or downloaded: everything comes from the checked, signed FERB.app. The LaunchAgent is
+        written (replacing an older install's, DMN-513) and loaded, or, unchanged and loaded from that file, the daemon
+        is restarted on this build."""
         self.install_files()
         self.install_secret_helper()
         if self.codex_wanted():
             self.ensure_codex()
         self.write_native_host()
         self.link_cli()
-        self.retire_legacy_agent()
+        changed = self.write_plist()
         self.write_record()
         if while_stopped is not None:
             self.while_stopped(while_stopped)
-        elif self.loaded():
+        elif changed or not self._loaded_from(self.plist_path):
+            self.load()
+        else:
             self.restart()
 
     def while_stopped(self, work: Callable[[], None]) -> None:
-        """Run `work` with the daemon stopped, then start it again whatever `work` does (an error or a stop included).
-        A checkout's LaunchAgent is unloaded (launchd dropped it and, within its wait, its process exited) and loaded
-        again; FERB.app's registered service stays registered: its daemon is stopped and started (`stop`, `start`).
-        `work` doesn't run while the stopped process is still exiting (`exiting`, past the stop's 10 s wait): it may
-        still be writing the store, and a checkout's venv swap would delete the code it runs; that raises InstallError,
-        and the daemon is started again."""
-        if self.app_service:
-            self.stop()
-            try:
-                self._check_exited()
-                work()
-            finally:
-                self.start()
-            return
+        """Run `work` with the daemon stopped, then start it again whatever `work` does (an error or a stop included):
+        the LaunchAgent is unloaded (launchd dropped it and, within its wait, its process exited) and loaded again
+        (DMN-515). `work` doesn't run while the stopped process is still exiting (`exiting`, past the stop's 10 s wait):
+        it may still be writing the store, and a checkout's venv swap would delete the code it runs; that raises
+        InstallError, and the daemon is started again."""
         self.unload()
         try:
             self._check_exited()
@@ -830,8 +849,8 @@ class Installer:
     # ---------- uninstall ----------
 
     def uninstall(self, purge: bool = False) -> list[str]:
-        """Stop the daemon and remove the checkout's LaunchAgent (FERB.app unregisters its own service), the old user
-        LaunchAgent, FERB.app's login fallback, the native-host files, the `ferb` link and the service record
+        """Stop the daemon and remove its LaunchAgent (FERB.app first unregisters any SMAppService registration a
+        2026-11 build left), FERB.app's login fallback, the native-host files, the `ferb` link and the service record
         (`SERVICE_RECORD`). purge=True also deletes
         FERB's home and every FERB Keychain item (`remove_keychain_items`), after the caller has asked the owner.
         Returns what was removed. A checkout refuses while FERB.app's service is registered (as `install` does)."""
@@ -840,7 +859,7 @@ class Installer:
         if self.loaded():
             self.unload()
             removed.append(f"background service {self.label} (stopped)")
-        if self.legacy_plist():
+        if self.labelled_plist():
             self.plist_path.unlink()
             removed.append(str(self.plist_path))
         login = self.launch_agents / f"{APP_LOGIN_LABEL}.plist"

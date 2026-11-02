@@ -33,7 +33,8 @@ from ferb.cli.client import Client
 from ferb.config import Config, InsecureConfig
 from ferb.core.errors import FerbError, NotRunning, Unsupported
 from ferb.device import permissions
-from ferb.device.install import (BUNDLE_CLI, MARKER, NATIVE_HOST_MANIFEST, InstallError, Installer, app_bundle, code_hash,
+from ferb.device.install import (BUNDLE_CLI, MARKER, NATIVE_HOST_MANIFEST, SWITCHED_OFF_HOW, SWITCHED_OFF_STATUS,
+                                 InstallError, Installer, ServiceSwitchedOff, app_bundle, code_hash,
                                  designated_requirement, repo_root, trusted_requirement)
 from ferb.device.profile import ProfileStore, diff, summarize
 from ferb.device.scan import scan
@@ -180,11 +181,9 @@ def _install(env: Env, update: bool) -> None:
     _app_installed(env)
 
 
-def _started(env: Env) -> Client | None:
-    """The daemon on what was just installed, once it answers; None when FERB.app's service isn't registered yet (the
-    app registers it with macOS right after this command, and macOS starts it)."""
-    if env.inst.app_service and not env.inst.loaded():
-        return None
+def _started(env: Env) -> Client:
+    """The daemon on what was just installed, once it answers (the LaunchAgent was loaded or restarted by the
+    install, DMN-513)."""
     return wait_for_daemon(env)
 
 
@@ -207,34 +206,36 @@ def service_setup(env: Env, update: bool = False) -> int:
     """FERB.app's setup window (L34 C): install (or, with `update`, update) the background service from this app and
     wait until it answers, with no questions. Permissions, the AI service, browsers and the profile are the window's own
     steps, through the daemon's setup RPCs. An InstallError (a disk-image or translocated copy, a damaged app) reaches
-    the caller with its fix."""
+    the caller with its fix. Switched off in Login Items, it says where to switch it on and exits SWITCHED_OFF_STATUS
+    (FERB.app guides that one System Settings visit)."""
     inst = env.inst
     if not update and (refusal := _foreign_daemon(env)):
         env.say(refusal)
         return 1
     env.say("Updating FERB's background service…" if update else "Setting up FERB's background service…")
     env.say(env.tokenizer(inst.home))             # before the daemon starts: it counts tokens with it
-    _install(env, update=update)
+    try:
+        _install(env, update=update)
+    except ServiceSwitchedOff as e:
+        env.say(str(e))
+        return SWITCHED_OFF_STATUS
     if not update:                                # the app list behind the Permissions step's Automation rows
         ProfileStore(inst.home).save(scan(device_id(Config(inst.home))), "setup scan")
     if inst.bundle is not None or (inst.home / "FERB.app").exists():
         _voice_helper(env)                        # pins FERB.app for hearing; never a prompt
-    # FERB.app registers its service afresh right after this command and waits for the daemon itself (APP-599): a
-    # registration left by another build can't start this build's daemon, so waiting here would only fail.
-    client = None if inst.app_service else _started(env)
-    if client is not None:
-        client.close()
+    # DMN-513: the LaunchAgent is loaded by the install, so the command waits for the daemon itself (no launch
+    # constraint from another build can stop it, as SMAppService's did)
+    _started(env).close()
     extension_setup(env)
     if not update:
         _filevault_line(env)                      # DMN-502
-    env.say("FERB's background service is running." if client is not None else
-            "FERB's background service is ready for FERB.app to turn on.")
+    env.say("FERB's background service is running.")
     return 0
 
 
 def setup(env: Env, update: bool = False) -> int:
-    """`ferb setup [--update]`: a checkout's install (FERB.app runs `--service`). Run from FERB.app's `ferb` link, the
-    daemon is waited for only once the app's service is registered; until then FERB.app turns it on."""
+    """`ferb setup [--update]`: a checkout's install (FERB.app runs `--service`); run from FERB.app's `ferb` link it
+    sets up from that app."""
     inst = env.inst
     if update:
         env.say(f"Updating FERB from {inst.bundle} and restarting the daemon…" if inst.bundle else
@@ -244,12 +245,9 @@ def setup(env: Env, update: bool = False) -> int:
         if inst.bundle is not None or (inst.home / "FERB.app").exists():
             _voice_helper(env)        # L26: pins FERB.app for hearing; no permission dialog
         client = _started(env)
-        if client is not None:
-            _permissions_state(env, client)
-            _review_persona(env, client)
-            client.close()
-        else:
-            env.say("Installed. Open FERB.app to turn its background service on.")
+        _permissions_state(env, client)
+        _review_persona(env, client)
+        client.close()
         if codex_needed(inst.home):           # C2: an update never asks; it says how
             env.say(f"FERB's own Codex isn't signed in, so FERB can't answer yet: {CODEX_LOGIN_HOW}.")
         extension_setup(env)
@@ -268,11 +266,8 @@ def setup(env: Env, update: bool = False) -> int:
     _install(env, update=False)
     client = _started(env)
     binary = inst.grant_target()
-    if client is None:
-        env.say("     Installed. Open FERB.app to turn its background service on.")
-    else:
-        env.say(f"     Daemon running. Permissions go to FERB ({binary}); macOS lists it as FERB." if inst.bundle else
-                f"     Daemon running. Permissions must be granted to: {binary}")
+    env.say(f"     Daemon running. Permissions go to FERB ({binary}); macOS lists it as FERB." if inst.bundle else
+            f"     Daemon running. Permissions must be granted to: {binary}")
     extension_setup(env)
 
     env.say("2/4  Scanning this Mac's apps (Info.plist only)…")
@@ -287,9 +282,6 @@ def setup(env: Env, update: bool = False) -> int:
     env.say("3/4  Permissions (checked by the daemon itself)")
     if _voice_helper(env) is None:            # hearing's app (L26): built or pinned, never a permission dialog
         env.say("     Hearing isn't set up; `ferb doctor` will remind you.")
-    if client is None:
-        env.say("     FERB's setup window asks for them once its background service runs.")
-        return 0
     _permissions_state(env, client)
 
     env.say("4/4  Self-test through the daemon")
@@ -360,7 +352,7 @@ def cleanup_apply(env: Env, ok: str) -> int:
     def work(stop: Callable[[], bool]) -> None:
         result.update(_run_cleanup(env, ok, stop))
     with _finish_install() as stops:               # a stop waits until the daemon is loaded again, then ends setup
-        if inst.loaded() or (not inst.app_service and inst.legacy_plist()):
+        if inst.loaded() or inst.labelled_plist():
             try:
                 inst.while_stopped(lambda: work(lambda: bool(stops)))
             except InstallError as e:                # the stopped process hasn't exited: nothing ran
@@ -383,7 +375,7 @@ def _run_cleanup(env: Env, ok: str, stop: Callable[[], bool]) -> dict[str, Any]:
     from ferb.store import cleanup
     from ferb.store.db import Database
     inst = env.inst
-    loaded = inst.running() if inst.app_service else (inst.legacy_plist() and inst.loaded())
+    loaded = inst.loaded()
     exiting = None if loaded else inst.exiting()
     running = ("launchd hasn't stopped FERB's daemon yet" if loaded else
                f"FERB's daemon (process {exiting}) hasn't exited since launchd stopped it" if exiting is not None else
@@ -760,27 +752,17 @@ def add_hearing_check(add: Callable[[Check], None], hearing: dict[str, Any] | No
 
 
 def service_check(inst: Installer) -> Check:
-    """The background service's definition: FERB.app's own (inside the app, registered by the app) and the build
-    setup last installed from it; or the checkout's LaunchAgent as setup writes it."""
-    import plistlib
-    if inst.app_service:
-        if not inst.service_definition.is_file():
-            return Check("service definition", "fail", f"missing from {inst.bundle}", "download FERB again")
-        if inst.legacy_plist():
-            return Check("service definition", "fail", f"an old {inst.plist_path} is still there",
-                         "open FERB.app: it removes it when it turns its service on")
-        built = str(inst.bundle_info().get("CFBundleVersion", ""))
-        if inst.recorded().get("build") != built:
-            return Check("service definition", "warn", f"FERB.app build {built} isn't the one set up",
-                         "open FERB.app: it updates its background service")
-        return Check("service definition", "ok", f"inside FERB.app ({inst.service_definition})")
-    try:
-        current = plistlib.loads(inst.plist_path.read_bytes()) if inst.plist_path.exists() else None
-    except (OSError, plistlib.InvalidFileException):
-        current = None
-    return Check("LaunchAgent", "ok" if current == inst.plist() else "fail",
-                 "installed" if current == inst.plist() else ("differs from expected" if current else "missing"),
-                 "run `ferb setup --update`")
+    """The background service's LaunchAgent (DMN-513), exactly as setup writes it from this FERB.app or checkout, and
+    for FERB.app the build setup last installed."""
+    fix = "open FERB.app: it sets its background service up again" if inst.bundle else "run `ferb setup --update`"
+    if not inst.plist_path.exists():
+        return Check("LaunchAgent", "fail", f"{inst.plist_path} is missing", fix)
+    if not inst.definition_current():
+        return Check("LaunchAgent", "fail", f"{inst.plist_path} differs from what setup writes", fix)
+    built = str(inst.bundle_info().get("CFBundleVersion", ""))
+    if inst.bundle and inst.recorded().get("build") != built:
+        return Check("LaunchAgent", "warn", f"FERB.app build {built} isn't the one set up", fix)
+    return Check("LaunchAgent", "ok", str(inst.plist_path))
 
 
 def doctor(env: Env) -> int:
@@ -815,9 +797,10 @@ def doctor(env: Env) -> int:
                   "run `ferb setup`"))
         add(Check("venv", "ok" if inst.venv_python.exists() else "fail", str(inst.venv), "run `ferb setup`"))
     add(service_check(inst))
-    add(Check("background service", "ok" if inst.loaded() else "fail", inst.label,
-              "open FERB.app (macOS may need your OK: System Settings → General → Login Items)" if inst.app_service
-              else "run `ferb setup`"))
+    off = inst.disabled()
+    add(Check("background service", "ok" if inst.loaded() and not off else "fail",
+              f"{inst.label} is switched off in Login Items" if off else inst.label,
+              SWITCHED_OFF_HOW if off else "open FERB.app" if inst.bundle else "run `ferb setup`"))
     try:
         c = env.connect()
         report = c.call("doctor.check")
@@ -833,7 +816,7 @@ def doctor(env: Env) -> int:
                       dedicated) else ""))
         here = code_hash(Path(ferb.__file__).parent)
         # only a checkout's own installed daemon is compared with the checkout (FERB.app's code is the app's build)
-        if (repo_root() / "pyproject.toml").exists() and not inst.app_service and report["code_hash"] != here:
+        if (repo_root() / "pyproject.toml").exists() and not inst.bundle and report["code_hash"] != here:
             add(Check("installed code", "warn", "differs from this checkout", "run `ferb setup --update`"))
         ready = permissions.fda_ready(report.get("containment") or {})
         for perm, status in report["permissions"].items():     # every permission is needed (none optional)
@@ -984,7 +967,8 @@ def uninstall(env: Env, purge: bool, confirmed: bool = False) -> int:
     """Remove FERB's background service, browser connection and `ferb` link; `purge` (after the owner types
     'delete', or `confirmed`: they said yes to FERB.app's one question, APP-2) also deletes FERB's home and
     every FERB Keychain item (API keys, the Jev key, FERB's own secrets, the owner's saved secrets and cards, FERB's
-    Claude sign-in). FERB.app unregisters its own service itself. FERB's own shell can't run this to any effect: its
+    Claude sign-in). FERB.app first unregisters any SMAppService registration a 2026-11 build left (DMN-513); this
+    boots the LaunchAgent out and deletes it. FERB's own shell can't run this to any effect: its
     sandbox denies FERB's home, the Keychain service and launchd (ferb/act/shell/sandbox.py)."""
     inst = env.inst
     if purge:

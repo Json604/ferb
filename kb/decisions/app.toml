@@ -1093,10 +1093,21 @@ live = ["LIVE-678"]
 title = "Setting up or updating registers the background service afresh"
 by = "agent"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "APP-602"
 why = "Live 2026-11-02: a registration left by an earlier build (macOS keeps it after the app is deleted) carried that build's launch constraint; without a Team ID it names the exact build, so macOS killed the new daemon at launch (SIGKILL, Launch Constraint Violation; launchd: needs LWCR update)."
 rule = "When FERB.app installs or updates its service and macOS already lists it as enabled, FERB.app unregisters it first and then registers this build, so macOS records this build's launch constraint."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift"]
+
+[APP-602]
+title = "FERB.app moves any older service to its LaunchAgent at launch, asking only about a checkout's"
+by = "agent"
+date = 2026-11-02
+status = "active"
+supersedes = ["APP-599"]
+rule = "FERB.app never registers with SMAppService (DMN-513). Launch reads the LaunchAgent (if it names FERB's label) and its SHA-256, any 2026-11 SMAppService registration, service.json and whether launchd runs FERB: only a checkout's exact definition (a venv python with -P -m ferb.daemon) asks first; any other plist, a listed registration, another build, a definition unlike the record or a stopped daemon gets the quiet update. Before setup a listed registration is unregistered once (awaited). Exit 3 (switched off) shows the Login Items guidance and runs setup again once FERB is on."
+why = "The owner's Mac (a 2026-11 registration) and friends' Macs (older LaunchAgents) must move with no error and no step (DMN-513); a checkout is another installation the owner chose."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift"]
 
 [APP-600]
 title = "FERB shows in the Dock only while one of its windows is open"

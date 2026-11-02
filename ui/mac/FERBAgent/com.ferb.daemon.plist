@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- FERB's background service (DMN-2): scripts/build-app.sh copies it to
-     FERB.app/Contents/Library/LaunchAgents/com.ferb.daemon.plist (and sets FERB_APP_BUILD) before signing, and
-     FERB.app registers it with SMAppService.agent(plistName:). Inside the signed app nothing can edit it, deleting the
-     app removes it, and Login Items lists it under FERB. The agent (a native stub embedding the app's Python) accepts
-     exactly `-m ferb.daemon` and always runs isolated (no working folder on sys.path); a fixed definition can't name
+<!-- FERB's background service for SMAppService: scripts/build-app.sh copies it to
+     FERB.app/Contents/Library/LaunchAgents/com.ferb.daemon.plist (and sets FERB_APP_BUILD) before signing. Unused
+     while FERB has no Developer ID (DMN-513): without a Team ID macOS's launch constraint names one exact build, so the
+     daemon runs as a user LaunchAgent that setup writes (ferb/device/install.py Installer.plist). It stays in the app so
+     FERB.app can unregister a 2026-11 build's registration by this name, and SMAppService returns with T-27. The agent
+     (a native stub embedding the app's Python) accepts exactly `-m ferb.daemon` and always runs isolated (no working folder on sys.path); a fixed definition can't name
      the owner's home, so the daemon makes FERB's home its working folder and sends its output to FERB's logs itself
      (ferb/daemon/main.py service_streams). Restart after a crash, not after a clean exit. -->
 <plist version="1.0"><dict>

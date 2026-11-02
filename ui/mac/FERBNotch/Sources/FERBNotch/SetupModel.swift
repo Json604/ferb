@@ -10,7 +10,8 @@ final class SetupModel: ObservableObject {
     @Published private(set) var serviceRunning = false
     @Published private(set) var serviceLine = ""
     @Published private(set) var serviceError: String?
-    /// macOS waits for the owner's OK in System Settings → General → Login Items before it runs the service.
+    /// The service is switched off in System Settings → General → Login Items → Allow in the Background: macOS runs
+    /// it once the owner switches FERB on there.
     @Published private(set) var serviceNeedsApproval = false
     @Published private(set) var ai: AISnapshot?
     @Published private(set) var aiMessage: String?
@@ -45,17 +46,16 @@ final class SetupModel: ObservableObject {
     let system: SystemOpening
     let keys: APIKeyStoring
     let service: DaemonServicing
-    /// The app's registered background service; nil where there is none to register (a development build, tests).
-    let background: BackgroundServiceRegistering?
-    /// How long the window waits for the service to answer after macOS turned it on.
-    var serviceStartWait: Duration = .seconds(30)
+    /// macOS's side of the background service (DMN-513): a 2026-11 build's SMAppService registration to retire and
+    /// Login Items' switch; nil in a development build and tests that don't fake it.
+    let background: BackgroundServiceManaging?
     var onFinish: (() -> Void)?
     private var poll: Task<Void, Never>?
 
     static let notAnswering = "FERB isn't answering right now; this step updates when it's back."
 
     init(rpc: DaemonRPCTransport, runner: SetupCommandRunning, app: AppPermissionsProviding, system: SystemOpening,
-         keys: APIKeyStoring, service: DaemonServicing, background: BackgroundServiceRegistering? = nil) {
+         keys: APIKeyStoring, service: DaemonServicing, background: BackgroundServiceManaging? = nil) {
         self.rpc = rpc
         self.runner = runner
         self.app = app
@@ -208,33 +208,45 @@ final class SetupModel: ObservableObject {
         runService { [weak self] ok in if ok { self?.go(.ai) } }
     }
 
-    /// `ferb setup --service [--update]`: the background service's files from this app, no questions; then the app turns
-    /// the service on with macOS (`registerService`). On failure its last lines (the reason and its fix) stay on Welcome.
+    /// `ferb setup --service [--update]`: the background service's LaunchAgent from this app, loaded and answering, no
+    /// questions (DMN-513). A registration a 2026-11 build left is unregistered first, once (it would keep starting
+    /// that build's constrained job under the same label). Switched off in Login Items, the command says so and the
+    /// window guides that one visit (`serviceNeedsApproval`); any other failure leaves its last lines (the reason and
+    /// its fix) on Welcome.
     func runService(completion: @escaping (Bool) -> Void) {
         guard let arguments = AppSetupPlan.serviceArguments(for: serviceAction) else { completion(true); return }
         serviceError = nil
         serviceNeedsApproval = false
         serviceLine = "Starting…"
         serviceRunning = true
+        guard let background, background.registration.listed else {
+            startServiceCommand(arguments, completion: completion)
+            return
+        }
+        Task { @MainActor in
+            self.serviceLine = "Turning off the background service an earlier FERB registered…"
+            try? await background.unregister()          // `ferb setup` boots out whatever still runs under the label
+            self.startServiceCommand(arguments, completion: completion)
+        }
+    }
+
+    private func startServiceCommand(_ arguments: [String], completion: @escaping (Bool) -> Void) {
         var tail: [String] = []
         let started = runner.run(arguments, line: { [weak self] text in
             self?.serviceLine = text
             tail = Array((tail + [text]).suffix(6))
         }, done: { [weak self] status in
             guard let self else { return }
-            if status == 0 && self.background == nil {      // nothing to register (a development build, tests)
-                self.serviceRunning = false
+            self.serviceRunning = false
+            switch status {
+            case 0:
                 self.serviceAction = .none
                 completion(true)
-            } else if status == 0 {
-                Task { @MainActor in
-                    let on = await self.registerService()
-                    self.serviceRunning = false
-                    if on { self.serviceAction = .none }
-                    completion(on)
-                }
-            } else {
-                self.serviceRunning = false
+            case ServicePlan.switchedOffStatus:
+                self.serviceNeedsApproval = true
+                self.serviceError = ServicePlan.approval
+                completion(false)
+            default:
                 self.serviceError = tail.isEmpty ? "FERB's setup command stopped (exit status \(status))." :
                     tail.joined(separator: "\n")
                 completion(false)
@@ -245,37 +257,6 @@ final class SetupModel: ObservableObject {
             serviceError = "FERB couldn't start its setup command."
             completion(false)
         }
-    }
-
-    /// The app's background service turned on with macOS (registering again is harmless), then a wait until FERB
-    /// answers. macOS's "needs your OK", a missing definition or a refusal stays on Welcome in the app's words.
-    func registerService() async -> Bool {
-        guard let background else { return true }
-        serviceLine = "Turning on FERB's background service…"
-        // APP-599: this runs only to install or update, so a registration macOS already lists is another build's. It
-        // carries that build's launch constraint (no Team ID: the exact build), and macOS kills this build's daemon at
-        // launch ("Launch Constraint Violation") until the service is registered afresh.
-        if background.status == .enabled { try? await background.unregister() }
-        do {
-            try background.register()
-        } catch {
-            if background.status != .enabled && background.status != .requiresApproval {
-                serviceError = ServicePlan.failed(error.localizedDescription)
-                return false
-            }
-        }
-        if let problem = ServicePlan.problem(background.status) {
-            serviceNeedsApproval = background.status == .requiresApproval
-            serviceError = problem
-            return false
-        }
-        let end = ContinuousClock.now + serviceStartWait
-        while ContinuousClock.now < end {
-            if (try? await rpc.call("ping", params: [:])) != nil { return true }
-            try? await Task.sleep(for: .milliseconds(500))
-        }
-        serviceError = ServicePlan.notStarted
-        return false
     }
 
     /// System Settings → General → Login Items, where the owner allows FERB's background service.

@@ -137,39 +137,39 @@ decisions = ["DMN-23", "DMN-27"]
 sitting = "step 13, sitting 3"
 
 [LIVE-16]
-title = "Moving from the hand-edited LaunchAgent to FERB.app's registered service"
+title = "A friend's older LaunchAgent install opens the new FERB.app: it updates with no error and no step"
 area = "daemon"
-surface = "A FERB.app build installed by the owner in /Applications over the old LaunchAgent"
-request = "Build FERB.app (scripts/build-app.sh, release-signed, arm64), install it in /Applications and open it (answer Set Up From This App if the old plist runs a checkout); allow it in Login Items if asked."
-pass = "The old plist is gone from ~/Library/LaunchAgents; Login Items lists FERB; the notch answers; launchctl print shows the definition inside FERB.app; ps shows the agent with -m ferb.daemon; service.json names the build; the daemon's cwd is ~/.ferb; logs/daemon.err.log receives output."
-decisions = ["DMN-2", "DMN-14", "DMN-15"]
+surface = "A second Mac or user with FERB from before 2026-10-31 (its LaunchAgent runs that build's agent or ~/.ferb/venv's python), daemon running; a FERB.app build with DMN-513 dragged over it"
+request = "Before: `plutil -p ~/Library/LaunchAgents/com.ferb.daemon.plist`. Open the new FERB.app and do nothing else. After: `plutil -p ~/Library/LaunchAgents/com.ferb.daemon.plist`, `launchctl print gui/$(id -u)/com.ferb.daemon | grep -E 'path|state|program'`, `ps -o pid,args -p $(pgrep -f 'MacOS/FERB -m ferb.daemon')`, `cat ~/.ferb/service.json`, `lsof -a -d cwd -p $(pgrep -f 'MacOS/FERB -m ferb.daemon')`; ask the notch one question."
+pass = "No question, alert or error appears (no Set Up From This App); the plist now runs /Applications/FERB.app/Contents/Helpers/FERB.app/Contents/MacOS/FERB with exactly -m ferb.daemon and names this build in FERB_APP_BUILD; launchctl print shows path = that plist and state = running; service.json names this build and app; the daemon's cwd is ~/.ferb; logs/daemon.err.log receives output; the notch answers; Login Items → Allow in the Background lists FERB."
+decisions = ["DMN-513", "DMN-515", "APP-602", "DMN-14"]
 sitting = "step 13, sitting 1"
 
 [LIVE-17]
-title = "The registered service survives restarts and reports being switched off"
+title = "The LaunchAgent survives restarts and reports being switched off"
 area = "daemon"
-surface = "FERB.app installed by the owner"
-request = "Restart FERB from the menu; log out and in; then switch FERB off in Login Items and launch FERB.app."
-pass = "The daemon comes back by itself each time; when switched off, the next launch shows the setup window with the approval note and the button."
-decisions = ["DMN-2", "DMN-15"]
+surface = "FERB.app with DMN-513 installed by the owner"
+request = "Restart FERB from the menu; log out and in; then switch FERB off in System Settings → General → Login Items → Allow in the Background and launch FERB.app (quit it first); follow its Open Login Items button and switch FERB on again. Then edit ~/Library/LaunchAgents/com.ferb.daemon.plist by hand (e.g. change ThrottleInterval) and launch FERB.app again."
+pass = "The daemon comes back by itself after the restart and the login; when switched off, the next launch shows the Login Items note and button (no crash loop, `launchctl print-disabled gui/$(id -u)` shows com.ferb.daemon => disabled), and after switching FERB on the daemon runs and the notch answers without reinstalling FERB; after the hand edit the plist is back to what setup wrote (`ferb doctor`'s LaunchAgent row is ok) and the journal shows the quiet update or service.definition_restored."
+decisions = ["DMN-513", "DMN-514", "DMN-515", "APP-602"]
 sitting = "step 13, sitting 1"
 
 [LIVE-18]
-title = "The store clean-up with FERB.app's service keeps the registration"
+title = "The store clean-up with FERB.app's LaunchAgent restarts the daemon"
 area = "daemon"
-surface = "FERB.app installed by the owner"
+surface = "FERB.app with DMN-513 installed by the owner"
 request = "Run `ferb setup --cleanup --ok …`."
-pass = "The daemon stops (launchctl kill), the clean-up runs, the daemon starts again, and the registration stays."
-decisions = ["DMN-17"]
+pass = "The daemon stops (launchctl bootout), the clean-up runs, the daemon starts again from ~/Library/LaunchAgents/com.ferb.daemon.plist and the notch answers."
+decisions = ["DMN-515"]
 sitting = "step 13, sitting 1"
 
 [LIVE-19]
-title = "A checkout refuses to take over FERB.app's service; app uninstall unregisters it"
+title = "FERB.app asks before replacing a checkout's LaunchAgent; app uninstall removes the LaunchAgent"
 area = "daemon"
-surface = "FERB.app installed by the owner; the checkout"
-request = "From the checkout run `ferb setup --update` while the app's service is registered; then uninstall from Settings → Advanced."
-pass = "The checkout refuses and says why; after the uninstall Login Items no longer lists FERB's service."
-decisions = ["DMN-16", "APP-5"]
+surface = "FERB.app with DMN-513 installed by the owner; the checkout"
+request = "From the checkout run `uv run ferb setup --update`, then open FERB.app; then uninstall from Settings → Advanced."
+pass = "Opening FERB.app over the checkout's LaunchAgent asks Set Up From This App first and only then replaces it; after the uninstall ~/Library/LaunchAgents/com.ferb.daemon.plist is gone, `launchctl print gui/$(id -u)/com.ferb.daemon` finds nothing and Login Items no longer lists FERB's service."
+decisions = ["DMN-516", "APP-602", "APP-5"]
 sitting = "step 13, sitting 1"
 
 [LIVE-20]
@@ -227,11 +227,11 @@ decisions = ["REL-1", "REL-3", "REL-4"]
 sitting = "step 13, sitting 1"
 
 [LIVE-26]
-title = "Reinstalling over leftovers, including another FERB.app's registration"
+title = "Reinstalling over leftovers, including another FERB.app's LaunchAgent"
 area = "daemon"
-surface = "A disposable install (another macOS user) with an older FERB's files, one deliberately broken file and a registration from a FERB.app at another path"
+surface = "A disposable install (another macOS user) with an older FERB's files, one deliberately broken file and a LaunchAgent from a FERB.app at another path"
 request = "Install and use FERB.app once, `ferb uninstall` (no purge), then truncate ~/.ferb/ferb.db (truncate -s 64k), add an unclosed [ to config.toml, replace bin/ferb-secrets with another file, point ~/.local/bin/ferb at a deleted app, and open FERB.app again."
-pass = "Setup asks nothing about files; ferb.db.broken-… (with -wal/-shm) and config.toml.broken-… sit in ~/.ferb; the notch shows one notice per file, once (not again after Restart FERB); the journal has home.set_aside; the helper, the link and service.json are this build's; this app's service registers over another path's."
+pass = "Setup asks nothing about files; ferb.db.broken-… (with -wal/-shm) and config.toml.broken-… sit in ~/.ferb; the notch shows one notice per file, once (not again after Restart FERB); the journal has home.set_aside; the helper, the link and service.json are this build's; the LaunchAgent runs this app's agent, not the other path's."
 decisions = ["DMN-10", "STORE-1", "STORE-2"]
 sitting = "step 13, sitting 1"
 
@@ -2135,4 +2135,22 @@ surface = "A second Mac or macOS user; the DMG downloaded in a browser, a FERB.a
 request = "Drag FERB to Applications, Open Anyway, go through the intro to the first task. Then in Terminal: `xattr -lr /Applications/FERB.app | grep -c com.apple.quarantine` and `xattr -l ~/Downloads/<the DMG>`."
 pass = "The count is 0 once FERB has run; the downloaded DMG still has its quarantine (nothing outside FERB.app touched); no \"cannot be opened\" or \"damaged\" prompt for the agent, ferb-secrets or Codex during setup or the task."
 decisions = ["APP-601"]
+sitting = "step 13"
+
+[LIVE-685]
+title = "Install build A, then a newer build B over it: the daemon runs both times, no error"
+area = "daemon"
+surface = "The owner's Mac: two consecutive release FERB.app builds with DMN-513 (A, then B with a higher CFBundleVersion), installed by the owner the usual way (quit FERB, old app to the Trash, ditto, open)"
+request = "Install A and open it; ask the notch one question. Then install B over it and open it; ask again. After each: `launchctl print gui/$(id -u)/com.ferb.daemon | grep -E 'path|state|last exit'`, `grep FERB_APP_BUILD -A1 ~/Library/LaunchAgents/com.ferb.daemon.plist`, and `log show --last 10m --predicate 'eventMessage CONTAINS \"com.ferb.daemon\"' | grep -i -E 'constraint|LWCR|SIGKILL'`."
+pass = "Both times the notch answers with no setup error and no question; state = running from ~/Library/LaunchAgents/com.ferb.daemon.plist, FERB_APP_BUILD is A's then B's build; no Launch Constraint Violation, LWCR or SIGKILL line for com.ferb.daemon; the daemon's pid changed after B's launch."
+decisions = ["DMN-513", "DMN-515", "APP-602"]
+sitting = "step 13"
+
+[LIVE-686]
+title = "A Mac with a 2026-11 build's SMAppService registration moves to the LaunchAgent with no step"
+area = "daemon"
+surface = "The owner's Mac as on 2026-11-02 (FERB registered through SMAppService by a 2026-11 build, its daemon killed by the launch constraint); a FERB.app build with DMN-513"
+request = "Before: `launchctl print gui/$(id -u)/com.ferb.daemon | grep -E 'path|LWCR'` and `sfltool dumpbtm | grep -A6 com.ferb.daemon`. Install the new build and open it; do nothing else. After: the same two commands, `ls ~/Library/LaunchAgents/com.ferb.daemon.plist`, and ask the notch one question."
+pass = "No error and no question; afterwards launchctl print shows path = ~/Library/LaunchAgents/com.ferb.daemon.plist with no LWCR cdhash constraint and state = running; BTM no longer lists the SMAppService registration from FERB.app's Contents/Library/LaunchAgents (only the LaunchAgent item); the notch answers. After a log out and in the daemon runs again from the LaunchAgent."
+decisions = ["DMN-513", "APP-602"]
 sitting = "step 13"

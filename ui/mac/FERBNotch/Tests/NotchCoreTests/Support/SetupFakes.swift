@@ -95,29 +95,23 @@ final class FakeService: DaemonServicing {
     }
 }
 
-/// macOS's SMAppService for FERB's background service, faked: `register()` moves it to `after`.
+/// macOS's side of FERB's background service, faked: a 2026-11 build's SMAppService registration (`registration`,
+/// which `unregister()` moves to `afterUnregister`) and Login Items' switch (`off`).
 @MainActor
-final class FakeBackgroundService: BackgroundServiceRegistering {
-    var status: ServiceStatus = .notRegistered
-    var after: ServiceStatus = .enabled
-    var refusal: Error?
-    private(set) var registrations = 0
-    private(set) var unregistrations = 0
-    private(set) var openedSettings = 0
-
-    func register() throws {
-        registrations += 1
-        if let refusal { throw refusal }
-        status = after
-    }
+final class FakeBackgroundService: BackgroundServiceManaging {
+    var registration: ServiceStatus = .notRegistered
     var afterUnregister: ServiceStatus = .notRegistered
     var unregisterError: Error?
+    var off = false
+    private(set) var unregistrations = 0
+    private(set) var openedSettings = 0
 
     func unregister() async throws {
         unregistrations += 1
         if let unregisterError { throw unregisterError }
-        status = afterUnregister
+        registration = afterUnregister
     }
+    func switchedOff() async -> Bool { off }
     func openLoginItems() { openedSettings += 1 }
 }
 
@@ -131,10 +125,9 @@ struct SetupRig {
     let keys = FakeKeys()
     let service = FakeService()
 
-    func model(_ action: AppSetupAction = .none, background: BackgroundServiceRegistering? = nil) -> SetupModel {
+    func model(_ action: AppSetupAction = .none, background: BackgroundServiceManaging? = nil) -> SetupModel {
         let model = SetupModel(rpc: rpc, runner: runner, app: app, system: opener, keys: keys, service: service,
                                background: background)
-        model.serviceStartWait = .milliseconds(200)
         model.serviceAction = action
         model.requestSettle = .zero
         model.grantPoll = .milliseconds(5)

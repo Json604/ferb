@@ -347,6 +347,8 @@ class FakeRunner:
         # A fake login Keychain: service -> account -> value. Nothing here touches the real one.
         self.keychain: dict[str, dict[str, str]] = {}
         self.stopped = False             # loaded, its process ended cleanly (`launchctl kill`), until a kickstart
+        self.disabled: set[str] = set()  # labels switched off in Login Items (`launchctl print-disabled`)
+        self.loaded_from: str | None = None   # what `launchctl print` names as the job's definition (`path = `)
 
     def __call__(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         self.cmds.append(cmd)
@@ -383,8 +385,11 @@ class FakeRunner:
             Path(cmd[cmd.index('-o') + 1]).write_bytes(b'fake helper binary')
         elif cmd[:3] == ['/usr/bin/codesign', '-d', '-r-']:
             out = 'designated => identifier "com.ferb.secrets" and certificate leaf = H"fake-test-certificate"\n'
+        elif cmd[:2] == ["launchctl", "print-disabled"]:
+            return subprocess.CompletedProcess(cmd, 0, "disabled services = {\n" + "".join(
+                f'\t"{label}" => disabled\n' for label in sorted(self.disabled)) + "}\n", "")
         elif cmd[:2] == ["launchctl", "bootstrap"]:
-            self.loaded, self.stopped = True, False
+            self.loaded, self.stopped, self.loaded_from = True, False, cmd[-1]
         elif cmd[:3] == ["launchctl", "kill", "SIGTERM"]:
             self.stopped = True
         elif cmd[:2] == ["launchctl", "kickstart"]:
@@ -392,8 +397,9 @@ class FakeRunner:
         elif cmd[:2] == ["launchctl", "bootout"]:
             self.loaded = False
         elif cmd[:2] == ["launchctl", "print"]:
-            return subprocess.CompletedProcess(cmd, 0 if self.loaded else 113,
-                                               "pid = 4242\n" if self.loaded and not self.stopped else "")
+            return subprocess.CompletedProcess(cmd, 0 if self.loaded else 113, (
+                f"path = {self.loaded_from}\n" if self.loaded and self.loaded_from else "") + (
+                "pid = 4242\n" if self.loaded and not self.stopped else ""))
         elif cmd[:2] == ["/bin/kill", "-0"]:                      # no other pid runs
             up = self.loaded and not self.stopped
             running = cmd[2:] == ["4242"] and (up or self.tail > 0)

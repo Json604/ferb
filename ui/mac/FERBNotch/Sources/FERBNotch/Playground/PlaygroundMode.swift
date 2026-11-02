@@ -134,7 +134,6 @@ struct PlaygroundServices {
     func applySpeed() {
         setup.grantPoll = .milliseconds(Int(1500 / state.speed))
         setup.requestSettle = .milliseconds(Int(1500 / state.speed))
-        setup.serviceStartWait = .seconds(5)
     }
 }
 #endif

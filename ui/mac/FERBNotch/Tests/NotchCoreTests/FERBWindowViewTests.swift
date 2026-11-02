@@ -44,7 +44,7 @@ final class FERBWindowViewTests: XCTestCase {
     // decision: APP-5
     func testUninstallWaitsForTheServiceToUnregisterAndStopsIfItDidnt() async {
         let background = FakeBackgroundService()
-        background.status = .enabled
+        background.registration = .enabled
         background.afterUnregister = .enabled                              // macOS still lists it
         var ran: [String] = []
         var packaged = actions()
