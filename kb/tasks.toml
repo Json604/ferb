@@ -443,3 +443,12 @@ kind = "bug"
 status = "open"
 why = "2026-11-02: scheduled-run pause/resume again timed out waiting 20s for active in the 4200-pass settings-review suite and its isolated rerun. An earlier rerun passed. No Python source changed; cause unverified. Logs: /tmp/ferb-settings-finish-pytest.log and /tmp/ferb-settings-schedule-recheck.log."
 decisions = ["TEST-508"]
+
+[T-1006]
+title = "Add PostHog to the FERB website after design review"
+area = "release"
+kind = "build"
+status = "open"
+why = "Owner requested PostHog at the end of the website work. Obtain the project configuration, implement analytics, and reflect actual collection in the privacy disclosure before deployment."
+decisions = ["REL-407"]
+after = ["T-28"]

@@ -107,3 +107,22 @@ words = "ok build it withbpolished glass liek adn better round boxes adn the who
 rule = "Build the FERB site with polished glass, rounded surfaces, gradients and the app's identity, using plain system typography like the personal site. Apply the owner's local Emil animation guidance. Offer only the Apple Silicon DMG with an Apple download icon. Keep the existing FERB logo. The owner will supply the download URL; leave it inactive until supplied."
 paths = ["site/"]
 live = ["LIVE-706"]
+
+[REL-406]
+title = "Make the website a visual FERB walkthrough; add PostHog last"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "i want the demombox expanding effect here. also an illustratrive real ferb wokring showing what ferb is made for - background task, inout monitoring, secure - nothign send to ll, local data etcect - basically showing eveyr featuer in this preview as good and smooth as possible"
+rule = "Remove the feature and principles sections requested by the owner. Make the expanding preview demonstrate FERB's capabilities with a notch closely matching the Mac app; replace decorative arrows with recognizable logos and refine the download section. Privacy claims still follow the existing local-storage and redacted-model-context boundaries; do not claim all AI processing is offline. Record PostHog as a final website integration task."
+paths = ["site/"]
+live = ["LIVE-706"]
+
+[REL-407]
+title = "Add PostHog at the end of the website work"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "also note it down taht at eht end we have to add posthog in the site too"
+rule = "Integrate PostHog in the FERB website at the end of its design work, using the owner's project configuration."
+paths = ["site/"]
