@@ -244,6 +244,24 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertFalse(t.notch.introSkippable)
     }
 
+    /// Live 2026-11-02 (two Macs): after Full Disk Access's Quit & Reopen, FERB came back in front of System Settings
+    /// and covered it, since Settings never "came forward". A resumed tour and every dock beside Settings ask the notch
+    /// to step behind Settings' window.
+    // decision: APP-642
+    func testAResumedTourAndADockBesideSettingsStepBehindSettings() async {
+        let t = tour()
+        var steps = 0
+        t.notch.onStepBehindSettings = { steps += 1 }
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "denied", fda: "granted")
+        var progress = t.progress
+        progress.resumeBeat = .permissions                                   // reopened by Quit & Reopen
+        t.controller.start(beats: [.permissions, .home])
+        await eventually { steps == 1 }
+        await t.pick("permissions.next")
+        await eventually { t.orb.docks.count == 1 }
+        XCTAssertEqual(steps, 2)
+    }
+
     // MARK: Sign in
 
     // decision: APP-507

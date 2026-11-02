@@ -1550,3 +1550,12 @@ why = "Agent's reading: a longer natural ring (render.py RING_*), never stretchi
 evidence = "afinfo after render.py: Standard 1.29-1.35 s (was 0.32-1.11), Subtle 1.05-1.09 s; payment_success.aif is 1.41 s and falls 60 dB by 1.10 s, the new cues by about 1.25 s with the app's room."
 paths = ["demo/sound-family/render.py", "ui/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds", "ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AudioOutputFacts.swift"]
 live = ["LIVE-705", "LIVE-501", "LIVE-544", "LIVE-548"]
+
+[APP-642]
+title = "The tour steps behind System Settings after a Quit & Reopen and at each dock beside it"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "When the tour resumes (after a quit, e.g. macOS's Quit & Reopen) and whenever the logo docks beside System Settings, the notch steps behind Settings' window if it lies under the tour's surface, through the same path as Settings coming forward (the yield to the app under the pinned chat, rechecked shortly after). A click on FERB brings it back as before."
+why = "Live 2026-11-02 on the owner's and a friend's Mac: after Full Disk Access's Quit & Reopen, FERB relaunched in front and covered System Settings, because Settings never came forward and the yield follows only app activation."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift"]

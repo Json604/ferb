@@ -117,6 +117,7 @@ extension IntroController {
             : isList ? IntroCopy.dragMe : IntroLine(text: "Switch FERB on here")
         orb.dockBesideSettings(dragging: !isList || target.isEmpty ? nil : URL(fileURLWithPath: target),
                                instruction: instruction, showWay: !added)
+        notch.onStepBehindSettings?()            // Settings, not the notch, is what the owner works in now (APP-642)
     }
 
     private func permissionOverview(_ visit: PermissionVisit) -> IntroLine {

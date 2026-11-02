@@ -158,7 +158,10 @@ final class IntroController {
     }
 
     private func perform(_ plan: [IntroBeat], ifNeeded: Set<IntroBeat>, resuming: Bool) async {
-        if resuming { await waitForService() }
+        if resuming {
+            await waitForService()
+            notch.onStepBehindSettings?()        // a Quit & Reopen left Settings open under the notch (APP-642)
+        }
         for next in plan {
             guard live else { return }
             if ifNeeded.contains(next), !(await stillNeeded(next)) { continue }

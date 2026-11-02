@@ -295,6 +295,9 @@ final class NotchModel: ObservableObject {
     var introHoldsWork = false
     /// The running tour is at the permissions beat or later: its line offers Skip tour (APP-638).
     @Published var introSkippable = false
+    /// The tour wants System Settings in front of it: the notch steps behind Settings' window when it lies under the
+    /// tour's surface, as when Settings comes forward (APP-642).
+    var onStepBehindSettings: (() -> Void)?
     static let introHeldWork = "It'll wait here until the tour ends."
     /// What the owner is typing into the intro line's field. Emptied whenever the line changes (or goes), so a key
     /// pasted for one line can never show in, or be sent from, the next line's field.

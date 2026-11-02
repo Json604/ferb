@@ -208,6 +208,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         model.onPresentationChange = { [weak self] animate in self?.present(animate: animate) }
         model.onAttentionArrival = { [weak self] in self?.hoverTask?.cancel() }
         model.onBackgroundChange = { [weak self] animate in self?.present(animate: animate, requestFocus: false) }
+        // After a Quit & Reopen FERB itself is frontmost, so Settings never "comes forward": the tour asks (APP-642).
+        model.onStepBehindSettings = { [weak self] in
+            guard let self, let settings = NSRunningApplication.runningApplications(
+                withBundleIdentifier: SettingsAnchor.bundleID).first else { return }
+            if self.yieldController.appActivated(settings.processIdentifier) { self.updatePointer() }
+            self.restackYield()
+        }
         model.onInteractionEnded = { [weak self] in
             guard let self, !self.pointerIsOverSurface else { return }
             self.pointerExited()
