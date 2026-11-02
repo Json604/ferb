@@ -6,7 +6,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 101 | 6 | 31 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 125 | 7 | 41 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 54 | 6 | 17 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 31 | 2 | 57 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 55 | 2 | 36 |
@@ -18,7 +18,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 8 | 2 | 3 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 16 | 2 | 10 |
 | storage | Storage | `ferb/store` | 25 | 6 | 6 |
-| tests | Tests | `tests` | 9 | 15 | 0 |
+| tests | Tests | `tests` | 9 | 16 | 0 |
 | voice | Voice | `ferb/voice` | 8 | 0 | 7 |
 
 ## Waiting on the owner

@@ -10,8 +10,7 @@ enum Palette {
     static let red = Color(.sRGB, red: 1, green: 0.14, blue: 0.19, opacity: 1)
     /// Answers in steps (APP-300, the approved mock's colours): a failed row's words, a paused row, an updated row.
     static let redSoft = Color(.sRGB, red: 1, green: 0.48, blue: 0.5, opacity: 1)
-    static let violet = Color(.sRGB, red: 0.725, green: 0.66, blue: 1, opacity: 1)
-    static let cyan = Color(.sRGB, red: 0.39, green: 0.82, blue: 1, opacity: 1)
+    static let chatBlue = Color.accentColor
 
     static func taskColor(_ phase: SessionPhase) -> Color {
         switch phase {

@@ -5,6 +5,8 @@ import NotchCore
 /// The orb the intro drives (Task 8 takes this, so its tests can use a fake).
 @MainActor
 protocol OrbControlling: AnyObject {
+    /// Intermediate returns only clear the guide; one homecoming happens when the tour ends.
+    var holdsHomecoming: Bool { get set }
     /// Drips off the notch and flies to `target` (AppKit global coordinates); returns once it has arrived.
     func launch(to target: CGPoint, instruction: IntroLine?) async
     /// Docks beside System Settings' window, holding `url` (the agent app) as a draggable icon (nil: nothing to drag,
@@ -19,15 +21,20 @@ protocol OrbControlling: AnyObject {
     func tearDown()
     /// The orb has melted back into the notch (the intro swells the notch once: NotchModel.pulseIntro).
     var onHomeArrival: (@MainActor () -> Void)? { get set }
+    /// The drag destination accepted the app; this is not evidence of a permission grant.
+    var onDropAccepted: (() -> Void)? { get set }
 }
 
 extension OrbControlling {
+    var holdsHomecoming: Bool { get { false } set {} }
+    var onDropAccepted: (() -> Void)? { get { nil } set {} }
     func dockBesideSettings(dragging url: URL) { dockBesideSettings(dragging: url, instruction: nil) }
 }
 
 /// What draws the orb (OrbPanel), in AppKit global coordinates.
 @MainActor
 protocol OrbSurface: AnyObject {
+    var onDropAccepted: (() -> Void)? { get set }
     var isVisible: Bool { get }
     func place(center: CGPoint)
     func setAppearance(scale: CGFloat, opacity: CGFloat)
@@ -36,6 +43,10 @@ protocol OrbSurface: AnyObject {
     func setWaiting(_ waiting: Bool)
     func show()
     func hide()
+}
+
+extension OrbSurface {
+    var onDropAccepted: (() -> Void)? { get { nil } set {} }
 }
 
 /// Frame ticks with the time since the last one, in seconds.

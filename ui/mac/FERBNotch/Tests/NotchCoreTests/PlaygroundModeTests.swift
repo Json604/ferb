@@ -8,6 +8,28 @@ import NotchCore
 /// request), and a home that is temporary and never FERB's real ~/.ferb.
 @MainActor
 final class PlaygroundModeTests: XCTestCase {
+    // decision: APP-617
+    func testPreviewSoundsUseTheSimulatedCallAndStillRespectSoundSettings() throws {
+        let state = PlaygroundState(file: try folder("sound").appendingPathComponent("state.json"), fresh: true)
+        let defaults = scratchDefaults("PlaygroundSound")
+        var uiSounds = true
+        let sound = PlaygroundSound(state: state, defaults: defaults, preference: {
+            $0 == "com.apple.sound.uiaudio.enabled" ? NSNumber(value: uiSounds) : nil
+        })
+        let cues: [FerbSound] = [.firstLaunch, .intro, .orbDrip, .orbHop, .orbMelt, .done]
+        for cue in cues { XCTAssertTrue(sound.allows(cue), "\(cue)") }
+        state.simulatesCall = true
+        for cue in cues { XCTAssertFalse(sound.allows(cue), "\(cue)") }
+        XCTAssertTrue(sound.allows(.needsYou))
+        state.simulatesCall = false
+        XCTAssertTrue(sound.allows(.intro))
+        state.saved.soundOn = false
+        XCTAssertFalse(sound.allows(.intro))
+        state.saved.soundOn = true
+        uiSounds = false
+        XCTAssertFalse(sound.allows(.intro))
+    }
+
     private func folder(_ name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("FERBNotchTests/playground-\(name)-\(UUID().uuidString)", isDirectory: true)
@@ -18,8 +40,9 @@ final class PlaygroundModeTests: XCTestCase {
 
     // decision: APP-519
     func testOnlyItsOwnBundleIDRunsThePlayground() {
-        XCTAssertTrue(PlaygroundMode.isPlayground(bundleID: "dev.ferb.playground"))
-        for other in ["com.ferb.FERB", "dev.ferb.notch", "com.ferb.secrets", nil] {
+        XCTAssertTrue(PlaygroundMode.isPlayground(bundleID: "dev.ferb.playground.concept"))
+        XCTAssertTrue(PlaygroundMode.isPlayground(bundleID: "dev.ferb.playground.arrival"))
+        for other in ["dev.ferb.playground", "com.ferb.FERB", "dev.ferb.notch", "com.ferb.secrets", nil] {
             XCTAssertFalse(PlaygroundMode.isPlayground(bundleID: other), "\(other ?? "no bundle id")")
         }
         XCTAssertFalse(PlaygroundMode.requested)                      // the test runner is not the playground
@@ -39,7 +62,7 @@ final class PlaygroundModeTests: XCTestCase {
         guard case .home(let home) = PlaygroundHome.resolve(given: nil, account: account.path, temporary: temporary) else {
             return XCTFail("an unset FERB_HOME should give the temporary home")
         }
-        XCTAssertEqual(home.path, PlaygroundHome.canonical(temporary.appendingPathComponent("ferb-playground").path))
+        XCTAssertEqual(home.path, PlaygroundHome.canonical(temporary.appendingPathComponent("ferb-setup-concept").path))
         XCTAssertTrue(home.path.hasPrefix(PlaygroundHome.canonical(temporary.path)))
         XCTAssertEqual(PlaygroundHome.resolve(given: "", account: account.path, temporary: temporary), .home(home))
 

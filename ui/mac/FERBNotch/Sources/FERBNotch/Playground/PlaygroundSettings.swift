@@ -12,6 +12,8 @@ final class PlaygroundSettingsOpener: SystemOpening {
     private let state: PlaygroundState
     /// A switch that applies after a restart was flipped: "Quit & Reopen", as macOS offers (the delegate relaunches).
     var onQuitAndReopen: (() -> Void)?
+    var onInteraction: ((Int?) -> Void)?
+    var avoidFrame: (() -> CGRect?)?
     private(set) var window: NSPanel?
     private var pane: PlaygroundPane?
     private var autoFlip: Task<Void, Never>?
@@ -45,7 +47,8 @@ final class PlaygroundSettingsOpener: SystemOpening {
         panel.contentView = NSHostingView(rootView: PlaygroundPaneView(pane: next, state: state, quitAndReopen: { [weak self] in
             self?.onQuitAndReopen?()
         }))
-        panel.orderFrontRegardless()             // never activates the app: FERB is "away" while Settings is open
+        onInteraction?(panel.windowNumber)
+        panel.orderFrontRegardless()             // shown without moving keyboard focus
         autoFlip?.cancel()
         guard state.saved.answer == .allowSoon else { return }
         autoFlip = Task { [weak self, state] in
@@ -60,19 +63,41 @@ final class PlaygroundSettingsOpener: SystemOpening {
     }
 
     private func makeWindow() -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
+        let panel = PlaygroundSettingsPanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
                             styleMask: [.titled, .closable, .nonactivatingPanel, .utilityWindow], backing: .buffered,
                             defer: false)
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
+        panel.becomesKeyOnlyIfNeeded = false
+        panel.onInteraction = { [weak self, weak panel] in self?.onInteraction?(panel?.windowNumber) }
+        panel.onClose = { [weak self] in self?.onInteraction?(nil) }
         if let screen = NSScreen.main {
             let visible = screen.visibleFrame
-            panel.setFrameOrigin(CGPoint(x: visible.midX - 80, y: visible.midY - 210))
+            var origin = CGPoint(x: visible.maxX - panel.frame.width - 24, y: visible.maxY - panel.frame.height - 40)
+            if let avoid = avoidFrame?() {
+                if avoid.maxX + 24 + panel.frame.width <= visible.maxX {
+                    origin.x = avoid.maxX + 24
+                } else if avoid.minX - 24 - panel.frame.width >= visible.minX {
+                    origin.x = avoid.minX - 24 - panel.frame.width
+                }
+            }
+            panel.setFrameOrigin(origin)
         }
         panel.setFrameAutosaveName("PlaygroundSettingsStandIn")
         return panel
     }
+}
+
+/// A click makes the stand-in frontmost even when it was already key and the notch was summoned again.
+private final class PlaygroundSettingsPanel: NSPanel {
+    var onInteraction: (() -> Void)?
+    var onClose: (() -> Void)?
+    override var canBecomeKey: Bool { true }
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown { onInteraction?() }
+        super.sendEvent(event)
+    }
+    override func close() { onClose?(); super.close() }
 }
 
 /// Which stand-in pane is showing.
@@ -104,6 +129,8 @@ private struct PlaygroundPaneView: View {
     let pane: PlaygroundPane
     @ObservedObject var state: PlaygroundState
     let quitAndReopen: () -> Void
+    @State private var dropTargeted = false
+    @State private var added = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -130,7 +157,7 @@ private struct PlaygroundPaneView: View {
                     .padding(10)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.15)))
                 }
-                dropZone(id)
+                if !SetupModel.answeredInPopup.contains(id) { dropZone(id) }
             }
             Spacer()
         }
@@ -152,11 +179,19 @@ private struct PlaygroundPaneView: View {
 
     /// Where the orb's drag card can be dropped, as onto the real pane's list.
     private func dropZone(_ id: String) -> some View {
-        Text("Drop the app here (from the orb's card) to add it")
+        Text(added ? (state.saved.afterRestart.contains(id)
+            ? "FERB added. Choose Quit & Reopen above to finish this permission."
+            : "FERB added to the list.") : "Drag the FERB logo here to add it")
             .font(.caption)
             .frame(maxWidth: .infinity, minHeight: 54)
-            .background(RoundedRectangle(cornerRadius: 8).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4])))
-            .onDrop(of: [.fileURL], isTargeted: nil) { _ in
+            .padding(.horizontal, 10)
+            .foregroundStyle(added ? Color.green : Color.primary)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.green.opacity(added || dropTargeted ? 0.12 : 0)))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(
+                added || dropTargeted ? Color.green : Color.secondary,
+                style: StrokeStyle(lineWidth: 1, dash: added ? [] : [4])))
+            .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { _ in
+                added = true
                 state.set(id, .granted, fromSwitch: true)
                 state.note("the app was dropped into \(PermissionCopy.label(id))")
                 return true

@@ -23,6 +23,30 @@ final class OrbControllerTests: XCTestCase {
         while clock.now < end && !done() { clock.advance(1.0 / 120) }
     }
 
+    // decision: APP-615
+    func testOneDepartureAndHomecomingAcrossMultipleTourDestinations() async {
+        let (orb, surface, sound, clock) = makeOrb(latency: 0)
+        orb.holdsHomecoming = true
+        let first = Task { await orb.launch(to: target, instruction: nil) }
+        await Task.yield()
+        run(clock, seconds: 3)
+        await first.value
+        await orb.flyHome()
+        XCTAssertTrue(surface.visible)
+        XCTAssertEqual(surface.center, target)
+        let second = Task { await orb.launch(to: CGPoint(x: 500, y: 400), instruction: nil) }
+        await Task.yield()
+        run(clock, seconds: 3)
+        await second.value
+        XCTAssertEqual(sound.played.filter { $0 == .orbDrip }.count, 1)
+        orb.holdsHomecoming = false
+        let home = Task { await orb.flyHome() }
+        await Task.yield()
+        run(clock, seconds: 3)
+        await home.value
+        XCTAssertFalse(surface.visible)
+    }
+
     // decision: APP-523, APP-534, APP-522
     func testKeyframeSoundsLeadTheirKeyframesByTheOutputLatency() async {
         let (orb, surface, sound, clock) = makeOrb(latency: 0.1)

@@ -30,6 +30,7 @@ final class NotchPresentation: NSObject, ObservableObject {
     private var velocity = Vector.zero
     private var initialVelocity = Vector.zero
     private var startedAt: CFTimeInterval = 0
+    var isIntro = false
     private var spring = Spring(duration: 0.3, bounce: 0.08)
     private var duration: TimeInterval = 0
     private var completion: (() -> Void)?
@@ -67,7 +68,9 @@ final class NotchPresentation: NSObject, ObservableObject {
             originStart = surfaceOrigin
         }
         initialVelocity = velocity
-        spring = Spring(duration: 0.3, bounce: 0.08)
+        spring = isIntro && expanded
+            ? Spring(duration: 0.46, bounce: 0.19)
+            : Spring(duration: 0.3, bounce: 0.08)
         duration = spring.settlingDuration
         startedAt = CACurrentMediaTime()
         self.completion = completion

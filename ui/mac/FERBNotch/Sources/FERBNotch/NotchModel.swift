@@ -111,7 +111,7 @@ final class NotchModel: ObservableObject {
     private var voiceDraft = ""
     /// The words the last dictation added: a draft still holding them is sent as a voice turn, answered aloud.
     private var lastDictation: String?
-    /// Settings → General: a held dictation sends its draft when the keys are released.
+    /// Settings → Notch & Shortcuts: a held dictation sends its draft when the keys are released.
     static let sendOnReleaseKey = "voice.sendOnRelease"
     let rpc: DaemonRPCTransport
     /// FERB's click-through windows, told to the daemon (D31 fix round 4)
@@ -220,11 +220,14 @@ final class NotchModel: ObservableObject {
             let wasVisible = self.surfaceVisible
             let previousSize = self.surfaceSize
             self.compactPlanText = text
-            if let text { self.compactPlanDisplayText = text }
+            if let text {
+                self.compactPlanDisplayText = text
+                self.compactReminderCard = self.acknowledgement.reminderCard
+            }
             if text != nil && self.introLine == nil { self.introDisplayLine = nil }   // a closed intro line can't show
-            if self.expanded { self.compactPlanDisplayText = nil }
+            if self.bodyVisible { self.compactPlanDisplayText = nil }
             // Text within the same measured lines does not restart the native reveal spring.
-            if !self.expanded && (wasVisible != self.surfaceVisible || previousSize != self.surfaceSize) {
+            if !self.bodyVisible && (wasVisible != self.surfaceVisible || previousSize != self.surfaceSize) {
                 self.onBackgroundChange?(true)
             }
         }
@@ -234,13 +237,12 @@ final class NotchModel: ObservableObject {
     var onBackgroundChange: ((Bool) -> Void)?
     /// A notice's page card (step 12c): the FERB window's Memory page, filtered to an import's source when it names one.
     var onOpenMemory: ((String?) -> Void)?
-    /// "What FERB saw" for a message or task (step 12e): opens its screenshots window.
-    var onShowSeen: ((SeenScope) -> Void)?
     let acknowledgement = AcknowledgementNotice()
     var onAttentionArrival: (() -> Void)?
     var onOpenDocument: ((URL) -> Void)?
     var onQuickLook: ((URL) -> Void)?
     var onSettings: (() -> Void)?
+    var onOpenWindow: (() -> Void)?
     var onStatusChange: (() -> Void)?
     var onInteractionEnded: (() -> Void)?
     var onInteraction: (() -> Void)?
@@ -263,6 +265,8 @@ final class NotchModel: ObservableObject {
     @Published private(set) var compactPlanText: String?
     /// Retain the compact content while the same native surface closes; never expose transcript mid-collapse.
     @Published private(set) var compactPlanDisplayText: String?
+    @Published private(set) var compactReminderCard: ResultCard?
+    private var measuredReminder: (card: ResultCard, text: String, width: CGFloat, minute: Int, height: CGFloat)?
     func finishCompactPreviewDismissal() {
         if compactPlanText == nil { compactPlanDisplayText = nil }
         if introLine == nil { introDisplayLine = nil }
@@ -296,6 +300,18 @@ final class NotchModel: ObservableObject {
     var surfaceVisible: Bool { expanded || compactPlanText != nil || introLine != nil || introPulsing }
     var compactPlanHeight: CGFloat {
         guard let compactPlanText else { return 0 }
+        if let card = compactReminderCard {
+            let minute = Int(Date().timeIntervalSince1970 / 60)
+            if measuredReminder?.card != card || measuredReminder?.text != compactPlanText
+                || measuredReminder?.width != bodyWidth || measuredReminder?.minute != minute {
+                let content = ReminderArrivalView(card: card, text: compactPlanText)
+                    .frame(width: bodyWidth).environment(\.colorScheme, .dark)
+                let height = NSHostingView(rootView: content).fittingSize.height
+                measuredReminder = (card, compactPlanText, bodyWidth, minute, ceil(height))
+            }
+            return min(availableSurfaceSize.height, (measuredReminder?.height ?? 0)
+                + (isNotchDocked ? cutoutHeight : 0))
+        }
         let text = (compactPlanText as NSString).boundingRect(
             with: CGSize(width: max(1, bodyWidth - 50), height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -335,7 +351,7 @@ final class NotchModel: ObservableObject {
     var attachmentStripHeight: CGFloat { session.attachments.isEmpty ? 0 : 100 }
     var conversationChromeHeight: CGFloat {
         composerHeight + 58 + (showsWorkRow ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0)
-            + (promptError == nil ? 0 : 48) + attachmentStripHeight + (introLine.map { introContentHeight($0) + 9 } ?? 0)
+            + (promptError == nil ? 0 : 48) + attachmentStripHeight + (introLine.map { introContentHeight($0, width: bodyWidth - 50, inset: IntroNarrationView.chatInset) + 9 } ?? 0)
     }
     var chatTranscriptHeight: CGFloat {
         min(max(260, preferredTranscriptHeight), max(0, availableSurfaceSize.height - cutoutHeight - conversationChromeHeight))
@@ -403,13 +419,13 @@ final class NotchModel: ObservableObject {
     /// The drawn surface: header, plus the body when it shows. The panel adds a transparent margin around it.
     var surfaceSize: CGSize {
         if !expanded, let height = introSurfaceHeight(introLine) { return CGSize(width: bodyWidth, height: height) }
-        if compactPlanText != nil && !expanded { return CGSize(width: bodyWidth, height: compactPlanHeight) }
+        if compactPlanText != nil && !bodyVisible { return CGSize(width: bodyWidth, height: compactPlanHeight) }
         if introPulsing && !expanded { return introPulseSize }
         return CGSize(width: expanded ? bodyWidth : handleWidth, height: cutoutHeight + (bodyVisible ? bodyHeight : 0))
     }
     var panelSize: CGSize {
         if !expanded, let height = introSurfaceHeight(introLine) { return CGSize(width: bodyWidth + 16, height: height + 12) }
-        if compactPlanText != nil && !expanded { return CGSize(width: bodyWidth + 16, height: compactPlanHeight + 12) }
+        if compactPlanText != nil && !bodyVisible { return CGSize(width: bodyWidth + 16, height: compactPlanHeight + 12) }
         if introPulsing && !expanded { return CGSize(width: introPulseSize.width + 16, height: introPulseSize.height + 12) }
         if expanded { return CGSize(width: bodyWidth + 16, height: cutoutHeight + (bodyVisible ? bodyHeight : 0) + 12) }
         // The independent, mouse-transparent tracer owns its own glow margin.
@@ -483,7 +499,7 @@ final class NotchModel: ObservableObject {
     /// Starts yielding for a reason. Yielding to an app under the chat applies only to a pinned chat, and
     /// another app's windows never hide FERB while the owner is dictating.
     func beginYield(_ reason: NotchYieldReason) {
-        if reason == .activeAppUnderPinnedChat && !(isPinned && expanded) { return }
+        if reason == .activeAppUnderPinnedChat && !(isPinned && expanded) && introLine == nil { return }
         if yielding.begin(reason, listening: session.phase == .listening) { onYieldChange?(true) }
     }
 
@@ -514,6 +530,7 @@ final class NotchModel: ObservableObject {
         cancelPinnedFold()
         guard isHeaderOnly else { return }
         isHeaderOnly = false
+        acknowledgement.dismiss()
         onPresentationChange?(true)
     }
 
@@ -524,8 +541,10 @@ final class NotchModel: ObservableObject {
     }
 
     func toggle() {
+        // The interaction callback can consume a compact arrival by opening chat. Decide before that callback.
+        let close = expanded && compactPlanText == nil
         onInteraction?()
-        expanded ? collapse() : expand()
+        close ? collapse() : expand()
     }
 
     func edit(keyboard: Bool = false) {
@@ -928,6 +947,33 @@ final class NotchModel: ObservableObject {
         onAttentionArrival?()
         onBackgroundChange?(true)
         onStatusChange?()
+    }
+
+    /// Typed reminder arrivals share the existing compact surface and spring. The full chat stays as the owner left it.
+    func presentReminder(card: ResultCard, text: String) {
+        guard !bodyVisible, introLine == nil else { return }
+        onAttentionArrival?()
+        acknowledgement.show(text, reminder: card)
+    }
+
+    func openReminderChat() {
+        followsToday = true
+        selectedDay = Date()
+        showingTasks = false
+        showingSources = false
+        showingHistory = false
+        showingActivity = false
+        expand()
+    }
+
+    /// A scheduled result has a typed reminder card. Other task results retain their normal full-chat arrival.
+    func presentResult(_ event: [String: Any]) {
+        if let card = CardLayout.above(ResultCard.list(event["cards"]) ?? []).first {
+            presentReminder(card: card, text: event["display_text"] as? String
+                ?? event["answer"] as? String ?? event["summary"] as? String ?? event["text"] as? String ?? card.title ?? "Reminder")
+        } else {
+            presentTerminalAnswer()
+        }
     }
 
     /// Fresh terminal results reveal the chat independently of the temporary glow, without taking focus.

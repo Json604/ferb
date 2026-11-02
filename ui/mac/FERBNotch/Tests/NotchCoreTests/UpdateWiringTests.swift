@@ -49,8 +49,7 @@ final class UpdateWiringTests: XCTestCase {
     func testTheUpdatesSectionLaysOut() {
         let updates = UpdateCoordinator(rpc: ScriptedRPC())
         updates.found(version: "0.28.0")
-        let page = GeneralSettingsPage(feedback: SoundFeedback(), cursor: CursorController(makePanels: false),
-                                       updates: updates)
+        let page = GeneralSettingsPage(updates: updates)
         let hosting = NSHostingView(rootView: page.frame(width: 700, height: 500))
         hosting.frame = NSRect(x: 0, y: 0, width: 700, height: 500)
         hosting.layout()

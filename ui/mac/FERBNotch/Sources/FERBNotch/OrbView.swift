@@ -18,9 +18,6 @@ struct OrbCanvas: View {
 
     var body: some View {
         ZStack {
-            OrbGlass(waiting: state.waiting)
-                .frame(width: OrbController.size.width, height: OrbController.size.height)
-                .scaleEffect(state.scale)
             if let line = state.instruction {
                 InstructionBubble(line: line)
                     .frame(width: OrbPanel.bubbleWidth, alignment: state.bubbleOnLeft ? .trailing : .leading)
@@ -31,37 +28,6 @@ struct OrbCanvas: View {
         .opacity(Double(state.opacity))
         .frame(width: OrbPanel.canvas.width, height: OrbPanel.canvas.height)
         .animation(.easeOut(duration: 0.2), value: state.instruction)
-    }
-}
-
-/// A small glass orb with a soft iridescent band of light inside that ripples while FERB waits.
-struct OrbGlass: View {
-    let waiting: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(paused: !waiting || reduceMotion)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let ripple = waiting && !reduceMotion ? sin(t * 2 * .pi / 1.8) : 0
-            ZStack {
-                Circle().fill(RadialGradient(colors: [.white.opacity(0.3), .white.opacity(0.06)],
-                                             center: UnitPoint(x: 0.35, y: 0.3), startRadius: 2, endRadius: 34))
-                Circle()
-                    .fill(AngularGradient(colors: [.cyan, .purple, .pink, .orange, .cyan], center: .center,
-                                          angle: .degrees(waiting && !reduceMotion ? t * 40 : 30)))
-                    .mask { Ellipse().frame(height: 14 + 4 * ripple).blur(radius: 4) }
-                    .rotationEffect(.degrees(-20))
-                    .opacity(0.55 + 0.15 * ripple)
-                    .blur(radius: 3)
-                Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0.15)],
-                                                     startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
-                Ellipse().fill(.white.opacity(0.55)).frame(width: 18, height: 8).blur(radius: 2).offset(x: -9, y: -15)
-            }
-            .clipShape(Circle())
-            .scaleEffect(1 + 0.02 * ripple)
-            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
-        }
-        .accessibilityHidden(true)
     }
 }
 
@@ -97,9 +63,10 @@ struct InstructionBubble: View {
 /// (the file URL a privacy list accepts). A faint fill makes the whole card grabbable, not only the icon's opaque
 /// pixels (the window server passes clicks on clear pixels through). A click alone does nothing.
 final class DragCardView: NSView, NSDraggingSource {
+    var onDropAccepted: (() -> Void)?
     var url: URL? {
         didSet {
-            icon.image = url.map { NSWorkspace.shared.icon(forFile: $0.path) }
+            icon.image = NSWorkspace.shared.icon(forFile: url?.path ?? Bundle.main.bundlePath)
             window?.invalidateCursorRects(for: self)
         }
     }
@@ -109,8 +76,11 @@ final class DragCardView: NSView, NSDraggingSource {
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerRadius = 10
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
-        icon.frame = bounds.insetBy(dx: 4, dy: 4)
+        layer?.backgroundColor = NSColor.clear.cgColor
+        icon.image = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+        icon.frame = bounds
+        icon.autoresizingMask = [.width, .height]
+        autoresizingMask = [.width, .height]
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.unregisterDraggedTypes()
         addSubview(icon)
@@ -135,8 +105,12 @@ final class DragCardView: NSView, NSDraggingSource {
         beginDraggingSession(with: [item], event: event, source: self)
     }
 
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        if !operation.isEmpty { onDropAccepted?() }
+    }
+
     func draggingSession(_ session: NSDraggingSession,
                          sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        context == .outsideApplication ? [.copy, .link, .generic] : []
+        [.copy, .link, .generic]
     }
 }

@@ -42,6 +42,7 @@ final class NotchYieldController {
     var activationRecheckDelay: Duration = .milliseconds(500)
     /// The app FERB is yielding to because one of its windows lies under the pinned chat.
     private(set) var coveredApp: Int32?
+    private var companionWindow: Int?
     /// Other apps' windows the owner chose to show FERB above: those over it when they opened or revealed FERB
     /// (shortcut, menu, click, hover), entered or clicked the notch, used the shortcut, or dictated. They stop hiding
     /// FERB until they leave the screen, so a window that never closes (a screen-share bar, another notch app) can't
@@ -69,6 +70,13 @@ final class NotchYieldController {
     private var yieldsToCoveredApp: Bool { model.yielding.reasons.contains(.activeAppUnderPinnedChat) }
     /// Yielding to another app (not to FERB's own file picker), which the owner can override.
     private var yieldsToAnotherApp: Bool { model.yielding.reasons.contains { $0 != .filePicker } }
+
+    /// An intro companion was clicked. Its own-process identity must not prevent the notch stepping behind it.
+    func companionFocused(_ window: Int?) {
+        companionWindow = window
+        if window != nil && model.introLine != nil { model.beginYield(.introCompanion) }
+        else { model.endYield(.introCompanion) }
+    }
 
     /// FERB just stepped aside; `pointer` is where the pointer is now.
     func yieldBegan(pointer: CGPoint) {
@@ -175,6 +183,7 @@ final class NotchYieldController {
             model.endYield(.foreignOverlay)
         }
         endCoveredApp()
+        companionFocused(nil)
         return wasYielded && !model.isYielded
     }
 
@@ -223,6 +232,7 @@ final class NotchYieldController {
     /// chat. Nil while FERB yields only to menus, popovers, floating windows or its file picker (all of which are
     /// above ordinary windows), or doesn't yield.
     func coveringWindow() -> Int? {
+        if model.yielding.reasons.contains(.introCompanion) { return companionWindow }
         guard yieldsToCoveredApp, let app = coveredApp, let chat = layout()?.pinnedChat else { return nil }
         return NotchOverlap.frontWindowUnderChat(in: windows(), appPID: app, chat: chat).map { Int($0.windowID) }
     }

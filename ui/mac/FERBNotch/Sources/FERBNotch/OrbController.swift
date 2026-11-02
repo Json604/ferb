@@ -65,8 +65,13 @@ final class OrbController: OrbControlling {
     private var tracker: SettingsWindowTracking?
     /// Away from the notch: on screen, or hidden while Settings isn't in front.
     private var out = false
+    var holdsHomecoming = false
     private var hiddenForDock = false
     /// The orb has melted back into the notch (Task 8 swells the notch once: NotchModel.pulseIntro).
+    var onDropAccepted: (() -> Void)? {
+        get { surface.onDropAccepted }
+        set { surface.onDropAccepted = newValue }
+    }
     var onHomeArrival: (@MainActor () -> Void)?
     private var lead: Double { min(max(sound.outputLatency, 0), Self.maxLead) }
 
@@ -132,7 +137,7 @@ final class OrbController: OrbControlling {
         surface.setWaiting(false)
         surface.setInstruction(nil)
         release()
-        guard out else { return }
+        guard out, !holdsHomecoming else { return }
         guard !hiddenForDock, surface.isVisible else { return finishHome() }   // nothing on screen to bring back
         if reduceMotion() {
             flight = nil
@@ -156,6 +161,8 @@ final class OrbController: OrbControlling {
     /// Stops only what the orb schedules (motion, tracking, its panel, its waiters). The sound engine is shared with
     /// everyday sounds, so what is already playing is IntroController.end's to stop (a skip) or let ring (the end).
     func tearDown() {
+        onDropAccepted = nil
+        holdsHomecoming = false
         stopTracking()
         clock.stop()
         flight = nil

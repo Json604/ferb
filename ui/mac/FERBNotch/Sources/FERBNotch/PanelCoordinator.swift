@@ -240,6 +240,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
         model.onQuickLook = { [weak self] url in self?.quickLook(url) }
         model.onSettings = { [weak self] in self?.showSettings() }
+        model.onOpenWindow = { [weak self] in self?.onOpenWindow?() }
         model.onStatusChange = { [weak self] in
             self?.updateTracerVisibility()
             self?.updateYieldWatch()
@@ -257,6 +258,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         isStarted = true
         model.connectDaemon()
         configureMenu()
+        poster?.onReminder = { [weak self] item in
+            if case .reminder(let id) = item.target { self?.model.receiveReminder(id: id, text: item.body) }
+        }
         poster?.start(rpc: model.rpc, notchShowing: { [weak self] in self?.notchShowing ?? false },
                       open: { [weak self] target in self?.open(target) })
         model.onApprovalResolved = { [weak self] id in self?.poster?.withdrawQuestion(id) }
@@ -437,7 +441,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.magneticPointerVelocity = .zero
             if !interruptedFusion { self.setIndicatorResting(false, animated: false) }
             self.presentation.stop()
-            self.model.acknowledgement.dismiss()
             self.indicatorDragPointer = point
             self.indicatorDragFrame = self.indicatorFrame
             self.dragPreferredSize = self.model.surfaceSize
@@ -451,7 +454,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         control.onClick = { [weak self] in
             guard let self else { return }
             self.cancelMagneticInteraction()
-            self.beginInteraction()
             self.model.toggle()
         }
         indicatorPanel.contentView = control
@@ -911,7 +913,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// Lays FERB out on its screen: docked in the hardware notch unless the owner tore it out (a first run docks), else
     /// on the edge where the owner dropped it (the top centre by default).
     @objc func updateScreen() {
-        model.acknowledgement.dismiss()
+        model.acknowledgement.dismissTransient()
         let savedDisplay = defaults.object(forKey: "notch.indicatorDisplayID") as? NSNumber
         let preferred = savedDisplay.flatMap { saved in NSScreen.screens.first { displayID($0) == saved.uint32Value } }
         guard let screen = preferred ?? NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main ?? NSScreen.screens.first else { return }
@@ -958,7 +960,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     @objc func screensDidSleep() {
         cancelMagneticInteraction()
-        model.acknowledgement.dismiss()
+        model.acknowledgement.dismissTransient()
         screensAsleep = true
         updateYieldWatch()
     }
@@ -973,7 +975,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     @objc private func activeSpaceChanged() {
-        model.acknowledgement.dismiss()
+        model.acknowledgement.dismissTransient()
         // Space changes are not display changes. Keep the same geometry, draft,
         // pin state, running spring and current text responder. In particular,
         // do not resignKey here: that discarded input focus on every swipe.
@@ -1059,6 +1061,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         presentationRevision = revision
         presentation.animates = shouldAnimate
 
+        presentation.isIntro = model.introLine != nil
         presentation.cutoutHeight = model.cutoutHeight
         panel.setFrame(targetFrame, display: true)
         attachIndicator()
@@ -1165,7 +1168,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// another app meanwhile.
     private func applyYield(_ yielded: Bool) {
         if yielded {
-            model.acknowledgement.dismiss()
+            model.acknowledgement.dismissTransient()
             hoverTask?.cancel()
             yieldController.yieldBegan(pointer: windowServerPoint(NSEvent.mouseLocation))
             windowYield.yield(behind: yieldController.coveringWindow())
@@ -1181,6 +1184,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     /// FERB's drawn frames in window-server coordinates, from the model (see NotchYieldController.Layout).
+    var introScreenFrame: CGRect? {
+        model.introLine == nil ? nil : frame(for: model.surfaceSize)
+    }
+
+    func introCompanionFocused(_ window: Int?) { yieldController.companionFocused(window) }
+
     private func yieldLayout() -> NotchYieldController.Layout? {
         guard geometry != nil, !screenFrame.isEmpty else { return nil }
         let height = primaryDisplayHeight
@@ -1194,7 +1203,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         let menuBar = CGRect(x: screenFrame.minX, y: screenFrame.maxY - menuBarHeight,
                              width: screenFrame.width, height: menuBarHeight)
         return .init(occupied: occupied.map(server),
-                     pinnedChat: model.isPinned && model.expanded ? server(frame(for: model.surfaceSize)) : nil,
+                     pinnedChat: (model.isPinned && model.expanded) || model.introLine != nil
+                        ? server(frame(for: model.surfaceSize)) : nil,
                      // The cutout up to the physical top edge, not the band below it where menus begin.
                      notch: server(CGRect(x: cutoutFrame.minX, y: cutoutFrame.minY, width: cutoutFrame.width,
                                           height: cutoutFrame.height + 2)),
@@ -1258,7 +1268,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func beginInteraction() {
-        if model.compactPlanText != nil { model.expand() }
+        if model.compactPlanText != nil {
+            if model.compactReminderCard != nil { model.openReminderChat() }
+            else { model.expand() }
+        }
         // The owner reached for FERB (shortcut, menu or a control): stop yielding to an app under the pinned chat
         // and show FERB over the windows now over it.
         yieldController.summon()
@@ -1318,6 +1331,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         indicatorRestTask?.cancel()
         indicatorRestTask = nil
         setIndicatorResting(false)
+        if model.compactPlanText != nil && model.compactReminderCard != nil {
+            model.openReminderChat()
+            return
+        }
         if model.isPinned {
             model.revealPinnedBody()
             return
@@ -1512,7 +1529,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     func shortcutPressed() {
         defer { introControls.saw(.summon) }
         if summonFromYield() { model.feedback.play(.summon); return }
-        if model.expanded { model.collapse(keyboard: true); return }
+        if model.expanded && model.compactPlanText == nil { model.collapse(keyboard: true); return }
         model.feedback.play(.summon)
         beginInteraction()
         if model.session.phase == .ready || model.session.phase == .draft { model.edit(keyboard: true) }

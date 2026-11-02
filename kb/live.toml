@@ -2136,3 +2136,137 @@ request = "Drag FERB to Applications, Open Anyway, go through the intro to the f
 pass = "The count is 0 once FERB has run; the downloaded DMG still has its quarantine (nothing outside FERB.app touched); no \"cannot be opened\" or \"damaged\" prompt for the agent, ferb-secrets or Codex during setup or the task."
 decisions = ["APP-601"]
 sitting = "step 13"
+
+[LIVE-685]
+title = "Review the isolated setup concept and Dense startup with its music"
+area = "app"
+surface = "FERB Setup Concept and FERB Arrival Concept playgrounds; fake services, separate preferences"
+request = "Review the permission overview, flying logo and setup window. Replay Gravity — Dense with sound, then compare the saved Lines and Twirl studies."
+pass = "The owner accepts the setup visuals. Dense surrounds the logo without an empty gap, resonates with the music and fades without collapsing inward; earlier studies remain selectable."
+decisions = ["APP-602", "APP-603", "APP-604", "APP-605", "APP-606", "APP-607", "APP-608", "APP-609", "APP-610", "APP-611"]
+sitting = "isolated UI concept review"
+
+[LIVE-686]
+title = "Dense startup finalized by the owner"
+area = "app"
+surface = "Isolated FERB Arrival Concept, Gravity — Dense"
+request = "Watch the startup with its bundled sound."
+pass = "The owner accepts the material around the logo, music response and fade-only ending."
+decisions = ["APP-610", "APP-611", "APP-612"]
+sitting = "isolated UI concept review"
+result = "passed 2026-11-02: owner said yes this versional is finalized for the start"
+
+[LIVE-687]
+title = "Permission checklist, drop feedback, window focus and logo choreography"
+area = "app"
+surface = "Isolated FERB Arrival Concept with fake permission grants and Settings"
+request = "Click individual permissions, hover descriptions, run the quick group, drag FERB into a restart-dependent list and choose Quit & Reopen. Click between Settings and the notch, then finish the tour with sound on."
+pass = "One checklist persists; descriptions appear immediately; only non-restart grants run together. Settings comes forward on click. An accepted drop shows the next action without claiming a grant. Confirmed completion sounds once. The logo leaves once per launch and returns at Home."
+decisions = ["APP-613", "APP-614", "APP-615"]
+sitting = "isolated UI concept review"
+result = "passed in the isolated concept 2026-11-02: owner said startup and setup are finalized, with Skip intro removal requested separately. No installed-app validation is claimed."
+
+[LIVE-688]
+title = "Compact intro footers and audible playground cues"
+area = "app"
+surface = "Isolated FERB Arrival Concept with sound on and simulated call off"
+request = "Replay the startup, step through permissions and Try, then open the chat during the intro. Listen for the startup, logo and permission completion cues. In the controls, simulate a call to check quieting."
+pass = "The owner accepts the tighter footer at each step, wrapped choices remain readable, and the chosen sounds are audible with system sound enabled. A simulated call quiets all but needs-you; the finalized startup is unchanged."
+decisions = ["APP-616", "APP-617"]
+sitting = "isolated UI concept review"
+result = "passed in the isolated concept 2026-11-02: owner said startup and setup are finalized, with Skip intro removal requested separately. No installed-app validation is claimed."
+
+
+[LIVE-689]
+title = "Accepted startup and setup with no Skip intro control"
+area = "app"
+surface = "Isolated FERB Arrival Concept"
+request = "Replay startup and setup from the app playground's Startup & setup controls."
+pass = "Dense is the default accepted startup. No Skip intro button appears in the notch, open-chat intro strip or review controls, and there is no empty space reserved for it."
+decisions = ["APP-618"]
+sitting = "isolated UI concept review"
+
+[LIVE-690]
+title = "Whole-app playground review before the site"
+area = "app"
+surface = "FERB Arrival Concept launched with --app; all services and data simulated"
+request = "Use Explore FERB to review the notch, chat, Tasks, Schedules & Reminders, Noticed, Memory, all Settings tabs, task preview and What FERB saw. Trigger each message state. Pause/resume a sample schedule, cancel a reminder and answer a sample question."
+pass = "The owner can inspect and interact with all listed product surfaces using sample data, and identifies the app changes to make before site work. Startup/setup remain accepted; no installed state is changed."
+decisions = ["APP-619"]
+sitting = "isolated whole-app review"
+result = "reviewed 2026-11-02: owner inspected the app and requested the chat-card and reminder-arrival revisions recorded in APP-620 through APP-622. Visual acceptance of the remaining app is pending."
+
+[LIVE-691]
+title = "Chat card cleanup and compact reminder arrivals"
+area = "app"
+surface = "Isolated FERB Arrival Concept, Explore FERB"
+request = "Trigger Approval and Failed task, then Reminder arriving and Scheduled result. Click the compact arrival to read its saved chat card. Review Repeats, the circular task previews and the absence of What FERB saw and generic noticed labels."
+pass = "Cards have one rounded colour fill including the footer, no leading stripe or preview eye. Repeats uses chat blue. Reminders arrive from the compact notch with the notification sound and remain in chat. A chat already in use is preserved; clicking the arrival opens chat. Startup/setup remain accepted."
+decisions = ["APP-620", "APP-621", "APP-622"]
+sitting = "isolated whole-app review"
+
+[LIVE-692]
+title = "Rich reminder arrival persists until interaction"
+area = "app"
+surface = "Isolated FERB Arrival Concept, Explore FERB"
+request = "Trigger Scheduled result and leave the pointer elsewhere for more than six seconds. Switch apps or Spaces, then hover or click the arrival. Compare its reminder card with chat. Trigger Running task to time FERB's planning preview."
+pass = "The arrival shows the same reminder card, timing, repeat badge and countdown as chat, with the message underneath. It persists until hover/click or chat opening. A planning preview lasts six seconds. The full conversation remains saved and startup/setup are unchanged."
+decisions = ["APP-623", "APP-624"]
+sitting = "isolated whole-app review"
+result = "reviewed 2026-11-02: owner requested unboxed reminders, the window redesign and restored dragging (APP-625–627). Next isolated review: LIVE-693."
+
+[LIVE-693]
+title = "App window identity, unboxed reminders and movable pill"
+area = "app"
+surface = "Isolated FERB Arrival Concept, Explore FERB"
+request = "Open Schedules & Reminders, Tasks, Memory and Settings. Try the sample actions. Trigger a scheduled reminder, leave it more than six seconds, then hover or click. Drag the grab area immediately below the Mac camera notch to an edge, reopen chat, and move it again; check placement after reopening the playground. Review on a notchless display when available."
+pass = "The app window shares the setup's black glass and controls. Reminder details appear directly on the notch gradient, without an inner card box or answer bubble, persist until interaction, and remain complete in chat. The first mouse press can drag FERB without first activating the app; its current surface follows, and edge placement persists. Startup/setup remain accepted; installed FERB is untouched."
+decisions = ["APP-625", "APP-626", "APP-627", "APP-624"]
+sitting = "isolated whole-app review"
+result = "reviewed 2026-11-02: owner rejected the added grip and reported lag, requesting the original handle/resting-line code (APP-629). Movement acceptance is pending in LIVE-695."
+
+[LIVE-694]
+title = "Chat status cards without leading icons"
+area = "app"
+surface = "Isolated FERB Arrival Concept, Explore FERB"
+request = "Trigger a question, approval, failed task and running task. Review their chat cards and answer a sample question."
+pass = "The status icons and their empty column are absent. Labels, text and controls align with the card's content padding; full rounded colour fills remain, and questions still work. Installed FERB is unchanged."
+decisions = ["APP-628"]
+sitting = "isolated whole-app review"
+
+[LIVE-695]
+title = "Original notch handle and resting line"
+area = "app"
+surface = "Isolated FERB Arrival Concept, original ui/ux handle implementation"
+request = "Hover, open and close FERB; pull it away from the notch, leave it on an edge until it rests, and bring it back. Compare the line and movement with the original accepted interaction."
+pass = "The added hover grip is absent. The original pill, edge resting line and movement remain, without a new motion treatment; the owner confirms the interaction and responsiveness. Chat status icons remain removed."
+decisions = ["APP-625", "APP-628", "APP-629"]
+sitting = "isolated whole-app review"
+
+[LIVE-696]
+title = "App window buttons over a full-screen app"
+area = "app"
+surface = "Isolated FERB Arrival Concept, Explore FERB"
+request = "From the playground controls over a full-screen app, open Tasks, Schedules & Reminders, Noticed, Memory, Settings and Task preview. Close and reopen the app window, then minimize and reopen it."
+pass = "Each click shows the requested page visibly on the current Space. Closed and minimized windows reopen. The app window stays at the ordinary window level and the original notch handle, edge pill and movement remain unchanged."
+decisions = ["APP-630", "APP-629"]
+sitting = "isolated whole-app review"
+
+[LIVE-697]
+title = "Continuous window gradient, grouped settings and balanced reminder arrival"
+area = "app"
+surface = "Isolated FERB Arrival Concept, Explore FERB"
+request = "Review General, Notch & Shortcuts, Sounds & Notifications and Memory. Compare the sidebar-to-content transition and text contrast. Open the notch menu, then trigger Scheduled result and Reminder arriving."
+pass = "The background blends across the sidebar boundary and from black into softer glass. Everyday controls are easy to find, switches align, and individual sounds expand on request. Reminder arrivals stay large, with a prominent title and countdown balanced across the width, no enclosing card, and persist until interaction."
+decisions = ["APP-631", "APP-632", "APP-624", "APP-627"]
+sitting = "isolated whole-app review"
+
+[LIVE-698]
+title = "Rounded settings groups throughout the app window"
+area = "app"
+surface = "Isolated FERB Arrival Concept, Settings"
+request = "Review Permissions and Privacy, then AI, Browsers, Data, Advanced and About. Scroll the longer pages, try a sample privacy switch and ignore-list edit, and check the sample permission rows."
+pass = "All settings groups use the same soft rounded fill, without the old thin outlined boxes and hard row dividers. Text, controls and long content remain visible and readable. The gradient, saved preferences, actions and confirmations remain intact."
+decisions = ["APP-633", "APP-632"]
+sitting = "isolated whole-app review"
+result = "passed 2026-11-02: owner said ‘ok works’ for rounded settings; requested a fresh UX review of numeric arrows before further changes."

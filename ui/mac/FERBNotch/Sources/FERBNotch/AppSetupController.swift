@@ -287,12 +287,25 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     private func show(_ step: SetupStep, action: AppSetupAction) {
         if !model.serviceRunning { model.serviceAction = action }
         if window == nil {
-            let created = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 500),
-                                   styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            let created = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 550),
+                                   styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
             created.title = "Set Up \(AppName.current)"
             created.isReleasedWhenClosed = false
             created.delegate = self
-            created.contentView = NSHostingView(rootView: SetupView(model: model))
+            created.titleVisibility = .hidden
+            created.titlebarAppearsTransparent = true
+            created.isOpaque = false
+            created.backgroundColor = .clear
+            created.isMovableByWindowBackground = true
+            for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                created.standardWindowButton(button)?.isHidden = true
+            }
+            created.contentView = NSHostingView(rootView: SetupView(model: model, close: { [weak created] in
+                created?.performClose(nil)
+            }))
+            created.contentView?.wantsLayer = true
+            created.contentView?.layer?.cornerRadius = 28
+            created.contentView?.layer?.masksToBounds = true
             created.center()
             window = created
             model.onFinish = { [weak self] in

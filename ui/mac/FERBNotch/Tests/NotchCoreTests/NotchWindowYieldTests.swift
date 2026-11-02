@@ -129,10 +129,26 @@ final class NotchWindowYieldTests: XCTestCase {
         XCTAssertEqual(tracer.mouseTransparencyWrites, 0)
     }
 
+    // decision: APP-603
+    func testFlyingLogoAcceptsMouseOnlyWhenItHasADragItem() throws {
+        let guide = OrbPanel()
+        guide.show()
+        defer { guide.hide(); guide.close() }
+        let logo = try XCTUnwrap(guide.childWindows?.first)
+        XCTAssertTrue(logo.ignoresMouseEvents)
+        XCTAssertFalse(logo.canBecomeKey)
+        guide.setDragItem(URL(fileURLWithPath: "/Applications/Example.app"))
+        XCTAssertFalse(logo.ignoresMouseEvents)
+        XCTAssertTrue(guide.ignoresMouseEvents)
+        guide.setDragItem(nil)
+        XCTAssertTrue(logo.ignoresMouseEvents)
+    }
+
     /// Once `ignoresMouseEvents` is set on a window, even back to false, AppKit stops passing clicks through its
     /// transparent areas. The only writes allowed are FERB's click-through windows' own, each always true: the
     /// light (NotchLightPanel), the pointer overlay (CursorPanel) and the intro's orb (OrbPanel), at creation and in
-    /// the setter that keeps it on (D31 fix round 4). The notch's own panel is never written.
+    /// the setter that keeps it on (D31 fix round 4). The flying logo also switches to a draggable surface
+    /// only while it carries an app URL. The notch's own panel is never written.
     // decision: APP-560
     func testNoCodeMakesTheNotchPanelMouseTransparent() throws {
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -148,8 +164,9 @@ final class NotchWindowYieldTests: XCTestCase {
                 if code.range(of: #"ignoresMouseEvents\s*="#, options: .regularExpression) != nil { writes.append(code) }
             }
         }
-        XCTAssertEqual(writes.sorted(), ["ignoresMouseEvents = true", "ignoresMouseEvents = true",
-                                         "ignoresMouseEvents = true",
+        XCTAssertEqual(writes.sorted(), ["card.ignoresMouseEvents = url == nil",
+                                         "ignoresMouseEvents = true", "ignoresMouseEvents = true",
+                                         "ignoresMouseEvents = true", "ignoresMouseEvents = true",
                                          "set { super.ignoresMouseEvents = true }",
                                          "set { super.ignoresMouseEvents = true }",
                                          "set { super.ignoresMouseEvents = true }"])

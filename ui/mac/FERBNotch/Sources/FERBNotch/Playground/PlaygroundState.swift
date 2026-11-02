@@ -59,6 +59,9 @@ final class PlaygroundState: ObservableObject {
         var speed = 1.0
     }
 
+    /// A fake call for auditioning the quiet-during-calls rule. Host microphone activity is not part of this demo.
+    @Published var simulatesCall = false
+    @Published var exploringApp = false
     @Published var saved: Saved { didSet { save() } }
     /// The questions waiting for the owner's answer in the control panel ("Wait for me"), by permission id.
     @Published private(set) var asking: [String] = []
@@ -82,6 +85,8 @@ final class PlaygroundState: ObservableObject {
     private func save() {
         if let data = try? JSONEncoder().encode(saved) { try? data.write(to: file, options: .atomic) }
     }
+
+    var home: URL { file.deletingLastPathComponent() }
 
     // MARK: Facts
 

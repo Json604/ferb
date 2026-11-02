@@ -143,9 +143,6 @@ private struct TurnView: View {
                     .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.secondary)
             }
             RequestView(turn: turn)
-            if let scope = SeenScope(requestID: turn.requestID, taskID: turn.backendTaskID) {
-                SeenButton(scope: scope, model: model)
-            }
             if let lead = turn.mergedInto {
                 let turns = model.conversation.turns
                 let leadIndex = turns.firstIndex { $0.requestID == lead }
@@ -202,7 +199,7 @@ private struct RequestView: View {
                     }
                 }
                 .padding(.horizontal, 11).padding(.vertical, 8)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 15))
+                .background(Palette.chatBlue, in: RoundedRectangle(cornerRadius: 15))
                 .help(turn.createdAt.formatted(date: .omitted, time: .shortened))
             }
             // A secret FERB hid in the message (task 11): code's reminder under it
@@ -247,18 +244,29 @@ private struct LateReplyView: View {
     }
 }
 
-/// Something FERB noticed (L9): FERB's words with a small "noticed" tag, then any outside text it quotes, shown as a
-/// quote with its origin. Both are plain text, so nothing in them becomes a link or an instruction.
+/// A background message, with typed reminder cards above it and attributed outside text kept as a quote.
 private struct NoticeView: View {
     let notice: ConversationNotice
     @ObservedObject var model: NotchModel
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ForEach(Array(CardLayout.above(notice.cards ?? []).enumerated()), id: \.offset) { _, card in
+                ReminderCard(card: card).padding(.trailing, 28)
+            }
+            // A plain timer's entire message is already the reminder card's title.
+            if !(notice.cards?.count == 1 && notice.cards?.first?.type == "reminder"
+                 && notice.cards?.first?.title == notice.text && notice.quotes.isEmpty
+                 && (notice.proposals ?? []).isEmpty) {
+                message
+            }
+        }
+        .help((notice.noticedAt ?? notice.createdAt).formatted(date: .omitted, time: .shortened))
+    }
+
+    private var message: some View {
         FerbBubble {
             VStack(alignment: .leading, spacing: 6) {
-                if let tag = notice.tag {
-                    Label(tag, systemImage: "eye").font(.system(size: 10)).foregroundStyle(Palette.secondary)
-                }
                 NativeMessageText(notice.text)
                 // What FERB learned, each confirmed or turned down here.
                 ForEach(notice.proposals ?? [], id: \.id) { proposal in
