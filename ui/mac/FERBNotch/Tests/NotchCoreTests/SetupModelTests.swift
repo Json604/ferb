@@ -96,6 +96,26 @@ final class SetupModelTests: XCTestCase {
         XCTAssertNil(model.serviceError)
     }
 
+    /// Live 2026-11-02: the launch's quiet update failed, the window showed why, and its Try Again went on through the
+    /// window's steps instead of the tour. With the launch waiting (`afterService`), a successful Try Again hands back
+    /// to it, once; a failed one stays on Welcome with the launch still waiting.
+    // decision: APP-635
+    func testTryAgainAfterAFailedQuietUpdateContinuesTheLaunchNotTheWindow() async {
+        let rig = SetupRig()
+        let model = rig.model(.update)
+        var continued = 0
+        model.afterService = { continued += 1 }
+        await model.primary()
+        rig.runner.finish(1)
+        XCTAssertEqual(model.step, .welcome)
+        XCTAssertEqual(continued, 0)
+        await model.primary()                                        // Try Again
+        rig.runner.finish(0)
+        XCTAssertEqual(continued, 1)
+        XCTAssertEqual(model.step, .welcome)                         // the window doesn't move on to Choose your AI
+        XCTAssertNil(model.afterService)
+    }
+
     func testAnInstalledServiceIsNeverReinstalledFromWelcome() async {
         let rig = SetupRig()
         let model = rig.model(.none)

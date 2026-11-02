@@ -253,17 +253,31 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         return await background.unregisterForUninstall()
     }
 
+    /// The service updated with no window; if that fails, the compact window shows its reason, and its Try Again
+    /// continues this launch once the service is up (live 2026-11-02: it went on through the window's steps instead
+    /// of the tour).
     private func quietUpdate() {
         model.serviceAction = .update
         model.runService { [weak self] ok in
             guard let self else { return }
-            guard ok else { self.show(.welcome, action: .update); return }
-            Task { @MainActor in
-                let needs = await self.readNeeds(.update)
-                let decision = AppSetupPlan.afterUpdate(needs, tour: self.progress.interrupted)
-                await self.launch(decision, action: .none, needs: needs)
+            guard ok else {
+                self.model.afterService = { [weak self] in
+                    Task { @MainActor in await self?.afterQuietUpdate(fromWindow: true) }
+                }
+                self.show(.welcome, action: .update)
+                return
             }
+            Task { @MainActor in await self.afterQuietUpdate(fromWindow: false) }
         }
+    }
+
+    /// What the launch still asks for once the updated service runs. From the repairing window, the tour replaces it
+    /// (startTour closes it) and nothing to do closes it.
+    private func afterQuietUpdate(fromWindow: Bool) async {
+        let needs = await readNeeds(.update)
+        let decision = AppSetupPlan.afterUpdate(needs, tour: progress.interrupted)
+        if fromWindow, decision == .nothing { window?.close() }
+        await launch(decision, action: .none, needs: needs)
     }
 
     /// Whether launchd has FERB's agent running now (`launchctl print` only reads launchd's state).

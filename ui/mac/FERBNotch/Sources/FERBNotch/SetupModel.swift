@@ -205,9 +205,21 @@ final class SetupModel: ObservableObject {
         }
     }
 
+    /// Set when a launch's quiet update failed and this window is repairing it: run once the service is up, it
+    /// continues that launch's decision (the tour, or nothing) instead of this window's next step.
+    var afterService: (() -> Void)?
+
     func continueFromWelcome() {
         guard AppSetupPlan.serviceArguments(for: serviceAction) != nil else { go(.ai); return }
-        runService { [weak self] ok in if ok { self?.go(.ai) } }
+        runService { [weak self] ok in
+            guard let self, ok else { return }
+            if let next = self.afterService {
+                self.afterService = nil
+                next()
+                return
+            }
+            self.go(.ai)
+        }
     }
 
     /// `ferb setup --service [--update]`: the background service's LaunchAgent from this app, loaded and answering, no
