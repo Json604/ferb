@@ -506,3 +506,12 @@ status = "active"
 rule = "The daemon starts serving once its RPCs are registered, before Codex's catalog dump and version check and the rest of the start. Until the start is done only `ping` (server.ANSWERED_WHILE_STARTING) is answered; every other call waits for it, and a start that fails ends the waiting connections."
 why = "FERB.app waits 30 s for `ping`; the catalog dump is the 270 MB Codex binary's first run on a new Mac, so a slow Mac could miss the wait (audit 2026-11-02, item 5). Other calls wait so none races the restart bookkeeping (unknown intents, the stop marker)."
 paths = ["ferb/daemon/server.py::Server._dispatch", "ferb/daemon/main.py::Daemon._start"]
+
+[DMN-511]
+title = "Workers are told when a terminal's python3, git and compilers are only Apple's stubs"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "At start the daemon reads `xcode-select -p` once (it opens no dialog). With no developer folder, each of python3, pip3, git, make, cc and clang whose first match on the shell's PATH is in /usr/bin (or that has none) is named in one line of \"Facts about this FERB\": running it fails and opens macOS's install dialog. FERB installs nothing and refuses no command for it."
+why = "Workers reach for `python3 -c` constantly; on a Mac without the Command Line Tools that opens macOS's install-tools dialog in front of the owner (rule 10) and the step fails (audit 2026-11-02, item 6). A fact, not a gate (rule 4)."
+paths = ["ferb/device/devtools.py", "ferb/daemon/areas/environment.py::Environment._facts"]

@@ -73,6 +73,7 @@ class RunningDaemon:
         kwargs.setdefault("preload_secrets", False)     # never read the owner's Keychain values (step 6a)
         kwargs.setdefault("embeddings", False)          # never download the embedding model (tests use a fake)
         kwargs.setdefault("data_access", lambda: False)  # never look at the owner's browser folders (DMN-507)
+        kwargs.setdefault("developer_tools", lambda: [])  # never ask this Mac which developer tools it has (DMN-511)
         return Daemon(home=home, **kwargs)
 
     def run(self, coro: Any, timeout: float = 10) -> Any:

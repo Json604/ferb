@@ -101,8 +101,13 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
                  snapshots: bool = True,
                  persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True,
                  preload_secrets: bool = True, embeddings: bool = True,
-                 data_access: Callable[[], bool] | None = None) -> None:
+                 data_access: Callable[[], bool] | None = None,
+                 developer_tools: Callable[[], list[str]] | None = None) -> None:
         self.home = home or ferb_home()
+        # DMN-511: the developer tools a terminal command would reach only as Apple's stubs, read once at start (tests
+        # give their own); workers get them as a fact
+        self.developer_tools: Callable[[], list[str]] = developer_tools or _missing_developer_tools
+        self.missing_dev_tools: list[str] = []
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
         self.config = Config(self.home)
@@ -427,6 +432,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         self.server.ready.clear()
         await self.server.start()          # refuses to start if another daemon answers on the socket
         await self._prepare_codex()
+        self.missing_dev_tools = await asyncio.to_thread(self.developer_tools)
         session = self._login_session()
         previous = self.journal.recent_values("daemon.started", "session", 1)
         self.journal.append("daemon.started", {"pid": os.getpid()} | ({"session": session} if session else {}))
@@ -657,6 +663,13 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         if self.journal is None:
             raise FerbError("daemon not started")
         return self.journal
+
+
+def _missing_developer_tools() -> list[str]:
+    """The stubs a FERB terminal command would reach, on the shell's own PATH (DMN-511)."""
+    from ferb.act.shell.manager import clean_env
+    from ferb.device.devtools import missing_tools
+    return missing_tools(clean_env()["PATH"])
 
 
 def redacting_hooks(redact: Callable[[str], str], err: Any = None) -> None:

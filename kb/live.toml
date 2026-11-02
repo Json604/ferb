@@ -2104,10 +2104,10 @@ sitting = "step 13"
 [LIVE-681]
 title = "A Mac without the Command Line Tools sets up FERB with no install-tools dialog"
 area = "daemon"
-surface = "A Mac or macOS user where `xcode-select -p` fails (no Command Line Tools, no Xcode), a FERB.app build with DMN-509"
+surface = "A Mac or macOS user where `xcode-select -p` fails (no Command Line Tools, no Xcode), a FERB.app build with DMN-509 and DMN-511"
 request = "Install FERB.app from the DMG and go through the intro to the first task; then ask \"how much free space does my disk have, and is python installed?\""
 pass = "Meet finishes without \"service failed\"; macOS never shows \"The git command requires the command line developer tools\" (or the python3 one) during setup or the task; the worker's answer says python3 isn't installed instead of running it."
-decisions = ["DMN-509"]
+decisions = ["DMN-509", "DMN-511"]
 sitting = "step 13"
 
 [LIVE-682]
