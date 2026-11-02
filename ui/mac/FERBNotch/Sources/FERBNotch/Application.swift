@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: PanelCoordinator?
     private let appSetup = AppSetupController()
     private var ferbWindow: FERBWindowController?
+    private let dock = DockPresence()
     private var seenWindow: SeenWindowController?
     private var loginItems: LoginItemController?
     private var updates: UpdateCoordinator?
@@ -34,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let clicks = NotificationClicks()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        dock.start()
         clicks.poster = poster
         if AppBundle.isApp { UNUserNotificationCenter.current().delegate = clicks }    // before launching finishes
         let menu = NSMenu()

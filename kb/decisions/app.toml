@@ -1097,3 +1097,12 @@ status = "active"
 why = "Live 2026-11-02: a registration left by an earlier build (macOS keeps it after the app is deleted) carried that build's launch constraint; without a Team ID it names the exact build, so macOS killed the new daemon at launch (SIGKILL, Launch Constraint Violation; launchd: needs LWCR update)."
 rule = "When FERB.app installs or updates its service and macOS already lists it as enabled, FERB.app unregisters it first and then registers this build, so macOS records this build's launch constraint."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift"]
+
+[APP-600]
+title = "FERB shows in the Dock only while one of its windows is open"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "Dock icon only while a FERB window is open: setup, Settings, the preview player. That's the common pattern for notch and menu-bar apps."
+rule = "FERB.app appears in the Dock (regular activation policy) while a titled FERB window is shown or minimized (setup, Settings, the preview player, What FERB saw), and is notch-only (accessory) when none is; the notch, the orb and other floating panels never count."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/DockPresence.swift"]
