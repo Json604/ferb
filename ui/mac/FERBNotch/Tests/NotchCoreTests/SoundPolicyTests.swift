@@ -19,7 +19,7 @@ final class SoundPolicyTests: XCTestCase {
         XCTAssertEqual(SoundPolicy.distanceGainDB(fromNotch: 450, screenHeight: 900), -1.5, accuracy: 1e-6)
     }
 
-    // decision: APP-640
+    // decision: APP-641
     func testNothingPlaysWhenSystemUISoundsAreOff() {
         func decide(ui: Bool, feedback: Bool) -> SoundDecision? {
             SoundPolicy.decide(.done, uiSoundsEnabled: ui, feedbackEnabled: feedback, switchOn: true, subtle: false,

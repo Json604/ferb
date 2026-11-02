@@ -390,7 +390,7 @@ title = "Sound is a designed system: one family from one seed"
 by = "owner"
 date = 2026-11-01
 status = "superseded"
-superseded_by = "APP-640"
+superseded_by = "APP-641"
 words_source = "notes/setup-intro.md Sound (\"Owner's words, condensed\") and notes/sound.md: an agent's condensation; no verbatim quote"
 rule = "FERB has an original, recognisable family of sounds sharing one character, each meaning one thing and recognisable without looking. A sound logo (full, tour only) seeds short derived cues, quieter and shorter the more often they play; needs you is the loudest everyday cue. Every sound has a visual twin, so FERB is fully understandable with sound off. FERB honours \"Play user interface sound effects\" and the alert volume, and never plays music under the tour."
 why = "The owner shared Fares Farhan, \"Sounds in User Experience\" (Medium, 2023), to explain the intent: sound as a designed UX system, tested by living with it."
@@ -1529,7 +1529,7 @@ rule = "When the logo docks beside System Settings with FERB's agent to drag int
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/OrbController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift"]
 live = ["LIVE-704"]
 
-[APP-640]
+[APP-641]
 title = "The everyday sounds ring as long as the Apple Pay sound"
 by = "owner"
 date = 2026-11-02
