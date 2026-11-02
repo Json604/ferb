@@ -563,8 +563,8 @@ class Installer:
         starting it again. A failure before the switch-over leaves the running daemon and its code as they were."""
         if self.bundle:
             self.check_bundle()                       # before anything is written
-            if update_only and not self.installed():
-                raise InstallError("FERB isn't set up yet: open FERB.app to set it up")
+            # An update with no setup record sets up (DMN-10): FERB.app asks for one when macOS still lists its
+            # service, e.g. after FERB was deleted and installed again; the file work is the same either way.
             self.write_marker()
             self._install_from_bundle(while_stopped)
             return

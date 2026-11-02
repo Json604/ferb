@@ -381,14 +381,15 @@ def test_bundle_install_needs_no_uv_swiftc_or_npm_and_installs_from_the_bundle(t
 
 
 # decision: DMN-15
+# decision: DMN-10
 def test_bundle_update_records_the_new_build_and_restarts_the_registered_service(tmp_path: Path) -> None:
+    """An update with no setup record (FERB deleted and installed again while macOS still lists its service) sets up
+    instead of refusing; a later update records the new build and restarts the registered service."""
     import plistlib
-    from ferb.device.install import InstallError
     inst = bundled(tmp_path)
     r: BundleRunner = inst.run  # type: ignore[assignment]
-    with pytest.raises(InstallError, match="open FERB.app"):
-        inst.install(update_only=True)
-    inst.install()
+    inst.install(update_only=True)                               # no record yet: it sets up
+    assert inst.recorded()["build"] == "202610140201" and (inst.home / "bin" / "ferb-secrets").exists()
     assert not r.ran("launchctl", "kickstart")                   # not registered yet: FERB.app registers it next
     r.loaded = True                                              # FERB.app registered it; macOS loaded it
     info = inst.bundle / "Contents" / "Info.plist"  # type: ignore[operator]
