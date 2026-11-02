@@ -543,7 +543,7 @@ area = "app"
 surface = "FERB.app on the owner's Mac in daily use, and 2-3 beta friends' Macs"
 request = "Use FERB daily for about a week with the default sounds, including one call in another app; ask each friend to say what each sound means without looking at the screen."
 pass = "Each sound is matched to its meaning without looking, none annoys by the tenth hearing, summon and paused stay silent by default, and during the call only needs you plays, at Subtle."
-decisions = ["APP-520", "APP-526", "APP-528", "APP-531"]
+decisions = ["APP-640", "APP-526", "APP-528", "APP-531"]
 
 [LIVE-502]
 title = "\"Who's this actor?\" on a show's frame"
@@ -896,7 +896,7 @@ area = "app"
 surface = "FERB.app at the default volume"
 request = "Listen to the intro and everyday sounds at the default volume."
 pass = "They are as loud as the auditioned levels (gain = volume / 0.18), by the owner's ear."
-decisions = ["APP-520"]
+decisions = ["APP-640"]
 sitting = "step 13, sitting 1"
 
 [LIVE-545]
@@ -932,7 +932,7 @@ area = "app"
 surface = "The packaged FERB.app from scripts/build-app.sh"
 request = "Launch the packaged build."
 pass = "The resource bundle (ferb-mark, Sounds) is found in Contents/Resources."
-decisions = ["APP-520"]
+decisions = ["APP-640"]
 sitting = "step 13, sitting 1"
 
 [LIVE-549]
@@ -2322,4 +2322,13 @@ surface = "The owner's Mac (macOS 27.2) with the build carrying DMN-518, APP-638
 request = "In the tour, before permissions look for Skip tour; at permissions watch the logo beside Full Disk Access, then drag it in and switch FERB on (Quit & Reopen if asked). Later, press Skip tour once on a replay."
 pass = "No Skip tour before permissions, then it shows in the header. A faded logo glides into Settings' list and repeats until you drag. After the switch Full Disk Access ticks in FERB. Skip tour ends the tour; anything still required waits in the compact window."
 decisions = ["DMN-518", "APP-638", "APP-639"]
+sitting = "step 13"
+
+[LIVE-705]
+title = "The everyday sounds are as long as the Apple Pay sound"
+area = "app"
+surface = "demo/sound-family/index.html (served with python3 -m http.server -d demo/sound-family after render.py), then a FERB.app build carrying APP-640 on the owner's Mac."
+request = "On the page, play each everyday sound with Length on Now and on Before, at Standard and Subtle; play the Mac's Apple Pay sound (payment_success.aif) beside them. In FERB.app, hear done, error, needs you and listening start and end in daily use."
+pass = "Each sound rings about as long as the Apple Pay sound and still sounds like itself: same notes, same strike, same loudness; paused and error still sound damped, never like done; Subtle stays shorter and quieter. Nothing is cut off or doubles up in the app."
+decisions = ["APP-640"]
 sitting = "step 13"

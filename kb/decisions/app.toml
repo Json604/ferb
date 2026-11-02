@@ -389,7 +389,8 @@ legacy = "notes/setup-intro.md Status and Constraints"
 title = "Sound is a designed system: one family from one seed"
 by = "owner"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-640"
 words_source = "notes/setup-intro.md Sound (\"Owner's words, condensed\") and notes/sound.md: an agent's condensation; no verbatim quote"
 rule = "FERB has an original, recognisable family of sounds sharing one character, each meaning one thing and recognisable without looking. A sound logo (full, tour only) seeds short derived cues, quieter and shorter the more often they play; needs you is the loudest everyday cue. Every sound has a visual twin, so FERB is fully understandable with sound off. FERB honours \"Play user interface sound effects\" and the alert volume, and never plays music under the tour."
 why = "The owner shared Fares Farhan, \"Sounds in User Experience\" (Medium, 2023), to explain the intent: sound as a designed UX system, tested by living with it."
@@ -1527,3 +1528,16 @@ words = "also the 'drag me into this shuold virtually first drag itself into whe
 rule = "When the logo docks beside System Settings with FERB's agent to drag into a list, a faded copy of the logo glides from the logo into Settings' list (its right pane), fades and repeats every few seconds, following Settings if it moves, until the owner starts dragging, the drop is accepted or the dock ends. With Reduce Motion on it isn't shown."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/OrbController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift"]
 live = ["LIVE-704"]
+
+[APP-640]
+title = "The everyday sounds ring as long as the Apple Pay sound"
+by = "owner"
+date = 2026-11-02
+status = "active"
+supersedes = ["APP-520"]
+words = "of all the feedback suinds we have i wanna increase their timign - if im saying it correctly. i want it of the length like the apple pay sound"
+rule = "FERB's everyday feedback sounds (summon, listening start and end, done, needs you, paused, error) ring about as long as macOS's Apple Pay success sound (1.41 s). As in APP-520: one original, recognisable family sharing one character, each sound meaning one thing and recognisable without looking; a sound logo (full, tour only) seeds the derived cues, quieter the more often they play; needs you is the loudest everyday cue. Every sound has a visual twin. FERB honours \"Play user interface sound effects\" and the alert volume, and never plays music under the tour."
+why = "Agent's reading: a longer natural ring (render.py RING_*), never stretching, padding or more room, so pitch, attack and LUFS stay; Subtle keeps its 0.8x length; the Material notification has no ring to lengthen and keeps 0.8 s; the logo, first-launch clip and orb sounds are not feedback sounds."
+evidence = "afinfo after render.py: Standard 1.29-1.35 s (was 0.32-1.11), Subtle 1.05-1.09 s; payment_success.aif is 1.41 s and falls 60 dB by 1.10 s, the new cues by about 1.25 s with the app's room."
+paths = ["demo/sound-family/render.py", "ui/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds", "ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AudioOutputFacts.swift"]
+live = ["LIVE-705", "LIVE-501", "LIVE-544", "LIVE-548"]
