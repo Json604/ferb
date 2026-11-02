@@ -488,3 +488,12 @@ status = "active"
 rule = "FERB.app's `ferb setup --service` lists no browser folder and reads no profile (a checkout's setup still does). One daemon gate, `data_access` (Full Disk Access granted), guards every browser-folder read and write. With it the daemon writes the native-host manifest and Web Store request into every installed browser at each `setup.browsers` and at start (again on a change or after a failure), reads each manifest back and names a refusing browser in `problem` and the journal. Scan facts gathered without access say `profiles_read` false and are refreshed at start once access is there."
 why = "DMN-507: FERB.app itself never holds Full Disk Access (it is granted to the background agent), so only the daemon may touch browser folders; a write that fails silently left Chrome unconnected."
 paths = ["ferb/daemon/areas/browsers.py::Browsers._connect_browsers", "ferb/daemon/areas/browsers.py::Browsers._setup_browsers", "ferb/daemon/main.py::Daemon._with_full_disk_access", "ferb/device/install.py::write_native_hosts", "ferb/daemon/persona.py::PersonaReview.needs_browser_part", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift"]
+
+[DMN-509]
+title = "FERB runs no developer tool on the owner's Mac; the device profile's history is a plain file"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "Code that runs on the owner's Mac (setup, the daemon, FERB.app's commands) starts no developer tool (git, python3 from the system, make, clang, xcrun, swift); only a checkout's own install builds with them. The device profile is ~/.ferb/device/<id>.json written whole, and each change appends one line (when, why, apps added/removed/changed) to ~/.ferb/device/history.jsonl. A device folder an older FERB kept in git loads as is; its .git folder is left untouched."
+why = "On a Mac without the Command Line Tools /usr/bin/git is Apple's stub: it opens the install-tools dialog and exits non-zero, so FERB.app's `ferb setup --service` died at the device profile's `git commit` (audit 2026-11-02, item 1)."
+paths = ["ferb/device/profile.py::ProfileStore"]

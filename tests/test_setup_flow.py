@@ -906,21 +906,54 @@ def test_setup_from_the_app_never_looks_at_a_browser_folder(app_world: dict[str,
     assert inst.native_hosts_dirs == ()
 
 
-def test_the_device_profile_commits_to_its_own_repo_under_an_inherited_git_dir(tmp_path: Path,
-                                                                               monkeypatch: pytest.MonkeyPatch) -> None:
-    """Past bug (2026-11-02): the suite run by the pre-push hook inherited git's GIT_DIR, and the device profile's
-    `git -C <its folder> add` staged the profile into the checkout's own index (as a root-level file). FERB's private
-    profile repo is found from its folder only, whatever git variables the process inherited."""
+def _stub_tools(folder: Path, names: tuple[str, ...] = ("git", "python3")) -> Path:
+    """Apple's install-tools stubs as a Mac without the Command Line Tools has them: each records that it ran and
+    exits non-zero (the real one also opens the "install developer tools" dialog)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    ran = folder / "ran"
+    for name in names:
+        stub = folder / name
+        stub.write_text(f'#!/bin/sh\necho {name} >> "{ran}"\nexit 1\n')
+        stub.chmod(0o755)
+    return ran
+
+
+# decision: DMN-509
+def test_setup_completes_on_a_mac_without_developer_tools(app_world: dict[str, Any], tmp_path: Path,
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """Past bug (audit 2026-11-02): FERB.app's `ferb setup --service` saved the device profile with `git init/add/commit`
+    (check=True); on a Mac without the Command Line Tools /usr/bin/git is Apple's stub, so setup died with a
+    CalledProcessError and macOS offered to install developer tools on every Retry. Setup runs no developer tool."""
+    stubs = tmp_path / "stubs"
+    ran = _stub_tools(stubs)
+    monkeypatch.setenv("PATH", f"{stubs}:/usr/bin:/bin")
+    env, out = make_env(app_world, [], daemon_up=False)
+    assert S.service_setup(env) == 0, out.getvalue()
+    device = app_world["home"] / "device"
+    assert list(device.glob("*.json")) and not (device / ".git").exists()
+    assert not ran.exists()                                               # no stub was ever started
+
+
+# decision: DMN-509
+def test_a_device_folder_an_older_ferb_kept_in_git_still_loads_and_saves(tmp_path: Path,
+                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    """Upgrade (STORE-403): an older FERB kept ~/.ferb/device as a git repository. The profile is the same JSON file,
+    so it loads as is; the next change is saved and recorded without git, and the old .git folder is left alone."""
     from ferb.device.profile import AppInfo, DeviceProfile, ProfileStore
-    other = tmp_path / "other"
-    clean = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}
-    subprocess.run(["git", "init", "-q", str(other)], check=True, capture_output=True, env=clean)
-    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
-    monkeypatch.setenv("GIT_INDEX_FILE", str(other / ".git" / "index"))
-    store = ProfileStore(tmp_path / "home")
-    profile = DeviceProfile("dev-1", "macOS", "26.0", "2026-11-02T00:00:00", [
+    ran = _stub_tools(tmp_path / "stubs")
+    monkeypatch.setenv("PATH", f"{tmp_path / 'stubs'}:/usr/bin:/bin")
+    home = tmp_path / "home"
+    old = DeviceProfile("dev-1", "macOS", "26.0", "2026-10-01T00:00:00", [
         AppInfo("com.example.notes", "Notes", "1.0", "/Applications/Notes.app", True)], [])
-    assert store.save(profile)
-    assert store.history() == ["device scan"]
-    outside = subprocess.run(["git", "ls-files"], cwd=other, capture_output=True, text=True, check=True, env=clean)
-    assert outside.stdout == ""                                               # nothing staged in the other repo
+    (home / "device" / ".git" / "objects").mkdir(parents=True)              # as an older build left it
+    (home / "device" / ".git" / "HEAD").write_text("ref: refs/heads/master\n")
+    (home / "device" / "dev-1.json").write_text(old.to_json() + "\n")
+    store = ProfileStore(home)
+    assert store.load("dev-1") == old
+    newer = DeviceProfile("dev-1", "macOS", "26.0", "2026-11-02T00:00:00", old.apps + [
+        AppInfo("com.example.maps", "Maps", "2.0", "/Applications/Maps.app", False)], [])
+    assert store.save(newer, "app added: com.example.maps")
+    assert not store.save(DeviceProfile("dev-1", "macOS", "26.0", "2026-11-03T00:00:00", newer.apps, []))
+    assert store.load("dev-1") == newer and store.history() == ["app added: com.example.maps"]
+    assert (home / "device" / ".git" / "HEAD").read_text() == "ref: refs/heads/master\n"
+    assert not ran.exists()
