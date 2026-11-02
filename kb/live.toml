@@ -2082,3 +2082,21 @@ request = "Start the intro. Drag FERB out of the notch while a tour line shows, 
 pass = "FERB starts in the notch and follows the drag with its line; each switch is confirmed within a few seconds of Quit & Reopen or of leaving System Settings, and the tour moves on; after Quit & Reopen `ferb ps`/`ferb doctor` show the daemon running; a reopened FERB lands on the same beat with the same grants, never asking to sign in again."
 decisions = ["APP-510", "APP-515", "APP-516", "APP-597", "APP-598"]
 sitting = "step 13, sitting 1"
+
+[LIVE-680]
+title = "No \"blocked from accessing data\" banner on a first run"
+area = "gateway"
+surface = "A FERB.app build with GATE-505, installed by the owner on a Mac where FERB doesn't have Full Disk Access yet (macOS 27)"
+request = "Open FERB.app, go through the intro and setup up to (not including) Full Disk Access, run one shell task (e.g. \"list the files in my Downloads folder\"), then watch Notification Center for a few minutes."
+pass = "No \"FERB was blocked from accessing data from other apps\" banner appears, and Privacy & Security doesn't list FERB as having tried to reach another app's data."
+decisions = ["GATE-505"]
+sitting = "step 13"
+
+[LIVE-679]
+title = "One Keychain OK per saved secret, kept across relaunches and updates"
+area = "gateway"
+surface = "The owner's Mac with saved secrets; a release FERB.app built with REL-404, then the next release build"
+request = "Install the build and open FERB. If macOS asks \"ferb-secrets wants to use your confidential information stored in ferb.owner-secrets\", press Always Allow (with the login password) on each prompt (at most one per saved secret). Quit and reopen FERB; then install the next release build and open it."
+pass = "No Keychain prompt after the reopen or after the update; `codesign -dv --verbose=4 /Applications/FERB.app/Contents/Helpers/ferb-secrets` shows the same CDHash in both builds."
+decisions = ["REL-404"]
+sitting = "step 13"

@@ -171,7 +171,7 @@ area = "tests"
 kind = "live"
 status = "open"
 why = "notes/fix-order.md step 13: per-adapter live tests, the P20 injection eval, the patch re-test list and the safety scenarios, on the new FERB.app after the fresh start (LIVE-535). The checklist is the live checks with sitting \"step 13, sitting N\" (`kb live`); the owner's verdict accepts."
-after = ["T-501", "T-502", "T-503", "T-510"]
+after = ["T-510"]
 
 [T-509]
 title = "Docs cleanup last: the owner reviews each moved document, then CLAUDE.md/AGENTS.md"
@@ -393,3 +393,19 @@ area = "daemon"
 kind = "build"
 status = "open"
 decisions = ["DMN-506"]
+
+[T-500]
+title = "The intro's permission accepting, reopen and quit are broken"
+area = "app"
+kind = "bug"
+status = "open"
+why = "Owner's live run of the intro build, 2026-11-01 (verbatim): \"the flow is good but the permission accepting, reopen and quit is broken\". Reproduce in the intro playground or a fresh install, then fix."
+decisions = ["APP-510", "APP-516"]
+
+[T-1001]
+title = "Write the test for APP-515: a resumed tour waits while the service is down"
+area = "app"
+kind = "build"
+status = "open"
+why = "No test resumes a tour with the daemon down; testAllowAllWaitsForTheDaemonsAnswer shows the same \"Getting my background part ready…\" wait only at the Allow all beat of a fresh tour."
+decisions = ["APP-515"]

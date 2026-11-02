@@ -271,6 +271,17 @@ rule = "protection.BROWSER_STORES is browsers.data_folders(): each Chromium brow
 paths = ["ferb/policy/protection.py::BROWSER_STORES", "ferb/act/mac/browsers.py::data_folders"]
 legacy = "notes/gateway.md Rulings (review 2026-11-01): browser credential stores"
 
+[GATE-505]
+title = "Listed places in other apps' containers are never looked at"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "A protection-list entry that is another app's container or inside one (~/Library/Containers/<id>, ~/Library/Group Containers/<id>, as typed or under those folders resolved) is never stat'ed, resolved or opened: its resolved form is the containers folder resolved plus the rest as written, it counts as a folder for the shell profile, and a folder above it inside a container is denied as present. The containers folders themselves may be looked at. Paths a tool call names are still checked as the kernel reaches them."
+why = "T-503: touching another app's container without Full Disk Access is refused and macOS 27 posts \"was blocked from accessing data\"; every daemon start and shell command resolved each never-read entry, Safari's container among them (listed from 2026-11-01, d9ee6bb4)."
+rejected = ["Resolve container entries only after Full Disk Access: the rules would change spelling mid-run and the first shell profile still touches them", "Leave a tool call's path unresolved inside containers too: a link inside a container could then reach a never-read place unseen"]
+paths = ["ferb/policy/protection.py::APP_DATA", "ferb/policy/protection.py::Protection.forms_now", "ferb/act/shell/sandbox.py::Sandbox._paths"]
+live = ["LIVE-680"]
+
 [GATE-500]
 title = "A secret pasted into the chat is masked and FERB says revoke it"
 by = "owner"

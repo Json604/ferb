@@ -1,0 +1,12 @@
+{
+  "code_sha256": "3deba056ddf2c7434f6cf1246bdaf2b40eab55b5ef152ed5a392d045cd9fcf99",
+  "source_sha256": "7049930ca75cb91e8057701e6a8d732b5ed03a1a9791d6dc3eb15dba30a4e803",
+  "binary_sha256": "94190816764e87bac15c6052e16736a71cf2e89411915b93f2456ec36b19aebd",
+  "slices": {
+    "arm64": "77331c6673d71e9408a55de8f47f5cd54014b939ce44ee4b840cef458b56cdb8",
+    "x86_64": "a43ae4e4264971869452d92824798120ffefefa1f8f3647172e778d5769d3b53"
+  },
+  "swiftc": "Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)",
+  "sdk": "27.2",
+  "target": "macos14.2"
+}
