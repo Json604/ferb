@@ -2127,3 +2127,12 @@ request = "At Pair browsers press Add to <browser> on an Arc/Vivaldi/Opera profi
 pass = "No Load unpacked or Developer mode step is shown for those browsers; the store page opens in that browser's profile and pairing succeeds; the Chrome task runs in the ~/Applications Chrome without a second Chrome launch failing."
 decisions = ["HAND-247"]
 sitting = "step 13"
+
+[LIVE-684]
+title = "After Open Anyway, FERB.app's own files carry no quarantine and nothing nested is blocked"
+area = "app"
+surface = "A second Mac or macOS user; the DMG downloaded in a browser, a FERB.app build with APP-601"
+request = "Drag FERB to Applications, Open Anyway, go through the intro to the first task. Then in Terminal: `xattr -lr /Applications/FERB.app | grep -c com.apple.quarantine` and `xattr -l ~/Downloads/<the DMG>`."
+pass = "The count is 0 once FERB has run; the downloaded DMG still has its quarantine (nothing outside FERB.app touched); no \"cannot be opened\" or \"damaged\" prompt for the agent, ferb-secrets or Codex during setup or the task."
+decisions = ["APP-601"]
+sitting = "step 13"

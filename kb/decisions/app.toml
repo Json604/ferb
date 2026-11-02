@@ -1106,3 +1106,12 @@ status = "active"
 words = "Dock icon only while a FERB window is open: setup, Settings, the preview player. That's the common pattern for notch and menu-bar apps."
 rule = "FERB.app appears in the Dock (regular activation policy) while a titled FERB window is shown or minimized (setup, Settings, the preview player, What FERB saw), and is notch-only (accessory) when none is; the notch, the orb and other floating panels never count."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/DockPresence.swift"]
+
+[APP-601]
+title = "A running FERB.app clears the quarantine attribute from its own bundle"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "At each launch of a packaged FERB.app, in the background, FERB removes com.apple.quarantine from every item inside its own bundle (links themselves, never their targets; the bundle folder last) and from nothing else. A translocated copy, a read-only volume (the disk image) or a bundle that carries none is left alone; any failure is quiet."
+why = "Running means the owner already approved this copy (Open Anyway); the nested code (the agent, its Python, ferb-secrets, Codex) runs outside Launch Services, where that approval may not reach (audit 2026-11-02, item 10)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/OwnQuarantine.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Application.swift"]
