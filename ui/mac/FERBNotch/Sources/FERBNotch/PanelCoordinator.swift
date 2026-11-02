@@ -901,8 +901,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         let notch = NotchGeometry(screen: bounds, topInset: screen.safeAreaInsets.top,
             leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
             rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
-            menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY).cutoutFrame
-        return IndicatorPlacement.safeTopX(proposedX: proposedX, size: size.width, screen: bounds, notch: notch)
+            menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
+        return IndicatorPlacement.safeTopX(proposedX: proposedX, size: size.width, screen: bounds,
+                                           notch: notch.hasNotch ? notch.cutoutFrame : nil)
     }
 
     @objc func displayParametersChanged() {

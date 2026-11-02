@@ -74,4 +74,17 @@ final class NotchDragTests: XCTestCase {
             }
         }
     }
+
+    /// Live 2026-11-02 (a friend's M1, no notch): the handle never sat at the top centre and jumped sideways when
+    /// dropped near it, because the virtual notch there was avoided like a camera. Only a hardware notch is avoided.
+    // decision: APP-640, APP-625
+    func testTheTopHandleStepsAsideOnlyFromAHardwareNotch() {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let middle = screen.midX - 29
+        XCTAssertEqual(IndicatorPlacement.safeTopX(proposedX: middle, size: 58, screen: screen, notch: nil), middle)
+        let camera = CGRect(x: 620, y: 868, width: 200, height: 32)
+        let aside = IndicatorPlacement.safeTopX(proposedX: middle, size: 58, screen: screen, notch: camera)
+        XCTAssertTrue(aside + 58 <= camera.minX || aside >= camera.maxX)
+        XCTAssertEqual(IndicatorPlacement.safeTopX(proposedX: 2000, size: 58, screen: screen, notch: nil), 1382)
+    }
 }

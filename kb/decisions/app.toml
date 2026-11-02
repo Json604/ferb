@@ -1527,3 +1527,12 @@ words = "also the 'drag me into this shuold virtually first drag itself into whe
 rule = "When the logo docks beside System Settings with FERB's agent to drag into a list, a faded copy of the logo glides from the logo into Settings' list (its right pane), fades and repeats every few seconds, following Settings if it moves, until the owner starts dragging, the drop is accepted or the dock ends. With Reduce Motion on it isn't shown."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/OrbController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift"]
 live = ["LIVE-704"]
+
+[APP-640]
+title = "On a display without a notch the handle rests anywhere on the top edge, the centre included"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The handle on the top edge steps aside only from a hardware notch's camera housing. On a notchless display nothing is avoided: it starts at the top centre and rests wherever the owner drops it along the edge (APP-625's movable handle, saved placement)."
+why = "Live 2026-11-02 on a friend's M1 without a notch: the virtual notch at the top centre was treated like the camera, so the handle never sat centred and was pushed sideways when dropped near the middle."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IndicatorPlacement.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
