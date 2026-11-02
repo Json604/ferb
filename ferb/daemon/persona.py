@@ -50,7 +50,7 @@ class PersonaReview:
             return False
         facts = await self._gather()
         if facts_fingerprint(facts) == seen.get("fingerprint"):
-            self.state.set_seen(seen | {"checked_at": self.clock()})
+            self.state.set_seen(seen | {"checked_at": self.clock(), "profiles_read": facts.get("profiles_read", True)})
             return False
         await self._store(facts, "quiet", quiet=True)
         return True
@@ -77,12 +77,19 @@ class PersonaReview:
         stored = await self.build(facts)
         seen = {'summary': stored.get('summary', ''), 'shown': stored.get('shown', ''), 'facts': stored.get('facts', []),
                 'at': self.clock(), 'checked_at': self.clock(), 'fingerprint': facts_fingerprint(facts),
+                'profiles_read': facts.get('profiles_read', True),
                 'shown_by': shown_by if not quiet else self.state.seen().get('shown_by', shown_by)}
         self.state.set_seen(seen)
         self.state.set_reviewed(True)
         self.record('memory.mac_profile_seen', {'facts': len(seen['facts']), 'quiet': quiet, 'shown_by': shown_by})
         if not quiet and shown_by != 'setup' and self.tell is not None and seen['shown']:
             await self.tell(str(seen['shown']))
+
+    def needs_browser_part(self) -> bool:
+        """DMN-507: what FERB saw was gathered before it had Full Disk Access, so the browsers' profiles were left out;
+        a `refresh` once access is there adds them (re-interpreted only when they change what FERB saw)."""
+        seen = self.state.seen()
+        return bool(seen) and seen.get("profiles_read", True) is False
 
     def status(self) -> dict[str, Any]:
         if self.closed:

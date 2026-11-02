@@ -468,3 +468,23 @@ words = "okok do it."
 why = "With SIP off, any process can read a shell command's proxy credential from its environment and no sandbox rule stops it (found on GitHub's runner, 2026-11-02)."
 rule = "ferb doctor reports System Integrity Protection being off as a problem and says what it exposes (other processes can read a running command's proxy credential)."
 paths = ["ferb/cli/setup.py"]
+
+[DMN-507]
+title = "Nothing touches another app's data before Full Disk Access; browsers are connected after Allow all"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "ig the errir is ferb accesing dta before its given full druve access, right??? and htat happens casue i wanted most used profile in the browsers discivered, right??>? ig then we can shoft this most used prifule after permission is granted??? cause abyways the browser comes after permissions"
+why = "The owner's first run on macOS 27.2: FERB.app's setup read and wrote Chrome's folder before Allow all; macOS blocked it (\"FERB tried to access your data from other apps and was blocked\") and Chrome never got FERB's native host, unnoticed."
+rule = "Nothing reads or writes another app's data (browser folders and profiles, other apps' containers) before Full Disk Access is granted. Browser work happens at Pair browsers, after Allow all; the Mac scan's browser part (the most-used profile) runs only once access is granted."
+paths = ["ferb/cli/setup.py::installer", "ferb/cli/setup.py::extension_setup", "ferb/daemon/areas/browsers.py::Browsers._other_app_data", "ferb/device/persona.py::discover_persona", "ferb/device/permissions.py::other_app_data"]
+live = ["LIVE-680"]
+
+[DMN-508]
+title = "The daemon connects the browsers once it has Full Disk Access, and says when a browser refused"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "FERB.app's `ferb setup --service` lists no browser folder and reads no profile (a checkout's setup still does). One daemon gate, `data_access` (Full Disk Access granted), guards every browser-folder read and write. With it the daemon writes the native-host manifest and Web Store request into every installed browser at each `setup.browsers` and at start (again on a change or after a failure), reads each manifest back and names a refusing browser in `problem` and the journal. Scan facts gathered without access say `profiles_read` false and are refreshed at start once access is there."
+why = "DMN-507: FERB.app itself never holds Full Disk Access (it is granted to the background agent), so only the daemon may touch browser folders; a write that fails silently left Chrome unconnected."
+paths = ["ferb/daemon/areas/browsers.py::Browsers._connect_browsers", "ferb/daemon/areas/browsers.py::Browsers._setup_browsers", "ferb/daemon/main.py::Daemon._with_full_disk_access", "ferb/device/install.py::write_native_hosts", "ferb/daemon/persona.py::PersonaReview.needs_browser_part", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift"]

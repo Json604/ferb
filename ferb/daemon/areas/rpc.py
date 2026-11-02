@@ -368,6 +368,9 @@ class Rpc:
             out["error"] = "FERB has no account of its own set up (Settings → Browsers → FERB's own account)"
         elif not folder:
             out["error"] = "FERB's own account has no browser profile chosen (Settings → Browsers → FERB's own account)"
+        elif not self._other_app_data():                # DMN-507: no browser folder is looked at before it
+            from ferb.daemon.areas.browsers import WAITS_FOR_FULL_DISK_ACCESS
+            out["error"] = WAITS_FOR_FULL_DISK_ACCESS
         else:
             data = self._browser_data().get(str(self.config.get("identity", "browser", "chrome")))
             try:

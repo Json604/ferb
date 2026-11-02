@@ -167,6 +167,43 @@ def code_hash(package_dir: Path) -> str:
     return h.hexdigest()[:16]
 
 
+def write_native_hosts(home: Path, launcher: Path, python: list[str], extension_ids: tuple[str, ...],
+                       dirs: tuple[Path, ...]) -> tuple[list[Path], list[tuple[Path, str]]]:
+    """FERB's native-host launcher (in FERB's home) and its manifest in each of `dirs` (browsers' NativeMessagingHosts
+    folders): (written, [(folder, why)]). Each manifest is written whole (a browser never reads half a file) and read
+    back: one that isn't there with FERB's words afterwards counts as failed (newer macOS can refuse a folder in
+    another app's data without an error FERB sees). One folder's failure never stops the others."""
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    command = " ".join(shlex.quote(a) for a in python)
+    launcher.write_text(f'#!/bin/sh\nFERB_HOME="{home}" exec {command} -m ferb.native_host.main "$@"\n')
+    launcher.chmod(0o700)
+    manifest = json.dumps({"name": NATIVE_HOST_NAME, "description": "FERB native messaging host",
+                           "path": str(launcher), "type": "stdio",
+                           "allowed_origins": [f"chrome-extension://{i}/" for i in extension_ids]}, indent=2)
+    written: list[Path] = []
+    failed: list[tuple[Path, str]] = []
+    for d in dirs:
+        target = d / NATIVE_HOST_MANIFEST
+        tmp: str | None = None
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(prefix=".ferb-", suffix=".json", dir=d)
+            with os.fdopen(fd, "w") as f:
+                f.write(manifest)
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, target)
+            tmp = None
+            if target.read_text() != manifest:
+                raise OSError("the manifest read back differs from what FERB wrote")
+            written.append(target)
+        except OSError as e:
+            failed.append((d, e.strerror or str(e)))
+        finally:
+            if tmp is not None:
+                Path(tmp).unlink(missing_ok=True)
+    return written, failed
+
+
 @dataclass
 class Installer:
     home: Path
@@ -744,31 +781,15 @@ class Installer:
         return self.home / "bin" / "ferb-native-host"        # outside macOS-protected folders
 
     def write_native_host(self) -> list[Path]:
-        """Launcher + manifest in each folder the CLI lists: every installed browser's own, plus Chrome's for Brave,
-        which reads it (verified during native-host installation tests; ferb.act.browser.autoinstall)."""
+        """Launcher + manifest in each folder listed (a checkout's setup lists every installed browser's own, plus
+        Chrome's for Brave and Opera, which read it; ferb.act.browser.autoinstall). FERB.app's setup lists none: FERB's
+        background service writes them once it has Full Disk Access (DMN-507). A folder that refuses the manifest is
+        said in `notes`, never skipped silently; the others are still written."""
         if not self.native_hosts_dirs:
             return []
-        launcher = self.native_host_launcher
-        launcher.parent.mkdir(parents=True, exist_ok=True)
-        python = " ".join(shlex.quote(a) for a in self.python_command())
-        launcher.write_text(f'#!/bin/sh\nFERB_HOME="{self.home}" exec {python} -m ferb.native_host.main "$@"\n')
-        launcher.chmod(0o700)
-        manifest = json.dumps({"name": NATIVE_HOST_NAME, "description": "FERB native messaging host",
-                               "path": str(launcher), "type": "stdio",
-                               "allowed_origins": [f"chrome-extension://{i}/" for i in self.extension_ids]}, indent=2)
-        written = []
-        for d in self.native_hosts_dirs:
-            d.mkdir(parents=True, exist_ok=True)
-            fd, tmp = tempfile.mkstemp(prefix=".ferb-", suffix=".json", dir=d)   # a browser never reads half a file
-            try:
-                with os.fdopen(fd, "w") as f:
-                    f.write(manifest)
-                os.chmod(tmp, 0o644)
-                os.replace(tmp, d / NATIVE_HOST_MANIFEST)
-            except BaseException:
-                Path(tmp).unlink(missing_ok=True)
-                raise
-            written.append(d / NATIVE_HOST_MANIFEST)
+        written, failed = write_native_hosts(self.home, self.native_host_launcher, self.python_command(),
+                                             self.extension_ids, self.native_hosts_dirs)
+        self.notes += [f"Couldn't connect FERB to a browser: {d} ({why})." for d, why in failed]
         return written
 
     # ---------- `ferb` on PATH (FERB.app) ----------

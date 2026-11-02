@@ -541,10 +541,12 @@ final class SetupModel: ObservableObject {
 
     // MARK: Browsers
 
+    /// The daemon connects the browsers here once it has Full Disk Access (DMN-507); what kept it from that is shown.
     func refreshBrowsers() async {
         do {
             browsers = BrowserSnapshot(reply: try await rpc.call("setup.browsers", params: [:]))
             clearNotAnswering()
+            if let problem = browsers?.problem, !problem.isEmpty { message = problem }
         } catch { message = Self.notAnswering }
     }
 

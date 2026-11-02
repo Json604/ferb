@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "install":
             from ferb.cli import setup as setup_cmd
             target = install_extension(ferb_home())
-            inst = setup_cmd.installer(ferb_home(), SUPPORT)
+            inst = setup_cmd.installer(ferb_home(), SUPPORT, browser_folders=True)   # the developer's own command
             inst.write_native_host()
             print(f"Extension files and native host prepared: {target}")
             print("Existing managed installations reload when idle.")

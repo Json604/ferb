@@ -2084,12 +2084,12 @@ decisions = ["APP-510", "APP-515", "APP-516", "APP-597", "APP-598"]
 sitting = "step 13, sitting 1"
 
 [LIVE-680]
-title = "No \"blocked from accessing data\" banner on a first run"
+title = "No \"blocked from accessing data\" banner on a first run; every browser connected after Pair browsers"
 area = "gateway"
-surface = "A FERB.app build with GATE-505, installed by the owner on a Mac where FERB doesn't have Full Disk Access yet (macOS 27)"
-request = "Open FERB.app, go through the intro and setup up to (not including) Full Disk Access, run one shell task (e.g. \"list the files in my Downloads folder\"), then watch Notification Center for a few minutes."
-pass = "No \"FERB was blocked from accessing data from other apps\" banner appears, and Privacy & Security doesn't list FERB as having tried to reach another app's data."
-decisions = ["GATE-505"]
+surface = "A FERB.app build with GATE-505 and DMN-507, installed by the owner on a Mac where FERB doesn't have Full Disk Access yet (macOS 27), with Chrome and at least one other Chromium browser installed"
+request = "Open FERB.app and go through the intro: Meet, Sign in, then watch Notification Center and Privacy & Security until Allow all (run one shell task there, e.g. \"list the files in my Downloads folder\"). Then Allow all, Pair browsers, and check each installed browser's ~/Library/Application Support/<browser>/NativeMessagingHosts/com.ferb.native_host.json (Google/Chrome, BraveSoftware/Brave-Browser, Arc/User Data…)."
+pass = "Before Allow all no \"FERB was blocked from accessing data from other apps\" banner appears and Privacy & Security doesn't list FERB as having tried to reach another app's data. After Pair browsers every installed Chromium browser has com.ferb.native_host.json, or the Pair browsers line names the browser FERB couldn't connect; the Try beat's \"what I saw\" may name the main browser profile."
+decisions = ["GATE-505", "DMN-507", "DMN-508"]
 sitting = "step 13"
 
 [LIVE-679]

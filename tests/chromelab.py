@@ -255,6 +255,7 @@ def browser_lab(*, ferb_identity: bool = False, headless: bool = False, prefs: d
         without_owner_mac(d)
         dm = d.daemon
         dm.browser_data_dirs = {"chrome": udd}
+        dm.data_access, dm.browser_support = (lambda: True), base / "Support"    # its own folders only
         launched: list[list[str]] = []
         dm.browser_launch = launched.append
         assert dm.router is not None

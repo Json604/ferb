@@ -128,16 +128,19 @@ public struct BrowserRow: Equatable, Identifiable {
     public let profiles: [BrowserProfileRow]
 }
 
-/// `setup.browsers`'s reply.
+/// `setup.browsers`'s reply. `problem`: what kept FERB from connecting the browsers (no Full Disk Access yet, or a
+/// browser folder that refused FERB's files, DMN-507), in the daemon's words; empty when nothing did.
 public struct BrowserSnapshot: Equatable {
     public let storeURL: URL?
     public let extensionDir: String
     public let browsers: [BrowserRow]
+    public let problem: String
 
     public init?(reply: [String: Any]) {
         guard let browsers = reply["browsers"] as? [[String: Any]] else { return nil }
         storeURL = (reply["store_url"] as? String).flatMap(URL.init(string:))
         extensionDir = reply["extension_dir"] as? String ?? ""
+        problem = reply["problem"] as? String ?? ""
         self.browsers = browsers.compactMap { browser in
             guard let name = browser["browser"] as? String, !name.isEmpty else { return nil }
             let profiles = (browser["profiles"] as? [[String: Any]] ?? []).compactMap { p -> BrowserProfileRow? in

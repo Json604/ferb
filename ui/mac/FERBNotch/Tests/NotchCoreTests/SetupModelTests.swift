@@ -320,6 +320,21 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(p?["folder"] as? String, "Profile 1")
     }
 
+    // decision: DMN-508
+    func testBrowsersSayWhatKeptFERBFromConnectingThem() async {
+        let rig = SetupRig()
+        rig.rpc.replies["setup.browsers"] = ["store_url": NSNull(), "extension_dir": "/x", "browsers": [],
+                                             "waiting": "full_disk_access",
+                                             "problem": "FERB can't look at your browsers until it has Full Disk Access"]
+        let model = rig.model()
+        await model.refreshBrowsers()
+        XCTAssertEqual(model.message, "FERB can't look at your browsers until it has Full Disk Access")
+        rig.rpc.replies["setup.browsers"] = ["store_url": NSNull(), "extension_dir": "/x", "browsers": []]
+        model.message = nil
+        await model.refreshBrowsers()
+        XCTAssertNil(model.message)
+    }
+
     func testDoneRecordsSetupAndOpensTheNotch() async {
         let rig = SetupRig()
         let model = rig.model()

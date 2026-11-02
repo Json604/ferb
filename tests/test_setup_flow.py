@@ -876,6 +876,36 @@ def test_the_setup_window_installs_the_service_without_asking_anything(app_world
     assert Config(app_world["home"]).get("hearing", "requirement") == PINNED   # FERB.app pinned for hearing
 
 
+# decision: DMN-507, DMN-508
+def test_setup_from_the_app_never_looks_at_a_browser_folder(app_world: dict[str, Any], tmp_path: Path,
+                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """Past bug (owner's first run, macOS 27.2, 2026-11-02): FERB.app's `ferb setup --service` read Chrome's Local
+    State and wrote into its folder before FERB had Full Disk Access; macOS refused ("FERB was blocked from accessing
+    data from other apps") and Chrome never got FERB's native host. From FERB.app setup looks at no browser folder: the
+    daemon connects the browsers once it has access."""
+    from ferb.act.browser import autoinstall, profiles
+    support = tmp_path / "Support"
+    for folder in ("Google/Chrome", "BraveSoftware/Brave-Browser"):
+        (support / folder / "Default").mkdir(parents=True)
+        (support / folder / "Local State").write_text('{"profile": {"info_cache": {"Default": {"name": "Me"}}}}')
+        (support / folder / "Default" / "Preferences").write_text("{}")
+    before = sorted(p.relative_to(support) for p in support.rglob("*"))
+
+    def looked(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("setup looked at a browser's folder")
+    for name in ("installed", "discover", "extension_prefs", "last_used"):
+        monkeypatch.setattr(profiles, name, looked)
+    monkeypatch.setattr(autoinstall, "prepare", looked)
+    inst = S.installer(app_world["home"], support, bundle=app_world["app"], label="com.ferb.test",
+                       run=app_world["runner"], launch_agents=tmp_path / "LA", cli_dir=tmp_path / "bin")
+    app_world["inst"] = inst
+    env, out = make_env(app_world, [], daemon_up=False)
+    env.browser_support = support
+    assert S.service_setup(env) == 0, out.getvalue()
+    assert sorted(p.relative_to(support) for p in support.rglob("*")) == before    # nothing written there either
+    assert inst.native_hosts_dirs == ()
+
+
 def test_the_device_profile_commits_to_its_own_repo_under_an_inherited_git_dir(tmp_path: Path,
                                                                                monkeypatch: pytest.MonkeyPatch) -> None:
     """Past bug (2026-11-02): the suite run by the pre-push hook inherited git's GIT_DIR, and the device profile's
