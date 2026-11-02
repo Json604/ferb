@@ -121,7 +121,18 @@ def full_disk_access() -> Status:
         return Status.UNKNOWN
 
 
-_cs = ctypes.CDLL("/System/Library/Frameworks/CoreServices.framework/CoreServices")
+def other_app_data() -> bool:
+    """Whether this process may look at other apps' data (browser folders and profiles, Notification Center's
+    database, other apps' containers): only once Full Disk Access is granted. Before it, newer macOS refuses and posts
+    "FERB was blocked from accessing data from other apps" (DMN-507). The one gate every such read and write takes;
+    never a prompt."""
+    try:
+        return full_disk_access() == Status.GRANTED
+    except Exception:
+        return False
+
+
+_cs =ctypes.CDLL("/System/Library/Frameworks/CoreServices.framework/CoreServices")
 
 
 class _AEDesc(ctypes.Structure):

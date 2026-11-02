@@ -29,6 +29,7 @@ def test_local_bundle_reload_keeps_pairing_and_reconnects_without_a_window():
     d = RunningDaemon(base / 'home', clock=SystemClock())
     without_owner_mac(d)
     d.daemon.browser_data_dirs = {'chrome': profile}
+    d.daemon.data_access, d.daemon.browser_support = (lambda: True), base / 'Support'   # its own folders only
     write_native_host(profile, d.sock, FERB_EXTENSION_ID)
     front, chrome = Frontmost(), ChromeLab(profile)
     try:

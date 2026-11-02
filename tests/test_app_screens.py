@@ -119,6 +119,7 @@ def test_the_app_guide_becomes_the_self_descriptions_how_tos(daemon: RunningDaem
 def test_choosing_ferbs_profile_writes_config_through_the_settings_path(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
+    d.data_access, d.browser_support = (lambda: True), d.home.parent / "Support"   # its own folders only
     _as_app(daemon)
     found = _call(daemon, "identity.find", {"address": "FERB@gmail.com"})
     assert [(c["folder"], c["only"]) for c in found["candidates"]] == [("Profile 7", True)]

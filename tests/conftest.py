@@ -72,6 +72,7 @@ class RunningDaemon:
         kwargs.setdefault("screen_at_send", False)      # never a real screenshot of the owner's screen (L12)
         kwargs.setdefault("preload_secrets", False)     # never read the owner's Keychain values (step 6a)
         kwargs.setdefault("embeddings", False)          # never download the embedding model (tests use a fake)
+        kwargs.setdefault("data_access", lambda: False)  # never look at the owner's browser folders (DMN-507)
         return Daemon(home=home, **kwargs)
 
     def run(self, coro: Any, timeout: float = 10) -> Any:

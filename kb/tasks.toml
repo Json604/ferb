@@ -409,3 +409,11 @@ kind = "build"
 status = "open"
 why = "No test resumes a tour with the daemon down; testAllowAllWaitsForTheDaemonsAnswer shows the same \"Getting my background part ready…\" wait only at the Allow all beat of a fresh tour."
 decisions = ["APP-515"]
+
+[T-1003]
+title = "FERB.app's Uninstall still removes browser files from FERB.app's own process"
+area = "daemon"
+kind = "bug"
+status = "open"
+why = "DMN-507: `ferb uninstall`, run by FERB.app, still deletes com.ferb.native_host.json and install requests in every browser folder from FERB.app's child (never Full Disk Access), so macOS 27 may show the banner then. The daemon should remove them (an RPC the app calls first)."
+decisions = ["DMN-507"]

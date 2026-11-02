@@ -294,6 +294,7 @@ def bd(daemon: RunningDaemon) -> Iterator[tuple[RunningDaemon, list[list[str]]]]
     d = daemon.daemon
     launched: list[list[str]] = []
     d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
+    d.data_access, d.browser_support = (lambda: True), d.home.parent / "Support"   # its own folders only
     d.browser_launch = launched.append
     d.browser_default = lambda: "chrome"                                      # last used in the fake: Profile 1
     d.pair_load_wait_s = 0.0

@@ -17,6 +17,10 @@ from ferb.core.types import Identity
 from ferb.daemon.server import Session
 from ferb.registry import add_identity_browser, add_owner_browsers
 
+# DMN-507: what a browser call says while FERB may not look at other apps' data yet
+WAITS_FOR_FULL_DISK_ACCESS = ("FERB can't look at your browsers until it has Full Disk Access (System Settings → "
+                              "Privacy & Security → Full Disk Access → FERB)")
+
 
 class Browsers:
     """A mixin of the Daemon (ferb/daemon/main.py): its methods use the daemon's state."""
@@ -129,8 +133,16 @@ class Browsers:
             extension = extension_state(p, frozenset(accepted_extension_ids(self.config)), data)
         return {"on": "installed", "off": "off"}.get(extension, "missing")
 
+    def _other_app_data(self) -> bool:
+        """DMN-507: whether FERB may read or write another app's data (browser folders and profiles) now: only once
+        FERB has Full Disk Access (the daemon's one gate, `data_access`). Every browser-folder read below goes
+        through it."""
+        return bool(self.data_access())
+
     def _profiles(self) -> list[browser_profiles.BrowserProfile]:
-        return browser_profiles.discover_all(self.browser_data_dirs)
+        if not self._other_app_data():
+            return []
+        return browser_profiles.discover_all(self._browser_data())
 
     def _fresh_profiles(self) -> list[Any]:
         """The browser profiles as last discovered (`_fresh`): what the planner's facts and availability name."""
@@ -245,6 +257,8 @@ class Browsers:
         prof, address = self._identity_profile(), str(self.config.get("mailbox", "address", "") or "")
         if not prof or not address:
             raise FerbError("FERB's identity profile isn't chosen yet")
+        if not self._other_app_data():
+            raise FerbError(WAITS_FOR_FULL_DISK_ACCESS)
         data = self._browser_data().get(prof[0])
         try:
             await asyncio.to_thread(seed.verify, address, prof[1], *([data] if data else []))
@@ -273,10 +287,13 @@ class Browsers:
         return {"paired": False, "profile": prof[1], "hint": "is the FERB extension loaded in FERB's profile?"}
 
     def _browser_data(self) -> dict[str, Path]:
-        """Each installed browser's user-data folder (tests give their own)."""
+        """Each installed browser's user-data folder (tests give their own); none before Full Disk Access (DMN-507)."""
+        if not self._other_app_data():
+            return {}
         if self.browser_data_dirs is not None:
             return dict(self.browser_data_dirs)
-        return {b: browser_profiles.data_dir(b) for b in browser_profiles.installed()}
+        return {b: browser_profiles.data_dir(b, self.browser_support)
+                for b in browser_profiles.installed(self.browser_support)}
 
     def _identity_candidates(self, address: str) -> list[dict[str, Any]]:
         """Every browser profile signed into `address` (Local State and Preferences, read only; never cookies), and
@@ -322,6 +339,8 @@ class Browsers:
         else:
             address = str(params.get("address") or "").strip().lower()
             browser, folder = str(params.get("browser") or ""), str(params.get("folder") or "")
+            if not self._other_app_data():
+                raise FerbError(WAITS_FOR_FULL_DISK_ACCESS)
             data = self._browser_data().get(browser)
             if data is None:
                 raise FerbError(f"{browser or 'That browser'} isn't installed")
@@ -544,18 +563,72 @@ class Browsers:
         return {"unpaired": self.pairings.unpair(p.browser, p.folder)}
 
     async def _setup_browsers(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """L34 C: each browser and profile as the setup window shows it, read only (`autoinstall.read_states`): FERB's
-        extension not added, removed, added, on or paired; whether FERB asked the browser to install it; where Load
-        unpacked is the way. Nothing is written and no browser is opened."""
+        """L34 C: each browser and profile as the setup window shows it (`autoinstall.read_states`): FERB's extension
+        not added, removed, added, on or paired; whether FERB asked the browser to install it; where Load unpacked is
+        the way. No browser is opened. Before Full Disk Access nothing is looked at (`waiting`); with it, FERB's own
+        files are written into each installed browser first (`_connect_browsers`), and a browser that refused them is
+        named in `problem` (DMN-507)."""
         from ferb.act.browser import autoinstall
-        from ferb.act.browser.profiles import SUPPORT
         from ferb.device.extensions import browser_rows, extension_path
         store = autoinstall.store_extension_id(self.config)
+        if not await asyncio.to_thread(self._other_app_data):
+            return browser_rows([], store, extension_path(self.home), self._identity_profile(), set()) | {
+                "waiting": "full_disk_access", "problem": WAITS_FOR_FULL_DISK_ACCESS}
+        files = await self._connect_browsers()
         ids = autoinstall.accepted_extension_ids(self.config)
         paired = {(b.browser, b.folder) for b in self.pairings.all()} if self.pairings is not None else None
-        states = await asyncio.to_thread(autoinstall.read_states, SUPPORT, store, ids, paired, self.browser_data_dirs)
+        states = await asyncio.to_thread(autoinstall.read_states, self.browser_support, store, ids, paired,
+                                         self.browser_data_dirs)
         connected = {key for key, br in self.hub.bridges.items() if br.conn} if self.hub is not None else set()
-        return browser_rows(states, store, extension_path(self.home), self._identity_profile(), connected)
+        rows = browser_rows(states, store, extension_path(self.home), self._identity_profile(), connected)
+        return rows | ({"problem": files["problem"]} if files.get("problem") else {})
+
+    async def _connect_browsers(self) -> dict[str, Any]:
+        """DMN-507: FERB's native host and the Web Store install request in every installed browser, written by the
+        daemon (which holds Full Disk Access; FERB.app never does), at the setup tour's Pair browsers step (each
+        `setup.browsers`) and at start once access is there, so an update and a browser installed later are covered.
+        Written again only when the installed browsers or the accepted extension ids changed, or the last try failed.
+        A browser folder that refused is reported (`problem`) and journaled, never taken as done."""
+        if not await asyncio.to_thread(self._other_app_data):
+            return {"state": "waiting"}
+        async with self._browser_files_lock:
+            result: dict[str, Any] = await asyncio.to_thread(self._write_browser_files)
+        if result.get("written"):
+            self._journal().append("browser.files_written", {k: result[k] for k in ("hosts", "requests", "failed")})
+        return result
+
+    def _write_browser_files(self) -> dict[str, Any]:
+        """The file work of `_connect_browsers`, in a worker thread."""
+        from ferb.act.browser import autoinstall
+        from ferb.config import InsecureConfig
+        from ferb.device.install import NATIVE_HOST_MANIFEST, Installer, write_native_hosts
+        from ferb.paths import app_bundle
+        support = self.browser_support
+        try:
+            ids = autoinstall.accepted_extension_ids(self.config)
+            store = autoinstall.store_extension_id(self.config)
+        except InsecureConfig as e:
+            return {"state": "failed", "written": False, "problem": f"FERB couldn't set up your browsers: {e}"}
+        installed = browser_profiles.installed(support)
+        key = (tuple(installed), ids, store)
+        if key == self._browser_files_done:
+            return {"state": "connected", "written": False}
+        inst = Installer(self.home, bundle=app_bundle())
+        dirs = autoinstall.native_host_dirs(support, installed)
+        _, failed_hosts = write_native_hosts(self.home, inst.native_host_launcher, inst.python_command(), ids, dirs)
+        autoinstall.withdraw(self.home, store if autoinstall.valid_id(store) else "")
+        states = autoinstall.prepare(support, store, ids, None, home=self.home)
+        labels = {browser_profiles.data_dir(k, support): v.label for k, v in browser_profiles.BROWSERS.items()}
+        failed = [{"browser": labels.get(d.parent, d.parent.name), "file": NATIVE_HOST_MANIFEST, "error": why}
+                  for d, why in failed_hosts]
+        failed += [{"browser": browser_profiles.BROWSERS[s.browser].label, "file": "install request",
+                    "error": s.error} for s in states if s.error]
+        self._browser_files_done = None if failed else key
+        problem = ("FERB couldn't connect " + ", ".join(dict.fromkeys(f["browser"] for f in failed)) + " ("
+                   + "; ".join(dict.fromkeys(f["error"] for f in failed)) + "); it tries again the next time it "
+                   "starts or you open Browsers.") if failed else ""
+        return {"state": "failed" if failed else "connected", "written": True, "hosts": len(dirs) - len(failed_hosts),
+                "requests": sum(1 for s in states if s.request is not None), "failed": failed, "problem": problem}
 
     async def _setup_browser_open(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """L34 C: the owner's Add to <browser> on one profile: FERB's Web Store page opens in that profile, in front (the

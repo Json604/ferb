@@ -5,8 +5,10 @@
 
 Interactive but injectable (installer, daemon connection, prompts, System Settings opener, browser folders) so the
 flows are testable without touching the real Mac. Permissions are always checked by the daemon, never by this process.
-Setup never opens, quits or kills a browser and never writes a browser's Preferences: per browser it writes only
-FERB's own files (the native host, the Web Store install request) and reads each profile's state (L25)."""
+Setup never opens, quits or kills a browser and never writes a browser's Preferences. Run from FERB.app it never looks
+at a browser's folder at all: FERB.app has no Full Disk Access, so FERB's background service connects the browsers
+once it has it (DMN-507). A checkout's setup (run from the developer's terminal) writes, per browser, only FERB's own
+files (the native host, the Web Store install request) and reads each profile's state (L25)."""
 
 import json
 import os
@@ -79,14 +81,20 @@ def wait_for_daemon(env: Env, timeout: float = 30) -> Client:
             env.sleep(0.3)
 
 
-def installer(home: Path, support: Path, every_browser: bool = False, **kwargs: Any) -> Installer:
-    """The installer with FERB's native host going to each installed browser (every known one when removing it),
-    accepting both the pinned unpacked id and the Web Store id. Run from FERB.app, it installs from that app."""
+def installer(home: Path, support: Path, every_browser: bool = False, browser_folders: bool | None = None,
+              **kwargs: Any) -> Installer:
+    """The installer, accepting both the pinned unpacked id and the Web Store id. Run from FERB.app, it installs from
+    that app and lists no browser folder: nothing here looks at another app's data before FERB's background service
+    has Full Disk Access, which then writes the native host itself (DMN-507). A checkout's (or `browser_folders`, a
+    developer's explicit command) sends FERB's native host to each installed browser; removing it (`every_browser`)
+    goes to every known one."""
     kwargs.setdefault("bundle", app_bundle())
     if kwargs["bundle"] is None:                  # a checkout fetches the embedding model at install (FERB.app ships it)
         from ferb.memory.embeddings import download
         kwargs.setdefault("fetch_model", download)
-    browsers = list(profiles.BROWSERS) if every_browser else profiles.installed(support)
+    if browser_folders is None:
+        browser_folders = every_browser or kwargs["bundle"] is None
+    browsers = (list(profiles.BROWSERS) if every_browser else profiles.installed(support)) if browser_folders else []
     try:
         ids = autoinstall.accepted_extension_ids(Config(home))
     except InsecureConfig:                      # doctor reports it; setup and the daemon refuse such a config anyway
@@ -98,8 +106,12 @@ def installer(home: Path, support: Path, every_browser: bool = False, **kwargs: 
 def extension_setup(env: Env) -> None:
     """Every installed Chromium-family browser: the Web Store install request once the store id is set, and each
     profile's state (installed and enabled from its Preferences, read only; paired from the daemon when it answers).
-    The native host is registered by the installer."""
+    The native host is registered by the installer. From FERB.app nothing here runs: FERB's background service connects
+    the browsers once it has Full Disk Access (DMN-507)."""
     if env.browser_support is None:
+        return
+    if env.inst.bundle is not None:
+        env.say("Browsers: FERB connects them once it has Full Disk Access (the setup tour's Pair browsers step).")
         return
     from ferb.device.extensions import extension_path
     try:
@@ -840,7 +852,12 @@ def doctor(env: Env) -> int:
                 add(Check(f"secret {s['key']}", "ok" if s["in_keychain"] else "warn",
                           "in Keychain" if s["in_keychain"] else "missing from Keychain",
                           f"in your own terminal: security add-generic-password -s ferb -a {s['key']} -w"))
-        for hosts_dir in inst.native_hosts_dirs:
+        # FERB.app's installer lists no browser folder (its service writes them, DMN-507); doctor, a developer's
+        # command run in their terminal, looks at each installed browser's
+        hosts_dirs = inst.native_hosts_dirs or (autoinstall.native_host_dirs(
+            env.browser_support, autoinstall.profiles.installed(env.browser_support)) if env.browser_support is not None
+            else ())
+        for hosts_dir in hosts_dirs:
             m = hosts_dir / NATIVE_HOST_MANIFEST
             add(Check(f"native host ({hosts_dir.parent.name})", "ok" if m.exists() and inst.native_host_launcher.exists()
                       else "fail", str(m) if m.exists() else "missing", "run `ferb setup --update`"))

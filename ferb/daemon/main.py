@@ -100,13 +100,18 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
                  notifications: bool = True, retention: bool = True, resources: bool = True,
                  snapshots: bool = True,
                  persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True,
-                 preload_secrets: bool = True, embeddings: bool = True) -> None:
+                 preload_secrets: bool = True, embeddings: bool = True,
+                 data_access: Callable[[], bool] | None = None) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
         self.config = Config(self.home)
         self.persona_scan = persona_scan
         self.persona: Any = None
+        # DMN-507: the one gate for another app's data (browser folders and profiles, Notification Center's database):
+        # Full Disk Access granted. Tests give their own.
+        from ferb.device.permissions import other_app_data
+        self.data_access: Callable[[], bool] = data_access or other_app_data
         self._automation_cache: dict[str, tuple[float, bool]] = {}
         self._automation_checks: dict[str, Any] = {}
         self._redact_override = redact
@@ -164,6 +169,10 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         self._loop: asyncio.AbstractEventLoop | None = None
         # Owner browser profiles through the extension. Tests override the data dirs and the launcher.
         self.browser_data_dirs: dict[str, Path] | None = None
+        from ferb.act.browser.profiles import SUPPORT
+        self.browser_support: Path = SUPPORT                 # where browsers keep their user data (tests: a temp one)
+        self._browser_files_done: tuple[Any, ...] | None = None   # what `_connect_browsers` last wrote without a failure
+        self._browser_files_lock = asyncio.Lock()
         self.browser_launch: Callable[[list[str]], None] | None = None
         self.pair_load_wait_s = 2.0                          # a profile opened just to pair gets this long to load
         self.pair_timeout_s = 60.0                           # how long a pairing page's key may take (as browsers.pair)
@@ -437,10 +446,21 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
             self.journal.append("stop.still_engaged", {})
         self._macos_task = asyncio.create_task(self._supervise("macos_events", self._macos_events))
         self._spawn(self._fresh.prime(self._permissions), "permission check")   # the planner's first turn won't wait
+        self._spawn(self._with_full_disk_access(), "browser files")
         if self.supervisor and not self.state.stopped:
             resumed = asyncio.create_task(self.supervisor.resume_plans())
             self._turns.add(resumed)
             resumed.add_done_callback(self._turns.discard)
+
+    async def _with_full_disk_access(self) -> None:
+        """DMN-507: at start, once FERB has Full Disk Access (the setup tour restarts the service after Allow all, and
+        every update starts it), what needed another app's data runs: FERB's files in every installed browser, and the
+        browser part of what FERB saw on this Mac when that was gathered before access. Without access, nothing."""
+        if not await asyncio.to_thread(self.data_access):
+            return
+        await self._connect_browsers()
+        if self.persona_scan is not None and self._mac_profile_service().needs_browser_part():
+            await self.persona.refresh()
 
     async def shutdown(self) -> None:
         self._shutting_down = True

@@ -159,16 +159,17 @@ def with_activity(rows: list[dict[str, Any]], activity: list[dict[str, Any]]) ->
 
 
 def mac_facts(rows: list[dict[str, Any]], scanned_at: str, browsers: list[str],
-              profiles: list[dict[str, Any]]) -> dict[str, Any]:
+              profiles: list[dict[str, Any]], profiles_read: bool = True) -> dict[str, Any]:
     """What code gathered, for the model to interpret: the most-used apps (use counts and last use), how many apps are
     installed and how many show use, the installed browsers and their profiles (name, signed-in account, the one used
-    last)."""
+    last). `profiles_read` False: the profiles weren't looked at yet (no Full Disk Access, DMN-507), not that there
+    are none."""
     used = [r for r in rows if (r.get('uses') or r.get('focus_events') or 0) > 0]
     ranked = sorted(used, key=lambda r: -(r.get('uses') or r.get('focus_events') or 0))
     return {'scanned_at': scanned_at, 'installed_apps': len(rows), 'apps_with_use': len(used),
             'apps': [{k: r[k] for k in ('app', 'bundle_id', 'uses', 'focus_events', 'last_used') if r.get(k) is not None}
                      for r in ranked[:TOP_APPS]],
-            'browsers': browsers, 'profiles': profiles}
+            'browsers': browsers, 'profiles': profiles, 'profiles_read': profiles_read}
 
 
 def facts_fingerprint(facts: dict[str, Any]) -> str:
@@ -184,7 +185,7 @@ def facts_fingerprint(facts: dict[str, Any]) -> str:
 
 def browser_profiles() -> list[dict[str, Any]]:
     """Each Chromium-family browser's profiles from its Local State (read only; ferb/act/browser/profiles.py): name,
-    signed-in account and whether it is the one used last."""
+    signed-in account and whether it is the one used last. Only called once FERB has Full Disk Access (DMN-507)."""
     from ferb.act.browser import profiles as bp
     out = []
     for browser in bp.installed():
@@ -195,19 +196,30 @@ def browser_profiles() -> list[dict[str, Any]]:
     return out
 
 
+def _other_app_data() -> bool:
+    from ferb.device.permissions import other_app_data
+    return other_app_data()
+
+
 async def discover_persona(home: Any, device_id: str, activity: list[dict[str, Any]],
                            excluded: frozenset[str],
-                           profiles: Callable[[], list[dict[str, Any]]] = browser_profiles) -> dict[str, Any]:
+                           profiles: Callable[[], list[dict[str, Any]]] = browser_profiles,
+                           allowed: Callable[[], bool] = _other_app_data) -> dict[str, Any]:
     """Refresh the bundle inventory and read metadata only; never launch an app or call a model (the facts for
-    `mac_profile.interpret`)."""
+    `mac_profile.interpret`). The part needing no other app's data (the apps, their use, which browsers are installed)
+    runs at once; the browsers' profiles only once FERB has Full Disk Access (`allowed`, DMN-507): before it they are
+    left out and marked not read, and the daemon gathers them again once access is there."""
     from ferb.device.profile import ProfileStore
     from ferb.device.scan import scan
     profile = scan(device_id)
     ProfileStore(home).save(profile, 'mac profile scan')
     rows = await app_usage_async([a for a in profile.apps if a.bundle_id not in excluded])
-    try:
-        found = profiles()
-    except Exception:                                    # a browser's unreadable Local State: no profiles, said
-        found = []
+    readable = await asyncio.to_thread(allowed)
+    found: list[dict[str, Any]] = []
+    if readable:
+        try:
+            found = profiles()
+        except Exception:                                # a browser's unreadable Local State: no profiles, said
+            found = []
     return mac_facts(with_activity(rows, activity), profile.scanned_at,
-                     [b.name for b in profile.browsers if b.bundle_id not in excluded], found)
+                     [b.name for b in profile.browsers if b.bundle_id not in excluded], found, profiles_read=readable)
