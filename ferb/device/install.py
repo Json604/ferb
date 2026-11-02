@@ -588,8 +588,20 @@ class Installer:
         ServiceSwitchedOff says where to switch it on."""
         if self.disabled():
             raise ServiceSwitchedOff(SWITCHED_OFF_HOW)
-        self.unload()
-        self._ok(["launchctl", "bootstrap", self.domain, str(self.plist_path)], "loading the LaunchAgent")
+        # FERB.app asks macOS to unregister a 2026-11 build's SMAppService job just before setup, and macOS finishes
+        # that a moment later: until then it can submit the job again right after the bootout, and the bootstrap fails
+        # (live 2026-11-02: "Bootstrap failed: 5"). While another definition holds the label, boot it out and load
+        # again, for up to 15 s.
+        end = time.monotonic() + 15
+        while True:
+            self.unload()
+            r = self.run(["launchctl", "bootstrap", self.domain, str(self.plist_path)])
+            if r.returncode == 0:
+                return
+            held = self.loaded() and not self._loaded_from(self.plist_path)
+            if not held or time.monotonic() >= end:
+                raise InstallError(f"loading the LaunchAgent failed: {(r.stderr or r.stdout).strip()[-400:]}")
+            time.sleep(0.5)
 
     def unload(self) -> None:
         """Stop the agent and wait, up to 10 s, until launchd has dropped it and its process has exited: launchd can

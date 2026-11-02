@@ -571,3 +571,12 @@ supersedes = ["DMN-16"]
 rule = "A checkout runs under the same label as a user LaunchAgent at the same path (-P, working folder FERB's home); each install writes its own definition there, and FERB.app asks before replacing a checkout's (APP-602). A checkout refuses to install or uninstall, before changing anything, while launchd runs FERB's label from a definition that isn't the LaunchAgent (a 2026-11 FERB.app's SMAppService registration, one check_not_foreign)."
 why = "Only FERB.app can unregister an SMAppService registration; booting it out from a checkout would leave the registration behind. FERB.app's own service is now a LaunchAgent like the checkout's (DMN-513)."
 paths = ["ferb/device/install.py::Installer.check_not_foreign", "ferb/device/install.py::Installer.foreign_service"]
+
+[DMN-517]
+title = "Setup loads the LaunchAgent again while a registration macOS is still removing holds the label"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "When the bootstrap of FERB's LaunchAgent fails while launchd runs FERB's label from another definition (a 2026-11 build's SMAppService job that macOS submitted again after the bootout, its unregister still pending), setup boots it out and bootstraps again every 0.5 s for up to 15 s; any other failure, or the label still held after 15 s, is the error with launchctl's own words."
+why = "Live 2026-11-02 on the owner's Mac: FERB.app's unregister returned, macOS put the job back between setup's bootout and bootstrap, and setup failed with \"Bootstrap failed: 5\"; Try Again worked once macOS had finished."
+paths = ["ferb/device/install.py"]

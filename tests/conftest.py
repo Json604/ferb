@@ -338,7 +338,8 @@ def make_app(root: Path, name: str, bundle_id: str | None, version: str = "1.0",
 class FakeRunner:
     """Records commands; simulates uv installing Python/venv, `npm ci` installing the pinned Codex, launchctl load state
     and the agent's process (pid 4242): it runs while loaded and for `tail` more `kill -0` probes after a bootout (a
-    slow exit; math.inf: never exits). `fail`: a command prefix that fails (an install step that breaks)."""
+    slow exit; math.inf: never exits). `fail`: a command prefix that fails (an install step that breaks). A bootstrap
+    while the label is loaded fails as launchctl's does."""
 
     def __init__(self, home: Path) -> None:
         self.home, self.cmds, self.loaded = home, [], False
@@ -349,6 +350,10 @@ class FakeRunner:
         self.stopped = False             # loaded, its process ended cleanly (`launchctl kill`), until a kickstart
         self.disabled: set[str] = set()  # labels switched off in Login Items (`launchctl print-disabled`)
         self.loaded_from: str | None = None   # what `launchctl print` names as the job's definition (`path = `)
+        # Bootouts after which macOS submits the registered job again a moment later, just before the next bootstrap
+        # (its unregister still pending): the label looks free, then the bootstrap finds it taken.
+        self.resubmits = 0
+        self._comes_back: str | None = None
 
     def __call__(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         self.cmds.append(cmd)
@@ -389,12 +394,18 @@ class FakeRunner:
             return subprocess.CompletedProcess(cmd, 0, "disabled services = {\n" + "".join(
                 f'\t"{label}" => disabled\n' for label in sorted(self.disabled)) + "}\n", "")
         elif cmd[:2] == ["launchctl", "bootstrap"]:
+            if self._comes_back is not None:
+                self.loaded, self.stopped, self.loaded_from, self._comes_back = True, False, self._comes_back, None
+            if self.loaded:                                       # the label is taken
+                return subprocess.CompletedProcess(cmd, 5, "", "Bootstrap failed: 5: Input/output error\n")
             self.loaded, self.stopped, self.loaded_from = True, False, cmd[-1]
         elif cmd[:3] == ["launchctl", "kill", "SIGTERM"]:
             self.stopped = True
         elif cmd[:2] == ["launchctl", "kickstart"]:
             self.stopped = not self.loaded
         elif cmd[:2] == ["launchctl", "bootout"]:
+            if self.loaded and self.resubmits > 0:
+                self._comes_back, self.resubmits = self.loaded_from, self.resubmits - 1
             self.loaded = False
         elif cmd[:2] == ["launchctl", "print"]:
             return subprocess.CompletedProcess(cmd, 0 if self.loaded else 113, (

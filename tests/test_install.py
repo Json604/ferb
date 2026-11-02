@@ -453,6 +453,30 @@ def test_a_2026_11_builds_registered_job_is_booted_out_and_the_launch_agent_load
     assert not r.ran("launchctl", "kickstart")
 
 
+# decision: DMN-517, DMN-513, APP-602
+def test_a_registered_job_macos_submits_again_after_the_bootout_is_retried_until_the_launch_agent_loads(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 2026-11-02 (the owner's Mac): FERB.app asked macOS to unregister a 2026-11 build's SMAppService job, but
+    macOS submitted it again right after setup's bootout, so the bootstrap failed ("Bootstrap failed: 5"). Setup boots
+    it out and loads again until the LaunchAgent holds the label; a label still held after 15 s is the error."""
+    from ferb.device.install import BUNDLE_SERVICE, InstallError
+    clock = SteppedTime()
+    monkeypatch.setattr(install_mod, "time", clock)
+    inst = bundled(tmp_path)
+    r: BundleRunner = inst.run  # type: ignore[assignment]
+    registered = str(inst.bundle / BUNDLE_SERVICE)  # type: ignore[operator]
+    r.loaded, r.loaded_from, r.resubmits = True, registered, 2
+    inst.install(update_only=True)
+    assert r.loaded and r.loaded_from == str(inst.plist_path)
+    assert r.ran("launchctl", "bootout") == 3 and r.ran("launchctl", "bootstrap") == 3 and clock.now < 15
+
+    r.loaded, r.loaded_from, r.resubmits = True, registered, 10_000     # macOS never lets go
+    start = clock.now
+    with pytest.raises(InstallError, match="Bootstrap failed: 5"):
+        inst.load()
+    assert 15 <= clock.now - start < 20 and r.loaded_from == registered
+
+
 # decision: DMN-514
 def test_a_changed_launch_agent_is_put_back_at_the_daemons_start(tmp_path: Path) -> None:
     """Rule 6: the LaunchAgent is user-writable. At start the daemon writes back a plist that isn't exactly what setup
