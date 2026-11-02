@@ -435,8 +435,8 @@ title = "Refine the remaining app experience from the whole-app playground revie
 area = "app"
 kind = "build"
 status = "open"
-why = "Startup/setup are accepted. The app window shares the accepted black-glass identity; reminders are unboxed and chat status icons are removed. The original notch handle is restored after the owner rejected the added grip. Awaiting visual and movement review. Remaining app polish precedes the site."
-decisions = ["APP-619", "APP-620", "APP-621", "APP-622", "APP-625", "APP-626", "APP-627", "APP-628", "APP-629"]
+why = "Startup/setup and rounded settings are accepted. Apply the final six-item UX review and whole-message selection in the isolated playground; await owner review before the site. Keep the original notch movement and accepted visual direction."
+decisions = ["APP-619", "APP-620", "APP-621", "APP-622", "APP-625", "APP-626", "APP-627", "APP-628", "APP-629", "APP-637"]
 
 
 [T-1005]

@@ -1460,3 +1460,13 @@ words = "why these sharp corners??? either remove or round them. or somthing bet
 rule = "Replace the old outlined form groups shown in Permissions and Privacy with the app window's soft rounded surfaces. Apply the same shared treatment to the remaining settings pages so they match the accepted window design and continuous gradient. Preserve every setting, action, confirmation and saved preference; the accepted startup/setup and original notch interaction stay unchanged."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift"]
 live = ["LIVE-698"]
+
+[APP-637]
+title = "Apply the final UX review and select whole chat messages"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "fix all above, also the image ive attaced is an example that i can copy the messagea as a whole. dont add another copy button jsut amek it copyable thw whoel message it sends or i send"
+rule = "Apply the six reviewed UX fixes: editable day counts; pending feedback and duplicate prevention for checks; ignore-list drafts kept until saved; expandable task/schedule answers; clear memory correction through chat and Not right versus Forget; native sidebar scroll indicators. Select and copy whole sent/received messages across paragraphs with formatting and safe links, without a copy button. Preserve settings values/ranges, confirmations, the accepted visuals, startup/setup and original notch movement. Review in the isolated playground."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SettingsEditors.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindowStore.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift", "ui/mac/FERBNotch/Sources/FERBNotch/MarkdownContent.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
+live = ["LIVE-703"]

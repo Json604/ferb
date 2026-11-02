@@ -283,7 +283,12 @@ struct AISettingsPage: View {
             WindowPage {
                 WindowSettingsSection { AIStepView(model: setup) }
                 WindowSettingsSection(title: "Check") {
-                    Button("Check connection") { Task { await store.checkRuntime(setup.ai?.current ?? "codex") } }
+                    Button(store.checkingRuntime ? "Checking…" : "Check connection") {
+                        Task { await store.checkRuntime(setup.ai?.current ?? "codex") }
+                    }.disabled(store.checkingRuntime || output.running)
+                    if let result = store.runtimeResult {
+                        Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
                     Button("Sign out of ChatGPT") {
                         output.run(["setup", "--codex-logout"], with: actions) { Task { await setup.refreshAI() } }
                     }
@@ -357,8 +362,8 @@ struct NotificationsSettingsPage: View {
 /// Settings → Privacy: what FERB records, the apps and sites it ignores, how long it keeps records, Pause recording.
 @MainActor
 final class PrivacySettingsDraft: ObservableObject {
-    @Published var newApp = ""
-    @Published var newSite = ""
+    let apps = SettingsListDraft()
+    let sites = SettingsListDraft()
 }
 
 struct PrivacySettingsPage: View {
@@ -379,66 +384,23 @@ struct PrivacySettingsPage: View {
                 LabeledContent("Recording now", value: store.watchers.isEmpty ? "nothing" : store.watchers.joined(separator: ", "))
             }
             WindowSettingsSection(title: "Apps FERB ignores") {
-                StringListEditor(items: store.settings.strings("privacy.exclude_apps"),
-                                 placeholder: "Bundle id or app name, e.g. com.1password.1password",
-                                 newItem: $draft.newApp) { list in Task { await store.set("privacy.exclude_apps", .strings(list)) } }
+                StringListEditor(key: "privacy.exclude_apps", placeholder: "Bundle id or app name, e.g. com.1password.1password",
+                                 store: store, draft: draft.apps)
             }
             WindowSettingsSection(title: "Sites FERB ignores") {
-                StringListEditor(items: store.settings.strings("privacy.exclude_domains"),
-                                 placeholder: "Site, e.g. bank.example.com",
-                                 newItem: $draft.newSite) { list in Task { await store.set("privacy.exclude_domains", .strings(list)) } }
+                StringListEditor(key: "privacy.exclude_domains", placeholder: "Site, e.g. bank.example.com",
+                                 store: store, draft: draft.sites)
             }
             WindowSettingsSection(title: "How long FERB keeps records") {
-                DaysStepper(title: "Activity trail", key: "sense.trail_retention_days", store: store)
-                DaysStepper(title: "Task traces", key: "retention.trace_days", store: store)
-                DaysStepper(title: "Jev decisions", key: "retention.decision_days", store: store)
-                DaysStepper(title: "Screenshots and evidence", key: "retention.evidence_days", store: store)
-                DaysStepper(title: "Recovery copies", key: "retention.recovery_days", store: store)
-                DaysStepper(title: "Resource log", key: "retention.resource_days", store: store)
-                DaysStepper(title: "Operational records", key: "retention.operational_days", store: store)
+                DaysField(title: "Activity trail", key: "sense.trail_retention_days", store: store)
+                DaysField(title: "Task traces", key: "retention.trace_days", store: store)
+                DaysField(title: "Jev decisions", key: "retention.decision_days", store: store)
+                DaysField(title: "Screenshots and evidence", key: "retention.evidence_days", store: store)
+                DaysField(title: "Recovery copies", key: "retention.recovery_days", store: store)
+                DaysField(title: "Resource log", key: "retention.resource_days", store: store)
+                DaysField(title: "Operational records", key: "retention.operational_days", store: store)
             }
         }
-    }
-}
-
-struct StringListEditor: View {
-    let items: [String]
-    let placeholder: String
-    @Binding var newItem: String
-    let save: ([String]) -> Void
-
-    var body: some View {
-        ForEach(items, id: \.self) { item in
-            HStack {
-                Text(item).textSelection(.enabled)
-                Spacer()
-                Button("Remove") { save(items.filter { $0 != item }) }
-            }
-        }
-        HStack {
-            TextField(placeholder, text: $newItem).onSubmit(add)
-            Button("Add", action: add)
-        }
-    }
-
-    private func add() {
-        let text = newItem.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        save(items + [text])
-        newItem = ""
-    }
-}
-
-struct DaysStepper: View {
-    let title: String
-    let key: String
-    @ObservedObject var store: FERBWindowStore
-
-    var body: some View {
-        let days = store.settings.int(key)
-        Stepper("\(title): \(days) day\(days == 1 ? "" : "s")",
-                value: Binding(get: { days }, set: { value in Task { await store.set(key, .int(value)) } }),
-                in: 1...Int.max)
     }
 }
 
@@ -464,7 +426,9 @@ struct AdvancedSettingsPage: View {
                 Button("Open FERB's logs folder") { NSWorkspace.shared.open(logs) }
             }
             WindowSettingsSection(title: "Health") {
-                Button("Check FERB") { Task { await store.checkHealth() } }
+                Button(store.checkingHealth ? "Checking…" : "Check FERB") { Task { await store.checkHealth() } }
+                    .disabled(store.checkingHealth)
+                if let problem = store.healthProblem { Text(problem).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
                 ForEach(store.health) { line in LabeledContent(line.name, value: line.ok ? "OK" : line.detail) }
             }
             WindowSettingsSection(title: "Diagnostic file") {

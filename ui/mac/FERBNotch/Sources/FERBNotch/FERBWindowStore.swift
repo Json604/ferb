@@ -71,6 +71,10 @@ final class FERBWindowStore: ObservableObject {
     @Published var note: String?
     /// Where Send diagnostics to developer stands, under its button: prepared, sent, or not sent and kept.
     @Published var diagnostic: ReportState?
+    @Published private(set) var checkingRuntime = false
+    @Published private(set) var runtimeResult: String?
+    @Published private(set) var checkingHealth = false
+    @Published private(set) var healthProblem: String?
 
     init(rpc: DaemonRPCTransport) {
         self.rpc = rpc
@@ -289,14 +293,16 @@ final class FERBWindowStore: ObservableObject {
     }
 
     /// Shown at once; put back if FERB refuses, and then shows what FERB stored (it may normalize it).
-    func set(_ key: String, _ value: SettingValue) async {
+    @discardableResult
+    func set(_ key: String, _ value: SettingValue) async -> Bool {
         let before = settings.values[key]
         settings.values[key] = value
         guard let reply = await ask("settings.set", ["key": key, "value": value.json]) else {
             settings.values[key] = before
-            return
+            return false
         }
         if let stored = reply["value"].flatMap(SettingValue.init) { settings.values[key] = stored }
+        return true
     }
 
     func toggle(_ key: String) -> Binding<Bool> {
@@ -320,9 +326,16 @@ final class FERBWindowStore: ObservableObject {
     }
 
     func checkRuntime(_ name: String) async {
-        guard let reply = await ask("runtimes.check", ["runtime": name], wait: Self.runtimeWait) else { return }
+        guard !checkingRuntime else { return }
+        checkingRuntime = true
+        runtimeResult = nil
+        defer { checkingRuntime = false }
+        guard let reply = await ask("runtimes.check", ["runtime": name], wait: Self.runtimeWait) else {
+            runtimeResult = problem
+            return
+        }
         let ok = reply["ok"] as? Bool ?? false
-        note = ok ? "\(name) answered." : "\(name) didn't answer: \(reply["detail"] as? String ?? "no answer")"
+        runtimeResult = ok ? "\(name) answered." : "\(name) didn't answer: \(reply["detail"] as? String ?? "no answer")"
     }
 
     func pauseRecording(_ paused: Bool) async {
@@ -331,7 +344,15 @@ final class FERBWindowStore: ObservableObject {
     }
 
     func checkHealth() async {
-        guard let reply = await ask("doctor.check", ["selftest": true], wait: Self.healthWait) else { return }
+        guard !checkingHealth else { return }
+        checkingHealth = true
+        health = []
+        healthProblem = nil
+        defer { checkingHealth = false }
+        guard let reply = await ask("doctor.check", ["selftest": true], wait: Self.healthWait) else {
+            healthProblem = problem
+            return
+        }
         health = HealthLine.lines(reply)
     }
 

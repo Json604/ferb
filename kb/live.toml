@@ -2270,3 +2270,12 @@ pass = "All settings groups use the same soft rounded fill, without the old thin
 decisions = ["APP-633", "APP-632"]
 sitting = "isolated whole-app review"
 result = "passed 2026-11-02: owner said ‘ok works’ for rounded settings; requested a fresh UX review of numeric arrows before further changes."
+
+[LIVE-703]
+title = "Final settings usability and whole-message selection"
+area = "app"
+surface = "Isolated FERB Arrival Concept, chat and app window"
+request = "Select across paragraphs in a FERB reply, then Command-A and Command-C within a sent or received message. Try typing a retention day count, Return, invalid text and Escape. Check AI and Advanced feedback, ignore-list Add, full task/schedule answers, Memory correction and sidebar scrolling."
+pass = "Whole messages select and copy with their readable text and no added button. Number fields commit valid values and retain invalid or failed drafts with feedback. Checks show pending state and prevent repeat requests. Ignore-list drafts clear only on successful save. Long answers expand in place, Memory correction opens an editable unsent chat draft, and lower sidebar destinations are discoverable. Accepted appearance, original notch movement and stored preference semantics remain intact."
+decisions = ["APP-637"]
+sitting = "isolated whole-app review"

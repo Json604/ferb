@@ -696,6 +696,20 @@ final class NotchModel: ObservableObject {
         }
     }
 
+    /// A selected memory is reference text, including imported memories. Prepare an
+    /// editable correction without sending or replacing an existing composer draft.
+    func prepareMemoryCorrection(_ memory: String) {
+        whenComposerFree { [weak self] in
+            guard let self else { return }
+            let prefix = (self.session.draft.isEmpty ? "" : "\n\n") + "Help me correct this memory:\n"
+            for (text, reference) in [(prefix, false), (memory, true), ("\n\nIt should say: ", false)] {
+                let insertion = NSRange(location: self.session.draft.utf16.count, length: 0)
+                self.pasteProvenance.edit(insertion, with: text, in: self.session.draft, pasted: reference)
+                self.session.draft += text
+            }
+        }
+    }
+
     /// What waits for dictation to let go of the composer, in order.
     private var waitingForComposer: [() -> Void] = []
 

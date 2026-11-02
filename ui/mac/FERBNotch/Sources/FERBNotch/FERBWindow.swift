@@ -36,6 +36,7 @@ struct FERBAppActions {
     let feedback: SoundFeedback
     let cursor: CursorController
     var setHoverEnabled: ((Bool) -> Void)?
+    var correctMemory: ((String) -> Void)?
     var appVersion: String? = NotchModel.appVersion
     /// Plan C's: Settings → AI, Permissions and Browsers embed its step views on this model.
     var setup: SetupModel?
@@ -179,7 +180,7 @@ struct FERBWindowView: View {
                     settingsGroup("Connections", tabs: [.ai, .browsers, .permissions])
                     settingsGroup("Manage FERB", tabs: [.privacy, .data, .advanced, .about])
                 }.padding(.horizontal, 12).padding(.bottom, 24)
-            }.scrollIndicators(.hidden)
+            }.scrollIndicators(.automatic)
         }
         .frame(width: 224)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -230,7 +231,7 @@ struct FERBWindowView: View {
         case .tasks: TasksPage(store: store)
         case .schedules: SchedulesPage(store: store)
         case .noticed: NoticedPage(store: store)
-        case .memory: MemoryPage(store: store)
+        case .memory: MemoryPage(store: store, correctMemory: actions.correctMemory)
         case .settings: SettingsView(store: store, selection: selection, actions: actions)
         }
     }
