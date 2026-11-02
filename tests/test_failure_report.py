@@ -602,12 +602,14 @@ def test_a_30_mb_trace_leaves_the_event_loop_responsive(daemon: RunningDaemon, r
             [(f"bulk-{i}", root, at, at, json.dumps({"tool": "browser.read", "args": {"tab": i}}), body)
              for i in range(3000)])
     _on_loop(daemon, seed)
+    # A blocking build or send of 30 MB freezes the loop for seconds; a slow shared 3-core VM (GitHub's runner) shows
+    # scheduling gaps up to ~0.6 s with the work off the loop, so the bound is 1 s (TEST-508, T-18).
     r, stalled = _loop_gaps(daemon, lambda: _build(daemon, "t-fail", timeout=120))
     assert Path(r["path"]).stat().st_size > 30_000_000
-    assert stalled < 0.2, f"the loop stalled {stalled:.2f} s"
+    assert stalled < 1.0, f"the loop stalled {stalled:.2f} s"
     sent, stalled = _loop_gaps(daemon, lambda: _send(daemon, r["path"], title=r["subject"]))
     assert sent["sent"] is True and sent["shortened"] is True
-    assert stalled < 0.2, f"the loop stalled {stalled:.2f} s while sending"
+    assert stalled < 1.0, f"the loop stalled {stalled:.2f} s while sending"
     [(_, _, text)] = relay.files()
     assert 24_000_000 < len(text.encode()) <= 25_000_000 and "denied: ~/Downloads is protected" in text
 
