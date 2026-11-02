@@ -14,6 +14,9 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: PanelCoordinator?
     private var appSetup: AppSetupController?
     private var controls: NSWindow?
+    private let arrival = PlaygroundArrival()
+    private var appReview: PlaygroundAppReview?
+    private let dock = DockPresence()
 
     init(home: URL, fresh: Bool) {
         self.home = home
@@ -23,6 +26,7 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMenu()
+        dock.start()
         let defaults = UserDefaults.standard              // the playground's own domain (dev.ferb.playground)
         if fresh { Self.clear(defaults) }
         let services = PlaygroundServices.make(home: home, defaults: defaults, fresh: fresh)
@@ -34,9 +38,19 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
 
         let coordinator = PanelCoordinator(model: services.notch)
         coordinator.service = services.service            // the menu's Restart: faked, never launchctl
-        let sound = PlaygroundSound(engine: FerbSoundEngine(), state: state)
+        let sound = PlaygroundSound(state: state, defaults: defaults)
+        if PlaygroundMode.usesArrival {
+            sound.onPlay = { [weak self] cue in
+                if cue == .firstLaunch {
+                    self?.arrival.show(seconds: (IntroController.firstLaunchClipSeconds() ?? 2) / state.speed)
+                } else if cue == .intro { self?.arrival.hide() }
+            }
+            sound.onStop = { [weak self] in self?.arrival.hide() }
+        }
         coordinator.model.feedback.player = sound
         self.coordinator = coordinator
+        services.opener.avoidFrame = { [weak coordinator] in coordinator?.introScreenFrame }
+        services.opener.onInteraction = { [weak coordinator] window in coordinator?.introCompanionFocused(window) }
 
         let appSetup = AppSetupController(model: services.setup, defaults: defaults)
         appSetup.introSleeper = services.sleeper
@@ -51,11 +65,28 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
         self.appSetup = appSetup
         services.opener.onQuitAndReopen = { [weak self] in self?.relaunch(reopen: true) }
 
+        let review = PlaygroundAppReview(services: services, coordinator: coordinator,
+            openReview: { [weak self] in self?.relaunch(reopen: false, appReview: true) },
+            replayIntro: { [weak self] in self?.relaunch(reopen: false) })
+        appReview = review
+        if PlaygroundMode.startsInAppReview {
+            do { try review.prepare() } catch { state.note("Could not prepare the app review: " + error.localizedDescription) }
+        }
         coordinator.start()
         showControls(services: services, coordinator: coordinator)
         // A fresh start is a new install (the whole tour, with the first-launch clip); a reopen is a set-up app whose
         // tour a quit interrupted (it resumes at its beat), exactly as FERB.app decides at launch.
-        Task { await appSetup.decideAtLaunch(fresh ? .install : .none) }
+        if PlaygroundMode.startsInAppReview {
+            Task {
+                await services.setup.refreshAI()
+                await services.setup.refreshPermissions()
+                await services.notch.refreshDaemonStatus()
+                review.play(.conversation)
+                review.show(.schedules)
+            }
+        } else {
+            Task { await appSetup.decideAtLaunch(fresh ? .install : .none) }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -66,6 +97,7 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        arrival.hide()
         appSetup?.stop()
         coordinator?.tearDown()
     }
@@ -74,13 +106,23 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
 
     /// Quits and opens the playground again: `reopen` keeps the fake world and the intro's progress (macOS's "Quit &
     /// Reopen"); otherwise everything starts fresh. The new copy starts once this one has exited.
-    func relaunch(reopen: Bool) {
+    func relaunch(reopen: Bool, comparing: Bool = false, appReview: Bool = false) {
         services?.state.note(reopen ? "quitting and reopening…" : "restarting fresh…")
         let script = "while /bin/kill -0 \(getpid()) 2>/dev/null; do /bin/sleep 0.1; done; " +
             "/usr/bin/open -n --env \"FERB_HOME=$1\" \"$0\" --args \"${@:2}\""
         let shell = Process()
         shell.executableURL = URL(fileURLWithPath: "/bin/bash")
-        shell.arguments = ["-c", script, Bundle.main.bundlePath, home.path] + (reopen ? [PlaygroundMode.reopenArgument] : [])
+        let otherName = PlaygroundMode.usesArrival ? "FERB Setup Concept.app" : "FERB Arrival Concept.app"
+        let otherHome = PlaygroundMode.usesArrival ? "ferb-setup-concept" : "ferb-arrival-concept"
+        let appPath = comparing ? Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent(otherName).path
+                                : Bundle.main.bundlePath
+        let dataPath = comparing ? home.deletingLastPathComponent().appendingPathComponent(otherHome).path : home.path
+        guard FileManager.default.fileExists(atPath: appPath) else {
+            services?.state.note("Build the other concept first: \(otherName)")
+            return
+        }
+        shell.arguments = ["-c", script, appPath, dataPath] + (reopen ? [PlaygroundMode.reopenArgument] : [])
+            + (appReview ? [PlaygroundMode.appReviewArgument] : [])
         do { try shell.run() } catch {
             services?.state.note("couldn't relaunch: \(error.localizedDescription)")
             return
@@ -120,7 +162,7 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
     /// the notch was placed (the panel's Notch setting, the product's own `notch.*` keys).
     private static func clear(_ defaults: UserDefaults) {
         let keep = (defaults.persistentDomain(forName: PlaygroundMode.bundleID) ?? [:])
-            .filter { $0.key.hasPrefix("NSWindow Frame Playground") || $0.key.hasPrefix("notch.") }
+            .filter { $0.key.hasPrefix("NSWindow Frame Playground") || $0.key.hasPrefix("notch.") || $0.key.hasPrefix("concept.") }
         defaults.setPersistentDomain(keep, forName: PlaygroundMode.bundleID)
     }
 
@@ -146,19 +188,29 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
     private func showControls(services: PlaygroundServices, coordinator: PanelCoordinator) {
         let actions = PlaygroundActions(
             restartFresh: { [weak self] in self?.relaunch(reopen: false) },
-            quitAndReopen: { [weak self] in self?.relaunch(reopen: true) },
+            quitAndReopen: { [weak self] in self?.relaunch(reopen: true, appReview: services.state.exploringApp) },
             jump: { [weak self] beat, complete in self?.jump(to: beat, completeEarlier: complete) },
             restartService: { Task { _ = await services.service.restart() } },
             control: { [weak coordinator] control in coordinator?.introControls.saw(control) },
             stopPreview: { services.notch.introAction(.stopPreview) },
-            skip: { services.notch.introAction(.skip) },
             openNotch: { [weak coordinator] in coordinator?.showFromMenu() },
             closeNotch: { services.notch.collapse() },
             place: { [weak self] placement, display in self?.place(placement, display: display) },
-            line: { services.notch.introLine.map { [$0.text, $0.detail ?? ""].filter { !$0.isEmpty }.joined(separator: " — ") } })
+            line: { services.notch.introLine.map { [$0.text, $0.detail ?? ""].filter { !$0.isEmpty }.joined(separator: " — ") } },
+            compareStartup: { [weak self] in self?.relaunch(reopen: false, comparing: true) },
+            exploreApp: { [weak self] in self?.relaunch(reopen: false, appReview: true) },
+            showSection: { [weak self] section in self?.appReview?.show(section) },
+            showScene: { [weak self] scene in self?.appReview?.play(scene) },
+            finishTask: { services.daemon.workspace.finishRunning() },
+            showTaskPreview: { [weak self] in self?.appReview?.showPreview() },
+            previewSetup: { [weak self] in
+                self?.arrival.hide()
+                self?.appSetup?.repair(.none)
+                services.setup.go(.ai)
+            })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 820),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "FERB Intro Playground — controls (not part of FERB)"
+        window.title = services.state.exploringApp ? "FERB app playground — controls" : PlaygroundMode.usesArrival ? "Arrival concept — controls" : "Notch concept — controls"
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: PlaygroundPanel(state: services.state, actions: actions))
         if !window.setFrameUsingName("PlaygroundControls"), let screen = NSScreen.main {

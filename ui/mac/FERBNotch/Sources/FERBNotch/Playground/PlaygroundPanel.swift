@@ -11,17 +11,24 @@ struct PlaygroundActions {
     var restartService: () -> Void
     var control: (IntroControl) -> Void
     var stopPreview: () -> Void
-    var skip: () -> Void
     var openNotch: () -> Void
     var closeNotch: () -> Void
     var place: (PlaygroundPlacement, CGDirectDisplayID?) -> Void
     var line: () -> String?
+    var compareStartup: () -> Void = {}
+    var exploreApp: () -> Void = {}
+    var showSection: (FERBSection) -> Void = { _ in }
+    var showScene: (PlaygroundChatScenario) -> Void = { _ in }
+    var finishTask: () -> Void = {}
+    var showTaskPreview: () -> Void = {}
+    var previewSetup: () -> Void = {}
 }
 
 /// The playground's control panel: a plain window, deliberately not styled like FERB. Functional, not pretty.
 struct PlaygroundPanel: View {
     @ObservedObject var state: PlaygroundState
     let actions: PlaygroundActions
+    @AppStorage("concept.arrivalStyle") private var arrivalStyle = StartupStudy.gravityDense.rawValue
     @State private var completeEarlier = true
     @State private var placement: PlaygroundPlacement = .edge(.right)
     @State private var display: CGDirectDisplayID?
@@ -29,7 +36,9 @@ struct PlaygroundPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                intro
+                appReview
+                Divider()
+                DisclosureGroup("Startup & setup") { intro }
                 Divider()
                 permissions
                 Divider()
@@ -53,11 +62,57 @@ struct PlaygroundPanel: View {
         }
     }
 
+    private var appReview: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Explore FERB").font(.title2.bold())
+            Text("Real app screens with sample data. Messages and actions are simulated.")
+                .font(.caption).foregroundStyle(.secondary)
+            if !state.exploringApp {
+                Button("Open app playground") { actions.exploreApp() }
+            } else {
+                HStack {
+                    Button("Open notch / chat") { actions.openNotch() }
+                    Button("Close notch") { actions.closeNotch() }
+                }
+                Text("App window").font(.headline)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading) {
+                    ForEach(FERBSection.allCases) { section in
+                        Button(section.title) { actions.showSection(section) }
+                    }
+                    Button("Task preview") { actions.showTaskPreview() }
+                }
+                Text("Notch & message states").font(.headline)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading) {
+                    ForEach(PlaygroundChatScenario.allCases) { scene in
+                        Button(scene.rawValue) { actions.showScene(scene) }
+                    }
+                }
+                Button("Finish running sample tasks") { actions.finishTask() }
+                Text("You can type in the chat too. Replies use the last selected sample state. Restart the app playground to reset its records.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Reset app playground") { actions.exploreApp() }
+            }
+        }
+        .buttonStyle(.bordered)
+    }
+
     // MARK: Intro
 
     private var intro: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Intro").font(.headline)
+            Text(PlaygroundMode.usesArrival ? "Logo reveal entrance" : "Notch entrance").font(.headline)
+            Button(PlaygroundMode.usesArrival ? "Try notch-only entrance" : "Try logo reveal entrance") {
+                actions.compareStartup()
+            }
+            if PlaygroundMode.usesArrival {
+                Picker("Startup study", selection: $arrivalStyle) {
+                    ForEach(StartupStudy.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                Text((StartupStudy(rawValue: arrivalStyle) ?? .gravityDense).note)
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Play selected study from the top") { actions.restartFresh() }
+            }
+            Button("Review setup window") { actions.previewSetup() }
             TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Beat: " + beatName(IntroProgress(defaults: .standard).resumeBeat)).font(.callout.monospaced())
@@ -67,7 +122,6 @@ struct PlaygroundPanel: View {
             HStack {
                 Button("Restart from the top") { actions.restartFresh() }
                 Button("Quit & reopen FERB") { actions.quitAndReopen() }
-                Button("Skip") { actions.skip() }
             }
             Text("Jump to (quits and reopens at that beat):").font(.caption)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 88))], alignment: .leading, spacing: 6) {
@@ -175,6 +229,9 @@ struct PlaygroundPanel: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Look").font(.headline)
             Toggle("Sound", isOn: $state.saved.soundOn)
+            Toggle("Simulate a call (quiet sounds)", isOn: $state.simulatesCall)
+            Text("Microphone activity is simulated. Mac sound settings still apply.")
+                .font(.caption).foregroundStyle(.secondary)
             Picker("Speed", selection: Binding(get: { state.saved.speed }, set: { state.setSpeed($0) })) {
                 ForEach([0.25, 0.5, 1.0, 2.0, 4.0], id: \.self) { Text("\($0, specifier: "%g")×").tag($0) }
             }.pickerStyle(.segmented)
@@ -212,7 +269,7 @@ struct PlaygroundPanel: View {
         switch beat {
         case .meet: return "Meet"
         case .signIn: return "Sign in"
-        case .permissions: return "Allow all"
+        case .permissions: return "Permissions"
         case .browsers: return "Browsers"
         case .identity: return "Email"
         case .tryIt: return "Try"

@@ -9,13 +9,18 @@ import NotchCore
 /// FERB.app (`com.ferb.FERB`) or the development notch (`dev.ferb.notch`). Nothing real is behind it: no daemon socket,
 /// no ~/.ferb, no Keychain, no Sparkle, no login item or background service, no permission request, no network.
 enum PlaygroundMode {
-    static let bundleID = "dev.ferb.playground"
+    static let conceptID = "dev.ferb.playground.concept"
+    static let arrivalID = "dev.ferb.playground.arrival"
+    static var bundleID: String { Bundle.main.bundleIdentifier == arrivalID ? arrivalID : conceptID }
+    static var usesArrival: Bool { Bundle.main.bundleIdentifier == arrivalID }
     /// Keeps the playground's state across a simulated quit and reopen; without it a launch starts fresh.
     static let reopenArgument = "--reopen"
+    static let appReviewArgument = "--app"
+    static var startsInAppReview: Bool { CommandLine.arguments.contains(appReviewArgument) }
 
     static var requested: Bool { isPlayground(bundleID: Bundle.main.bundleIdentifier) }
 
-    static func isPlayground(bundleID: String?) -> Bool { bundleID == Self.bundleID }
+    static func isPlayground(bundleID: String?) -> Bool { bundleID == conceptID || bundleID == arrivalID }
 
     /// Runs the playground app and never returns. A home that is (or holds, or is inside) the real ~/.ferb is refused
     /// before anything else runs.
@@ -54,7 +59,7 @@ enum PlaygroundHome {
         case refused(String)
     }
 
-    static let folderName = "ferb-playground"
+    static let folderName = "ferb-setup-concept"
 
     static func resolve(given: String?, account: String?, temporary: URL) -> Outcome {
         guard let account, !account.isEmpty else {
@@ -109,6 +114,7 @@ struct PlaygroundServices {
     let opener: PlaygroundSettingsOpener
     let service: PlaygroundService
     let sleeper: PlaygroundSleeper
+    let poster: NotificationPoster
 
     /// `fresh`: a new run (the saved state is dropped); otherwise the state a quit left is read back.
     static func make(home: URL, defaults: UserDefaults, fresh: Bool) -> PlaygroundServices {
@@ -124,8 +130,19 @@ struct PlaygroundServices {
         // switch that applies only after a restart (the faked restart), as on a real Mac.
         setup.frontmostApp = { [weak opener] in opener?.visibleFrame != nil ? SettingsAnchor.bundleID : PlaygroundMode.bundleID }
         let notch = NotchModel(rpc: daemon, preferences: defaults, microphone: PlaygroundMicrophone())
+        let poster = NotificationPoster(center: PlaygroundNotificationCenter(state: state), settle: .zero)
+        poster.sounds = notch.feedback
+        poster.configure(notchShowing: { [weak notch] in
+            guard let notch else { return false }
+            return (notch.bodyVisible || notch.compactPlanText != nil) && !notch.isYielded
+        },
+                         open: { [weak notch] in notch?.open($0) })
+        poster.onReminder = { [weak notch] item in
+            if case .reminder(let id) = item.target { notch?.receiveReminder(id: id, text: item.body) }
+        }
+        daemon.workspace.onNotification = { [weak poster] in poster?.receive($0) }
         let services = PlaygroundServices(home: home, state: state, daemon: daemon, setup: setup, notch: notch,
-                                          opener: opener, service: service, sleeper: PlaygroundSleeper(state: state))
+                                          opener: opener, service: service, sleeper: PlaygroundSleeper(state: state), poster: poster)
         services.applySpeed()
         return services
     }

@@ -9,6 +9,8 @@ import Foundation
 public enum NotchYieldReason: Hashable, Sendable, CaseIterable {
     /// FERB's own file picker is open.
     case filePicker
+    /// An intro companion window the owner is interacting with (including a same-process preview).
+    case introCompanion
     /// Another process's menu, popover or floating window overlaps where FERB is drawn.
     case foreignOverlay
     /// The owner is working in another app and one of its windows lies under the pinned chat.
@@ -46,6 +48,7 @@ public struct NotchYield: Equatable, Sendable {
     @discardableResult
     public mutating func endWindowReasons() -> Bool {
         let wasActive = isActive
+        reasons.remove(.introCompanion)
         reasons.remove(.foreignOverlay)
         reasons.remove(.activeAppUnderPinnedChat)
         return wasActive != isActive

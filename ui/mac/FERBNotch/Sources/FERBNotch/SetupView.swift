@@ -1,34 +1,101 @@
 import SwiftUI
 import NotchCore
 
-/// FERB.app's setup window (L34 C): one title, two lines, one primary button, progress dots. Bare minimum on purpose;
-/// the owner styles it later.
+/// Setup uses the notch's black glass, typography and quiet controls.
 struct SetupView: View {
     @ObservedObject var model: SetupModel
+    var close: () -> Void = {}
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            switch model.step {
-            case .welcome: WelcomeStep(model: model)
-            case .ai: AIStepView(model: model)
-            case .permissions: PermissionsStepView(model: model)
-            case .browsers: BrowsersStepView(model: model)
-            case .identity: IdentityStepView(model: model)
-            case .persona: PersonaStep(model: model)
-            case .done: DoneStep()
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(spacing: 9) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
+                    .resizable().frame(width: 26, height: 26)
+                Text("ferb.").font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Text("MAKE YOURSELF AT HOME").font(.system(size: 9, weight: .medium)).tracking(1.6)
+                    .foregroundStyle(.white.opacity(0.45))
+                Button(action: close) { Image(systemName: "xmark").font(.system(size: 11, weight: .medium)) }
+                    .buttonStyle(FerbButtonStyle(quiet: true)).help("Close setup")
             }
-            Spacer(minLength: 0)
+            .padding(.bottom, 6)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                switch model.step {
+                case .welcome: WelcomeStep(model: model)
+                case .ai: AIStepView(model: model)
+                case .permissions: PermissionsStepView(model: model).frame(minHeight: 380)
+                case .browsers: BrowsersStepView(model: model).frame(minHeight: 380)
+                case .identity: IdentityStepView(model: model)
+                case .persona: PersonaStep(model: model)
+                case .done: DoneStep()
+                }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.scrollIndicators(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             if let message = model.message { Text(message).font(.callout).foregroundStyle(.secondary) }
             HStack {
-                SetupDots(current: model.step)
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("\(model.step.rawValue + 1) / \(SetupStep.allCases.count)")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
+                    SetupDots(current: model.step)
+                }
                 Spacer()
-                Button(model.primaryTitle) { Task { await model.primary() } }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(model.primaryDisabled)
+                Button { Task { await model.primary() } } label: {
+                    HStack(spacing: 24) {
+                        Text(model.primaryTitle)
+                        Image(systemName: "arrow.right").font(.system(size: 12, weight: .medium))
+                    }
+                }
+                .buttonStyle(SetupActionStyle(primary: true))
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.primaryDisabled)
             }
         }
-        .padding(24)
-        .frame(width: 560, height: 500)
+        .padding(32)
+        .frame(width: 560, height: 550)
+        .buttonStyle(SetupActionStyle())
+        .textFieldStyle(SetupFieldStyle())
+        .foregroundStyle(.white.opacity(0.92))
+        .background {
+            SetupGlass()
+                .overlay(LinearGradient(colors: [.black.opacity(0.98), .black.opacity(0.55)],
+                                        startPoint: .top, endPoint: .bottom))
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
+struct SetupGlass: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
+struct SetupActionStyle: ButtonStyle {
+    var primary = false
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .medium))
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .foregroundStyle(primary ? Color.black : Color.white.opacity(0.9))
+            .background(primary ? Color.white.opacity(0.94) : Color.white.opacity(0.07),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .opacity(enabled ? (configuration.isPressed ? 0.65 : 1) : 0.3)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+struct SetupFieldStyle: TextFieldStyle {
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        configuration.textFieldStyle(.plain).padding(12)
+            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -47,8 +114,8 @@ struct StepHeader: View {
     let title: String
     let lines: [String]
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.title2).bold()
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.system(size: 26, weight: .semibold)).tracking(-0.6)
             ForEach(lines, id: \.self) { Text($0).foregroundStyle(.secondary) }
         }
     }
@@ -83,25 +150,44 @@ struct AIStepView: View {
     @State private var key = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StepHeader(title: "Choose your AI", lines: ["FERB thinks with an AI service you already use.",
-                                                        "Pick one; you can change it later."])
-            if let current = model.ai?.current { Text("FERB uses: \(AISnapshot.label(current))").font(.callout) }
-            HStack {
-                Button(model.signingIn ? "Waiting for your browser…" : "Sign in with ChatGPT") { model.signInWithChatGPT() }
-                    .disabled(model.signingIn)
-                if model.signingIn { Button("Cancel") { model.cancelSignIn() } }
-                if model.ai?.usable("codex") == true { Text("Signed in").foregroundStyle(.secondary) }
-            }
-            ClaudeSignInRow(model: model)
-            HStack {
-                Picker("API key", selection: $provider) {
-                    ForEach(APIProvider.allCases) { Text($0.label).tag($0) }
+        VStack(alignment: .leading, spacing: 22) {
+            StepHeader(title: "A mind for your Mac.", lines: ["Connect the AI service you already use."])
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("ChatGPT").font(.system(size: 16, weight: .semibold))
+                        Text("Connect through your ChatGPT account").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if model.ai?.usable("codex") == true {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    }
                 }
-                .frame(width: 190)
-                SecureField("Paste your key", text: $key).onSubmit(saveKey)     // Enter saves (2026-10-27)
-                Button("Save", action: saveKey).disabled(key.isEmpty)
+                HStack {
+                    Button(model.signingIn ? "Waiting for your browser…" : "Sign in with ChatGPT") { model.signInWithChatGPT() }
+                        .disabled(model.signingIn)
+                    if model.signingIn { Button("Cancel") { model.cancelSignIn() } }
+                }
             }
+            .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Claude").font(.system(size: 16, weight: .semibold))
+                ClaudeSignInRow(model: model)
+            }
+            .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+            DisclosureGroup("Other ways to connect") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Provider", selection: $provider) {
+                        ForEach(APIProvider.allCases) { Text($0.label).tag($0) }
+                    }
+                    HStack {
+                        SecureField("Paste your API key", text: $key).onSubmit(saveKey)
+                        Button("Save", action: saveKey).disabled(key.isEmpty)
+                    }
+                }.padding(.top, 10)
+            }.font(.system(size: 12)).tint(.white.opacity(0.6))
             if let line = model.aiMessage { Text(line).font(.callout) }
         }
     }
@@ -120,11 +206,11 @@ struct PermissionsStepView: View {
         VStack(alignment: .leading, spacing: 10) {
             StepHeader(title: "Let FERB work on your Mac", lines: ["Allow these once and FERB has everything it needs.",
                                                                    "Each row ticks itself when it's on."])
-            if !SetupModel.allowAllOrder(model.setupRows).isEmpty {
-                Button(model.allowingAll ? "Allowing… flip each switch as it opens" : "Allow all") {
-                    Task { await model.allowAll() }
+            if !SetupModel.quickPermissionOrder(model.setupRows).isEmpty {
+                Button(model.allowingAll ? "Follow the permission prompts…" : "Set up quick permissions") {
+                    Task { await model.allowQuickPermissions() }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(SetupActionStyle(primary: true))
                 .disabled(model.allowingAll)
             }
             if model.notificationHint {

@@ -1,10 +1,45 @@
 import XCTest
 import CoreGraphics
+import SwiftUI
 @testable import FERBNotch
 @testable import NotchCore
 
 @MainActor
 final class IntroNarrationTests: XCTestCase {
+    // decision: APP-616
+    func testSurfaceFitsTheRenderedLineWithoutAnEmptyFooter() throws {
+        let model = NotchModel(preferences: scratchDefaults())
+        let lines = [IntroCopy.hello, IntroCopy.signIn, IntroCopy.pasteKey(.anthropic),
+                     IntroCopy.suggest(["Find files I could tidy up on my Mac.",
+                        "Compare three well-reviewed electric kettles on the web and tell me which is the best value."])]
+        for width: CGFloat in [360, 420, 540] {
+            model.preferredPanelWidth = width
+            for interactive in [false, true] {
+                model.onIntroAction = interactive ? { _ in } : nil
+                for (contentWidth, inset) in [(width, IntroNarrationView.surfaceInset),
+                                               (width - 50, IntroNarrationView.chatInset)] {
+                    for line in lines {
+                        let renderer = ImageRenderer(content: IntroNarrationView(line: line, cameraSpace: 0,
+                            act: model.introActions, inset: inset).frame(width: contentWidth))
+                        let rendered = CGFloat(try XCTUnwrap(renderer.cgImage).height)
+                        XCTAssertEqual(model.introContentHeight(line, width: contentWidth, inset: inset), rendered, accuracy: 4,
+                                       "width=\(contentWidth), interactive=\(interactive), line=\(line.text)")
+                    }
+                }
+            }
+        }
+    }
+
+    func testPermissionOverviewMakesRoomForEveryGrant() {
+        let model = NotchModel(preferences: scratchDefaults())
+        let basic = IntroLine(text: "Permissions")
+        var overview = basic
+        overview.checklist = (0..<7).map {
+            IntroChecklistItem(id: "grant-\($0)", title: "Permission \($0)", detail: "Why", complete: false)
+        }
+        XCTAssertGreaterThanOrEqual(model.introContentHeight(overview) - model.introContentHeight(basic), 7 * 32)
+    }
+
     // decision: APP-501
     func testSettingAnIntroLineSwellsTheNotchToShowItWithoutOpeningTheChat() {
         let model = NotchModel(preferences: scratchDefaults())
@@ -40,7 +75,7 @@ final class IntroNarrationTests: XCTestCase {
         XCTAssertNil(model.introDisplayLine)
     }
 
-    // decision: APP-516
+    // decision: APP-618
     func testTearDownDuringAFlightLeavesNoOrbAndSchedulesNoMoreSound() async {
         let surface = FakeOrbSurface()
         let sound = FakeSoundPlayer()

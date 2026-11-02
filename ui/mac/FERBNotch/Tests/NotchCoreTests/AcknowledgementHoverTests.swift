@@ -55,4 +55,46 @@ final class AcknowledgementHoverTests: XCTestCase {
         XCTAssertEqual(restored.conversation.turns.first?.plan, "New acknowledgement")
     }
 
+    // decision: APP-624
+    func testPlanningPreviewGetsSixSecondsFromItsFinalText() async {
+        var waits: [Duration] = []
+        let sleeping = expectation(description: "Expiry waits")
+        let expired = expectation(description: "Preview expired")
+        var release: CheckedContinuation<Void, Error>?
+        let notice = AcknowledgementNotice(sleep: { duration in
+            waits.append(duration)
+            try await withCheckedThrowingContinuation { release = $0; sleeping.fulfill() }
+        })
+        notice.changed = { if $0 == nil { expired.fulfill() } }
+        let turn = UUID()
+        notice.append("Checking", turn: turn)
+        await Task.yield()
+        XCTAssertTrue(waits.isEmpty)
+        notice.finish("Checking the brief.", turn: turn)
+        await fulfillment(of: [sleeping], timeout: 1)
+        XCTAssertEqual(waits, [.seconds(6)])
+        XCTAssertEqual(notice.text, "Checking the brief.")
+        release?.resume()
+        await fulfillment(of: [expired], timeout: 1)
+        XCTAssertNil(notice.text)
+    }
+
+    // decision: APP-624
+    func testReminderDoesNotExpireOrDisappearOnPassiveDismissal() async {
+        var waits = 0
+        let notice = AcknowledgementNotice(sleep: { _ in waits += 1 })
+        let card = ResultCard(["type": "reminder", "title": "Morning brief"])!
+        notice.show("Your brief is ready.", reminder: card)
+        await Task.yield()
+        XCTAssertEqual(waits, 0)
+        notice.dismissTransient()
+        notice.show("A planning preview")
+        notice.append("A streamed plan", turn: UUID())
+        XCTAssertEqual(notice.text, "Your brief is ready.")
+        XCTAssertEqual(notice.reminderCard, card)
+        notice.dismiss()
+        XCTAssertNil(notice.text)
+        XCTAssertNil(notice.reminderCard)
+    }
+
 }

@@ -37,21 +37,29 @@ struct ProfileMenuButton: NSViewRepresentable {
         @objc func showMenu(_ button: NSButton) {
             let menu = NSMenu()
             menu.autoenablesItems = false
+            add("Open app window", to: menu) { [model] in model.onOpenWindow?() }
             add("Conversation history", to: menu, action: model.history)
             add("Settings…", to: menu, key: ",") { [model] in model.onSettings?() }
             if model.session.phase == .result {
                 menu.addItem(.separator())
                 add("Reveal in Finder", to: menu, action: model.revealDocument)
             }
+            if !model.runningTasks.isEmpty {
+                menu.addItem(.separator())
+                for (taskID, goal) in model.runningTasks.sorted(by: { $0.key < $1.key }) {
+                    add("Running: " + goal, to: menu) { [model] in model.selectRunningTask(taskID) }
+                }
+            }
             menu.addItem(.separator())
-            add(model.connectionStatus, to: menu, enabled: false) {}
-            add("Reconnect to FERB", to: menu) { [model] in
+            let connection = NSMenuItem(title: model.connectionStatus, action: nil, keyEquivalent: "")
+            let connectionMenu = NSMenu()
+            add("Reconnect to FERB", to: connectionMenu) { [model] in
                 model.disconnectDaemon()
                 model.connectDaemon()
             }
-            for (taskID, goal) in model.runningTasks.sorted(by: { $0.key < $1.key }) {
-                add("Running: " + goal, to: menu) { [model] in model.selectRunningTask(taskID) }
-            }
+            connection.submenu = connectionMenu
+            menu.addItem(connection)
+            menu.addItem(.separator())
             add("Hide FERB", to: menu) { [model] in model.collapse() }
             add("Quit FERB", to: menu) { NSApplication.shared.terminate(nil) }
             model.setProfileMenuOpen(true)

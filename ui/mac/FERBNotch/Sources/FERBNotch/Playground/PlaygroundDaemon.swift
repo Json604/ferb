@@ -8,6 +8,8 @@ import NotchCore
 final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
     let state: PlaygroundState
 
+    @MainActor lazy var workspace = PlaygroundWorkspace(state: state)
+
     init(state: PlaygroundState) { self.state = state }
 
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
@@ -20,8 +22,14 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
 
     func stream(_ method: String, params: [String: Any]) -> AsyncThrowingStream<[String: Any], Error> {
         AsyncThrowingStream { continuation in
+            let listenerID = UUID()
             let run = Task { @MainActor [weak self] in
                 guard let self else { return continuation.finish() }
+                guard !Task.isCancelled else { continuation.finish(); return }
+                if method == "logs.subscribe" {
+                    self.workspace.listeners[listenerID] = continuation
+                    return
+                }
                 do {
                     try await self.events(method, params) { continuation.yield($0) }
                     continuation.finish()
@@ -29,7 +37,10 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
                     continuation.finish(throwing: error)
                 }
             }
-            continuation.onTermination = { _ in run.cancel() }
+            continuation.onTermination = { [weak self] _ in
+                run.cancel()
+                Task { @MainActor in self?.workspace.listeners.removeValue(forKey: listenerID) }
+            }
         }
     }
 
@@ -43,6 +54,7 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
     @MainActor
     private func answer(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
         if !Self.quiet.contains(method) { state.note("daemon ← \(method) \(Self.describe(params))") }
+        if let reply = try workspace.answer(method, params) { return reply }
         var s = state.saved
         switch method {
         case "ping", "auth.hello":
@@ -134,7 +146,7 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             return ["suggestions": Self.suggestions.map { ["request": $0.request, "app": $0.app] },
                     "fits": s.scanSeesSomething]
         default:
-            return ["ok": true]
+            throw DaemonRPCError.remote("This operation is not simulated in the playground: " + method)
         }
     }
 
@@ -167,6 +179,10 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             }
             yield(["type": "done", "preview": true, "request_id": id])
         case "chat.send":
+            if workspace.enabled {
+                try await workspace.chat(params["text"] as? String ?? "", yield: yield)
+                return
+            }
             // "Do it for real" after Home, or anything typed in the notch: nothing runs in the playground.
             let id = "playground-" + UUID().uuidString.prefix(8)
             state.note("daemon ← chat.send (nothing runs in the playground)")

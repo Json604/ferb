@@ -18,11 +18,15 @@ final class OrbPanel: NSPanel, OrbSurface {
     let state = OrbViewState()
     private let card = OrbCardPanel()
     private var center = CGPoint.zero
+    var onDropAccepted: (() -> Void)? {
+        get { card.cardView.onDropAccepted }
+        set { card.cardView.onDropAccepted = newValue }
+    }
 
     init() {
         super.init(contentRect: CGRect(origin: .zero, size: Self.canvas), styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: true)
-        title = "FERB orb"
+        title = "FERB guide"
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
@@ -50,8 +54,7 @@ final class OrbPanel: NSPanel, OrbSurface {
     func place(center: CGPoint) {
         self.center = center
         setFrameOrigin(CGPoint(x: center.x - Self.canvas.width / 2, y: center.y - Self.canvas.height / 2))
-        card.setFrameOrigin(CGPoint(x: center.x - OrbCardPanel.size.width / 2,
-                                    y: center.y - OrbCardPanel.size.height / 2))
+        placeLogo()
         if state.instruction != nil { updateBubbleSide() }
     }
 
@@ -59,6 +62,7 @@ final class OrbPanel: NSPanel, OrbSurface {
         state.scale = scale
         state.opacity = opacity
         card.alphaValue = opacity
+        placeLogo()
     }
 
     func setInstruction(_ line: IntroLine?) {
@@ -69,19 +73,26 @@ final class OrbPanel: NSPanel, OrbSurface {
     func setDragItem(_ url: URL?) {
         card.cardView.url = url
         state.holding = url != nil
-        if url != nil, isVisible { showCard() } else if url == nil { hideCard() }
+        card.ignoresMouseEvents = url == nil
     }
 
     func setWaiting(_ waiting: Bool) { state.waiting = waiting }
 
     func show() {
         orderFrontRegardless()
-        if card.cardView.url != nil { showCard() }
+        showCard()
     }
 
     func hide() {
         hideCard()
         orderOut(nil)
+    }
+
+    private func placeLogo() {
+        let width = OrbCardPanel.size.width * state.scale
+        let height = OrbCardPanel.size.height * state.scale
+        card.setFrame(CGRect(x: center.x - width / 2, y: center.y - height / 2,
+                             width: width, height: height), display: true)
     }
 
     private func showCard() {
@@ -110,13 +121,13 @@ final class OrbPanel: NSPanel, OrbSurface {
 /// The small window holding the draggable FERB icon: the only part of the orb that takes the mouse. It never becomes
 /// key and never activates FERB.
 final class OrbCardPanel: NSPanel {
-    static let size = CGSize(width: 40, height: 40)
+    static let size = OrbController.size
     let cardView = DragCardView(frame: CGRect(origin: .zero, size: OrbCardPanel.size))
 
     init() {
         super.init(contentRect: CGRect(origin: .zero, size: Self.size), styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: true)
-        title = "FERB orb icon"
+        title = "FERB logo"
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
@@ -127,6 +138,7 @@ final class OrbCardPanel: NSPanel {
         collectionBehavior = OrbPanel.overlayBehavior
         animationBehavior = .none
         contentView = cardView
+        ignoresMouseEvents = true
     }
 
     override var canBecomeKey: Bool { false }

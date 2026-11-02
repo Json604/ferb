@@ -69,10 +69,8 @@ final class SetupModel: ObservableObject {
     /// "ask when first needed, like Claude and ChatGPT"); Settings → Permissions lists them all.
     static let askedAtSetup: Set<String> = ["accessibility", "screen_recording", "full_disk_access", "input_monitoring",
                                             "notifications", "microphone", "clipboard"]
-    /// "Allow all" (owner 2026-10-26: "lets just have them all at the start only with the one allow all"): every setup
-    /// row not yet on, one-click popups first; Screen Recording last, since macOS restarts FERB after it (setup reopens
-    /// on this page). Automation can't be granted ahead (macOS asks per app at first use).
-    /// Notifications late (2026-10-27): its banner is answered whenever the owner gets to it, and nothing waits on it.
+    /// Stable order for the required setup grants. Quick grouping uses each row's restart requirement.
+    /// Automation is requested per app on first use; Notifications never blocks on its unanswered banner.
     static let allowAllSequence = ["microphone", "clipboard", "input_monitoring",
                                    "accessibility", "full_disk_access", "notifications", "screen_recording"]
     /// Answered in macOS's own popup: no wait for a switch afterwards.
@@ -80,15 +78,19 @@ final class SetupModel: ObservableObject {
     static func allowAllOrder(_ rows: [PermissionRow]) -> [String] {
         allowAllSequence.filter { id in rows.contains { $0.id == id && $0.status != .granted && $0.blocked.isEmpty } }
     }
+    /// Batch only the permissions whose grant does not need a restart; the rest are individual visits.
+    static func quickPermissionOrder(_ rows: [PermissionRow]) -> [String] {
+        allowAllOrder(rows).filter { id in rows.contains { $0.id == id && !$0.restartToCheck } }
+    }
     @Published private(set) var allowingAll = false
 
     /// Each setup permission in turn: macOS's own request and its pane, then a wait until the row ticks (polled), before
     /// the next. The owner can stop by closing the pane; a row still off after its wait is left for its own Grant.
-    func allowAll() async {
+    func allowQuickPermissions() async {
         guard !allowingAll else { return }
         allowingAll = true
         defer { allowingAll = false }
-        for id in Self.allowAllOrder(setupRows) {
+        for id in Self.quickPermissionOrder(setupRows) {
             guard let row = allRows.first(where: { $0.id == id }) else { continue }
             if Self.answeredInPopup.contains(id) { await grant(row); continue }
             _ = await grantAndConfirm(row, polls: 120)    // up to 3 minutes for the owner to flip this one switch

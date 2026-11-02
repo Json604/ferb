@@ -210,14 +210,16 @@ final class IntroControllerTests: XCTestCase {
     func testEachListPermissionFliesTheOrbAndWaitsForTheSystem() async {
         let t = tour()
         let off = SetupReplies.permissions(accessibility: "denied", fda: "granted")
-        t.rig.rpc.queue("setup.permissions", [off, off, off, off])      // on at the third poll after the grant
+        t.rig.rpc.replies["setup.permissions"] = off
         t.controller.start(beats: [.permissions, .home])
-        await t.pick("allowAll")
+        await t.pick("permissions.next")
         await eventually { t.orb.docks.count == 1 }
         XCTAssertEqual(t.orb.docks[0].url, URL(fileURLWithPath: SetupReplies.agent))   // the agent app to drag
         XCTAssertNotNil(t.orb.docks[0].instruction)
         XCTAssertTrue(t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_Accessibility") })
         XCTAssertNotNil(t.orb.onHomeArrival)                              // the notch swells as it takes the orb back
+        t.rig.rpc.queue("setup.permissions", [off, off, off])
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
         await eventually { t.progress.done }
         XCTAssertTrue(t.rig.rpc.queued["setup.permissions"]?.isEmpty ?? true)   // every poll before it was seen
         XCTAssertGreaterThanOrEqual(t.rig.rpc.params(of: "setup.permissions").count, 5)
@@ -232,15 +234,13 @@ final class IntroControllerTests: XCTestCase {
         t.rig.app.microphoneStatus = .notDetermined
         t.rig.app.microphoneAnswer = .denied
         t.controller.start(beats: [.permissions, .home])
-        await t.pick("allowAll")
-        await eventually { t.notch.introLine?.choices.contains { $0.id == "openSettings" } == true }
-        let line = t.notch.introLine
-        XCTAssertTrue(((line?.text ?? "") + (line?.detail ?? "")).contains("System Settings"))
+        await t.pick("permissions.next")
+        await eventually { t.notch.introLine?.choices.contains { $0.id == "permission.microphone" } == true }
         XCTAssertEqual(t.rig.app.requests, ["microphone"])                // macOS's own prompt, where the owner is
         // The line is shown as the beat suspends on the owner's answer: nothing moves on until they pick.
         XCTAssertEqual(t.controller.beat, .permissions)
         XCTAssertFalse(t.progress.done)
-        await t.pick("openSettings")
+        await t.pick("permission.microphone")
         await eventually { t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_Microphone") } }
         XCTAssertEqual(t.controller.beat, .permissions)                   // still waiting for the system
         t.rig.app.microphoneStatus = .granted
@@ -259,7 +259,7 @@ final class IntroControllerTests: XCTestCase {
         let off = SetupReplies.permissions(accessibility: "granted", screen: "denied", fda: "granted")
         t.rig.rpc.replies["setup.permissions"] = off
         t.controller.start(beats: [.permissions, .home])
-        await t.pick("allowAll")
+        await t.pick("permissions.next")
         await eventually { t.orb.docks.count == 1 }                       // Screen Recording's pane, the orb beside it
         front = SettingsAnchor.bundleID
         var polls = t.rig.rpc.params(of: "setup.permissions").count
@@ -289,7 +289,7 @@ final class IntroControllerTests: XCTestCase {
         t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", screen: "denied",
                                                                           fda: "granted")
         t.controller.start(beats: [.permissions, .home])
-        await t.pick("allowAll")
+        await t.pick("permissions.next")
         await eventually { t.orb.docks.count == 1 }
         t.rig.rpc.failures["setup.permissions"] = DaemonRPCError.invalidResponse   // the daemon is gone
         await eventually { t.rig.service.starts == 1 }
@@ -300,6 +300,46 @@ final class IntroControllerTests: XCTestCase {
         t.rig.rpc.failures = [:]
         t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
         await eventually { t.progress.done }
+    }
+
+    // decision: APP-613, APP-614, APP-615
+    func testIndividualPermissionDropWaitsForConfirmationAndTheLogoReturnsOnlyAtHome() async {
+        let t = tour()
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "denied", fda: "denied")
+        t.controller.start(beats: [.permissions, .home])
+        await eventually { t.notch.introLine?.checklist.contains { $0.actionID == "permission.full_disk_access" } == true }
+        t.notch.introAction(.choose("permission.full_disk_access"))
+        await eventually { t.orb.docks.count == 1 }
+        XCTAssertFalse(t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_Accessibility") })
+        t.orb.onDropAccepted?()
+        XCTAssertFalse(t.notch.introLine?.checklist.first { $0.id == "full_disk_access" }?.complete ?? true)
+        XCTAssertFalse(t.sound.played.contains(.done))
+        XCTAssertEqual(t.orb.flyHomes, 0)
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "denied", fda: "granted")
+        await eventually { t.notch.introLine?.checklist.first { $0.id == "full_disk_access" }?.complete == true }
+        XCTAssertEqual(t.orb.flyHomes, 0)
+        t.notch.introAction(.choose("permission.accessibility"))
+        await eventually { t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_Accessibility") } }
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
+        await eventually { t.progress.done }
+        XCTAssertEqual(t.sound.played.filter { $0 == .done }.count, 1)
+        XCTAssertEqual(t.orb.flyHomes, 1)
+    }
+
+    // decision: APP-613
+    func testQuickPermissionsLeaveRestartPermissionsForAnIndividualChoice() async {
+        let t = tour()
+        t.rig.app.microphoneStatus = .notDetermined
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "denied")
+        t.controller.start(beats: [.permissions, .home])
+        await t.pick("permissions.next")
+        await eventually { t.rig.app.requests.contains("microphone") }
+        await eventually { t.notch.introLine?.checklist.first { $0.id == "microphone" }?.complete == true }
+        XCTAssertFalse(t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_AllFiles") })
+        XCTAssertFalse(t.sound.played.contains(.done))
+        XCTAssertEqual(t.controller.beat, .permissions)
+        await t.pick("permissions.next")
+        await eventually { t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_AllFiles") } }
     }
 
     // MARK: Browsers and FERB's email
@@ -409,18 +449,20 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Skip, resume, the notch
 
-    // decision: APP-516
+    // decision: APP-618
     func testSkipMidFlightTearsEverythingDown() async {
         let t = tour()
         var finished = 0
         t.controller.onFinished = { finished += 1 }
         t.orb.holdFlyHome = true
-        let off = SetupReplies.permissions(accessibility: "denied", fda: "denied")
-        t.rig.rpc.queue("setup.permissions", [off, off])
+        let off = SetupReplies.permissions(accessibility: "denied", fda: "granted")
+        t.rig.rpc.replies["setup.permissions"] = off
+        t.controller.start(beats: [.permissions, .home])
+        await t.pick("permissions.next")
+        await eventually { t.orb.docks.count == 1 }
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
+        await eventually { t.orb.flying }                                 // the one flight home at the end
         t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "denied")
-        t.controller.start(beats: [.permissions, .browsers, .home])
-        await t.pick("allowAll")
-        await eventually { t.orb.flying }                                 // flying home after Accessibility
         t.controller.skip()
         XCTAssertEqual(t.orb.tearDowns, 1)
         XCTAssertGreaterThanOrEqual(t.sound.stops, 1)
@@ -436,7 +478,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.orb.tearDowns, 1)
     }
 
-    // decision: APP-516
+    // decision: APP-618
     func testQuitAndReopenResumesTheBeat() async {
         let t = tour()
         t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "denied", fda: "granted")
@@ -539,7 +581,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.rig.rpc.params(of: "chat.send").first?["text"] as? String, Self.suggestions[0])
     }
 
-    // decision: APP-516
+    // decision: APP-618
     func testResumeRunsEarlierStepsOnlyWhenStillNeeded() async {
         let signedOut = tour()
         signedOut.rig.rpc.replies["runtimes.status"] = Self.notConnected
@@ -567,7 +609,7 @@ final class IntroControllerTests: XCTestCase {
     /// A tour quit at Allow all and reopened while the daemon is down (macOS's "Quit & Reopen" ended it, or it is still
     /// starting): the tour waits on "Getting my background part ready…" and starts the service, instead of reading the
     /// silence as signed out and asking for sign-in again (which also moved the resume point back to sign-in).
-    // decision: APP-515, APP-516, APP-598
+    // decision: APP-618, APP-598
     func testAResumedTourWaitsForTheServiceBeforeAnyBeat() async {
         let t = tour()
         var progress = t.progress
@@ -586,7 +628,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Round 2
 
-    // decision: APP-516
+    // decision: APP-618
     func testSkipWithNothingLeftRecordsSetupDone() async {
         let t = tour()
         var finished = 0
@@ -611,16 +653,20 @@ final class IntroControllerTests: XCTestCase {
         }
         t.controller.start(beats: [.tryIt, .home])
         await t.pick("suggestion.0")
-        await eventually { t.orb.flyHomes == 1 }
+        await eventually { t.orb.launches.count == 1 }
         XCTAssertEqual(t.orb.launches.map(\.point), [Self.besideFinder])          // beside Finder's window
         XCTAssertEqual(t.orb.launches.first?.instruction?.text, "I'd use Finder for this")
-        XCTAssertEqual(shownWhenHome, [true])                                   // home once the plan was shown
+        XCTAssertTrue(shownWhenHome.isEmpty)                                   // stays out while the owner compares
         await t.pick("otherSuggestion")
-        await eventually { t.orb.flyHomes == 2 }
+        await eventually { t.orb.launches.count == 2 }
         XCTAssertEqual(t.orb.launches.last?.point, Self.resting)                // Notes isn't running
         XCTAssertEqual(t.orb.launches.last?.instruction?.text, "I'd use Notes for this")
         XCTAssertEqual(t.orb.launches.last?.instruction?.iconPath, "/System/Applications/Notes.app")
         XCTAssertEqual(t.orb.launches.count, 2)
+        await t.pick("notNow")
+        await eventually { t.progress.done }
+        XCTAssertEqual(t.orb.flyHomes, 1)
+        XCTAssertEqual(shownWhenHome, [true])
     }
 
     // decision: APP-511
@@ -643,7 +689,7 @@ final class IntroControllerTests: XCTestCase {
 
     /// The sound engine is shared with everyday sounds: the real orb's teardown stops only its own motion, and only a
     /// skip stops what is playing; the natural end lets a ringing sound finish.
-    // decision: APP-516
+    // decision: APP-618
     func testOnlyASkipStopsTheSharedSoundsWithTheRealOrb() async {
         let finished = tour(realOrb: true)
         var ended = 0

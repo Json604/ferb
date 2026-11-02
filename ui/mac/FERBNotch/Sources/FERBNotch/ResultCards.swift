@@ -120,9 +120,43 @@ enum CardTime {
 /// it has one (ORCH-320), else to its next run (a deadline only in the request's words gets none).
 struct ReminderCard: View {
     let card: ResultCard
+    var framed = true
 
     var body: some View {
-        CardSurface {
+        Group {
+            if framed { CardSurface { details } }
+            else { arrivalDetails }
+        }
+    }
+
+    /// The arrival fills the notch with two readable anchors: what arrived and when it is next due.
+    private var arrivalDetails: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                CardMeta(icon: "bell.fill", text: "Reminder")
+                Spacer()
+                if card.repeatRule != nil { RepeatsBadge(rule: card.repeatRule) }
+            }
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(card.title ?? "Scheduled reminder")
+                        .font(.system(size: 24, weight: .semibold)).tracking(-0.5)
+                        .foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true)
+                    if let due = card.dueDate {
+                        Text("Due " + CardTime.day(due) + ", " + CardTime.time(due))
+                            .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                if let target = card.countdown {
+                    CountdownLine(target: target, prominent: true).frame(width: 142, alignment: .trailing)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
+    }
+
+    private var details: some View {
             VStack(alignment: .leading, spacing: 7) {
                 CardMeta(icon: "bell.fill", text: "Reminder")
                 CardTitle(text: card.title ?? "Scheduled reminder")
@@ -134,7 +168,6 @@ struct ReminderCard: View {
                 }
                 if let target = card.countdown { CountdownLine(target: target) }
             }
-        }
     }
 }
 
@@ -142,17 +175,23 @@ struct ReminderCard: View {
 /// its next run.
 private struct CountdownLine: View {
     let target: CountdownTarget
+    var prominent = false
 
     var body: some View {
         let at = target.date
         TimelineView(.periodic(from: Date(), by: 30)) { context in
             let left = Countdown.text(to: at, now: context.date)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            let layout = prominent ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 7))
+                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 6))
+            layout {
                 Text(verbatim: left == "now" ? "Now" : String(left.dropFirst(3)))
-                    .font(.system(size: 22, weight: .semibold)).monospacedDigit()
+                    .font(.system(size: prominent ? 29 : 22, weight: .semibold)).monospacedDigit()
+                    .tracking(prominent ? -0.7 : 0)
                     .foregroundStyle(Palette.ink)
                 Text(Self.caption(target, due: left == "now"))
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.secondary)
+                    .multilineTextAlignment(prominent ? .trailing : .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .accessibilityLabel(Self.caption(target, due: false) + ", " + Countdown.text(to: at, now: Date()))
@@ -179,9 +218,9 @@ private struct RepeatsBadge: View {
             Text("Repeats")
         }
         .font(.system(size: 10, weight: .semibold))
-        .foregroundStyle(Palette.cyan)
+        .foregroundStyle(.white)
         .padding(.horizontal, 7).frame(height: 20)
-        .background(Palette.cyan.opacity(0.14), in: Capsule())
+        .background(Palette.chatBlue, in: Capsule())
         .help(rule ?? "")
         .accessibilityLabel("Repeats " + (rule ?? ""))
     }

@@ -176,6 +176,8 @@ func eventually(_ condition: @escaping () -> Bool, file: StaticString = #filePat
 /// The intro's orb, faked: what it was asked to do. `holdFlyHome` keeps a flight home in the air until `tearDown`.
 @MainActor
 final class FakeOrb: OrbControlling {
+    var holdsHomecoming = false
+    var onDropAccepted: (() -> Void)?
     var onHomeArrival: (@MainActor () -> Void)?
     private(set) var docks: [(url: URL?, instruction: IntroLine?)] = []
     private(set) var launches: [(point: CGPoint, instruction: IntroLine?)] = []
@@ -195,6 +197,7 @@ final class FakeOrb: OrbControlling {
     func dockBesideSettings(dragging url: URL?, instruction: IntroLine?) { docks.append((url, instruction)) }
     func hop() { hops += 1 }
     func flyHome() async {
+        guard !holdsHomecoming else { return }
         flyHomes += 1
         onFlyHome?()
         defer { flightsLanded += 1 }

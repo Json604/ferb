@@ -1,8 +1,33 @@
-# Intro playground
+# FERB UI playground
 
 A dev-only copy of FERB's notch app that runs the **real** first-run intro (notch, orb, narration, beats, sounds,
 copy) with everything behind it faked. You change the intro's look and feel in the real source files, run one command
 and see the change. No real FERB is involved: no daemon, no `~/.ferb`, no Keychain, no permission prompts.
+
+## Whole-app review
+
+The startup/setup concept is accepted (APP-618). There is no global Skip intro control. To review the rest of the app:
+
+```sh
+ui/mac/FERBNotch/playground.sh --arrival --app
+```
+
+**Explore FERB** opens the real notch/chat and app window. The controls reach Tasks, Schedules & Reminders, Noticed,
+Memory, all Settings tabs and the circular task previews. Chat reply, Running task, Approval, Question, Finished result,
+Reminder arriving, Scheduled result, Failed task and All message cards exercise the real UI through simulated RPCs.
+Reminder arriving uses the notification poster with a simulated notification center; Scheduled result publishes a
+background task result. Both close the sample chat first so the compact notch arrival can be reviewed, and keep the
+reminder card and message in chat. The arrival uses that same rich card and stays visible until hover, click or
+opening chat. Planning previews remain for six seconds after their final text.
+Typed messages use the last selected sample state; no AI provider is called. Use **Finish running sample tasks** for a
+held working state, or **Reset app playground** to restore the samples. Startup & setup remains available in its disclosure.
+
+Sample schedules, reminders, memory and settings respond to their normal controls. App registration, updates, cleanup,
+uninstall and diagnostic sending are simulated. Logs and artifacts point into the playground's temporary home. The
+preview image is a drawn sample, never a screen capture. Unknown daemon operations are refused rather than claiming success.
+
+The fake workspace is in memory and resets on launch. The notch's conversation uses this playground's own preferences.
+`--app --reopen` keeps its conversation and setup state; **Reset app playground** starts fresh.
 
 ## The one command
 
@@ -30,13 +55,12 @@ to start if that path is your real `~/.ferb`, is inside it, or contains it.
 | The notch: `PanelCoordinator`, `NotchModel`, `NotchView`, its springs, the menu-bar item | The daemon: `PlaygroundDaemon` answers on the same `DaemonRPCTransport` seam as `DaemonRPC` (no socket) |
 | The intro: `AppSetupController`, `IntroController`, every beat, `IntroCopy`, `IntroNarration` | `intro.suggest` (the daemon's two general tasks) and `intro.preview` (a canned plan, ~3.5 s planner wait) |
 | The orb: `OrbController`, `OrbPanel`, `OrbView`, `OrbMotion`, its drag card | System Settings: a stand-in window with FERB's switch (the orb docks beside it) |
-| Sounds: `FerbSoundEngine` and the bundled sound files | macOS permission popups: answered by the panel's "When FERB asks" choice |
+| Sounds: `FerbSoundEngine` and the bundled sound files; system UI sound settings and alert volume | Call activity (idle unless *Simulate a call* is on), so host speech services cannot silence the audition; macOS permission popups: answered by the panel's "When FERB asks" choice |
 | `SetupModel` (the grant, confirm and resume logic) and `SetupView` (the compact window after a skip) | `ferb setup --service` / `--codex-login`, Claude sign-in, API keys (never stored), Login Items, launchd restart |
 | The launch decision (`AppSetupPlan`), resume after a quit (`IntroProgress`) | Browsers, pairing, FERB's email, the Mac scan, the microphone (dictation "hears" a fixed sentence) |
 | The real keyboard controls (double-tap right ⌥, hold right ⌘⌥, ⌃⌥Space) | "Do it for real": the reply says nothing runs in the playground |
 
-Not in the playground at all: Sparkle, the login item, the background service registration, notifications/banners,
-the FERB window and Settings. The playground code is compiled into debug builds only (`FERB_PLAYGROUND` in
+Not in the playground: a live Sparkle updater, registered login items or background services, or real macOS notification banners. The app window and Settings use simulated services in whole-app review. The playground code is compiled into debug builds only (`FERB_PLAYGROUND` in
 `Package.swift`); FERB.app is built release by `scripts/build-app.sh` and contains none of it.
 
 Things it can't fake, and why:
@@ -53,7 +77,7 @@ Things it can't fake, and why:
 ## The controls window
 
 - **Intro**: the current beat and line; *Restart from the top* (a fresh first run, with the first-launch clip);
-  *Quit & reopen FERB* (quits and relaunches keeping the state: the resume path); *Skip*; *Jump to* any beat (quits
+  *Quit & reopen FERB* (quits and relaunches keeping the state: the resume path); *Jump to* any beat (quits
   and reopens at that beat, optionally marking the steps before it done).
 - **Permissions**: each of the seven as Not asked / On / Off; *When FERB asks, the owner* allows after a moment, says
   no, or waits for you (questions then appear in the panel with Allow / Don't Allow, and list panes wait for the
@@ -64,7 +88,7 @@ Things it can't fake, and why:
   sign out; pairing fails.
 - **Try**: suggestions and the plan preview each Normal / Slow / Fails; whether the Mac scan "saw" something.
 - **Controls**: buttons for each control the Control beat teaches, Stop on the replayed preview, open/close the notch.
-- **Look**: sound on/off; speed 0.25×–4×; where the notch sits (in the notch, or an edge) and on which display.
+- **Look**: sound on/off; *Simulate a call* to check the real call-quieting policy (off on launch, independent of the host microphone); speed 0.25×–4×; where the notch sits (in the notch, or an edge) and on which display.
 - **Log**: what the fake daemon was asked and what the fakes did.
 
 ## Where to change what

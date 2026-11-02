@@ -10,7 +10,7 @@ enum IntroAnswer: Equatable {
     case entry(String)
 }
 
-/// FERB.app's first-run tour (kb area app): Meet → Sign in → Allow all → Pair browsers → FERB's email →
+/// FERB.app's first-run tour (kb area app): Meet → Sign in → Permissions → Pair browsers → FERB's email →
 /// Try → Control → Home. FERB speaks in text lines in the notch, the orb points at places on screen, every grant counts
 /// only when the system confirms it, the demo looks and tells but never acts, and nothing the tour runs is real work:
 /// "Do it for real" is sent as the owner's message after Home. Skippable at any point (everything it drew or said is
@@ -94,7 +94,7 @@ final class IntroController {
     // MARK: Start, finish, skip
 
     /// Runs `beats` (IntroPlan.beats). A quit left `IntroProgress.resumeBeat`: when that beat is in this plan, the
-    /// tour resumes there with every planned beat after it, and sign-in and Allow all from before it run again only if
+    /// tour resumes there with every planned beat after it, and sign-in and permissions from before it run again only if
     /// still needed (signed out, a grant gone since). `firstRun`: a new install (Task 9 sets it), whose tour opens with
     /// the first-launch clip; a replay or a resume plays none. The running tour keeps the controller alive until it
     /// ends (`end(stoppingSound:)` is every end's cleanup).
@@ -112,6 +112,7 @@ final class IntroController {
         running = true
         ProcessInfo.processInfo.disableAutomaticTermination(Self.terminationReason)
         sound.keepWarm(true)
+        orb.holdsHomecoming = true
         orb.onHomeArrival = { [weak notch] in notch?.pulseIntro() }
         notch.onIntroAction = { [weak self] action in self?.handle(action) }
         notch.introHoldsWork = true
@@ -126,7 +127,8 @@ final class IntroController {
         run = Task { [weak self] in await self?.perform(plan, ifNeeded: ifNeeded, resuming: resume != nil) }
     }
 
-    /// Skip, at any point: everything the tour drew, played or said is gone at once; then what's still required is
+    /// Internal interruption for repair or teardown; there is no user-facing Skip control. Everything the tour drew,
+    /// played or said is gone at once; then what's still required is
     /// read again from the system and the daemon (`remainingRequired`) and `onFinished` runs.
     /// A "Do it for real" the owner already tapped still starts, as a normal task, right after; `forRepair` (the
     /// service is down, AppSetupController.repair): it goes into the composer for them to send instead. With nothing
@@ -312,8 +314,6 @@ final class IntroController {
 
     private func handle(_ action: IntroAction) {
         switch action {
-        case .skip:
-            skip()
         case .stopPreview:
             saw(.stop)
         case .choose(let id):
@@ -402,6 +402,9 @@ final class IntroController {
     /// FERB small in the notch again, with one line on how to bring it back. With nothing required left, setup is
     /// recorded as done (`setup.finish`, as the setup window's Done), so neither the tour nor the window comes back.
     private func home() async {
+        orb.holdsHomecoming = false
+        await orb.flyHome()
+        guard live else { return }
         if notch.expanded { notch.collapse() }
         say(IntroCopy.home)
         await setup.refreshPermissions()

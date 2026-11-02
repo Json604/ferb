@@ -26,7 +26,8 @@ legacy = "notes/daemon.md decision 8"
 title = "\"What FERB saw\": the screenshots FERB kept, per message and in Settings"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "APP-620"
 words_source = "notes/daemon.md fix list (owner, 2026-10-31, step 12e): an agent's paraphrase; no verbatim quote recorded"
 rule = "A button on each message in the notch opens the screenshot taken when it was sent and the images its task captured, each exactly as the model got it, with time and app or site. Settings → Data lists every saved screenshot of the last 7 days, newest first."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SeenViewer.swift", "ferb/daemon/areas/about.py::About._seen_list"]
@@ -332,7 +333,8 @@ legacy = "notes/setup-intro.md journey steps 6-7 (rulings)"
 title = "A resumed tour waits for the background service"
 by = "agent"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-618"
 rule = "A resumed tour whose background service is down waits on \"Getting my background part ready…\" until the daemon answers or the owner skips."
 why = "The tour never claims a grant it couldn't read."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift"]
@@ -342,7 +344,8 @@ legacy = "notes/setup-intro.md Constraints (ruling)"
 title = "The tour can be skipped, resumed and replayed"
 by = "owner"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-618"
 words_source = "notes/setup-intro.md Constraints (design agreed 2026-11-01): an agent's write-up; no verbatim quote"
 rule = "The tour can be skipped at any point, resumes at the same beat after a quit, and replays from Settings. A skip tears down everything the tour drew or said (orb, sound, drag card) at once and leaves the required steps still missing (service, sign-in, permissions) in the compact window. The app opts out of automatic termination during the tour."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift"]
@@ -932,7 +935,8 @@ legacy = "ui/AGENTS.md Launch-week chat rules (L9)"
 title = "Notices are quiet FERB messages that play the notification sound"
 by = "owner"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-622"
 supersedes = ["APP-582"]
 words_source = "ui/AGENTS.md launch-week rule (L9) as changed by the owner's notification-sound decision of 2026-11-01 (notes/sound.md): paraphrase; no verbatim quote"
 rule = "Notices are FERB messages with a small \"noticed\" tag and quotes show their origin; they never expand the notch, take focus or glow, and are acknowledged with attention.ack. A notice plays the notification sound (APP-532), once even when it also shows as a banner. The app polls chat.status with peek: true and acknowledges placed results with results.ack."
@@ -1126,3 +1130,344 @@ status = "active"
 rule = "At each launch of a packaged FERB.app, in the background, FERB removes com.apple.quarantine from every item inside its own bundle (links themselves, never their targets; the bundle folder last) and from nothing else. A translocated copy, a read-only volume (the disk image) or a bundle that carries none is left alone; any failure is quiet."
 why = "Running means the owner already approved this copy (Open Anyway); the nested code (the agent, its Python, ferb-secrets, Codex) runs outside Launch Services, where that approval may not reach (audit 2026-11-02, item 10)."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/OwnQuarantine.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Application.swift"]
+
+[APP-634]
+title = "Explore permission overview, living orb and two startup entrances in the isolated playground"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "why not a list of all is shown heere?? ... the nothc comming down at the start is too direct - keep tha tapple lively moving feel in tha nimation ... theres too many overlapping in this orb thigny. also if you can make a fully moving orb if possible. ... just a version apart from the notch only"
+rule = "In the isolated setup concept, show the permissions before Allow all, refine the notch entrance's spring, separate the draggable icon from the orb, and try a continuously moving orb material. Keep a logo-reveal startup as a separate variant from the notch-only entrance. These are experiments for the owner's review, not changes to the installed app or acceptance of a final design."
+why = "Motion references: MarceloDesignX/status/2113496453134082147 and davidhaz/status/2114310744183578783; their media is not shipped. The requested continuous orb overrides APP-504 for this concept. Reduce Motion stays still."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+live = ["LIVE-699"]
+
+[APP-603]
+title = "The setup concept uses the flying FERB logo instead of the orb"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "lets drop teh orb completlty. letd the logo fly."
+rule = "In the isolated setup concept, remove the orb and use FERB's existing logo as the flying guide and the draggable app icon. Keep the logo-reveal startup, adding visual movement alongside its sound."
+why = "Owner also said: i really like the new logo statrup approach youve tried, BUT there needs to be some visual thigny there, otherewuse its just a logo there and a sound playing. This replaces APP-501/APP-634 orb direction in the isolated concept only."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+live = ["LIVE-699"]
+
+[APP-604]
+title = "Setup windows share the notch identity; startup studies are grainy, wavy alternatives"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "try somethign grainny, wavy and magical. it shsuodl feeel mindboggling. the music's lit, make the visual feel that too"
+rule = "In the isolated playground, bring setup windows into the notch's visual identity. Replace the rejected amber-light startup experiment with several distinct grainy, wavy visual studies for the owner to compare. Keep the simple stationary logo available and as the default until the owner chooses a direction."
+why = "The owner rejected the basic setup window and the amber-light treatment, requested multiple pieces before choosing, and explicitly allowed falling back to the stationary logo. This is exploration, not approval of a final visual."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+live = ["LIVE-699"]
+
+[APP-605]
+title = "Refine Gravity as the preferred startup study"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "i like the gravity one. but maybe if we can somw more better movement there and soemthign more in it. think see adn iterate adn then come back with teh best version you can think of."
+rule = "Refine Gravity in the isolated playground: develop its movement and visual detail, inspect the result and iterate before presenting it again. Gravity is the preferred direction for this review; the final execution still awaits the owner's verdict."
+why = "The owner explicitly requested visual inspection and iteration for this study, so offline frame rendering and review are authorized. The other studies and stationary-logo fallback remain available."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+live = ["LIVE-699"]
+
+[APP-606]
+title = "Gravity keeps its timing and flow but needs a denser material"
+by = "owner"
+date = 2026-11-02
+status = "superseded"
+superseded_by = "APP-607"
+words = "good concept, but shose lines moving are not dense, look cheap. but the timing, the flow si ok. work ona better version"
+rule = "In the isolated Gravity startup concept, retain the timing and flow the owner liked while replacing the sparse-looking moving lines with a denser, more refined material. The revised appearance remains subject to the owner's review."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift"]
+live = ["LIVE-699"]
+
+[APP-607]
+title = "Restore the preceding line-based Gravity pending clearer feedback"
+by = "owner"
+date = 2026-11-02
+status = "superseded"
+superseded_by = "APP-608"
+words = "revert back to the old. i'll tell more clearly now"
+rule = "Revert the latest dense-material Gravity experiment to the preceding line-based Gravity in the isolated playground. Preserve its timing and flow and wait for the owner's clearer direction."
+supersedes = ["APP-606"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift"]
+live = ["LIVE-699"]
+
+[APP-608]
+title = "Keep both Gravity studies selectable while the startup is refined"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "in the study selection. keep thsi versiona dnthe new veriosn i jsut said you to revert. i jsut wanna perfect this starting"
+rule = "Keep both the line-based Gravity and the reverted dense-material Gravity as separate choices in the isolated playground's startup-study picker. Preserve each version and their shared timing and flow while the owner refines the startup."
+supersedes = ["APP-607"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPanel.swift"]
+live = ["LIVE-699"]
+
+[APP-609]
+title = "Try a dense Gravity that twirls inward"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "i wanna go frward witha modified dense version. current one doesnt revolvce good and comes inward as a whoel and not as a twirl. so try this version."
+rule = "Develop a modified dense Gravity with a visible revolving, inward twirl rather than moving the entire field inward as one object. Keep the prior Lines and Dense studies available for comparison."
+why = "The owner prefers the dense material but wants its motion revised. The new Twirl study uses faster rotation and stronger inward pull near the logo while the outer material moves more slowly; the previous variants retain their behavior."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift"]
+live = ["LIVE-699"]
+
+[APP-610]
+title = "Choose Dense and remove its final inward contraction"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "lets go with dense but remove the inward of its ring at the end"
+rule = "Use Gravity — Dense as the chosen startup concept. Remove its final whole-field inward contraction; the dense field fades out into the existing reveal at its existing scale. Keep the other study choices available."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/GravityDenseStudy.swift"]
+live = ["LIVE-699"]
+
+[APP-611]
+title = "Dense reaches the logo and resonates with the startup music"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "amazing this works. but theres some space empty around logo fi that. also a better resonant movement of the rings to the music sound"
+rule = "Refine the accepted Dense startup in the isolated playground: fill the empty space around the logo and make the rings' movement resonate more closely with the startup music. Preserve its dense material, timing and fade-only ending."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+live = ["LIVE-699"]
+
+[APP-612]
+title = "The Dense startup is finalized"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "yes this versional is finalized for the start"
+rule = "Keep the accepted Dense startup with material reaching the logo, music-driven resonance and its fade-only ending. This startup is finalized; continue the isolated setup work without changing it."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundArrival.swift"]
+live = ["LIVE-700"]
+
+[APP-613]
+title = "Permissions stay in one interactive checklist with a quick group"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "in here, allow indivial press too. also when hovered on the description text should ommediately come ... also allow all doesnt make send in ferb cause it doesn not happend all at once, so lets go step by stpe int he currnet screen only, allwoign teh ones that require no quit reopen in one go."
+rule = "In the isolated setup concept, replace the one Allow all direction of APP-508 with one persistent checklist: each permission is individually clickable, descriptions appear immediately on hover, and the quick group includes only grants that do not require a restart. Guide restart-dependent grants individually. All setup permissions remain required and only a system-confirmed grant ticks a row."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift"]
+live = ["LIVE-687"]
+
+[APP-614]
+title = "Settings can come forward and accepted drops get clear feedback"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "idk if this is a demo err or what but its begind the nothc, make it pop somehwere or allow that it comes forward,a dn onclcik user can change focus ... when i dragged it theres no feedback other that mac's slider to let user knwo its dragged on and they have to clikc on quit and reopen."
+rule = "Place the playground Settings window beside the notch where space permits, and let the owner bring either forward by clicking. Extend the notch's yielding to the interactive intro and its same-process Settings companion. A destination accepting the dragged logo gets immediate Added feedback and guidance to turn FERB on and choose macOS's Quit & Reopen when asked; a drop alone never means permission is granted."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchYieldController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundSettings.swift"]
+live = ["LIVE-687"]
+
+[APP-615]
+title = "One logo outing through the tour and a success sound after permissions"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "show the success sound on thats everuythign after permission granting. ... also ig you;ve messed up soinds in thsi ferb version.the orb(now logo) flying out and in sounds are not what i think they were selcted. also logo only getout adn gets in once unless until therers quit and reopen require it"
+rule = "Play the chosen completion cue with the all-permissions-confirmed message. Preserve the chosen drip, hop and melt sound files, audit their triggering, and let the logo leave once, move between tour destinations, and return at Home. A quit and reopen starts a new outing; skipping still tears the guide down immediately."
+why = "The prototype's drip, hop and melt files match the installed FERB.app byte for byte. Repeated per-permission returns replayed the departure and homecoming cues."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbController.swift"]
+live = ["LIVE-687"]
+
+
+[APP-616]
+title = "Intro surfaces fit their content without an empty footer"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "theres too  much empty space down there. ive noticed that on eveyr step."
+rule = "Tighten the bottom of every intro step in the isolated concept. Size the notch from the actual content and footer, including wrapped choices, and size the intro strip in open chat with its own insets. Preserve the finalized startup."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+live = ["LIVE-688"]
+
+[APP-617]
+title = "The playground simulates call activity so host speech services cannot silently mute an audition"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The isolated playground's real sound engine receives simulated microphone-use facts, idle by default, with a Simulate a call control to exercise APP-528. System UI sound settings, alert volume and FERB's sound switches still apply. The production sound policy and process reads are unchanged."
+why = "The owner reported the whole demo silent. Core Audio reported corespeechd using input while sound settings were on, triggering APP-528 for every tour cue. Treat call activity like the playground's other fake services."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundFakes.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundApp.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundState.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPanel.swift"]
+live = ["LIVE-688"]
+
+
+[APP-618]
+title = "Startup and setup are accepted; there is no Skip intro button"
+by = "owner"
+date = 2026-11-02
+status = "active"
+supersedes = ["APP-515", "APP-516"]
+words = "ok this is finlaized at the startup adn setup - with a small change: remove skip intro button completely, we wont have that button at all anywhere."
+rule = "Startup and setup in the isolated concept are accepted. Default to the approved Gravity — Dense. Remove Skip intro and its action everywhere, including playground controls, with no reserved footer. A quit resumes at the same beat; Settings can replay the tour. A resumed tour waits for the service; quitting interrupts it. Repair and teardown can interrupt internally and leave required work in compact setup. Keep automatic termination disabled during the tour. Acceptance is for the concept, not installation."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/StartupStudies.swift"]
+live = ["LIVE-689"]
+
+[APP-619]
+title = "Review the whole FERB app in the isolated playground before the site"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "now if you can then show me the ferb whoel app - nothc, window reminders, schedules, a chat message everythign in the playground. i wanna fix that before teh site too"
+rule = "Extend the isolated playground to the real notch, chat, app window, Tasks, Schedules and Reminders, Noticed, Memory, Settings, task preview and What FERB saw. Use invented records and simulated services through the existing RPC transport; actions mutate only sample state. Give the review controls explicit message and task states, including questions, approvals, completion, failure and reminder delivery. Do not connect to the installed app, daemon, accounts or real screenshots. The remaining app experience is reviewed before the site."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/playground.sh"]
+live = ["LIVE-690"]
+
+[APP-620]
+title = "Remove screenshot-viewer links and redundant chat preview eyes"
+by = "owner"
+date = 2026-11-02
+status = "active"
+supersedes = ["APP-3"]
+words = 'remove this "what ferb saw" - who tf even added this?? ... why is there thsi eye??? ive made tehse circles before to show the preview ... what is even this noticed thibng???? where did you get this from??'
+rule = "Remove What FERB saw from chat, Settings, the app guide and playground controls. Remove the eye preview buttons from task cards; the circular task previews remain the way to watch work. Remove the generic noticed tag and eye from background chat messages, including already saved messages. Keep outside quotations attributed. This is presentation cleanup, not deletion of stored evidence or the background-notice mechanism. Review it in the isolated playground."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SeenViewer.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppScreens.swift"]
+live = ["LIVE-691"]
+
+[APP-621]
+title = "Whole rounded status-card fills and the existing chat blue"
+by = "owner"
+date = 2026-11-02
+status = "superseded"
+superseded_by = "APP-628"
+words = "remvoe this e border thick line eveywhere. also maek th ewhoel box fill teh color not in this wierd swaure shape ... revmeo this blue color here. use the chat b lue cooor if wanna use. DOTN USE ANY DYMBASS COLORS LIKE THESE. IT LOOKS SLOP ... same thing here, remive the one border thick color. fill the whoel box with color"
+rule = "Status cards have no coloured leading stripe or rectangular inset tint. Apply one continuous colour fill to the full rounded card, footer included; row state icons still identify each part. Use the existing chat blue for Repeats and other blue accents, replacing cyan and violet. Keep amber for questions and red for failures. This refines APP-300's functional card styling in the isolated app review."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift", "ui/mac/FERBNotch/Sources/FERBNotch/VisualComponents.swift"]
+live = ["LIVE-691"]
+
+[APP-622]
+title = "Reminders and scheduled results arrive from the compact notch and stay in chat"
+by = "owner"
+date = 2026-11-02
+status = "active"
+supersedes = ["APP-583"]
+words = "this schedule message and all reminders is good in cjhat - it satys there BUT when it arrives it shoudl arrive from the nothc as a reminder like the dynamic island. like currnetly the initial message from ferb arrives without the hwoe nitch chat but frim teh notch"
+rule = "Reminders and scheduled results announce from the compact notch using its existing spring, without opening full chat or taking focus. Keep the typed reminder card and message in chat; clicking the arrival opens today's chat. Preserve a chat already in use. Deduplicate delivery and sound; a hidden notch keeps the banner fallback. Ordinary task results and questions retain APP-301's full-chat arrival. Other background notices remain quiet messages without a noticed tag, with attributed quotes, notification sound, saved history and attention.ack. History restoration does not replay arrivals."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotificationPoster.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/"]
+live = ["LIVE-691"]
+
+[APP-623]
+title = "Notch arrivals use the same rich reminder card as chat"
+by = "owner"
+date = 2026-11-02
+status = "superseded"
+superseded_by = "APP-627"
+words = "ok implememntation here: but i want it to look good like it look in the chat. can we have that??? so taht its visible too"
+rule = "Use the same rich ReminderCard in the compact notch arrival as in chat, including the recorded timing, Repeats badge and countdown when present, with FERB's message underneath. Size the arrival to that content without the full chat's controls. Keep one rendering path for the card so the two surfaces match. Preserve APP-622's background arrival and saved-chat behavior."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift"]
+live = ["LIVE-692"]
+
+[APP-624]
+title = "Reminder arrivals stay until interaction; planning previews last six seconds"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "also keep them here until user hovers/clicks or opens chat. and about the preview message of ferb thing - i think that is shown for 3 secodns, raise that too 6 seconds"
+rule = "Reminder arrivals have no timeout: they remain until the owner hovers, clicks or opens chat. Hover/click opens the saved message in today's chat. Yielding to another app, switching Spaces and display changes do not consume the reminder. A planning preview does not replace a pending reminder. FERB's planning preview lasts six seconds from the final text, instead of three; streaming tokens do not start its timeout. Startup and setup timing remain accepted."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AcknowledgementNotice.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift"]
+live = ["LIVE-692"]
+
+[APP-625]
+title = "Keep the movable notch and edge pill"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "btw i havent tried moving the notch adn i just did and it doesnt move. so there can be cases where amc is without notch, theres alreadya  afav nothc user uses. so this pill and moving system was made for that adn i would like to continue that"
+rule = "Preserve the existing draggable notch and edge pill, including notchless displays and setups using another notch app. The owner can pull FERB away from the hardware notch, move its current surface and leave the pill on an edge. Keep saved placement and magnetic docking. Fix pointer interaction in the isolated playground without changing the accepted startup or setup."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/NotchDragTests.swift"]
+live = ["LIVE-693"]
+
+[APP-626]
+title = "The whole app window shares the accepted setup and notch identity"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "you didnt changed the window to the modern design we finalized???? do it bruhhhh. its too basic and shitty rn"
+rule = "Bring the app window, including Schedules & Reminders, into the accepted setup/notch visual identity in the isolated playground. Use its black glass, typography, rounded surfaces and quiet controls throughout the window shell and pages. Preserve existing actions and data. The owner reviews the app before the site; startup/setup stay finalized."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift"]
+live = ["LIVE-693"]
+
+[APP-627]
+title = "Reminder arrivals sit directly on the notch glass"
+by = "owner"
+date = 2026-11-02
+status = "active"
+supersedes = ["APP-623"]
+words = "can we just show the reminder card here??? it looks aesthetically better + no box in the notch with these types, just show it on teh black gradient bg of nothc. no box here:"
+rule = "The compact reminder arrival shows only the rich reminder details directly on the notch's black gradient, without the card's own box or outline and without the separate answer bubble. Share the reminder content with chat: title, due time, Repeats badge and countdown when recorded. Chat retains its boxed card and complete message. Preserve APP-622's delivery and APP-624's persistence and six-second planning preview."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift"]
+live = ["LIVE-693"]
+
+[APP-628]
+title = "Status cards use colour and words without leading state icons"
+by = "owner"
+date = 2026-11-02
+status = "active"
+supersedes = ["APP-621"]
+words = "remove these icons. the color conveys the message clearly/"
+rule = "Remove the leading state icons from chat turn-card rows, including questions, failures, checks, pauses, previews and working spinners. Remove the empty icon gutter; keep labels, status text, accessible state names and interactive controls. Preserve APP-621's full rounded colour fill including the footer, no coloured leading stripe or rectangular inset, chat blue in place of cyan/violet, amber for questions and red for failures. This refines APP-300's initial icon styling."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
+live = ["LIVE-694"]
+
+[APP-629]
+title = "Restore the original notch handle and resting-line implementation"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "why is there this line here??? i think you have impoelemted it yourself. i had perfected this and the resting line too. SO PLEASE TAKE THAT ORIGINAL CODE, DONT USE YOUR NEW IMPLEMENTATION HERE. cause this ones lagging  too, i think i had fixed it"
+rule = "Use the original ui/ux notch handle, edge pill, resting-line and movement implementation. Remove the newly added hover grip and its event/cursor changes instead of redesigning the perfected interaction. Preserve the original approved lag fix. Keep the accepted startup/setup and current chat, reminder and app-window changes. Verify against the original source and review movement in the isolated playground."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/NotchDragTests.swift"]
+live = ["LIVE-695"]
+
+[APP-630]
+title = "Playground app-window controls open visible windows"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "im not able to see the app windoes when i clcik them??? fix, i wanna see your new imporved version"
+rule = "Each playground app-window control must show its requested page, including Tasks, Schedules & Reminders, Noticed, Memory, Settings and the task preview. Reopening a closed or minimized window must work. Present the requested app window on the owner's current Space, including over a full-screen app, without changing the original notch movement implementation."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundAppReview.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/WindowPresentationTests.swift"]
+live = ["LIVE-696"]
+
+[APP-631]
+title = "Finish readable settings and organize the everyday controls"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "better but its toooo dark on this right side. just do a final good finish. - also search onine for UX, UI, human centerd design adn then descide if thigns can be reshuffled better in the noth dock settigns and the settongs windo"
+rule = "Improve the settings pane's readability and finish while keeping the accepted notch identity. Research current UI and human-centred design guidance before reorganizing the existing controls. Make everyday notch and shortcut controls easy to find, group sound and notification choices, and keep maintenance options secondary. Preserve each setting's behavior and stored preference."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ProfileMenuButton.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppScreens.swift"]
+live = ["LIVE-697"]
+
+[APP-632]
+title = "Large balanced reminder arrivals and a continuous window gradient"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = """theres too much space here on the right, see if we structure BUT enlarge to keep the big size too so that its noticiable
+better but have gradfients bg here too, like the notch
+what iff wee gradient this hard line too/???  i wanna see that"""
+rule = "Keep reminder arrivals large and noticeable while using their width better: enlarge and balance the content instead of shrinking the notch. Keep the unboxed reminder details, persistent arrival and saved chat. Give the app window a notch-like gradient and blend the sidebar into the detail pane instead of leaving a hard vertical boundary. Keep text readable and retain the accepted original notch interaction."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift"]
+live = ["LIVE-697"]
+
+[APP-633]
+title = "Use soft rounded groups throughout Settings"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "why these sharp corners??? either remove or round them. or somthing better"
+rule = "Replace the old outlined form groups shown in Permissions and Privacy with the app window's soft rounded surfaces. Apply the same shared treatment to the remaining settings pages so they match the accepted window design and continuous gradient. Preserve every setting, action, confirmation and saved preference; the accepted startup/setup and original notch interaction stay unchanged."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift"]
+live = ["LIVE-698"]

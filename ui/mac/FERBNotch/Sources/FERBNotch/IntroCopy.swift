@@ -9,8 +9,9 @@ enum IntroCopy {
         static let codex = "codex", claude = "claude", otherWays = "otherWays", back = "back", cancel = "cancel"
         static let claudePage = "claudePage", claudeCode = "claudeCode", retry = "retry"
         static func key(_ provider: APIProvider) -> String { "key." + provider.rawValue }
-        static let allowAll = "allowAll", openSettings = "openSettings", restartToCheck = "restartToCheck"
-        static let showInFinder = "showInFinder", openLoginItems = "openLoginItems"
+        static let permissionsNext = "permissions.next"
+        static func permission(_ id: String) -> String { "permission." + id }
+        static let openLoginItems = "openLoginItems"
         static let pairAll = "pairAll", browsersLater = "browsersLater", next = "next"
         static let identityNow = "identityNow", identityLater = "identityLater"
         static func profile(_ index: Int) -> String { "profile.\(index)" }
@@ -67,39 +68,57 @@ enum IntroCopy {
                   detail: "While we go on, I'll take a quick look at the apps you use, so I can suggest something useful.")
     }
 
-    // MARK: 3. Allow all
+    // MARK: 3. Permissions
 
-    static let permissions = IntroLine(text: "Next, a few permissions so I can work on your Mac.",
-                                       detail: "macOS asks for each one. I'll show you where.",
-                                       choices: [IntroChoice(Pick.allowAll, "Allow all")])
-    /// Accessibility is "Device Control and Data Access" on newer macOS: both names, where the owner may see either.
-    static func name(_ id: String) -> String {
-        id == "accessibility" ? "Accessibility (Device Control and Data Access)" : PermissionCopy.label(id)
-    }
-    static func listPane(_ row: PermissionRow) -> IntroLine {
-        var choices = [IntroChoice(Pick.showInFinder, "Show FERB in Finder")]
-        if row.restartToCheck { choices.append(IntroChoice(Pick.restartToCheck, "Switched it on? Restart FERB to check")) }
-        return IntroLine(text: "Switch FERB on in \(name(row.id)).",
-                         detail: "If FERB isn't in the list, drag the icon beside System Settings into it. "
-                             + PermissionCopy.reason(row.id),
-                         choices: choices)
-    }
     static let dragMe = IntroLine(text: "Drag me into this list", detail: "or switch FERB on if it's there")
-    static func prompt(_ row: PermissionRow) -> IntroLine {
-        IntroLine(text: "macOS will ask about \(name(row.id)) next. Choose Allow.", detail: PermissionCopy.reason(row.id))
-    }
-    static func banner(_ row: PermissionRow) -> IntroLine {
-        IntroLine(text: "macOS's \(name(row.id)) banner is waiting at the top right. Choose Allow there.",
-                  detail: PermissionCopy.reason(row.id))
-    }
-    static func denied(_ row: PermissionRow) -> IntroLine {
-        IntroLine(text: "\(name(row.id)) is off.", detail: "Switch FERB on in System Settings and I'll notice.",
-                  choices: [IntroChoice(Pick.openSettings, "Open System Settings")])
-    }
-    static func waitingInSettings(_ row: PermissionRow) -> IntroLine {
-        IntroLine(text: "Switch FERB on in \(name(row.id)).", detail: "I'll notice as soon as macOS says it's on.")
-    }
     static let allAllowed = IntroLine(text: "That's everything. Thank you.")
+
+    @MainActor static func permissionOverview(rows: [PermissionRow], selected: String?, requesting: Bool,
+                                   added: Bool, busy: Bool) -> IntroLine {
+        let pending = SetupModel.allowAllOrder(rows)
+        let quick = SetupModel.quickPermissionOrder(rows)
+        let choices: [IntroChoice]
+        if busy || requesting {
+            choices = []
+        } else if let active = selected, rows.contains(where: { $0.id == active && $0.status != .granted }) {
+            choices = [IntroChoice(IntroCopy.Pick.permission(active), "Open \(PermissionCopy.label(active))")]
+        } else if !quick.isEmpty {
+            choices = [IntroChoice(IntroCopy.Pick.permissionsNext, "Set up quick permissions")]
+        } else if let next = pending.first {
+            choices = [IntroChoice(IntroCopy.Pick.permissionsNext, "Set up \(PermissionCopy.label(next))")]
+        } else { choices = [] }
+        var line = IntroLine(text: "A few permissions, one step at a time.",
+                             detail: "\(rows.filter { $0.status == .granted }.count) of \(rows.count) allowed. Pick any permission, or follow along below.",
+                             choices: choices)
+        line.checklist = rows.map { row in
+            let active = selected == row.id
+            var detail = PermissionCopy.reason(row.id)
+            var status = row.restartToCheck ? "Restart needed" : "Set up"
+            if active {
+                if requesting {
+                    detail = "Choose Allow in macOS's question. " + detail
+                    status = "Waiting for macOS"
+                } else if row.restartToCheck {
+                    detail = (added ? "Added to the list. " : "Drag FERB into the list if it's missing. ")
+                        + "Turn it on, then choose Quit & Reopen if macOS asks. Your progress is saved."
+                    status = added ? "Added · restart next" : "In System Settings"
+                } else if row.id == "notifications" && row.status == .notDetermined {
+                    detail = "Choose Allow in macOS's notification banner. You can set up the other permissions meanwhile."
+                    status = "Answer the banner"
+                } else {
+                    detail = "Switch FERB on in System Settings. " + detail
+                    status = row.status == .denied ? "Not allowed yet" : "In System Settings"
+                }
+            }
+            if !row.blocked.isEmpty { detail = row.blocked; status = "Needs attention" }
+            return IntroChecklistItem(id: row.id, title: PermissionCopy.label(row.id), detail: detail,
+                                      complete: row.status == .granted,
+                                      actionID: !requesting && row.status != .granted && row.blocked.isEmpty
+                                        ? IntroCopy.Pick.permission(row.id) : nil,
+                                      active: active, status: row.status == .granted ? "Allowed" : status)
+        }
+        return line
+    }
 
     // MARK: 4. Browsers
 

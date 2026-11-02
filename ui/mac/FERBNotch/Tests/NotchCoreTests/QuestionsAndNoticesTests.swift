@@ -269,7 +269,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     // MARK: - Notices in chat (L9)
 
-    // decision: APP-583
+    // decision: APP-622
     func testANoticeRendersInChatAndIsAcked() async throws {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
@@ -307,7 +307,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
                                        "turn: Thanks = Anytime."])
     }
 
-    // decision: APP-583
+    // decision: APP-622
     func testUnacknowledgedStatusNoticesAreShownOnceAndAcked() async throws {
         let rpc = StatusRPC()
         rpc.status["notices"] = [["id": "batch:7", "text": "Sam replied on WhatsApp about Friday.", "at": at,
@@ -324,7 +324,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(acks, [["batch:7"], ["batch:7"]])
     }
 
-    // decision: APP-583
+    // decision: APP-622
     func testANoticeWithNoTextIsAckedSoItIsNotFetchedForever() async {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
@@ -338,7 +338,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     // MARK: - Shown results are acknowledged; recovered tasks are not the owner's words
 
-    // decision: APP-583, APP-585
+    // decision: APP-622, APP-585
     func testPolledResultsAreAcknowledgedOnlyOncePlacedInChat() async throws {
         let rpc = StatusRPC()
         let backlog = "2026-10-11T09:00:00+05:30"
@@ -371,7 +371,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(model.conversation.turns.filter { $0.backendTaskID == "sched-1" }.count, 1)
     }
 
-    // decision: APP-583
+    // decision: APP-622
     func testALiveResultNotShownElsewhereIsAcknowledgedOncePlaced() async throws {
         let rpc = StatusRPC()
         let model = makeModel(rpc)

@@ -73,6 +73,8 @@ final class NotificationPoster {
     private var notchShowing: () -> Bool = { false }
     private var opener: ((NotificationTarget) -> Void)?
     private var pending: NotificationTarget?
+    /// Delivers a reminder into the persistent chat and compact notch before deciding on a fallback banner.
+    var onReminder: ((BannerItem) -> Void)?
     /// The wait before subscribing again after the daemon went away or macOS didn't allow notifications.
     static let retry: Duration = .seconds(5)
     /// How long a banner the notch may show itself waits before it is judged (APP-301: the notch opens itself for a
@@ -154,6 +156,13 @@ final class NotificationPoster {
 
     private func post(_ item: BannerItem) {
         guard let center else { return }
+        if item.category == .reminder, let onReminder {
+            onReminder(item)
+            if notchShowing() {
+                sounds?.bannerDeclined(item.soundKeys)
+                return
+            }
+        }
         guard NotificationGate.shouldPost(item, notchShowing: notchShowing()) else {
             sounds?.bannerDeclined(item.soundKeys)
             return

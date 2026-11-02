@@ -147,6 +147,8 @@ final class PlaygroundMicrophone: VoiceCapturing {
 /// The real sound engine behind a switch: the control panel's Sound off stops what's playing and plays nothing.
 @MainActor
 final class PlaygroundSound: FerbSoundPlaying {
+    var onPlay: ((FerbSound) -> Void)?
+    var onStop: (() -> Void)?
     private let engine: FerbSoundPlaying
     private let state: PlaygroundState
 
@@ -155,14 +157,38 @@ final class PlaygroundSound: FerbSoundPlaying {
         self.state = state
     }
 
+    convenience init(state: PlaygroundState, defaults: UserDefaults = .standard,
+                     preference: @escaping @MainActor (String) -> Any? = { AudioOutputFacts.globalPreference($0) }) {
+        let engine = FerbSoundEngine(defaults: defaults, preference: preference,
+                                    // A synthetic external process exercises the real call policy without reading the Mac's mic.
+                                    inputProcesses: { state.simulatesCall ? [0] : [] }, ownProcess: { _ in false })
+        self.init(engine: engine, state: state)
+    }
+
     func play(_ s: FerbSound, at point: CGPoint?) {
+        onPlay?(s)
         guard state.saved.soundOn else { return }
         engine.play(s, at: point)
     }
-    func stopAll() { engine.stopAll() }
+    func stopAll() { onStop?(); engine.stopAll() }
     func keepWarm(_ on: Bool) { engine.keepWarm(on) }
     var outputLatency: TimeInterval { engine.outputLatency }
     func allows(_ s: FerbSound) -> Bool { state.saved.soundOn && engine.allows(s) }
+}
+
+/// Review notification events use the real poster, with no OS notification or permission prompt.
+@MainActor
+final class PlaygroundNotificationCenter: NotificationCenterPosting {
+    let state: PlaygroundState
+    init(state: PlaygroundState) { self.state = state }
+    func authorized() async -> Bool { true }
+    func undecided() async -> Bool { false }
+    func request() async -> Bool { true }
+    func soundsAllowed() async -> Bool { true }
+    func post(id: String, title: String, body: String, userInfo: [String: String], thread: String, sound: Bool) {
+        state.note("Sample banner: " + title + " — " + body)
+    }
+    func withdraw(ids: [String]) {}
 }
 
 /// The tour's waits at the playground's speed (AppSetupController.introSleeper).

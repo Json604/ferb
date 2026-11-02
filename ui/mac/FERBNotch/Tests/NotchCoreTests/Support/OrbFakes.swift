@@ -5,6 +5,7 @@ import CoreGraphics
 
 @MainActor
 final class FakeOrbSurface: OrbSurface {
+    var onDropAccepted: (() -> Void)?
     var visible = false
     var center = CGPoint.zero
     var opacity: CGFloat = 0

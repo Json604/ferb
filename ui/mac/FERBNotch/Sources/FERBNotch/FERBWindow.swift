@@ -51,6 +51,10 @@ struct FERBAppActions {
     /// Plan F's: Settings → General → Startup.
     var loginItems: LoginItemController?
     var updates: UpdateCoordinator?
+    var logsDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ferb/logs", isDirectory: true)
+    var openNotificationSettings: () -> Void = {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") { NSWorkspace.shared.open(url) }
+    }
 }
 
 /// The regular FERB window (L34 Phase E). It opens only when the owner asks (menu bar, ⌘,): their own foreground
@@ -60,7 +64,7 @@ final class FERBWindowController: NSObject, NSWindowDelegate {
     let store: FERBWindowStore
     let selection = FERBWindowSelection()
     private let actions: FERBAppActions
-    private var window: NSWindow?
+    private(set) var window: NSWindow?
 
     init(store: FERBWindowStore, actions: FERBAppActions) {
         self.store = store
@@ -82,11 +86,16 @@ final class FERBWindowController: NSObject, NSWindowDelegate {
     func show(_ section: FERBSection, tab: SettingsTab? = nil) {
         select(section, tab: tab)
         if window == nil {
-            let created = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
-                                   styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            let created = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 760),
+                                   styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                    backing: .buffered, defer: false)
             created.title = "FERB"
-            created.toolbarStyle = .unified
+            created.titleVisibility = .hidden
+            created.titlebarAppearsTransparent = true
+            created.titlebarSeparatorStyle = .none
+            created.backgroundColor = .black
+            created.isOpaque = false
+            created.minSize = NSSize(width: 880, height: 620)
             created.isReleasedWhenClosed = false
             created.delegate = self
             created.contentView = NSHostingView(rootView: FERBWindowView(store: store, selection: selection,
@@ -95,8 +104,7 @@ final class FERBWindowController: NSObject, NSWindowDelegate {
             created.setFrameAutosaveName("FERBWindow")
             window = created
         }
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
+        if let window { AppWindowPresentation.show(window) }
     }
 }
 
@@ -106,25 +114,14 @@ struct FERBWindowView: View {
     let actions: FERBAppActions
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selection.destination) {
-                Section("FERB") {
-                    ForEach(FERBSection.allCases.filter { $0 != .settings }) { section in
-                        sidebarLabel(section.title, symbol: section.symbol)
-                            .tag(FERBWindowDestination.section(section))
-                    }
-                }
-                Section("Settings") {
-                    ForEach(SettingsTab.allCases) { tab in
-                        sidebarLabel(tab.title, symbol: tab.symbol)
-                            .tag(FERBWindowDestination.settings(tab))
-                    }
-                }
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 220, ideal: 240)
-        } detail: {
+        HStack(spacing: 0) {
+            sidebar
             VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(selection.title).font(.system(size: 27, weight: .semibold)).tracking(-0.7)
+                    Text(subtitle).font(.system(size: 13)).foregroundStyle(.white.opacity(0.70))
+                }
+                .padding(.horizontal, 30).padding(.top, 55).padding(.bottom, 26)
                 if store.problem != nil || store.note != nil {
                     VStack(alignment: .leading, spacing: 6) {
                         if let problem = store.problem {
@@ -133,27 +130,99 @@ struct FERBWindowView: View {
                         }
                         if let note = store.note { Text(note).foregroundStyle(.secondary).textSelection(.enabled) }
                     }
-                    .padding(20)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 30).padding(.bottom, 16)
                 }
                 page
+                    .scrollContentBackground(.hidden)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .navigationTitle(selection.title)
             .task(id: selection.section) { await store.refresh(selection.section ?? .tasks) }
         }
-        .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 760, minHeight: 480)
+        .frame(minWidth: 880, minHeight: 620)
+        .font(.system(size: 13))
+        .buttonStyle(SetupActionStyle())
+        .textFieldStyle(SetupFieldStyle())
+        .foregroundStyle(.white.opacity(0.92))
+        .background {
+            SetupGlass()
+                .overlay(LinearGradient(stops: [
+                    .init(color: .black.opacity(0.94), location: 0),
+                    .init(color: .black.opacity(0.66), location: 0.38),
+                    .init(color: .black.opacity(0.30), location: 1)
+                ], startPoint: .top, endPoint: .bottom))
+                .overlay(alignment: .leading) {
+                    HStack(spacing: 0) {
+                        Color.black.opacity(0.60).frame(width: 174)
+                        LinearGradient(colors: [.black.opacity(0.60), .clear],
+                                       startPoint: .leading, endPoint: .trailing).frame(width: 120)
+                    }.allowsHitTesting(false)
+                }
+        }
+        .preferredColorScheme(.dark)
+        .ignoresSafeArea(.container, edges: .top)
     }
 
-    private func sidebarLabel(_ title: String, symbol: String) -> some View {
-        Label {
-            Text(title).fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: symbol).symbolRenderingMode(.hierarchical)
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text("ferb").font(.system(size: 28, weight: .semibold)).tracking(-1.2)
+                Text(".").font(.system(size: 30, weight: .bold)).foregroundStyle(.orange)
+            }
+            .padding(.horizontal, 22).padding(.top, 53).padding(.bottom, 26)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(FERBSection.allCases.filter { $0 != .settings }) { section in
+                        sidebarButton(section.title, symbol: section.symbol, destination: .section(section))
+                    }
+                    settingsGroup("Experience", tabs: [.general, .notch, .notifications])
+                    settingsGroup("Connections", tabs: [.ai, .browsers, .permissions])
+                    settingsGroup("Manage FERB", tabs: [.privacy, .data, .advanced, .about])
+                }.padding(.horizontal, 12).padding(.bottom, 24)
+            }.scrollIndicators(.hidden)
         }
-        .padding(.vertical, 3)
+        .frame(width: 224)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func settingsGroup(_ title: String, tabs: [SettingsTab]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title.uppercased()).font(.system(size: 9, weight: .semibold)).tracking(1.5)
+                .foregroundStyle(.white.opacity(0.55)).padding(.horizontal, 13)
+                .padding(.top, 17).padding(.bottom, 6)
+            ForEach(tabs) { tab in
+                sidebarButton(tab.title, symbol: tab.symbol, destination: .settings(tab))
+            }
+        }
+    }
+
+    private func sidebarButton(_ title: String, symbol: String, destination: FERBWindowDestination) -> some View {
+        let selected = selection.destination == destination
+        return Button { selection.destination = destination } label: {
+            HStack(spacing: 11) {
+                Image(systemName: symbol).font(.system(size: 14, weight: .regular)).frame(width: 19)
+                    .foregroundStyle(.white.opacity(selected ? 0.9 : 0.4))
+                Text(title).font(.system(size: 12, weight: selected ? .semibold : .medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 13).frame(minHeight: 37)
+            .foregroundStyle(.white.opacity(selected ? 0.95 : 0.61))
+            .background(.white.opacity(selected ? 0.09 : 0), in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+
+    private var subtitle: String {
+        switch selection.section ?? .tasks {
+        case .tasks: return "What FERB is working on, and what’s done."
+        case .schedules: return "The things you want to happen, right on time."
+        case .noticed: return "The little things FERB picked up along the way."
+        case .memory: return "What FERB knows about you. Yours to change."
+        case .settings: return selection.settingsTab.subtitle
+        }
     }
 
     @ViewBuilder private var page: some View {
@@ -163,6 +232,74 @@ struct FERBWindowView: View {
         case .noticed: NoticedPage(store: store)
         case .memory: MemoryPage(store: store)
         case .settings: SettingsView(store: store, selection: selection, actions: actions)
+        }
+    }
+}
+
+/// The same quiet, rounded surfaces and controls as the setup and notch.
+struct WindowCard<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        content.frame(maxWidth: .infinity, alignment: .leading).padding(20)
+            .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+struct WindowPage<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) { content }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 30).padding(.bottom, 28)
+        }
+    }
+}
+
+struct WindowSectionLabel: View {
+    let title: String
+    var count: Int? = nil
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title.uppercased()).tracking(1.5)
+            if let count { Text(String(count)).monospacedDigit().foregroundStyle(.white.opacity(0.28)) }
+        }
+        .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.65))
+        .padding(.top, 6).padding(.bottom, 3)
+    }
+}
+
+struct WindowSettingsSection<Content: View>: View {
+    var title: String? = nil
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let title { WindowSectionLabel(title: title) }
+            WindowCard { VStack(alignment: .leading, spacing: 16) { content } }
+                .toggleStyle(WindowToggleStyle())
+                .labeledContentStyle(WindowSettingLabelStyle())
+        }.padding(.bottom, 10)
+    }
+}
+
+/// Keep the controls on one trailing axis while retaining the native switch interaction.
+private struct WindowToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 20) {
+            configuration.label.accessibilityHidden(true)
+            Spacer(minLength: 12)
+            Toggle(isOn: configuration.$isOn) { configuration.label }
+                .labelsHidden().toggleStyle(.switch)
+        }
+    }
+}
+
+private struct WindowSettingLabelStyle: LabeledContentStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 24) {
+            configuration.label
+            Spacer(minLength: 12)
+            configuration.content.foregroundStyle(.secondary).multilineTextAlignment(.trailing)
         }
     }
 }

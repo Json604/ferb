@@ -24,9 +24,9 @@ final class NotchYieldControllerTests: XCTestCase {
     /// The same frames PanelCoordinator derives from the model: FERB's drawn surface while expanded (nothing while
     /// collapsed on a notched display), which is also the pinned chat.
     private func layout() -> NotchYieldController.Layout {
-        let surface = model.bodyVisible ? F.openSurface : F.headerSurface
-        return .init(occupied: model.expanded ? [surface] : [],
-                     pinnedChat: model.isPinned && model.expanded ? surface : nil,
+        let surface = model.bodyVisible || model.introLine != nil ? F.openSurface : F.headerSurface
+        return .init(occupied: model.expanded || model.introLine != nil ? [surface] : [],
+                     pinnedChat: (model.isPinned && model.expanded) || model.introLine != nil ? surface : nil,
                      notch: F.notch, menuBar: F.menuBar, display: F.display)
     }
 
@@ -38,6 +38,27 @@ final class NotchYieldControllerTests: XCTestCase {
 
     private let notchPoint = CGPoint(x: 735, y: 10)
     private let browserPoint = CGPoint(x: 200, y: 600)
+
+    // decision: APP-614
+    func testIntroYieldsToSettingsAndItsSameProcessCompanionCanBeClickedForwardAgain() {
+        model.introLine = IntroLine(text: "Permissions")
+        windows = [F.maximizedBrowser]
+        controller.appActivated(F.browser)
+        XCTAssertTrue(model.isYielded)
+        controller.summon()
+        controller.companionFocused(123)
+        XCTAssertEqual(controller.coveringWindow(), 123)
+        XCTAssertTrue(model.isYielded)
+        controller.summon()
+        XCTAssertFalse(model.isYielded)
+        controller.companionFocused(123)
+        XCTAssertTrue(model.isYielded)
+        controller.companionFocused(nil)
+        XCTAssertFalse(model.isYielded)
+        controller.companionFocused(123)
+        model.introLine = nil
+        XCTAssertFalse(model.isYielded)
+    }
 
     // decision: APP-559
     func testPinnedChatYieldsToAnActivatedAppUnderItAndHoveringTheNotchBringsItBack() {

@@ -2,7 +2,7 @@ import XCTest
 @testable import NotchCore
 
 final class IntroPlanTests: XCTestCase {
-    // decision: APP-517, APP-516
+    // decision: APP-517, APP-618
     func testFinishedSetupGetsNoTourUnlessReplayed() {
         let needs = IntroNeeds(setupDone: true, signedIn: true, missingPermissions: [], unpairedBrowsers: false, firstRun: false)
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), [])
@@ -23,7 +23,7 @@ final class IntroPlanTests: XCTestCase {
         XCTAssertEqual(IntroPlan.beats(needs, replay: false), IntroBeat.allCases)
     }
 
-    // decision: APP-516
+    // decision: APP-618
     func testResumeSurvivesARelaunch() {
         let suite = Self.scratchSuiteName("IntroPlan")
         addTeardownBlock { Self.removeScratchSuite(suite) }

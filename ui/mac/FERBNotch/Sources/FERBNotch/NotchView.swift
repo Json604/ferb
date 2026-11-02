@@ -21,6 +21,16 @@ struct NotchView: View {
                         .frame(height: presentation.size.height, alignment: .top)
                 } else if model.compactContent == .pulse {
                     Color.clear.frame(height: presentation.size.height)
+                } else if case .reminder(let card, let text)? = model.compactContent {
+                    ScrollView { ReminderArrivalView(card: card, text: text).allowsHitTesting(false) }
+                        .padding(.top, model.isNotchDocked ? model.cutoutHeight : 0)
+                        .frame(height: presentation.size.height, alignment: .top)
+                        .contentShape(Rectangle())
+                        .onTapGesture { model.openReminderChat() }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Open reminder in chat")
+                        .accessibilityAction { model.openReminderChat() }
                 } else if case .plan(let text)? = model.compactContent {
                     ScrollView {
                         Text(text)
@@ -232,7 +242,7 @@ struct NotchView: View {
             if let line = model.introLine {
                 // The tour goes on in the open chat (its preview, its controls): FERB's line above the composer.
                 IntroNarrationView(line: line, cameraSpace: 0, act: model.introActions,
-                                   inset: EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12),
+                                   inset: IntroNarrationView.chatInset,
                                    typed: $model.introTyped)
                     .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
             }

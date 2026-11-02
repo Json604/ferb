@@ -3,17 +3,18 @@ import SwiftUI
 import NotchCore
 
 enum SettingsTab: Hashable, CaseIterable, Identifiable {
-    case general, ai, permissions, browsers, notifications, privacy, data, advanced, about
+    case general, notch, notifications, ai, browsers, permissions, privacy, data, advanced, about
 
     var id: SettingsTab { self }
 
     var title: String {
         switch self {
         case .general: return "General"
+        case .notch: return "Notch & Shortcuts"
         case .ai: return "AI"
         case .permissions: return "Permissions"
         case .browsers: return "Browsers"
-        case .notifications: return "Notifications"
+        case .notifications: return "Sounds & Notifications"
         case .privacy: return "Privacy"
         case .data: return "Data"
         case .advanced: return "Advanced"
@@ -21,9 +22,25 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         }
     }
 
+    var subtitle: String {
+        switch self {
+        case .general: return "Launch, updates and a fresh introduction."
+        case .notch: return "How FERB opens, listens and stays out of your way."
+        case .notifications: return "Choose what gets your attention and how it sounds."
+        case .ai: return "Choose the AI service FERB thinks with."
+        case .browsers: return "Connect the browsers and accounts FERB can use."
+        case .permissions: return "The access FERB needs to work on your Mac."
+        case .privacy: return "What FERB can notice, and what stays private."
+        case .data: return "Your saved information and recovery options."
+        case .advanced: return "Diagnostics and maintenance when you need them."
+        case .about: return "Your FERB version and the services behind it."
+        }
+    }
+
     var symbol: String {
         switch self {
         case .general: return "gearshape"
+        case .notch: return "macwindow"
         case .ai: return "sparkles"
         case .permissions: return "lock.shield"
         case .browsers: return "globe"
@@ -50,93 +67,109 @@ struct SettingsView: View {
         Group {
             switch selection.settingsTab {
             case .general:
-                GeneralSettingsPage(feedback: actions.feedback, cursor: actions.cursor, loginItems: actions.loginItems,
-                                    updates: actions.updates, onHoverEnabledChange: actions.setHoverEnabled,
-                                    onReplayIntro: actions.replayIntro)
+                GeneralSettingsPage(loginItems: actions.loginItems, updates: actions.updates, onReplayIntro: actions.replayIntro)
+            case .notch: NotchSettingsPage(cursor: actions.cursor, onHoverEnabledChange: actions.setHoverEnabled)
             case .ai: AISettingsPage(store: store, actions: actions, output: aiOutput)
             case .permissions: PermissionsSettingsPage(actions: actions)
             case .browsers: BrowsersSettingsPage(actions: actions)
-            case .notifications: NotificationsSettingsPage(store: store)
+            case .notifications: NotificationsSettingsPage(store: store, feedback: actions.feedback, openSettings: actions.openNotificationSettings)
             case .privacy: PrivacySettingsPage(store: store, draft: privacyDraft)
             case .data: DataSettingsPage(store: store, actions: actions, cleanup: cleanup)
             case .advanced: AdvancedSettingsPage(store: store, actions: actions, output: advancedOutput)
             case .about: AboutSettingsPage(store: store)
             }
         }
+        .scrollContentBackground(.hidden)
+        .toggleStyle(.switch)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-/// Settings → General: the notch's shortcuts, FERB's pointer and sounds (moved here from the old sound window). Plans
-/// F and G add "Startup" (open at login) and "Updates"; the installed app offers "Replay intro" (kb area app).
+/// General holds app lifecycle choices; daily interaction has its own visible destination.
 struct GeneralSettingsPage: View {
-    @ObservedObject var feedback: SoundFeedback
-    let cursor: CursorController
     var loginItems: LoginItemController? = nil
     var updates: UpdateCoordinator? = nil
-    @AppStorage("cursor.enabled") private var cursorEnabled = true
-    @AppStorage("notch.hoverEnabled") private var hoverEnabled = true
-    @AppStorage(NotchModel.sendOnReleaseKey) private var sendOnRelease = false
-    var onHoverEnabledChange: ((Bool) -> Void)?
     var onReplayIntro: (() -> Void)? = nil
 
     var body: some View {
-        Form {
-            if let onReplayIntro {
-                Section("Intro") {
-                    Button("Replay intro") { onReplayIntro() }
-                    Text("Meet FERB again: every step of the first-run tour. Nothing you've set up changes.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
+        WindowPage {
             if let loginItems {
-                Section("Startup") { LoginItemRow(loginItems: loginItems) }
+                WindowSettingsSection(title: "Startup") { LoginItemRow(loginItems: loginItems) }
             }
             if let updates {
-                Section("Updates") { UpdatesSection(updates: updates) }
+                WindowSettingsSection(title: "Updates") { UpdatesSection(updates: updates) }
             }
-            Section("Notch") {
-                // The keys come from the app guide (NotchCore AppGuide), the list FERB's self-description also reads.
-                LabeledContent("Open / close FERB", value: AppGuide.keys("Open / close FERB"))
-                LabeledContent("Dictation", value: AppGuide.keys("Dictation"))
-                Toggle("Send dictation when I let go of the keys", isOn: $sendOnRelease)
-                Text("A dictated message is answered aloud as well as in the chat.")
-                    .font(.caption).foregroundStyle(.secondary)
-                LabeledContent("Submit / new line", value: AppGuide.keys("Submit / new line"))
+            if let onReplayIntro {
+                WindowSettingsSection(title: "Meet FERB again") {
+                    HStack(spacing: 24) {
+                        Text("Replay the introduction whenever you like. Your setup stays saved.")
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Button("Replay intro", action: onReplayIntro)
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct NotchSettingsPage: View {
+    let cursor: CursorController
+    var onHoverEnabledChange: ((Bool) -> Void)?
+    @AppStorage("cursor.enabled") private var cursorEnabled = true
+    @AppStorage("notch.hoverEnabled") private var hoverEnabled = true
+    @AppStorage(NotchModel.sendOnReleaseKey) private var sendOnRelease = false
+
+    var body: some View {
+        WindowPage {
+            WindowSettingsSection(title: "Notch & pill") {
                 Toggle("Open when I hover over FERB", isOn: $hoverEnabled)
                     .onChange(of: hoverEnabled) { _, enabled in onHoverEnabledChange?(enabled) }
-                Text("You can change this any time here, or ask FERB to turn hover opening on or off.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("Drag FERB away from the notch to leave its pill on any screen edge.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            Section("FERB's pointer") {
+            WindowSettingsSection(title: "Keyboard & voice") {
+                LabeledContent("Open / close FERB", value: AppGuide.keys("Open / close FERB"))
+                LabeledContent("Dictation", value: AppGuide.keys("Dictation"))
+                LabeledContent("Submit / new line", value: AppGuide.keys("Submit / new line"))
+                Toggle("Send dictation when I let go of the keys", isOn: $sendOnRelease)
+                Text("A dictated message is answered aloud as well as in the chat.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            WindowSettingsSection(title: "FERB’s pointer") {
                 Toggle("Show FERB's pointer when it acts on screen", isOn: $cursorEnabled)
                     .onChange(of: cursorEnabled) { _, on in cursor.enabled = on }
             }
-            Section("Sounds") {
-                Toggle("Play feedback sounds", isOn: $feedback.enabled)
-                Slider(value: $feedback.volume, in: 0...0.5) { Text("Volume") }.disabled(!feedback.enabled)
-                Picker("Intensity", selection: $feedback.subtle) {
-                    Text("Standard").tag(false)
-                    Text("Subtle").tag(true)
-                }
-                .pickerStyle(.segmented).disabled(!feedback.enabled)
-                Text("During a call FERB plays only the \"needs you\" sound, softly; the notch still shows everything.")
-                    .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct SoundSettingsControls: View {
+    @ObservedObject var feedback: SoundFeedback
+    var body: some View {
+        Toggle("Play feedback sounds", isOn: $feedback.enabled)
+        Slider(value: $feedback.volume, in: 0...0.5) { Text("Volume") }.disabled(!feedback.enabled)
+        Picker("Intensity", selection: $feedback.subtle) {
+            Text("Standard").tag(false)
+            Text("Subtle").tag(true)
+        }.pickerStyle(.segmented).disabled(!feedback.enabled)
+        Text("During a call FERB plays only the “needs you” sound, softly; the notch still shows everything.")
+            .font(.system(size: 12)).foregroundStyle(.secondary)
+        DisclosureGroup("Individual sounds") {
+            VStack(alignment: .leading, spacing: 18) {
                 ForEach(SoundSwitch.allCases, id: \.self) { sound in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(sound.title)
-                            Text(sound.meaning).font(.caption).foregroundStyle(.secondary)
+                            Text(sound.meaning).font(.system(size: 11)).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button("Play") { feedback.preview(sound) }.disabled(!feedback.isOn(sound))
                         Toggle(sound.title, isOn: feedback.binding(sound)).labelsHidden()
-                    }
-                    .disabled(!feedback.enabled)
+                    }.disabled(!feedback.enabled)
                 }
-            }
+            }.padding(.top, 16)
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -247,9 +280,9 @@ struct AISettingsPage: View {
 
     var body: some View {
         if let setup = actions.setup {
-            Form {
-                Section { AIStepView(model: setup) }
-                Section("Check") {
+            WindowPage {
+                WindowSettingsSection { AIStepView(model: setup) }
+                WindowSettingsSection(title: "Check") {
                     Button("Check connection") { Task { await store.checkRuntime(setup.ai?.current ?? "codex") } }
                     Button("Sign out of ChatGPT") {
                         output.run(["setup", "--codex-logout"], with: actions) { Task { await setup.refreshAI() } }
@@ -262,10 +295,9 @@ struct AISettingsPage: View {
                     OutputLines(output: output)
                 }
             }
-            .formStyle(.grouped)
             .task { await setup.refreshAI() }
         } else {
-            Form { OnlyInTheApp() }.formStyle(.grouped)
+            WindowPage { WindowSettingsSection { OnlyInTheApp() } }
         }
     }
 }
@@ -277,12 +309,11 @@ struct PermissionsSettingsPage: View {
 
     var body: some View {
         if let setup = actions.setup {
-            Form { PermissionsStepView(model: setup) }
-                .formStyle(.grouped)
+            WindowPage { WindowSettingsSection { PermissionsStepView(model: setup) } }
                 .onAppear { setup.startPolling() }
                 .onDisappear { setup.stopPolling() }
         } else {
-            Form { OnlyInTheApp() }.formStyle(.grouped)
+            WindowPage { WindowSettingsSection { OnlyInTheApp() } }
         }
     }
 }
@@ -293,36 +324,33 @@ struct BrowsersSettingsPage: View {
 
     var body: some View {
         if let setup = actions.setup {
-            Form {
-                BrowsersStepView(model: setup)
-                Section("FERB's own account") { IdentityStepView(model: setup, showsHeader: false) }
+            WindowPage {
+                WindowSettingsSection { BrowsersStepView(model: setup) }
+                WindowSettingsSection(title: "FERB's own account") { IdentityStepView(model: setup, showsHeader: false) }
             }
-                .formStyle(.grouped)
-                .task { await setup.refreshBrowsers(); await setup.refreshIdentity() }
+            .task { await setup.refreshBrowsers(); await setup.refreshIdentity() }
         } else {
-            Form { OnlyInTheApp() }.formStyle(.grouped)
+            WindowPage { WindowSettingsSection { OnlyInTheApp() } }
         }
     }
 }
 
-/// Settings → Notifications: which kinds FERB posts while the notch is closed (plan D's categories).
+/// Settings → Sounds & Notifications: which kinds FERB posts while the notch is closed (plan D's categories).
 struct NotificationsSettingsPage: View {
     @ObservedObject var store: FERBWindowStore
+    @ObservedObject var feedback: SoundFeedback
+    var openSettings: () -> Void
 
     var body: some View {
-        Form {
-            Section("Notify me about") {
+        WindowPage {
+            WindowSettingsSection(title: "Notify me about") {
                 ForEach(BannerCategory.allCases, id: \.rawValue) { category in
                     Toggle(category.title, isOn: store.banner(category))
                 }
+                Button("Open macOS notification settings", action: openSettings)
             }
-            Section {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
-                    Button("Open macOS notification settings") { NSWorkspace.shared.open(url) }
-                }
-            }
+            WindowSettingsSection(title: "Sounds") { SoundSettingsControls(feedback: feedback) }
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -343,24 +371,24 @@ struct PrivacySettingsPage: View {
     }
 
     var body: some View {
-        Form {
-            Section("Recording") {
+        WindowPage {
+            WindowSettingsSection(title: "Recording") {
                 Toggle("Pause recording what happens on this Mac",
                        isOn: Binding(get: { store.recordingPaused }, set: { on in Task { await store.pauseRecording(on) } }))
                 Toggle("Record window titles", isOn: store.toggle("sense.window_titles"))
                 LabeledContent("Recording now", value: store.watchers.isEmpty ? "nothing" : store.watchers.joined(separator: ", "))
             }
-            Section("Apps FERB ignores") {
+            WindowSettingsSection(title: "Apps FERB ignores") {
                 StringListEditor(items: store.settings.strings("privacy.exclude_apps"),
                                  placeholder: "Bundle id or app name, e.g. com.1password.1password",
                                  newItem: $draft.newApp) { list in Task { await store.set("privacy.exclude_apps", .strings(list)) } }
             }
-            Section("Sites FERB ignores") {
+            WindowSettingsSection(title: "Sites FERB ignores") {
                 StringListEditor(items: store.settings.strings("privacy.exclude_domains"),
                                  placeholder: "Site, e.g. bank.example.com",
                                  newItem: $draft.newSite) { list in Task { await store.set("privacy.exclude_domains", .strings(list)) } }
             }
-            Section("How long FERB keeps records") {
+            WindowSettingsSection(title: "How long FERB keeps records") {
                 DaysStepper(title: "Activity trail", key: "sense.trail_retention_days", store: store)
                 DaysStepper(title: "Task traces", key: "retention.trace_days", store: store)
                 DaysStepper(title: "Jev decisions", key: "retention.decision_days", store: store)
@@ -370,7 +398,6 @@ struct PrivacySettingsPage: View {
                 DaysStepper(title: "Operational records", key: "retention.operational_days", store: store)
             }
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -423,9 +450,7 @@ struct AdvancedSettingsPage: View {
     @State private var confirmUninstall = false
     @State private var confirmPurge = false
 
-    private var logs: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ferb/logs", isDirectory: true)
-    }
+    private var logs: URL { actions.logsDirectory }
 
     init(store: FERBWindowStore, actions: FERBAppActions, output: FerbOutput? = nil) {
         self.store = store
@@ -434,15 +459,15 @@ struct AdvancedSettingsPage: View {
     }
 
     var body: some View {
-        Form {
-            Section("Logs") {
+        WindowPage {
+            WindowSettingsSection(title: "Logs") {
                 Button("Open FERB's logs folder") { NSWorkspace.shared.open(logs) }
             }
-            Section("Health") {
+            WindowSettingsSection(title: "Health") {
                 Button("Check FERB") { Task { await store.checkHealth() } }
                 ForEach(store.health) { line in LabeledContent(line.name, value: line.ok ? "OK" : line.detail) }
             }
-            Section("Diagnostic file") {
+            WindowSettingsSection(title: "Diagnostic file") {
                 Button("Export a diagnostic file…") {
                     Task {
                         if let url = await store.exportDiagnostic(appVersion: actions.appVersion) {
@@ -469,7 +494,7 @@ struct AdvancedSettingsPage: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             if actions.runFerb != nil {
-                Section("Command-line tool and uninstall") {
+                WindowSettingsSection(title: "Command-line tool and uninstall") {
                     Button("Install command-line tool") { output.run(["setup", "--cli"], with: actions) }
                         .disabled(output.running)
                     Button("Uninstall FERB…") { confirmUninstall = true }.disabled(output.running)
@@ -479,7 +504,6 @@ struct AdvancedSettingsPage: View {
                 }
             }
         }
-        .formStyle(.grouped)
         .alert("Uninstall FERB?", isPresented: $confirmUninstall) {
             Button("Uninstall", role: .destructive) { output.uninstall(with: actions) }
             Button("Cancel", role: .cancel) {}
@@ -508,9 +532,9 @@ struct AboutSettingsPage: View {
     @ObservedObject var store: FERBWindowStore
 
     var body: some View {
-        Form {
+        WindowPage {
             if let about = store.about {
-                Section("FERB") {
+                WindowSettingsSection(title: "FERB") {
                     LabeledContent("Version", value: about.version)
                     ForEach(about.models) { LabeledContent("Model for the \($0.name)", value: $0.value) }
                     ForEach(about.account) { line in
@@ -518,7 +542,7 @@ struct AboutSettingsPage: View {
                         if !line.note.isEmpty { Text(line.note).font(.caption).foregroundStyle(.secondary) }
                     }
                 }
-                Section("What FERB keeps about you, where, and for how long") {
+                WindowSettingsSection(title: "What FERB keeps about you, where, and for how long") {
                     ForEach(about.records) { line in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(line.name.prefix(1).uppercased() + line.name.dropFirst())
@@ -526,8 +550,8 @@ struct AboutSettingsPage: View {
                         }
                     }
                 }
-                Section("Permissions") { ForEach(about.permissions) { LabeledContent($0.name, value: $0.value) } }
-                Section("Your settings") {
+                WindowSettingsSection(title: "Permissions") { ForEach(about.permissions) { LabeledContent($0.name, value: $0.value) } }
+                WindowSettingsSection(title: "Your settings") {
                     ForEach(about.settings) { line in
                         VStack(alignment: .leading, spacing: 2) {
                             LabeledContent(line.name, value: line.value)
@@ -535,24 +559,23 @@ struct AboutSettingsPage: View {
                         }
                     }
                 }
-                Section("Health") {
+                WindowSettingsSection(title: "Health") {
                     ForEach(about.health) { line in
                         LabeledContent(line.name, value: line.value)
                         if !line.note.isEmpty { Text(line.note).font(.caption).foregroundStyle(.secondary) }
                     }
                 }
-                Section("Cost") {
+                WindowSettingsSection(title: "Cost") {
                     ForEach(about.cost) { LabeledContent($0.name, value: $0.value) }
                     if let basis = about.cost.first?.note { Text(basis).font(.caption).foregroundStyle(.secondary) }
                 }
             } else {
                 ProgressView()
             }
-            Section("Shortcuts") { ForEach(AppGuide.shortcuts, id: \.action) { LabeledContent($0.action, value: $0.keys) } }
-            Section("How to") { ForEach(AppGuide.howtos, id: \.title) { LabeledContent($0.title, value: $0.steps) } }
-            Section("Sounds") { SoundCredits() }
+            WindowSettingsSection(title: "Shortcuts") { ForEach(AppGuide.shortcuts, id: \.action) { LabeledContent($0.action, value: $0.keys) } }
+            WindowSettingsSection(title: "How to") { ForEach(AppGuide.howtos, id: \.title) { LabeledContent($0.title, value: $0.steps) } }
+            WindowSettingsSection(title: "Sounds") { SoundCredits() }
         }
-        .formStyle(.grouped)
         .task { await store.loadAbout() }
     }
 }
@@ -573,7 +596,7 @@ private struct SoundCredits: View {
 }
 
 /// Settings → Data (APP-2, STORE-402): put back what FERB changed or trashed, delete a saved secret or
-/// card, every screenshot FERB kept (step 12e: What FERB saw), and the one-time clean-up of data FERB no longer uses.
+/// card and the one-time clean-up of data FERB no longer uses.
 struct DataSettingsPage: View {
     @ObservedObject var store: FERBWindowStore
     let actions: FERBAppActions
@@ -581,8 +604,8 @@ struct DataSettingsPage: View {
     @State private var deleting: SavedSecretRow?
 
     var body: some View {
-        Form {
-            Section("Restore") {
+        WindowPage {
+            WindowSettingsSection(title: "Restore") {
                 if let line = store.restoreLine { Text(line).font(.caption).foregroundStyle(.secondary) }
                 if store.restoreRows.isEmpty { Text("Nothing to put back.").foregroundStyle(.secondary) }
                 ForEach(store.restoreRows) { row in
@@ -602,7 +625,7 @@ struct DataSettingsPage: View {
                     }
                 }
             }
-            Section("Saved secrets and cards") {
+            WindowSettingsSection(title: "Saved secrets and cards") {
                 Text("Names only: FERB never shows a saved value.").font(.caption).foregroundStyle(.secondary)
                 if store.savedSecrets.isEmpty { Text("Nothing saved.").foregroundStyle(.secondary) }
                 ForEach(store.savedSecrets) { row in
@@ -617,10 +640,8 @@ struct DataSettingsPage: View {
                     }
                 }
             }
-            Section("What FERB saw") { SeenSection(rpc: store.rpc) }
-            Section("Clean up") { CleanupSection(store: store, actions: actions, cleanup: cleanup) }
+            WindowSettingsSection(title: "Clean up") { CleanupSection(store: store, actions: actions, cleanup: cleanup) }
         }
-        .formStyle(.grouped)
         .task {
             await store.loadRestore()
             await store.loadSecrets()

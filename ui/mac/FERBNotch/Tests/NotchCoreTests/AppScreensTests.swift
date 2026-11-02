@@ -159,7 +159,7 @@ final class AppScreensTests: XCTestCase {
 
     // MARK: What FERB saw (step 12e)
 
-    // decision: APP-3
+    // decision: DMN-27
     func testWhatFerbSawReadsTheDaemonsCapturesNewestFirst() {
         let list = SeenList(["captures": [
             ["id": "e2", "at": "2026-10-31T10:00:05.123456+00:00", "kind": "screenshot", "task_id": "t1",
@@ -179,7 +179,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(SeenList([:]).days, 7)
     }
 
-    // decision: APP-3
+    // decision: DMN-27
     func testWhatFerbSawAsksForAMessagesOrATasksScreenshots() {
         XCTAssertEqual(SeenScope(requestID: "r1", taskID: "t1"), .request("r1"))   // a message: by its request
         XCTAssertEqual(SeenScope(requestID: nil, taskID: "t1"), .task("t1"))       // a task this chat didn't send
@@ -189,7 +189,7 @@ final class AppScreensTests: XCTestCase {
         XCTAssertTrue(SeenScope.all.params.isEmpty)
     }
 
-    // decision: APP-3
+    // decision: DMN-27
     func testWhatFerbSawLoadsTheListThenEachImageOnce() async {
         let rpc = ScriptedRPC()
         rpc.replies["seen.list"] = ["captures": [["id": "e1", "kind": "front_window", "app": "Mail"]], "total": 1]

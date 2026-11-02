@@ -175,7 +175,7 @@ final class SetupModelTests: XCTestCase {
         let model = rig.model()
         await model.refreshPermissions()
         XCTAssertEqual(SetupModel.allowAllOrder(model.setupRows), ["notifications"])
-        await model.allowAll()                                          // returns though the banner is unanswered
+        await model.allowQuickPermissions()                                          // returns though the banner is unanswered
         XCTAssertTrue(model.notificationHint && !model.allowingAll)
         XCTAssertEqual(SetupModel.allowAllSequence.suffix(2), ["notifications", "screen_recording"])
     }

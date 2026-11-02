@@ -2,11 +2,11 @@ import SwiftUI
 import NotchCore
 
 /// Answers in steps (ORCH-319, 20), drawn as the approved mock (demo/answers-in-steps): the first
-/// reply's bubble with the plan line under a left rule, the turn card with one row per ask and its footer, the typing
+/// reply's bubble with the plan line, the turn card with one row per ask and its footer, the typing
 /// dots. Not the mock's pink dashed explanation labels or "code" chips.
 
 /// FERB's first reply: the asks answered at once, code's receipts, then the plan line and code's lines under it ("I'll
-/// work in …") beside a thin rule. While the plan streams, its words so far stand where the plan line will be.
+/// work in …"). While the plan streams, its words so far stand where the plan line will be.
 struct FirstReplyView: View {
     let turn: ConversationTurn
 
@@ -30,7 +30,7 @@ struct FirstReplyView: View {
     }
 }
 
-/// The plan line beside a thin rule (the mock's `.plan`).
+/// The plan and its supporting lines share the reply bubble.
 struct PlanLineBlock: View {
     let line: String
     let lines: [String]
@@ -40,8 +40,7 @@ struct PlanLineBlock: View {
             if !line.isEmpty { NativeMessageText(line) }
             ForEach(Array(lines.enumerated()), id: \.offset) { _, code in NativeMessageText(code, secondary: true) }
         }
-        .padding(.leading, 8)
-        .overlay(alignment: .leading) { Rectangle().fill(.white.opacity(0.22)).frame(width: 2) }
+
     }
 }
 
@@ -105,14 +104,26 @@ struct TurnCardView: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 if index > 0 { Rectangle().fill(.white.opacity(0.07)).frame(height: 1) }
-                CardRowView(row: row, questions: questions[row.part] ?? [], running: running, live: live, model: model)
+                CardRowView(row: row, questions: questions[row.part] ?? [], live: live, model: model)
             }
             if card.finished { footer }
         }
         .padding(.vertical, 4)
-        .background(.white.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 15))
+        .background {
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(.white.opacity(0.10))
+                .overlay { RoundedRectangle(cornerRadius: 15, style: .continuous).fill(surfaceTint.opacity(0.14)) }
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // One colour belongs to the complete card, including its footer; the row's words carry its state.
+    private var surfaceTint: Color {
+        let states = Set(card.rows.filter { !$0.direct }.map(\.state))
+        if !model.rowQuestions(turn).isEmpty || states.contains("asks") { return Palette.amber }
+        if states.contains("failed") { return Palette.red }
+        if !states.isDisjoint(with: ["paused", "updated"]) { return Palette.chatBlue }
+        return .clear
     }
 
     /// "2 of 3 done" and code's lines ("Sites contacted: …"); a stop's headline above them. A line a typed card stands
@@ -132,17 +143,14 @@ struct TurnCardView: View {
     }
 }
 
-/// One ask: its state's icon, its label, and what it says now. A question about it (FERB's own, or a confirmation
+/// One ask: its label and what it says now. A question about it (FERB's own, or a confirmation
 /// the gateway asks for its step) is answered here, with its buttons.
 struct CardRowView: View {
     let row: CardRow
     let questions: [DaemonApproval]
-    /// The task still runs: the row's work can be watched.
-    let running: Bool
     /// Its turn is still under way; otherwise a working row stopped where it was.
     let live: Bool
     @ObservedObject var model: NotchModel
-    @State private var watching = false
 
     /// An open confirmation for its step shows the row as asking; a working row of a turn that ended, as stopped.
     private var state: String {
@@ -152,28 +160,16 @@ struct CardRowView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            RowIcon(state: state).frame(width: 18, height: 18).padding(.top, 1)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 6) {
-                    Text(row.label).font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.secondary)
-                    if state == "updated" { UpdatedTag() }
-                    Spacer(minLength: 0)
-                    if running, !row.isSettled, let step = row.stepTaskID, model.previewAccess.refusal == nil {
-                        watchButton(step)
-                    }
-                }
-                content.padding(.top, 2)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Text(row.label).font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.secondary)
+                if state == "updated" { UpdatedTag() }
+                Spacer(minLength: 0)
             }
+            content.padding(.top, 2)
         }
         .padding(.horizontal, 11).padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(state == "updated" ? 0 : 0.09))
-        .overlay(alignment: .leading) {
-            if !["working", "done", "stopped"].contains(state) { Rectangle().fill(tint).frame(width: 2) }
-        }
-        .onChange(of: row.isSettled) { _, settled in if settled { watching = false } }
-        .onChange(of: model.previewDismissalRevision) { _, _ in watching = false }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(row.label + ", " + Self.stateName(state))
     }
@@ -205,7 +201,7 @@ struct CardRowView: View {
             }
             if let why = row.why, state == "updated" {
                 Text(why.hasPrefix("Updated") ? why : "Updated: " + why)
-                    .font(.system(size: 11.5)).foregroundStyle(Palette.cyan)
+                    .font(.system(size: 11.5)).foregroundStyle(Palette.chatBlue)
             }
             if let chosen = row.chosen {
                 Text("You chose " + chosen).font(.system(size: 11)).foregroundStyle(.tertiary)
@@ -221,96 +217,22 @@ struct CardRowView: View {
         }
     }
 
-    private var tint: Color {
-        switch state {
-        case "asks": return Palette.amber
-        case "failed": return Palette.red
-        case "paused": return Palette.violet
-        case "updated": return Palette.cyan
-        default: return .clear
-        }
-    }
-
     static func stateName(_ state: String) -> String {
         ["working": "working", "done": "done", "updated": "updated", "asks": "asks you", "failed": "couldn't do",
          "paused": "paused", "stopped": "not finished", "preview": "preview, nothing done",
          "previewRunning": "preview, nothing done"][state] ?? state
     }
 
-    /// Watch FERB work on this ask: the live preview of the step that answers it (kb area app).
-    private func watchButton(_ step: String) -> some View {
-        Button { watching.toggle() } label: {
-            Image(systemName: "eye").font(.system(size: 10)).frame(width: 18, height: 15)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Palette.secondary)
-        .help("Watch FERB work on this")
-        .accessibilityLabel("Watch FERB work on " + row.label)
-        .popover(isPresented: $watching, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 8) {
-                TaskVideoView(preview: model.preview(task: row.taskID, worker: step))
-                    .frame(width: 300, height: 170)
-                    .clipShape(RoundedRectangle(cornerRadius: 9))
-                Text(row.label).font(.system(size: 11, weight: .medium)).lineLimit(1)
-            }
-            .padding(11)
-            .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
-        }
-    }
-}
 
-/// The row's state as the mock draws it: a spinner, a check, an amber question mark, a red cross, a violet pause.
-private struct RowIcon: View {
-    let state: String
-
-    var body: some View {
-        switch state {
-        case "done", "updated":
-            Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Palette.green)
-        case "asks":
-            Text("?").font(.system(size: 10, weight: .heavy)).foregroundStyle(Palette.amber)
-                .frame(width: 15, height: 15)
-                .overlay(Circle().stroke(Palette.amber, lineWidth: 1.5))
-        case "failed":
-            Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Palette.redSoft)
-        case "paused":
-            Image(systemName: "pause.fill").font(.system(size: 11)).foregroundStyle(Palette.violet)
-        case "stopped":
-            Circle().stroke(.white.opacity(0.3), lineWidth: 1.4).frame(width: 12, height: 12)
-        case "preview":
-            Image(systemName: "eye").font(.system(size: 10)).foregroundStyle(Palette.secondary)
-        default:
-            RowSpinner()
-        }
-    }
-}
-
-private struct RowSpinner: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
-            let turn = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.9) / 0.9
-            Circle().stroke(.white.opacity(reduceMotion ? 0.55 : 0.18), lineWidth: 1.6)
-                .overlay {
-                    if !reduceMotion {
-                        Circle().trim(from: 0, to: 0.25)
-                            .stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-                            .rotationEffect(.degrees(turn * 360))
-                    }
-                }
-                .frame(width: 12, height: 12)
-        }
-    }
 }
 
 private struct UpdatedTag: View {
     var body: some View {
         Text("UPDATED")
             .font(.system(size: 9.5, weight: .bold)).tracking(0.5)
-            .foregroundStyle(Color(.sRGB, red: 0, green: 0.1, blue: 0.14, opacity: 1))
+            .foregroundStyle(.white)
             .padding(.horizontal, 5)
-            .background(Palette.cyan, in: RoundedRectangle(cornerRadius: 4))
+            .background(Palette.chatBlue, in: RoundedRectangle(cornerRadius: 4))
     }
 }
 

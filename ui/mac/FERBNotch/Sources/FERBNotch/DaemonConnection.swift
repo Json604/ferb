@@ -360,7 +360,7 @@ extension NotchModel {
             if status == "done" { showCompletionTrace() }
             // FERB's question (clarify) sounds as its follow-up's needs you (receiveChatEvent), never as a completion.
             if event["type"] as? String == "reply", let sound = SoundPolicy.outcomeSound(status) { feedback.play(sound) }
-            presentTerminalAnswer()
+            presentResult(event)
             recordAnswer(announce: true, displayText: event["display_text"] as? String)
             // A planner turn that ended on a usage limit or a sign-in problem offers another AI service (ORCH-315).
             conversation.offerRuntimeSwitch(id: localID, RuntimeSwitch(event["runtime_switch"]))
@@ -582,7 +582,7 @@ extension NotchModel {
                 if sound == .done { feedback.notification(for: [taskID], bannerMayFollow: true) }
                 else { feedback.play(sound, for: taskID) }
             }
-            if announce && fresh && Self.opensNotch(status) { presentTerminalAnswer() }
+            if announce && fresh && Self.opensNotch(status) { presentResult(event) }
             runningTasks.removeValue(forKey: taskID)
             taskActivities.removeValue(forKey: taskID)
             saveConversation()
@@ -599,9 +599,16 @@ extension NotchModel {
         Task { _ = try? await rpc.call("results.ack", params: ["task_ids": placed]) }
     }
 
+    /// Reminder notifications retain their timer identity in chat, so redelivery cannot repeat the arrival.
+    func receiveReminder(id: String, text: String, at: Any? = nil) {
+        guard !id.isEmpty, !text.isEmpty else { return }
+        receiveNotices([["id": "reminder:" + id, "text": text, "at": at ?? ISO8601DateFormatter().string(from: Date()),
+                         "banner": true, "cards": [["type": "reminder", "title": text]]]], soundIDs: [id])
+    }
+
     /// Notices go into the chat (L9) and are saved before they are acknowledged, so a shown notice is never lost. Every
     /// delivered id is acknowledged, including one shown earlier whose acknowledgement didn't arrive.
-    func receiveNotices(_ rows: [[String: Any]]) {
+    func receiveNotices(_ rows: [[String: Any]], soundIDs: [String]? = nil) {
         var ids: [String] = [], added: [String] = [], bannered = false
         for row in rows {
             guard let id = row["id"] as? String, !id.isEmpty else { continue }
@@ -613,6 +620,9 @@ extension NotchModel {
             }
             if conversation.addNotice(id: id, text: text, quotes: quotes, noticedAt: LiveProgress.time(row["at"]),
                                       cards: ResultCard.list(row["cards"])) {
+                if let card = CardLayout.above(ResultCard.list(row["cards"]) ?? []).first {
+                    presentReminder(card: card, text: text)
+                }
                 added.append(id)
                 bannered = bannered || row["banner"] as? Bool == true    // the daemon banners it too
             }
@@ -620,7 +630,7 @@ extension NotchModel {
         }
         guard !ids.isEmpty else { return }
         // One notification sound for the batch (a restart's backlog is one sound), carried by a banner when it has one.
-        feedback.notification(for: added, bannerMayFollow: bannered)
+        feedback.notification(for: added.isEmpty ? [] : soundIDs ?? added, bannerMayFollow: bannered)
         if !added.isEmpty {
             saveConversation()
             onBackgroundChange?(true)
@@ -754,7 +764,7 @@ extension NotchModel {
         stoppingTaskIDs.remove(id)
         if announce && !alreadyAnnounced, let sound = SoundPolicy.outcomeSound(status) { feedback.play(sound, for: id) }
         if announce && !alreadyAnnounced && status == "done" { showCompletionTrace() }
-        if announce && !alreadyAnnounced && Self.opensNotch(status) { presentTerminalAnswer() }
+        if announce && !alreadyAnnounced && Self.opensNotch(status) { presentResult(event) }
         let verified = event["verified"] as? Bool ?? false
         recordAnswer(announce: announce, displayText: event["display_text"] as? String, verified: verified)
         for turn in conversation.turns where turn.backendTaskID == id && ["working", "interrupted", "needs_user"].contains(turn.status) {

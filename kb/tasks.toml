@@ -394,7 +394,7 @@ area = "app"
 kind = "build"
 status = "open"
 why = "No test resumes a tour with the daemon down; testAllowAllWaitsForTheDaemonsAnswer shows the same \"Getting my background part ready…\" wait only at the Allow all beat of a fresh tour."
-decisions = ["APP-515"]
+decisions = ["APP-618"]
 
 [T-1003]
 title = "FERB.app's Uninstall still removes browser files from FERB.app's own process"
@@ -419,3 +419,27 @@ kind = "chore"
 status = "open"
 why = "Owner 2026-11-02: accelerator applications need a site and a build people can try; the owner updates the site with the UI agent that polishes setup."
 decisions = ["DMN-513"]
+
+[T-29]
+title = "Build DMN-513: the daemon as a user LaunchAgent, with smooth moves from older installs"
+area = "daemon"
+kind = "build"
+status = "open"
+why = "Supersede DMN-2 in the fixing commit; migrate friends' LaunchAgent installs and 2026-11 SMAppService registrations with no error or user step."
+decisions = ["DMN-513", "DMN-2"]
+
+[T-1004]
+title = "Refine the remaining app experience from the whole-app playground review before the site"
+area = "app"
+kind = "build"
+status = "open"
+why = "Startup/setup are accepted. The app window shares the accepted black-glass identity; reminders are unboxed and chat status icons are removed. The original notch handle is restored after the owner rejected the added grip. Awaiting visual and movement review. Remaining app polish precedes the site."
+decisions = ["APP-619", "APP-620", "APP-621", "APP-622", "APP-625", "APP-626", "APP-627", "APP-628", "APP-629"]
+
+[T-1005]
+title = "Investigate the scheduled-run pause/resume timeout in the full suite"
+area = "tests"
+kind = "bug"
+status = "open"
+why = "2026-11-02: scheduled-run pause/resume again timed out waiting 20s for active in the 4200-pass settings-review suite and its isolated rerun. An earlier rerun passed. No Python source changed; cause unverified. Logs: /tmp/ferb-settings-finish-pytest.log and /tmp/ferb-settings-schedule-recheck.log."
+decisions = ["TEST-508"]

@@ -123,7 +123,7 @@ final class SoundFeedbackTests: XCTestCase {
 
     // MARK: - One sound per notification
 
-    // decision: APP-532, APP-533, APP-583
+    // decision: APP-532, APP-533, APP-622
     func testANoticeShownAsBannerAndInTheNotchSoundsOnce() async {
         let (model, sounds) = makeModel()
         let wait = ManualNoticeWait()

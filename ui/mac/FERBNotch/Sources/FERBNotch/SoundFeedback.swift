@@ -5,7 +5,7 @@ import SwiftUI
 /// FERB's everyday sounds (kb area app, owner 2026-11-01): each event names its sound from the decided family and
 /// it plays through the app's one FerbSoundEngine (`player`, shared with the intro), which applies the system's UI
 /// sounds setting, the master switch, each sound's own switch, Standard/Subtle and the call rule to every sound.
-/// Settings → General binds the switches here. Every notification sounds once: an item shown both as a banner and in
+/// Settings → Sounds & Notifications binds the switches here. Every notification sounds once: an item shown both as a banner and in
 /// the notch is carried by the banner (NotificationPoster asks `bannerSounds`), keyed on its id. Needs you, done and
 /// error always play in the app; their banners post silently.
 @MainActor
