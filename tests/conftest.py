@@ -198,6 +198,16 @@ def offline_trash(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.fixture(autouse=True)
+def no_launch_services(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline, a browser's executable never depends on which browsers this Mac has (HAND-247): Launch Services knows
+    none, so it is /Applications/<app>.app. Tests about the lookup set `profiles.locate` themselves."""
+    if not request.node.get_closest_marker("real"):
+        import ferb.act.browser.profiles as profiles
+        monkeypatch.setattr(profiles, "locate", lambda bundle_id: None)
+        monkeypatch.setattr(profiles, "_located", {})
+
+
+@pytest.fixture(autouse=True)
 def no_report_relay(monkeypatch: pytest.MonkeyPatch) -> None:
     """No test sends a report to the owner's deployed relay (ferb/daemon/reports.py RELAY_URL): tests that send set
     `[feedback] relay_url` to a local fake server."""

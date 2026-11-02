@@ -28,14 +28,27 @@ STORE_EXTENSION_ID = "plbfkifcmgkgnlfgikdeaaglgncdhkma"   # FERB on the Chrome W
 REQUEST_RECORD = "extension-requests.json"      # in FERB's home: the request files FERB wrote
 _EXTENSION_ID = re.compile(r"[a-p]{32}")
 
-# Where a source supports the request (the L25 report has the sources). Chrome documents the folder, and Chromium's
-# code reads `<user data>/External Extensions` on macOS for every build that keeps it (chrome_paths.cc,
-# external_provider_impl.cc). These are written but unconfirmed, and setup says so:
-_EDGE = "Microsoft documents this folder with its own store's address; the Chrome Web Store's only for Windows"
-UNCONFIRMED = {"brave": "Brave doesn't document this folder; it loads extensions as Chromium does",
-               "edge": _EDGE, "edge-beta": _EDGE, "edge-dev": _EDGE, "edge-canary": _EDGE}
-DOCUMENTED = frozenset({"chrome", "chrome-beta", "chrome-dev", "chrome-canary", "chromium"})
-# Any other browser (Vivaldi, Arc, Opera): no source supports the request, so setup keeps Load unpacked there.
+# How FERB's extension reaches each browser FERB knows (HAND-247; one row per profiles.BROWSERS entry):
+# - "request": the documented install request (the L25 report has the sources). Chrome documents the folder, and
+#   Chromium's code reads `<user data>/External Extensions` on macOS for every build that keeps it (chrome_paths.cc,
+#   external_provider_impl.cc).
+# - "unconfirmed": the request is written, but no source confirms the browser honours it (the note says why).
+# - "store": no request; the owner adds FERB from its Chrome Web Store page in that browser (Add to <browser>).
+# Every one of them can add FERB from the Web Store page, so Load unpacked is only for when no store id is set.
+_EDGE = ("Microsoft documents this folder with its own store's address; the Chrome Web Store's only for Windows. "
+         "Edge adds FERB from the Chrome Web Store page once you allow extensions from other stores")
+INSTALL: dict[str, tuple[str, str]] = {
+    "chrome": ("request", ""), "chrome-beta": ("request", ""), "chrome-dev": ("request", ""),
+    "chrome-canary": ("request", ""), "chromium": ("request", ""),
+    "brave": ("unconfirmed", "Brave doesn't document this folder; it loads extensions as Chromium does"),
+    "edge": ("unconfirmed", _EDGE), "edge-beta": ("unconfirmed", _EDGE), "edge-dev": ("unconfirmed", _EDGE),
+    "edge-canary": ("unconfirmed", _EDGE),
+    "vivaldi": ("store", "Vivaldi adds extensions straight from the Chrome Web Store"),
+    "arc": ("store", "Arc adds extensions straight from the Chrome Web Store"),
+    "opera": ("store", "Opera adds Chrome Web Store extensions once its “Install Chrome Extensions” add-on is on"),
+}
+DOCUMENTED = frozenset(b for b, (way, _) in INSTALL.items() if way == "request")
+UNCONFIRMED = {b: note for b, (way, note) in INSTALL.items() if way == "unconfirmed"}
 
 # Browsers that look for native hosts in Google Chrome's folder: Brave (github.com/brave/brave-browser/issues/5074),
 # Opera (help.opera.com/en/extensions/message-passing/ gives Chrome's folder for macOS).
@@ -235,8 +248,9 @@ def read_states(support: Path, store_id: str, ids: tuple[str, ...], paired: set[
 
 def describe(states: list[BrowserState], store_id: str, extension_dir: Path,
              withdrawn: Iterable[Path] = ()) -> list[str]:
-    """What setup tells the owner: per browser what was requested, per profile its state, which browsers to reopen,
-    the Load-unpacked steps wherever the request isn't available, and earlier requests removed."""
+    """What setup tells the owner: per browser what was requested (or that FERB is added from its Web Store page there,
+    INSTALL), per profile its state, which browsers to reopen, the Load-unpacked steps only when no store id is set,
+    and earlier requests removed."""
     valid = valid_id(store_id)
     removed = [f"  Removed FERB's earlier install request {p}" for p in withdrawn]
     if not states:
@@ -248,26 +262,28 @@ def describe(states: list[BrowserState], store_id: str, extension_dir: Path,
                  "installs it at its next start, for all its profiles, and asks you to turn it on in each profile. "
                  "FERB never restarts a browser or answers its prompts."]
     elif valid:
-        lines = ["Browser extension: no browser here took FERB's Chrome Web Store install request; use Load unpacked "
-                 "(below)."]
+        lines = ["Browser extension: no browser here took FERB's Chrome Web Store install request; add FERB from its "
+                 "Chrome Web Store page in each (below)."]
     elif store_id:
         lines = [f"Browser extension: [browser] store_extension_id {store_id!r} in config.toml isn't a Chrome "
                  "extension id (32 letters a-p), so no browser was asked to install FERB."]
     else:
         lines = ["Browser extension: the Chrome Web Store listing is pending, so browsers can't be asked to install "
                  "FERB yet."]
-    manual, reopen = not valid, []
+    page = f"https://chromewebstore.google.com/detail/{store_id}"
+    reopen: list[str] = []
     for s in states:
         label = profiles.BROWSERS[s.browser].label
         if not valid:
             note = ""
         elif s.error:
-            note, manual = f": couldn't write the install request ({s.error}); use Load unpacked (below)", True
+            note = f": couldn't write the install request ({s.error}); add FERB from {page}"
         elif s.request is None:
-            note, manual = ": no documented way to request the install here; use Load unpacked (below)", True
+            how = INSTALL.get(s.browser, ("store", ""))[1]
+            note = f": add FERB from {page}" + (f" ({how})" if how else "")
         elif s.browser in UNCONFIRMED:
-            note, manual = (f": install requested (unconfirmed: {UNCONFIRMED[s.browser]}; if FERB isn't offered "
-                            "after you reopen it, use Load unpacked, below)"), True
+            note = (f": install requested (unconfirmed: {UNCONFIRMED[s.browser]}; if FERB isn't offered after you "
+                    f"reopen it, add it from {page})")
         else:
             note = ": install requested"
         lines.append(f"  {label}{note}")
@@ -276,7 +292,7 @@ def describe(states: list[BrowserState], store_id: str, extension_dir: Path,
             reopen.append(label)
     if reopen:
         lines.append(f"  Reopen {', '.join(reopen)} to pick up the extension and FERB's native host.")
-    if manual:
+    if not valid:                            # no store listing to add it from: by hand
         lines.append("  Load unpacked, once per profile: open the browser's extensions page, turn on Developer mode, "
                      f"click “Load unpacked” and choose {extension_dir}")
     if any(p.paired is not True for s in states for p in s.profiles):

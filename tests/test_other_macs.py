@@ -91,3 +91,54 @@ def test_the_free_disk_floor_counts_purgeable_space_as_finder_does(tmp_path: Pat
     def unsupported(where: Path) -> int | None:
         raise AttributeError("no such key")
     assert downloads.available_bytes(tmp_path, important=unsupported) == 6 * _GB
+
+
+# ---------- browsers other than Chrome and Brave ----------
+
+STORE_ID = "plbfkifcmgkgnlfgikdeaaglgncdhkma"
+
+
+# decision: HAND-247
+def test_arc_vivaldi_opera_and_edge_add_ferb_from_the_web_store_not_load_unpacked(tmp_path: Path) -> None:
+    """Audit item 8: Arc, Vivaldi and Opera were sent to Load unpacked (Developer mode), though each adds extensions
+    from the Chrome Web Store. One table says how FERB reaches every browser it knows; Load unpacked is only for when
+    no store id is set."""
+    from ferb.act.browser import autoinstall, profiles
+    from ferb.device.extensions import browser_rows
+    assert set(autoinstall.INSTALL) == set(profiles.BROWSERS)                   # one row per known browser
+    support = tmp_path / "Support"
+    for name in ("arc", "vivaldi", "opera", "edge", "chrome"):
+        data = profiles.data_dir(name, support)
+        (data / "Default").mkdir(parents=True)
+        (data / "Local State").write_text('{"profile": {"info_cache": {"Default": {"name": "Me"}}}}')
+    states = autoinstall.prepare(support, STORE_ID, (STORE_ID,), None)
+    requested = {s.browser for s in states if s.request is not None}
+    assert requested == {"chrome", "edge"}                                     # no request where none is honoured
+    rows = {r["browser"]: r for r in browser_rows(states, STORE_ID, tmp_path / "ext", None, set())["browsers"]}
+    assert not any(r["manual"] for r in rows.values())                         # nobody is sent to Developer mode
+    text = "\n".join(autoinstall.describe(states, STORE_ID, tmp_path / "ext"))
+    assert "Load unpacked" not in text and text.count(f"chromewebstore.google.com/detail/{STORE_ID}") >= 4
+    pending = browser_rows(states, "", tmp_path / "ext", None, set())["browsers"]
+    assert all(r["manual"] for r in pending)                                   # no listing: by hand everywhere
+
+
+# decision: HAND-247
+def test_a_browser_is_found_by_its_bundle_id_wherever_it_is_installed(tmp_path: Path, monkeypatch: Any) -> None:
+    """Audit item 8: the browser's executable was assumed to be in /Applications, so a Chrome in ~/Applications (common
+    for a Standard user) never looked running and its profile launches failed. Launch Services finds it by bundle id."""
+    from ferb.act.browser import profiles
+    exe = tmp_path / "Applications" / "Google Chrome.app" / "Contents" / "MacOS" / "Google Chrome"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("")
+    asked: list[str] = []
+    monkeypatch.setattr(profiles, "locate", lambda bundle_id: asked.append(bundle_id) or (
+        exe if bundle_id == "com.google.Chrome" and exe.exists() else None))
+    launched: list[list[str]] = []
+    known = [profiles.BrowserProfile("chrome", "Default", "Me", "")]
+    profiles.open_known_profile("chrome", "Default", None, known, launch=launched.append, window=True)
+    assert launched == [[str(exe), "--profile-directory=Default"]]
+    assert profiles.BROWSERS["chrome"].binary == str(exe) and asked == ["com.google.Chrome"]   # looked up once
+    assert profiles.BROWSERS["vivaldi"].binary == "/Applications/Vivaldi.app/Contents/MacOS/Vivaldi"   # none known
+    exe.unlink()                                                                # moved away: looked up again
+    assert profiles.BROWSERS["chrome"].binary == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    assert asked.count("com.google.Chrome") == 2

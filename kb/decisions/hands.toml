@@ -573,3 +573,12 @@ status = "active"
 rule = "The download floor (browser.download_min_free_gb, 10 GB) and the shell download watch read the volume's available capacity for important usage (NSURLVolumeAvailableCapacityForImportantUsageKey: free plus purgeable space), falling back to statvfs free space when macOS doesn't give it. The number itself is unchanged."
 why = "HAND-236 counts \"as the owner and Finder count\"; statvfs leaves out purgeable space (local snapshots, optimised iCloud files), so a small Mac showing 40 GB available in Finder refused every download (audit 2026-11-02, item 7)."
 paths = ["ferb/act/browser/downloads.py::available_bytes"]
+
+[HAND-247]
+title = "Every known Chromium browser adds FERB from its Web Store page; browsers are found by bundle id"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "One table (autoinstall.INSTALL, a row per profiles.BROWSERS entry) says how FERB reaches each browser: the documented install request, the request written but unconfirmed (Brave, Edge), or none (Arc, Vivaldi, Opera). Each adds FERB from its Chrome Web Store page (Add to <browser>); Load unpacked is offered only while no store id is set. A browser's executable is found by bundle id through Launch Services, /Applications/<app>.app when it knows none."
+why = "Arc, Vivaldi and Opera were sent to Developer mode though they install from the Web Store, and a Chrome in ~/Applications (common for a Standard user) never looked running (audit 2026-11-02, item 8)."
+paths = ["ferb/act/browser/autoinstall.py", "ferb/act/browser/profiles.py::Browser", "ferb/device/extensions.py::browser_rows"]

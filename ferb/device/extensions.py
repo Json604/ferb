@@ -72,8 +72,9 @@ def browser_rows(states: list[Any], store_id: str, extension_dir: Path, ferb_ide
     return {"store_url": store_page(store_id) or None, "extension_dir": str(extension_dir),
             "browsers": [{"browser": s.browser, "label": profiles.BROWSERS[s.browser].label,
                           "requested": s.request is not None,
-                          "manual": not valid or s.request is None or s.browser in autoinstall.UNCONFIRMED,
+                          "manual": not valid,          # HAND-247: every browser adds FERB from its store page
                           "unconfirmed": autoinstall.UNCONFIRMED.get(s.browser, ""),
+                          "note": autoinstall.INSTALL.get(s.browser, ("store", ""))[1],
                           "profiles": [{"folder": p.folder, "name": p.name, "state": profile_state(p),
                                         "ferb_identity": (p.browser, p.folder) == ferb_identity,
                                         "connected": (p.browser, p.folder) in connected} for p in s.profiles]}
