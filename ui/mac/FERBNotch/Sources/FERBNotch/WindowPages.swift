@@ -42,7 +42,7 @@ struct TaskHistoryRowView: View {
                 Text(words(row.status)).foregroundStyle(.secondary)
             }
             Text(when(row.createdAt)).font(.caption).foregroundStyle(.secondary)
-            if !row.answer.isEmpty { Text(row.answer).lineLimit(4).textSelection(.enabled) }
+            if !row.answer.isEmpty { ExpandableAnswer(text: row.answer, lines: 4).id(row.answer) }
             HStack {
                 Button("Inspect") { Task { await store.inspect(row) } }
                 if row.isRunning {
@@ -109,7 +109,7 @@ struct SchedulesPage: View {
                 HStack(alignment: .top, spacing: 7) {
                     Image(systemName: last.status == "failed" ? "exclamationmark.circle" : (last.status == "done" ? "checkmark.circle" : "clock"))
                         .padding(.top, 1)
-                    Text(words(last.status).capitalized + " · " + last.answer).lineLimit(3).textSelection(.enabled)
+                    ExpandableAnswer(text: words(last.status).capitalized + " · " + last.answer, lines: 3).id(last.answer)
                 }
                 .font(.system(size: 12)).foregroundStyle(last.status == "failed" ? Color.red.opacity(0.85) : Color.white.opacity(0.5))
             }
@@ -158,11 +158,14 @@ struct NoticedPage: View {
 
 struct MemoryPage: View {
     @ObservedObject var store: FERBWindowStore
+    var correctMemory: ((String) -> Void)? = nil
     @State private var forgetting: MemoryRow?
     @State private var willDelete: [String] = []
 
     var body: some View {
         WindowPage {
+            Text("Correct a memory by telling FERB in chat. “Not right” stops using it and keeps its history; “Forget” deletes it permanently.")
+                .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             WindowSectionLabel(title: "Always on")
             Text("Core profile · \(store.coreProfile.usedTokens) of \(store.coreProfile.budgetTokens) tokens")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -256,6 +259,12 @@ struct MemoryPage: View {
                 Text([item.label, item.about].filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary)
             }
+            if let correctMemory {
+                Button("Correct in chat…") {
+                    correctMemory(item.content)
+                }
+                .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
+            }
             HStack(spacing: 8) {
                 Button(item.inProfile ? "Not always on" : "Always on") {
                     Task { await store.setInProfile(item, !item.inProfile) }
@@ -267,6 +276,46 @@ struct MemoryPage: View {
                     }
                 }
             }
+        }
+    }
+}
+
+private struct AnswerHeight: PreferenceKey {
+    static var defaultValue: [Bool: CGFloat] = [:]
+    static func reduce(value: inout [Bool: CGFloat], nextValue: () -> [Bool: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+/// Keep the compact preview, with an in-place way to read the entire result.
+struct ExpandableAnswer: View {
+    let text: String
+    let lines: Int
+    @State private var expanded = false
+    @State private var truncated = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(text).lineLimit(expanded ? nil : lines).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { proxy in
+                    Color.clear.preference(key: AnswerHeight.self, value: [false: proxy.size.height])
+                })
+                .background(alignment: .topLeading) {
+                    Text(text).fixedSize(horizontal: false, vertical: true)
+                        .background(GeometryReader { proxy in
+                            Color.clear.preference(key: AnswerHeight.self, value: [true: proxy.size.height])
+                        })
+                        .hidden().accessibilityHidden(true)
+                }
+            if truncated || expanded {
+                Button(expanded ? "Show less" : "Show full answer") { expanded.toggle() }
+                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+        }
+        .onPreferenceChange(AnswerHeight.self) { heights in
+            if !expanded, let full = heights[true], let visible = heights[false] { truncated = full > visible + 1 }
         }
     }
 }

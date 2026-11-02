@@ -411,10 +411,9 @@ private struct AnswerView: View {
                 }
                 FerbBubble {
                     VStack(alignment: .leading, spacing: 6) {
-                        MarkdownContent(CardLayout.strip(visibleParts.answer, cards)).equatable()
-                        AnswerLinesView(note: split.note, correction: split.correction,
-                                        lines: CardLayout.remaining(split.lines.filter { !$0.hasPrefix("Sites contacted:") },
-                                                                    cards))
+                        MarkdownContent(CardLayout.strip(visibleParts.answer, cards),
+                                        note: split.note, correction: split.correction,
+                                        lines: CardLayout.remaining(split.lines.filter { !$0.hasPrefix("Sites contacted:") }, cards)).equatable()
                         if turn.displayText != nil && turn.visibleAnswer != turn.answer {
                             DisclosureGroup("Details") {
                                 MarkdownContent(fullParts.answer).equatable()

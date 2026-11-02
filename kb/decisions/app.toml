@@ -1495,3 +1495,13 @@ rule = "The UI accepted in the isolated playground (APP-603..APP-633) is FERB.ap
 why = "Before this, the Dense entrance was compiled only into debug playground builds, so FERB.app had none."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/StartupArrival.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift", "ui/mac/FERBNotch/Sources/FERBNotch/GravityDenseStudy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift"]
 live = ["LIVE-701"]
+
+[APP-637]
+title = "Apply the final UX review and select whole chat messages"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "fix all above, also the image ive attaced is an example that i can copy the messagea as a whole. dont add another copy button jsut amek it copyable thw whoel message it sends or i send"
+rule = "Apply the six reviewed UX fixes: editable day counts; pending feedback and duplicate prevention for checks; ignore-list drafts kept until saved; expandable task/schedule answers; clear memory correction through chat and Not right versus Forget; native sidebar scroll indicators. Select and copy whole sent/received messages across paragraphs with formatting and safe links, without a copy button. Preserve settings values/ranges, confirmations, the accepted visuals, startup/setup and original notch movement. Review in the isolated playground."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SettingsEditors.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindowStore.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift", "ui/mac/FERBNotch/Sources/FERBNotch/MarkdownContent.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
+live = ["LIVE-703"]

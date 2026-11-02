@@ -48,6 +48,10 @@ final class PlaygroundAppReview {
             return true
         }
         actions.beforeUninstall = { nil }
+        actions.correctMemory = { [weak coordinator] text in
+            coordinator?.model.prepareMemoryCorrection(text)
+            coordinator?.showFromMenu()
+        }
         window = FERBWindowController(store: FERBWindowStore(rpc: services.daemon), actions: actions)
         coordinator.onSetUp = replayIntro
         coordinator.hasWindow = true

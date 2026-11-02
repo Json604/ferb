@@ -2,11 +2,16 @@ import AppKit
 import SwiftUI
 import NotchCore
 
-/// Selectable message text with an owned glyph renderer. SwiftUI still arranges
-/// the blocks, but never supplies private selectable text fields or their cells.
+extension NSAttributedString.Key {
+    static let messageBlockFill = NSAttributedString.Key("FERBMessageBlockFill")
+}
+
+/// One native selection surface per message, using FERB's owned glyph renderer.
 struct NativeMessageText: NSViewRepresentable {
     let text: NSAttributedString
     @Environment(\.selectableTextGeneration) private var generation
+
+    init(_ text: NSAttributedString) { self.text = text }
 
     init(_ source: String, size: CGFloat = 12, secondary: Bool = false,
          markdown: Bool = false, bold: Bool = false, monospaced: Bool = false,
@@ -26,6 +31,15 @@ struct NativeMessageText: NSViewRepresentable {
 }
 
 enum MessageTextAttributes {
+    static func joined(_ parts: [NSAttributedString]) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: "")
+        for part in parts where part.length > 0 {
+            if result.length > 0 { result.append(NSAttributedString(string: "\n\n", attributes: [.font: NSFont.systemFont(ofSize: 7)])) }
+            result.append(part)
+        }
+        return result
+    }
+
     static func make(_ source: String, size: CGFloat, secondary: Bool, markdown: Bool,
                      bold: Bool, monospaced: Bool, alignment: NSTextAlignment) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
@@ -124,6 +138,23 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         refreshGlyphDisplay()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        // Rounded decorations stay behind the native glyphs and selection; they
+        // never split a code block, quote or table into another selection surface.
+        if let storage = textStorage, let manager = layoutManager, let container = textContainer {
+            storage.enumerateAttribute(.messageBlockFill, in: NSRange(location: 0, length: storage.length)) { fill, range, _ in
+                guard let fill = fill as? NSColor else { return }
+                let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                let rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
+                    .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+                    .insetBy(dx: -6, dy: -4).intersection(bounds)
+                fill.setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+            }
+        }
+        super.draw(dirtyRect)
     }
 
     private func refreshGlyphDisplay() {

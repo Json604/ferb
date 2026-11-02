@@ -16,11 +16,12 @@ struct FirstReplyView: View {
             let direct = turn.direct ?? [], lines = turn.planLines ?? []
             let receipts = CardLayout.remaining(turn.receipts ?? [], turn.receiptCards ?? [])
             FerbBubble {
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(Array(direct.enumerated()), id: \.offset) { _, text in MarkdownContent(text).equatable() }
-                    ForEach(Array(receipts.enumerated()), id: \.offset) { _, receipt in NativeMessageText(receipt) }
-                    if !line.isEmpty || !lines.isEmpty { PlanLineBlock(line: line, lines: lines) }
-                }
+                NativeMessageText(MessageTextAttributes.joined(
+                    direct.map { MarkdownTextAttributes.make($0, size: 12) }
+                    + receipts.map { NativeMessageText($0).text }
+                    + [NativeMessageText(line).text]
+                    + lines.map { NativeMessageText($0, secondary: true).text }
+                ))
             }
         } else if let plan = turn.plan {
             FerbBubble { NativeMessageText(plan) }            // saved before the plan line was its own field
@@ -36,11 +37,8 @@ struct PlanLineBlock: View {
     let lines: [String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if !line.isEmpty { NativeMessageText(line) }
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, code in NativeMessageText(code, secondary: true) }
-        }
-
+        NativeMessageText(MessageTextAttributes.joined([NativeMessageText(line).text]
+            + lines.map { NativeMessageText($0, secondary: true).text }))
     }
 }
 

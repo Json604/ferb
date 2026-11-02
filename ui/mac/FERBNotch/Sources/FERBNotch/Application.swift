@@ -104,6 +104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 actions.replayIntro = { [appSetup] in appSetup.replayIntro() }
                 actions.runFerb = { [setup] arguments, line, done in setup.runner.run(arguments, line: line, done: done) }
             }
+            actions.correctMemory = { [weak coordinator] text in
+                coordinator?.model.prepareMemoryCorrection(text)
+                coordinator?.showFromMenu()
+            }
             let window = FERBWindowController(store: FERBWindowStore(rpc: coordinator.model.rpc), actions: actions)
             coordinator.hasWindow = true                      // plan D's menu shows Open FERB Window
             coordinator.onOpenWindow = { [window] in window.show(.tasks) }
