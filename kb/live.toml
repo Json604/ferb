@@ -2332,3 +2332,12 @@ request = "On the page, play each everyday sound with Length on Now and on Befor
 pass = "Each sound rings about as long as the Apple Pay sound and still sounds like itself: same notes, same strike, same loudness; paused and error still sound damped, never like done; Subtle stays shorter and quieter. Nothing is cut off or doubles up in the app."
 decisions = ["APP-641"]
 sitting = "step 13"
+
+[LIVE-706]
+title = "Review the FERB glass landing page"
+area = "release"
+surface = "FERB website local preview"
+request = "Review desktop and phone layouts, try the task/reminder/memory preview and its keyboard controls, read the installation note and privacy page, then supply the Apple Silicon DMG URL."
+pass = "The site matches FERB's glass identity with readable plain typography, rounded surfaces and restrained reduced-motion-aware animation. Navigation and preview controls work. Only the owner-supplied Apple Silicon DMG is offered; no broken download is presented."
+decisions = ["REL-405", "REL-1"]
+sitting = "website review before deployment"

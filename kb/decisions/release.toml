@@ -97,3 +97,13 @@ why = "T-502: without an Apple Team ID the login keychain admits the helper to e
 rejected = ["Set each item's partition list: needs the owner's login password in FERB", "Data-protection keychain: needs a Team ID entitlement (REL-403: no Developer ID for now)"]
 paths = ["scripts/secret_helper.py", "scripts/build-app.sh", "assets/secret-helper/pin.json"]
 live = ["LIVE-679"]
+
+[REL-405]
+title = "FERB website carries the app's glass identity with plain typography"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "ok build it withbpolished glass liek adn better round boxes adn the whoel ideology taht we have in ferb BUT with normal html text style like my perosnla site too. use my emil animation skills in local to enhance, use gradients where colors are there. have dmg download logo for apple arm only as of now."
+rule = "Build the FERB site with polished glass, rounded surfaces, gradients and the app's identity, using plain system typography like the personal site. Apply the owner's local Emil animation guidance. Offer only the Apple Silicon DMG with an Apple download icon. Keep the existing FERB logo. The owner will supply the download URL; leave it inactive until supplied."
+paths = ["site/"]
+live = ["LIVE-706"]
