@@ -78,6 +78,7 @@ class Ev:
     echo: bool = True             # Signal's in-time echo (off where a sound must stay dry)
     muted: bool = False           # damped articulation (Crystal): the glass touched by a finger, dull and short
     oct: int = 0                  # octave shift for this note, on top of the voice's register
+    ring: float = 0.0             # share of the note's body that rings on after its own decay (RING_*)
 
 
 @dataclass
@@ -87,7 +88,7 @@ class Role:
     label: str
     group: str                    # signature | everyday | orb
     lufs: float                   # Standard target (reference mix, measure.loudness)
-    max_len: float                # Standard length cap (s), from the brief's table
+    max_len: float                # Standard length cap (s): the brief's table; everyday cues RING_LEN (2026-11-02)
     variants: int = 1             # slight variants (summon, listening start/end, done get 3)
     meaning: str = ""
     option: int = 0               # >0: one of several candidates for the same sound, for the owner to pick
@@ -102,10 +103,13 @@ class Role:
 
 ROLES = [
     Role("logo", "ferb-logo", "Sound logo", "signature", -20, 2.8, meaning="Hello, this is FERB"),
-    Role("summon", "ferb-summon", "Summon", "everyday", -28, 0.40, 3, "I'm here"),
-    Role("lstart", "ferb-listen-start", "Listening start", "everyday", -30, 0.50, 3, "Go ahead"),
-    Role("lend", "ferb-listen-end", "Listening end", "everyday", -30, 0.40, 3, "Got it"),
-    Role("done", "ferb-done", "Done", "everyday", -26, 0.70, 3, "Done, all good"),
+    # Owner, 2026-11-02: the everyday cues ring about as long as the Mac's Apple Pay success sound (1.41 s), through
+    # a longer natural ring (RING_*), never by stretching, padding or more room. The notification is a recording and
+    # keeps its own length.
+    Role("summon", "ferb-summon", "Summon", "everyday", -28, 1.4, 3, "I'm here"),
+    Role("lstart", "ferb-listen-start", "Listening start", "everyday", -30, 1.4, 3, "Go ahead"),
+    Role("lend", "ferb-listen-end", "Listening end", "everyday", -30, 1.4, 3, "Got it"),
+    Role("done", "ferb-done", "Done", "everyday", -26, 1.4, 3, "Done, all good"),
     # Owner, 2026-11-01: the drip-off is the old flight sound (singing glass, home note and fifth) as one swell that
     # rises and falls with the orb setting off; there is no continuous flight sound any more.
     Role("drip", "ferb-orb-drip", "Orb drip-off", "orb", -33, 1.25, meaning="The orb sets off (the old flight sound)"),
@@ -116,8 +120,8 @@ ROLES = [
     # is Material's "notification, high intensity" (CC BY 4.0).
     Role("notification", "ferb-notification", "Notification", "everyday", -25, 2.0, 1, "FERB posted a notification",
          source="material/notification_high-intensity.ogg"),
-    Role("paused", "ferb-paused", "Paused", "everyday", -30, 0.6, 1, "Holding"),
-    Role("error", "ferb-error", "Error", "everyday", -26, 0.9, 1, "That didn't work"),
+    Role("paused", "ferb-paused", "Paused", "everyday", -30, 1.4, 1, "Holding"),
+    Role("error", "ferb-error", "Error", "everyday", -26, 1.4, 1, "That didn't work"),
     Role("hop", "ferb-orb-hop", "Orb hop", "orb", -32, 0.40, meaning="A tour step succeeded"),
     Role("melt", "ferb-orb-melt", "Orb melt-back", "orb", -30, 0.80, meaning="The orb arrives (at its target, and home)"),
 ]
@@ -132,6 +136,16 @@ for _id, _file, _label, _group, _lufs, _len, _mean, _opts in _OPTIONS:
 ROLE = {r.id: r for r in ROLES}
 SUBTLE_DB = -5.0       # Subtle intensity: quieter by this much, shorter, less bright
 SUBTLE_LEN = 0.8
+# The ring (owner, 2026-11-02: the everyday cues as long as the Apple Pay sound). Every synthesised everyday note keeps
+# a share of its body (the note and the warm octave under it) ringing on after its own two-stage decay, as a glass
+# does: strike, attack, pitch and the first ~0.2 s stay as they were and only the ring-out is longer. A swell (rubbed
+# glass) rings on the same way once the finger lifts. Each sound is still leveled to its LUFS target.
+RING_LEN = 1.4         # the everyday cues' Standard length (s); Apple Pay's payment_success.aif is 1.41 s
+RING_SHARE = 0.12      # share of a note's body that rings on
+RING_SHARE_MUTED = 0.05  # the finger-damped glass (paused, error) rings on more quietly, so its quick drop still shows
+RING_T60 = 2.2         # the ring's -60 dB time (s)
+# The lengths before 2026-11-02, for the comparison set (`--before`, out/crystal-before/): no ring, these caps.
+BEFORE_LEN = {"summon": 0.40, "lstart": 0.50, "lend": 0.40, "done": 0.70, "paused": 0.6, "error": 0.9}
 
 A, B, H = -2, 1, 0     # the seed motif: A4 -> E5 (rising fifth) -> D5 (home)
 F_SHARP4 = -3
@@ -200,6 +214,19 @@ def decay_env(t: np.ndarray, t60: float, fast_share: float = 0.6) -> np.ndarray:
     fast = np.exp(-6.91 * t / max(t60 * 0.35, 1e-4))
     slow = np.exp(-6.91 * t / max(t60, 1e-4))
     return fast_share * fast + (1 - fast_share) * slow
+
+
+def ring_on(env: np.ndarray, t: np.ndarray, ring: float, rise: float = 0.0, lift: float = 0.0) -> np.ndarray:
+    """A body partial's envelope with `ring` of it ringing on (RING_T60) and the rest as before. A swell's ring rises
+    with it (`rise` s) and starts dying when the finger lifts (`lift` s). ring 0 leaves env unchanged."""
+    if not ring:
+        return env
+    return (1 - ring) * env + ring * attack_env(t, rise) * np.exp(-6.91 * np.maximum(t - lift, 0) / RING_T60)
+
+
+def ring_samples(ev: Ev, n: int) -> int:
+    """A note's buffer, long enough for its ring to reach the length cap."""
+    return max(n, int((RING_LEN + 0.05) * FS)) if ev.ring else n
 
 
 def attack_env(t: np.ndarray, atk: float) -> np.ndarray:
@@ -322,7 +349,7 @@ class Crystal(Voice):
         if ev.muted:
             return self.muted(ev, pm)
         f0 = self.f(ev, pm)
-        n = int((1.4 * 1.15 * ev.decay + 0.02) * FS)
+        n = ring_samples(ev, int((1.4 * 1.15 * ev.decay + 0.02) * FS))
         t = tvec(n)
         x = np.zeros(n)
         for r, a, t60, det, bx in self.P:
@@ -330,7 +357,8 @@ class Crystal(Voice):
             if f > 15000:
                 continue
             amp = a * ev.bright ** bx
-            env = decay_env(t, t60 * ev.decay, 0.55 if r >= 1 else 0.3) * attack_env(t, 0.0012)
+            env = decay_env(t, t60 * ev.decay, 0.55 if r >= 1 else 0.3)
+            env = (ring_on(env, t, ev.ring) if r <= 1 else env) * attack_env(t, 0.0012)
             ph = self.rng.uniform(0, TAU) if r != 1.0 else 0.0
             x += amp * env * osc(t, f, ph, settle=cents(4) - 1)
             if det:
@@ -342,12 +370,13 @@ class Crystal(Voice):
 
     def muted(self, ev, pm):
         f0 = self.f(ev, pm)
-        n = int((0.45 * ev.decay + 0.05) * FS)
+        n = ring_samples(ev, int((0.45 * ev.decay + 0.05) * FS))
         t = tvec(n)
         x = np.zeros(n)
         for r, a, t60, det, bx in self.MUTED:
             amp = a * ev.bright ** bx * min(1.0, (f0 * r / 280) ** 3)   # laptop speakers can't play the body below ~250 Hz
-            env = decay_env(t, t60 * ev.decay, 0.5) * attack_env(t, 0.0025)      # a softer contact than the strike
+            env = decay_env(t, t60 * ev.decay, 0.5)
+            env = (ring_on(env, t, ev.ring) if r <= 1 else env) * attack_env(t, 0.0025)  # softer contact than the strike
             x += amp * env * osc(t, f0 * r, self.rng.uniform(0, TAU) if r != 1.0 else 0.0)
             if det:
                 x += 0.4 * amp * env * osc(t, f0 * r + det, self.rng.uniform(0, TAU))
@@ -356,9 +385,9 @@ class Crystal(Voice):
     def swell(self, ev, pm):
         """Rubbed glass: the same partials, sustained, with no strike."""
         f0 = self.f(ev, pm)
-        n = int((ev.atk + ev.hold + ev.rel + 0.01) * FS)
+        n = ring_samples(ev, int((ev.atk + ev.hold + ev.rel + 0.01) * FS))
         t = tvec(n)
-        env = ahr_env(t, ev.atk, ev.hold, ev.rel)
+        env = ring_on(ahr_env(t, ev.atk, ev.hold, ev.rel), t, ev.ring, ev.atk, ev.atk + ev.hold)
         x = np.zeros(n)
         for r, a, _t60, det, bx in self.P[:3]:
             amp = a * ev.bright ** (bx + 0.5)
@@ -660,7 +689,7 @@ def load_source(rel: str, subtle: bool) -> np.ndarray:
     return x
 
 
-def render_sound(v: type[Voice], role: Role, subtle: bool, var: int, ir: np.ndarray) -> Rendered:
+def render_sound(v: type[Voice], role: Role, subtle: bool, var: int, ir: np.ndarray, before: bool = False) -> Rendered:
     seed = zlib.crc32(f"{v.key}|{role.id}|{subtle}|{var}".encode())
     rng = np.random.default_rng(seed)
     vary = var > 0                     # v1 is nominal; v2.. vary pitch (±15 cents), level (±1.5 dB) and timing
@@ -669,7 +698,7 @@ def render_sound(v: type[Voice], role: Role, subtle: bool, var: int, ir: np.ndar
     voice = v(rng)
     if role.group == "orb":
         voice.octave = v.orb_octave      # the orb is small: its sounds sit in the same high register in every direction
-    cap = role.max_len * (SUBTLE_LEN if subtle else 1.0)
+    cap = (BEFORE_LEN.get(role.id, role.max_len) if before else role.max_len) * (SUBTLE_LEN if subtle else 1.0)
     if role.id == "flight":
         dry = loop_seamless(voice.flight(pm, 4.0 + 0.5), 4.0)
         dry = eq_chain(np.tile(dry, 2), v)[len(dry):]     # filter a loop through itself so the seam stays clean
@@ -688,6 +717,8 @@ def render_sound(v: type[Voice], role: Role, subtle: bool, var: int, ir: np.ndar
         dry = start_clean(fade_tail(dry, cap))
     else:
         evs = score(role.id, subtle)
+        if role.group == "everyday" and not before:
+            evs = [replace(e, ring=RING_SHARE_MUTED if e.muted else RING_SHARE) for e in evs]
         if vary:
             evs = [replace(e, t=e.t + (rng.uniform(-0.004, 0.004) if e.t else 0)) for e in evs]
         total = max(e.t for e in evs) + 2.0
@@ -713,7 +744,11 @@ def render_sound(v: type[Voice], role: Role, subtle: bool, var: int, ir: np.ndar
         wet[-f:] *= w[:, None]
         wet[-1] = 0
     target = role.lufs + (SUBTLE_DB if subtle else 0.0)
-    g = 10 ** ((target - measure.loudness(ref, FS)) / 20) * 10 ** (gain_var / 20)
+    g = 10 ** ((target - measure.loudness(ref, FS)) / 20)
+    off = target - measure.loudness(ref * g, FS)    # a long quiet ring can cross the meter's -70 LUFS gate when scaled
+    if abs(off) > 0.05 and not before:              # the comparison set stays as it shipped
+        g *= 10 ** (off / 20)
+    g *= 10 ** (gain_var / 20)
     dry, wet, ref = dry * g, wet * g, ref * g
     return Rendered(dry, wet, ref, measure.loudness(ref, FS))
 
@@ -759,17 +794,18 @@ def check(role: Role, subtle: bool, r: Rendered) -> list[str]:
     return bad
 
 
-def render_direction(key: str, png: bool) -> dict:
+def render_direction(key: str, png: bool, before: bool = False) -> dict:
+    """One direction into out/<key>/; `before`: its lengths before 2026-11-02 into out/<key>-before/ (BEFORE_LEN)."""
     v = VOICES[key]
     ir = room_ir(v.room)
-    base = OUT / key
+    base = OUT / (key + ("-before" if before else ""))
     write(base / "ferb-room-ir.wav", ir)
     entries, problems = [], []
     for role in ROLES:
         intensities = [False, True] if role.group == "everyday" else [False]
         for subtle in intensities:
             for var in range(role.variants):
-                r = render_sound(v, role, subtle, var, ir)
+                r = render_sound(v, role, subtle, var, ir, before)
                 stem = role.file if role.group != "everyday" else f"{role.file}-{'subtle' if subtle else 'standard'}"
                 if role.variants > 1:
                     stem += f"-v{var + 1}"
@@ -784,8 +820,8 @@ def render_direction(key: str, png: bool) -> dict:
                                 "band_250_4k": round(b["250-4k"], 1), "band_2_5k": round(b["2k-5k"], 1)})
                 if png and var == 0:
                     measure.spectrogram_png(r.ref, FS, base / "png" / f"{stem}.png", f"{v.title} · {stem}")
-    return {"key": key, "title": v.title, "world": v.world, "about": v.about, "room": v.room,
-            "sounds": entries, "problems": problems}
+    return {"key": base.name, "title": v.title + (" (before 2026-11-02)" if before else ""), "world": v.world,
+            "about": v.about, "room": v.room, "sounds": entries, "problems": problems}
 
 
 def notes_table() -> list[dict]:
@@ -835,9 +871,11 @@ def main(argv: list[str]) -> int:
     manifest_path = OUT / "manifest.json"
     manifest = {"directions": {}}
     bad = 0
-    for k in keys:
-        d = render_direction(k, png)
-        manifest["directions"][k] = d
+    # Crystal's lengths before 2026-11-02 render beside it (out/crystal-before/), for the page's Before/Now comparison.
+    jobs = [(k, False) for k in keys] + ([("crystal", True)] if "crystal" in keys else [])
+    for k, before in jobs:
+        d = render_direction(k, png, before)
+        manifest["directions"][d["key"]] = d
         print(f"{d['title']:8} {len(d['sounds'])} sounds", "OK" if not d["problems"] else f"{len(d['problems'])} problems")
         for p in d["problems"]:
             print("   ", p)

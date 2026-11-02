@@ -11,7 +11,8 @@ The decided family (owner's picks over nine rounds; decisions in `kb area app`):
 
 ## Render
 
-    uv run demo/sound-family/render.py           # Crystal -> demo/sound-family/out/ (git-ignored)
+    uv run demo/sound-family/render.py           # Crystal -> demo/sound-family/out/ (git-ignored), plus
+                                                 # out/crystal-before/: the lengths before 2026-11-02, for comparison
     uv run demo/sound-family/render.py signal    # one direction
     uv run demo/sound-family/render.py --png     # plus spectrograms
 
