@@ -210,10 +210,12 @@ got=$("$CODEX_PKG/vendor/$FERB_CODEX_TRIPLE/bin/codex" --version | awk '{ print 
 mkdir -p "$CONTENTS/Resources/node/node_modules/@openai"
 ditto "$CODEX_PKG" "$CONTENTS/Resources/node/node_modules/@openai/$FERB_CODEX_NPM"
 
-print "==> Secret helper"
-xcrun swiftc -O -target "$ARCH-apple-macos14.2" -file-prefix-map "$ROOT=." -o "$CONTENTS/Helpers/ferb-secrets" \
-  "$ROOT/ferb/identity/secret_helper.swift" -framework Security -framework CryptoKit
-strip -S "$CONTENTS/Helpers/ferb-secrets"
+print "==> Secret helper (pinned, never compiled here: scripts/secret_helper.py)"
+# The Keychain admits FERB's team-less helper to each saved secret by its exact code hash, so its bytes never change
+# between releases unless its code does (REL-404)
+python3 -I "$ROOT/scripts/secret_helper.py" --check || die "the pinned secret helper doesn't match its source"
+lipo -thin "$ARCH" -output "$CONTENTS/Helpers/ferb-secrets" "$ROOT/assets/secret-helper/ferb-secrets"
+chmod 755 "$CONTENTS/Helpers/ferb-secrets"
 
 print "==> Trimming what FERB never runs ($ARCH only)"
 ferb_trim_app "$APP" "$ARCH"

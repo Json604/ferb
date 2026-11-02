@@ -86,3 +86,14 @@ words = "recommeded all"
 why = "Answer to T-512: the owner accepted the recommendation for every open question."
 rule = "One FERB.app shipped as two DMGs (Apple silicon, Intel), signed without a Developer ID or notarization for now; updates install by themselves; the notch is the main interface with detail in a regular window; installing from source stays supported."
 live = ["LIVE-636", "LIVE-637"]
+
+[REL-404]
+title = "The secret helper ships as pinned bytes, so a Keychain approval survives releases"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "FERB.app never compiles ferb-secrets: build-app.sh ships the arm64 or x86_64 slice of assets/secret-helper/ferb-secrets after scripts/secret_helper.py --check confirms pin.json matches the binary and the helper's code (comments aside). Only a change to the helper's code is rebuilt and pinned again (--build), knowing every saved secret then asks once more on each Mac."
+why = "T-502: without an Apple Team ID the login keychain admits the helper to each saved secret by its exact code hash; a fresh compile (new code, compiler or SDK) asked again for every item, one identical prompt each. Same bytes, certificate and flags keep the hash (measured)."
+rejected = ["Set each item's partition list: needs the owner's login password in FERB", "Data-protection keychain: needs a Team ID entitlement (REL-403: no Developer ID for now)"]
+paths = ["scripts/secret_helper.py", "scripts/build-app.sh", "assets/secret-helper/pin.json"]
+live = ["LIVE-679"]

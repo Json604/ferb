@@ -151,13 +151,6 @@ status = "open"
 why = "Owner's live run, 2026-11-01 (verbatim): \"the notch was on the side, not movable, the orb was not pretty enough, ... no good feedback in the demo etc etc so many wrong things.\" Iterate in the intro playground (ui/mac/FERBNotch/PLAYGROUND.md)."
 decisions = ["APP-501", "APP-513", "APP-519"]
 
-[T-502]
-title = "The ferb-secrets Keychain prompt keeps coming back after Always Allow"
-area = "gateway"
-kind = "bug"
-status = "open"
-why = "Live run 2026-11-01: macOS kept asking for ferb-secrets' items under service ferb.owner-secrets (6 saved items) even after \"Always Allow\"; the helper's designated requirement is identifier com.ferb.secrets plus a certificate leaf hash. Cause not investigated."
-
 [T-504]
 title = "Trim the wording and wiring tests inside the kept safety files"
 area = "tests"
@@ -172,7 +165,7 @@ area = "tests"
 kind = "live"
 status = "open"
 why = "notes/fix-order.md step 13: per-adapter live tests, the P20 injection eval, the patch re-test list and the safety scenarios, on the new FERB.app after the fresh start (LIVE-535). The checklist is the live checks with sitting \"step 13, sitting N\" (`kb live`); the owner's verdict accepts."
-after = ["T-500", "T-501", "T-502", "T-510"]
+after = ["T-500", "T-501", "T-510"]
 
 [T-509]
 title = "Docs cleanup last: the owner reviews each moved document, then CLAUDE.md/AGENTS.md"

@@ -2082,3 +2082,12 @@ request = "Open FERB.app, go through the intro and setup up to (not including) F
 pass = "No \"FERB was blocked from accessing data from other apps\" banner appears, and Privacy & Security doesn't list FERB as having tried to reach another app's data."
 decisions = ["GATE-505"]
 sitting = "step 13"
+
+[LIVE-679]
+title = "One Keychain OK per saved secret, kept across relaunches and updates"
+area = "gateway"
+surface = "The owner's Mac with saved secrets; a release FERB.app built with REL-404, then the next release build"
+request = "Install the build and open FERB. If macOS asks \"ferb-secrets wants to use your confidential information stored in ferb.owner-secrets\", press Always Allow (with the login password) on each prompt (at most one per saved secret). Quit and reopen FERB; then install the next release build and open it."
+pass = "No Keychain prompt after the reopen or after the update; `codesign -dv --verbose=4 /Applications/FERB.app/Contents/Helpers/ferb-secrets` shows the same CDHash in both builds."
+decisions = ["REL-404"]
+sitting = "step 13"
