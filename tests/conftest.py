@@ -95,10 +95,25 @@ class RunningDaemon:
         self.thread.join(5)
 
 
+_MAC_TEMP = tempfile.gettempdir()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def own_temp_folder() -> Iterator[None]:
+    """TEST-508: what a test or the code under test makes with tempfile (a Claude test home, a recording's staging
+    folder) lands in this run's own folder, removed when the run ends, never loose in the Mac's temp folder."""
+    root = tempfile.mkdtemp(prefix="ferb-tests-")
+    tempfile.tempdir = root
+    yield
+    tempfile.tempdir = None
+    shutil.rmtree(root, ignore_errors=True)
+
+
 @pytest.fixture
 def home() -> Iterator[Path]:
-    # Short path: AF_UNIX socket paths are limited to 104 bytes on macOS (pytest's tmp_path is too long).
-    d = Path(tempfile.mkdtemp(prefix="ferbt-"))
+    # Short path: AF_UNIX socket paths are limited to 104 bytes on macOS (pytest's tmp_path is too long), so it sits
+    # directly in the Mac's temp folder and is removed after the test.
+    d = Path(tempfile.mkdtemp(prefix="ferbt-", dir=_MAC_TEMP))
     yield d / "home"
     shutil.rmtree(d, ignore_errors=True)
 
