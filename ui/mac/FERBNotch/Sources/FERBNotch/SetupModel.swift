@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import NotchCore
 
 /// The setup window's state and actions (L34 C). Every fact comes from the daemon's setup RPCs or FERB.app's own
@@ -97,17 +97,26 @@ final class SetupModel: ObservableObject {
 
     /// How often a grant's row is read again while the owner flips its switch (kb area app: ~1–1.5 s).
     var grantPoll: Duration = .milliseconds(1500)
+    /// The app in front (its bundle id): a grant's wait notices the owner leaving System Settings.
+    var frontmostApp: () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
 
     /// One row's grant (`grant`: macOS's own request where there is one, then its pane), then its row read again
     /// every `grantPoll` until the system reports it on: true only then, never inferred. `asked` runs once the request
     /// and the pane are up (the intro docks its orb there). A row macOS asked about in its own popup that comes back
     /// denied returns false at once (its pane is the way on); otherwise it waits until on, `polls` reads at most, or
     /// the calling task is cancelled.
+    /// A switch that reaches the daemon only after a restart (Screen Recording, Input Monitoring, Full Disk Access) is
+    /// checked by restarting the service each time the owner leaves System Settings while it still reads off: FERB.app
+    /// is an accessory app that never comes to the front by itself, so leaving Settings is the signal (owner's live run,
+    /// 2026-11-01). A daemon that stops answering for `serviceStartAfter` reads (macOS's "Quit & Reopen" can end it
+    /// with a clean exit, which launchd doesn't restart) is started again, once per silence.
     func grantAndConfirm(_ row: PermissionRow, polls limit: Int? = nil, asked: (() -> Void)? = nil) async -> Bool {
         let undecided = row.status == .notDetermined
         await grant(row)
         asked?()
         var polls = 0
+        var inSettings = false
+        var unanswered = 0
         while !Task.isCancelled {
             if let now = allRows.first(where: { $0.id == row.id }) {
                 if now.status == .granted { return true }
@@ -116,10 +125,27 @@ final class SetupModel: ObservableObject {
             if let limit, polls >= limit { return false }
             do { try await Task.sleep(for: grantPoll) } catch { return false }
             polls += 1
-            await refreshPermissions()
+            let front = frontmostApp() == SettingsAnchor.bundleID
+            if inSettings && !front, allRows.first(where: { $0.id == row.id })?.restartToCheck == true {
+                await restartUnlessWorking()
+            }
+            inSettings = front
+            if await refreshPermissions() {
+                unanswered = 0
+            } else {
+                unanswered += 1
+                if unanswered == serviceStartAfter { _ = await service.start() }
+            }
         }
         return false
     }
+
+    /// Reads without an answer before a grant's wait starts the background service (about 4.5 s at `grantPoll`): a
+    /// daemon that is only slow is never killed, `start` leaves a running one alone.
+    var serviceStartAfter = 3
+
+    /// The background service answers `ping`.
+    func serviceAnswers() async -> Bool { (try? await rpc.call("ping", params: [:])) != nil }
     var setupRows: [PermissionRow] { allRows.filter { Self.askedAtSetup.contains($0.id) } }
 
     var allRows: [PermissionRow] { (permissions?.rows ?? []) + appRows }
@@ -383,11 +409,15 @@ final class SetupModel: ObservableObject {
 
     // MARK: Permissions
 
-    func refreshPermissions() async {
+    /// True when the daemon answered.
+    @discardableResult
+    func refreshPermissions() async -> Bool {
+        var answered = false
         do {
             let reply = try await rpc.call("setup.permissions", params: [:], wait: 10)
             if let snapshot = PermissionSnapshot(reply: reply) { permissions = snapshot }
             clearNotAnswering()
+            answered = true
         } catch { message = Self.notAnswering }
         let notifications = await app.notifications()
         let microphone = app.microphone()
@@ -396,6 +426,7 @@ final class SetupModel: ObservableObject {
                           pane: permissions?.appPanes["notifications"], requestable: notifications == .notDetermined),
             PermissionRow(id: "microphone", status: microphone, process: "app", required: true,
                           pane: permissions?.appPanes[app.microphoneDeniedPane], requestable: microphone == .notDetermined)]
+        return answered
     }
 
     /// The owner's Grant on one row: macOS's own request when there is one (from the daemon for its grants, from FERB.app
@@ -452,7 +483,13 @@ final class SetupModel: ObservableObject {
     func cameBack() async {
         let pending = restartOnReturn.filter { id in allRows.contains { $0.id == id && $0.status != .granted } }
         restartOnReturn.removeAll()
-        guard !pending.isEmpty, !restarting else { return }
+        guard !pending.isEmpty else { return }
+        await restartUnlessWorking()
+    }
+
+    /// The service restarted to read a switch again, never while a task runs or a restart is under way.
+    private func restartUnlessWorking() async {
+        guard !restarting else { return }
         if let status = try? await rpc.call("chat.status", params: ["peek": true]),
            let running = status["running"] as? [[String: Any]], !running.isEmpty { return }
         await restartService()

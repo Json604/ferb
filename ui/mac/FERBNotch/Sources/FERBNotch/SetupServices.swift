@@ -40,6 +40,8 @@ protocol APIKeyStoring {
 @MainActor
 protocol DaemonServicing: AnyObject {
     func restart() async -> Bool
+    /// Starts the service if it isn't running; a running one (even one still starting) is left alone.
+    func start() async -> Bool
 }
 
 /// FERB's background service as FERB.app registers it with macOS (DMN-2): its definition is inside
@@ -300,6 +302,12 @@ final class DaemonService: DaemonServicing {
                                              plistExists: FileManager.default.fileExists(atPath: plist.path))
         for command in commands where await Self.launchctl(command) == 0 { return true }
         return false
+    }
+
+    /// `launchctl kickstart` without -k: launchd starts the job only when it isn't running. A clean exit (SIGTERM, as
+    /// macOS's "Quit & Reopen" may send) isn't restarted by launchd (KeepAlive SuccessfulExit false).
+    func start() async -> Bool {
+        await Self.launchctl(LaunchctlPlan.start(uid: getuid())) == 0
     }
 
     private static func launchctl(_ arguments: [String]) async -> Int32 {

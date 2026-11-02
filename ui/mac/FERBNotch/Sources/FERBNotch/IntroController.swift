@@ -64,7 +64,6 @@ final class IntroController {
     var orbTrip: Task<Void, Never>?
     /// The orb on its way home after a preview: the next trip out leaves once it has landed.
     var orbHoming: Task<Void, Never>?
-    private var activation: NSObjectProtocol?
 
     var rpc: DaemonRPCTransport { setup.rpc }
     /// The tour is on and this beat wasn't skipped.
@@ -116,10 +115,6 @@ final class IntroController {
         orb.onHomeArrival = { [weak notch] in notch?.pulseIntro() }
         notch.onIntroAction = { [weak self] action in self?.handle(action) }
         notch.introHoldsWork = true
-        activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
-                                                            object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { () -> Void in self?.cameBack() }
-        }
         if firstRun && resume == nil && plan.first == .meet {
             sound.play(.firstLaunch, at: nil)
             clipEnded = false
@@ -128,7 +123,7 @@ final class IntroController {
                 self?.endClip()
             }
         }
-        run = Task { [weak self] in await self?.perform(plan, ifNeeded: ifNeeded) }
+        run = Task { [weak self] in await self?.perform(plan, ifNeeded: ifNeeded, resuming: resume != nil) }
     }
 
     /// Skip, at any point: everything the tour drew, played or said is gone at once; then what's still required is
@@ -156,7 +151,8 @@ final class IntroController {
         }
     }
 
-    private func perform(_ plan: [IntroBeat], ifNeeded: Set<IntroBeat>) async {
+    private func perform(_ plan: [IntroBeat], ifNeeded: Set<IntroBeat>, resuming: Bool) async {
+        if resuming { await waitForService() }
         for next in plan {
             guard live else { return }
             if ifNeeded.contains(next), !(await stillNeeded(next)) { continue }
@@ -176,6 +172,20 @@ final class IntroController {
         }
         guard live else { return }
         finish()
+    }
+
+    /// A resumed tour first waits for the background service (APP-515): every beat reads the daemon, and a silence
+    /// would read as signed out or no grants (the resume then asked for sign-in again and moved its place back there).
+    /// A service that stays silent is started (macOS's "Quit & Reopen" can end it with a clean exit, which launchd
+    /// doesn't restart); a running one is left alone.
+    private func waitForService() async {
+        var unanswered = 0
+        while live, !(await setup.serviceAnswers()) {
+            say(IntroCopy.gettingReady)
+            unanswered += 1
+            if unanswered == setup.serviceStartAfter { _ = await setup.service.start() }
+            await dwell(Timing.poll)
+        }
     }
 
     /// A beat from before the resume point, run again only when its step is missing now.
@@ -233,8 +243,6 @@ final class IntroController {
         notch.introHoldsWork = false
         if notch.promptError == NotchModel.introHeldWork { notch.promptError = nil }
         notch.conversation.removePreviews()
-        if let activation { NotificationCenter.default.removeObserver(activation) }
-        activation = nil
         ProcessInfo.processInfo.enableAutomaticTermination(Self.terminationReason)
     }
 
@@ -325,12 +333,6 @@ final class IntroController {
         let waiting = clipWaiter
         clipWaiter = nil
         waiting?()
-    }
-
-    /// Back from System Settings: a grant that applies only after a restart is checked (SetupModel.cameBack).
-    private func cameBack() {
-        guard running, beat == .permissions else { return }
-        Task { await setup.cameBack() }
     }
 
     // MARK: 1. Meet

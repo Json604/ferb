@@ -26,6 +26,22 @@ enum NotchDocking {
                width: size.width, height: size.height)
     }
 
-    static func isSaved(in defaults: UserDefaults) -> Bool { defaults.bool(forKey: "notch.docked") }
+    /// Docked in the camera housing: as the owner last left it, and on a first run (nothing saved) whenever the screen
+    /// has a hardware notch (APP-550). Without one there is nothing to dock into: the handle sits on an edge.
+    static func isDocked(in defaults: UserDefaults, hasNotch: Bool) -> Bool {
+        hasNotch && (defaults.object(forKey: "notch.docked") as? Bool ?? true)
+    }
     static func save(_ docked: Bool, in defaults: UserDefaults) { defaults.set(docked, forKey: "notch.docked") }
+
+    /// The edge the handle sits on when undocked: where the owner dropped it, else the top (on a notchless Mac the
+    /// top centre, where the virtual notch is).
+    static func edge(in defaults: UserDefaults) -> FERBScreenEdge {
+        defaults.string(forKey: "notch.indicatorEdge").flatMap(FERBScreenEdge.init(rawValue:)) ?? .top
+    }
+
+    /// Where along that edge, 0…1: the middle unless the owner dropped it elsewhere.
+    static func fraction(in defaults: UserDefaults) -> CGFloat {
+        defaults.object(forKey: "notch.indicatorFraction") == nil
+            ? 0.5 : min(1, max(0, CGFloat(defaults.double(forKey: "notch.indicatorFraction"))))
+    }
 }

@@ -78,9 +78,19 @@ final class FakeKeys: APIKeyStoring {
 @MainActor
 final class FakeService: DaemonServicing {
     private(set) var restarts = 0
+    private(set) var starts = 0
     var result = true
+    /// What launchd's restart or start changes (the daemon answers again, a switch reaches it).
+    var onRestart: (() -> Void)?
+    var onStart: (() -> Void)?
     func restart() async -> Bool {
         restarts += 1
+        onRestart?()
+        return result
+    }
+    func start() async -> Bool {
+        starts += 1
+        onStart?()
         return result
     }
 }

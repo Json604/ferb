@@ -141,7 +141,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var pointerIsInside = false
     private var cutoutFrame = CGRect.zero
     private(set) var indicatorFrame = CGRect.zero
-    private var indicatorEdge: FERBScreenEdge = .right
+    private var indicatorEdge: FERBScreenEdge = .top
     private var indicatorScreen: NSScreen?
     private var indicatorFraction: CGFloat = 0.5
     private var indicatorDragPointer: CGPoint?
@@ -181,10 +181,15 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     let cursor = CursorController()
 
-    /// `model` is for tests (a scripted daemon); the app uses its own.
-    init(model: NotchModel? = nil) {
+    /// Where the notch's place is kept (`notch.*`: docked, edge, fraction, display).
+    private let defaults: UserDefaults
+
+    /// `model` and `defaults` are for tests (a scripted daemon, a scratch suite); the app uses its own and the
+    /// standard defaults.
+    init(model: NotchModel? = nil, defaults: UserDefaults = .standard) {
         let model = model ?? NotchModel()
         self.model = model
+        self.defaults = defaults
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                            backing: .buffered, defer: false)
         yieldController = NotchYieldController(model: model)
@@ -506,6 +511,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         indicatorPanel.setFrame(indicatorFrame, display: true)
     }
 
+    /// The handle is drawn inside FERB's shown surface (the chat, a tour line, a plan preview; `present` attaches it
+    /// whenever the surface shows): a drag carries that surface along. Otherwise the handle has its own window.
+    /// (Branching on the open chat alone moved an empty, hidden handle window during the tour: owner's live run,
+    /// 2026-11-01, "not movable".)
+    private var handleOnSurface: Bool { indicatorControl?.isAttached == true }
+
     private func moveIndicator(with point: CGPoint) {
         guard let origin = indicatorDragPointer, let start = indicatorDragFrame else { return }
         if isDocked {
@@ -513,20 +524,20 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             isDocked = false
             model.isNotchDocked = false
             presentation.backdrop.docked = false
-            NotchDocking.save(false, in: .standard)
+            NotchDocking.save(false, in: defaults)
             indicatorControl?.isDocked = false
             indicatorEdge = .top
             model.indicatorEdge = "top"
             indicatorFrame = CGRect(x: origin.x - 29, y: origin.y - 15, width: 58, height: 30)
             indicatorDragFrame = indicatorFrame
-            if model.expanded {
+            if handleOnSurface {
                 // The pill emerges under the grabbed point, including a grab farther
                 // down the empty header. Subsequent motion translates one window.
                 let old = panel.frame
                 panel.setFrame(CGRect(x: old.minX, y: origin.y + 15 - old.height - 28,
                                       width: old.width, height: old.height + 28), display: true)
                 presentation.destination = CGPoint(x: 8, y: 28)
-                presentation.present(size: model.surfaceSize, expanded: true, bodyVisible: model.bodyVisible,
+                presentation.present(size: model.surfaceSize, expanded: true, bodyVisible: !model.isHeaderOnly,
                                      anchor: nil, animate: false, completion: {})
                 indicatorFrame = CGRect(x: origin.x - 29, y: origin.y - 15, width: 58, height: 30)
                 indicatorDragFrame = indicatorFrame
@@ -561,7 +572,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         indicatorScreen = screen
         sampleMagneticDrag(at: now)
         startMagneticClock(on: screen)
-        if model.expanded {
+        if handleOnSurface {
             let preferred = dragPreferredSize
             let target = LiveDragLayout.resolve(pill: indicatorFrame, screen: screen.frame,
                 preferred: preferred, previous: indicatorEdge)
@@ -607,7 +618,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private func stopDragLayout() {
         // Shrink before docking or ordinary placement: never retain a transparent
         // display-sized event surface after mouse-up.
-        if dragCanvasActive, let control = indicatorControl, model.expanded {
+        if dragCanvasActive, let control = indicatorControl, handleOnSurface {
             let card = CGRect(x: panel.frame.minX + presentation.surfaceOrigin.x,
                 y: panel.frame.maxY - presentation.surfaceOrigin.y - presentation.size.height,
                 width: presentation.size.width, height: presentation.size.height)
@@ -696,7 +707,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         } else if indicatorDragPointer != nil {
             let previous = indicatorFrame
             sampleMagneticDrag(at: time)
-            if model.expanded {
+            if handleOnSurface {
                 if let card = dragCard {
                     let delta = CGPoint(x: indicatorFrame.minX-previous.minX, y: indicatorFrame.minY-previous.minY)
                     // Translate the orientation spring too, preserving its velocity.
@@ -728,7 +739,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         presentation.stop()
         // Keep the expanded conversation mounted and visible throughout the join.
         // Both surfaces reach their final docked rectangles on this same clock.
-        if model.expanded {
+        if handleOnSurface {
             fusionCardStart = CGRect(x: panel.frame.minX+presentation.surfaceOrigin.x,
                 y: panel.frame.maxY-presentation.surfaceOrigin.y-presentation.size.height,
                 width: presentation.size.width, height: presentation.size.height)
@@ -742,7 +753,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             fusionCardStart = nil
             fusionCardTarget = nil
         }
-        beginMagneticFusion(to: model.expanded ? NotchDocking.dragRegion(cutout: cutout) : cutout,
+        beginMagneticFusion(to: handleOnSurface ? NotchDocking.dragRegion(cutout: cutout) : cutout,
                             at: CACurrentMediaTime())
         // The velocity contribution t*(1-t/T)^3 peaks at T*27/256.
         // Reserve its complete excursion once; keep WindowServer and children
@@ -835,7 +846,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         magneticClock?.invalidate()
         magneticClock = nil
         isDocked = true
-        NotchDocking.save(true, in: .standard)
+        NotchDocking.save(true, in: defaults)
         if let screen = indicatorScreen { persistIndicatorAnchor(for: screen) }
         fusionCardStart = nil
         fusionCardTarget = nil
@@ -857,7 +868,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func persistIndicatorAnchor(for screen: NSScreen) {
-        let defaults = UserDefaults.standard
         defaults.set(indicatorEdge.rawValue, forKey: "notch.indicatorEdge")
         defaults.set(Double(indicatorFraction), forKey: "notch.indicatorFraction")
         if let id = displayID(screen) { defaults.set(Int(id), forKey: "notch.indicatorDisplayID") }
@@ -898,22 +908,22 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         if isStarted { updateScreen() }
     }
 
-    @objc private func updateScreen() {
+    /// Lays FERB out on its screen: docked in the hardware notch unless the owner tore it out (a first run docks), else
+    /// on the edge where the owner dropped it (the top centre by default).
+    @objc func updateScreen() {
         model.acknowledgement.dismiss()
-        let defaults = UserDefaults.standard
         let savedDisplay = defaults.object(forKey: "notch.indicatorDisplayID") as? NSNumber
         let preferred = savedDisplay.flatMap { saved in NSScreen.screens.first { displayID($0) == saved.uint32Value } }
         guard let screen = preferred ?? NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main ?? NSScreen.screens.first else { return }
         indicatorScreen = screen
-        indicatorEdge = FERBScreenEdge(rawValue: defaults.string(forKey: "notch.indicatorEdge") ?? "right") ?? .right
-        indicatorFraction = defaults.object(forKey: "notch.indicatorFraction") == nil
-            ? 0.5 : min(1, max(0, CGFloat(defaults.double(forKey: "notch.indicatorFraction"))))
+        indicatorEdge = NotchDocking.edge(in: defaults)
+        indicatorFraction = NotchDocking.fraction(in: defaults)
         let current = NotchGeometry(screen: screen.frame, topInset: screen.safeAreaInsets.top,
                                     leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
                                     rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
                                     menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
         geometry = current
-        isDocked = NotchDocking.isSaved(in: .standard) && current.hasNotch
+        isDocked = NotchDocking.isDocked(in: defaults, hasNotch: current.hasNotch)
         model.isNotchDocked = isDocked
         presentation.backdrop.docked = isDocked
         indicatorControl?.isDocked = isDocked
