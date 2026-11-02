@@ -564,3 +564,12 @@ rule = "A window capture that fails with ScreenCaptureKit's \"Failed to start st
 why = "Past bug (LIVE-207): the first capture after a pause failed to start."
 paths = ["ferb/act/mac/screenshot.py"]
 legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[HAND-246]
+title = "The free-disk floor reads free space as Finder counts it"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "The download floor (browser.download_min_free_gb, 10 GB) and the shell download watch read the volume's available capacity for important usage (NSURLVolumeAvailableCapacityForImportantUsageKey: free plus purgeable space), falling back to statvfs free space when macOS doesn't give it. The number itself is unchanged."
+why = "HAND-236 counts \"as the owner and Finder count\"; statvfs leaves out purgeable space (local snapshots, optimised iCloud files), so a small Mac showing 40 GB available in Finder refused every download (audit 2026-11-02, item 7)."
+paths = ["ferb/act/browser/downloads.py::available_bytes"]

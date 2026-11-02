@@ -3,7 +3,7 @@ like Finder, other Chromium browsers and quarantine on FERB's own bundle."""
 
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from ferb.device import devtools
 from tests.conftest import RunningDaemon
@@ -61,3 +61,33 @@ def test_a_worker_is_told_which_developer_tools_are_missing(home: Path) -> None:
         assert "Command Line Tools" not in worker_instructions(d)
     finally:
         d.stop()
+
+
+# ---------- free space as Finder counts it ----------
+
+_GB = 1000 ** 3
+
+
+class _Usage(NamedTuple):
+    total: int
+    used: int
+    free: int
+
+
+# decision: HAND-246
+def test_the_free_disk_floor_counts_purgeable_space_as_finder_does(tmp_path: Path, monkeypatch: Any) -> None:
+    """Audit item 7: statvfs free space leaves out purgeable space (local snapshots, optimised iCloud files), so a Mac
+    whose Finder showed 40 GB available sat under the 10 GB floor and every download was refused. The floor reads the
+    volume's capacity for important usage; the plain measure stays the fallback."""
+    from ferb.act.browser import downloads
+    monkeypatch.setattr(downloads.shutil, "disk_usage", lambda where: _Usage(500 * _GB, 494 * _GB, 6 * _GB))
+    monkeypatch.setattr(downloads, "_important_usage", lambda where: 40 * _GB)
+    d = downloads.Downloads(tmp_path / "workspace" / "downloads", None, lambda: None,  # type: ignore[arg-type,return-value]
+                            lambda *a: a[-1], lambda text: text, lambda kind, data: None)
+    assert d.free_bytes() == 40 * _GB
+    assert d.limits().min_free_bytes == 10 * _GB                               # the owner's 10 GB is unchanged
+    assert downloads.available_bytes(tmp_path, important=lambda where: None) == 6 * _GB
+
+    def unsupported(where: Path) -> int | None:
+        raise AttributeError("no such key")
+    assert downloads.available_bytes(tmp_path, important=unsupported) == 6 * _GB
