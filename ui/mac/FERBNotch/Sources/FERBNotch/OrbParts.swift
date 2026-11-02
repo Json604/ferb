@@ -10,8 +10,9 @@ protocol OrbControlling: AnyObject {
     /// Drips off the notch and flies to `target` (AppKit global coordinates); returns once it has arrived.
     func launch(to target: CGPoint, instruction: IntroLine?) async
     /// Docks beside System Settings' window, holding `url` (the agent app) as a draggable icon (nil: nothing to drag,
-    /// as in Login Items), with `instruction` in its bubble, and follows it.
-    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?)
+    /// as in Login Items), with `instruction` in its bubble, and follows it. `showWay`: a faded copy first shows the
+    /// drag into Settings' list (APP-639); not once the drop was accepted.
+    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?, showWay: Bool)
     /// The small happy hop when a step succeeds.
     func hop()
     /// Flies back and melts into the notch; returns once it is home.
@@ -29,6 +30,9 @@ extension OrbControlling {
     var holdsHomecoming: Bool { get { false } set {} }
     var onDropAccepted: (() -> Void)? { get { nil } set {} }
     func dockBesideSettings(dragging url: URL) { dockBesideSettings(dragging: url, instruction: nil) }
+    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?) {
+        dockBesideSettings(dragging: url, instruction: instruction, showWay: url != nil)
+    }
 }
 
 /// What draws the orb (OrbPanel), in AppKit global coordinates.
@@ -43,6 +47,9 @@ protocol OrbSurface: AnyObject {
     func setWaiting(_ waiting: Bool)
     func show()
     func hide()
+    /// A faded copy of the dragged logo shows the way to `point` (System Settings' list), over and over, until nil
+    /// (APP-639).
+    func demonstrateDrag(to point: CGPoint?)
 }
 
 extension OrbSurface {
@@ -59,6 +66,8 @@ protocol OrbClock: AnyObject {
 @MainActor
 protocol SettingsWindowTracking: AnyObject {
     var onChange: ((CGPoint?) -> Void)? { get set }
+    /// System Settings' window as last reported (AppKit coordinates); nil while hidden.
+    var settingsFrame: CGRect? { get }
     func start()
     func stop()
 }

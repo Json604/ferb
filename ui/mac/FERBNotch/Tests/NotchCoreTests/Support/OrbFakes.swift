@@ -18,7 +18,10 @@ final class FakeOrbSurface: OrbSurface {
     func setDragItem(_ url: URL?) { dragItem = url }
     func setWaiting(_ waiting: Bool) {}
     func show() { visible = true }
-    func hide() { visible = false }
+    func hide() { visible = false; wayShown = nil }
+    /// Where the drag demonstration goes now (nil: none running).
+    var wayShown: CGPoint?
+    func demonstrateDrag(to point: CGPoint?) { wayShown = point }
 }
 
 /// Frame ticks on demand; `now` is the time the ticks add up to.
@@ -55,6 +58,7 @@ final class FakeSoundPlayer: FerbSoundPlaying {
 @MainActor
 final class FakeTracker: SettingsWindowTracking {
     var onChange: ((CGPoint?) -> Void)?
+    var settingsFrame: CGRect?
     var running = false
     func start() { running = true }
     func stop() { running = false }

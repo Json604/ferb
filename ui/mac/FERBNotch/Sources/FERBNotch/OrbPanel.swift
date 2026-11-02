@@ -17,6 +17,7 @@ final class OrbPanel: NSPanel, OrbSurface {
 
     let state = OrbViewState()
     private let card = OrbCardPanel()
+    private lazy var demo = DragDemoPanel(image: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
     private var center = CGPoint.zero
     var onDropAccepted: (() -> Void)? {
         get { card.cardView.onDropAccepted }
@@ -40,6 +41,7 @@ final class OrbPanel: NSPanel, OrbSurface {
         let hosting = NSHostingView(rootView: OrbCanvas(state: state))
         hosting.sizingOptions = []
         contentView = hosting
+        card.cardView.onDragBegan = { [weak self] in self?.demo.stop() }
     }
 
     /// Always click-through: setting false still sets true, through AppKit's own setter.
@@ -70,7 +72,13 @@ final class OrbPanel: NSPanel, OrbSurface {
         if line != nil { updateBubbleSide() }
     }
 
+    func demonstrateDrag(to point: CGPoint?) {
+        guard let point, state.holding else { demo.stop(); return }
+        demo.run(from: center, to: point)
+    }
+
     func setDragItem(_ url: URL?) {
+        if url == nil { demo.stop() }
         card.cardView.url = url
         state.holding = url != nil
         card.ignoresMouseEvents = url == nil
@@ -84,6 +92,7 @@ final class OrbPanel: NSPanel, OrbSurface {
     }
 
     func hide() {
+        demo.stop()
         hideCard()
         orderOut(nil)
     }
@@ -144,4 +153,88 @@ final class OrbCardPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+}
+
+/// The way to drag the logo, shown before the owner does it (APP-639): a faded copy glides from the logo beside System
+/// Settings into its list, fades, and starts over every few seconds until the owner drags the logo, the drop is
+/// accepted or the dock ends. Click-through and never key, like the guide.
+final class DragDemoPanel: NSPanel {
+    private var from = CGPoint.zero
+    private var to = CGPoint.zero
+    private var timer: Timer?
+
+    init(image: NSImage) {
+        super.init(contentRect: CGRect(origin: .zero, size: OrbCardPanel.size), styleMask: [.borderless, .nonactivatingPanel],
+                   backing: .buffered, defer: true)
+        title = "FERB drag guide"
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false
+        hidesOnDeactivate = false
+        isReleasedWhenClosed = false
+        level = OrbPanel.orbLevel
+        collectionBehavior = OrbPanel.overlayBehavior
+        animationBehavior = .none
+        ignoresMouseEvents = true
+        let view = NSImageView(image: image)
+        view.imageScaling = .scaleProportionallyUpOrDown
+        contentView = view
+    }
+
+    /// Always click-through: setting false still sets true, through AppKit's own setter.
+    override var ignoresMouseEvents: Bool {
+        get { super.ignoresMouseEvents }
+        set { super.ignoresMouseEvents = true }
+    }
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+
+    func run(from: CGPoint, to: CGPoint) {
+        self.from = from
+        self.to = to
+        guard timer == nil else { return }               // a moved Settings window only changes where it goes
+        pass()
+        timer = Timer.scheduledTimer(withTimeInterval: 3.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pass() }
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        orderOut(nil)
+    }
+
+    private func frame(at point: CGPoint) -> CGRect {
+        CGRect(x: point.x - OrbCardPanel.size.width / 2, y: point.y - OrbCardPanel.size.height / 2,
+               width: OrbCardPanel.size.width, height: OrbCardPanel.size.height)
+    }
+
+    private func pass() {
+        setFrame(frame(at: from), display: false)
+        alphaValue = 0
+        orderFrontRegardless()
+        let target = frame(at: to)
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            animator().alphaValue = 0.7
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.timer != nil else { return }
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 1.3
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    self.animator().setFrame(target, display: true)
+                }, completionHandler: { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        NSAnimationContext.runAnimationGroup { context in
+                            context.duration = 0.45
+                            self.animator().alphaValue = 0
+                        }
+                    }
+                })
+            }
+        })
+    }
 }

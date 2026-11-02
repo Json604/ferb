@@ -109,16 +109,27 @@ def input_monitoring() -> Status:
     return _HID.get(_iokit.IOHIDCheckAccess(_LISTEN_EVENT), Status.UNKNOWN)
 
 
+def _fda_probes() -> tuple[Path, ...]:
+    """Files only Full Disk Access opens, in order. macOS 27 has no per-user TCC.db (live 2026-11-02: the check stayed
+    "unknown" after the owner's grant), so the system one follows; both are refused alike without the grant."""
+    return (Path.home() / "Library/Application Support/com.apple.TCC/TCC.db",
+            Path("/Library/Application Support/com.apple.TCC/TCC.db"))
+
+
 def full_disk_access() -> Status:
-    """No API: probe a file only readable with Full Disk Access."""
-    try:
-        with open(Path.home() / "Library/Application Support/com.apple.TCC/TCC.db", "rb") as f:
-            f.read(16)
-        return Status.GRANTED
-    except PermissionError:
-        return Status.DENIED
-    except OSError:
-        return Status.UNKNOWN
+    """No API: probe a file only readable with Full Disk Access; one this macOS doesn't have is skipped."""
+    for path in _fda_probes():
+        try:
+            with open(path, "rb") as f:
+                f.read(16)
+            return Status.GRANTED
+        except PermissionError:
+            return Status.DENIED
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return Status.UNKNOWN
+    return Status.UNKNOWN
 
 
 def other_app_data() -> bool:

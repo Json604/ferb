@@ -17,7 +17,8 @@ struct NotchView: View {
             VStack(spacing: 0) {
                 if case .intro(let line)? = model.compactContent {
                     IntroNarrationView(line: line, cameraSpace: model.isNotchDocked ? model.cutoutHeight : 0,
-                                       act: model.introActions, typed: $model.introTyped)
+                                       act: model.introActions, typed: $model.introTyped,
+                                       canSkip: model.introSkippable)
                         .frame(height: presentation.size.height, alignment: .top)
                 } else if model.compactContent == .pulse {
                     Color.clear.frame(height: presentation.size.height)
@@ -243,7 +244,7 @@ struct NotchView: View {
                 // The tour goes on in the open chat (its preview, its controls): FERB's line above the composer.
                 IntroNarrationView(line: line, cameraSpace: 0, act: model.introActions,
                                    inset: IntroNarrationView.chatInset,
-                                   typed: $model.introTyped)
+                                   typed: $model.introTyped, canSkip: model.introSkippable)
                     .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
             }
             if model.showsWorkRow {

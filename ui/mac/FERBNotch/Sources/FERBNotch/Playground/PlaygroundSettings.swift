@@ -204,6 +204,7 @@ private struct PlaygroundPaneView: View {
 @MainActor
 final class PlaygroundSettingsTracker: SettingsWindowTracking {
     var onChange: ((CGPoint?) -> Void)?
+    var settingsFrame: CGRect? { opener.visibleFrame }
     private let opener: PlaygroundSettingsOpener
     private var timer: Timer?
     private var reported: CGPoint?

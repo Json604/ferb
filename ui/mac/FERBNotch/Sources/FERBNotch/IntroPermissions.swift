@@ -115,7 +115,8 @@ extension IntroController {
                 ? "Turn FERB on, then choose Quit & Reopen if macOS asks. I'll pick up here."
                 : "Turn FERB on. I'll check when macOS confirms it.")
             : isList ? IntroCopy.dragMe : IntroLine(text: "Switch FERB on here")
-        orb.dockBesideSettings(dragging: !isList || target.isEmpty ? nil : URL(fileURLWithPath: target), instruction: instruction)
+        orb.dockBesideSettings(dragging: !isList || target.isEmpty ? nil : URL(fileURLWithPath: target),
+                               instruction: instruction, showWay: !added)
     }
 
     private func permissionOverview(_ visit: PermissionVisit) -> IntroLine {

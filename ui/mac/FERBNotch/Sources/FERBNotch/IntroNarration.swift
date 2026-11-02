@@ -110,6 +110,7 @@ enum IntroAction: Equatable {
     case choose(String)
     case enter(String)
     case stopPreview
+    case skipTour
 }
 
 enum NotchCompactContent: Equatable {
@@ -136,6 +137,8 @@ struct IntroNarrationView: View {
     var inset = Self.surfaceInset
     /// The field's text (NotchModel.introTyped): emptied when the line changes, when the field goes and on submit.
     var typed: Binding<String> = .constant("")
+    /// From the permissions beat to the end, the header offers Skip tour (APP-638).
+    var canSkip = false
     @State private var hoveredPermission: String?
 
     var body: some View {
@@ -145,6 +148,13 @@ struct IntroNarrationView: View {
                 Text("MAKE YOURSELF AT HOME")
                     .font(.system(size: 9, weight: .semibold)).tracking(1.8)
                     .foregroundStyle(Palette.secondary)
+                if canSkip, let act {
+                    Spacer(minLength: 8)
+                    Button("Skip tour") { act(.skipTour) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Palette.secondary)
+                }
             }
             .frame(height: Self.headerHeight, alignment: .topLeading)
             Text(line.text)

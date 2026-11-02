@@ -7,6 +7,7 @@ import NotchCore
 final class SettingsWindowTracker {
     /// Called when the dock point moves by more than 1 pt or switches between nil and a point.
     var onChange: ((CGPoint?) -> Void)?
+    private(set) var settingsFrame: CGRect?
 
     private let orb: CGSize
     private let rawWindows: () -> [RawWindow]
@@ -68,6 +69,7 @@ final class SettingsWindowTracker {
         guard let (p, frame) = point else {
             previousFrame = nil
             opened = false
+            settingsFrame = nil
             if reported != nil {
                 reported = nil
                 onChange?(nil)
@@ -81,6 +83,7 @@ final class SettingsWindowTracker {
             opened = true
         }
         previousFrame = frame
+        settingsFrame = frame
         if let r = reported, abs(r.x - p.x) <= 1, abs(r.y - p.y) <= 1 { return }
         reported = p
         onChange?(p)

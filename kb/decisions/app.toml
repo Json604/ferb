@@ -1308,7 +1308,8 @@ live = ["LIVE-688"]
 title = "Startup and setup are accepted; there is no Skip intro button"
 by = "owner"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "APP-638"
 supersedes = ["APP-515", "APP-516"]
 words = "ok this is finlaized at the startup adn setup - with a small change: remove skip intro button completely, we wont have that button at all anywhere."
 rule = "Startup and setup in the isolated concept are accepted. Default to the approved Gravity — Dense. Remove Skip intro and its action everywhere, including playground controls, with no reserved footer. A quit resumes at the same beat; Settings can replay the tour. A resumed tour waits for the service; quitting interrupts it. Repair and teardown can interrupt internally and leave required work in compact setup. Keep automatic termination disabled during the tour. Acceptance is for the concept, not installation."
@@ -1505,3 +1506,24 @@ words = "fix all above, also the image ive attaced is an example that i can copy
 rule = "Apply the six reviewed UX fixes: editable day counts; pending feedback and duplicate prevention for checks; ignore-list drafts kept until saved; expandable task/schedule answers; clear memory correction through chat and Not right versus Forget; native sidebar scroll indicators. Select and copy whole sent/received messages across paragraphs with formatting and safe links, without a copy button. Preserve settings values/ranges, confirmations, the accepted visuals, startup/setup and original notch movement. Review in the isolated playground."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SettingsEditors.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindowStore.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift", "ui/mac/FERBNotch/Sources/FERBNotch/MarkdownContent.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
 live = ["LIVE-703"]
+
+[APP-638]
+title = "Skip tour from the permissions beat to the end"
+by = "owner"
+date = 2026-11-02
+status = "active"
+supersedes = ["APP-618"]
+words = "also add a skip tour button on in the setup tour. starting from the permissions screen until end. not befire this."
+rule = "The tour's line offers Skip tour, in its header with no reserved footer, from the permissions beat to Home and never before it. Skip ends the tour as its internal interruption does: what is still required waits in the compact setup window. As in APP-618: Gravity — Dense is the startup; a quit resumes at the same beat; Settings can replay the tour; a resumed tour waits for the service; repair and teardown interrupt internally; automatic termination stays off during the tour."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+live = ["LIVE-704"]
+
+[APP-639]
+title = "The logo shows the drag into System Settings before the owner does it"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "also the 'drag me into this shuold virtually first drag itself into where it shdou be fdragged adn then the user follows that path."
+rule = "When the logo docks beside System Settings with FERB's agent to drag into a list, a faded copy of the logo glides from the logo into Settings' list (its right pane), fades and repeats every few seconds, following Settings if it moves, until the owner starts dragging, the drop is accepted or the dock ends. With Reduce Motion on it isn't shown."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/OrbController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbPanel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift"]
+live = ["LIVE-704"]

@@ -63,6 +63,8 @@ struct InstructionBubble: View {
 /// (the file URL a privacy list accepts). A faint fill makes the whole card grabbable, not only the icon's opaque
 /// pixels (the window server passes clicks on clear pixels through). A click alone does nothing.
 final class DragCardView: NSView, NSDraggingSource {
+    /// The owner started dragging the logo (the drag demonstration stops).
+    var onDragBegan: (() -> Void)?
     var onDropAccepted: (() -> Void)?
     var url: URL? {
         didSet {
@@ -100,6 +102,7 @@ final class DragCardView: NSView, NSDraggingSource {
 
     override func mouseDragged(with event: NSEvent) {
         guard let url else { return }
+        onDragBegan?()
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         item.setDraggingFrame(bounds, contents: icon.image)
         beginDraggingSession(with: [item], event: event, source: self)

@@ -293,6 +293,8 @@ final class NotchModel: ObservableObject {
     /// While the tour runs, a request typed or spoken stays in the composer instead of starting a task: the tour runs
     /// no real work (kb area app); it is sent after the tour.
     var introHoldsWork = false
+    /// The running tour is at the permissions beat or later: its line offers Skip tour (APP-638).
+    @Published var introSkippable = false
     static let introHeldWork = "It'll wait here until the tour ends."
     /// What the owner is typing into the intro line's field. Emptied whenever the line changes (or goes), so a key
     /// pasted for one line can never show in, or be sent from, the next line's field.

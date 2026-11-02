@@ -63,6 +63,8 @@ final class OrbController: OrbControlling {
     private var hold = 0.0
     private var waiter: CheckedContinuation<Void, Never>?
     private var tracker: SettingsWindowTracking?
+    /// The current dock shows the way to drag the logo (APP-639).
+    private var showsWay = false
     /// Away from the notch: on screen, or hidden while Settings isn't in front.
     private var out = false
     var holdsHomecoming = false
@@ -112,7 +114,9 @@ final class OrbController: OrbControlling {
         }
     }
 
-    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?) {
+    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?, showWay: Bool) {
+        showsWay = showWay && url != nil && !reduceMotion()
+        surface.demonstrateDrag(to: nil)
         surface.setDragItem(url)
         surface.setInstruction(instruction)
         surface.setWaiting(true)
@@ -259,13 +263,21 @@ final class OrbController: OrbControlling {
             if !meltIssued { sound.play(.orbMelt, at: position) }
             if let instruction { surface.setInstruction(instruction) }
             release()
+            showWay()
         case .follow:
-            break
+            showWay()
         case .home:
             if !meltIssued { sound.play(.orbMelt, at: position) }
             onHomeArrival?()
             beginFade(to: 0, scales: true) { [weak self] in self?.finishHome() }
         }
+    }
+
+    /// Beside System Settings with something to drag: the faded copy goes from the logo into Settings' list (its right
+    /// pane, two thirds across, halfway down), and again from wherever the logo is after Settings moves.
+    private func showWay() {
+        guard showsWay, tracker != nil, let frame = tracker?.settingsFrame else { return }
+        surface.demonstrateDrag(to: CGPoint(x: frame.minX + frame.width * 2 / 3, y: frame.midY))
     }
 
     private func finishHome() {

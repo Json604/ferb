@@ -2181,7 +2181,7 @@ area = "app"
 surface = "Isolated FERB Arrival Concept"
 request = "Replay startup and setup from the app playground's Startup & setup controls."
 pass = "Dense is the default accepted startup. No Skip intro button appears in the notch, open-chat intro strip or review controls, and there is no empty space reserved for it."
-decisions = ["APP-618"]
+decisions = ["APP-638"]
 sitting = "isolated UI concept review"
 
 [LIVE-690]
@@ -2294,7 +2294,7 @@ area = "app"
 surface = "The owner's Mac with an earlier 2026-11 build set up (data in ~/.ferb, Codex, grants); the connected release FERB.app installed the usual way."
 request = "Install the build and open FERB. Watch the start, then go through the tour; quit once mid-tour and reopen. After Home, quit and reopen FERB again."
 pass = "The Dense field resonates with the first-launch music and reveals the logo, then the whole tour runs on the real daemon: sign-in says FERB is connected, already-given permissions are ticked, nothing is lost from chat, memory or settings. The quit resumes at the same beat. The last reopen shows no tour."
-decisions = ["APP-635", "APP-636", "APP-618"]
+decisions = ["APP-635", "APP-636", "APP-638"]
 sitting = "step 13"
 
 [LIVE-702]
@@ -2314,3 +2314,12 @@ request = "Select across paragraphs in a FERB reply, then Command-A and Command-
 pass = "Whole messages select and copy with their readable text and no added button. Number fields commit valid values and retain invalid or failed drafts with feedback. Checks show pending state and prevent repeat requests. Ignore-list drafts clear only on successful save. Long answers expand in place, Memory correction opens an editable unsent chat draft, and lower sidebar destinations are discoverable. Accepted appearance, original notch movement and stored preference semantics remain intact."
 decisions = ["APP-637"]
 sitting = "isolated whole-app review"
+
+[LIVE-704]
+title = "Full Disk Access ticks on macOS 27, the drag is shown first, and Skip tour appears from permissions"
+area = "app"
+surface = "The owner's Mac (macOS 27.2) with the build carrying DMN-518, APP-638 and APP-639, in the new tour."
+request = "In the tour, before permissions look for Skip tour; at permissions watch the logo beside Full Disk Access, then drag it in and switch FERB on (Quit & Reopen if asked). Later, press Skip tour once on a replay."
+pass = "No Skip tour before permissions, then it shows in the header. A faded logo glides into Settings' list and repeats until you drag. After the switch Full Disk Access ticks in FERB. Skip tour ends the tour; anything still required waits in the compact window."
+decisions = ["DMN-518", "APP-638", "APP-639"]
+sitting = "step 13"

@@ -194,7 +194,11 @@ final class FakeOrb: OrbControlling {
     var flying: Bool { inFlight != nil }
 
     func launch(to target: CGPoint, instruction: IntroLine?) async { launches.append((target, instruction)) }
-    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?) { docks.append((url, instruction)) }
+    private(set) var showedWay: [Bool] = []
+    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?, showWay: Bool) {
+        docks.append((url, instruction))
+        showedWay.append(showWay)
+    }
     func hop() { hops += 1 }
     func flyHome() async {
         guard !holdsHomecoming else { return }

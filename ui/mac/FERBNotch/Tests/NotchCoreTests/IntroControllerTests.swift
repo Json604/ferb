@@ -187,7 +187,7 @@ final class IntroControllerTests: XCTestCase {
 
     /// The first run's Dense entrance is drawn for exactly the clip and is gone when the clip ends; a replay draws
     /// none, and a tour torn down mid-clip takes it down with it.
-    // decision: APP-618, APP-612
+    // decision: APP-638, APP-612
     func testFirstRunDrawsTheStartupArrivalOverTheClipOnly() async {
         let arrival = FakeArrival()
         let t = tour(.install, clipSeconds: 7.3, arrival: arrival)
@@ -216,6 +216,32 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertTrue(cut.visible)
         ended.controller.skip()
         XCTAssertFalse(cut.visible)
+    }
+
+    /// APP-638: Skip tour shows from the permissions beat to the end, never before; it ends the tour the way the
+    /// tour's own interruption does (what is still required waits in the compact window).
+    // decision: APP-638
+    func testSkipTourIsOfferedFromPermissionsOnwardOnly() async {
+        let early = tour()
+        early.rig.rpc.replies["runtimes.status"] = Self.notConnected        // it waits at sign-in
+        early.controller.start(beats: [.signIn, .permissions, .home])
+        await eventually { early.controller.beat == .signIn }
+        XCTAssertFalse(early.notch.introSkippable)
+        early.notch.introAction(.skipTour)
+        await Task.yield()
+        XCTAssertTrue(early.controller.running)                           // not before permissions
+
+        let t = tour()
+        var finished = 0
+        t.controller.onFinished = { finished += 1 }
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "denied", fda: "granted")
+        t.controller.start(beats: [.permissions, .home])                  // it waits for Accessibility
+        await eventually { t.controller.beat == .permissions }
+        XCTAssertTrue(t.notch.introSkippable)
+        t.notch.introAction(.skipTour)
+        await eventually { finished == 1 }
+        XCTAssertFalse(t.controller.running)
+        XCTAssertFalse(t.notch.introSkippable)
     }
 
     // MARK: Sign in
@@ -484,7 +510,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Skip, resume, the notch
 
-    // decision: APP-618
+    // decision: APP-638
     func testSkipMidFlightTearsEverythingDown() async {
         let t = tour()
         var finished = 0
@@ -513,7 +539,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.orb.tearDowns, 1)
     }
 
-    // decision: APP-618
+    // decision: APP-638
     func testQuitAndReopenResumesTheBeat() async {
         let t = tour()
         t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "denied", fda: "granted")
@@ -616,7 +642,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.rig.rpc.params(of: "chat.send").first?["text"] as? String, Self.suggestions[0])
     }
 
-    // decision: APP-618
+    // decision: APP-638
     func testResumeRunsEarlierStepsOnlyWhenStillNeeded() async {
         let signedOut = tour()
         signedOut.rig.rpc.replies["runtimes.status"] = Self.notConnected
@@ -644,7 +670,7 @@ final class IntroControllerTests: XCTestCase {
     /// A tour quit at Allow all and reopened while the daemon is down (macOS's "Quit & Reopen" ended it, or it is still
     /// starting): the tour waits on "Getting my background part ready…" and starts the service, instead of reading the
     /// silence as signed out and asking for sign-in again (which also moved the resume point back to sign-in).
-    // decision: APP-618, APP-598
+    // decision: APP-638, APP-598
     func testAResumedTourWaitsForTheServiceBeforeAnyBeat() async {
         let t = tour()
         var progress = t.progress
@@ -663,7 +689,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Round 2
 
-    // decision: APP-618
+    // decision: APP-638
     func testSkipWithNothingLeftRecordsSetupDone() async {
         let t = tour()
         var finished = 0
@@ -724,7 +750,7 @@ final class IntroControllerTests: XCTestCase {
 
     /// The sound engine is shared with everyday sounds: the real orb's teardown stops only its own motion, and only a
     /// skip stops what is playing; the natural end lets a ringing sound finish.
-    // decision: APP-618
+    // decision: APP-638
     func testOnlyASkipStopsTheSharedSoundsWithTheRealOrb() async {
         let finished = tour(realOrb: true)
         var ended = 0

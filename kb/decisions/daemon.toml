@@ -580,3 +580,12 @@ status = "active"
 rule = "When the bootstrap of FERB's LaunchAgent fails while launchd runs FERB's label from another definition (a 2026-11 build's SMAppService job that macOS submitted again after the bootout, its unregister still pending), setup boots it out and bootstraps again every 0.5 s for up to 15 s; any other failure, or the label still held after 15 s, is the error with launchctl's own words."
 why = "Live 2026-11-02 on the owner's Mac: FERB.app's unregister returned, macOS put the job back between setup's bootout and bootstrap, and setup failed with \"Bootstrap failed: 5\"; Try Again worked once macOS had finished."
 paths = ["ferb/device/install.py"]
+
+[DMN-518]
+title = "Full Disk Access is probed on files this macOS has"
+by = "agent"
+date = 2026-11-02
+status = "active"
+rule = "FERB reads Full Disk Access by opening, in order, ~/Library/Application Support/com.apple.TCC/TCC.db and /Library/Application Support/com.apple.TCC/TCC.db: the first that exists decides (readable: granted; refused: denied); one missing is skipped; none existing, or another error, is unknown."
+why = "Live 2026-11-02 on macOS 27.2: the per-user TCC.db doesn't exist, so the check stayed unknown after the owner's grant and the intro never ticked Full Disk Access (other_app_data stayed off too)."
+paths = ["ferb/device/permissions.py"]

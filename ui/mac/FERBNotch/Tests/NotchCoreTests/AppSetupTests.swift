@@ -109,7 +109,7 @@ final class AppSetupTests: XCTestCase {
     /// kb area app: a new install (or another installation, after the owner's yes) meets FERB through the
     /// whole tour, with the first-launch clip; so does an install that never finished setup nor saw the tour. A quit
     /// tour picks up its own plan, and the intro's resume wins over the old window's.
-    // decision: APP-635, APP-618
+    // decision: APP-635, APP-638
     func testNewInstallLaunchesTheIntro() {
         let fresh = needs(done: false, signedIn: false, missing: ["accessibility"], unpaired: true, firstRun: true)
         XCTAssertEqual(AppSetupPlan.atLaunch(.install, needs: fresh), .intro(IntroBeat.allCases))
@@ -183,7 +183,7 @@ final class AppSetupTests: XCTestCase {
     }
 
     /// Replay intro (Settings → General, and the menu's Set Up FERB…): every beat, whatever is set up already.
-    // decision: APP-618, APP-505
+    // decision: APP-638, APP-505
     func testReplayFromSettingsRunsEveryBeat() {
         XCTAssertEqual(AppSetupPlan.replay(needs(done: true)), .intro(IntroBeat.allCases))
         XCTAssertEqual(AppSetupPlan.replay(needs(done: false, missing: ["accessibility"])), .intro(IntroBeat.allCases))
@@ -191,7 +191,7 @@ final class AppSetupTests: XCTestCase {
 
     /// Skipping (or a grant still off at Home) opens the compact setup window on the first required step left:
     /// the background service, then sign-in, then permissions; nothing left opens nothing.
-    // decision: APP-618
+    // decision: APP-638
     func testSkippingTheIntroOpensTheCompactSetupOnWhatsLeft() {
         XCTAssertEqual(AppSetupPlan.afterIntro(["sign_in", "accessibility"], serviceSetUp: true), .ai)
         XCTAssertEqual(AppSetupPlan.afterIntro(["accessibility"], serviceSetUp: true), .permissions)
@@ -200,7 +200,7 @@ final class AppSetupTests: XCTestCase {
     }
 
     /// A quit tour resumes with the beats it was running (a replay's, an upgrade's, a first run's).
-    // decision: APP-618
+    // decision: APP-638
     func testAQuitTourResumesWithItsOwnPlan() {
         var progress = IntroProgress(defaults: scratchDefaults("AppSetupTests"))
         XCTAssertNil(progress.interrupted)
@@ -228,7 +228,7 @@ final class AppSetupTests: XCTestCase {
     /// Restart's repair while a tour runs: the tour ends through its own skip (orb, sound and lines torn down) and
     /// exactly one compact window shows, on Welcome, where the tour's end leaves it.
     @MainActor
-    // decision: APP-618
+    // decision: APP-638
     func testARepairDuringATourEndsItAndShowsOneWindowOnWelcome() async {
         _ = NSApplication.shared
         let rig = SetupRig()

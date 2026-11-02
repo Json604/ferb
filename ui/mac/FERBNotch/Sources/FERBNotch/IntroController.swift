@@ -164,6 +164,7 @@ final class IntroController {
             if ifNeeded.contains(next), !(await stillNeeded(next)) { continue }
             guard live else { return }
             beat = next
+            notch.introSkippable = next.rawValue >= IntroBeat.permissions.rawValue    // APP-638
             if next != .home { progress.resumeBeat = next }
             switch next {
             case .meet: await meet()
@@ -246,6 +247,7 @@ final class IntroController {
         arrival?.hide()
         if stoppingSound { sound.stopAll() }
         notch.onIntroAction = nil
+        notch.introSkippable = false
         notch.introLine = nil
         notch.introHoldsWork = false
         if notch.promptError == NotchModel.introHeldWork { notch.promptError = nil }
@@ -321,6 +323,9 @@ final class IntroController {
         switch action {
         case .stopPreview:
             saw(.stop)
+        case .skipTour:
+            guard beat.map({ $0.rawValue >= IntroBeat.permissions.rawValue }) == true else { return }
+            skip()
         case .choose(let id):
             if let act = sideChoices[id] { act(); return }
             let answered = answer

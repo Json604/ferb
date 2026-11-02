@@ -290,3 +290,21 @@ def test_grant_target_is_the_agent_app_or_the_checkout_interpreter(tmp_path: Pat
     link = tmp_path / "python"
     link.symlink_to(real)
     assert P.grant_target(None, str(link)) == os.path.realpath(real)
+
+
+# decision: DMN-518, DMN-507
+def test_full_disk_access_is_read_where_this_macos_keeps_a_protected_file(tmp_path, monkeypatch) -> None:
+    """Live 2026-11-02 (macOS 27.2): there is no per-user TCC.db, so the check stayed "unknown" after the owner's
+    grant and FERB never saw it. A probe this macOS doesn't have is skipped; the next one decides."""
+    missing, system = tmp_path / "user" / "TCC.db", tmp_path / "system" / "TCC.db"
+    system.parent.mkdir()
+    system.write_bytes(b"SQLite format 3\x00")
+    monkeypatch.setattr(P, "_fda_probes", lambda: (missing, system))
+    assert P.full_disk_access() == P.Status.GRANTED
+    system.chmod(0)                                           # refused, as without the grant
+    try:
+        assert P.full_disk_access() == P.Status.DENIED
+    finally:
+        system.chmod(0o600)
+    monkeypatch.setattr(P, "_fda_probes", lambda: (missing,))
+    assert P.full_disk_access() == P.Status.UNKNOWN           # nothing to read: never "granted"

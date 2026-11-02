@@ -147,7 +147,8 @@ final class NotchWindowYieldTests: XCTestCase {
     /// Once `ignoresMouseEvents` is set on a window, even back to false, AppKit stops passing clicks through its
     /// transparent areas. The only writes allowed are FERB's click-through windows' own, each always true: the
     /// light (NotchLightPanel), the pointer overlay (CursorPanel), the intro's orb (OrbPanel) and the first run's
-    /// full-screen entrance (StartupArrival's panel), at creation and in the setter that keeps it on (D31 fix round 4). The flying logo also switches to a draggable surface
+    /// full-screen entrance (StartupArrival's panel) and the drag demonstration (DragDemoPanel), at creation and in the
+    /// setter that keeps it on (D31 fix round 4). The flying logo also switches to a draggable surface
     /// only while it carries an app URL. The notch's own panel is never written.
     // decision: APP-560
     func testNoCodeMakesTheNotchPanelMouseTransparent() throws {
@@ -167,7 +168,9 @@ final class NotchWindowYieldTests: XCTestCase {
         XCTAssertEqual(writes.sorted(), ["card.ignoresMouseEvents = url == nil",
                                          "ignoresMouseEvents = true", "ignoresMouseEvents = true",
                                          "ignoresMouseEvents = true", "ignoresMouseEvents = true",
+                                         "ignoresMouseEvents = true",
                                          "panel.ignoresMouseEvents = true",
+                                         "set { super.ignoresMouseEvents = true }",
                                          "set { super.ignoresMouseEvents = true }",
                                          "set { super.ignoresMouseEvents = true }",
                                          "set { super.ignoresMouseEvents = true }"])

@@ -394,7 +394,7 @@ area = "app"
 kind = "build"
 status = "open"
 why = "No test resumes a tour with the daemon down; testAllowAllWaitsForTheDaemonsAnswer shows the same \"Getting my background part ready…\" wait only at the Allow all beat of a fresh tour."
-decisions = ["APP-618"]
+decisions = ["APP-638"]
 
 [T-1003]
 title = "FERB.app's Uninstall still removes browser files from FERB.app's own process"

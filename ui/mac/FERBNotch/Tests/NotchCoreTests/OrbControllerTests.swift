@@ -138,4 +138,39 @@ final class OrbControllerTests: XCTestCase {
         orb.tearDown()
         XCTAssertNil(surface.instruction)
     }
+
+    /// APP-639: docked beside Settings with the agent app to drag, the orb first shows the way: once it has landed, a
+    /// faded copy goes into Settings' list (two thirds across, halfway down). A dock after the drop was accepted
+    /// (showWay false) shows none, and flying home ends it.
+    // decision: APP-639
+    func testDockingWithSomethingToDragShowsTheWayIntoSettings() async {
+        let surface = FakeOrbSurface(), clock = ManualClock(), sound = FakeSoundPlayer()
+        sound.clock = clock
+        let tracker = FakeTracker()
+        tracker.settingsFrame = CGRect(x: 600, y: 200, width: 600, height: 450)
+        let orb = OrbController(surface: surface, sound: sound, clock: clock, home: { [home] in home },
+                                reduceMotion: { false }, makeTracker: { tracker })
+        let app = URL(fileURLWithPath: "/Applications/Example.app")
+        orb.dockBesideSettings(dragging: app, instruction: nil)
+        tracker.onChange?(CGPoint(x: 520, y: 425))
+        XCTAssertNil(surface.wayShown)                                  // not while it flies there
+        run(clock, seconds: 3)
+        XCTAssertEqual(surface.wayShown, CGPoint(x: 1000, y: 425))
+
+        orb.dockBesideSettings(dragging: app, instruction: nil, showWay: false)   // "Added to the list"
+        XCTAssertNil(surface.wayShown)
+        tracker.onChange?(CGPoint(x: 530, y: 425))
+        run(clock, seconds: 3)
+        XCTAssertNil(surface.wayShown)
+
+        orb.dockBesideSettings(dragging: app, instruction: nil)
+        tracker.onChange?(CGPoint(x: 520, y: 425))
+        run(clock, seconds: 3)
+        XCTAssertNotNil(surface.wayShown)
+        let back = Task { await orb.flyHome() }
+        await Task.yield()
+        run(clock, seconds: 3)
+        await back.value
+        XCTAssertNil(surface.wayShown)
+    }
 }
