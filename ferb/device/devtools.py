@@ -12,6 +12,9 @@ from typing import Any, Callable
 # The stubs a worker's terminal command is most likely to reach (DMN-511)
 STUB_TOOLS = ("python3", "pip3", "git", "make", "cc", "clang")
 STUB_FOLDER = Path("/usr/bin")
+# Where an install of Apple's developer tools lands (the installer `xcode-select --install` opens, or Xcode)
+INSTALL_FOLDERS = (Path("/Library/Developer/CommandLineTools/usr/bin"),
+                   Path("/Applications/Xcode.app/Contents/Developer"))
 
 
 def developer_folder(run: Callable[..., Any] = subprocess.run) -> Path | None:
@@ -39,10 +42,19 @@ def missing_tools(path: str, run: Callable[..., Any] = subprocess.run) -> list[s
     return missing
 
 
+def installed_now(folders: tuple[Path, ...] = INSTALL_FOLDERS) -> bool:
+    """Whether Apple's developer tools have been installed since the start read (a folder check only, cheap enough for
+    every prompt build): the Command Line Tools' folder or Xcode."""
+    return any(folder.is_dir() for folder in folders)
+
+
 def missing_fact(missing: list[str]) -> str:
-    """The worker's fact for `missing_tools` (empty when nothing is missing)."""
+    """The worker's fact for `missing_tools` (empty when nothing is missing). DMN-512 (owner): the worker asks the
+    owner once to install the tools when a task needs them; it never runs a stub, which opens Apple's dialog itself."""
     if not missing:
         return ""
     return (f"- This Mac has no developer tools (Apple's Command Line Tools aren't installed): in a terminal command "
             f"{', '.join(missing)} are only Apple's stubs; running one fails and opens macOS's \"install developer "
-            "tools\" dialog in front of the owner. FERB doesn't install them.")
+            "tools\" dialog in front of the owner, so never run them. When a task really needs one, ask the owner "
+            "once (owner_ask) to install the developer tools; after their Yes, `xcode-select --install` opens "
+            "Apple's installer for them. FERB doesn't install them itself.")

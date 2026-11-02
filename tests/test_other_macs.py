@@ -44,16 +44,25 @@ def test_without_developer_tools_the_stubs_are_named_and_a_homebrew_tool_counts_
     assert devtools.missing_tools(path, run=_xcode_select(gone)) == missing
 
 
-# decision: DMN-511
-def test_a_worker_is_told_which_developer_tools_are_missing(home: Path) -> None:
+# decision: DMN-511, DMN-512
+def test_a_worker_is_told_which_developer_tools_are_missing_until_they_are_installed(home: Path) -> None:
+    """The worker never runs a stub and, when a task needs one, asks the owner once to install the tools (owner
+    2026-11-02); once they are installed the fact is gone, so nothing asks again."""
     def worker_instructions(d: RunningDaemon) -> str:
         async def built() -> str:
             return str(d.daemon.supervisor._system("worker.md"))                 # type: ignore[union-attr]
         return str(d.run(built()))
     d = RunningDaemon(home, developer_tools=lambda: ["python3", "git"])
+    installed = [False]
+    d.daemon.dev_tools_installed = lambda: installed[0]                         # type: ignore[method-assign]
     try:
         text = worker_instructions(d)
         assert "python3, git" in text and "Command Line Tools" in text
+        assert "owner_ask" in text and "xcode-select --install" in text         # asks once; Apple's installer
+        installed[0] = True                                                     # the owner installed them
+        assert "Command Line Tools" not in worker_instructions(d)
+        installed[0] = False
+        assert "Command Line Tools" not in worker_instructions(d)               # never comes back this run
     finally:
         d.stop()
     d = RunningDaemon(home)                                                     # tools installed: nothing said

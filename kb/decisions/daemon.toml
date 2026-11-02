@@ -515,3 +515,14 @@ status = "active"
 rule = "At start the daemon reads `xcode-select -p` once (it opens no dialog). With no developer folder, each of python3, pip3, git, make, cc and clang whose first match on the shell's PATH is in /usr/bin (or that has none) is named in one line of \"Facts about this FERB\": running it fails and opens macOS's install dialog. FERB installs nothing and refuses no command for it."
 why = "Workers reach for `python3 -c` constantly; on a Mac without the Command Line Tools that opens macOS's install-tools dialog in front of the owner (rule 10) and the step fails (audit 2026-11-02, item 6). A fact, not a gate (rule 4)."
 paths = ["ferb/device/devtools.py", "ferb/daemon/areas/environment.py::Environment._facts"]
+
+[DMN-512]
+title = "Without developer tools the worker asks the owner once to install them when a task needs them"
+by = "owner"
+date = 2026-11-02
+status = "active"
+words = "i want the worker would ask you to installthe tools once if a task needs it."
+why = "Chosen over offering FERB's bundled Python as python3 in the shell (audit 2026-11-02, item 6)."
+rule = "When the Command Line Tools are missing, the worker is told so (DMN-511) and never runs python3, git, clang and the like itself (that opens Apple's install dialog). When a task needs them, it asks the owner once, through the normal owner question, to install the developer tools (`xcode-select --install` opens Apple's installer); FERB doesn't install them itself. Once they are installed the fact is gone and nothing asks again. FERB's shell offers no bundled python3."
+rejected = ["Offering FERB's bundled Python as python3 in the shell."]
+paths = ["ferb/device/devtools.py::missing_fact", "ferb/daemon/areas/environment.py::Environment._facts"]

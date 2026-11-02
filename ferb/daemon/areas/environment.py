@@ -225,8 +225,12 @@ class Environment:
                             if browser and folder else "in a profile the owner names (none chosen for it)."))
         lines += [f"- FERB secret {s.ref.key}: {s.account_hint}, usable on {', '.join(s.allowed_origins)}"
                   for s in self.secrets.specs()]
+        # DMN-511, DMN-512: no install-tools dialog from a worker's command; the worker asks the owner once to install
+        # the tools when a task needs them, and once they are installed (a folder check) the fact is gone for good
         from ferb.device.devtools import missing_fact
-        if fact := missing_fact(self.missing_dev_tools):    # DMN-511: no install-tools dialog from a worker's command
+        if self.missing_dev_tools and self.dev_tools_installed():
+            self.missing_dev_tools = []
+        if fact := missing_fact(self.missing_dev_tools):
             lines.append(fact)
         for phrase, meaning in self._time_meanings():
             lines.append(f"- When the owner says “{phrase}”, they mean: {meaning}")

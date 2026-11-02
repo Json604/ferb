@@ -104,10 +104,12 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
                  data_access: Callable[[], bool] | None = None,
                  developer_tools: Callable[[], list[str]] | None = None) -> None:
         self.home = home or ferb_home()
-        # DMN-511: the developer tools a terminal command would reach only as Apple's stubs, read once at start (tests
-        # give their own); workers get them as a fact
+        # DMN-511, DMN-512: the developer tools a terminal command would reach only as Apple's stubs, read once at start
+        # (tests give their own); workers get them as a fact until the tools' folder appears (`dev_tools_installed`)
+        from ferb.device.devtools import installed_now
         self.developer_tools: Callable[[], list[str]] = developer_tools or _missing_developer_tools
         self.missing_dev_tools: list[str] = []
+        self.dev_tools_installed: Callable[[], bool] = installed_now
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
         self.config = Config(self.home)
