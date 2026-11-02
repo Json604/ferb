@@ -282,8 +282,9 @@ class Sandbox:
         # An existing folder is denied as a literal. A missing one may still be made (a first install creates
         # ~/.cargo), but once made it can't be removed or renamed, and it can't be made as a link
         guarded = list(dict.fromkeys((*p.guarded_parents(), p.workspace)))
-        present = [f for g in guarded if os.path.isdir(g) for f in _forms(g)]
-        missing = [f for g in guarded if not os.path.isdir(g) for f in _forms(g)]
+        # (a folder in another app's container is never looked at: it counts as present, T-503)
+        present = [f for g in guarded if p.app_data(g) or os.path.isdir(g) for f in p.forms_now(g)]
+        missing = [f for g in guarded if not p.app_data(g) and not os.path.isdir(g) for f in _forms(g)]
         lines += [f"(deny file-write* (literal {_q(f)}))" for f in dict.fromkeys(present)]
         for f in dict.fromkeys(missing):
             lines += [f"(deny file-write-unlink (literal {_q(f)}))",
@@ -343,10 +344,11 @@ class Sandbox:
             lines.append(f'(allow network-outbound (remote tcp "localhost:{proxy}"))')
         return lines, direct
 
-    @staticmethod
-    def _paths(entries: list[Entry], lift: str | None) -> list[Path]:
-        """Each entry as resolved at FERB's start, as written, and as written resolved now (it may be a link since)."""
-        return list(dict.fromkeys(f for e in entries if e.id != lift for f in (e.path, *_forms(e.typed))))
+    def _paths(self, entries: list[Entry], lift: str | None) -> list[Path]:
+        """Each entry as resolved at FERB's start, as written, and as written resolved now (it may be a link since);
+        one in another app's container is never looked at (Protection.forms_now, T-503)."""
+        return list(dict.fromkeys(f for e in entries if e.id != lift
+                                  for f in (e.path, *self.protection.forms_now(e.typed))))
 
     def wrap(self, argv: list[str], lift: str | None = None, *, apps: bool = False,
              events_to: str | None = None, folders: tuple[str, ...] = ()) -> list[str]:

@@ -1319,6 +1319,52 @@ def test_every_browsers_credential_store_is_never_read(tmp_path: Path) -> None:
     assert all(browsers.known(owner) for owner in browsers.BROWSER_DATA)   # each entry is a browser on the list
 
 
+# decision: GATE-505
+def test_listed_places_in_other_apps_containers_are_never_looked_at(tmp_path: Path, monkeypatch: Any) -> None:
+    """T-503 (owner's first run, 2026-11-01: macOS said FERB "was blocked from accessing data"): every daemon start and
+    every shell command resolved each never-read entry, so FERB stat'ed Safari's and DuckDuckGo's containers and
+    Notification Center's and 1Password's group containers before any permission. Now nothing touches them, the shell
+    profile still denies each as written and through the containers folder resolved (a link here), and file tools still
+    refuse them."""
+    from ferb.act.shell.sandbox import Sandbox
+    fake, ferb = tmp_path / "fakehome", tmp_path / "fakehome" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    moved = tmp_path / "elsewhere" / "Containers"          # ~/Library/Containers through a link: still resolved
+    (moved / "com.apple.Safari" / "Data").mkdir(parents=True)
+    (moved / "com.duckduckgo.macos.browser").mkdir()
+    (fake / "Library").mkdir()
+    (fake / "Library" / "Containers").symlink_to(moved)
+    groups = fake / "Library" / "Group Containers"
+    for group in ("group.com.apple.usernoted", "2BUA8C4S2C.com.1password"):
+        (groups / group).mkdir(parents=True)
+    containers = [os.path.realpath(moved) + "/", str(fake / "Library" / "Containers") + "/", str(groups) + "/"]
+    touched: list[str] = []
+
+    def watch(name: str) -> None:
+        real = getattr(os, name)
+
+        def spy(path: Any, *args: Any, **kwargs: Any) -> Any:
+            if isinstance(path, (str, os.PathLike)) and any(os.fspath(path).startswith(c) for c in containers):
+                touched.append(f"{name} {os.fspath(path)}")
+            return real(path, *args, **kwargs)
+        monkeypatch.setattr(os, name, spy)
+    for name in ("stat", "lstat", "open", "readlink", "listdir", "scandir"):
+        watch(name)
+    p = Protection(fake, ferb, [*DEFAULT_NEVER_READ, "~/Library/Containers/com.apple.Safari/Data/Library/Cookies"],
+                   DEFAULT_NEVER_WRITE, [])
+    shell = Sandbox(p, tmp_path / "profiles", listeners=lambda: set()).profile()
+    lifted = Sandbox(p, tmp_path / "profiles", listeners=lambda: set()).profile("read:~/Library/Containers/com.apple.Safari")
+    monkeypatch.undo()
+    assert touched == [], "\n".join(touched)
+    for denied in (fake / "Library/Containers/com.apple.Safari", Path(os.path.realpath(moved)) / "com.apple.Safari",
+                   groups / "group.com.apple.usernoted", groups / "2BUA8C4S2C.com.1password"):
+        assert f'(deny file-read* (subpath "{denied}"))' in shell, denied
+        assert f'(deny file-write* (subpath "{denied}"))' in lifted, denied        # a lifted read still never writes
+    assert f'(deny file-write* (literal "{Path(os.path.realpath(moved)) / "com.apple.Safari"}"))' in shell  # no rename
+    assert p.fs_rules(fake / "Library/Containers/com.apple.Safari/Data/x", "read")
+    assert p.fs_rules(groups / "group.com.apple.usernoted/db2/db", "read")
+
+
 # decision: GATE-224
 def test_an_older_config_gets_new_browser_stores_once_and_keeps_the_owners_edits() -> None:
     import shutil

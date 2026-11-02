@@ -26,7 +26,8 @@ A path is checked as typed, as the OS reaches it now (links first, then `..`) an
 reaches (F_GETPATH on its deepest existing folder or regular file, opened for its name only: the Data volume's
 /System/Volumes/Data/… and volfs's /.vol/<dev>/<ino> spellings become FERB's own), against each entry as written, as
 it resolved when FERB started and in its firmlinked spelling: a rule matching any of them applies. Entries are never
-opened (another app's data folder can raise a macOS prompt); FERB's own home and FERB.app are. A volfs path FERB can't
+opened (another app's data folder can raise a macOS prompt), and an entry in another app's container (APP_DATA) is
+not even looked at; FERB's own home and FERB.app are. A volfs path FERB can't
 map is closed. FERB's workspace is the literal folder in FERB's
 home: a link planted there never moves the exception (and the daemon won't start with one)."""
 
@@ -112,6 +113,7 @@ class Entry:
     shown: str       # as the owner wrote it, the home as ~
     typed: Path      # as written, absolute, `..` folded: still matched if the entry later becomes a link
     kernel: Path | None = None   # its firmlinked spelling when written through the Data volume (never opened)
+    app_data: bool = False       # another app's container or inside one (APP_DATA): never looked at
 
 
 @dataclass(frozen=True)
@@ -223,6 +225,30 @@ def _firmlinked(path: Path) -> Path | None:
         else None
 
 
+# Where macOS keeps other apps' data, relative to the home: each sandboxed app's container (~/Library/Containers/<id>)
+# and each app group's (~/Library/Group Containers/<id>). macOS guards each one (App Data): an app touching another's
+# without Full Disk Access is refused, and macOS 27 posts "<app> was blocked from accessing data from other apps"
+# (T-503: the owner's first run, once Safari's container joined the never-read list). The folders holding them may be
+# looked at (they list the containers by name only).
+APP_DATA = (Path("Library/Containers"), Path("Library/Group Containers"))
+
+
+def _app_data_roots(home: Path) -> tuple[Path, ...]:
+    """The folders holding other apps' containers, as written and resolved (they may be looked at)."""
+    typed = [_typed(home / folder) for folder in APP_DATA]
+    return tuple(dict.fromkeys([*typed, *map(_real, typed)]))
+
+
+def _app_data(roots: tuple[Path, ...], path: Path) -> tuple[Path, Path] | None:
+    """(the folder holding it, the rest) when `path`, as typed, is another app's container or inside one, under one
+    of `roots` (`_app_data_roots`); else None. Textual (the volume ignores case): nothing is looked at to find out."""
+    typed = _typed(path)
+    for root in roots:
+        if _under(typed, root) and len(typed.parts) > len(root.parts):
+            return root, Path(*typed.parts[len(root.parts):])
+    return None
+
+
 def _forms(path: Path) -> tuple[Path, ...]:
     typed = _typed(path)
     forms = [typed, _real(path)]
@@ -325,6 +351,7 @@ class Protection:
     def __init__(self, home: Path, ferb_home: Path, never_read: Iterable[str], never_write: Iterable[str],
                  terminal_apps: Iterable[str], *, local_ports: Any = (), app_bundle: Path | None = None) -> None:
         self.home = home
+        self._app_data_roots = _app_data_roots(home)
         self.ferb_home = _real(ferb_home)
         self.workspace = self.ferb_home / WORKSPACE          # literal: never where a link there points
         self.uploads = self.workspace / UPLOADS
@@ -351,9 +378,27 @@ class Protection:
         for item in items:                               # one rule per id: the first spelling of an entry is kept
             raw = _entry_path(self.home, item)
             shown = _shown(self.home, raw)
-            out.setdefault(f"{prefix}:{shown}", Entry(f"{prefix}:{shown}", _real(raw), shown, _typed(raw),
-                                                      _firmlinked(_real(raw)) or _firmlinked(raw)))
+            real = self._entry_real(raw)
+            out.setdefault(f"{prefix}:{shown}", Entry(f"{prefix}:{shown}", real, shown, _typed(raw),
+                                                      _firmlinked(real) or _firmlinked(raw), self.app_data(raw)))
         return list(out.values())
+
+    def app_data(self, path: Path) -> bool:
+        """Whether `path` is another app's container or inside one: never looked at (APP_DATA)."""
+        return _app_data(self._app_data_roots, path) is not None
+
+    def _entry_real(self, path: Path) -> Path:
+        """A listed path as the OS reaches it (`_real`), except in another app's container: there only the folder
+        holding the containers is resolved and the rest kept as written, so FERB never looks into, or even at, another
+        app's data (T-503; macOS makes those folders, never links)."""
+        inside = _app_data(self._app_data_roots, path)
+        return _real(inside[0]) / inside[1] if inside else _real(path)
+
+    def forms_now(self, path: Path) -> list[Path]:
+        """A listed path (an entry, a folder above one) as written and as written resolved now, for the shell profile,
+        which matches the path the kernel reaches; in another app's container nothing is looked at (`_entry_real`)."""
+        now = self._entry_real(path) if self.app_data(path) else Path(os.path.realpath(path))
+        return list(dict.fromkeys((path, now)))
 
     def _forms(self, path: Path) -> tuple[Path, ...]:
         """A checked path as typed, as resolved now and as the kernel names it; a relative one is the workspace's (as
@@ -436,11 +481,12 @@ class Protection:
 
     def read_entries(self) -> list[tuple[Path, bool]]:
         """(path, is_dir) pairs of the never-read list, resolved and as written, for the shell profile (Task 2)."""
-        return [(p, _folder_or_missing(p)) for e in self.reads for p in dict.fromkeys((e.path, e.typed))]
+        return [(p, e.app_data or _folder_or_missing(p)) for e in self.reads for p in dict.fromkeys((e.path, e.typed))]
 
     def write_entries(self) -> list[tuple[Path, bool]]:
-        """(path, is_dir) pairs of the never-write list, resolved and as written, for the shell profile (Task 2)."""
-        return [(p, _folder_or_missing(p)) for e in self.writes for p in dict.fromkeys((e.path, e.typed))]
+        """(path, is_dir) pairs of the never-write list, resolved and as written, for the shell profile (Task 2); an
+        entry in another app's container counts as a folder, never looked at."""
+        return [(p, e.app_data or _folder_or_missing(p)) for e in self.writes for p in dict.fromkeys((e.path, e.typed))]
 
     def app_entries(self) -> list[Path]:
         """FERB.app, resolved and as typed, for the shell profile's last write deny (never lifted)."""

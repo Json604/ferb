@@ -2073,3 +2073,12 @@ request = "A controlled reply on WhatsApp self-chat / FERB's Gmail/Discord tries
 pass = "Scope unchanged; the receiver shows what was really sent; owner typing pauses the next call."
 decisions = ["TEST-507"]
 sitting = "step 13, sitting 11"
+
+[LIVE-678]
+title = "No \"blocked from accessing data\" banner on a first run"
+area = "gateway"
+surface = "A FERB.app build with GATE-505, installed by the owner on a Mac where FERB doesn't have Full Disk Access yet (macOS 27)"
+request = "Open FERB.app, go through the intro and setup up to (not including) Full Disk Access, run one shell task (e.g. \"list the files in my Downloads folder\"), then watch Notification Center for a few minutes."
+pass = "No \"FERB was blocked from accessing data from other apps\" banner appears, and Privacy & Security doesn't list FERB as having tried to reach another app's data."
+decisions = ["GATE-505"]
+sitting = "step 13"
