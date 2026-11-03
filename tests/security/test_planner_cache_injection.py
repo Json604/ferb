@@ -77,6 +77,13 @@ def planner_turn_roles(d: RunningDaemon) -> list[str]:
     return d.run(go())                       # type: ignore[no-any-return]
 
 
+def cache_skipped(d: RunningDaemon) -> list[dict[str, Any]]:
+    """The `runtime.cache_skipped` journal rows' data, oldest first (RUN-416)."""
+    async def go() -> list[dict[str, Any]]:
+        return [e.data for e in d.daemon.supervisor.journal.of_kind("runtime.cache_skipped")]
+    return d.run(go())                       # type: ignore[no-any-return]
+
+
 def _conversation_with_outside_content(d: RunningDaemon, planner: PlannerOnCodex) -> None:
     """Turn 1: the owner pastes a vendor message and asks for their newest email; the task reads it (outside content
     with a planted instruction) and reports it. Then a WhatsApp notice quoting another planted line."""
@@ -203,6 +210,61 @@ def test_the_developer_block_is_the_recorded_context_with_every_label(daemon: Ru
     # what changes every turn stays in the user turn: the situation and the owner's new message
     assert said.startswith("Layer 2 — ") and "Layer 5 — owner's complete new message:" in said   # live facts first
     assert "Layer 2 —" not in block and "owner's complete new message" not in block
+
+
+# decision: RUN-416
+def test_a_conversation_that_once_counted_a_paste_as_the_owners_words_keeps_the_developer_role(
+        daemon: RunningDaemon, monkeypatch) -> None:
+    """Live 2026-11-03: four old messages recorded while pastes counted as the owner's words kept the owner's whole
+    chat out of the developer role for good. The owner's pastes into FERB's chat count as their words (2026-11-04), so
+    such a message no longer refuses the cached turn."""
+    daemon.daemon.config.set("runtimes", "codex_planner_cache", True)
+    planner = PlannerOnCodex(daemon, monkeypatch, [planner_answer("reply", "Noted."), planner_answer("reply", "Yes.")])
+
+    async def pasted_before() -> None:
+        daemon.daemon.supervisor.journal.append("chat.message", {
+            "session_id": "s1", "request_id": "req-old", "text": "fix this\n" + PASTED, "untrusted_parts": 0,
+            "input_paths": [], "pasted_as_owner_words": 1})
+    daemon.run(pasted_before())
+    planner.use(Script([], {}))
+    chat(daemon, "Anything new?")
+    chat(daemon, "And now?")
+    assert planner_turn_roles(daemon) == ["developer", "developer"]
+    assert cache_skipped(daemon) == []
+    [resume] = planner.sent(1, "thread/resume")
+    request = planner.requests[1]
+    assert resume["developerInstructions"] == stream.CONTEXT_FRAMING + "\n\n" + "\n\n".join(
+        request.parts[:request.cacheable])
+
+
+# decision: RUN-416
+def test_a_refused_turn_resumes_the_fixed_thread_with_its_whole_context_in_the_user_turn(
+        daemon: RunningDaemon, monkeypatch) -> None:
+    """A scheduled run's planner turn may not put its context in the developer role (review M4); it still resumes the
+    planner's fixed thread, so its cache key repeats, with empty developer instructions and the whole context in the
+    user turn, and the journal says why it was refused."""
+    from datetime import timedelta
+
+    from ferb.policy.targets import Targets
+    from tests.support.schedules import make_schedule
+    daemon.daemon.config.set("runtimes", "codex_planner_cache", True)
+    planner = PlannerOnCodex(daemon, monkeypatch, [
+        planner_answer("task", "Checking.", planner_task("Check the permit page"))])
+    planner.use(Script([], {"worker": done("The permit page shows no change.")}))
+    sched = make_schedule(daemon, "check the permit page", "check the permit page every day", Targets.of(),
+                          daemon.daemon.clock.now() + timedelta(minutes=5))
+    daemon.run(daemon.daemon.supervisor.run_scheduled(sched, late=False), timeout=60)
+    [(request, runtime, run)] = planner.turns
+    [resume] = planner.sent(0, "thread/resume")
+    [turn] = planner.sent(0, "turn/start")
+    assert planner.sent(0, "thread/start") == []                                   # no ephemeral thread: a new key
+    assert resume["threadId"] == run.state["thread_id"] == stream.cache_thread_id(
+        "planner", runtime.model, runtime.cache_scope)
+    assert resume["developerInstructions"] == ""                    # nothing, outside content included, in that role
+    assert turn["input"][0]["text"] == request.context              # the whole context in the user turn
+    assert planner_turn_roles(daemon) == ["user"]
+    assert cache_skipped(daemon) == [{"runtime": "codex", "role": "planner", "request_id": run.task_id,
+                        "why": "not an owner's chat message"}]
 
 
 # ---------- the live eval's harness, offline: its scenarios reach the developer block, and it catches a followed one ----

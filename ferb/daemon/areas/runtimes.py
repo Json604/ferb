@@ -78,7 +78,8 @@ class Runtimes:
         return RuntimeDeps(config=self.config, shim_cmd=mcp_shim_command(), redact=self.redact,
                            bridge=lambda: GatewayBridge(self.gateway, self.tokens), api_key=self._api_key,
                            proxy=self._claude_proxy, on_abandoned=self.server.abandon,
-                           cache_allowed=self._codex_cache_turn, cache_fallback=self._codex_cache_fallback,
+                           cache_refusal=self._codex_cache_refusal, cache_skipped=self._codex_cache_skipped,
+                           cache_fallback=self._codex_cache_fallback,
                            device_id=str(self.config.get("device", "id", "unknown-device")))
 
     def _claude_proxy(self) -> ToolListProxy:
@@ -95,25 +96,24 @@ class Runtimes:
         if swept:
             self._journal().append("runtime.stale_runs_swept", {"count": len(swept)})
 
-    def _codex_cache_turn(self, task: Any) -> bool:
-        """Whether this planner turn may hold its stable context in the developer role (P20): only the owner's chat turn
-        (its `chat.message` is journaled under the request's id, outside a scheduled run's session; a scheduled or
-        watch run keeps the user role, review M4), only while pasted text is data (`[policy] pasted_text_is_data`), and
-        only in a conversation where no message's pasted parts were counted as the owner's own words: the developer
-        role never holds pasted text unmarked (review M5)."""
+    def _codex_cache_refusal(self, task: Any) -> str:
+        """Why this planner turn may not hold its stable context in the developer role (P20); "" when it may. Only the
+        owner's chat turn may: its `chat.message` is journaled under the request's id, outside a scheduled run's
+        session (a scheduled or watch run keeps the user role, review M4). A refused turn still resumes the planner's
+        fixed thread with its whole context in the user turn (RUN-416). Pasted text no longer refuses it: the owner's
+        pastes into FERB's chat count as their words (owner, 2026-11-04: "(b) pastes count as your words")."""
         from ferb.orchestrator.continuity import SCHEDULE_SESSION
-        if not bool(self.config.get("policy", "pasted_text_is_data", True)):
-            return False
-        journal = self._journal()
-        asked = journal.of_kind("chat.message", "request_id", str(task.request_id))
+        asked = self._journal().of_kind("chat.message", "request_id", str(task.request_id))
         if not asked:
-            return False
-        session = str(asked[-1].data.get("session_id", "owner"))
-        if session.startswith(SCHEDULE_SESSION):
-            return False
-        return self.db.conn.execute(                        # one indexed lookup, not every message of the session
-            "SELECT 1 FROM journal WHERE kind = 'chat.message' AND json_extract(data_json, '$.pasted_as_owner_words') > 0 "
-            "AND coalesce(json_extract(data_json, '$.session_id'), 'owner') = ? LIMIT 1", (session,)).fetchone() is None
+            return "not an owner's chat message"
+        if str(asked[-1].data.get("session_id", "owner")).startswith(SCHEDULE_SESSION):
+            return "a scheduled run's turn"
+        return ""
+
+    def _codex_cache_skipped(self, request_id: str, why: str) -> None:
+        """One journal line when a planner turn kept its context in the user role (RUN-416): for which request, and why."""
+        self._journal().append("runtime.cache_skipped", {"runtime": "codex", "role": "planner",
+                                                         "request_id": request_id, "why": why})
 
     def _codex_cache_fallback(self, request_id: str, why: str) -> None:
         """One journal line when a cached planner turn took today's path instead: for which request, and why (P20)."""

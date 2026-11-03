@@ -59,7 +59,8 @@ class RuntimeDeps:
     api_key: Callable[[str], Awaitable[str | None]]
     proxy: Callable[[], Any]
     on_abandoned: Callable[[str, str], None] | None = None
-    cache_allowed: Callable[[Any], bool] | None = None
+    cache_refusal: Callable[[Any], str] | None = None
+    cache_skipped: Callable[[str, str], None] | None = None
     cache_fallback: Callable[[str, str], None] | None = None
     device_id: str = "unknown-device"
 
@@ -157,15 +158,16 @@ def _build_codex(b: Build) -> Any:
     from ferb.runtimes.codex_exec import CodexRuntime, codex_binary, codex_home
     if codex_home(b.home) is None:
         raise SignedOut("Codex isn't signed in for FERB: sign in to ChatGPT in Settings → AI", "codex")
-    # P20 (owner, 2026-10-25; RUN-401): the planner's chat turn holds its stable context in Codex's developer role
-    # under a fixed cache key. On by default since the live injection eval passed (2026-11-03, 72/72,
+    # P20 (owner, 2026-10-25; RUN-401): every planner turn resumes a thread under a fixed cache key, an owner's chat
+    # turn with its stable context in Codex's developer role (RUN-416). On by default since the live injection eval passed (2026-11-03, 72/72,
     # tests/security/test_planner_injection_real.py); `[runtimes] codex_planner_cache = false` turns it off.
     cache = b.planner and b.deps.config.get("runtimes", "codex_planner_cache", True) is not False
     return CodexRuntime(codex_binary(b.home, repo_root()), b.mode, b.home, shim_cmd=b.deps.shim_cmd,
                         tool_names=b.tool_names, output_schema=b.schema, model=b.model, timeout_s=b.limit_s,
                         on_abandoned=b.deps.on_abandoned, redact=b.deps.redact,
                         cache_role="planner" if cache else None, cache_scope=b.deps.device_id,
-                        cache_allowed=b.deps.cache_allowed, on_cache_fallback=b.deps.cache_fallback,
+                        cache_refusal=b.deps.cache_refusal, on_cache_skipped=b.deps.cache_skipped,
+                        on_cache_fallback=b.deps.cache_fallback,
                         effort=b.effort if b.mode == "worker" else None)
 
 

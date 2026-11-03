@@ -168,3 +168,13 @@ status = "active"
 rule = "Every adapter attaches FERB's tools (Codex: the MCP shim with the token file; the Claude Agent SDK: the same shim; the API loop: the gateway bridge) to a worker run, and to a supervisor (one-turn) run only when it is given a run token: the planner's lookups (ORCH-516). A supervisor run keeps its own settings with them: low effort, no automatic compaction, a streamed typed answer, the cached planner thread. Codex's item gate and tool-catalog check allow exactly the FERB tools the run was given, in either mode."
 why = "One tool path for every role (AGENTS.md rule 12); the mode says how a run answers, the token says what it may call."
 paths = ["ferb/runtimes/codex_stream.py", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._options", "ferb/runtimes/api.py::ApiRuntime.start"]
+
+[RUN-416]
+title = "Every cached planner turn resumes the fixed thread; pastes don't refuse the developer role"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "With `codex_planner_cache` on, every planner turn resumes the fixed-id template thread (one prompt_cache_key per Mac, role, model). Only an owner's chat turn with stable and changing parts puts its stable parts in the developer role; any other turn (scheduled or watch, review M4) resumes it with empty developer instructions and its whole context in the user turn, journaling `runtime.cache_skipped` (request id, why). Pastes no longer refuse: implements the owner's 2026-11-04 \"(b) pastes count as your words\"."
+why = "Live 2026-11-03: every planner turn was user-role, as four old pasted-as-owner-words messages refused the owner's session for good; ephemeral threads meant a new cache key each turn: 0-11,776 of 38-48k tokens cached on a byte-stable prefix."
+rejected = ["Narrowing the paste check to the cached parts: the owner's decision removes its reason", "An ephemeral thread for refused turns: a new cache key every turn"]
+paths = ["ferb/runtimes/codex_stream.py", "ferb/daemon/areas/runtimes.py::Runtimes._codex_cache_refusal", "ferb/runtimes/catalog.py", "ferb/store/retention.py"]

@@ -352,7 +352,8 @@ class CodexRuntime:
                  timeout_s: float | None = None,
                  on_abandoned: Callable[[str, str], None] | None = None,
                  redact: Callable[[Any], Any] | None = None, cache_role: str | None = None,
-                 cache_scope: str = "", cache_allowed: Callable[[Task], bool] | None = None,
+                 cache_scope: str = "", cache_refusal: Callable[[Task], str] | None = None,
+                 on_cache_skipped: Callable[[str, str], None] | None = None,
                  on_cache_fallback: Callable[[str, str], None] | None = None, effort: str | None = None) -> None:
         self.binary, self.mode, self.ferb_home = binary, mode, ferb_home
         # L39: a worker-mode run's reasoning effort when the caller asks for one (a checker of a step that changed
@@ -369,12 +370,14 @@ class CodexRuntime:
         # cancellation (measured, 0.157.1), so the daemon would otherwise keep waiting for a caller that is gone
         self.on_abandoned = on_abandoned
         # P20 (owner, 2026-10-25; `[runtimes] codex_planner_cache`): the role whose app-server turns resume FERB's
-        # template thread under a cache key fixed per `cache_scope` (this Mac), role and model, its stable context in the
-        # developer role (codex_stream.start); None for today's ephemeral thread. `cache_allowed` decides per turn
-        # (the daemon: only an owner's chat turn); `on_cache_fallback` is told (task id, why) when a turn that would
-        # resume takes today's path instead.
+        # template thread under a cache key fixed per `cache_scope` (this Mac), role and model (codex_stream.start);
+        # None for today's ephemeral thread. `cache_refusal` says per turn why its stable context may not go in the
+        # developer role ("" when it may; the daemon: only an owner's chat turn may); a refused turn still resumes the
+        # thread with its whole context in the user turn, and `on_cache_skipped` is told (task id, why) (RUN-416).
+        # `on_cache_fallback` is told (task id, why) when a turn that would resume takes today's path instead.
         self.cache_role, self.cache_scope = cache_role, cache_scope
-        self.cache_allowed, self.on_cache_fallback = cache_allowed, on_cache_fallback
+        self.cache_refusal, self.on_cache_skipped = cache_refusal, on_cache_skipped
+        self.on_cache_fallback = on_cache_fallback
         self.allowed = BASE_TOOLS | {f"mcp__ferb.{mcp_name(n)}" for n in (tool_names or [])}
 
     @property
