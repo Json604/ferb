@@ -230,22 +230,12 @@ def no_report_relay(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(reports, "RELAY_URL", "")
 
 
-# `serial`: files that must run with nothing else beside them, so the parallel run (`-n auto -m "... not serial"`) leaves
-# them to a second, serial pass (kb/gate.toml). The sandbox's local-network tests fail when other tests run alongside;
-# the timing tests (linear redaction, connection starvation) measure the machine's free time.
-_SERIAL = ("test_local_direct.py", "test_local_egress.py", "test_local_sockets.py", "test_shell_sandbox.py",
-           "test_egress_proxy.py", "test_mac_shell.py", "test_redaction_scaling.py", "test_audio_listen.py",
-           "test_escape_hatch.py", "test_failure_report.py")
-
-
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     """Claude-runtime real tests run only when the owner asks for them by name (-m real_claude); -m real is Codex only."""
     # Unmarked real-surface files are still live-only; keep explicit Claude/API selections separate.
     for item in items:
         if '_real' in item.path.stem and not any(item.get_closest_marker(name) for name in ('real', 'real_claude', 'real_api')):
             item.add_marker(pytest.mark.real)
-        if item.path.name in _SERIAL:
-            item.add_marker(pytest.mark.serial)
     if "real_claude" in (config.getoption("-m") or ""):
         return
     keep = [i for i in items if i.get_closest_marker("real_claude") is None]

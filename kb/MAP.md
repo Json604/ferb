@@ -18,7 +18,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 11 | 2 | 4 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 16 | 2 | 10 |
 | storage | Storage | `ferb/store` | 25 | 6 | 6 |
-| tests | Tests | `tests` | 9 | 16 | 0 |
+| tests | Tests | `tests` | 10 | 15 | 0 |
 | voice | Voice | `ferb/voice` | 8 | 0 | 7 |
 
 ## Waiting on the owner

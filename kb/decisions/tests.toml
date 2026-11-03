@@ -89,3 +89,14 @@ words = "yes"
 why = "Owner approved the plan after timer tests failed under a busy Mac and tests reached the owner's ~/.ferb and the real repo (tokenizer, GIT_DIR)."
 untestable = "A rule for writing tests; tests/conftest.py fails a run that changed the repository's git config or HEAD."
 rule = "A test never waits on real time (it uses ferb.clock FakeClock or an injected clock) and never reads or changes anything outside its own temp folders: not ~/.ferb, the repository, the Keychain or machine caches. Real timing on a real Mac is a live check."
+
+[TEST-509]
+title = "Tests run one at a time, on the Mac, before every push; no GitHub Actions"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "ok lets make the test sequential and local before any push - anyways agetns run it locally first beofre pushijg so lets jsut take the easy and tested road. remove all the gut actions and eveyrhitng. the released version in main will be safe, cause i test it mysef adn the lcoal test runs beifre deploy"
+rule = "The push check runs the offline suite sequentially (`uv run pytest -q`, no parallel workers, no rerun-alone) on the Mac before every push, with the Swift tests. There is no GitHub Actions workflow and no GitHub rule requiring a check on main; main is kept safe by the local push check and the owner's own testing before release."
+why = "Parallel runs made timing-dependent tests fail under load (moved files to a serial pass, a rerun-alone stopgap); the owner chose the simpler sequential road."
+paths = ["kb/gate.toml", "tests/conftest.py", "pyproject.toml", "kb/setup.toml"]
+untestable = "How and where the suite runs: the gate configuration itself, not product code."

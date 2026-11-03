@@ -69,9 +69,9 @@ run = "uv run pytest -q -p no:cacheprovider tests/test_imports.py tests/test_rel
 when = ["ferb/**", "tests/**", "extensions/**", "scripts/**", "pyproject.toml", "uv.lock"]
 
 [[check]]
-name = "Python safety suite"                 # ~3 min: parallel, then serial files; a failure is rerun alone once (scripts/run_suite.py)
+name = "Python safety suite"                 # one test at a time, on this Mac, before every push (TEST-509)
 level = "push"
-run = "nice -n 10 uv run python scripts/run_suite.py"
+run = "nice -n 10 uv run pytest -q"
 when = ["ferb/**", "tests/**", "extensions/**", "scripts/**", "pyproject.toml", "uv.lock", "package.json", "package-lock.json"]
 timeout = 1800
 

@@ -290,15 +290,6 @@ status = "open"
 why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
 decisions = ["TEST-508"]
 
-[T-24]
-title = "Remove scripts/run_suite.py's rerun-alone once the timer tests are deterministic"
-area = "tests"
-kind = "chore"
-status = "blocked"
-why = "The rerun is a visible stopgap (flaky tests are named in the push output); TEST-508's fixes make it unnecessary."
-decisions = ["TEST-508"]
-after = ["T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20", "T-21", "T-22", "T-23"]
-
 [T-600]
 title = "Write the test for MEM-413: import texts are cut at a word boundary at their limits"
 area = "memory"
