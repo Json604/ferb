@@ -25,7 +25,6 @@ from pydantic import ValidationError
 from ferb.act.fs import changes as file_changes
 from ferb.act.fs.files import normalize_path
 from ferb.act.mac.launched import left_running
-from ferb.act.mac.screenshot import TIMEOUT_S as CAPTURE_TIMEOUT_S
 from ferb.clock import context, when
 from ferb.core import origin as origins_
 from ferb.core.errors import Deferred, FerbError, PlanRejected
@@ -106,6 +105,10 @@ REPORT_CONDITION = Condition(
     text="My report to you says truthfully what was done, who did each part (FERB itself, or the agent, app or person "
          "you named) and with what, and leaves out nothing that changes the result",
     check=Check(kind="none", path=None, text=None, url_contains=None, site=None, expected=None), layer="outcome")
+
+# How long a message waits for the owner's front window before the plan goes on without it (owner, 2026-11-03: 2 s;
+# it was ScreenCaptureKit's 10 s, and a stalled first capture held a "Hello" for 10 s). DMN-519.
+FRONT_WINDOW_WAIT_S = 2.0
 
 
 def interrupted(exc: BaseException, redact: Callable[[str], str]) -> str:
@@ -777,7 +780,7 @@ class Supervisor(WorkerRuns):
         self._work_open = asyncio.Event()
         self._work_open.set()
         # I4: how long the planner waits for the front window captured at send: ScreenCaptureKit's own capture timeout
-        self.front_window_timeout_s: float = CAPTURE_TIMEOUT_S
+        self.front_window_timeout_s: float = FRONT_WINDOW_WAIT_S
         # What the Mac, FERB's tools and the owner's activity look like now (EnvironmentPort)
         self.relevant_context: Callable[[str], Any] = environment.relevant_context   # text, or (text, origin, ...)
         self.worker_types: Callable[[], list[str]] = environment.worker_types

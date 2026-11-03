@@ -457,6 +457,9 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         await self._restore_service_definition()
         await self._tell_set_aside()
         self._mac_started(session is not None and previous != [session])
+        if self.mac is not None:            # the first redaction after a start doesn't wait for Vision (DMN-519)
+            from ferb.sanitize import images
+            self._warm = asyncio.create_task(asyncio.to_thread(images.warm_recognition))
         # L28: an unknown window is said, never guessed. The catalog shipped with the pinned binary was dumped before
         # any call but ping is answered (`_prepare_codex`), so a fresh install knows each model's window before Codex
         # has ever fetched a catalog for FERB's login.

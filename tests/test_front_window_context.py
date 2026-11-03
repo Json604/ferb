@@ -5,6 +5,7 @@ the message; a redaction failure withholds only the image. Every runtime adapter
 (D32). Fakes only: no real window list, screenshot or model."""
 
 import asyncio
+import dataclasses
 import time
 import base64
 import json
@@ -1058,7 +1059,8 @@ def test_a_capture_that_takes_too_long_never_holds_the_planner(daemon: RunningDa
     from ferb.act.mac import screenshot
     supervisor = daemon.daemon.supervisor
     assert supervisor is not None
-    assert supervisor.front_window_timeout_s == screenshot.TIMEOUT_S        # the existing constant, no new number
+    from ferb.orchestrator.supervisor import FRONT_WINDOW_WAIT_S
+    assert supervisor.front_window_timeout_s == FRONT_WINDOW_WAIT_S == 2.0  # owner, 2026-11-03 (DMN-519)
     supervisor.front_window_timeout_s = 0.2                                # this test's clock only
 
     async def hung(request_id: str, client_pid: int | None = None) -> Any:
@@ -1074,3 +1076,39 @@ def test_a_capture_that_takes_too_long_never_holds_the_planner(daemon: RunningDa
     assert "couldn't be captured in time" in block and request.images == ()
     [late] = journal(daemon, "screen.capture_timeout")
     assert late.data["request_id"] and late.data["timeout_s"] == 0.2
+
+
+# decision: DMN-519
+def test_a_capture_the_planner_stops_waiting_for_names_the_step_it_was_on() -> None:
+    """2026-11-03: a first capture after a restart held a "Hello" for 10 s and nothing said which step stalled. The
+    capture keeps the steps it has begun, so a stopped capture is journaled with the one it was on."""
+    screen = Screen([BRAVE], owners())
+    gate = asyncio.Event()
+
+    async def stalled(w: Window) -> tuple[bytes, str, tuple[str, str] | None]:
+        await gate.wait()                                     # never released: a screenshot that never comes
+        return b"", "", None
+    src = dataclasses.replace(screen.sources(), shoot=stalled)
+
+    async def run() -> None:
+        task = asyncio.create_task(fw.capture(src))
+        for _ in range(50):
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    asyncio.run(run())
+    assert src.stage[-1] == "screenshot" and src.stage[0] == "windows"
+
+
+# decision: DMN-519
+def test_warming_text_recognition_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ferb.sanitize import images
+    seen: list[bytes] = []
+
+    def broken(image: bytes) -> list[Any]:
+        seen.append(image)
+        raise RuntimeError("Vision unavailable")
+    monkeypatch.setattr(images, "recognize_text", broken)
+    images.warm_recognition()
+    assert seen and seen[0].startswith(b"\x89PNG")

@@ -4,6 +4,7 @@ resources, installed and running apps. Must not act on the owner's screen itself
 import asyncio
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -225,7 +226,14 @@ class Desktop:
                 tab=self._front_tab, shoot=shoot, keep=keep, redact=self.redact, sender=sender,
                 main_frame=accessibility.main_window_frame,
                 redact_image=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()))
-            return await fw.capture(sources)
+            started = time.monotonic()
+            try:
+                return await fw.capture(sources)
+            except asyncio.CancelledError:          # the planner stopped waiting: say which step held it (DMN-519)
+                self._journal().append("screen.capture_stalled", {
+                    "request_id": request_id, "stage": sources.stage[-1] if sources.stage else "start",
+                    "seconds": round(time.monotonic() - started, 2)})
+                raise
         except Exception as e:
             self._journal().append("screen.capture_failed", {"request_id": request_id, "error": error_name(e)})
             return None

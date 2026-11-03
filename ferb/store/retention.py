@@ -43,6 +43,7 @@ OPERATIONAL_KINDS = frozenset({
     "retention.purged", "retention.snapshot_purged", "retention.failed", "retention.downloads", "trail.purged",
     "store.wal_not_truncated", "resources.failed", "sense.watcher_failed",
     "voice.attached", "voice.switched", "browser.focus_returned", "screen.image_refused", "screen.capture_timeout",
+    "screen.capture_stalled",
     "runtime.failed", "runtime.stale_runs_swept",
     "plan.step", "plan.repair", "plan.extended", "plan.tidied", "loop.round",
     "task.send_digest", "task.steering_delivered", "task.dispatch_failed", "tasks.interrupted_after_restart",

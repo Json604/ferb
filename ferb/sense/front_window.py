@@ -100,6 +100,8 @@ class Sources:
     sender: int | None = None                             # the app hosting the CLI the message came from (`sending_app`)
     # a process's main window frame (x, y, w, h, top-left origin) from Accessibility; None: it can't say
     main_frame: Callable[[int], tuple[float, float, float, float] | None] = lambda pid: None
+    # the steps the capture has begun, in order: a capture stopped by the planner's wait names the one it was on
+    stage: list[str] = field(default_factory=list)
 
 
 def parent_pid(pid: int) -> int | None:
@@ -192,6 +194,7 @@ async def _tab(src: Sources, w: Window, bundle: str,
 async def capture(src: Sources) -> FrontWindow | None:
     """The owner's front window now, or None when no window but FERB's is in front. Never brings anything forward."""
     from ferb.act.mac.tools import _sources            # the mac tools' labels for what an app's window shows
+    src.stage.append("windows")
     found = await asyncio.to_thread(_topmost, src)
     if found is None:
         return None
@@ -199,12 +202,15 @@ async def capture(src: Sources) -> FrontWindow | None:
     if src.excluded(bundle, name, None):               # never named or looked at: no title, tab or pixels (rule 14)
         return FrontWindow(EXCLUDED, "", "", None, None, None, origins.PRIVATE, EXCLUDED_APP)
     browser = is_browser(bundle)
+    if browser:
+        src.stage.append("browser tab")
     tab, tab_note, doubt = await _tab(src, w, bundle, False) if browser else (None, None, False)
     image: bytes | None = None
     withheld: str | None = None
     masking = ""
     named: tuple[str, str] | None = None
     try:
+        src.stage.append("screenshot")
         raw, masking, named = await src.shoot(w)
     except Refused as e:                               # FERB's own words: why this window gave no picture
         withheld = str(e)
@@ -212,6 +218,7 @@ async def capture(src: Sources) -> FrontWindow | None:
         withheld = f"the window couldn't be captured ({type(e).__name__})"
     else:
         try:
+            src.stage.append("image redaction")
             image = await asyncio.to_thread(src.redact_image, raw)
         except Exception:
             withheld = "the screenshot couldn't be redacted, so it was withheld"
@@ -219,6 +226,7 @@ async def capture(src: Sources) -> FrontWindow | None:
     if browser and named is not None and not doubt:    # the extension matched this very window: its tab (B5); but
         tab, tab_note, source = (named[0] or None, named[1] or None), None, "extension"   # not over the AppleScript
     elif browser and tab is None and tab_note is None:   # read's "several could be it" (round 3, m3: equal titles)
+        src.stage.append("browser tab after the shot")
         tab, tab_note, doubt = await _tab(src, w, bundle, True)
     url, tab_title = tab if tab is not None else (None, None)
     excluded_site = bool(url) and src.excluded(bundle, name, url)
@@ -231,6 +239,7 @@ async def capture(src: Sources) -> FrontWindow | None:
     ref: str | None = None
     if image is not None:
         try:
+            src.stage.append("keeping the evidence")
             ref = await src.keep(image, facts, origin)
         except Exception as e:
             image, withheld = None, f"the screenshot couldn't be kept as evidence ({type(e).__name__})"

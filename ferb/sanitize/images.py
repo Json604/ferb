@@ -56,6 +56,28 @@ class TextRegion:
     box: Box
 
 
+def _blank_png(width: int = 160, height: int = 48) -> bytes:
+    """A plain white grayscale PNG, built here: enough for Vision to load its text recognizer."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    rows = b"".join(b"\x00" + b"\xff" * width for _ in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def warm_recognition() -> None:
+    """Loads Vision's text recognizer once at the daemon's start, off the event loop, so the first image redaction
+    after a start isn't the one that pays for loading it (a first front-window capture after a restart held a message
+    for 10 s, 2026-11-03; DMN-519). Anything that goes wrong is left to the real redaction to report."""
+    try:
+        recognize_text(_blank_png())
+    except Exception:
+        pass
+
+
 def recognize_text(image: bytes) -> list[TextRegion]:
     import Vision
     import Quartz
