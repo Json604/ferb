@@ -186,14 +186,19 @@ class Schedules:
         from ferb.orchestrator.schedules import RUN_SCOPE, WATCH_SAID, Rule, ScheduleError, scope_said, until_said
         from ferb.policy.targets import Targets
         from ferb.memory.items import quoted
+        from ferb.policy import blocked as blocked_
+        # `own_words`: the owner's words this turn and the earlier message of theirs the supervisor found the quote in
+        # (ORCH-520); a refusal here is the quote check's, said as a safety check (ORCH-519)
         if not quoted(own_words, spec.quote):
             self._journal().append("schedule.refused", {"why": "quote not in the owner's words"})
-            return "I couldn't set that up — could you ask me again in your own words?", None
+            return blocked_.blocked(blocked_.REMINDERS, blocked_.NOT_IN_WORDS, f"“{spec.request}” isn't scheduled",
+                                    "type what you want scheduled and I'll set it up"), None
         ends = getattr(spec, "until", None)
         if ends is not None and not quoted(own_words, ends.quote):     # ORCH-320: the one quote check, as for both
             self._journal().append("schedule.refused", {"why": "end date words not in the owner's words"})
-            return ("I couldn't set that up: the end date words I quoted from you aren't in what you typed — could you "
-                    "say when it should stop?"), None
+            return blocked_.blocked(blocked_.END_DATE, "the end date words I quoted from you aren't in what you wrote",
+                                    f"“{spec.request}” isn't scheduled",
+                                    "say when it should stop and I'll set it up"), None
         try:
             from ferb.clock.when import end_at, resolve, when_present
             now = self.clock.now()
@@ -318,8 +323,10 @@ class Schedules:
 
     def _reminder_cancel_from_chat(self, rc: Any, own_words: str) -> str:
         from ferb.memory.items import quoted
+        from ferb.policy import blocked as blocked_
         if not quoted(own_words, rc.quote):
-            return "I didn't change any reminder — could you say which one in your own words?"
+            return blocked_.blocked(blocked_.CHANGES, blocked_.NOT_IN_WORDS, "no reminder was cancelled",
+                                    "say which reminder to cancel and I'll cancel it")
         t = self.timers.get(rc.id) if self.timers is not None else None
         if t is None or t.kind not in ("reminder", "timer") or not self.timers.cancel(rc.id):
             return "I couldn't find that reminder among the pending ones."
@@ -328,8 +335,10 @@ class Schedules:
 
     def _schedule_change_from_chat(self, ch: Any, own_words: str) -> str:
         from ferb.memory.items import quoted
+        from ferb.policy import blocked as blocked_
         if not quoted(own_words, ch.quote):
-            return "I didn't change any schedule — could you say which one in your own words?"
+            return blocked_.blocked(blocked_.CHANGES, blocked_.NOT_IN_WORDS, "no schedule was changed",
+                                    "say which schedule should change and how")
         ends = getattr(ch, "until", None)
         if (ch.action == "set_end") != (ends is not None):  # argument validity: an end goes with set_end, and only there
             self._journal().append("schedule.refused", {"schedule_id": ch.id, "why": "set_end needs an end, and only "
@@ -337,8 +346,8 @@ class Schedules:
             return "I didn't change that schedule — could you say again what should change?"
         if ch.action == "set_end":
             if not quoted(own_words, ends.quote):
-                return ("I didn't change that schedule: the end date words I quoted from you aren't in what you typed "
-                        "— could you say when it should stop?")
+                return blocked_.blocked(blocked_.END_DATE, "the end date words I quoted from you aren't in what you "
+                                        "wrote", "that schedule's end didn't change", "say when it should stop")
             return self._schedule_set_end(ch.id, ends)
         if not self._changeable(ch.id, ch.action):          # the owner's line never shows the id (L11)
             return "There's no active schedule like that to change."

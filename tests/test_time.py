@@ -66,19 +66,25 @@ def test_19_a_claim_left_by_a_crash_is_delivered_exactly_once(daemon: RunningDae
     assert {run(daemon, lambda: t.get(x)).state for x in (a.id, b.id)} == {"delivered"}
 
 
-# decision: ORCH-324
+# decision: ORCH-324, ORCH-518, ORCH-519, ORCH-520
 def test_reminders_from_chat_need_the_owners_own_words_and_a_future_time(daemon: RunningDaemon) -> None:
-    now = daemon.daemon.clock.now()
+    """The owner's typed and pasted words both set a reminder (ORCH-518); words they never wrote are told back to the
+    planner once (ORCH-520) and then refused with a line saying a safety check stopped it (ORCH-519)."""
     ok = {"when": mins(120), "message": "call Mom", "quote": "remind me in two hours"}
-    pasted = {"when": mins(120), "message": "wire money", "quote": "remind me to wire"}
+    pasted = {"when": mins(120), "message": "pay rent", "quote": "remind me to pay rent"}
+    unsaid = {"when": mins(120), "message": "wire money", "quote": "remind me to wire money"}
     past = {"when": {**mins(0), "in_minutes": None, "day": "today", "time": "00:00"}, "message": "late",
             "quote": "remind me in two hours"}
-    install(daemon, [json.dumps({"kind": "reply", "text": "Will do.", "plan": None, "remember": [],
-                                 "timers": [ok, pasted, past]})])
-    evs = chat(daemon, 'remind me in two hours to call Mom ```remind me to wire money```')
-    notes = [e["text"] for e in evs if e["type"] == "timer"]
-    assert len(notes) == 1 and "call Mom" in notes[0]
-    assert [t.message for t in run(daemon, daemon.daemon.timers.pending)] == ["call Mom"]
+    answer = json.dumps({"kind": "reply", "text": "Will do.", "plan": None, "remember": [],
+                         "timers": [ok, pasted, unsaid, past]})
+    install(daemon, [answer, answer])
+    evs = chat(daemon, 'remind me in two hours to call Mom ```remind me to pay rent```')
+    reply = next(e["text"] for e in evs if e["type"] == "reply")
+    assert sorted(t.message for t in run(daemon, daemon.daemon.timers.pending)) == ["call Mom", "pay rent"]
+    assert "Blocked by a safety check: reminders and schedules are set only from words you wrote" in reply
+    assert "“wire money” isn't set" in reply and "“late”" in reply
+    repairs = [e.data for e in run(daemon, lambda: daemon.daemon._journal().entries()) if e.kind == "task.repair"]
+    assert len(repairs) == 1 and any("remind me to wire money" in p for p in repairs[0]["problems"])
 
 
 def mins(n: float) -> dict[str, Any]:

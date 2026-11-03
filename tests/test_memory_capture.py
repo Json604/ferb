@@ -105,7 +105,8 @@ def test_the_distill_never_proposes_a_stored_fact_again(daemon: Any) -> None:
 # decision: MEM-12, MEM-21
 def test_correction_by_talking_replaces_the_wrong_fact(daemon: Any) -> None:
     """MEM-12: "that's wrong, …" — the planner remembers the corrected fact naming the wrong one; code checks the
-    id, ends it, and FERB's line names what it replaced."""
+    id, ends it, and FERB's line names what it replaced. Live 2026-11-04: the whole correction was saved as the fact;
+    only the clause that states it is (MEM-419)."""
     wrong = owner_fact(daemon, "work_browser", "I use Brave for work", kind="preference")
     install(daemon, [json.dumps({"kind": "reply", "text": "Got it.", "remember": [
         {"kind": "preference", "subject": "owner", "key": "browser_for_work", "content": "I use Arc for work now",
@@ -113,7 +114,7 @@ def test_correction_by_talking_replaces_the_wrong_fact(daemon: Any) -> None:
     events = chat(daemon, "that's wrong, I use Arc for work now")
     assert run(daemon, lambda: daemon.daemon.memory.get(wrong.id)).valid_to is not None
     [now] = run(daemon, lambda: daemon.daemon.memory.items("active"))
-    assert now.content == "that's wrong, I use Arc for work now" and now.origin == "owner_stated"
+    assert now.content == "I use Arc for work now" and now.origin == "owner_stated"
     lines = " ".join(e["text"] for e in events if e.get("type") == "reply")
     assert "replaces" in lines and "I use Brave for work" in lines
 

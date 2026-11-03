@@ -143,7 +143,6 @@ class Compose:
                 environment=self._environment, live_facts=self._live_facts, availability=self._availability,
                 apps=self._installed_apps,
                 running_apps=self._running_apps,
-                pasted_is_data=lambda: bool(self.config.get("policy", "pasted_text_is_data", True)),
                 relevant_context=self._relevant_context,           # its fourth element: the search's source refs
                 worker_types=self._worker_types,
                 signals=self.signals, skills_catalog=skills.catalog,

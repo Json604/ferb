@@ -33,7 +33,7 @@ struct ChatInput: NSViewRepresentable {
         view.autoresizingMask = [.width]
         view.delegate = coordinator
         view.submit = { [weak model] in model?.startWork() }
-        // Pasted text stays data; it is recorded before it is inserted, independent of the edit report below.
+        // Where pasted text sits is recorded before it is inserted, independent of the edit report below.
         view.didPaste = { [weak model, weak view] text, selection in
             guard let model, let view else { return }
             model.pasteProvenance.paste(text, over: selection, in: view.string)

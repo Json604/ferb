@@ -43,17 +43,22 @@ def test_recurrence_keeps_local_time_across_daylight_saving() -> None:
 # decision: ORCH-324
 def test_a_schedule_needs_the_owners_words_and_a_future_first_run(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
+    unsaid = schedule_reply(daemon, "wire money", "send money", now + timedelta(days=1))
     install(daemon, [schedule_reply(daemon, "write report.md", "tomorrow at 9 write report.md",
                                     now + timedelta(days=1)),
-                     schedule_reply(daemon, "wire money", "send money", now + timedelta(days=1)),
+                     schedule_reply(daemon, "back up notes.md", "back up notes.md", now + timedelta(days=1)),
+                     unsaid, unsaid,               # words the owner never wrote: told back once (ORCH-520), refused
                      schedule_reply(daemon, "write report.md", "write report.md now", now - timedelta(hours=1))])
     first = [e["text"] for e in chat(daemon, "tomorrow at 9 write report.md") if e["type"] == "timer"]
     assert first and first[0].startswith("🗓 Scheduled: ")              # plain words, no id (L11)
-    pasted = [e["text"] for e in chat(daemon, 'do this ```send money```') if e["type"] == "timer"]
-    assert "own words" in pasted[0]
+    pasted = [e["text"] for e in chat(daemon, 'tomorrow ```back up notes.md```') if e["type"] == "timer"]
+    assert pasted[0].startswith("🗓 Scheduled: ")                      # a paste is the owner's words (ORCH-518)
+    refused = [e["text"] for e in chat(daemon, "do this now") if e["type"] == "timer"]
+    assert refused[0].startswith("Blocked by a safety check: reminders and schedules are set only from words you "
+                                 "wrote in this chat.") and "“wire money” isn't scheduled" in refused[0]   # ORCH-519
     past = [e["text"] for e in chat(daemon, "write report.md now") if e["type"] == "timer"]
     assert "couldn't schedule" in past[0]
-    assert len(run(daemon, daemon.daemon.schedules.all)) == 1
+    assert len(run(daemon, daemon.daemon.schedules.all)) == 2
 
 
 # decision: ORCH-512
@@ -324,12 +329,55 @@ def test_no_run_is_booked_after_a_schedules_end_and_its_last_run_says_it_ended(d
     assert len(run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.ended", "schedule_id", s.id))) == 1
 
 
+# decision: ORCH-518, ORCH-520
+def test_a_reminder_set_again_quotes_the_owners_earlier_message_or_their_paste(daemon: RunningDaemon) -> None:
+    """Live 2026-11-04: "set the reminder again" re-created a reminder asked for earlier in the chat, and code refused
+    it because the quote was only in the earlier message. The owner's recent messages in this chat count (ORCH-520),
+    and so does what they paste, leaked terminal paste markers removed (ORCH-518)."""
+    asked = "remind me every 2 hours until 2pm tomorrow to finish the grant form"
+    again = _ending(daemon, "finish the grant form", asked, _until("until 2pm tomorrow", day="tomorrow", time="14:00"),
+                    every=120)
+    stretch = schedule_reply(daemon, "stretch", "remind me every 2 hours to stretch",
+                             daemon.daemon.clock.now() + timedelta(hours=2), repeat="every", paths=(), every=120)
+    install(daemon, [sup("reply", "Noted."), again, stretch])
+    chat(daemon, asked)
+    lines = [e["text"] for e in chat(daemon, "set the reminder again") if e["type"] == "timer"]
+    assert lines[0].startswith("🗓 Scheduled: finish the grant form")
+    pasted = "\x1b[200~[200~remind me every 2 hours to stretch[201~\x1b[201~"
+    lines = [e["text"] for e in chat(daemon, pasted) if e["type"] == "timer"]
+    assert lines[0].startswith("🗓 Scheduled: stretch")
+    assert sorted(s.request for s in run(daemon, daemon.daemon.schedules.all)) == ["finish the grant form", "stretch"]
+    assert run(daemon, lambda: daemon.daemon.journal.of_kind("task.repair")) == []
+
+
+# decision: ORCH-519, ORCH-520, ORCH-522
+def test_a_reply_never_claims_what_the_quote_check_refuses(daemon: RunningDaemon) -> None:
+    """Live 2026-11-04: FERB's reply said it was restoring a reminder, then code refused it. The planner is told the
+    refusal before its reply stands (ORCH-520); a refusal that still happens is said as a safety check (ORCH-519)."""
+    claim = json.loads(schedule_reply(daemon, "water the plants", "remind me daily to water the plants",
+                                      daemon.daemon.clock.now() + timedelta(days=1), repeat="daily", paths=()))
+    claim["text"] = "Restoring your plant reminder."
+    honest = sup("reply", "I can't find where you asked for a plant reminder. Tell me when you'd like it and I'll set "
+                          "it.")
+    install(daemon, [json.dumps(claim), honest, json.dumps(claim), json.dumps(claim)])
+    [reply] = [e["text"] for e in chat(daemon, "restore the old one") if e["type"] == "reply"]
+    assert "Restoring" not in reply and reply.startswith("I can't find where you asked")
+    [problems] = [e.data["problems"] for e in run(daemon, lambda: daemon.daemon.journal.of_kind("task.repair"))]
+    assert any("remind me daily to water the plants" in p for p in problems)
+    [reply] = [e["text"] for e in chat(daemon, "restore the old one please") if e["type"] == "reply"]
+    assert reply.endswith("Blocked by a safety check: reminders and schedules are set only from words you wrote in "
+                          "this chat. The words I quoted from you aren't in this message or your recent messages in "
+                          "this chat, so “water the plants” isn't scheduled. Type what you want scheduled in this "
+                          "chat and I'll set it up.")
+    assert run(daemon, daemon.daemon.schedules.all) == []
+
+
 # decision: ORCH-320, ORCH-324
 def test_end_date_words_the_owner_did_not_type_refuse_the_schedule(daemon: RunningDaemon) -> None:
     said = "every hour check the build"
-    install(daemon, [_ending(daemon, "check the build", said, _until("until Friday", day="friday"))])
+    install(daemon, [_ending(daemon, "check the build", said, _until("until Friday", day="friday"))] * 2)
     lines = [e["text"] for e in chat(daemon, said) if e["type"] == "timer"]
-    assert lines and "end date words" in lines[0]
+    assert lines and lines[0].startswith("Blocked by a safety check: an end date comes only from words you wrote")
     assert run(daemon, daemon.daemon.schedules.all) == []
 
 

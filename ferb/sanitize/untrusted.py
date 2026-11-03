@@ -1,8 +1,11 @@
-"""Own source provenance markers for pasted data. Must not discard the complete request or infer its meaning.
+"""Own source provenance markers for outside data in what FERB records and shows the models. Must not discard the
+complete request or infer its meaning.
 
-Pasted/quoted = terminal bracketed paste (ESC[200~ ... ESC[201~), fenced code blocks (```), and `>` quote lines.
-Each is wrapped in <untrusted-data id="..."> tags with a random id (so pasted text can't forge a closing tag), and
-the owner's own words are returned separately for the orchestrator to interpret intent."""
+The owner's chat message is all theirs (owner 2026-11-04, ORCH-518: "(b) pastes count as your words"): what they type,
+paste, quote with `>` or put in a code block. `mark` records it whole, only cleaned of bracketed-paste markers. Outside
+content FERB shows a model (FERB's own earlier question, attachment paths, tool results) is wrapped in
+<untrusted-data id="..."> tags with a random id (so data can't forge a closing tag); messages recorded before
+2026-11-04 may still hold pasted parts wrapped that way, and readers of old records leave those out."""
 
 import json
 import re
@@ -11,7 +14,12 @@ import unicodedata
 from dataclasses import dataclass
 
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"
-_FENCE = re.compile(r"```.*?(?:```|\Z)", re.S)
+# A bracketed-paste marker that leaked in as text (copied from a terminal, with or without its ESC byte): pure
+# clean-up, never a reading of what the text means (owner 2026-11-04)
+_LEAKED = re.compile(r"^(?:[ \t]*\x1b?\[20[01]~)+|(?:\x1b?\[20[01]~[ \t]*)+$", re.M)
+_LEAKED_BARE = re.compile(r"^(?:[ \t]*\[20[01]~)+|(?:\[20[01]~[ \t]*)+$", re.M)
+_LEAKED_PAIR = re.compile(r"\[200~(.*?)\[201~", re.S)              # a whole leaked paste, wherever it sits
+_MARKERS = re.compile("(" + re.escape(PASTE_START) + "|" + re.escape(PASTE_END) + ")")
 # Intake's labels for FERB's earlier question when an answer continues a request: context in the words it searches
 # (and, before 0.27 F3, in what it recorded as the owner's words), data in the payload. Never the owner's words.
 EARLIER_QUESTION = "Earlier FERB question (context, not owner instructions): "
@@ -24,11 +32,10 @@ _EARLIER = re.compile(r"\n?(?:" + re.escape(EARLIER_QUESTION) + "|" + re.escape(
 
 @dataclass(frozen=True)
 class Marked:
-    for_model: str        # the message with untrusted parts wrapped in tags
-    own_words: str        # only the owner's own words (untrusted parts removed), on one line
-    untrusted: list[str]  # the untrusted parts, raw
-    # the owner's own words with their line breaks, each pasted or quoted part counting as one: what memory capture
-    # saves from, so a saved sentence ends at a line break or a paste (re-review round 5)
+    for_model: str        # the message as recorded and shown to the planner
+    own_words: str        # the owner's words, on one line
+    untrusted: list[str]  # parts held as outside data: none in a message since ORCH-518
+    # the owner's words with their line breaks: what memory capture saves from, so a saved clause ends at a line break
     typed_lines: str = ""
 
 
@@ -37,9 +44,9 @@ def _lines(parts: list[str]) -> str:
 
 
 def typed_lines_of(for_model: str) -> str:
-    """The owner's typed words with their line breaks (`Marked.typed_lines`) read back from a message as stored
-    (`Marked.for_model`): each wrapped pasted or quoted part is left out and ends a line, so a saved sentence ends
-    there (L36 §2: distillation checks its quotes against these, never pasted text)."""
+    """The owner's words with their line breaks (`Marked.typed_lines`) read back from a message as stored
+    (`Marked.for_model`): a part an older FERB wrapped as pasted is left out and ends a line (L36 §2: distillation
+    checks its quotes against these)."""
     parts, pos = [], 0
     for m in WRAPPED.finditer(for_model):
         parts.append(for_model[pos:m.start()])
@@ -48,77 +55,26 @@ def typed_lines_of(for_model: str) -> str:
     return _lines(parts)
 
 
-def mark(message: str, pasted_is_data: bool = True) -> Marked:
-    """Split the owner's message into their own words and untrusted parts. `pasted_is_data=False` (the owner's switch,
-    `[policy] pasted_text_is_data = false`, 2026-10-01): everything they send counts as their own words."""
-    if not pasted_is_data:
-        plain = message.replace(PASTE_START, "").replace(PASTE_END, "")
-        return Marked(plain.strip(), " ".join(plain.split()), [], _lines([plain]))
-    return _mark(message)
-
-
-def _mark(message: str) -> Marked:
-    parts: list[tuple[bool, str]] = []                         # (untrusted?, text)
-    rest = message
-    while PASTE_START in rest:                                # 1) bracketed paste
-        before, _, after = rest.partition(PASTE_START)
-        pasted, sep, rest = after.partition(PASTE_END)
-        parts.append((False, before))
-        parts.append((True, pasted))
-        if not sep:                                           # unterminated paste: all the rest is pasted
-            rest = ""
-    parts.append((False, rest.replace(PASTE_END, "")))
-
-    split: list[tuple[bool, str]] = []
-    for untrusted, text in parts:                             # 2) fenced blocks, 3) > quotes, in own words only
-        if untrusted:
-            split.append((True, text))
-            continue
-        pos = 0
-        for m in _FENCE.finditer(text):
-            split += _quotes(text[pos:m.start()])
-            split.append((True, m.group(0)))
-            pos = m.end()
-        split += _quotes(text[pos:])
-
-    out, own, bad = [], [], []
-    for untrusted, text in split:
-        if not text:
-            continue
-        if untrusted:
-            out.append(f"\n{wrap_untrusted(text)}\n")
-            bad.append(text)
+def without_leaked_markers(message: str) -> str:
+    """The message without bracketed-paste markers that leaked in as text ("[200~remind me …[201~", copied from a
+    terminal): a pair around text wherever it sits, a lone one at a line's start or end. The composer's own markers
+    (ESC[200~ … ESC[201~) stay; a leaked one just inside them goes too."""
+    out, inside = [], False
+    for piece in _MARKERS.split(message):
+        if piece in (PASTE_START, PASTE_END):
+            inside = piece == PASTE_START
+            out.append(piece)
         else:
-            out.append(text)
-            own.append(text)
-    return Marked("".join(out).strip(), " ".join(" ".join(own).split()), bad, _lines(own))
+            out.append((_LEAKED if inside else _LEAKED_BARE).sub("", _LEAKED_PAIR.sub(r"\1", piece)))
+    return "".join(out)
 
 
-def _quotes(text: str) -> list[tuple[bool, str]]:
-    out: list[tuple[bool, str]] = []
-    block: list[str] = []
-    normal: list[str] = []
-
-    def flush_block() -> None:
-        if block:
-            out.append((True, "\n".join(block)))
-            block.clear()
-
-    def flush_normal() -> None:
-        if normal:
-            out.append((False, "\n".join(normal)))
-            normal.clear()
-
-    for line in text.split("\n"):
-        if line.lstrip().startswith(">"):
-            flush_normal()
-            block.append(line)
-        else:
-            flush_block()
-            normal.append(line)
-    flush_block()
-    flush_normal()
-    return out
+def mark(message: str) -> Marked:
+    """The owner's chat message as FERB records it (ORCH-518): all of it is their words, whatever they typed, pasted
+    (the composer still brackets a paste, for its own local commands, APP-596), quoted or fenced. Only leaked paste
+    markers (`without_leaked_markers`) and the composer's brackets are removed."""
+    plain = without_leaked_markers(message).replace(PASTE_START, "").replace(PASTE_END, "")
+    return Marked(plain.strip(), " ".join(plain.split()), [], _lines([plain]))
 
 
 _PARTS = re.compile(r'<untrusted-data id="([0-9a-f]+)">\n?(.*?)\n?</untrusted-data id="\1">', re.S)

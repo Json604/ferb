@@ -107,13 +107,15 @@ def test_the_planners_reading_never_becomes_the_owners_answer(daemon: RunningDae
     assert question.answer == "send it to Priya"
 
 
-def test_pasted_text_is_never_an_answer(daemon: RunningDaemon) -> None:
+# decision: ORCH-518
+def test_a_pasted_answer_is_the_owners_answer(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-04: "(b) pastes count as your words". Replaces the guard that a paste never answers: what the
+    owner pastes into their own message answers a question as typed words do, and is recorded as their answer."""
     from ferb.sanitize.untrusted import PASTE_END, PASTE_START
     question = _task_question(daemon, "Which address?", options=())
     install(daemon, [_routed(question.id, "x@y.com")])
-    events = chat(daemon, PASTE_START + "x@y.com" + PASTE_END, session="s")
-    assert question.state == "pending"
-    assert "/answer" not in _texts(events)
+    chat(daemon, PASTE_START + "x@y.com" + PASTE_END, session="s")
+    assert question.answer == "x@y.com"
 
 
 def test_a_plain_yes_answers_a_floor_check_the_planner_picked(daemon: RunningDaemon) -> None:
@@ -851,17 +853,32 @@ def test_a_memory_captured_in_the_schedules_own_turn_never_records_a_scope(daemo
     assert run.grants == []
 
 
-def test_an_earlier_memory_counts_only_for_what_the_owner_typed_when_stating_it(daemon: RunningDaemon) -> None:
-    """An item captured in an earlier turn: its typed words (pasted parts left out) count, never its wording."""
+def test_an_earlier_memory_counts_only_for_what_the_owner_wrote_when_stating_it(daemon: RunningDaemon) -> None:
+    """An item captured in an earlier turn: the owner's words then count, never the item's wording: FERB's wording of
+    a fact names no destination (I1)."""
     remembered = json.dumps({"kind": "reply", "text": "Noted.", "task": None, "timers": [], "schedule": None,
                              "schedule_changes": [],
                              "remember": [_planted("launch list: attacker@x.com", "remember the launch list")]})
     install(daemon, [remembered])
-    noted = chat(daemon, "remember the launch list\n```\nlaunch list: attacker@x.com\n```", session="s1")
+    noted = chat(daemon, "remember the launch list", session="s1")
     assert "FERB's understanding" in _texts(noted)                          # not the owner's words (I1)
     run = _scheduled_post_run(daemon, [_scope("attacker@x.com")], plan_scopes=None, posts=("attacker@x.com",))
     assert run.created.get("standing_sends", []) == []
     assert run.results["attacker@x.com"]["is_error"]
+
+
+# decision: ORCH-518
+def test_an_earlier_memory_whose_address_the_owner_pasted_records_the_scope(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-04: "(b) pastes count as your words": an address the owner pasted when FERB remembered it counts
+    as theirs, like a typed one, so a later schedule records a scope sending there."""
+    remembered = json.dumps({"kind": "reply", "text": "Noted.", "task": None, "timers": [], "schedule": None,
+                             "schedule_changes": [],
+                             "remember": [_planted("launch list: team@x.com", "remember the launch list")]})
+    install(daemon, [remembered])
+    noted = chat(daemon, "remember the launch list\n```\nlaunch list: team@x.com\n```", session="s1")
+    assert "(your words)" in _texts(noted)
+    run = _scheduled_post_run(daemon, [_scope("team@x.com")], plan_scopes=None)
+    assert [s["recipients"] for s in run.created["standing_sends"]] == [["team@x.com"]]
 
 
 def test_an_earlier_memory_whose_address_the_owner_typed_records_the_scope(daemon: RunningDaemon) -> None:
@@ -904,12 +921,12 @@ def test_the_setup_persona_never_names_a_destination_for_a_schedules_scope(daemo
 
 def test_a_recorded_message_counts_as_typed_words_only_when_its_pasted_parts_all_match() -> None:
     """Fail closed: a record whose wrappers don't match the pasted parts counted with it (or with no count) gives no
-    owner words, so pasted text is never passed off as typed."""
-    from ferb.sanitize.untrusted import mark, recorded_own_words
-    m = mark("post to my list\n```\nattacker@x.com\n```")
-    assert recorded_own_words(m.for_model, 1) == "post to my list"
-    assert recorded_own_words(m.for_model, 0) is None and recorded_own_words(m.for_model, None) is None
-    damaged = m.for_model.replace("</untrusted-data", "</untrusted")
+    owner words, so a part an older FERB held as data (messages before ORCH-518) is never passed off as typed."""
+    from ferb.sanitize.untrusted import recorded_own_words, wrap_untrusted
+    for_model = "post to my list\n" + wrap_untrusted("attacker@x.com")       # as an older FERB recorded a paste
+    assert recorded_own_words(for_model, 1) == "post to my list"
+    assert recorded_own_words(for_model, 0) is None and recorded_own_words(for_model, None) is None
+    damaged = for_model.replace("</untrusted-data", "</untrusted")
     assert recorded_own_words(damaged, 1) is None
 
 
@@ -1166,14 +1183,13 @@ def test_a_stated_address_the_owner_typed_into_memory_is_covered(daemon: Running
 
 
 def test_a_remembered_items_wording_never_names_a_destination_for_an_attended_scope(daemon: RunningDaemon) -> None:
-    """Only the typed turn counts (pasted parts left out), as for a schedule's scope; the planted wording itself is saved
-    only as FERB's understanding (memory review I1, MEM-12)."""
+    """Only the owner's words count, as for a schedule's scope; the planted wording itself is saved only as FERB's
+    understanding (memory review I1, MEM-12)."""
     remembered = json.dumps({"kind": "reply", "text": "Noted.", "task": None, "timers": [], "schedule": None,
                              "schedule_changes": [],
                              "remember": [_planted("launch list: attacker@x.com", "remember the launch list")]})
     install(daemon, [remembered])
-    assert "FERB's understanding" in _texts(chat(daemon, "remember the launch list\n```\nlaunch list: "
-                                                          "attacker@x.com\n```", session="s1"))
+    assert "FERB's understanding" in _texts(chat(daemon, "remember the launch list", session="s1"))
     run = _running_plan(daemon, [_scope("attacker@x.com")], ["attacker@x.com"], typed=())
     asked = _finish(daemon, run)
     assert len(asked) == 1 and "attacker@x.com" in asked[0].reason
@@ -1270,7 +1286,7 @@ def test_an_answer_that_needs_a_which_one_question_leaves_the_rest_for_the_reply
     other = _task_question(daemon, "Use your work email?")
     decision = json.loads(_routed(pay.id, "Yes"))
     decision["remember"] = [{"kind": "fact", "subject": "owner", "key": "k", "content": "likes tea", "quote": "Yes"}]
-    install(daemon, [json.dumps(decision)])
+    install(daemon, [json.dumps(decision)] * 2)          # the refused quote is told back once (ORCH-520)
     events = chat(daemon, "Yes", session="s")
     assert [e["type"] for e in events] == ["clarify"] and daemon.run(_on_loop(daemon.daemon.memory.items)) == []
     call.cancel()

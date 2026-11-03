@@ -41,6 +41,7 @@ from typing import Any, Callable, Iterable, Literal
 from ferb.core.errors import FerbError
 from ferb.core.interfaces import Clock, IdSource
 from ferb.core.types import MemoryItem
+from ferb.policy import blocked as blocked_
 from ferb.sanitize.redact import word_char  # one word-character rule with redaction (L36 §7)
 from ferb.store.db import Database
 
@@ -129,26 +130,18 @@ def _clause_span(text: str, start: int, end: int) -> tuple[int, int]:
     return left, min(rights) if rights else len(text)
 
 
-# Memory capture's sentence rule (re-review R5, controller rulings: correctness over brevity, never drop a negation):
-# nothing inside the owner's typed words ends a sentence but a line break. No ".", "!" or "?" splits ("my prof.
-# Zorblat", "never! Share my links"), so the saved text may be longer than the part. The redactor lane has its own
-# clause rule (ferb/sanitize/redact.py); the two helpers are to be unified at integration.
-def _sentence_ends(text: str) -> list[int]:
-    return [m.start() for m in re.finditer(r"\n", text)]
-
-
-def owner_sentences(text: str, part: str) -> str | None:
-    """The whole sentence(s) of the owner's `text` that hold `part` as whole words, in their own spelling: what is
-    saved as their words, so a slice can never drop a negation or a condition, whatever its commas or marks ("Never,
-    ever share my links publicly"; "never! Share my links"). Only a line break ends one (R5). None when `part` isn't in
-    `text` (re-review F4)."""
+def owner_clauses(text: str, part: str) -> str | None:
+    """The clause(s) of the owner's `text` that hold `part` as whole words, in their own spelling: what is saved as
+    their words (owner 2026-11-04, MEM-419: only the span that states the fact, never their whole message). A clause ends
+    at , ; : ! ? or a line break, never at a period ("my prof. Zorblat"), so a negation or condition in the same clause
+    stays ("never share my links publicly, just summarize" saves "never share my links publicly"); one a mark sets
+    apart ("If it's a work email, sign it as Sam") stays only when `part` holds it, as the planner is told. None when
+    `part` isn't in `text`."""
     found = _found(text, part)
     if found is None:
         return None
-    ends = _sentence_ends(text)
-    left = max((e for e in ends if e < found[0]), default=-1) + 1
-    right = min((e for e in ends if e >= found[1]), default=len(text))
-    return text[left:right].strip(_EDGE + "!?") or None
+    left, right = _clause_span(text, *found)
+    return text[left:right].strip(_EDGE + "!?,;:") or None
 
 
 def whole_clauses(text: str, part: str) -> bool:
@@ -180,20 +173,21 @@ class Capture:
     refused: str = ""    # why nothing is saved, in code's words (CAPTURE_TOLD has the owner's)
 
 
-# Each refusal as the owner reads it in FERB's line (owner 2026-10-24: the reason, never "a problem on my side")
-CAPTURE_TOLD = {"quote not in the owner's words": "the words I quoted from you aren't in what you typed",
-                "the quote holds nothing of what would be saved": "the words I quoted from you don't say it"}
+# Each refusal as the owner reads it in FERB's line (owner 2026-10-24: the reason, never "a problem on my side"); both
+# are the quote check's, so the line says a safety check stopped it (owner 2026-11-04, ORCH-519: ferb/policy/blocked.py)
+CAPTURE_TOLD = {"quote not in the owner's words": blocked_.NOT_IN_WORDS,
+                "the quote holds nothing of what would be saved": blocked_.DOESNT_SAY}
 
 
 def capture(own_words: str, content: str, quote: str) -> Capture:
     """Chat capture's check (memory review I1, MP2), shared by the planner's remember entries and distillation's quotes
     (L36 §2). `own_words`: what the owner typed (pasted parts left out), with its line breaks. The quote must be whole
-    words of it. Then the whole sentence(s) holding `content` are saved as the owner's own words (`owner_sentences`);
-    when the content isn't there, `content` is FERB's wording (inferred), provided the quote shares a word with it."""
+    words of it. Then the clause(s) holding `content` are saved as the owner's own words (`owner_clauses`); when the
+    content isn't there, `content` is FERB's wording (inferred), provided the quote shares a word with it."""
     content = content.strip()
     if not quoted(own_words, quote):
         return Capture("", content, "quote not in the owner's words")
-    clause = owner_sentences(own_words, content)
+    clause = owner_clauses(own_words, content)
     if clause is None and not set(query_terms(quote)) & set(query_terms(content)):
         return Capture("", content, "the quote holds nothing of what would be saved")
     return Capture("owner_stated", clause) if clause else Capture("inferred", content)

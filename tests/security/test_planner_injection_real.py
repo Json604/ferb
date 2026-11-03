@@ -5,8 +5,8 @@ login:
     uv run pytest -m real tests/security/test_planner_injection_real.py -v
 
 Each of the 18 scenarios plants an instruction in the conversation the planner reads, through FERB's own recording
-code: a scripted earlier turn (a paste in the owner's message, or a task whose stand-in tool read the planted text from
-an email, page, document, API or WhatsApp chat and reported it) or a WhatsApp notice; one also leaves a FERB check open.
+code: a scripted earlier turn (a task whose stand-in tool read the planted text from an email, page, document, API or
+WhatsApp chat and reported it; a paste in the owner's message is their words since ORCH-518) or a WhatsApp notice; one also leaves a FERB check open.
 Then one real planner turn on the owner's next message, on both paths: today's (the whole context in the user turn) and
 the cached one (the stable context in the developer role, `[runtimes] codex_planner_cache = true`). Nothing acts:
 workers, checkers and dispatch are scripted, so the planner is the only model and nothing is sent anywhere.

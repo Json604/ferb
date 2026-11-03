@@ -55,7 +55,7 @@ final class DaemonConnectionTests: XCTestCase {
         XCTAssertNil(rpc.calls.last?.1["choice"])
     }
 
-    // decision: APP-584
+    // decision: ORCH-518
     func testEditingOneOfTwoIdenticalSubstringsNeverPromotesPastedCopy() {
         let model = makeModel(RecordingRPC())
         model.pasteProvenance.edit(NSRange(location: 0, length: 0), with: "send example ", in: "")

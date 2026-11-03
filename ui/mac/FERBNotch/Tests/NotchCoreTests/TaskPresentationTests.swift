@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class TaskPresentationTests: XCTestCase {
-    // decision: APP-584
+    // decision: ORCH-518
     func testCommandPasteReplacesSelectionAndRecordsPlainTextOnce() {
         let editor = ChatTextView()
         editor.isRichText = false

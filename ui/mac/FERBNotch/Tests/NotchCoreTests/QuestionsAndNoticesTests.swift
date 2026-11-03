@@ -106,7 +106,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertNil(model.questionFocus)
     }
 
-    // decision: APP-584
+    // decision: ORCH-518
     func testPastePlusTypingSendsWithoutADialog() async throws {
         let rpc = StatusRPC()
         let model = makeModel(rpc)
@@ -135,7 +135,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         model.disconnectDaemon()
     }
 
-    // decision: APP-584
+    // decision: ORCH-518
     func testTextDroppedFromAnotherAppIsPastedTextToo() throws {
         let model = makeModel(StatusRPC())
         let editor = ChatTextView()

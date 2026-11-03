@@ -552,3 +552,23 @@ rule = "The episode card reader takes no arguments and opens only the database o
 why = "Path boundary of a separate reader process (AGENTS.md rule 3), kept in the test deletion review, 2026-11-02."
 paths = ["ferb/memory/card_reader.py"]
 legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[MEM-419]
+title = "A memory capture saves only the span of the owner's words that states the fact"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "yes to all your fixes"
+words_source = "Verbatim (2026-11-04) to the agent's proposed fixes, one of which: memory captures quote only the relevant span of the owner's words, not the whole message (with ORCH-520)."
+rule = "What a memory capture saves as the owner's words is only the part of their message that states the fact, never the whole message: the planner's content and quote are those words (with any negation or condition that belongs to them), and code saves the owner's own spelling of that span."
+why = "Live 2026-11-04: a correction saved the owner's whole sentence (\"you saved a wrong mem, i said …, so correct the memory and set the reminder again\") as the remembered fact."
+paths = ["ferb/memory/items.py::capture", "ferb/orchestrator/prompts/supervisor.md"]
+
+[MEM-420]
+title = "The saved span is the clause(s) holding the planner's content"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "items.owner_clauses saves, from the owner's words, the clause(s) that hold the planner's content as whole words: from the clause mark before it to the one after it (, ; : ! ? or a line break; never a period, so \"prof.\" and \"Dr.\" don't cut a clause). A negation or condition in the same clause stays; one a mark sets apart stays only when the content holds it, as the planner's prompt says. Replaces the re-review R5 rule that saved the whole line."
+why = "MEM-419 asks for the span, not the message; extending the planner's span to its clause keeps the original guard (\"share my links publicly\" out of \"never share my links publicly, …\" saves the negation) without a word list."
+paths = ["ferb/memory/items.py::owner_clauses"]

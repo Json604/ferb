@@ -35,7 +35,7 @@ from ferb.trace.lines import clip
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import DESTINATION_HELP, EFFECT_HELP, FsRoots, Gateway, Observer, observes
-from ferb.memory.items import query_terms, quoted
+from ferb.memory.items import CAPTURE_TOLD, capture, query_terms, quoted
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.context_layers import target_words
@@ -72,12 +72,14 @@ from ferb.orchestrator.worker import (BUG, ConnectionNotice, InvalidAnswer, Over
                                       WorkerRuns, account_problem, couldnt, model_limits, reason, reserve_tokens)
 from ferb.runtimes.catalog import PLANNER_LIMIT_S, label
 from ferb.orchestrator.tree import ExecutionState
+from ferb.policy import blocked as blocked_
 from ferb.policy import confirm, provenance
 from ferb.policy.rules import ActionRequest
 from ferb.policy.sites import sites_contacted
 from ferb.policy.standing import SCHEDULE_GRANT, StandingPermissions
 from ferb.policy.targets import Request, Targets
-from ferb.sanitize.untrusted import EARLIER_QUESTION, EARLIER_QUESTION_DATA, WRAPPED, as_data, mark, wrap_untrusted
+from ferb.sanitize.untrusted import (EARLIER_QUESTION, EARLIER_QUESTION_DATA, WRAPPED, as_data, mark, typed_lines_of,
+                                     wrap_untrusted)
 from ferb.store.spans import SpanStore
 
 HEARTBEAT_POLL_S = 5.0
@@ -178,8 +180,6 @@ SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older convers
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
 ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
 ANSWERED = "Got your answer."
-FORGET_NEEDS_WORDS = ("A forget needs your own words asking for it (a whole sentence or clause), so I didn't ask about "
-                      "deleting anything.")
 # ORCH-318 (owner, 2026-10-30): a turn restarts at most once, for a message sent before its first reply; its planner
 # calls, the restart's included, share one time limit (ORCH-311, PLANNER_LIMIT_S)
 MAX_RESTARTS = 1
@@ -249,6 +249,24 @@ def _not_set(refused: list[tuple[str, str]]) -> str:
         return ""
     what, it = ("the reminder", "it") if len(refused) == 1 else ("the reminders", "them")
     return f"I couldn't set {what} {_with_reasons(refused)}. Nothing is scheduled for {it}. Could you ask again?"
+
+
+def _asked(said: list[tuple[str, str]], chain: str, quote: str) -> list[str]:
+    """The request ids of the owner's messages (`said`: this turn's first, then this chat's recent ones, newest first)
+    a reminder's quote is whole words of (the one quote check, `items.quoted`); a quote of several messages joined by
+    blank lines (asked over a clarification) counts when every part is in this request's chain of owner words, and the
+    message holding its first part asked it. [] when none: the quote check refuses."""
+    asked = [source for source, words in said if quoted(words, quote)]
+    parts = [part for part in re.split(r"\n[ \t]*\n", quote) if part.strip()]
+    if not asked and len(parts) > 1 and said and quoted(chain, quote):
+        asked = [next((source for source, words in said if quoted(words, parts[0])), said[0][0])]
+    return asked
+
+
+def _stopped_reminders(stopped: list[tuple[str, str]], why: Callable[[str], str]) -> list[str]:
+    """One safety-check line per reminder the quote check refused (ORCH-519); `why`: why, for its quote."""
+    return [blocked_.blocked(blocked_.REMINDERS, why(quote), f"the reminder {_quoted([message])} isn't set",
+                             "type the reminder in this chat and I'll set it") for message, quote in stopped]
 
 
 def _reminder_line(timer: Any, present: bool = False, now: datetime | None = None) -> str:
@@ -340,6 +358,15 @@ class _Side:
     cards: list[dict[str, Any]] = field(default_factory=list)   # step 8e: typed cards from the rows code just wrote
 
 
+@dataclass(frozen=True)
+class _Said:
+    """One message of the owner's words a quote may come from (`Supervisor._said_in_chat`, ORCH-520): its request, its
+    chat.message entry and its words with their line breaks."""
+    request_id: str
+    entry_id: str
+    words: str
+
+
 def _nothing() -> None:
     return None
 
@@ -385,7 +412,7 @@ class _Turn:
     session: "ChatSession"
     words: str = ''                  # what the environment and memory searches read
     payload: str = ''                # the request as the model reads it (pasted parts marked as data)
-    own_words: str = ''              # what the owner typed in this turn's messages (pasted parts left out)
+    own_words: str = ''              # the owner's words in this turn's messages (all of them since ORCH-518)
     typed: str = ''                  # and before it the request a question of FERB's continued: what quotes must hold
     typed_lines: str = ''            # the same with the owner's line breaks (memory capture)
     for_model: str = ''              # this turn's messages as the model reads them
@@ -863,7 +890,6 @@ class Supervisor(WorkerRuns):
         self._turns: dict[str, _Turn] = {}         # request id -> its planning turn while it runs (step 8c)
         self.apps: Callable[[], list[tuple[str, str]]] = environment.apps
         self.running_apps: Callable[[], list[tuple[str, str, int]]] = environment.running_apps
-        self.pasted_is_data: Callable[[], bool] = environment.pasted_is_data
         # chat capture (I1): per saved item, {"receipt": ..., "line": ...}, and per refused one {"refused": code's
         # reason in plain words} (a coroutine function: a login name is written in a worker thread). `sites`: the sites
         # the turn's task names (L36 §5); `elsewhere`: those the owner typed only for a task of another chat
@@ -912,10 +938,10 @@ class Supervisor(WorkerRuns):
     def _default_availability(self) -> Availability:
         return build_availability(set().union(*(c.scopes for c in self.gateway.caps.values())), {})
 
-    def _set_timers(self, items: list[Any], said: list[tuple[str, str]],
-                    request_id: str, chain: str = "") -> tuple[list[Any], list[tuple[str, str]], list[Any]]:
+    def _set_timers(self, items: list[Any], said: list[tuple[str, str]], request_id: str, chain: str = ""
+                    ) -> tuple[list[Any], list[tuple[str, str]], list[Any], list[tuple[str, str]]]:
         """Reminders the owner asked for in chat: kept only when the quote is whole words of one of the owner's messages
-        and the time is in the future. `said`: (request id, the owner's words, never pasted text) of the current
+        and the time is in the future. `said`: (request id, the owner's words, ORCH-518) of the current
         message first, then this chat's earlier messages, newest first. A message authorizes its reminder once (L11):
         a reminder already set from it, in any state and in this turn too, refuses another. Two reminders are the same
         only when their words overlap (one quote within the other) and code resolves them to the same time ("at 3 and
@@ -925,13 +951,16 @@ class Supervisor(WorkerRuns):
         reminder records the request that asked for it. Returns the reminders set, the message and code's reason for
         each one refused, and the reminders that already existed for the others (each once). A quote of several messages
         joined by blank lines (a request asked over a clarification: "remind me … on oct30", "anytime", "7pm") counts
-        when every part is in this request's chain of owner words (`chain`), never pasted text or words they didn't
-        type (MP2; the one quote check, `items.quoted`); the message holding its first part is the one that asked."""
+        when every part is in this request's chain of owner words (`chain`), never words they didn't
+        type (MP2; the one quote check, `items.quoted`); the message holding its first part is the one that asked.
+        A reminder whose quote is in none of them is the quote check's refusal: returned apart, (message, quote), so its
+        line says a safety check stopped it (ORCH-519)."""
         if self.timers is None:
-            return [], [(str(it.message), "FERB has no reminder store running") for it in items], []
+            return [], [(str(it.message), "FERB has no reminder store running") for it in items], [], []
         now = self.clock.now()            # one moment for the whole turn: the same `when` resolves to the same time
         out: list[Any] = []
         refused: list[tuple[str, str]] = []
+        stopped: list[tuple[str, str]] = []
         existing: list[Any] = []
         made: list[tuple[Any, str]] = []                  # (reminder, its words) set in this turn
 
@@ -941,14 +970,11 @@ class Supervisor(WorkerRuns):
         for it in items:
             quote = " ".join(str(it.quote).lower().split())
             try:
-                # the one quote check (items.quoted): whole words of a message the owner typed
-                asked = [source for source, words in said if quoted(words, str(it.quote))]
-                parts = [part for part in re.split(r"\n[ \t]*\n", str(it.quote)) if part.strip()]
-                if not asked and len(parts) > 1 and quoted(chain, str(it.quote)):
-                    # asked over a clarification: its first part's message (newest first) is the one that asked
-                    asked = [next((source for source, words in said if quoted(words, parts[0])), said[0][0])]
+                asked = _asked(said, chain, str(it.quote))
                 if not asked:
-                    raise ValueError("the words I quoted from you aren't in any message you typed in this chat")
+                    self.journal.append("timer.refused", {"why": "quote not in the owner's words"})
+                    stopped.append((str(it.message), str(it.quote)))
+                    continue
                 at: datetime | None = None
                 back: datetime | None = None        # ORCH-317: a return to the Mac it waits for, if any
                 late: ValueError | None = None
@@ -981,7 +1007,7 @@ class Supervisor(WorkerRuns):
                 continue
             out.append(t)
             made.append((t, quote))
-        return out, refused, existing
+        return out, refused, existing, stopped
 
     def _reminder_set(self, source: str, quote: str, asked_when: Any, present: bool = False) -> Any:
         """The reminder already set from request `source` for these words at the time the planner's `asked_when`
@@ -1021,18 +1047,102 @@ class Supervisor(WorkerRuns):
         turn.reopened.add(tree_id)
         self.gateway.reopen_noes(tree_id, turn.request_id, "journal:" + entry.id)
 
-    def _owner_words_in_chat(self, session_id: str, current: frozenset[str]) -> list[tuple[str, str]]:
-        """(request id, the owner's own words) of each earlier message in this chat, newest first (MP2): only messages
-        recorded as theirs, without the pasted or quoted parts FERB marked as outside data. A message recorded before
-        FERB counted those parts is left out (its origin is unlabeled). `current`: this turn's own requests."""
-        words = []
+    def _owner_words_in_chat(self, session_id: str, current: frozenset[str]) -> list[_Said]:
+        """Each earlier message in this chat recorded as the owner's, newest first, with its words and line breaks (a
+        part an older FERB wrapped as pasted left out; a message recorded before FERB labelled origins is left out).
+        `current`: this turn's own requests. Only the last RECENT_EXCHANGES messages: the ones the planner reads word
+        for word (ORCH-303), which its quotes may come from (ORCH-520)."""
+        said: list[_Said | None] = []
         for entry in self.journal.of_kind("chat.message", "session_id", session_id, missing="owner"):
             held = origins_.split(entry.origin)
-            if (entry.data.get("request_id") not in current and origins_.OWNER in held
-                    and origins_.external("unlabeled") not in held):
-                words.append((str(entry.data.get("request_id", "")), WRAPPED.sub(" ", str(entry.data.get("text", "")))))
-        return words[::-1]
+            if entry.data.get("request_id") in current:
+                continue
+            said.append(None if origins_.OWNER not in held or origins_.external("unlabeled") in held else
+                        _Said(str(entry.data.get("request_id", "")), entry.id,
+                              typed_lines_of(str(entry.data.get("text", "")))))
+        return [s for s in said[-RECENT_EXCHANGES:][::-1] if s is not None]
 
+    def _said_in_chat(self, turn: "_Turn") -> list[_Said]:
+        """The one source of the owner's words every quote check reads (owner 2026-11-04, ORCH-520): this turn's
+        words first (with the request a question of FERB's continued), then this chat's recent earlier messages, newest
+        first. Since ORCH-518 all of a message is the owner's words."""
+        lead = turn.entries[0].id if turn.entries else ''
+        return [_Said(turn.request_id, lead, turn.typed_lines or turn.typed),
+                *self._owner_words_in_chat(turn.session.id, turn.request_ids)]
+
+    def _timer_said(self, turn: "_Turn") -> list[tuple[str, str]]:
+        """The same source as reminders read it (`_set_timers`): this turn's own message alone first, so a reminder an
+        earlier message (the one a question of FERB's continued, too) asked for is credited to that message, which
+        authorizes it once (L11); the request chain is `_set_timers`' `chain`."""
+        said = self._said_in_chat(turn)
+        return [(turn.request_id, turn.own_words), *((s.request_id, s.words) for s in said[1:])]
+
+    def _owner_said(self, turn: "_Turn", quote: str, *, clause: bool = False) -> _Said | None:
+        """The owner's words holding `quote` (the one quote check, `items.quoted`; `clause`: as whole clauses, a forget's
+        rule): this turn's first, else the newest recent earlier message of theirs in this chat; None: the quote check
+        refuses. This turn's names the message among its own (and those a question of FERB's continued) that holds the
+        quote, for what is saved from it (`_quote_source`)."""
+        said = self._said_in_chat(turn)
+        if quoted(said[0].words, quote, clause=clause):
+            return _Said(said[0].request_id, self._quote_source(turn, quote), said[0].words)
+        return next((s for s in said[1:] if quoted(s.words, quote, clause=clause)), None)
+
+    def _schedule_words(self, turn: "_Turn", spec: Any) -> tuple[str, str]:
+        """The owner's words a new schedule rests on, and "" or which quote the check refused ("quote", "until"): this
+        turn's words, plus the recent earlier message of theirs that holds its quote or its end date's quote when this
+        turn's don't (ORCH-520: "set the reminder again" re-creates one asked for earlier)."""
+        words = turn.typed
+        for part, quote in (("quote", str(spec.quote)),
+                            ("until", str(spec.until.quote) if getattr(spec, "until", None) is not None else "")):
+            if not quote or quoted(words, quote):
+                continue
+            held = self._owner_said(turn, quote)
+            if held is None:
+                return "", part
+            words += "\n" + held.words
+        return words, ""
+
+    def _side_quote_problems(self, turn: "_Turn", out: SupervisorOutcome) -> list[str]:
+        """The side entries the quote check would refuse, told back to the planner before its reply stands (owner
+        2026-11-04, ORCH-520: FERB never claims in its reply an action code then refuses). The same checks, on the same
+        words (`_said_in_chat`), as applying them (`_side_entries`, the schedules and memory ports), which still
+        enforces them."""
+        problems: list[str] = []
+
+        def tell(what: str, quote: str) -> None:
+            problems.append(f"{what}: its quote isn't the owner's exact words from this message or their recent messages "
+                            f"in this chat, so code would refuse it: {json.dumps(quote, ensure_ascii=False)}")
+        for item in out.remember:
+            held = self._owner_said(turn, str(item.quote))
+            if held is None:
+                tell(f"remember {item.key!r}", str(item.quote))
+            elif capture(held.words, str(item.content), str(item.quote)).refused:
+                problems.append(f"remember {item.key!r}: its quote doesn't say what content would save, so code would "
+                                f"refuse it")
+        for wanted in out.forget:
+            if self._owner_said(turn, wanted.quote, clause=True) is None:
+                tell(f"forget {wanted.item_id!r} (a whole sentence or clause)", wanted.quote)
+        said = self._timer_said(turn) if out.timers else []
+        for it in out.timers:
+            if not _asked(said, turn.typed, str(it.quote)):
+                tell(f"timer {it.message!r}", str(it.quote))
+        if out.schedule is not None:
+            _, refused = self._schedule_words(turn, out.schedule)
+            if refused == "quote":
+                tell("schedule", str(out.schedule.quote))
+            elif refused == "until" and out.schedule.until is not None:
+                tell("schedule until", out.schedule.until.quote)
+        quotes = [(f"schedule_changes {ch.id!r}", ch.quote) for ch in out.schedule_changes] + \
+            [(f"schedule_changes {ch.id!r} until", ch.until.quote) for ch in out.schedule_changes if ch.until] + \
+            [(f"reminder_cancels {rc.id!r}", rc.quote) for rc in out.reminder_cancels] + \
+            [(f"conversation_changes {c.id!r}", c.quote) for c in out.conversation_changes]
+        for what, quote in quotes:
+            if self._owner_said(turn, quote) is None:
+                tell(what, quote)
+        if problems:
+            problems.append("Quote the owner's exact words for each of these, or leave it out; your text says only what "
+                            "will actually happen, never that something was set, saved, changed or restored.")
+        return problems
 
     def _targets(self, spec: TaskSpec) -> Targets:
         """The task's targets with paths in the form the gateway uses."""
@@ -1049,7 +1159,10 @@ class Supervisor(WorkerRuns):
             problems = [str(exc)]
             self.journal.append("task.repair", {"request_id": turn.request_id, "problems": problems})
             out = await self._supervise(turn, repair=problems, notify=emit)
-        problems = await self._problems(turn, out)
+        # A side entry the quote check would refuse is told back once too (ORCH-520), so the planner writes its reply
+        # knowing it; after that repair applying it still refuses it, said as a safety check (ORCH-519), and it never
+        # fails the turn as an invalid task does
+        problems = await self._problems(turn, out) + self._side_quote_problems(turn, out)
         if not problems:
             return out
         self.journal.append("task.repair", {"request_id": turn.request_id, "problems": problems})
@@ -1088,9 +1201,10 @@ class Supervisor(WorkerRuns):
             task_ = candidate.task
             if candidate.control is None or task_.plan is not None:
                 problems.extend(part_problems(task_.parts, task_.plan, len(task_.success_conditions)))
-                problems.extend(f"part {part.id}: its quote must be the owner's own words from this message: "
-                                f"{json.dumps(part.quote, ensure_ascii=False)}"
-                                for part in task_.parts if not quoted(turn.typed, part.quote))
+                # the one source of the owner's words (ORCH-520): a retry ("now??") may quote the earlier request
+                problems.extend(f"part {part.id}: its quote must be the owner's own words from this message or their "
+                                f"recent messages in this chat: {json.dumps(part.quote, ensure_ascii=False)}"
+                                for part in task_.parts if self._owner_said(turn, part.quote) is None)
         if candidate.schedule is not None:  # ORCH-313: what every run uses is checked as a task's is
             sched = candidate.schedule
             if sched.worker_type and sched.worker_type not in (types := self.worker_types()):
@@ -1873,7 +1987,7 @@ class Supervisor(WorkerRuns):
         `intro.preview` journal row. `session_id`: one `chat.send` refuses (continuity.PREVIEW_SESSION).
         Every event is marked `preview: true`: the plan line, one `part` per planned step, then `done`."""
         request_id = self.ids.new_id()
-        m = mark(text, self.pasted_is_data())
+        m = mark(text)
         # the request is FERB's suggestion (or general task), not words the owner typed into a chat
         turn = _Turn(request_id, ChatSession(session_id), words=m.own_words, payload=m.for_model,
                      own_words=m.own_words, typed=m.own_words, typed_lines=m.typed_lines, for_model=m.for_model,
@@ -1993,21 +2107,16 @@ class Supervisor(WorkerRuns):
                 self._question_answered(session_id, asked)
             session.pending = session.asked = ""
             self.continuity.save_pending(session_id, "", "")
-        pasted_is_data = self.pasted_is_data()
         for arrival in run.arrivals:
             if arrival.entry is not None:
                 continue
-            arrival.marked = m = mark(arrival.text, pasted_is_data)
-            # the owner's switch counts pastes as their own words: how many such parts, so the planner's cached Codex
-            # turn never puts this conversation in the developer role (P20, review M5)
-            as_owner_words = 0 if pasted_is_data else len(mark(arrival.text).untrusted)
+            arrival.marked = m = mark(arrival.text)          # all of it the owner's words (ORCH-518)
             own_paths = [normalize_path(p, self.workspace) for p in arrival.input_paths]
             arrival.paths = list(dict.fromkeys([*(start.paths if arrival is run.lead else []), *own_paths]))
             arrival.entry = self.journal.append("chat.message", {
                 "session_id": session_id, "request_id": arrival.request_id, "text": m.for_model,
                 "untrusted_parts": len(m.untrusted) + bool(arrival.paths), "input_paths": arrival.paths}
-                | ({} if arrival is run.lead else {"read_with": run.lead.request_id})
-                | ({"pasted_as_owner_words": as_owner_words} if as_owner_words else {}))
+                | ({} if arrival is run.lead else {"read_with": run.lead.request_id}))
         marks = [a.marked for a in run.arrivals]
         own_words = "\n".join(m.own_words for m in marks)
         own_lines = "\n".join(m.typed_lines for m in marks)
@@ -2387,7 +2496,7 @@ class Supervisor(WorkerRuns):
         if ap.state != 'pending':
             return 'reply', NOT_WAITING
         words = turn.own_words.strip()
-        if turn.untrusted or not words:               # pasted text is data (MP2): never the owner's answer
+        if turn.untrusted or not words:               # outside data (an older record) never answers (MP2)
             self._answer_focus[turn.session.id] = _Focus(None, frozenset(), seen, displaced)
             return 'clarify', PASTED_ANSWER
         # the owner's reply to FERB's "which one is it for?": the earlier words answer the question they now name
@@ -2535,14 +2644,18 @@ class Supervisor(WorkerRuns):
 
     async def _side_entries(self, turn: _Turn, out: SupervisorOutcome, named: frozenset[str] = frozenset()) -> _Side:
         """A turn's side entries, applied once by the path the turn ends on (`_exit` or `_start`), in this order, each
-        with the one quote check (`items.quoted`) against what the owner typed (never pasted text). `named`: the sites a
-        steered task named before the steer restated it (a restated task may leave its sites out); `_turn_sites` keeps
-        the sites of those the owner typed, with the turn's, as where a login name may be saved."""
+        with the one quote check (`items.quoted`) against the owner's words: this turn's or one of this chat's recent
+        owner messages (`_owner_said`, ORCH-520). A refusal of the quote check says a safety check stopped it
+        (ORCH-519). `named`: the sites a steered task named before the steer restated it (a restated task may leave its
+        sites out); `_turn_sites` keeps the sites of those the owner typed, with the turn's, as where a login name may be
+        saved."""
         session_id, request_id, typed = turn.session.id, turn.request_id, turn.typed
+        recent = blocked_.NOT_IN_RECENT
         events: list[dict[str, Any]] = []
         for change in out.conversation_changes:
-            if not quoted(typed, change.quote):
-                events.append({'type': 'reply', 'text': 'A conversation change needs your own instruction.'})
+            if self._owner_said(turn, change.quote) is None:
+                events.append({'type': 'reply', 'text': blocked_.blocked(
+                    blocked_.CONVERSATION, recent, "that conversation didn't change", "say what should change in it")})
                 continue
             permitted_trees = self.continuity.task_ids(session_id)
             try:
@@ -2556,56 +2669,83 @@ class Supervisor(WorkerRuns):
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
         cards: list[dict[str, Any]] = []     # step 8e: each from the row code wrote (memory item, timer, schedule)
         unsaved: list[tuple[str, str]] = []
+        stopped: list[tuple[str, str]] = []  # the quote check's refusals by kind, said as a safety check (ORCH-519)
         sites = self._turn_sites(out, turn, named) if out.remember else frozenset()
         elsewhere = (self._sites_named_elsewhere(out, turn) - sites) if out.remember else frozenset()
         about = self._remember_about(out, session_id) if out.remember else ""
         for item in out.remember:           # one at a time, so a refused one is known by name, with code's reason
-            answers = await _value(self.remember([item], turn.typed_lines, self._quote_source(turn, item.quote),
-                                                 sites, elsewhere, about=about))
+            held = self._owner_said(turn, str(item.quote))
+            words, source = (held.words, held.entry_id) if held is not None else \
+                (turn.typed_lines, self._quote_source(turn, item.quote))
+            answers = await _value(self.remember([item], words, source, sites, elsewhere, about=about))
             saved_now = [r for r in answers if "receipt" in r]
             receipts += [r["receipt"] for r in saved_now]
             saved += [r["line"] for r in saved_now]
             cards += [r["card"] for r in saved_now if isinstance(r.get("card"), dict)]
-            if not saved_now:
+            guard = next((r for r in answers if r.get("guard")), None)
+            if not saved_now and guard is not None:
+                why = recent if guard["guard"] == "quote not in the owner's words" else CAPTURE_TOLD[str(guard["guard"])]
+                stopped.append(("memory", blocked_.blocked(blocked_.MEMORY, why, f"{_quoted([item.content])} isn't "
+                                                           "saved", "tell me again in your own words and I'll save it")))
+            elif not saved_now:
                 unsaved.append((item.content, next((r["refused"] for r in answers if r.get("refused")),
                                                    "FERB's memory store gave no reason")))
         turn.intake_receipts = receipts
         for receipt in receipts:             # the owner's words, quote-checked
             events.append({"type": "memory", "text": receipt})
         for wanted in out.forget:            # nothing goes before the owner's Yes to a question naming it (I2)
-            saved.append(self.forget_request(wanted.item_id, request_id) if quoted(typed, wanted.quote, clause=True)
-                         else FORGET_NEEDS_WORDS)
+            saved.append(self.forget_request(wanted.item_id, request_id)
+                         if self._owner_said(turn, wanted.quote, clause=True) is not None
+                         else blocked_.blocked(blocked_.FORGET, recent, "I didn't ask about deleting anything",
+                                               "say which memory to forget in a sentence of your own"))
             events.append({"type": "memory", "text": saved[-1]})
         changed: list[str] = []          # code's own lines about cancelled reminders and schedules
         for rc in out.reminder_cancels:                        # before new ones: a corrected date replaces the old
-            changed.append(self.on_reminder_cancel(rc, typed))
+            held = self._owner_said(turn, rc.quote)
+            changed.append(self.on_reminder_cancel(rc, held.words) if held is not None else blocked_.blocked(
+                blocked_.CHANGES, recent, "no reminder was cancelled", "say which reminder to cancel and I'll cancel it"))
             events.append({"type": "timer", "text": changed[-1]})
-        # A reminder's quote may come from the current message or, once, from an earlier owner message of this chat
-        # (L11: the 19:52 boarding timer recovered at 20:10).
-        said = [(request_id, turn.own_words), *self._owner_words_in_chat(session_id, turn.request_ids)] \
-            if out.timers else []
-        set_timers, unset, existing = self._set_timers(out.timers, said, request_id, chain=typed)
+        # A reminder's quote may come from the current message or from one of this chat's recent owner messages (L11:
+        # the 19:52 boarding timer recovered at 20:10; ORCH-520)
+        said = self._timer_said(turn) if out.timers else []
+        set_timers, unset, existing, unquoted = self._set_timers(out.timers, said, request_id, chain=typed)
+        stopped += [("timer", line) for line in _stopped_reminders(unquoted, lambda quote: recent)]
         for t in set_timers:              # plain words (the notch shows them); the id is a field of its own
             line = _reminder_line(t, self.timers.when_active(t.id), self.clock.now())
             events.append({"type": "timer", "text": line, "timer_id": t.id})
             cards.append(cards_.event("reminder", t.id, t.message, t.fire_at.isoformat(), line))
         # L11: what happened to each side output is said by code, never by the planner (which wrote its reply before
-        # code set or refused anything): a refusal never replaces the reply. A reply or question gets the lines (so
-        # they reach the conversation's history too); a task's turn sends refusals as events, and its outcome carries
-        # every line (clients may show those events only in passing).
+        # code set or refused anything, after a repair naming each quote the check would refuse, ORCH-520): a refusal
+        # never replaces the reply. A reply or question gets the lines (so they reach the conversation's history too); a
+        # task's turn sends refusals as events, and its outcome carries every line (clients may show those events only
+        # in passing).
         if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
-            line, schedule_card = self.on_schedule(out.schedule, typed, request_id,
-                                                   {origins_.INFERRED} | turn.turn_origins,
-                                                   self._sink_origins_for_new_schedule(turn))
+            words, unquoted_part = self._schedule_words(turn, out.schedule)
+            schedule_card = None
+            if unquoted_part:                                   # the quote check, before the schedules port
+                self.journal.append("schedule.refused", {"why": f"{unquoted_part} words not in the owner's words"})
+                line = blocked_.blocked(blocked_.REMINDERS if unquoted_part == "quote" else blocked_.END_DATE, recent,
+                                        f"{_quoted([out.schedule.request])} isn't scheduled",
+                                        "type what you want scheduled in this chat and I'll set it up")
+            else:
+                line, schedule_card = self.on_schedule(out.schedule, words, request_id,
+                                                       {origins_.INFERRED} | turn.turn_origins,
+                                                       self._sink_origins_for_new_schedule(turn))
             changed.append(line)
             events.append({"type": "timer", "text": changed[-1]})
             if schedule_card is not None:
                 cards.append(schedule_card)
         for ch in out.schedule_changes:
-            changed.append(self.on_schedule_change(ch, typed))
+            held = self._owner_said(turn, ch.quote)
+            words = held.words if held is not None else ""
+            if held is not None and ch.until is not None and not quoted(words, ch.until.quote):
+                more = self._owner_said(turn, ch.until.quote)
+                words += "\n" + more.words if more is not None else ""
+            changed.append(self.on_schedule_change(ch, words) if held is not None else blocked_.blocked(
+                blocked_.CHANGES, recent, "no schedule was changed", "say which schedule should change and how"))
             events.append({"type": "timer", "text": changed[-1]})
         refused = [("timer", line) for line in [_not_set(unset), *map(_already_set, existing)] if line] + \
-            [("memory", line) for line in [_not_saved(unsaved)] if line]
+            [("memory", line) for line in [_not_saved(unsaved)] if line] + stopped
         side_lines = (saved + changed
                       + [_reminder_line(t, self.timers.when_active(t.id), self.clock.now()) for t in set_timers]
                       + [line for _, line in refused])

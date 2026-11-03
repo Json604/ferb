@@ -2360,3 +2360,12 @@ request = "Re-run `uv run pytest -m real tests/security/test_planner_injection_r
 pass = "Every eval test passes on both paths. The \"hi\" reply needs no lookup and comes as fast as before (ferb trace: no tool.call under <request>.lookups); the other two answers come from one or two lookups (chat.history / task.evidence, memory.read) and are right; the reply still streams."
 decisions = ["ORCH-515", "ORCH-516"]
 sitting = "after this change is installed"
+
+[LIVE-709]
+title = "Pasted and earlier-message reminders set; a correction saves only the fact; safety checks say so"
+area = "orchestration"
+surface = "FERB.app with this build, the owner's chat"
+request = "Ask for a recurring reminder, then in a later message say \"set that reminder again\". Paste a reminder request copied from a terminal (it may carry \"[200~\"). Tell FERB a remembered fact is wrong in one long sentence (\"you saved it wrong, I did X, not Y, fix it\"). Ask it to set a reminder for something you never said."
+pass = "The reminder from the earlier message and the pasted one are set (no \"[200~\" in what is shown or stored), with no reply claiming anything that wasn't done. Memory shows only the corrected fact's words, not the whole sentence. The last one shows \"Blocked by a safety check: …\" saying which check, why and what to do, and FERB's reply doesn't claim it was set."
+decisions = ["ORCH-518", "ORCH-519", "ORCH-520", "MEM-419"]
+sitting = "after this change is installed"

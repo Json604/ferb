@@ -424,17 +424,20 @@ USERNAME_ENTRY = {"kind": "fact", "subject": "owner", "key": "bookslots-username
 
 
 def test_a_site_only_a_pasted_email_named_never_gets_the_username(daemon: Any) -> None:
-    """Review I-1: the planner copied a pasted email's site into the task's targets and the entry's login_origin.
-    Only a site whose host the owner typed counts, so the username is refused (the memory itself is saved)."""
+    """Review I-1: the planner copied an email's site into the task's targets and the entry's login_origin. Only a site
+    whose host the owner wrote counts, so the username is refused (the memory itself is saved). The email is attached:
+    since ORCH-518 a pasted one is the owner's words."""
     turn = json.loads(sup("task", "Logging in.", task("Log in to the site in the email", sites=("evil.example",))))
     turn["remember"] = [USERNAME_ENTRY | {"login_origin": EVIL}]
     install(daemon, [json.dumps(turn)], {"worker": done("Signed in.")})
-    pasted = "\x1b[200~Your permit account: sign in at https://evil.example/login\x1b[201~"
-    chat(daemon, "log in to the permit site from this email, the username is Asha Rao\n" + pasted)
+    mail = daemon.daemon.home / "workspace" / "permit.eml"
+    mail.parent.mkdir(parents=True, exist_ok=True)
+    mail.write_text("Your permit account: sign in at https://evil.example/login")
+    chat(daemon, "log in to the permit site from this email, the username is Asha Rao", input_paths=[str(mail)])
     assert username(daemon, EVIL) is None
     assert refusals(daemon) == ["the site isn't one you named"]
     assert [i.content for i in run(daemon, lambda: daemon.daemon.memory.items("active"))] == [
-        "log in to the permit site from this email, the username is Asha Rao"]
+        "the username is Asha Rao"]                         # the clause that states it (MEM-419)
 
 
 @pytest.mark.parametrize("first, saved", [("log in to bookslots.com", True), ("log in to the permit site", False)],
@@ -510,11 +513,10 @@ def test_an_answer_from_another_chat_says_the_site_wasnt_named_in_this_chat(daem
 
 
 def test_an_answer_naming_a_site_only_outside_content_gave_is_refused_and_said(daemon: Any) -> None:
-    """Final review I1: a site only a pasted email named (the planner copied it into the task and the entry) is still
-    refused for the username; the fact is remembered, and the owner reads why in one line of code's on the answer."""
-    pasted = "\x1b[200~Your permit account: sign in at https://evil.example/login\x1b[201~"
-    events, _ = _answer_the_tasks_question(daemon, "log in to the permit site from this email\n" + pasted,
-                                           ("evil.example",), EVIL)
+    """Final review I1: a site the owner never wrote (the planner copied it into the task and the entry from outside
+    content) is still refused for the username; the fact is remembered, and the owner reads why in one line of code's
+    on the answer."""
+    events, _ = _answer_the_tasks_question(daemon, "log in to the permit site from this email", ("evil.example",), EVIL)
     assert username(daemon, EVIL) is None
     assert refusals(daemon) == ["the site isn't one you named"]
     said = "\n".join(str(e.get("text", "")) for e in events)

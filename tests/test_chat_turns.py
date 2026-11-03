@@ -336,19 +336,20 @@ def test_a_side_entry_reply_never_lets_the_next_message_in_before_the_task_regis
     monkeypatch.setattr(sv, "run_tree", slow_registration)
     decision = json.loads(sup("task", "On it.", task("Say hello")))
     decision["conversation_changes"] = [{"id": "nope", "action": "pause", "quote": "words never typed"}]
-    script = install(daemon, [json.dumps(decision), sup("reply", "Second answered.")], {"worker": done("Hello.")})
+    # the refused quote is told back once (ORCH-522), so the first turn makes two planner calls
+    script = install(daemon, [json.dumps(decision)] * 2 + [sup("reply", "Second answered.")], {"worker": done("Hello.")})
     first = Stream(daemon, "say hello")
     _until(lambda: any(e.get("type") == "reply" for e in first.events))     # the side entry's reply is out
     second = Stream(daemon, "and then?")
     second.acked()
     time.sleep(0.3)
-    assert len(_planner_calls(script)) == 1                  # the next message hasn't started: the task isn't registered
+    assert len(_planner_calls(script)) == 2                  # the next message hasn't started: the task isn't registered
     gate.set()
     events = first.done()
     assert [e["type"] for e in events].index("reply") < [e["type"] for e in events].index("plan")
     later = second.done()
     assert [e["text"] for e in later if e["type"] == "reply"] == ["Second answered."]   # its own turn, not merged
-    assert len(_planner_calls(script)) == 2
+    assert len(_planner_calls(script)) == 3
 
 
 # decision: ORCH-328, ORCH-301

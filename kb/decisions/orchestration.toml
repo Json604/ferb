@@ -510,7 +510,8 @@ legacy = "test deletion review 2026-11-02 (kept guard)"
 title = "Owner steering keeps provenance, credentials and chat boundaries"
 by = "agent"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-521"
 rule = "A correction records only destinations the owner named, keeps pasted text and attachments as untrusted data, never widens a task's identity or scopes, redacts secrets before the worker and storage, and never answers a question or approves a payment, secret or plan unless the owner's own words name it."
 why = "Unrecorded provenance and secret boundaries (D3/D8/MP2), kept in the test deletion review, 2026-11-02."
 paths = ["ferb/orchestrator/steering.py"]
@@ -556,3 +557,65 @@ words = "yes"
 rule = "The planner's Layer 1 device facts hold the macOS version, paired owner profiles, browser/profile inventory and worker types, but not the list of installed apps; running apps stay in the live facts. A task's worker looks apps up with its Mac tools (mac.apps) when a request involves one."
 why = "The list was ~8.5k characters in every planner turn and rarely needed; answer to the agent's proposal \"Drop the installed-apps list from the planner\"."
 paths = ["ferb/policy/services.py", "ferb/daemon/areas/environment.py"]
+
+[ORCH-518]
+title = "What the owner pastes into their chat counts as their words"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "(b) pastes count as your words;"
+words_source = "Verbatim answer (2026-11-04) to: does text pasted into FERB's own chat box count as the owner's words? (a) pastes stay data, (b) count as your words, (c) visible text only."
+rule = "All of the owner's own chat message is their words (typed, pasted, > quoted, in a code block), with their authority exactly as typed text: every quote check, answers and corrections, and what the gateway counts as named by the owner. Kept from APP-584: no paste dialog; the composer still marks pastes for its local commands (APP-596). Still data: attached files and everything FERB reads (pages, mail, messages, screen, documents, clipboard reads, tool results). Pasted secrets are still masked (GATE-501)."
+why = "Live 2026-11-03/04: reminders the owner pasted were refused as data, and 26 of 185 owner questions cited \"text you pasted\"."
+supersedes = ["APP-584"]
+paths = ["ferb/sanitize/untrusted.py::mark", "ferb/orchestrator/supervisor.py::Supervisor._intake"]
+
+[ORCH-519]
+title = "A safety check that stops something says so, which check, why and what to do"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "if thats a guiard stop then it shuodl say that, not this wierd message. liek it happens in claude code too."
+words_source = "Verbatim (2026-11-04), after a reminder refused by the quote check showed \"I couldn't set that up — could you ask me again in your own words?\"."
+rule = "Every refusal by one of code's checks on a chat turn's side entries (the quote checks of reminders, schedules, end dates, schedule changes, reminder cancels, memory captures, forgets and conversation changes) tells the owner plainly that a safety check stopped it, which check, why in this case and what to do, in plain words with no ids (I12). One shared helper writes the line for every route (ferb/policy/blocked.py)."
+why = "The vague line read like a failure and gave the owner nothing to act on."
+paths = ["ferb/policy/blocked.py", "ferb/orchestrator/supervisor.py::Supervisor._side_entries", "ferb/daemon/areas/schedules.py", "ferb/daemon/areas/memory.py::MemoryGlue._remember"]
+
+[ORCH-520]
+title = "Quotes may come from the owner's recent messages; a reply never claims what code refuses"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "yes to all your fixes"
+words_source = "Verbatim (2026-11-04) to the agent's proposed fixes after a reminder set again was refused: earlier messages count, no claimed-then-refused action, memory spans (MEM-419), paste-marker clean-up."
+rule = "(1) A quote may come from the owner's current message or their own earlier messages in the same chat; one source of the owner's words serves every quote check (reminders, schedules and their end dates, parts, memory, forget, changes, cancels, conversation changes). (2) FERB's reply reflects what actually happened: it never claims an action that code then refuses. (3) Bracketed-paste markers that leaked into the owner's message as text (\"[200~ … [201~\", with or without the ESC byte) are removed where chat text arrives: clean-up only, no reading of meaning."
+why = "Live 2026-11-04: \"set the reminder again\" quoted the request from earlier in the chat and was refused, while FERB's reply said it was restoring that reminder."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._said_in_chat", "ferb/orchestrator/supervisor.py::Supervisor._side_quote_problems", "ferb/sanitize/untrusted.py::without_leaked_markers"]
+
+[ORCH-521]
+title = "Owner steering keeps provenance, credentials and chat boundaries"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "A correction records only destinations in the owner's words (pasted ones included, ORCH-518), keeps attachments as untrusted data, never widens a task's identity or scopes, redacts secrets before the worker and storage, and never answers a question or approves a payment, secret or plan unless the owner's own words name it."
+why = "ORCH-513 restated for ORCH-518: what the owner pastes is their words; everything else in it still holds."
+supersedes = ["ORCH-513"]
+paths = ["ferb/orchestrator/steering.py"]
+
+[ORCH-522]
+title = "One source of the owner's words (this turn, the last 20 messages); refusals are told back once"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Every quote check reads Supervisor._said_in_chat: this turn's words, then this chat's earlier owner messages, newest first, only the last RECENT_EXCHANGES (20). Before a reply stands, each side entry the quote check would refuse is told back to the planner once through the repair path, so it rewrites its reply knowing it; one still refused after that never fails the turn: it is refused when applied and code's safety-check line follows the planner's text (ORCH-519)."
+why = "Telling the planner before its text is final keeps the reply truthful without code judging its prose (L11); 20 is what the planner itself reads word for word (ORCH-303). One more planner call, only when a quote fails."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._said_in_chat", "ferb/orchestrator/supervisor.py::Supervisor._owner_said", "ferb/orchestrator/supervisor.py::Supervisor._decide"]
+
+[ORCH-523]
+title = "The owner's message is recorded whole: no paste, quote or code-block marking"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "untrusted.mark records the owner's chat message whole as their words: the composer's bracketed-paste markers and leaked ones are removed, and > quote lines and ``` blocks are no longer split out as data. The [policy] pasted_text_is_data switch and the chat.message field pasted_as_owner_words are retired (the planner-cache check no longer reads them, RUN-416). Readers of older records still leave out the parts those records wrapped (typed_lines_of, recorded_own_words, WRAPPED); FERB's earlier question and attachment paths stay wrapped as data."
+why = "ORCH-518 makes all of the owner's message theirs; the > and ``` heuristics marked the owner's own typing as outside data and served nothing else."
+paths = ["ferb/sanitize/untrusted.py::mark", "ferb/orchestrator/ports.py::EnvironmentPort"]

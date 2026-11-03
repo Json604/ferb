@@ -177,7 +177,8 @@ final class NotchModel: ObservableObject {
     var eventsTask: Task<Void, Never>?
     var reconciliationTask: Task<Void, Never>?
     var submissionTask: Task<Void, Never>?
-    /// Which parts of the composer draft were pasted; they are sent as data, never as the owner's words (MP2).
+    /// Which parts of the composer draft were pasted: marked when sent (the daemon counts them as the owner's words,
+    /// ORCH-518) and never run as a local notch command (APP-596).
     var pasteProvenance = PasteProvenance()
     var knownCompletedTasks = Set<String>()
     /// An unreadable archive couldn't be set aside, so nothing may be saved over it.
@@ -661,7 +662,7 @@ final class NotchModel: ObservableObject {
     }
 
     /// Sends the draft. An open question never blocks this (spec §4.7): a typed message can answer it or be new
-    /// work. Pasted parts go as data and typed words as the owner's, so nothing asks.
+    /// work. Pasted parts go marked; the daemon counts them as the owner's words (ORCH-518).
     func startWork() {
         guard canCompose else { return }
         if introHoldsWork {

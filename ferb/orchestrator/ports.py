@@ -49,7 +49,6 @@ class EnvironmentPort:
     availability: Callable[[], Any]                     # what the planner may use right now
     apps: Callable[[], list[tuple[str, str]]]           # (bundle id, name) from the device profile
     running_apps: Callable[[], list[tuple[str, str, int]]]   # (bundle id, name, pid) running now
-    pasted_is_data: Callable[[], bool]                  # `[policy] pasted_text_is_data`
     relevant_context: Callable[[str], Any]              # (text, origin, payload, source refs), run off the loop
     worker_types: Callable[[], list[str]]
     signals: Callable[[], tuple[datetime | None, datetime | None]]   # (owner last active, last trail event)

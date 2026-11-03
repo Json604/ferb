@@ -347,6 +347,19 @@ def test_parts_are_checked_and_told_back_for_repair(daemon: RunningDaemon) -> No
     assert final["card"]["line"] == "2 of 2 done" and "step.sum" not in script.calls("worker")
 
 
+# decision: ORCH-319, ORCH-520, ORCH-522
+def test_a_retry_message_may_quote_the_owners_earlier_request_for_its_parts(daemon: RunningDaemon) -> None:
+    """Live 2026-11-02: the owner's "now??" retried a request that had failed; the parts quoted the earlier message,
+    and the turn was rejected after one repair. A part's quote may come from the owner's recent messages in this chat,
+    the one source every quote check reads (ORCH-520)."""
+    install(daemon, [sup("reply", "I couldn't reach the news sites just now."), sup("task", "On it.", _permit_and_trump())],
+            {"step.permit": done("No news."), "step.term": done("20 January 2029.")})
+    chat(daemon, PERMIT)
+    final = outcome(chat(daemon, "now??"))
+    assert final["card"]["line"] == "2 of 2 done"
+    assert run(daemon, lambda: daemon.daemon.journal.of_kind("task.repair")) == []
+
+
 def test_a_plan_saved_before_parts_resumes_and_answers_from_its_last_steps(daemon: RunningDaemon) -> None:
     """Upgrade (STORE-403): a plan saved before step 8d ends in two steps (made for the removed final
     worker). Resumed after the update with both finished, it answers with their saved answers, its success conditions

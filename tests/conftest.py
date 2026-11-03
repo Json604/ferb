@@ -749,11 +749,14 @@ def install(d: RunningDaemon, supervisor: list[Any], workers: dict[str, Any] | N
     return script
 
 
-def chat(d: RunningDaemon, text: str, session: str = "s1", timeout: float = 30) -> list[dict[str, Any]]:
-    """One chat turn's events after the daemon's acknowledgement, which must come first (L7)."""
+def chat(d: RunningDaemon, text: str, session: str = "s1", timeout: float = 30,
+         input_paths: list[str] | None = None) -> list[dict[str, Any]]:
+    """One chat turn's events after the daemon's acknowledgement, which must come first (L7). `input_paths`: files the
+    owner attached, the one outside data a chat message carries since ORCH-518 (its pasted text is the owner's)."""
     c = Client(d.sock, timeout=timeout)
     try:
-        return turn_events(list(c.stream("chat.send", {"session_id": session, "text": text})))
+        return turn_events(list(c.stream("chat.send", {"session_id": session, "text": text}
+                                         | ({"input_paths": input_paths} if input_paths else {}))))
     finally:
         c.close()
 

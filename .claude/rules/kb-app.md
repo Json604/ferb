@@ -88,7 +88,6 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **APP-579** (owner): The daemon's ack shows at once under the owner's message, then the plan line (in the chat, not the activity feed), then one live line from progress with the elapsed time; the live line goes at the answer or when the stream ends.
 - **APP-580** (owner): An answer to a turn that isn't the last entry goes to the bottom as a reply quoting that turn, and the original turn reads "Answered below". A verified answer shows a small check mark, never a "Verified." prefix.
 - **APP-581** (owner): Questions are inline cards and the composer stays enabled while one is open. A hidden secret field takes focus only on an explicit owner action (clicking its card, Tasks → Answer request), never because a question arrived.
-- **APP-584** (owner): There is no paste dialog: pasted ranges are tracked and sent as data with the CLI's delimiters.
 - **APP-585** (owner): Recovered tasks show on FERB's side of the chat with their goal, never as the owner's words.
 - **APP-586** (owner): A question waiting for the owner lights the camera edge amber (the yield rule, as built); completion keeps its two green pulses.
 - **APP-587** (owner): The transcript starts at 300 points and the owner can resize it (minimum 260); the height the owner sets is kept.
@@ -126,6 +125,6 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **APP-625** (owner): Preserve the existing draggable notch and edge pill, including notchless displays and setups using another notch app. The owner can pull FERB away from the hardware notch, move its current surface and leave the pill on an edge. Keep saved placement and magnetic docking. Fix pointer interaction in the isolated playground without changing the accepted startup or setup.
 - **APP-626** (owner): Bring the app window, including Schedules & Reminders, into the accepted setup/notch visual identity in the isolated playground. Use its black glass, typography, rounded surfaces and quiet controls throughout the window shell and pages. Preserve existing actions and data. The owner reviews the app before the site; startup/setup stay finalized.
 - **APP-627** (owner): The compact reminder arrival shows only the rich reminder details directly on the notch's black gradient, without the card's own box or outline and without the separate answer bubble. Share the reminder content with chat: title, due time, Repeats badge and countdown when recorded. Chat retains its boxed card and complete message. Preserve APP-622's delivery and APP-624's persistence and six-second planning preview.
-- **APP-628** (owner): Remove the leading state icons from chat turn-card rows, including questions, failures, checks, pauses, previews and working spinners. Remove
+- **APP-628** (owner): Remove the leading state icons from chat turn-card rows, including questions, failures, checks, pauses, previews and working spinners. Remove the empty icon gutter; keep labels, status text, accessible state names and interactive controls. Preserve APP-621's f
 
 (truncated: run `tools/kb/run kb area app`)

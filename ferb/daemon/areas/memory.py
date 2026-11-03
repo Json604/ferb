@@ -827,16 +827,17 @@ class MemoryGlue:
                         sites: frozenset[str] = frozenset(),
                         elsewhere: frozenset[str] = frozenset(), about: str = "") -> list[dict[str, Any]]:
         """Chat capture (memory review I1, MP2; the check is `items.capture`, shared with distillation's quotes, L36).
-        `own_words`: what the owner typed (pasted parts left out). The quote must be whole words of it. Saved as
-        owner_stated ("your words") is only the owner's own text: the whole sentence(s) of their words that hold the
-        planner's content (`owner_sentences`), so a slice never drops a negation or a condition. Any other content is
+        `own_words`: what the owner wrote (`untrusted.mark`'s own words). The quote must be whole words of it. Saved as
+        owner_stated ("your words") is only the owner's own text: the clause(s) of their words that hold the planner's
+        content (`owner_clauses`, MEM-419: the span that states the fact, never the whole message). Any other content is
         FERB's wording of what they said, saved at once as FERB's understanding (MEM-12: no Keep question); one
         whose quote shares no word with it rests on nothing the owner said and is refused. Either rests on the owner's
         words now, so it replaces every current version of its fact (same kind, subject and key) and the items the
         planner named in `replaces` (code checks each holds), and FERB's line names what it replaced. `about`: what the
         words are about (MEM-10: the turn's task, else the item's key), stored next to them. Per saved item: its
         receipt, the quiet "Memory: noted …" line code adds to the reply and its note card; per refused item: why, in
-        plain words (owner 2026-10-24). An entry with `login_origin` also gives that site's login record its username
+        plain words (owner 2026-10-24), and `guard` when the quote check refused it (the planner's line then says a
+        safety check stopped it, ORCH-519). An entry with `login_origin` also gives that site's login record its username
         (`_save_login_name`, in a worker thread; `sites`: the sites the turn's task names, L36 §5; `elsewhere`: those
         the owner typed only for a task of another chat, which a refusal names). A `review_in_days` puts a check date on
         a period fact without an end date in the owner's words."""
@@ -847,7 +848,7 @@ class MemoryGlue:
             got = capture(own_words, str(it.content), str(it.quote))
             if got.refused:
                 self._journal().append("memory.capture_refused", {"key": it.key, "why": got.refused})
-                saved.append({"refused": CAPTURE_TOLD[got.refused]})
+                saved.append({"refused": CAPTURE_TOLD[got.refused], "guard": got.refused})
                 continue
             topic = " ".join(str(about or str(it.key).replace("_", " ").replace("-", " ")).split())
             try:
@@ -867,8 +868,10 @@ class MemoryGlue:
                 self.memory.set_review(m.id, self.clock.now() + timedelta(days=days))
             text = " ".join(m.content.split())
             ends = (" " + self._until(it.until, m.id, own_words)) if getattr(it, "until", None) is not None else ""
+            stopped, ends = (ends.strip(), "") if ends.startswith(" \n") else ("", ends)   # a safety check's own line
             told = (await self._save_login_name(it, m.id, own_words, sites, m.origin, elsewhere)
                     if getattr(it, "login_origin", None) else "")
+            told = "\n".join(part for part in (told, stopped) if part)
             replaced = "; ".join(f"“{' '.join(o.content.split())}”" for o in done.replaced)
             line = (f"Memory: noted “{text}” ({label(m.origin)}){ends}"
                     + (f" — replaces {replaced}" if replaced else ""))
@@ -892,12 +895,15 @@ class MemoryGlue:
         """A remembered item's last day from the owner's own date words (L36 §6): the quote must be whole words of what
         they typed; code works out the day (`end_of_day`: the model never computes dates, owner 2026-09-30) and the
         item leaves memory after it, whatever its origin. A day already over, or date words the owner didn't type,
-        save it without an end, said in the line and journaled (`memory.until_refused`). A line for the owner."""
+        save it without an end, said in the line and journaled (`memory.until_refused`). A line for the owner: date words
+        the owner didn't write are the quote check's, said as a safety check on a line of its own (starting "\\n")."""
         from ferb.clock.when import When, WhenError, end_of_day, local_zone
         from ferb.memory.items import quoted
         if not quoted(own_words, str(until.quote)):
+            from ferb.policy import blocked as blocked_
             self._journal().append("memory.until_refused", {"item": item_id, "why": "date words not typed"})
-            return "(saved without an end date: the date words I quoted aren't in what you typed)"
+            return "\n" + blocked_.blocked(blocked_.END_DATE, "the date words I quoted from you aren't in what you wrote",
+                                           "it's saved without an end date", "tell me when it ends and I'll add it")
         try:
             zone = local_zone()
             end = end_of_day(When(day=until.day, date=until.date, in_days=until.in_days), self.clock.now(), zone)
