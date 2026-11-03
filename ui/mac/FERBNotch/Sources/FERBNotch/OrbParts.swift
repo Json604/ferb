@@ -12,7 +12,7 @@ protocol OrbControlling: AnyObject {
     /// Docks beside System Settings' window, holding `url` (the agent app) as a draggable icon (nil: nothing to drag,
     /// as in Login Items), with `instruction` in its bubble, and follows it. `showWay`: a faded copy first shows the
     /// drag into Settings' list (APP-639); not once the drop was accepted.
-    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?, showWay: Bool)
+    func dockBesideSettings(dragging urls: [URL], instruction: IntroLine?, showWay: Bool)
     /// The small happy hop when a step succeeds.
     func hop()
     /// Flies back and melts into the notch; returns once it is home.
@@ -33,6 +33,9 @@ extension OrbControlling {
     func dockBesideSettings(dragging url: URL?, instruction: IntroLine?) {
         dockBesideSettings(dragging: url, instruction: instruction, showWay: url != nil)
     }
+    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?, showWay: Bool) {
+        dockBesideSettings(dragging: url.map { [$0] } ?? [], instruction: instruction, showWay: showWay)
+    }
 }
 
 /// What draws the orb (OrbPanel), in AppKit global coordinates.
@@ -44,6 +47,8 @@ protocol OrbSurface: AnyObject {
     func setAppearance(scale: CGFloat, opacity: CGFloat)
     func setInstruction(_ line: IntroLine?)
     func setDragItem(_ url: URL?)
+    /// Several items in one drag (Full Disk Access: the agent app and FERB.app, APP-646); the first one's icon shows.
+    func setDragItems(_ urls: [URL])
     func setWaiting(_ waiting: Bool)
     func show()
     func hide()
@@ -54,6 +59,7 @@ protocol OrbSurface: AnyObject {
 
 extension OrbSurface {
     var onDropAccepted: (() -> Void)? { get { nil } set {} }
+    func setDragItems(_ urls: [URL]) { setDragItem(urls.first) }
 }
 
 /// Frame ticks with the time since the last one, in seconds.

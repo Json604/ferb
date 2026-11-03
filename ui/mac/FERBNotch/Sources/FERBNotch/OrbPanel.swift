@@ -77,9 +77,12 @@ final class OrbPanel: NSPanel, OrbSurface {
         demo.run(from: center, to: point)
     }
 
-    func setDragItem(_ url: URL?) {
+    func setDragItem(_ url: URL?) { setDragItems(url.map { [$0] } ?? []) }
+
+    func setDragItems(_ urls: [URL]) {
+        let url = urls.first
         if url == nil { demo.stop() }
-        card.cardView.url = url
+        card.cardView.urls = urls
         state.holding = url != nil
         card.ignoresMouseEvents = url == nil
     }

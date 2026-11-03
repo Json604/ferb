@@ -71,6 +71,8 @@ enum IntroCopy {
     // MARK: 3. Permissions
 
     static let dragMe = IntroLine(text: "Drag me into this list", detail: "or switch FERB on if it's there")
+    /// Full Disk Access lists two "FERB" rows (FERB.app and its background part): both go on (APP-646)
+    static let dragBoth = IntroLine(text: "Drag me into this list", detail: "then turn both FERB switches on")
     static let allAllowed = IntroLine(text: "That's everything. Thank you.")
 
     @MainActor static func permissionOverview(rows: [PermissionRow], selected: String?, requesting: Bool,

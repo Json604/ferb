@@ -282,6 +282,25 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertFalse(arrival.visible)
     }
 
+    /// APP-646 (owner, 2026-11-03: the only two-FERB problem was Full Disk Access): that list gets both FERB.app and
+    /// its agent app in one drag, with "both switches" wording; every other list keeps the agent alone.
+    // decision: APP-646
+    func testFullDiskAccessDragsBothFERBsAndOtherListsOnlyTheAgent() async {
+        let agent = URL(fileURLWithPath: SetupReplies.agent)
+        XCTAssertEqual(IntroController.dragItems(SetupReplies.agent, both: true),
+                       [agent, URL(fileURLWithPath: "/Applications/FERB.app")])
+        XCTAssertEqual(IntroController.dragItems(SetupReplies.agent, both: false), [agent])
+        XCTAssertEqual(IntroController.dragItems("/opt/python3.12", both: true), [URL(fileURLWithPath: "/opt/python3.12")])
+
+        let t = tour()
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "denied")
+        t.controller.start(beats: [.permissions, .home])
+        await t.pick("permissions.next")
+        await eventually { t.orb.docks.count == 1 }
+        XCTAssertEqual(t.orb.dragged.first?.count, 2)
+        XCTAssertEqual(t.orb.docks[0].instruction?.detail, "then turn both FERB switches on")
+    }
+
     // MARK: Sign in
 
     // decision: APP-507

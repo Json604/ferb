@@ -110,14 +110,27 @@ extension IntroController {
     private func dockForPermission(_ row: PermissionRow, added: Bool) {
         let target = setup.permissions?.grantTarget ?? ""
         let isList = !SetupModel.answeredInPopup.contains(row.id)
+        let both = row.id == "full_disk_access"
+        let switchOn = both ? "Turn both FERB switches on" : "Turn FERB on"
         let instruction = added
             ? IntroLine(text: "Added to the list", detail: row.restartToCheck
-                ? "Turn FERB on, then choose Quit & Reopen if macOS asks. I'll pick up here."
-                : "Turn FERB on. I'll check when macOS confirms it.")
-            : isList ? IntroCopy.dragMe : IntroLine(text: "Switch FERB on here")
-        orb.dockBesideSettings(dragging: !isList || target.isEmpty ? nil : URL(fileURLWithPath: target),
+                ? "\(switchOn), then choose Quit & Reopen if macOS asks. I'll pick up here."
+                : "\(switchOn). I'll check when macOS confirms it.")
+            : isList ? (both ? IntroCopy.dragBoth : IntroCopy.dragMe) : IntroLine(text: "Switch FERB on here")
+        orb.dockBesideSettings(dragging: isList && !target.isEmpty ? Self.dragItems(target, both: both) : [],
                                instruction: instruction, showWay: !added)
         notch.onStepBehindSettings?()            // Settings, not the notch, is what the owner works in now (APP-642)
+    }
+
+    /// What the logo carries into a privacy list: FERB's agent app (`target`, the daemon's grant target). Full Disk
+    /// Access lists FERB.app as a second "FERB" too, and people switched on the wrong one, so that list gets both, the
+    /// app holding the agent among them (APP-646).
+    static func dragItems(_ target: String, both: Bool) -> [URL] {
+        let agent = URL(fileURLWithPath: target)
+        let helpers = agent.deletingLastPathComponent()
+        guard both, helpers.lastPathComponent == "Helpers",
+              helpers.deletingLastPathComponent().lastPathComponent == "Contents" else { return [agent] }
+        return [agent, helpers.deletingLastPathComponent().deletingLastPathComponent()]
     }
 
     private func permissionOverview(_ visit: PermissionVisit) -> IntroLine {

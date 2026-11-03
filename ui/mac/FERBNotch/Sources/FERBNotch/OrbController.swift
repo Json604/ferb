@@ -114,10 +114,10 @@ final class OrbController: OrbControlling {
         }
     }
 
-    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?, showWay: Bool) {
-        showsWay = showWay && url != nil && !reduceMotion()
+    func dockBesideSettings(dragging urls: [URL], instruction: IntroLine?, showWay: Bool) {
+        showsWay = showWay && !urls.isEmpty && !reduceMotion()
         surface.demonstrateDrag(to: nil)
-        surface.setDragItem(url)
+        surface.setDragItems(urls)
         surface.setInstruction(instruction)
         surface.setWaiting(true)
         stopTracking()

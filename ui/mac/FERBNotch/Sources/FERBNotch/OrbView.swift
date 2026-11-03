@@ -66,11 +66,17 @@ final class DragCardView: NSView, NSDraggingSource {
     /// The owner started dragging the logo (the drag demonstration stops).
     var onDragBegan: (() -> Void)?
     var onDropAccepted: (() -> Void)?
-    var url: URL? {
+    /// What one drag carries: the agent app, and for Full Disk Access also FERB.app, so both of macOS's "FERB" rows
+    /// land in the list at once (APP-646). The first one's icon shows.
+    var urls: [URL] = [] {
         didSet {
-            icon.image = NSWorkspace.shared.icon(forFile: url?.path ?? Bundle.main.bundlePath)
+            icon.image = NSWorkspace.shared.icon(forFile: urls.first?.path ?? Bundle.main.bundlePath)
             window?.invalidateCursorRects(for: self)
         }
+    }
+    var url: URL? {
+        get { urls.first }
+        set { urls = newValue.map { [$0] } ?? [] }
     }
     private let icon = NSImageView()
 
@@ -101,11 +107,16 @@ final class DragCardView: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) {}
 
     override func mouseDragged(with event: NSEvent) {
-        guard let url else { return }
+        guard !urls.isEmpty else { return }
         onDragBegan?()
-        let item = NSDraggingItem(pasteboardWriter: url as NSURL)
-        item.setDraggingFrame(bounds, contents: icon.image)
-        beginDraggingSession(with: [item], event: event, source: self)
+        let items = urls.enumerated().map { index, url -> NSDraggingItem in
+            let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+            let offset = CGFloat(index) * 6                       // a second icon peeks out behind the first
+            item.setDraggingFrame(bounds.offsetBy(dx: offset, dy: -offset),
+                                  contents: NSWorkspace.shared.icon(forFile: url.path))
+            return item
+        }
+        beginDraggingSession(with: items, event: event, source: self)
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {

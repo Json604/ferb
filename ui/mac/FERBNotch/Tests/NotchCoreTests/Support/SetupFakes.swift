@@ -195,8 +195,10 @@ final class FakeOrb: OrbControlling {
 
     func launch(to target: CGPoint, instruction: IntroLine?) async { launches.append((target, instruction)) }
     private(set) var showedWay: [Bool] = []
-    func dockBesideSettings(dragging url: URL?, instruction: IntroLine?, showWay: Bool) {
-        docks.append((url, instruction))
+    private(set) var dragged: [[URL]] = []
+    func dockBesideSettings(dragging urls: [URL], instruction: IntroLine?, showWay: Bool) {
+        docks.append((urls.first, instruction))
+        dragged.append(urls)
         showedWay.append(showWay)
     }
     func hop() { hops += 1 }

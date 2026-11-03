@@ -1590,3 +1590,13 @@ words = "replay"
 rule = "When a newer build's quiet update finds a tour a quit interrupted, the resumed tour opens with the startup again (the first-launch music and the Dense entrance), and the resumed beat waits until it ends. A plain quit and reopen of the same build still resumes without it."
 why = "Answer to: should installing a newer build replay the startup music and animation for someone halfway through the tour?"
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift"]
+
+[APP-646]
+title = "Full Disk Access gets both FERBs in one drag; other lists keep the agent alone"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "btu the onlt 2 step issue ive necountered wiht si of full disk access, otheres i havent"
+rule = "In the tour, the logo dragged into System Settings' Full Disk Access list carries both FERB.app and its agent app (the daemon's grant target), and its lines say to turn both FERB switches on. Every other privacy list keeps dragging the agent app alone. FERB keeps two apps (FERB.app and the agent); FERB's check still reads the agent's grant."
+why = "Full Disk Access listed two \"FERB\" rows and the owner switched on the wrong one; the merge into one identity was dropped after testing (owner: \"lets jsut ahve the two apps as it is\")."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbParts.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift"]
