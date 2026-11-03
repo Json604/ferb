@@ -18,7 +18,7 @@ class Environment:
     """A mixin of the Daemon (ferb/daemon/main.py): its methods use the daemon's state."""
 
     async def _environment(self, own_words: str) -> dict[str, Any]:
-        """Installed apps and browser connection facts; the model interprets the owner's requested route. The
+        """The macOS version and browser connection facts (no installed-apps list, ORCH-514); the model interprets the owner's requested route. The
         database is read here, on the event loop; the Mac's and the browsers' files and the running apps are read in a
         thread (`_environment_files`), so a slow read never holds up another message's ack or a task's live line (L8)."""
         from ferb.policy import services as svc

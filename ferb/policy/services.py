@@ -11,10 +11,9 @@ class Environment:
 
 
 def summary(env: Environment, macos: str, running: set[str]) -> tuple[str, str]:
-    installed = [{'bundle_id': bundle, 'name': name} for bundle, name in env.apps]
+    """The planner's device facts. The installed-apps list isn't among them (owner, 2026-11-03, ORCH-514): a task's
+    worker looks apps up with its Mac tools when a request involves one."""
     profiles = [{'browser': browser, 'profile': folder, 'name': name} for browser, folder, name in env.paired]
-    stable = (f'This Mac: macOS {macos}. Installed apps (inventory, not route selection): ' +
-              json.dumps(installed, ensure_ascii=False) + '\nPaired owner profiles: ' +
-              json.dumps(profiles, ensure_ascii=False))
+    stable = f'This Mac: macOS {macos}.\nPaired owner profiles: ' + json.dumps(profiles, ensure_ascii=False)
     live = 'Running bundle IDs: ' + json.dumps(sorted(running))
     return stable, live

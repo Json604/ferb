@@ -408,3 +408,14 @@ def test_an_answer_to_a_question_no_longer_waiting_keeps_the_planners_reply(daem
 
 async def _stop(d: RunningDaemon, tree: str) -> None:
     d.daemon.supervisor.stop_tree(tree)
+
+
+# decision: ORCH-514
+def test_the_planners_device_facts_leave_out_the_installed_apps() -> None:
+    """Owner, 2026-11-03: the installed-apps list (8.5k characters a turn) left the planner's context; a worker looks
+    apps up with its Mac tools when a request involves one."""
+    from ferb.policy import services as svc
+    env = svc.Environment([("com.apple.Notes", "Notes")], [("brave", "Default", "Work")])
+    stable, live = svc.summary(env, "26.0", {"com.apple.Notes"})
+    assert "Notes" not in stable and "com.apple.Notes" not in stable
+    assert "macOS 26.0" in stable and "Work" in stable and "com.apple.Notes" in live

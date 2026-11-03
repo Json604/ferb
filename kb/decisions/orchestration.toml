@@ -514,3 +514,13 @@ rule = "A correction records only destinations the owner named, keeps pasted tex
 why = "Unrecorded provenance and secret boundaries (D3/D8/MP2), kept in the test deletion review, 2026-11-02."
 paths = ["ferb/orchestrator/steering.py"]
 legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[ORCH-514]
+title = "The planner's device facts leave out the installed-apps list"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "yes"
+rule = "The planner's Layer 1 device facts hold the macOS version, paired owner profiles, browser/profile inventory and worker types, but not the list of installed apps; running apps stay in the live facts. A task's worker looks apps up with its Mac tools (mac.apps) when a request involves one."
+why = "The list was ~8.5k characters in every planner turn and rarely needed; answer to the agent's proposal \"Drop the installed-apps list from the planner\"."
+paths = ["ferb/policy/services.py", "ferb/daemon/areas/environment.py"]
