@@ -25,3 +25,4 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **PROJ-503** (owner): FERB is licensed Apache-2.0 (LICENSE, pyproject.toml).
 - **PROJ-504** (owner): THIRD_PARTY_NOTICES.md keeps the license attributions for bundled third-party code.
 - **PROJ-505** (owner): When an older decision disagrees with code the owner has tested, the code stands: the decision is superseded by one that states what the code does. A decision the owner made after the code (e.g. MEM-35) is built instead.
+- **PROJ-506** (owner): FERB targets macOS (FERB.app) and phone companions on iPhone and Android. There is no Windows port: the windows branch and its work were deleted on 2026-11-03, and no Windows code, tasks or decisions are kept. A Windows version again would be a new owner decision.

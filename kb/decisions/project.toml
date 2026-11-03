@@ -60,3 +60,14 @@ status = "active"
 words = "trust the code omplemted, that is somehting ive tested the info you found might be prev decision no longer needed."
 rule = "When an older decision disagrees with code the owner has tested, the code stands: the decision is superseded by one that states what the code does. A decision the owner made after the code (e.g. MEM-35) is built instead."
 untestable = "A rule for how agents settle a conflict between kb and the code."
+
+[PROJ-506]
+title = "FERB is for Mac, iPhone and Android only; the Windows port is cancelled"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "ive cancelled the window port. its taking too much unncessary time for no imporvemnt whatsover. so it stays mac,iphoena and androipd onyl."
+rule = "FERB targets macOS (FERB.app) and phone companions on iPhone and Android. There is no Windows port: the windows branch and its work were deleted on 2026-11-03, and no Windows code, tasks or decisions are kept. A Windows version again would be a new owner decision."
+why = "The owner judged the port to cost much time for no improvement."
+paths = ["kb/plans"]
+untestable = "A scope decision: there is no code to test, only the absence of a Windows port."
