@@ -78,7 +78,7 @@ timeout = 1800
 [[check]]
 name = "Swift tests (FERB.app)"              # ~20 s warm, minutes cold
 level = "push"
-run = ". scripts/swiftpm-anonymous.sh && swift test --package-path ui/mac/FERBNotch"
+run = "scripts/swift-test-gate.sh"   # names the failing tests last, where the gate shows them
 when = ["ui/mac/FERBNotch/**"]
 timeout = 1800
 
