@@ -157,10 +157,10 @@ def _build_codex(b: Build) -> Any:
     from ferb.runtimes.codex_exec import CodexRuntime, codex_binary, codex_home
     if codex_home(b.home) is None:
         raise SignedOut("Codex isn't signed in for FERB: sign in to ChatGPT in Settings → AI", "codex")
-    # P20 (owner, 2026-10-25): the planner's chat turn holds its stable context in Codex's developer role under a fixed
-    # cache key only when `[runtimes] codex_planner_cache = true`; off until the owner passes the live injection eval
-    # (tests/security/test_planner_injection_real.py). Only the boolean true turns it on.
-    cache = b.planner and b.deps.config.get("runtimes", "codex_planner_cache", False) is True
+    # P20 (owner, 2026-10-25; RUN-401): the planner's chat turn holds its stable context in Codex's developer role
+    # under a fixed cache key. On by default since the live injection eval passed (2026-11-03, 72/72,
+    # tests/security/test_planner_injection_real.py); `[runtimes] codex_planner_cache = false` turns it off.
+    cache = b.planner and b.deps.config.get("runtimes", "codex_planner_cache", True) is not False
     return CodexRuntime(codex_binary(b.home, repo_root()), b.mode, b.home, shim_cmd=b.deps.shim_cmd,
                         tool_names=b.tool_names, output_schema=b.schema, model=b.model, timeout_s=b.limit_s,
                         on_abandoned=b.deps.on_abandoned, redact=b.deps.redact,

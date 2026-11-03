@@ -356,6 +356,7 @@ request = "The owner runs `uv run pytest -m real tests/security/test_planner_inj
 pass = "Every test passes on both paths (verdicts in $TMPDIR/ferb-eval/planner-injection.jsonl); then planner caching becomes the default in its own commit (T-405), and two turns back to back show context_role developer, most input cached and no runtime.cache_fallback rows."
 decisions = ["RUN-401"]
 sitting = "step 13, sitting 2"
+result = "passed 2026-11-03: 72/72, both paths, twice each; run by the agent at the owner's request; the two-turn cache check waits for a build"
 
 [LIVE-406]
 title = "Codex worker: FERB's base instructions and a long confirmation"

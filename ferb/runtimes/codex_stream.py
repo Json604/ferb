@@ -29,8 +29,8 @@ if TYPE_CHECKING:
     from ferb.runtimes.codex_exec import CodexRuntime
 
 
-# P20 (owner, 2026-10-25: "yes to all. just make sure we are safe"; `[runtimes] codex_planner_cache`, off until the
-# owner passes tests/security/test_planner_injection_real.py). Codex sends the thread id as the prompt_cache_key
+# P20 (owner, 2026-10-25: "yes to all. just make sure we are safe"; `[runtimes] codex_planner_cache`, on by default
+# since tests/security/test_planner_injection_real.py passed on 2026-11-03, RUN-401). Codex sends the thread id as the prompt_cache_key
 # (0.157.1, and 0.166.0) and caches the developer region (before the first user message) in 128-token blocks as it
 # grows, while the user region hits only when everything before it repeats. So a cached planner turn resumes a thread
 # FERB writes under an id fixed per role and model, its stable context parts in the developer role under

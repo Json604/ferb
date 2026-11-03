@@ -208,7 +208,11 @@ def test_daemon_builds_codex_with_the_planners_90_s_and_others_their_limit(daemo
     dispatch = d._build_runtime("codex", "orchestrator", mode="supervisor", tool_names=[], schema=QUESTION_SCHEMA)
     worker = d._build_runtime("codex", "worker:default", mode="worker", tool_names=[], schema=WORKER_SCHEMA)
     assert (planner.timeout_s, dispatch.timeout_s, worker.timeout_s) == (PLANNER_LIMIT_S, CALL_LIMIT_S, None)
-    assert planner.cache_role is None                     # P20 stays off until the owner's live injection eval
+    assert planner.cache_role == "planner"                # P20 on by default since the live injection eval passed
+    assert dispatch.cache_role is None and worker.cache_role is None     # only the planner's turn
+    d.config.set("runtimes", "codex_planner_cache", False)       # the owner can still turn it off
+    off = d._build_runtime("codex", "orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
+    assert off.cache_role is None
 
 
 # ---------- Claude Agent SDK ----------
