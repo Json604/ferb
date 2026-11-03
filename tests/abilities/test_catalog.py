@@ -21,7 +21,7 @@ from ferb.registry import build
 from tests.conftest import chat, install, sup, task, tool
 
 
-# decision: PRM-314, ORCH-1
+# decision: PRM-314
 def test_fresh_daemon_exposes_metadata_to_the_worker_and_reads_on_demand(daemon):
     assert not (daemon.daemon.home / 'skills').exists()
     results = {}
@@ -50,7 +50,7 @@ def test_fresh_daemon_exposes_metadata_to_the_worker_and_reads_on_demand(daemon)
     for role in ('supervisor', 'worker'):
         request = next(request for _, key, request in script.requests if key == role)
         context = request.system + request.context
-        # only roles with tools are told about lookup tools (kb area prompts; the planner has none, ORCH-1)
+        # only roles that can read abilities are told of them (PRM-314; the planner's lookups are read-only: ORCH-516)
         assert (DEFINITION.description in context) == (role == 'worker')
         assert body not in context
     assert 'abilities.run' not in daemon.daemon.registry.capabilities

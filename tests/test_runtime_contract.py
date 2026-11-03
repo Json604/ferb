@@ -116,6 +116,21 @@ async def test_unoffered_tool_gets_a_tool_error_and_the_run_goes_on(case) -> Non
     assert "no tool named 'shell_run' was offered" in json.dumps(script.requests[1][1])
 
 
+# decision: RUN-415
+@pytest.mark.anyio
+async def test_a_supervisor_run_with_a_run_token_looks_up_through_ferb(case) -> None:
+    """The planner's lookups (ORCH-516): a one-turn run given a token is offered its tools and calls them through
+    FERB's gateway; without one it has none."""
+    bridge = FakeBridge()
+    script = Scripted([(200, case["tool"]("fs_list", {"path": "/tmp"})), (200, case["final"])])
+    events = await run(make(case, script, mode="supervisor", bridge=bridge), token="tok")
+    assert [e.kind for e in events if e.kind != "text_delta"] == ["usage", "tool_call", "usage", "final"]
+    assert bridge.calls == [("fs.list", {"path": "/tmp"})]
+    plain = Scripted([(200, case["final"])])
+    await run(make(case, plain, mode="supervisor", bridge=FakeBridge()), token="")
+    assert "fs_list" not in json.dumps(plain.requests[0][1])
+
+
 @pytest.mark.anyio
 async def test_usage_is_normalized(case) -> None:
     events = await run(make(case, Scripted([(200, case["final"])]), mode="supervisor"), token="")

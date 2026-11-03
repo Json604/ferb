@@ -183,7 +183,8 @@ class ApiRuntime:
             raise Unsupported(f"FERB has no {self.name} API key: add one in Settings → AI")
         tools: list[ToolSpec] = []
         names: dict[str, str] = {}
-        if self.mode == "worker" and self.bridge is not None and self.tool_names:
+        # RUN-415: FERB's tools come with a run token (a worker's, or a planner's lookups)
+        if (self.mode == "worker" or run_token) and self.bridge is not None and self.tool_names:
             offered = {t["name"]: t for t in self.bridge.tools(run_token)}
             for capability in self.tool_names:
                 if capability in offered:

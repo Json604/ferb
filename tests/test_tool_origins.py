@@ -22,7 +22,7 @@ from ferb.daemon.gateway import FsRoots, Gateway, ask_origins, origin_line, resu
 from ferb.orchestrator.evidence import ChatHistory, MemoryRead, TaskEvidence, memory_origin, record_origins
 from ferb.sanitize.redact import Redactor
 from tests.conftest import Answers, FakeCap, RunningDaemon, chat, done, gateway_request, gateway_setup, \
-    gateway_tool_call, install, sup, task
+    gateway_tool_call, install, sup, task, tool
 from tests.mackit import gateway_call, grant_task
 from tests.support.egress import TEST_HOST
 
@@ -712,12 +712,20 @@ def test_history_and_attempt_lines_carry_their_tasks_origins(daemon: RunningDaem
     newest = _on_loop(daemon, lambda: sup_._timeline("none", "s1")[0][-1])
     assert f"task {first} result" in newest.text and "Owner:" not in newest.text
     assert "external:paste" in newest.origins
-    # The task block: with the history trimmed to an older FERB reply, the planner's reply can inherit the paste only
-    # through the task's line in that block.
+    # With the history trimmed to an older FERB reply, the ended task isn't shown (ORCH-515: only running and waiting
+    # tasks are), so a reply written without looking it up doesn't inherit the paste; one that looks the task up
+    # (ORCH-516) inherits it through the lookup's recorded origins.
     seen = _trim_history(daemon)
     install(daemon, [sup("reply", "Done earlier.")])
     chat(daemon, "anything else?")
     assert not any("external:paste" in s for s in seen)
+    assert "external:paste" not in _journal_origin(daemon, "chat.reply")
+
+    def look(token: str) -> str:
+        assert not tool(daemon.sock, token, "chat.history", task_id=first)["is_error"]
+        return sup("reply", "That one couldn't finish.")
+    install(daemon, [look])
+    chat(daemon, "what happened to the summary?")
     assert {"inferred", "external:paste"} <= _journal_origin(daemon, "chat.reply")
 
 

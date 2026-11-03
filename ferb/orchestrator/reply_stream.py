@@ -72,6 +72,7 @@ class ReplyDraft:
         # the runtime's mapping of one top-level property to FERB's own answer form, when its provider receives the
         # schema reshaped (ferb/runtimes/schema_shape.py); None: the stream is already in that form
         self.field = field
+        self.redactor = redactor
         self.redaction = redactor.stream()
         self.lines = _LineGuard()
         self.raw = ''
@@ -197,6 +198,16 @@ class ReplyDraft:
         if self.channel == 'plan':
             self.emit({'type': 'plan_end'})
         self.closed = True
+
+    def restart(self) -> None:
+        """The planner looked something up (ORCH-516): text so far belonged to a turn that called a tool, never to the
+        answer. Nothing shown yet: the draft starts over on the next fragments; something shown: it is withdrawn."""
+        if self.visible:
+            self.abort()
+            return
+        self.raw, self.pos, self.state, self.metadata, self.key = '', 0, 'opening', {}, ''
+        self.closed, self.channel = False, 'reply'
+        self.redaction, self.lines = self.redactor.stream(), _LineGuard()
 
     def abort(self) -> None:
         if not self.closed and self.visible:

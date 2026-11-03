@@ -2351,3 +2351,12 @@ request = "Open FERB with Boring Notch running; click and drag FERB's handle. Qu
 pass = "FERB's handle sits on the top edge beside Boring Notch's area, opens on click and drags; with Boring Notch quit FERB goes back to the notch as it was set, and steps aside again when Boring Notch returns."
 decisions = ["APP-644"]
 sitting = "after step 13"
+
+[LIVE-708]
+title = "The planner looks up what it needs, and the injection eval still passes with lookups"
+area = "orchestration"
+surface = "the checkout with FERB's Codex sign-in (the eval), then FERB.app on Codex in the owner's chat"
+request = "Re-run `uv run pytest -m real tests/security/test_planner_injection_real.py -v` (Codex, FERB's own login) now that the planner has lookup tools. Then in FERB.app send \"hi\", ask about a task from earlier today, and ask about something remembered."
+pass = "Every eval test passes on both paths. The \"hi\" reply needs no lookup and comes as fast as before (ferb trace: no tool.call under <request>.lookups); the other two answers come from one or two lookups (chat.history / task.evidence, memory.read) and are right; the reply still streams."
+decisions = ["ORCH-515", "ORCH-516"]
+sitting = "after this change is installed"

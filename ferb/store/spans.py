@@ -411,7 +411,14 @@ class SpanStore:
              lambda held: (_dumps(json.loads(held[0]) | clean),), (row[0],))
 
     @staticmethod
-    def _evidence_where(task_id: str, root_id: str | None) -> tuple[str, list[Any]]:
+    def _evidence_where(task_id: str, root_id: str | None, whole: bool = False) -> tuple[str, list[Any]]:
+        if whole:          # ORCH-517: an earlier task of the caller's chat, `task_id` its tree: every step's records
+            tree, bounds = tree_where(task_id)
+            return (f"({tree} AND ((kind = 'tool.call' AND json_extract(input_json, '$.tool') NOT IN "
+                    "('task.evidence','chat.history','memory.read')) OR kind IN ('task','task.intake','context.source',"
+                    "'context.exposure','disturbance.baseline','disturbance.change','disturbance.error',"
+                    "'disturbance.summary','disturbance.paused','disturbance.resumed','worker','task.cleanup')))",
+                    list(bounds))
         # Root identity is resolved from the registered live task, never inferred from a name/prefix.
         where = "(task_id = ? AND kind = 'tool.call' AND json_extract(input_json, '$.tool') NOT IN " \
                 "('task.evidence','chat.history','memory.read'))"
@@ -425,9 +432,11 @@ class SpanStore:
             params.extend([task_id, task_id + ".verify"])
         return "(" + where + ")", params
 
-    def tool_call(self, task_id: str, span_id: str, root_id: str | None = None) -> dict[str, Any] | None:
-        """An authorized recorded fact/report; never provider reasoning or recursive evidence copies."""
-        where, params = self._evidence_where(task_id, root_id)
+    def tool_call(self, task_id: str, span_id: str, root_id: str | None = None,
+                  whole: bool = False) -> dict[str, Any] | None:
+        """An authorized recorded fact/report; never provider reasoning or recursive evidence copies. `whole`: any
+        record of the tree `task_id` (an earlier task of the caller's chat)."""
+        where, params = self._evidence_where(task_id, root_id, whole)
         row = self._db.conn.execute("SELECT * FROM spans WHERE " + where + " AND id = ?",
                                     (*params, span_id)).fetchone()
         if row is None:
@@ -439,11 +448,11 @@ class SpanStore:
                 "origin": row["origin"]}
 
     def tool_calls(self, task_id: str, query: str = '', after: int = 0, limit: int = 20,
-                   root_id: str | None = None, kind: str = '') -> dict[str, Any]:
+                   root_id: str | None = None, kind: str = '', whole: bool = False) -> dict[str, Any]:
         """Search full redacted observations using literal text; page references rather than dropping records."""
         if limit < 1 or after < 0:
             raise ValueError('limit must be positive and after nonnegative')
-        where, params = self._evidence_where(task_id, root_id)
+        where, params = self._evidence_where(task_id, root_id, whole)
         if query:
             # as written now (UTF-8), and as rows written before step 12a hold it (JSON's \\uXXXX escapes)
             forms = list(dict.fromkeys((query, json.dumps(query)[1:-1])))

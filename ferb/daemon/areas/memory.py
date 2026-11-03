@@ -299,7 +299,7 @@ class MemoryGlue:
             return memory_origin(item_origin)
 
     async def _learning_candidates(self, words: str, limits: Any = None, *, focus: str = '') -> list[dict[str, Any]]:
-        """Relevant memory for a role, within its limits (`search.PLANNER` / `search.WORKER`, MEM-5): facts from
+        """Relevant memory for a role, within its limits (`search.ATTENTION` / `search.WORKER`, MEM-27): facts from
         `memory_items` and learned nodes (past tasks with how-notes, playbooks, day summaries), ranked by the one fused
         search and merged best first; a fact already in the core profile (in every prompt) takes no room. Each line says
         what it is, its id and where it came from (MEM-12), so the planner can name a fact a new statement
@@ -307,8 +307,8 @@ class MemoryGlue:
         words of the tasks the turn or worker serves, also ranked alone (L36 §4 fix round)."""
         from ferb.memory.items import label
         from ferb.memory.learning import PROMPT_LEAVES_OUT, shown_state, shown_text
-        from ferb.memory.search import PLANNER, within
-        limits = limits or PLANNER
+        from ferb.memory.search import ATTENTION, within
+        limits = limits or ATTENTION
         if not self.learning or self.memory is None:
             return []
         await self._search_ready()
@@ -344,55 +344,6 @@ class MemoryGlue:
                                 "this prompt's memory limit; memory.read and memory.learned find them.)",
                         "reference": "memory.read; memory.learned", "origin": origin_.FERB, "source_refs": []})
         return out
-
-    async def _old_chat(self, words: str, exclude: set[str]) -> dict[str, Any] | None:
-        """The planner's earlier exchanges matching this message (fix list, owner 2026-10-31): the owner's message and
-        FERB's short reply to it, from any of the owner's chats (never a scheduled run's), best first, within
-        `search.PLANNER`'s chat limits. `exclude`: entries already in the planner's conversation (`journal:<id>`).
-        None when nothing matches."""
-        from ferb.memory.search import PLANNER, short, tokens
-        limits = PLANNER
-        if self.db is None or limits.chat_exchanges <= 0 or not words.strip():
-            return None
-        vector, _ = await self._query_vector(words)
-        search = self._memory_search()
-        hits = search.chat(words, vector=vector, kinds=("chat.message", "chat.reply"), exclude=exclude,
-                           accept=lambda row: not str(row["session"]).startswith("schedule:"),
-                           limit=limits.chat_exchanges * 4)
-        exchanges: list[str] = []
-        refs: list[str] = []
-        made: set[str] = set()
-        seen: set[str] = set()
-        used = 0
-        for hit in hits:
-            request = str(hit.data["request"])
-            if not request or request in seen:
-                continue
-            seen.add(request)
-            rows = [dict(r) | {"origin": (o[0] if (o := self.db.conn.execute(
-                "SELECT origin FROM journal WHERE id = ?", (str(r["doc"]).removeprefix("journal:"),)).fetchone())
-                else None)} for r in self.db.conn.execute(
-                "SELECT doc, kind, at, text FROM chat_fts WHERE request = ? AND kind IN ('chat.message', 'chat.reply') "
-                "ORDER BY at", (request,)).fetchall()]
-            owner = " / ".join(str(r["text"]) for r in rows if r["kind"] == "chat.message")
-            ferb = " / ".join(short(str(r["text"])) for r in rows if r["kind"] == "chat.reply")
-            if not owner:
-                continue
-            when = str(rows[0]["at"])[:16].replace("T", " ")
-            first = next(str(r["doc"]) for r in rows if r["kind"] == "chat.message")
-            line = (f"({when}) Owner: {owner}" + (f"\n  FERB: {ferb}" if ferb else "")
-                    + f"\n  [Full source: chat.history entry_id={first.removeprefix('journal:')}]")
-            if len(exchanges) >= limits.chat_exchanges or used + tokens(line) > limits.chat_tokens:
-                continue
-            exchanges.append(line)
-            used += tokens(line)
-            for r in rows:
-                refs.append(str(r["doc"]))
-                made |= origin_.split(r["origin"]) if r["origin"] else {origin_.OWNER if r["kind"] == "chat.message"
-                                                                          else origin_.FERB}
-        if not exchanges:
-            return None
-        return {"text": "\n".join(exchanges), "refs": refs, "origin": origin_.join(made)}
 
     async def _chat_search(self, root_task: str, query: str, since: str | None, until: str | None,
                            limit: int) -> list[str]:

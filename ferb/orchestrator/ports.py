@@ -13,13 +13,11 @@ from typing import Any, Awaitable, Callable
 @dataclass(frozen=True)
 class MemoryPort:
     """Memory and learning (L28, L29, L36)."""
-    # the planner's ranked items for (its query, the target words of the tasks it is shown), or an awaitable of them
+    # the attention check's ranked items for (its query, target words), or an awaitable of them (the planner looks
+    # memory up itself: ORCH-515)
     memory_candidates: Callable[[str, str], Any]
     # a worker's or plan step's ranked memory for (its query, its task's target words); an awaitable
     memory_push: Callable[[str, str], Any]
-    # the planner's earlier exchanges matching its message (words, entries already in its conversation as
-    # journal:<id>) -> {text, refs, origin} or None; an awaitable
-    old_chat: Callable[[str, set[str]], Any]
     # chat capture (I1): (items, own words, source, sites=, elsewhere=) -> per item receipt or refusal (may await)
     remember: Callable[..., Any]
     forget_request: Callable[[str, str], str]           # a forget asked in chat (I2): (item id, request id) -> a line

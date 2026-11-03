@@ -91,14 +91,14 @@ def test_text_typed_or_copied_in_a_browser_follows_its_pages_privacy(tmp_path: P
 
 # decision: MEM-27
 def test_activity_stays_within_its_limit_and_says_what_it_left_out(daemon: Any) -> None:
-    from ferb.memory.search import PLANNER
+    from ferb.memory.search import WORKER
     d = daemon.daemon
     for n in range(8):
         d.daily_activity.record({"id": f"big{n}", "source": "window", "what": "window",
                                  "data": {"title": f"quarterly report draft {n} " + "z" * 3000}})
     text = d._relevant_context("quarterly report draft")[0]
     part = text.split("Relevant activity today (data): ")[1]
-    assert len(part) <= PLANNER.activity_tokens * 4 + 400
+    assert len(part) <= WORKER.activity_tokens * 4 + 400
     assert "more matching activity row(s) today left out" in part and "trail.query finds them" in part
 
 

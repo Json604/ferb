@@ -4,7 +4,8 @@
 title = "The planner stays tool-less; workers do the lookups"
 by = "owner"
 date = 2026-10-30
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-515"
 words_source = "notes/memory.md owner decision 10 (reversing an earlier yes): an agent's paraphrase; no verbatim quote recorded"
 rule = "The planner is one fast call that changes nothing until it returns and has no lookup tools. It gets Tier 1 and retrieved memory pushed into its context; a reply that needs more becomes a task, whose worker has memory.read, chat.history, task.evidence and trail.query. Revisit if exposure records show planner memory misses."
 why = "Lookups would add model round trips that each re-send the whole context, need the worker tool path in supervisor mode, complicate reply streaming and hold the chat longer."
@@ -279,7 +280,7 @@ title = "Planner context is ordered most-stable first so the prefix caches"
 by = "agent"
 date = 2026-10-30
 status = "active"
-rule = "Planner context goes: instructions, stable facts, running summary, recent conversation (append-only), then memory, activity, time, front window, task state, then the new message. Live values stay out of the cached prefix: {capabilities} names the paired owner profiles only, and whether each is connected now is in \"Layer 2 - right now\"."
+rule = "Planner context goes: instructions, stable facts, running summary, recent conversation (append-only), then the live facts, time, front window, task state and open questions, then the new message (2026-11-03: no pushed memory or activity, ORCH-515; the lookup tools' schemas are fixed per install, so they don't move the cached prefix). Live values stay out of the cached prefix: {capabilities} names the paired owner profiles only, and whether each is connected now is in \"Layer 2 - right now\"."
 evidence = "2026-10-30: 125 of 398 planner calls since 10-20 had any cache hit; on average 2.3k of 98k input tokens were cached."
 paths = ["ferb/daemon/areas/environment.py", "ferb/orchestrator/supervisor.py"]
 legacy = "notes/orchestration.md target design 5; Rulings (2026-11-01)"
@@ -380,7 +381,7 @@ title = "The intro's preview is a plan-only run that cannot act"
 by = "agent"
 date = 2026-11-01
 status = "active"
-rule = "intro.preview runs the real planner turn alone (Supervisor.preview): no run token, no worker, no task row, no chat entry; every event (plan, one part per planned step, done) carries preview: true. Its context leaves out the owner's live state (running tasks, open questions, earlier chat, notices, schedules, reminders) and keeps the capability facts, recalled memory and today's activity, as a real plan would use. Its session prefix `preview:` is reserved, so chat.send refuses it. FERB.app only."
+rule = "intro.preview runs the real planner turn alone (Supervisor.preview): no run token, no worker, no task row, no chat entry; every event (plan, one part per planned step, done) carries preview: true. Its context leaves out the owner's live state (running tasks, open questions, earlier chat, notices, schedules, reminders) and keeps the capability facts; with no run token it has no lookups (ORCH-516), so no memory or activity. Its session prefix `preview:` is reserved, so chat.send refuses it. FERB.app only."
 why = "The intro's \"it never acts\" holds by construction, not by instruction (AGENTS.md rule 3)."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor.preview", "ferb/orchestrator/continuity.py::RESERVED_SESSIONS", "ferb/daemon/areas/intro.py"]
 live = ["LIVE-500"]
@@ -514,6 +515,37 @@ rule = "A correction records only destinations the owner named, keeps pasted tex
 why = "Unrecorded provenance and secret boundaries (D3/D8/MP2), kept in the test deletion review, 2026-11-02."
 paths = ["ferb/orchestrator/steering.py"]
 legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[ORCH-515]
+title = "The planner gets a small fixed context and looks the rest up with read-only tools"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "yes i agree, and i want to do it. its simple and imo it wil owrk cleanly too, most of teh harnesses actually do this"
+words_source = "Verbatim reply (2026-11-03) agreeing to an agent's proposal: send a small fixed context, look the rest up with read-only gateway tools, stop pushing memory, activity and ended tasks."
+rule = "Every planner turn gets its instructions with Tier 1, the summary and last 20 exchanges (ORCH-303), tasks running or waiting on the owner, open questions and live facts. Memory, older or other chats, this chat's other ended tasks and today's activity are not pushed: the planner looks them up, read-only, through FERB's gateway (ORCH-516). Kept from ORCH-1: the planner changes nothing until it returns; an observation or action on the Mac is a task. Kept from MEM-16: messages and FERB's short replies are in the fused search; chat.history searches by meaning and date, paging from the database."
+why = "A \"hi\" carried ~16.5k characters of retrieved memory and activity it never needed (proposal: no action tools; every lookup through the gateway as worker tools run); the owner judged lookups simple and clean."
+supersedes = ["ORCH-1", "MEM-16", "MEM-28"]
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._supervise", "ferb/orchestrator/supervisor.py::Supervisor._task_state", "ferb/orchestrator/prompts/supervisor.md"]
+live = ["LIVE-708"]
+
+[ORCH-516]
+title = "The planner's lookups run on a narrow run token through the gateway"
+by = "agent"
+date = 2026-11-03
+status = "active"
+rule = "A planner call (not the intro preview: no run token) gets a run token for only PLANNER_TOOLS (memory.read, chat.history, task.evidence, trail.query, trail.days), observe-only, at most PLANNER_LOOKUPS (10) calls, for a live lookup record with no task row lent the turn's chat; all end with the call. Results reach the model as worker results do (redacted, with their origin line); their origins join the turn's and each becomes a planner read on its task, which the sink rule counts. No skill or ability catalog; a tool call restarts the reply draft."
+why = "One shared tool path (AGENTS.md rule 12): the gateway, labels and provenance workers use, nothing planner-only in tool logic. PLANNER_LOOKUPS is a technical bound against a looping call, not a product cap; the owner may change it."
+paths = ["ferb/orchestrator/supervisor.py::PLANNER_TOOLS", "ferb/orchestrator/supervisor.py::Supervisor._lookup_grant", "ferb/daemon/gateway.py::Gateway._admit", "ferb/daemon/auth.py::RunGrant", "ferb/orchestrator/tree.py::TaskTree.hold", "ferb/orchestrator/continuity.py::Continuity.lend", "ferb/orchestrator/reply_stream.py::ReplyDraft.restart"]
+
+[ORCH-517]
+title = "task.evidence reads an earlier task of the caller's conversation by task_id"
+by = "agent"
+date = 2026-11-03
+status = "active"
+rule = "task.evidence takes an optional task_id: a task of the caller's conversation (the conversation of the caller's registered record, never a name), read whole (its tree's tool calls, records and reports) with that task's own origins; any other id is refused. Without it the tool reads the caller's own task as before."
+why = "The planner reads an older task's records instead of having them pushed (ORCH-515); workers get the same one path."
+paths = ["ferb/orchestrator/evidence.py::TaskEvidence", "ferb/store/spans.py::SpanStore._evidence_where", "ferb/daemon/areas/environment.py::Environment._conversation_tasks"]
 
 [ORCH-514]
 title = "The planner's device facts leave out the installed-apps list"

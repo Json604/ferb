@@ -1,23 +1,20 @@
 """L36 §3: one ranked search over content; step 9b: facts searched in memory_items directly, each role within its
 limits (MEM-5)."""
-import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from ferb.memory.learning import digest, search_text
-from ferb.memory.search import PLANNER, WORKER, MemorySearch
+from ferb.memory.search import ATTENTION, WORKER, MemorySearch
 from ferb.orchestrator.context_layers import target_words
-from tests.conftest import chat, install, sup, task
 from tests.support.learning_fixtures import new_store
-from tests.support.live_steer import StalledWorker
 from tests.support.memory_corpus import USERNAME, fact, goal_like_episodes, owner_like_store
 from tests.support.memory_items import owner_fact, run, understood
 from tests.support.permit_audit import MSG_1217, MSG_1222, PERMIT_GOAL, PERMIT_TARGETS, RESEARCH_OFFICIAL
 
 # The Learning.search tests below rank nodes against the pre-9b budgets they were measured with (60 / 20 nodes); the
-# roles' limits now are search.PLANNER / search.WORKER (MEM-5)
+# roles' limits now are search.ATTENTION / search.WORKER (MEM-27)
 NODE_PLANNER_LIMIT, NODE_WORKER_LIMIT = 60, 20
 PLANNER_QUERIES = ["log in to bookslots.com",
                    "Check bookslots.com in Chrome Home_Personal for document check and interview availability",
@@ -84,61 +81,6 @@ def test_long_past_tasks_bury_the_username_unless_the_tasks_targets_are_ranked_a
     assert ranked(busy_store, planner, username["id"], NODE_PLANNER_LIMIT, focus=targets)
 
 
-# decision: MEM-416
-def test_the_planner_recalls_for_the_work_its_message_continues(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A planner turn's memory query adds the goals and targets of the tasks its task layers show: the owner's 12:17
-    message, sent while the permit task runs in the same chat, brings the username into the planner's memory. The fillers
-    hold every word the message shares with the username's fact ("is"), so only the task's words can recall it; the same
-    message in a chat with no task (the negative control) leaves it out."""
-    for i in range(6):
-        owner_fact(daemon, f"hose_{i}", f"the garden hose {i} is a good thing for this and then what")
-    understood(daemon, "bookslots_username", USERNAME, subject="account:bookslots")   # search only (FERB's understanding)
-    worker = StalledWorker(monkeypatch)
-    script = install(daemon, [sup("task", "Looking.", task(PERMIT_GOAL, apps=("Chrome Home_Personal",),
-                                                           sites=("bookslots.com",)))])
-    first: list[dict[str, Any]] = []
-    thread = threading.Thread(target=lambda: first.extend(chat(daemon, "look for permit slots", session="permit")))
-    thread.start()
-    try:
-        assert worker.started.wait(5)
-        script.sup.append(sup("reply", "Here is a strategy."))
-        chat(daemon, MSG_1217, session="permit", timeout=5)
-        planner = [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
-        assert USERNAME in planner
-        script.sup.append(sup("reply", "Here is a strategy."))
-        chat(daemon, MSG_1217, session="elsewhere", timeout=5)       # another chat: its planner sees no permit task
-        planner = [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
-        assert MSG_1217 in planner and USERNAME not in planner
-    finally:
-        worker.release.set()
-        thread.join(5)
-
-
-# decision: MEM-416
-def test_the_planners_12_17_turn_recalls_the_username_in_a_busy_store(daemon: Any,
-                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fix round: the planner's focus is the targets of the tasks its task layers show (Ruling 12a). Among long past
-    tasks that share the permit goal's words, the 12:17 message sent while the permit task runs still brings the username
-    into the planner's 60."""
-    run(daemon, lambda: (owner_like_store(daemon.daemon.learning), goal_like_episodes(daemon.daemon.learning)))
-    understood(daemon, "bookslots_username", USERNAME, subject="account:bookslots")   # search only (FERB's understanding)
-    worker = StalledWorker(monkeypatch)
-    script = install(daemon, [sup("task", "Looking.", task(PERMIT_GOAL, apps=("Chrome Home_Personal",),
-                                                           sites=("bookslots.com",)))])
-    first: list[dict[str, Any]] = []
-    thread = threading.Thread(target=lambda: first.extend(chat(daemon, "look for permit slots", session="permit")))
-    thread.start()
-    try:
-        assert worker.started.wait(5)
-        script.sup.append(sup("reply", "Here is a strategy."))
-        chat(daemon, MSG_1217, session="permit", timeout=5)
-        planner = [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
-        assert USERNAME in planner
-    finally:
-        worker.release.set()
-        thread.join(5)
-
-
 # decision: MEM-6
 def test_common_words_find_nothing_with_an_embedding_model_too(store: Any) -> None:
     """m5: similarity alone would rank every node; a query whose words all carry no weight finds nothing."""
@@ -174,7 +116,7 @@ def embeddings_hash(text: str) -> str:
 
 
 # decision: MEM-5, MEM-27
-def test_the_planner_gets_at_most_its_limit_best_first(daemon: Any) -> None:
+def test_a_role_gets_at_most_its_limit_best_first(daemon: Any) -> None:
     """MEM-5 (step 9b): retrieved memory is within the role's limits, best first, never protected; what is left out
     is one counted line."""
     for i in range(80):
@@ -183,8 +125,8 @@ def test_the_planner_gets_at_most_its_limit_best_first(daemon: Any) -> None:
         understood(daemon, f"bicycle_{i}", f"bicycle note {i}: oil the chain", subject="project:garage")
     found = daemon.run(daemon.daemon._learning_candidates("how should I grow tomato plants"))
     *items, more = found
-    assert len(items) <= PLANNER.memory_items and all("tomato" in c["text"] for c in items)
-    assert sum(len(c["text"]) for c in items) <= PLANNER.memory_tokens * 4
+    assert len(items) <= ATTENTION.memory_items and all("tomato" in c["text"] for c in items)
+    assert sum(len(c["text"]) for c in items) <= ATTENTION.memory_tokens * 4
     assert "more matching memories left out" in more["text"]
     worker = daemon.run(daemon.daemon._learning_candidates("how should I grow tomato plants", WORKER))
     assert len(worker) - 1 <= WORKER.memory_items

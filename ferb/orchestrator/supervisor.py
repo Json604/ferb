@@ -148,13 +148,21 @@ async def _value(result: Any) -> Any:
 
 # A scheduled run whose task stream ended with no outcome: code knows only that
 NO_OUTCOME = "I couldn't finish this scheduled run: it ended without reporting an outcome. " + BUG
-ATTEMPTS_TOKENS = 2000      # this chat's ended tasks in the planner's task block: newest that fit
+WAITING_TOKENS = 2000       # this chat's ended tasks waiting on the owner in the planner's task block: newest that fit
 # ORCH-303 (owner, 2026-10-30, "Recent + summary"): the planner reads the last RECENT_EXCHANGES exchanges word for word
 # (an owner message and FERB's replies to it) plus FERB's running summary of everything older. The token caps are
 # technical rulings (step 8c), all here:
-# Roles that run without tools (the planner, ORCH-1; the question router; attention): their instructions name no
-# lookup tool or catalog (kb area memory, kb area prompts)
-TOOLLESS_ROLES = frozenset({"supervisor.md", "question.md", "attention.md"})
+# Roles that run without tools (the question router; attention): their instructions name no lookup tool or catalog
+# (kb area memory, kb area prompts). The planner looks things up (ORCH-515) but gets no skill or ability catalog: its
+# lookups are read-only and described by their own tools (PRM-314).
+TOOLLESS_ROLES = frozenset({"question.md", "attention.md"})
+NO_CATALOG_ROLES = TOOLLESS_ROLES | {"supervisor.md"}
+# ORCH-516: the planner's lookups, read-only through FERB's gateway on a run token that covers only these tools; at most
+# PLANNER_LOOKUPS calls per planner call (an agent's technical bound against a looping call; the 90 s limit still holds)
+PLANNER_TOOLS = frozenset({"memory.read", "chat.history", "task.evidence", "trail.query", "trail.days"})
+PLANNER_SCOPES = frozenset({"task:read", "trail:read"})
+PLANNER_LOOKUPS = 10
+LOOKUPS = ".lookups"                # a planner turn's lookup record: its request id with this suffix (no task row)
 RECENT_EXCHANGES = 20               # owner decision: the last 20 exchanges, always, never folded or dropped
 RECENT_CONVERSATION_TOKENS = 15_000  # with FOLD_CHUNK_TOKENS, a whole tail past both folds what lies beyond the 20
 FOLD_CHUNK_TOKENS = 20_000          # the unfolded tail folds once it holds this much beyond them; one summary call
@@ -396,6 +404,7 @@ class _Turn:
     schedule_previous: dict[str, Any] | None = None
     turn_origins: set[str] = field(default_factory=set)          # what its planner saw (S3)
     exposures: list[dict[str, Any]] = field(default_factory=list)
+    looked: int = 0                  # the last planner lookup carried into `exposures` (its span rowid, ORCH-516)
     assembly: Assembly | None = None
     planner_sources: str = ''
     inventory: Any = None
@@ -818,7 +827,6 @@ class Supervisor(WorkerRuns):
         # Memory and learning (MemoryPort; L28, L29, L36 §4)
         self.memory_candidates: Callable[[str, str], Any] | None = memory.memory_candidates
         self.memory_push: Callable[[str, str], Any] | None = memory.memory_push
-        self.old_chat: Callable[[str, set[str]], Any] | None = memory.old_chat
         self.identity_context: Callable[[], str] = memory.identity_context
         self.on_episode: Callable[[str], Any] = memory.on_episode
         self.skills_catalog: Callable[[], list[dict[str, str]]] = environment.skills_catalog
@@ -894,7 +902,7 @@ class Supervisor(WorkerRuns):
         profile = self.identity_context()
         if profile:
             text += '\n\n' + profile
-        if name not in TOOLLESS_ROLES:                # only roles with tools are told about lookup tools
+        if name not in NO_CATALOG_ROLES:              # only roles that can read them are told of the catalogs
             text += ('\nOwner-written skills (read bodies with skills.read only when relevant):\n'
                      + json.dumps(self.skills_catalog()))
             text += ('\nBuilt-in FERB abilities (abilities.list reports availability; read a relevant procedure with '
@@ -1560,15 +1568,15 @@ class Supervisor(WorkerRuns):
                                                    'borrowed': bool(data.get('borrowed'))})
         return self.pause_tree(tree.id, question, options, capability=capability)
 
-    def _task_state(self, session: ChatSession) -> tuple[tuple[ContextBlock, set[str]] | None, list[str]]:
+    def _task_state(self, session: ChatSession) -> tuple[ContextBlock, set[str]] | None:
         """The planner's task state, shown once (ORCH-303; it was in up to four blocks): every running task of any
         chat or schedule (the planner may stop, retry, continue or pause any of them: cross-chat control) with its
         state (running; paused while it or one of its loops waits for the owner, with that question; blocked when its
         latest report or a plan step is stuck; stopping), latest report, plan steps, loops and standing scope; then
-        this chat's ended tasks, newest first, as many as fit ATTEMPTS_TOKENS (a scheduled run's planner starts fresh:
-        its earlier runs are its conversation). Progress questions are answered from these, never from the chat (owner
-        2026-10-18). Model-written goals and reports: the block carries those tasks' origins (MP2). Also the ended task
-        ids it shows."""
+        this chat's ended tasks that wait on the owner (needs_user). Its other ended tasks are looked up (ORCH-515:
+        chat.history include_tasks, task.evidence task_id); a scheduled run's planner starts fresh: its earlier runs are
+        its conversation. Progress questions are answered from these, never from the chat (owner 2026-10-18).
+        Model-written goals and reports: the block carries those tasks' origins (MP2)."""
         mine = self.continuity.task_ids(session.id)
         running: list[dict[str, Any]] = []
         origins: set[str] = {origins_.INFERRED}
@@ -1610,33 +1618,33 @@ class Supervisor(WorkerRuns):
             running.append(row)
             origins |= self._task_line_origins(key)
             refs.append(TASK + key)
-        ended: list[dict[str, Any]] = []
-        shown: list[str] = []
+        waiting: list[dict[str, Any]] = []
         omitted = 0
         if not session.id.startswith(SCHEDULE_SESSION):
             used = 0
-            candidates = [r for r in self.continuity.candidates(session.id) if r["task_id"] not in self._tree_of]
+            candidates = [r for r in self.continuity.candidates(session.id)
+                          if r["task_id"] not in self._tree_of and r["status"] == "needs_user"]
             for n, r in enumerate(candidates):
                 # its report is in the conversation (short form) or the summary, never repeated here
                 row = {"task_id": r["task_id"], "goal": first_line(r["goal"]), "state": r["status"]} | (
                     {"continued_from": r["prior_task"]} if r.get("prior_task") else {})
                 cost = count_tokens(json.dumps(row))
-                if ended and used + cost > ATTEMPTS_TOKENS:
+                if waiting and used + cost > WAITING_TOKENS:
                     omitted = len(candidates) - n
                     break
-                ended.append(row)
-                shown.append(r["task_id"])
+                waiting.append(row)
                 used += cost
                 origins |= self._task_line_origins(r["task_id"])
                 refs.append(TASK + r["task_id"])
-        if not running and not ended:
-            return None, shown
-        facts: dict[str, Any] = {"running": running, "ended_in_this_chat": ended}
+        if not running and not waiting:
+            return None
+        facts: dict[str, Any] = {"running": running, "waiting_on_the_owner_in_this_chat": waiting}
         if omitted:
-            facts["older_ended_not_shown"] = f"{omitted} (chat.history include_tasks=true)"
-        return (ContextBlock("Layer 6 — tasks: the task status facts (FERB's own records; each task once; data):\n" +
+            facts["older_waiting_not_shown"] = f"{omitted} (chat.history include_tasks=true)"
+        return (ContextBlock("Layer 6 — tasks: the task status facts (FERB's own records; each task once; data; this "
+                             "chat's other ended tasks: chat.history include_tasks=true):\n" +
                              wrap_untrusted(json.dumps(facts, ensure_ascii=False)), "chat.history include_tasks=true",
-                             protected=True, source_refs=tuple(refs)), origins), shown
+                             protected=True, source_refs=tuple(refs)), origins)
 
     def _paused_words(self, tree_id: str, step_id: str) -> str:
         """The question of a loop's latest round as journaled (no round runs while it waits): its first line."""
@@ -1915,7 +1923,8 @@ class Supervisor(WorkerRuns):
                 await asyncio.gather(think, return_exceptions=True)
             if not run.restart:
                 break
-            # the planner changes nothing until it returns, so its turn starts again with every message (ORCH-1)
+            # the planner changes nothing until it returns (its lookups only read), so its turn starts again with every
+            # message (ORCH-515)
             self.journal.append("chat.restarted", {"session_id": session_id, "request_id": run.lead.request_id,
                                                    "messages": [a.request_id for a in run.arrivals]})
         run.thinking = False
@@ -2609,22 +2618,20 @@ class Supervisor(WorkerRuns):
         4, target design 5): its instructions (with the facts that hold across turns), the stable device facts, FERB's
         running summary of the older chat, every entry after it (append-only: at least the last RECENT_EXCHANGES
         exchanges; older ones fold into the summary a chunk at a time, `_keep_recent`); then what changes every turn:
-        the live facts (schedules, reminders, browser connections), relevant memory, today's activity, the time, the
-        owner's front window at send, the task state (shown once) and the questions the owner can answer in chat; last
-        the owner's new message. `emit` streams the reply's draft; `notify` is the turn's live line for a lost
-        connection (fix wave 7): the owner's chat stream, never a scheduled run's."""
-        rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
+        the live facts (schedules, reminders, browser connections), the time, the owner's front window at send, the
+        running tasks and those waiting on the owner (shown once) and the questions the owner can answer in chat; last
+        the owner's new message. Memory, older chat, earlier tasks and today's activity are not pushed (ORCH-515): the
+        planner looks them up when it needs them, read-only, through the gateway (`_lookup_grant`, ORCH-516). `emit`
+        streams the reply's draft; `notify` is the turn's live line for a lost connection (fix wave 7): the owner's
+        chat stream, never a scheduled run's."""
+        lookups = self._lookup_tools(turn)
+        rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=lookups, schema=SUPERVISOR_SCHEMA)
         session = turn.session
         conversation, ages = self._conversation_blocks(turn.request_ids, session.id)
-        # today's activity: one search, off the event loop, shared by its text and its source refs
-        activity_source = await asyncio.to_thread(self.relevant_context, turn.payload)   # within ACTIVITY limits
-        activity, activity_origin = _labeled(activity_source)
-        activity_payload = _context_payload(activity_source)
-        activity_refs = _context_refs(activity_source) or []
         env = turn.environment
         stable_text = (str(env["stable"]) + "\n\n") if env.get("stable") else ""
         # Each block with where its text came from (S3): the Mac inventory and running apps are FERB-measured owner
-        # state; memory, activity and history carry their stored labels; task goals and reports are model-written.
+        # state; history carries its stored labels; task goals and reports are model-written.
         stable: list[tuple[ContextBlock, set[str]]] = [
             (ContextBlock('Layer 1 — stable device and capabilities:\n' + stable_text,
                           "actions.search and current device facts", protected=True, cache=True),
@@ -2638,31 +2645,7 @@ class Supervisor(WorkerRuns):
                                            "current device facts", protected=True), {origins_.PRIVATE}))
         # a preview's turn (the intro's demo) plans its one request: no running task, open question or earlier chat of
         # the owner's is in it (nor a notice: continuity.RESERVED_SESSIONS), so it can't answer or control any of them
-        tasks_block, ended = self._task_state(session) if not turn.preview else (None, [])
-        task_words, task_targets = self._chat_task_words(session, ended) if not turn.preview else ("", "")
-        recall_for = "\n".join(part for part in (turn.payload, task_words) if part.strip())
-        # Memory is recalled for the message and the work it may continue (L36 §3, Ruling 12a), that work's targets
-        # also ranked alone (L36 §4 fix round)
-        situation.extend(await self._memory_blocks(recall_for, focus=task_targets))
-        # earlier exchanges matching the message (fix list, owner 2026-10-31), never one already in the conversation
-        shown_entries = {"journal:" + ref.removeprefix(ENTRY) for block, _ in conversation
-                         for ref in block.source_refs if ref.startswith(ENTRY)}
-        shown_entries |= {"journal:" + e.id for e in turn.entries}
-        # (an owner chat's turn only: a scheduled run's request is the schedule's, never the owner's words of now)
-        old = await _value(self.old_chat(turn.payload, shown_entries)) \
-            if self.old_chat is not None and not session.id.startswith(SCHEDULE_SESSION) and not turn.preview \
-            else None
-        if old:
-            situation.append((ContextBlock("Layer 4 — earlier conversation matching this message (data; older entries "
-                                           "than the conversation above, best match first):\n" + old["text"],
-                                           "chat.history", protected=False, source_refs=tuple(old["refs"]),
-                                           payload=old["text"]), origins_.split(old["origin"])))
-        # optional, not protected (live 2026-10-28): activity too large for one input becomes a fetch reference, never
-        # a failed message
-        situation.append((ContextBlock("Layer 3 — today's activity (data):\n" + activity,
-                                       "task.evidence query=context.source; memory.read; trail.query",
-                                       protected=False, source_refs=tuple(activity_refs), payload=activity_payload),
-                          origins_.split(activity_origin)))
+        tasks_block = self._task_state(session) if not turn.preview else None
         owner_active, last_event = self.signals()
         since, since_origins, since_refs, since_texts = (self._since_last_talk(turn.request_ids) if not turn.preview
                                                          else ([], set(), [], []))
@@ -2693,8 +2676,7 @@ class Supervisor(WorkerRuns):
                                    source_refs=tuple("journal:" + e.id for e in turn.entries)),
                       turn.message_origin or {origins_.external("unlabeled")}))
         sourced = stable + situation + state
-        blocks = [dataclasses.replace(block, origin=origins_.join(made))
-                  if block.source_refs or block.text.startswith(('Layer 3 —', 'Layer 4 —')) else block
+        blocks = [dataclasses.replace(block, origin=origins_.join(made)) if block.source_refs else block
                   for block, made in sourced]
         # The situation's full texts are also attached to a task as its planner snapshot (task.evidence planner-context).
         turn.planner_sources = json.dumps([
@@ -2712,10 +2694,11 @@ class Supervisor(WorkerRuns):
         draft = (ReplyDraft(self.gateway.redact, emit, shape.field if getattr(shape, "mapped", False) else None)
                  if emit is not None and isinstance(self.gateway.redact, Redactor) else None)
         usage: dict[str, Any] = {}
+        token, looker = self._lookup_grant(turn, span.id, lookups)
         try:
-            final = await self._run(rt, chat_task, self._system("supervisor.md", live=False), ctx, "", span.id, None,
-                                    "", on_usage=usage.update, images=images, notify=notify,
-                                    **({'on_delta': draft.feed} if draft else {}))
+            final = await self._run(rt, chat_task, self._system("supervisor.md", live=False), ctx, token, span.id,
+                                    None, "", on_usage=usage.update, images=images, notify=notify,
+                                    on_delta=draft.feed if draft else None, on_tool=draft.restart if draft else None)
             result = SupervisorOutcome.model_validate_json(final)
             if draft:
                 draft.finish(final)
@@ -2724,6 +2707,7 @@ class Supervisor(WorkerRuns):
                 given = [(block, made) for block, (_, made) in zip(ctx, sourced) if block.text]
                 turn.turn_origins = {o for (block, made), seen in zip(given, assembly.shown)
                                      if seen or not block.history for o in made}
+            self._lookups_read(turn)       # and what it looked up, each result with its recorded origins (S3, S4)
             # cached input tokens per turn (L28): the provider's count, next to the turn it belongs to
             self.spans.finish(span, output={"text": final, "usage": {k: usage[k] for k in (
                 "input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens", "reasoning_tokens")
@@ -2733,17 +2717,64 @@ class Supervisor(WorkerRuns):
             if draft:
                 draft.abort()
             self.spans.finish(span, output={"text": locals().get("final", "")}, error=f"{type(exc).__name__}: {exc}")
+            self._lookups_read(turn)       # a failed turn's lookups still count for a repair's or retry's answer
             # Only a model call that failed before any answer existed (a service or protocol error, no answer) is
             # retried without the image; an answer that doesn't validate goes to _decide's repair as before.
             if not (images and isinstance(exc, (ServiceError, ValueError))
                     and not isinstance(exc, (ValidationError, InvalidAnswer))):
                 raise
             refused = type(exc).__name__
+        finally:
+            self._lookups_end(turn, looker)
         # L12: a model that won't take the screenshot must not fail the message: once more without it, saying so
         self.journal.append("screen.image_refused", {"request_id": turn.request_id, "error": refused})
         assert turn.screen is not None
         turn.screen = {**turn.screen, "front_image": None, "image_withheld": IMAGE_REFUSED}
         return await self._supervise(turn, repair, emit=emit, notify=notify)
+
+    def _lookup_tools(self, turn: _Turn) -> list[str]:
+        """The planner's read-only lookups that are installed (ORCH-515, ORCH-516); none for the intro's preview, which
+        runs with no run token (ORCH-500)."""
+        return [] if turn.preview else sorted(name for name in PLANNER_TOOLS if name in self.gateway.caps)
+
+    def _lookup_grant(self, turn: _Turn, span_id: str, tools: list[str]) -> tuple[str, str]:
+        """A planner call's run token and its holder (ORCH-516): only `tools`, observe-only, at most PLANNER_LOOKUPS
+        calls, for a live record with no task row (`TaskTree.hold`) lent this chat's conversation, so chat.history and
+        task.evidence read this chat. Its holder is the call's own watch id: a lookup is a sign of life. ("", "") when
+        the call has no lookups."""
+        if not tools:
+            return "", ""
+        task_id, holder = turn.request_id + LOOKUPS, "call:" + span_id
+        self.tasks.hold(TaskRecord(Task(task_id, None, "the planner's lookups", self.device_id, Identity.OWNER,
+                                        set(PLANNER_SCOPES), "mixed", turn.request_id, [], None),
+                                   self.clock.now(), span_id, task_id))
+        self.continuity.lend(task_id, turn.session.id)
+        token = self.tokens.issue(task_id, holder, set(PLANNER_SCOPES), Identity.OWNER,
+                                  ttl_s=3 * max(self.planner_limit_s, 60.0), observe_only=True,
+                                  tools=frozenset(tools), max_calls=PLANNER_LOOKUPS)
+        return token, holder
+
+    def _lookups_end(self, turn: _Turn, holder: str) -> None:
+        """A planner call ended: its token, call count, live record and lent conversation go."""
+        if not holder:
+            return
+        self.tokens.revoke_worker(holder)
+        self.gateway.forget_calls(holder)
+        self.tasks.remove(turn.request_id + LOOKUPS)
+        self.continuity.unlend(turn.request_id + LOOKUPS)
+
+    def _lookups_read(self, turn: _Turn) -> None:
+        """What this turn's planner looked up is what it read (S3, S4), through the records the gateway keeps: each
+        result's recorded origins join the turn's (its reply and task carry them, MP2), and each new result becomes one
+        of the turn's exposures, so its task records it as a planner read and the sink rule counts it."""
+        rows = self.spans.tool_outputs(turn.request_id + LOOKUPS)
+        turn.turn_origins |= {o for _, made, _ in rows for o in made}
+        for rowid, made, text in rows:
+            if rowid > turn.looked:
+                turn.exposures.append({"text": text, "origin": origins_.join(made), "source_refs": [],
+                                       "reference": "a lookup by this request's planner (its tool call in the trace)",
+                                       "payload": text})
+                turn.looked = rowid
 
     def _questions_block(self, session: ChatSession) -> tuple[ContextBlock, set[str]]:
         """The open questions the owner's chat message can answer (the planner routes an answer by id, L3): only those
@@ -2853,21 +2884,6 @@ class Supervisor(WorkerRuns):
             ages[tag[1:-2]] = item.at
             shown.append(dataclasses.replace(item, text=f"{tag}{item.text}\n[Full source: {item.reference}]"))
         return shown, ages
-
-    def _chat_task_words(self, session: ChatSession, ended: list[str]) -> tuple[str, str]:
-        """The goals and targets of the tasks this chat's planner sees in its task block (L36 §3): this chat's running
-        tasks and the ended ones it is shown (`ended`); and their targets alone, which the search also ranks alone (L36
-        §4 fix round). An owner message that shares no word with a remembered fact still recalls it when the work it
-        continues names the site."""
-        mine = self.continuity.task_ids(session.id)
-        specs = [tree.spec for key, tree in self._tree_of.items() if key == tree.id and key in mine]
-        for task_id in ended:
-            saved = None if task_id in self._tree_of else self.continuity.load(task_id, session.id)
-            if saved is not None:
-                specs.append(saved[0])
-        targets = [target_words(spec.targets) for spec in specs]
-        return ("\n".join(part for spec, aimed in zip(specs, targets) for part in (spec.goal, aimed) if part.strip()),
-                " ".join(aimed for aimed in targets if aimed.strip()))
 
     def _task_line_origins(self, task_id: str) -> set[str]:
         """A task's planner-written goal and recorded state, with what that task was given (S3, MP2)."""

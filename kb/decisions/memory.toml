@@ -164,10 +164,11 @@ legacy = "notes/memory.md decision 18"
 title = "Old chat is searchable by meaning"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-515"
 words_source = "notes/memory.md fix list \"Old chat searchable by meaning (owner, 2026-10-31)\": an agent's paraphrase; no verbatim quote"
 rule = "The owner's messages and FERB's short replies are indexed in the same fused search as facts and episodes. The planner gets the few old exchanges matching the current message. chat.history searches by meaning and by date and reads pages from the database instead of loading the whole history."
-paths = ["ferb/memory/search.py::MemorySearch.index_chat", "ferb/daemon/areas/memory.py::MemoryGlue._old_chat"]
+paths = ["ferb/memory/search.py::MemorySearch.index_chat"]
 legacy = "notes/memory.md fix list, Facts"
 
 [MEM-17]
@@ -212,7 +213,7 @@ title = "Replacement on save never ends the owner's words by a lesser version"
 by = "agent"
 date = 2026-10-31
 status = "active"
-rule = "The planner sees similar existing facts and names any a new fact replaces (`replaces`, ids checked by code); the \"Memory: noted\" line names what was replaced. A version resting on the owner's words now ends every current version of its fact and the named ids that hold; any other version never ends one the owner stated. Identical words are credited to the existing item (the owner's first), never a twin."
+rule = "The planner looks up similar existing facts when a new one may replace one (memory.read, ORCH-515; Tier 1's facts are in its prompt) and names any a new fact replaces (`replaces`, ids checked by code); the \"Memory: noted\" line names what was replaced. A version resting on the owner's words now ends every current version of its fact and the named ids that hold; any other version never ends one the owner stated. Identical words are credited to the existing item (the owner's first), never a twin."
 evidence = "Live case 2026-10-31: appointment_preferences kept \"notify me before booking\" after the owner said to just book."
 paths = ["ferb/memory/items.py::Memory.save", "ferb/memory/items.py::Memory._replaceable"]
 legacy = "notes/memory.md Rulings (step 9a): replacement"
@@ -271,19 +272,19 @@ title = "Retrieval limits per role"
 by = "agent"
 date = 2026-10-31
 status = "active"
-rule = "Planner: facts + learned items <= 4,000 tokens and <= 20 items, old chat <= 2,000 tokens and <= 5 exchanges, today's activity <= 2,000 tokens. Worker: 2,000 tokens / 10 items, no pushed chat, activity 2,000. What doesn't fit is one counted line naming memory.read / memory.learned / trail.query. Lookup tools rank at most 100."
+rule = "Worker and plan step: facts + learned items <= 2,000 tokens and <= 10 items, no pushed chat, today's activity <= 2,000 tokens. The background attention check (tool-less): facts + learned items <= 4,000 tokens and <= 20 items (search.ATTENTION). The planner is pushed no memory, chat or activity (2026-11-03, ORCH-515): it looks them up. What doesn't fit is one counted line naming memory.read / memory.learned / trail.query. Lookup tools rank at most 100."
 why = "Bounds size, not only item count, so prompts stay within limits as memory grows (MEM-5)."
 rejected = ["The 2026-10-24 item budgets (planner 60, worker 20): they bounded items, not size"]
-paths = ["ferb/memory/search.py::PLANNER", "ferb/memory/search.py::WORKER"]
+paths = ["ferb/memory/search.py::ATTENTION", "ferb/memory/search.py::WORKER"]
 legacy = "notes/memory.md Rulings (step 9b): limits per role (coordinator 2026-10-31)"
 
 [MEM-28]
 title = "Which old chat a planner turn gets"
 by = "agent"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-515"
 rule = "A planner turn gets exchanges from any owner chat matching the message (the owner's words + FERB's short reply), never an entry already in its conversation or among this turn's messages, and none in a scheduled run's turn."
-paths = ["ferb/daemon/areas/memory.py::MemoryGlue._old_chat"]
 legacy = "notes/memory.md Rulings (step 9b): a planner turn's old chat"
 
 [MEM-29]
@@ -523,11 +524,11 @@ rule = "Memory import covers ChatGPT, claude.ai, Claude Code, Codex CLI and Gemi
 untestable = "A product-scope choice (which assistants, none added); each of the five readers is tested under MEM-403."
 
 [MEM-416]
-title = "A fact named only by a task's targets reaches that task's planner and steps"
+title = "A fact named only by a task's targets reaches that task's worker and steps"
 by = "agent"
 date = 2026-11-02
 status = "active"
-rule = "A fact that only a running task's targets name (the permit task's username) is recalled into that task's planner turns and its worker and plan steps within their memory limits, with the parent task's goal shown above a step's own, even among many past tasks that share the goal's words."
+rule = "A fact that only a running task's targets name (the permit task's username) is recalled into that task's worker and plan steps within their memory limits (2026-11-03: planner turns are pushed no memory and look it up, ORCH-515), with the parent task's goal shown above a step's own, even among many past tasks that share the goal's words."
 why = "Past bug, live 2026-10-24: the permit task's research step got no memory and typed the owner's email as the username."
 paths = ["ferb/memory/search.py"]
 legacy = "test deletion review 2026-11-02 (kept guard)"

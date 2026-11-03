@@ -82,6 +82,16 @@ class Environment:
             return None
         return parent.task.id
 
+    def _conversation_tasks(self, task_id: str) -> set[str]:
+        """The tasks of the conversation a running task (or the planner's lookup turn) belongs to: what task.evidence's
+        task_id may read (ORCH-517). From the registered live record's tree and the stored chat, never from a name."""
+        rec = self.tasks.get(task_id)
+        if rec is None or self.supervisor is None:
+            return set()
+        continuity = self.supervisor.continuity
+        conversation = continuity.conversation_of(rec.tree_id or task_id)
+        return continuity.task_ids(conversation) if conversation is not None else set()
+
     async def _loop_rest(self, task_id: str, resting: bool) -> None:
         """A loop's round starts or ends (L31): each browser driver gives the owner's held tab its file picker back
         between rounds, or takes it for the round (`_TabDriver.rest`, extension 0.15.10+)."""
@@ -116,14 +126,14 @@ class Environment:
         from ferb.sanitize.untrusted import wrap_untrusted
         from ferb.sense.tools import trail_sources
         activity = self.daily_activity.search(words)        # the turn's one search (L28): text and refs share it
-        from ferb.memory.search import PLANNER, tokens
+        from ferb.memory.search import WORKER, tokens
         from ferb.sense.daily import without_queries
         activity = without_queries(activity)               # addresses without query strings (live 2026-10-28)
         # ORCH-307 (step 9b): within the activity limit, best first, never a row cut; the rest counted
         kept, used = [], 0
         for row in activity:
             cost = tokens(json.dumps(row, ensure_ascii=False))
-            if used + cost <= PLANNER.activity_tokens:
+            if used + cost <= WORKER.activity_tokens:
                 kept.append(row)
                 used += cost
         left_out = len(activity) - len(kept)

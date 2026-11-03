@@ -10,7 +10,6 @@ from typing import Any
 
 from ferb.memory.learning import how_note, search_text, shown_text
 from ferb.memory.profile import CoreProfile
-from ferb.memory.search import PLANNER
 from ferb.orchestrator import episodes
 from tests.conftest import FakeDistillRuntime, chat, done, install, sup, task, tool
 from tests.support.fake_embedder import FakeEmbedder
@@ -47,7 +46,7 @@ def planner_context(script: Any) -> str:
 
 # ---------- the fused search (MEM-6) ----------
 
-# decision: MEM-6, MEM-16, MEM-26
+# decision: MEM-6, ORCH-515, MEM-26
 def test_one_search_finds_facts_past_tasks_and_old_chat_by_meaning(daemon: Any) -> None:
     """None of these share a word with the query; the local model's nearest find them (keywords alone don't)."""
     d = daemon.daemon
@@ -61,26 +60,44 @@ def test_one_search_finds_facts_past_tasks_and_old_chat_by_meaning(daemon: Any) 
     assert any("I am learning piano" in t for t in found)
     mail = [c["text"] for c in daemon.run(d._learning_candidates("my mailing routine"))]
     assert any("Send outreach emails to recruiters" in t for t in mail)
-    old = daemon.run(d._old_chat("melody practice", set()))
-    assert old is not None and "which keyboard should I buy" in old["text"] and "61-key" in old["text"]
+    old = chat_found(daemon, "melody practice")                          # chat.history's search
+    assert "which keyboard should I buy for sonatas" in old and "A 61-key keyboard is fine." in old
     d.learning.embedder = None                                           # keywords alone: none of them
     assert not [c for c in daemon.run(d._learning_candidates("melody chords for a newbie")) if "piano" in c["text"]]
-    assert daemon.run(d._old_chat("melody practice", set())) is None
+    assert chat_found(daemon, "melody practice") == []
 
 
-# decision: MEM-16, MEM-28
-def test_the_planner_gets_matching_old_exchanges_never_one_already_shown(daemon: Any) -> None:
-    said(daemon, "what sonatas suit a beginner", "s-old", "r-old", reply="Try Clementi's Sonatina in C.")
-    script = install(daemon, [sup("reply", "Sure."), sup("reply", "Sure.")])
-    chat(daemon, "any easy sonatas I could practise?", session="s-new")
+def chat_found(daemon: Any, words: str) -> list[str]:
+    """The conversation entries the fused search finds for `words` (what chat.history's query ranks), their texts."""
+    d = daemon.daemon
+
+    async def go() -> list[str]:
+        vector, _ = await d._query_vector(words)
+        return [str(hit.data["text"]) for hit in d._memory_search().chat(words, vector=vector,
+                                                                          kinds=("chat.message", "chat.reply"))]
+    return daemon.run(go())                  # type: ignore[no-any-return]
+
+
+# decision: ORCH-515
+def test_the_planner_is_pushed_no_old_exchanges_and_finds_them_with_chat_history(daemon: Any) -> None:
+    """MEM-16's push of matching old exchanges from other chats is gone (ORCH-515); the planner finds older entries
+    with chat.history, which searches its chat by meaning and keywords."""
+    said(daemon, "what sonatas suit a beginner", "s1", "r-old", reply="Try Clementi's Sonatina in C.")
+    said(daemon, "what sonatas suit a beginner", "s-other", "r-other", reply="Try Kuhlau's Sonatina.")
+    found: list[dict[str, Any]] = []
+
+    def look(token: str) -> str:
+        found.append(tool(daemon.sock, token, "chat.history", query="easy sonatas for a beginner"))
+        return sup("reply", "Earlier I suggested Clementi's Sonatina in C.")
+    script = install(daemon, [look])
+    chat(daemon, "which sonatas did you suggest before?")
     ctx = planner_context(script)
-    assert "Layer 4 — earlier conversation matching this message" in ctx and "Clementi" in ctx
-    chat(daemon, "more sonatas please", session="s-old")                  # that chat's own entries are in its history
-    ctx = planner_context(script)
-    assert "earlier conversation matching" not in ctx and ctx.count("Clementi") == 1
+    assert "Kuhlau" not in ctx and "earlier conversation matching" not in ctx     # another chat's: not pushed
+    shown = json.dumps(found[0]["content"])
+    assert not found[0]["is_error"] and "what sonatas suit a beginner" in shown and "r-other" not in shown
 
 
-# decision: MEM-16
+# decision: ORCH-515
 def test_chat_history_finds_by_meaning_and_date_and_pages_from_the_database(daemon: Any) -> None:
     d = daemon.daemon
     d.learning.embedder = FakeEmbedder()
@@ -120,9 +137,14 @@ def test_facts_are_searched_in_memory_items_with_no_copies_in_learning_nodes(dae
     from ferb.memory.upgrade import close_fact_nodes
     d = daemon.daemon
     item = understood(daemon, "dentist", "my dentist is Dr. Rao", subject="person:dr_rao")
-    script = install(daemon, [sup("reply", "Dr. Rao.")])
+    found: list[dict[str, Any]] = []
+
+    def look(token: str) -> str:                          # the planner looks it up (ORCH-515)
+        found.append(tool(daemon.sock, token, "memory.read", query="my dentist"))
+        return sup("reply", "Dr. Rao.")
+    install(daemon, [look])
     chat(daemon, "who is my dentist?")
-    assert "my dentist is Dr. Rao" in planner_context(script)
+    assert "my dentist is Dr. Rao" in json.dumps(found[0]["content"])
     assert daemon.run(d._memory_item_search("dentist")) == [item.id]
     count = run(daemon, lambda: d.db.conn.execute(
         "SELECT COUNT(*) FROM learning_nodes WHERE kind IN ('fact', 'identity')").fetchone()[0])
@@ -150,8 +172,8 @@ def test_an_older_builds_fact_copies_close_once(tmp_path: Any) -> None:
 
 # ---------- limits (MEM-5) ----------
 
-# decision: MEM-5, MEM-27
-def test_the_planners_memory_old_chat_and_activity_stay_within_their_limits_whatever_the_store(daemon: Any) -> None:
+# decision: MEM-5, ORCH-515
+def test_the_planners_context_doesnt_grow_with_the_store(daemon: Any) -> None:
     """Coordinator 2026-10-31 (MEM-5): 10,000 facts, hundreds of past tasks and a long chat history give the planner
     the same bounded blocks as a small store."""
     d = daemon.daemon
@@ -188,15 +210,10 @@ def test_the_planners_memory_old_chat_and_activity_stay_within_their_limits_what
                                      "data": {"title": f"{topic(n)} planner {n} " + "y" * 200}})
     run(daemon, fill)
     big = planner_turn("how is my tomato garden doing")
-    memory = [part for part in big.split("Layer 4 — retrieved memory (data):\n")[1:]]
-    shown = [p.split("\n\n")[0] for p in memory]
-    assert len(shown) <= PLANNER.memory_items + 1
-    assert sum(len(t) for t in shown) <= PLANNER.memory_tokens * 4 + 400          # plus the one counted line
-    old = big.split("Layer 4 — earlier conversation matching this message")[1].split("\n\n")[0]
-    assert len(old) <= PLANNER.chat_tokens * 4 + 200 and old.count("Owner:") <= PLANNER.chat_exchanges
-    activity = big.split("Relevant activity today (data): ")[1].split("\n\n")[0]
-    assert len(activity) <= PLANNER.activity_tokens * 4 + 600
-    assert len(big) < len(small) + 4 * (PLANNER.memory_tokens + PLANNER.chat_tokens + PLANNER.activity_tokens) + 4000
+    # ORCH-515: nothing of memory, old chat or activity is pushed, so the store's size never reaches the prompt; the
+    # turn's own conversation grew by one exchange
+    assert "Layer 4 —" not in big and "Layer 3 —" not in big and "tomato garden needs water" not in big
+    assert len(big) < len(small) + 1000
 
 
 # ---------- how-notes, playbooks and the repeat measure ----------
