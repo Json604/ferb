@@ -689,6 +689,8 @@ class _Wait:
     extra: dict[str, Any] = field(default_factory=dict)   # more for the app with the question (runtime_switch)
     attempts: int = 0                    # a check-in: the failed attempts it asks about (kept for a restart)
     opened: bool = False                 # its first waiter asked; later ones wait for its reply
+    # the tree's corrections when it opened (a pause): one made after that resumes it, even before a step reached it
+    steered: int | None = None
     reply: OwnerReply | None = None
     done: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -1301,8 +1303,11 @@ class Supervisor(WorkerRuns):
         if tree is None or tree.stop or tree.id != tree_id:
             return False
         if tree_id not in self._pauses:
+            # the corrections it opened after (`steered`): the owner's "go on" while the current attempt still ends
+            # (its run cancelled, not yet over) resumes it once its steps reach the pause, never left waiting for good
             self._pauses[tree_id] = _Wait(tree_id, question, tuple(options), origin, capability,
-                                          extra={'question_kind': 'closed_tab'} if question else {})
+                                          extra={'question_kind': 'closed_tab'} if question else {},
+                                          steered=len(tree.steering.messages))
             self.journal.append('task.paused', {'task_id': tree_id, 'question': question}, origin=origin)
             self._set_status(tree_id, 'paused')
             # ORCH-312: the owner's pause of a scheduled run pauses that schedule's next runs too (the daemon)
@@ -1402,7 +1407,7 @@ class Supervisor(WorkerRuns):
 
     async def _ask_and_wait(self, tree: _Tree, task: Task, step_id: str, wait: _Wait,
                             steer_resumes: bool) -> OwnerReply:
-        seen = len(tree.steering.messages)
+        seen = len(tree.steering.messages) if wait.steered is None else wait.steered
         question = wait.question
         loop = wait.capability == LOOP_ASK
         if question:

@@ -403,14 +403,6 @@ status = "open"
 why = "Startup/setup and rounded settings are accepted. Apply the final six-item UX review and whole-message selection in the isolated playground; await owner review before the site. Keep the original notch movement and accepted visual direction."
 decisions = ["APP-619", "APP-620", "APP-621", "APP-622", "APP-625", "APP-626", "APP-627", "APP-628", "APP-629", "APP-637"]
 
-[T-1005]
-title = "Investigate the scheduled-run pause/resume timeout in the full suite"
-area = "tests"
-kind = "bug"
-status = "open"
-why = "2026-11-02: scheduled-run pause/resume again timed out waiting 20s for active in the 4200-pass settings-review suite and its isolated rerun. An earlier rerun passed. No Python source changed; cause unverified. Logs: /tmp/ferb-settings-finish-pytest.log and /tmp/ferb-settings-schedule-recheck.log."
-decisions = ["TEST-508"]
-
 [T-1006]
 title = "Add PostHog to the FERB website after design review"
 area = "release"

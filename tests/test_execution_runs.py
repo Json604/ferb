@@ -8,6 +8,8 @@ import time
 from datetime import timedelta
 from typing import Any
 
+import pytest
+
 from ferb.orchestrator.attempts import CHECK_IN_AFTER
 from ferb.orchestrator.plans import Plan, Step
 from ferb.policy.targets import Targets
@@ -512,22 +514,46 @@ def test_pause_stops_the_tasks_listening_and_running_commands_and_keeps_the_rest
 
 
 # decision: ORCH-312, PRM-309
+@pytest.mark.parametrize("go_on_while_the_attempt_ends", [False, True])
 def test_pausing_a_scheduled_run_pauses_its_schedule_and_resuming_it_resumes_the_schedule(
-        daemon: RunningDaemon) -> None:
+        daemon: RunningDaemon, go_on_while_the_attempt_ends: bool) -> None:
+    """ORCH-312, ORCH-308: the owner's pause of a scheduled run pauses its schedule and their "go on" resumes both.
+    Past bug (T-1005): a "go on" that came while the paused attempt's run was still ending (a real runtime's cancel
+    takes a moment) was recorded but never resumed it, so the task and its schedule stayed paused for good. The
+    worker's run here ends only when the test lets it, so each order is the same every time."""
     sv = daemon.daemon.supervisor
     first = daemon.daemon.clock.now() + timedelta(minutes=5)
     sched = make_schedule(daemon, "check the permit page", "check the permit page every day", Targets.of(), first)
+    ending = threading.Event()
+
+    def attempt(_token: str) -> str:            # runs on until the test lets its cancelled run end
+        assert ending.wait(30)
+        return _report("failed", "Interrupted.")
     script = install(daemon, [sup("task", "Checking.", task("Check the permit page"))],
-                     {"worker": [STALL, done("Checked.")]})
+                     {"worker": [attempt, done("Checked.")]})
     daemon.loop.call_soon_threadsafe(lambda: daemon.loop.create_task(sv.run_scheduled(sched, late=False)))
     tree = _tree(daemon)
-    _until(daemon, lambda: _row(daemon, tree + ".worker") == "running")
-    _pause_through_chat(daemon, script, tree, "hold on, pause the permit check")
-    _until(daemon, lambda: run(daemon, lambda: daemon.daemon.schedules.get(sched.id)).state == "paused")
-    script.sup.append(json.dumps({"kind": "reply", "text": "Carrying on.", "task": None,
-                                  "control": {"task_id": tree, "action": "continue", "standing_sends": "unchanged",
-                                              "supersedes": []}}))
-    chat(daemon, "ok go on")
-    _until(daemon, lambda: run(daemon, lambda: daemon.daemon.schedules.get(sched.id)).state == "active")
-    resumed = run(daemon, lambda: daemon.daemon.schedules.get(sched.id))
-    assert resumed.next_run is not None and resumed.timer_id is not None
+
+    def step() -> str:
+        return str(run(daemon, lambda: sv.plans.steps(tree))["worker"]["status"])
+    try:
+        _until(daemon, lambda: _row(daemon, tree + ".worker") == "running")
+        _pause_through_chat(daemon, script, tree, "hold on, pause the permit check")
+        _until(daemon, lambda: run(daemon, lambda: daemon.daemon.schedules.get(sched.id)).state == "paused")
+        if not go_on_while_the_attempt_ends:
+            ending.set()
+            _until(daemon, lambda: step() == "paused")          # the step waits at the pause
+        script.sup.append(json.dumps({"kind": "reply", "text": "Carrying on.", "task": None,
+                                      "control": {"task_id": tree, "action": "continue",
+                                                  "standing_sends": "unchanged", "supersedes": []}}))
+        chat(daemon, "ok go on")
+        if go_on_while_the_attempt_ends:
+            assert step() == "running"                          # the attempt hasn't ended: no step waits yet
+            ending.set()
+        _until(daemon, lambda: run(daemon, lambda: daemon.daemon.schedules.get(sched.id)).state == "active")
+        resumed = run(daemon, lambda: daemon.daemon.schedules.get(sched.id))
+        assert resumed.next_run is not None and resumed.timer_id is not None
+        _until(daemon, lambda: _row(daemon, tree) == "done")
+        assert script.calls("worker") == ["worker", "worker"]
+    finally:
+        ending.set()
