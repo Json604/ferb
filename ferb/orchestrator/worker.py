@@ -458,13 +458,15 @@ class WorkerRuns:
                    tree: "_Tree" | None, worker_id: str, *, on_delta: Callable[[str], None] | None = None,
                    on_usage: Callable[[dict[str, Any]], None] | None = None,
                    images: tuple[ModelImage, ...] = (),
-                   notify: Callable[[dict[str, Any]], None] | None = None) -> str:
+                   notify: Callable[[dict[str, Any]], None] | None = None,
+                   on_tool: Callable[[], None] | None = None) -> str:
         """A worker's run, once (its tree's orchestrator decides any retry). Any other call (the planner's turn, a
         dispatch, a question, a summary) is watched for silence too, and one that showed no sign of life for stall_s
         from its very start is tried once more (owner 2026-10-27, after a scheduled slot check's planner call sat silent
-        for 15 minutes); a second silence, or a call that went quiet after answering in part, fails with that reason."""
+        for 15 minutes); a second silence, or a call that went quiet after answering in part, fails with that reason.
+        `on_tool`: told when the model calls a tool (the planner's draft starts over: ORCH-516)."""
         once = partial(self._run_once, rt, task, system, ctx, token, parent_span, tree, worker_id, on_delta=on_delta,
-                       on_usage=on_usage, images=images, notify=notify)
+                       on_usage=on_usage, images=images, notify=notify, on_tool=on_tool)
         if worker_id:
             return await once()
         for attempt in (1, 2):
@@ -484,7 +486,8 @@ class WorkerRuns:
                         on_delta: Callable[[str], None] | None = None,
                         on_usage: Callable[[dict[str, Any]], None] | None = None,
                         images: tuple[ModelImage, ...] = (),
-                        notify: Callable[[dict[str, Any]], None] | None = None) -> str:
+                        notify: Callable[[dict[str, Any]], None] | None = None,
+                        on_tool: Callable[[], None] | None = None) -> str:
         """`notify`: where a chat turn's live line goes (its stream); a task's run tells its tree's live line, and a run
         with neither (a learner, the attention check, the chat summary) tells no one of a lost connection."""
         revision = len(tree.steering.messages) if tree is not None else 0
@@ -594,6 +597,9 @@ class WorkerRuns:
                 if ev.kind == "text_delta":
                     if on_delta is not None:
                         on_delta(str(ev.data.get('text', '')))
+                elif ev.kind == "tool_call":
+                    if on_tool is not None:
+                        on_tool()
                 elif ev.kind == "usage":
                     if on_usage is not None:
                         on_usage(dict(ev.data))

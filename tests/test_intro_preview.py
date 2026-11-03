@@ -100,7 +100,7 @@ def _latest_task(daemon: RunningDaemon) -> str | None:
     return daemon.run(read())  # type: ignore[no-any-return]
 
 
-# decision: ORCH-500, ORCH-1
+# decision: ORCH-500, ORCH-516
 # decision: APP-513
 def test_preview_runs_no_worker_and_issues_no_run_token(daemon: RunningDaemon) -> None:
     script = _planned(daemon)

@@ -217,7 +217,7 @@ def _command(runtime: CodexRuntime, catalog: Path | None, token_file: Path | Non
     cmd += SKILLS_OFF
     if runtime.mode == "supervisor":
         cmd += SUPERVISOR_SETTINGS + NO_AUTO_COMPACT
-    else:
+    if runtime.mode == "worker" or token_file is not None:   # RUN-415: FERB's tools come with a run token
         cmd += runtime._mcp_settings(token_file)
     for key, value in {'model_provider': 'openai', 'approval_policy': 'never', 'sandbox_mode': 'read-only',
                        'web_search': 'disabled', 'cli_auth_credentials_store': 'file',
@@ -259,7 +259,7 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
     checking_account = False
     try:
         token_file = None
-        if runtime.mode == 'worker':
+        if runtime.mode == 'worker' or run_token:      # a planner's lookups too (RUN-415, ORCH-516)
             token_file = root / 'run-token'
             _private_write(token_file, run_token.encode())
             state['token_file'] = token_file
@@ -621,8 +621,8 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                 if method in {'item/started', 'item/completed'}:
                     item = params.get('item', {})
                     kind = item.get('type')
-                    mcp_allowed = (runtime.mode == 'worker' and kind == 'mcpToolCall'
-                        and item.get('server') == 'ferb'
+                    # a FERB tool this run was given (a worker's, or a planner's lookups: RUN-415)
+                    mcp_allowed = (kind == 'mcpToolCall' and item.get('server') == 'ferb'
                         and f"mcp__ferb.{item.get('tool')}" in runtime.allowed)
                     if kind not in {'agentMessage', 'userMessage', 'reasoning', 'plan', 'contextCompaction'} and not mcp_allowed:
                         # what Codex tried, for the trace: the item kind and, for a tool, which tool on which server

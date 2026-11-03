@@ -77,6 +77,10 @@ class RunGrant:
     identity: Identity
     expires_at: float                  # Clock.monotonic() deadline
     observe_only: bool = False         # the final checker (V3, W4): the gateway allows observation tools only
+    # The planner's lookups (ORCH-516): when set, the gateway offers and runs only these tools, at most `max_calls`
+    # calls for this grant (0: no limit)
+    tools: frozenset[str] = frozenset()
+    max_calls: int = 0
 
 
 class RunTokens:
@@ -91,10 +95,11 @@ class RunTokens:
         return hashlib.sha256(token.encode()).hexdigest()
 
     def issue(self, task_id: str, worker_id: str, scopes: set[str], identity: Identity, ttl_s: float,
-              observe_only: bool = False) -> str:
+              observe_only: bool = False, tools: frozenset[str] = frozenset(), max_calls: int = 0) -> str:
         token = secrets.token_urlsafe(32)
         self._grants[self._digest(token)] = RunGrant(task_id, worker_id, frozenset(scopes), identity,
-                                                     self._clock.monotonic() + ttl_s, observe_only)
+                                                     self._clock.monotonic() + ttl_s, observe_only, frozenset(tools),
+                                                     max_calls)
         return token
 
     def validate(self, token: str) -> RunGrant:

@@ -129,9 +129,8 @@ class Compose:
             memory=ports.MemoryPort(
                 # L36 §4: every worker and plan step gets the one search within the worker's limits (step 9b), its
                 # task's targets also ranked alone
-                memory_candidates=lambda words, focus: self._learning_candidates(words, memory_search.PLANNER, focus=focus),
+                memory_candidates=lambda words, focus: self._learning_candidates(words, memory_search.ATTENTION, focus=focus),
                 memory_push=lambda words, focus: self._learning_candidates(words, memory_search.WORKER, focus=focus),
-                old_chat=self._old_chat,
                 remember=self._remember, forget_request=self._chat_forget,
                 question_answered=self._question_answered, settle=self._settle_forgets,
                 identity_context=self._core_profile_text, on_episode=self._capture_learning_episode,

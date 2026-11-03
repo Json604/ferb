@@ -167,7 +167,7 @@ class ClaudeRuntime:
                "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0", "CLAUDE_CONFIG_DIR": str(own), **CACHE_TTL_ENV,
                **TOOL_SEARCH_ENV}
         mcp: dict[str, Any] = {}
-        if self.mode == "worker":
+        if self.mode == "worker" or token_file is not None:     # RUN-415: FERB's tools come with a run token
             if not self.shim_cmd:
                 raise ValueError("worker mode needs the ferb mcp shim")
             if token_file is None:
@@ -189,7 +189,7 @@ class ClaudeRuntime:
         from claude_agent_sdk import ClaudeSDKClient
         run_id = "run-" + secrets.token_hex(6)
         deadline = asyncio.get_running_loop().time() + self.limit_s if self.limit_s is not None else None
-        token_file = write_token_file(run_token) if self.mode == "worker" else None
+        token_file = write_token_file(run_token) if self.mode == "worker" or run_token else None
         client = None
         try:
             client = ClaudeSDKClient(options=self._options(run_id, token_file))

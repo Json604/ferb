@@ -12,7 +12,7 @@ target words ranked alone (`focus`), and the local embedding model's nearest (em
 fused by reciprocal rank, plus a small recency nudge (the owner's words don't age). A query whose every word most
 documents share finds nothing, by similarity too.
 
-What each role is given is bounded by one set of limits (`PLANNER`, `WORKER`; Ruling under MEM-5): prompts
+What each role is given is bounded by one set of limits (`ATTENTION`, `WORKER`; MEM-27): prompts
 don't grow with memory; what is left out is counted in one line and stays findable with the lookup tools.
 
 Embeddings are computed in the background (`embed_pending`, a batch at a time on a connection of its own), never in
@@ -47,20 +47,18 @@ CHARS_PER_TOKEN = 4                 # as FERB's context counts text
 
 @dataclass(frozen=True)
 class Limits:
-    """What one role is given of retrieved memory each time (Ruling under MEM-5, step 9b, coordinator 2026-10-31):
-    facts and learned items together within `memory_tokens` and at most `memory_items`; old chat exchanges within
-    `chat_tokens` and at most `chat_exchanges`; today's activity within `activity_tokens`."""
+    """What one role is given of retrieved memory each time (MEM-27, after Ruling under MEM-5, step 9b): facts and
+    learned items together within `memory_tokens` and at most `memory_items`; today's activity within
+    `activity_tokens`. The planner is pushed none of it: it looks memory, chat and activity up (ORCH-515)."""
     memory_tokens: int
     memory_items: int
-    chat_tokens: int
-    chat_exchanges: int
     activity_tokens: int
 
 
-PLANNER = Limits(memory_tokens=4000, memory_items=20, chat_tokens=2000, chat_exchanges=5, activity_tokens=2000)
-# Workers look up more with memory.read, memory.learned, chat.history and trail.query. Today's activity is one search
-# shared by both roles (`Daemon._relevant_context`), so its limit is the same.
-WORKER = Limits(memory_tokens=2000, memory_items=10, chat_tokens=0, chat_exchanges=0, activity_tokens=2000)
+# The background attention check's memory (its role is tool-less, so memory is pushed to it)
+ATTENTION = Limits(memory_tokens=4000, memory_items=20, activity_tokens=2000)
+# Workers and plan steps; they look up more with memory.read, memory.learned, chat.history and trail.query.
+WORKER = Limits(memory_tokens=2000, memory_items=10, activity_tokens=2000)
 
 
 def tokens(text: str) -> int:

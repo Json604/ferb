@@ -96,6 +96,9 @@ RETRY_ASK = "ferb.retry"                 # P19: FERB's own Yes/No to one more at
 _SEND_KINDS = confirm.SEND_CLASS | {Kind.PAY}           # what the test-mode allowlist covers (calls included)
 CHECKER_READ_ONLY = ("the final check is read-only: this tool acts and is not available to a checker; report what you "
                      "could not confirm as unknown")
+# ORCH-516: a grant limited to named tools (the planner's lookups) gets only those, at most its `max_calls` calls
+LOOKUPS_SPENT = ("this turn has made its {n} lookups: answer from what you have, or make the request a task whose "
+                 "worker can look further")
 # P19. The error is a fact the owner reads in step lines; what the agent should do is in `next`.
 UNKNOWN_NOT_REPEATED = ("A previous attempt at this exact action may have gone through (its outcome is unknown); it was "
                         "not repeated without the owner.")
@@ -525,6 +528,7 @@ class Gateway:
         # caller was gone (the runtime gave up the call): the same task's identical retry gets this, not a second run
         self._undelivered: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
         self._cancelled_tasks: set[str] = set()
+        self._calls_made: dict[str, int] = {}             # by worker: calls of a grant with max_calls (ORCH-516)
         # The orchestrator's two seams, given once by `attach` (it is built after the gateway, on top of it)
         self.observer: Observer = Observer()
         self.conversation_guard: Callable[[Any, str, Any, Any], str | None] = lambda grant, name, cap, spec: None
@@ -588,7 +592,7 @@ class Gateway:
         out = []
         for cap in self.caps.values():
             if (grant.identity not in cap.identities or not cap.scopes <= grant.scopes
-                    or (grant.observe_only and not observes(cap))):
+                    or (grant.observe_only and not observes(cap)) or (grant.tools and cap.name not in grant.tools)):
                 continue
             schema = cap.Input.model_json_schema()
             props = schema.setdefault("properties", {})
@@ -900,7 +904,7 @@ class Gateway:
         if rec is None:
             return reply({"error": "task is not running"}, True)
         cap = self.caps.get(name)
-        if cap is None or not cap.scopes <= grant.scopes:
+        if cap is None or not cap.scopes <= grant.scopes or (grant.tools and name not in grant.tools):
             self._refused(grant, rec, name, "no such tool" if cap is None else "outside this worker's scopes")
             return reply({"error": f"tool {name} is not available to this worker",
                           "next": "Inspect actions.search and report the capability gap to the orchestrator."}, True)
@@ -910,7 +914,17 @@ class Gateway:
         if grant.identity not in cap.identities:
             self._refused(grant, rec, name, "tool is outside this task's identity")
             return reply({"error": "this tool is not available to this task's identity"}, True, {origin.FERB})
+        if grant.max_calls:                              # ORCH-516: the planner's lookups per call
+            made = self._calls_made.get(grant.worker_id, 0)
+            if made >= grant.max_calls:
+                self._refused(grant, rec, name, f"over the grant's {grant.max_calls} calls")
+                return reply({"error": LOOKUPS_SPENT.format(n=grant.max_calls)}, True, {origin.FERB})
+            self._calls_made[grant.worker_id] = made + 1
         return cap
+
+    def forget_calls(self, worker_id: str) -> None:
+        """A grant with max_calls ended (its run token revoked): its count goes."""
+        self._calls_made.pop(worker_id, None)
 
     @staticmethod
     async def _off_loop(cap: Any, fn: Callable[..., Any], *args: Any) -> Any:

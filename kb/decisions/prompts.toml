@@ -53,9 +53,9 @@ title = "Tool manuals live in tool descriptions; tool-less roles see no tools"
 by = "agent"
 date = 2026-10-30
 status = "active"
-rule = "How one tool behaves is written in that tool's description, shown only when the tool is offered; no context block repeats the tool catalog. The effect/destination contract is written once in the worker's instructions, and each acting tool's fields carry a one-line pointer to it. Roles without tools get no catalogs or tool-fetch lines."
+rule = "How one tool behaves is written in that tool's description, shown only when the tool is offered; no context block repeats the tool catalog. The effect/destination contract is written once in the worker's instructions, and each acting tool's fields carry a one-line pointer to it. Roles without tools get no catalogs or tool-fetch lines; nor does the planner, whose only tools are read-only lookups described by their own tools (NO_CATALOG_ROLES, ORCH-516)."
 why = "2026-10-30: the catalog went twice to the worker and checker (native schemas plus a ~38k copy), and tool-less roles were told to use tools."
-paths = ["ferb/daemon/areas/environment.py", "ferb/orchestrator/supervisor.py::TOOLLESS_ROLES"]
+paths = ["ferb/daemon/areas/environment.py", "ferb/orchestrator/supervisor.py::TOOLLESS_ROLES", "ferb/orchestrator/supervisor.py::NO_CATALOG_ROLES"]
 legacy = "notes/prompts.md target design 2; fix list"
 
 [PRM-315]

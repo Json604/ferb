@@ -219,8 +219,8 @@ def test_keep_the_tabs_open_reaches_the_browser(daemon: RunningDaemon) -> None:
 # decision: ORCH-325
 def test_the_planner_context_is_ordered_most_stable_first(daemon: RunningDaemon) -> None:
     """ORCH-325: instructions hold no live values; the stable facts, the summary and the recent
-    conversation come first; live facts (a reminder) come after the conversation, then memory, activity, the time, the
-    task state and the questions, and the owner's new message last."""
+    conversation come first; live facts (a reminder) come after the conversation, then the time, the task state and
+    the questions, and the owner's new message last. No memory or activity is pushed (ORCH-515)."""
     sv = daemon.daemon.supervisor
     sv.live_facts = lambda: "- Reminder r1: stretch — Sat 31 Oct 2026 17:00"
     script = install(daemon, [sup("reply", "first"), sup("reply", "second")])
@@ -230,9 +230,10 @@ def test_the_planner_context_is_ordered_most_stable_first(daemon: RunningDaemon)
     assert "Reminder r1" not in request.system
     body = request.context
     order = ["Layer 1 — stable device", "Layer 5 — conversation:", "an earlier message", "Layer 2 — right now",
-             "Reminder r1", "Layer 3 — today's activity", "Layer 2 — situation:", "Layer 6 — open questions",
+             "Reminder r1", "Layer 2 — situation:", "Layer 6 — open questions",
              "Layer 5 — owner's complete new message:\nthe new message"]
     assert [body.index(part) for part in order] == sorted(body.index(part) for part in order)
+    assert "Layer 3 —" not in body and "Layer 4 —" not in body
     assert request.cacheable >= 3                              # Layer 1, the conversation header, its entries
 
 

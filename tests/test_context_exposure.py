@@ -2,16 +2,33 @@
 from ferb.core.context import ContextBlock
 
 
-# decision: MEM-33
-def test_memory_always_reaches_the_planner_and_only_shown_chat_is_carried_to_the_task(daemon, monkeypatch):
-    """L28: relevant memory is always in the planner's prompt; older chat that didn't fit the window was never read."""
+def _remembered(daemon, content, origin, item_origin, subject='project:notes'):
+    """A memory item resting on a journal row with `origin` (what FERB learned it from)."""
+    async def go():
+        src = daemon.daemon._journal().append('memory.added', {'content': content}, origin=origin)
+        return daemon.daemon.memory.propose('fact', subject, 'note', content, item_origin, [('journal', src.id)]).id
+    return daemon.run(go())
+
+
+def _looks_up(daemon, item, answer):
+    """A scripted planner answer that reads one memory item first (ORCH-516), then answers."""
+    from tests.conftest import tool
+
+    def look(token):
+        assert not tool(daemon.sock, token, 'memory.read', item_id=item)['is_error']
+        return answer
+    return look
+
+
+# decision: MEM-33, ORCH-516
+def test_memory_the_planner_looked_up_and_only_shown_chat_are_carried_to_the_task(daemon, monkeypatch):
+    """L28: what the planner read (here a memory item it looked up) is carried to its task; older chat that didn't fit
+    the window was never read."""
     from ferb.core.types import ModelLimits
     from tests.conftest import FakeRuntime, chat, done, install, outcome, sup, task
-    supervisor = daemon.daemon.supervisor
-    supervisor.memory_candidates = lambda words, focus: [
-        {'text': 'A remembered outside instruction.', 'reference': 'memory.learned id=outside',
-         'origin': 'external:web:mysite.example', 'source_refs': ['outside']}]
-    install(daemon, [sup('reply', 'Noted. ' + 'detail ' * 3000), sup('task', 'Checking.', task('Inspect the source'))],
+    item = _remembered(daemon, 'A remembered outside instruction.', 'external:web:mysite.example', 'third_party')
+    install(daemon, [sup('reply', 'Noted. ' + 'detail ' * 3000),
+                     _looks_up(daemon, item, sup('task', 'Checking.', task('Inspect the source')))],
             {'worker': done('Inspected.')})
     chat(daemon, 'An old long note. ' + 'filler ' * 3000)
     # a window the old note can't fit in beside the instructions, sized for the byte-ceiling count every test run uses
@@ -24,7 +41,7 @@ def test_memory_always_reaches_the_planner_and_only_shown_chat_is_carried_to_the
         return [dict(r) for r in rows], daemon.daemon.spans.exposure_origins(result['task_id'])
     rows, exposed = daemon.run(recorded())
     assert 'external:web:mysite.example' in exposed
-    assert any('outside' in row['input_json'] for row in rows)
+    assert any('A remembered outside instruction.' in (row['output_json'] or '') for row in rows)
     assert not any('An old long note.' in (row['output_json'] or '') for row in rows)
 
 
@@ -74,19 +91,22 @@ def test_activity_and_history_the_planner_was_shown_are_not_card_sources(daemon)
 
 
 def test_todays_activity_keeps_its_labels_without_listing_its_rows(daemon):
-    """Today's matching activity is a read with its own labels. The raw recent trail is fetch-only (L28); its rows are no
-    longer listed on the recorded exposure (step 12a)."""
+    """Today's matching activity is a read of the worker's with its own labels (the planner looks it up instead,
+    ORCH-515). The raw recent trail is fetch-only (L28); its rows are no longer listed on the recorded read (step
+    12a)."""
     from tests.conftest import chat, done, install, sup, task
     supervisor = daemon.daemon.supervisor
     supervisor.relevant_context = lambda _: ('Recorded matching action', 'private', 'Recorded matching action',
                                              ['trail:matching'])       # the one search's refs: its 4th element
     script = install(daemon, [sup('task', 'Read the context.', task('Compare activity'))], {'worker': done('Compared.')})
     chat(daemon, 'Compare activity')
-    assert 'Recorded matching action' in script.contexts[0][2]
-    async def exposure():
+    planner = next(c for _, key, c, _ in script.contexts if key == 'supervisor')
+    worker = next(c for _, key, c, _ in script.contexts if key == 'worker')
+    assert 'Recorded matching action' not in planner and 'Recorded matching action' in worker
+    async def reads():
         return [dict(row) for row in daemon.daemon.db.conn.execute(
-            "SELECT input_json,output_json,origin FROM spans WHERE kind='context.exposure'")]
-    matched = [row for row in daemon.run(exposure()) if 'Recorded matching action' in (row['output_json'] or '')]
+            "SELECT input_json,output_json,origin FROM spans WHERE kind IN ('context.exposure', 'context.source')")]
+    matched = [row for row in daemon.run(reads()) if 'Recorded matching action' in (row['output_json'] or '')]
     assert matched and all('private' in row['origin'] for row in matched)
     assert not [row for row in matched if 'trail:matching' in row['input_json']]
 
@@ -97,19 +117,18 @@ def test_context_payload_omits_catalogue_but_preserves_recorded_memory(daemon):
     supervisor = daemon.daemon.supervisor
     supervisor.relevant_context = lambda _: ('Installed catalogue: search metadata. Private account: Customer-Record',
                                               'private', 'Customer-Record')
-    supervisor.memory_candidates = lambda _words, _focus: [
-        {'text': 'Remembered-Private-Value', 'reference': 'memory.learned id=private',
-         'origin': 'private', 'source_refs': ['private']}]
-    install(daemon, [sup('task', 'Checking.', task('Inspect the source'))], {'worker': done('Inspected.')})
+    item = _remembered(daemon, 'Remembered-Private-Value', 'private', 'inferred')
+    install(daemon, [_looks_up(daemon, item, sup('task', 'Checking.', task('Inspect the source')))],
+            {'worker': done('Inspected.')})
     result = outcome(chat(daemon, 'Inspect the source'))
     async def check():
         rows = daemon.daemon.db.conn.execute(
             "SELECT output_json FROM spans WHERE kind='context.exposure' AND task_id=?", (result['task_id'],)).fetchall()
         values = [json.loads(row['output_json']) for row in rows]
         assert any('Installed catalogue' in value['text'] and value['payload'] == 'Customer-Record' for value in values)
-        assert any(value.get('payload') == 'Remembered-Private-Value' for value in values)
+        assert any('Remembered-Private-Value' in value.get('payload', '') for value in values)   # the lookup's read
         private, _ = daemon.daemon.gateway._sink_texts(result['task_id'])
-        assert any(value.folded == 'remembered-private-value' for _, value in private)
+        assert any('remembered-private-value' in value.folded for _, value in private)
         assert all('installed catalogue' not in value.folded for _, value in private)
     daemon.run(check())
 

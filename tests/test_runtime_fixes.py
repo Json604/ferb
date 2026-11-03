@@ -57,6 +57,19 @@ def test_auto_compaction_is_out_of_reach_for_supervisor_runs_only(tmp_path: Path
     assert "model_auto_compact_token_limit=" in sup and "model_auto_compact_token_limit" not in work
 
 
+# decision: RUN-415
+def test_a_codex_supervisor_run_gets_ferbs_tools_only_with_a_run_token(tmp_path: Path) -> None:
+    """The planner's lookups (ORCH-516): FERB's MCP shim joins a one-turn run only when it carries a run token, and
+    the run stays a supervisor run (low effort, no compaction)."""
+    from ferb.runtimes.codex_stream import _command
+    rt = cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path, shim_cmd=["ferb", "mcp"], tool_names=["memory.read"])
+    plain = " ".join(_command(rt, None))
+    looking = " ".join(_command(rt, None, tmp_path / "tok"))
+    assert "mcp_servers.ferb" not in plain and "mcp_servers.ferb.command" in looking
+    assert "model_auto_compact_token_limit=" in looking and 'model_reasoning_effort="low"' in looking
+    assert rt.allowed == cx.BASE_TOOLS | {"mcp__ferb.memory_read"}
+
+
 # decision: RUN-410
 @pytest.mark.anyio
 async def test_a_worker_gets_ferbs_instructions_in_place_of_codexs_base_prompt(tmp_path, monkeypatch) -> None:
@@ -253,6 +266,25 @@ async def test_the_claude_run_token_goes_through_an_owner_only_file(monkeypatch)
     assert options.env["CLAUDE_CODE_OAUTH_TOKEN"] == ""
     await rt.cancel(run)
     assert not token_file.parent.exists()
+
+
+# decision: RUN-415
+@pytest.mark.anyio
+async def test_a_claude_supervisor_run_gets_ferbs_tools_only_with_a_run_token(monkeypatch) -> None:
+    import claude_agent_sdk
+    from ferb.runtimes.claude_sdk import ClaudeRuntime
+    monkeypatch.setattr(claude_agent_sdk, "ClaudeSDKClient", FakeSDKClient)
+    proxy = SimpleNamespace(base_url=lambda run_id: "http://unused", forget=lambda run_id: None)
+    rt = ClaudeRuntime("supervisor", proxy, signed_in_home(), shim_cmd=["ferb", "mcp"],  # type: ignore[arg-type]
+                       tool_names=["memory.read"], output_schema={"type": "object"}, model="opus")
+    plain = await CLAUDE_START(rt, TASK, ModelRequest("sys", ("ctx",)), "")
+    assert FakeSDKClient.made[-1].options.mcp_servers == {}
+    await rt.cancel(plain)
+    looking = await CLAUDE_START(rt, TASK, ModelRequest("sys", ("ctx",)), "planner-token")
+    options = FakeSDKClient.made[-1].options
+    assert "ferb" in options.mcp_servers and "mcp__ferb__memory_read" in options.allowed_tools
+    assert options.include_partial_messages is True                      # the reply still streams
+    await rt.cancel(looking)
 
 
 # decision: RUN-409

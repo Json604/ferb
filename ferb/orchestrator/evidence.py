@@ -65,7 +65,8 @@ class TaskEvidence:
     name = "task.evidence"
     description = (
         "Inspect this task's recorded tool calls, original request, intake receipts, full context sources, "
-        "reports, cleanup and disturbance facts, or the registered parent worker when checking its result. "
+        "reports, cleanup and disturbance facts, or the registered parent worker when checking its result; with "
+        "task_id, those of an earlier task of this conversation (chat.history include_tasks=true lists them). "
         "Search actual inputs/results with query (a literal substring); list records chronologically with after "
         "pagination, then read a record by span_id with offset pagination. These are timestamped, redacted source "
         "observations and action results, not the worker's summary or proof of the current state. kind=evidence "
@@ -90,18 +91,27 @@ class TaskEvidence:
         offset: int = Field(0, ge=0, description="character offset in the selected record's JSON")
         max_chars: int = Field(12000, ge=1000, le=60000)
         evidence_id: str | None = Field(None, description="read one stored capture's facts (an id from kind=evidence)")
+        task_id: str | None = Field(None, description="an earlier task of this conversation, read instead of this one")
 
     def __init__(self, spans: SpanStore, parent: Callable[[str], str | None],
                  root: Callable[[str], str | None] = lambda task_id: None, store: Any = None,
-                 secrets: Callable[[], Iterable[str]] = lambda: ()) -> None:
+                 secrets: Callable[[], Iterable[str]] = lambda: (),
+                 readable: Callable[[str], set[str]] = lambda task_id: set()) -> None:
         self.spans, self.parent, self.root, self.store = spans, parent, root, store
         self.secrets = secrets           # the values FERB knows as secrets now: a page never splits one (`page_bounds`)
+        self.readable = readable         # the caller's conversation's task ids (`task_id` reads only those, ORCH-517)
 
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
         source = self.parent(ctx.task_id) or ctx.task_id
+        root = self.root(ctx.task_id)
+        whole = bool(args.task_id)
+        if whole:                  # ORCH-517: an earlier task of this chat, read whole (its tree's records)
+            if args.task_id not in self.readable(ctx.task_id):
+                return ToolResult({"error": "that task isn't one of this conversation's tasks (chat.history "
+                                            "include_tasks=true lists them)"}, is_error=True)
+            source = root = args.task_id
         if args.evidence_id or args.kind == CAPTURES:
             return self._captures(args, source)
-        root = self.root(ctx.task_id)
 
         def task_origins(records: list[dict[str, Any]]) -> set[str]:     # read only when a returned record inherits
             return self.spans.task_origins(root or source) if any(inherits(r) for r in records) else set()
@@ -111,7 +121,7 @@ class TaskEvidence:
             pages, origins = [], set()
             share = max(1000, args.max_chars // len(args.span_ids))
             for span_id in dict.fromkeys(args.span_ids):
-                row = self.spans.tool_call(source, span_id, root_id=root)
+                row = self.spans.tool_call(source, span_id, root_id=root, whole=whole)
                 if row is None:
                     pages.append({"span_id": span_id, "error": "no authorized recorded fact with that id in this task"})
                     continue
@@ -122,7 +132,7 @@ class TaskEvidence:
                 origins |= record_origins(row, task_origins([row]))
             return ToolResult({"source_task": source, "records": pages}, read_sources=_passed(origins))
         if args.span_id:
-            row = self.spans.tool_call(source, args.span_id, root_id=root)
+            row = self.spans.tool_call(source, args.span_id, root_id=root, whole=whole)
             if row is None:
                 return ToolResult({"error": "no authorized recorded fact with that id in this task"}, is_error=True)
             payload = record_text(row)
@@ -133,11 +143,12 @@ class TaskEvidence:
                                "source_refs": sorted(record_sources(row))},
                               read_sources=_passed(record_origins(row, task_origins([row]))))
         page = self.spans.tool_calls(source, query=args.query, after=args.after, limit=args.limit,
-                                    root_id=root, kind=args.kind)
+                                    root_id=root, kind=args.kind, whole=whole)
         inherited = task_origins(page["records"])
         origins = {o for record in page["records"] for o in record_origins(record, inherited)}
         refs = {ref for item in page['records']
-                for ref in record_sources(self.spans.tool_call(source, item['id'], root_id=root) or {})}
+                for ref in record_sources(self.spans.tool_call(source, item['id'], root_id=root, whole=whole)
+                                          or {})}
         return ToolResult({"source_task": source, **page, 'source_refs': sorted(refs)}, read_sources=_passed(origins))
 
     def _captures(self, args: Any, source: str) -> ToolResult:

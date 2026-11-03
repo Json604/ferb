@@ -33,6 +33,7 @@ class Continuity:
     def __init__(self, db: Database, redact: Callable[..., Any], task_origins: Callable[[str], set[str]]) -> None:
         self.db, self.redact = db, redact
         self.task_origins = task_origins           # SpanStore.task_origins: what a task's models were shown (S3)
+        self._lent: dict[str, str] = {}            # a planner turn's lookup record -> its chat (`lend`)
 
     def ensure(self, conversation: str) -> None:
         if not re.fullmatch(r"[\w:.-]{1,128}", conversation):
@@ -107,9 +108,20 @@ class Continuity:
         return [dict(row) for row in rows]
 
     def conversation_of(self, task_id: str) -> str | None:
-        """The chat a registered task belongs to; None when it is unknown."""
+        """The chat a registered task belongs to (or a planner turn's, while it looks things up: `lend`); None when it
+        is unknown."""
+        if task_id in self._lent:
+            return self._lent[task_id]
         row = self.db.conn.execute("SELECT conversation_id FROM task_context WHERE task_id = ?", (task_id,)).fetchone()
         return str(row[0]) if row is not None else None
+
+    def lend(self, task_id: str, conversation: str) -> None:
+        """The planner's turn reads its own chat while it runs (ORCH-516): its lookup record `task_id` belongs to
+        `conversation` until `unlend`. Never stored: no task row exists for it."""
+        self._lent[task_id] = conversation
+
+    def unlend(self, task_id: str) -> None:
+        self._lent.pop(task_id, None)
 
     def task_ids(self, conversation: str) -> set[str]:
         return {row[0] for row in self.db.conn.execute(

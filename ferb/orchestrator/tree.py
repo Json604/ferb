@@ -73,6 +73,11 @@ class TaskTree:
             (t.id, rec.tree_id or t.id, t.parent_id, t.request_id, t.goal, t.identity.value, t.role,
              json.dumps(sorted(t.scopes)), status, now, now))
 
+    def hold(self, rec: TaskRecord) -> None:
+        """A live record with no task row: the planner's lookups (ORCH-516), which the gateway admits like a task's
+        calls while the planner's turn runs. It never shows in the task list; `remove` ends it."""
+        self._tasks[rec.task.id] = rec
+
     def get(self, task_id: str) -> TaskRecord | None:
         return self._tasks.get(task_id)
 

@@ -159,3 +159,12 @@ words = "recommeded all"
 why = "Answer to T-404: the owner accepted the recommendation for every open question."
 rule = "When a worker's tool loop overflows the model's context window, Codex compacts the conversation and the worker carries on."
 rejected = ["Failing the worker."]
+
+[RUN-415]
+title = "A run gets FERB's tools when it carries a run token, in either mode"
+by = "agent"
+date = 2026-11-03
+status = "active"
+rule = "Every adapter attaches FERB's tools (Codex: the MCP shim with the token file; the Claude Agent SDK: the same shim; the API loop: the gateway bridge) to a worker run, and to a supervisor (one-turn) run only when it is given a run token: the planner's lookups (ORCH-516). A supervisor run keeps its own settings with them: low effort, no automatic compaction, a streamed typed answer, the cached planner thread. Codex's item gate and tool-catalog check allow exactly the FERB tools the run was given, in either mode."
+why = "One tool path for every role (AGENTS.md rule 12); the mode says how a run answers, the token says what it may call."
+paths = ["ferb/runtimes/codex_stream.py", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._options", "ferb/runtimes/api.py::ApiRuntime.start"]
