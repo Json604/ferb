@@ -418,3 +418,12 @@ kind = "build"
 status = "open"
 why = "Owner requested PostHog at the end of the website work. Obtain the project configuration, implement analytics, and reflect actual collection in the privacy disclosure before deployment."
 decisions = ["REL-407"]
+
+
+[T-1007]
+title = "Build the origin split: results carry what they were made from; influence keeps only kinds"
+area = "gateway"
+kind = "build"
+status = "open"
+why = "Owner \"yes yes yes\" (2026-11-03): history/memory outside content triggers the sink question; questions name real sites; origin = made-from. Design in the session scratchpad origin-design.md; build after the planner lookup tools merge; first a test proving the sink gap."
+decisions = ["GATE-202"]
