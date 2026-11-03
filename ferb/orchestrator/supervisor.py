@@ -106,9 +106,10 @@ REPORT_CONDITION = Condition(
          "you named) and with what, and leaves out nothing that changes the result",
     check=Check(kind="none", path=None, text=None, url_contains=None, site=None, expected=None), layer="outcome")
 
-# How long a message waits for the owner's front window before the plan goes on without it (owner, 2026-11-03: 2 s;
-# it was ScreenCaptureKit's 10 s, and a stalled first capture held a "Hello" for 10 s). DMN-519.
-FRONT_WINDOW_WAIT_S = 2.0
+# How long a message waits for the owner's front window before the plan goes on without it: a safety limit, kept at
+# ScreenCaptureKit's own 10 s (owner, 2026-11-03, DMN-520: a slow browser capture takes ~6 s and most messages need
+# over 2 s). The stalled first capture that held a "Hello" for 10 s is fixed at its cause (Vision warmed at start).
+FRONT_WINDOW_WAIT_S = 10.0
 
 
 def interrupted(exc: BaseException, redact: Callable[[str], str]) -> str:

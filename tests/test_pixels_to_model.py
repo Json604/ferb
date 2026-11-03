@@ -951,7 +951,7 @@ def test_a_browser_capture_fits_inside_the_planners_wait_for_the_front_window(mo
     extension is asked while the AX walk runs, and not again after a first ask nobody answered."""
     import ferb.act.mac.driver as drv
     from ferb.act.mac.driver import WebSecrets
-    from ferb.orchestrator.supervisor import CAPTURE_TIMEOUT_S
+    from ferb.orchestrator.supervisor import FRONT_WINDOW_WAIT_S as CAPTURE_TIMEOUT_S
     from tests.support.virtual_time import charged_to_thread, run_virtual
     d, ax, shots, _ = _brave(monkeypatch)
     asked: list[float] = []

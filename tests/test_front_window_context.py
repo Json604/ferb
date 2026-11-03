@@ -1060,7 +1060,7 @@ def test_a_capture_that_takes_too_long_never_holds_the_planner(daemon: RunningDa
     supervisor = daemon.daemon.supervisor
     assert supervisor is not None
     from ferb.orchestrator.supervisor import FRONT_WINDOW_WAIT_S
-    assert supervisor.front_window_timeout_s == FRONT_WINDOW_WAIT_S == 2.0  # owner, 2026-11-03 (DMN-519)
+    assert supervisor.front_window_timeout_s == FRONT_WINDOW_WAIT_S == screenshot.TIMEOUT_S   # DMN-520
     supervisor.front_window_timeout_s = 0.2                                # this test's clock only
 
     async def hung(request_id: str, client_pid: int | None = None) -> Any:
@@ -1078,7 +1078,7 @@ def test_a_capture_that_takes_too_long_never_holds_the_planner(daemon: RunningDa
     assert late.data["request_id"] and late.data["timeout_s"] == 0.2
 
 
-# decision: DMN-519
+# decision: DMN-520
 def test_a_capture_the_planner_stops_waiting_for_names_the_step_it_was_on() -> None:
     """2026-11-03: a first capture after a restart held a "Hello" for 10 s and nothing said which step stalled. The
     capture keeps the steps it has begun, so a stopped capture is journaled with the one it was on."""
@@ -1101,7 +1101,7 @@ def test_a_capture_the_planner_stops_waiting_for_names_the_step_it_was_on() -> N
     assert src.stage[-1] == "screenshot" and src.stage[0] == "windows"
 
 
-# decision: DMN-519
+# decision: DMN-520
 def test_warming_text_recognition_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.sanitize import images
     seen: list[bytes] = []
