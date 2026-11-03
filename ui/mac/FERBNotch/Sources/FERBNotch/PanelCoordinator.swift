@@ -124,6 +124,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private(set) weak var indicatorControl: FerbIndicatorControl?
     private var presentedExpanded = false
     private var isDocked = false
+    /// Another app's window holds the hardware notch (a notch app): FERB rests beside it instead (APP-644).
+    private var notchTaken: Bool { notchHolder != nil }
+    /// What those windows cover (AppKit coordinates), which the handle steps aside from.
+    private var notchHolder: CGRect?
+    private var notchTakenRecheck: [DispatchWorkItem] = []
     private var dockingRevision: UUID?
     let magneticFieldPanel = NotchLightPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     private let magneticField = MagneticFieldView(frame: .zero)
@@ -328,6 +333,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                                                           name: NSWorkspace.didActivateApplicationNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(screensDidSleep),
                                                           name: NSWorkspace.screensDidSleepNotification, object: nil)
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(applicationsChanged),
+                                                              name: name, object: nil)
+        }
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in
             guard let self else { return }
             let location = NSEvent.mouseLocation
@@ -649,7 +658,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         let targetGeometry = NotchGeometry(screen: screen.frame, topInset: screen.safeAreaInsets.top,
             leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX, rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
             menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
-        if NotchDocking.accepts(point, cutout: targetGeometry.cutoutFrame, hasHardwareNotch: targetGeometry.hasNotch) {
+        if NotchDocking.accepts(point, cutout: targetGeometry.cutoutFrame,
+                                hasHardwareNotch: targetGeometry.hasNotch && holder(of: targetGeometry) == nil) {
             dockIndicator(on: screen, cutout: targetGeometry.cutoutFrame)
             return
         }
@@ -695,7 +705,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
             rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
             menuBarHeight: screen.frame.maxY-screen.visibleFrame.maxY)
-        updateMagneticDrag(pill: magneticRawPill, target: notch.hasNotch ? notch.cutoutFrame : nil,
+        updateMagneticDrag(pill: magneticRawPill, target: notch.hasNotch && !notchTaken ? notch.cutoutFrame : nil,
             at: time, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             velocity: time-magneticPointerTime < 0.08 ? magneticPointerVelocity : .zero)
     }
@@ -909,8 +919,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
             rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
             menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
-        return IndicatorPlacement.safeTopX(proposedX: proposedX, size: size.width, screen: bounds,
-                                           notch: notch.hasNotch ? notch.cutoutFrame : nil)
+        // A notch app's window over the camera is stepped around whole, so the handle stays reachable (APP-644).
+        let avoid = notch.hasNotch ? notchHolder.map { $0.union(notch.cutoutFrame) } ?? notch.cutoutFrame : nil
+        return IndicatorPlacement.safeTopX(proposedX: proposedX, size: size.width, screen: bounds, notch: avoid)
     }
 
     @objc func displayParametersChanged() {
@@ -933,7 +944,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                                     rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
                                     menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
         geometry = current
-        isDocked = NotchDocking.isDocked(in: defaults, hasNotch: current.hasNotch)
+        notchHolder = holder(of: current)
+        isDocked = NotchDocking.isDocked(in: defaults, hasNotch: current.hasNotch && !notchTaken)
         model.isNotchDocked = isDocked
         presentation.backdrop.docked = isDocked
         indicatorControl?.isDocked = isDocked
@@ -955,6 +967,31 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                                                height: model.cutoutHeight + 24)), display: true)
         pointerIsInside = false
         present(animate: false, requestFocus: false)
+    }
+
+    /// What another app's windows cover over this geometry's hardware notch now (AppKit coordinates), or nil (one
+    /// window-list read, no titles).
+    private func holder(of geometry: NotchGeometry) -> CGRect? {
+        guard geometry.hasNotch else { return nil }
+        let height = primaryDisplayHeight
+        let cutout = NotchOverlap.windowServerRect(geometry.cutoutFrame, primaryDisplayHeight: height)
+        return NotchOverlap.notchHolder(in: ScreenWindow.onScreen(), cutout: cutout, ownPIDs: [getpid()],
+                                        ferbLayer: indicatorPanel.level.rawValue)
+            .map { NotchOverlap.windowServerRect($0, primaryDisplayHeight: height) }   // the same flip back
+    }
+
+    /// A notch app can start or quit at any time (often at login, after FERB): look again once its windows are up.
+    @objc private func applicationsChanged() {
+        notchTakenRecheck.forEach { $0.cancel() }
+        notchTakenRecheck = [1.5, 5].map { delay in
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, let geometry = self.geometry,
+                      (self.holder(of: geometry) == nil) != (self.notchHolder == nil) else { return }
+                self.updateScreen()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+            return work
+        }
     }
 
     @objc private func screenDidWake() {

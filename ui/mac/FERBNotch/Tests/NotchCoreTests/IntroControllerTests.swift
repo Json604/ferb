@@ -262,6 +262,26 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(steps, 2)
     }
 
+    /// APP-645 (owner: "replay"): a newer build installed mid-tour plays the startup again, the clip with the Dense
+    /// entrance, and the resumed beat waits until it ends.
+    // decision: APP-645
+    func testANewerBuildReplaysTheStartupBeforeTheResumedBeat() async {
+        let arrival = FakeArrival()
+        let t = tour(clipSeconds: 7.3, arrival: arrival)
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "denied", fda: "granted")
+        var progress = t.progress
+        progress.resumeBeat = .permissions
+        t.sleeper.hold(7.3)
+        t.controller.start(beats: [.permissions, .home], startup: true)
+        XCTAssertEqual(t.sound.played.first, .firstLaunch)
+        XCTAssertEqual(arrival.shown, [7.3])
+        await eventually { t.sleeper.isWaiting(7.3) }
+        XCTAssertNil(t.controller.beat)                                    // the beat waits for the startup
+        t.sleeper.release(7.3)
+        await eventually { t.controller.beat == .permissions }
+        XCTAssertFalse(arrival.visible)
+    }
+
     // MARK: Sign in
 
     // decision: APP-507

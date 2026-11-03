@@ -132,7 +132,8 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     /// The one path every launch decision runs through. Nothing to do, with the tour behind it and every grant read,
     /// but setup never recorded (a skip or Home whose `setup.finish` didn't land): it is recorded quietly now; the
     /// daemon checks every row again before it counts setup as done.
-    func launch(_ decision: SetupLaunch, action: AppSetupAction, needs: IntroNeeds) async {
+    /// `startup`: a newer build resumes a tour a quit interrupted, opening with the startup again (APP-645).
+    func launch(_ decision: SetupLaunch, action: AppSetupAction, needs: IntroNeeds, startup: Bool = false) async {
         switch decision {
         case .nothing:
             if !needs.setupDone && progress.done && model.permissions != nil { await model.recordFinished() }
@@ -141,12 +142,12 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         case .window(let step): show(step, action: action)
         case .intro(let beats):
             if case .confirmReplace(let current) = action, !confirmReplacing(current) { return }
-            startTour(beats, action: action, firstRun: needs.firstRun)
+            startTour(beats, action: action, firstRun: needs.firstRun, startup: startup)
         }
     }
 
     /// One tour: its controller, orb and sound engine live until it ends. A tour can't start without the notch.
-    private func startTour(_ beats: [IntroBeat], action: AppSetupAction, firstRun: Bool) {
+    private func startTour(_ beats: [IntroBeat], action: AppSetupAction, firstRun: Bool, startup: Bool = false) {
         guard intro == nil else { return }
         guard let notch, let introControls else { show(.welcome, action: action); return }
         if !model.serviceRunning { model.serviceAction = action }
@@ -159,14 +160,14 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         let (orb, sound) = makeTourParts()
         let controller = IntroController(setup: model, orb: orb, sound: sound, notch: notch, progress: progress,
                                          controls: introControls, sleeper: introSleeper,
-                                         arrival: firstRun ? makeArrival() : nil)
+                                         arrival: firstRun || startup ? makeArrival() : nil)
         controller.onFinished = { [weak self, weak controller] in
             self?.tourEnded(left: controller?.remainingRequired ?? [])
         }
         self.sound = sound
         self.orb = orb
         intro = controller
-        controller.start(beats: beats, firstRun: firstRun)
+        controller.start(beats: beats, firstRun: firstRun, startup: startup)
         if !controller.running { tourEnded(left: []) }       // nothing in the plan to run
     }
 
@@ -275,9 +276,11 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     /// (startTour closes it) and nothing to do closes it.
     private func afterQuietUpdate(fromWindow: Bool) async {
         let needs = await readNeeds(.update)
-        let decision = AppSetupPlan.afterUpdate(needs, tour: progress.interrupted)
+        let interrupted = progress.interrupted
+        let decision = AppSetupPlan.afterUpdate(needs, tour: interrupted)
         if fromWindow, decision == .nothing { window?.close() }
-        await launch(decision, action: .none, needs: needs)
+        // A newer build over a tour a quit interrupted: the startup plays again before the tour resumes (APP-645).
+        await launch(decision, action: .none, needs: needs, startup: interrupted != nil && !needs.firstRun)
     }
 
     /// Whether launchd has FERB's agent running now (`launchctl print` only reads launchd's state).

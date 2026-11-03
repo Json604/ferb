@@ -153,4 +153,26 @@ final class NotchYieldTests: XCTestCase {
         XCTAssertFalse(yield.endWindowReasons())
         XCTAssertEqual(yield.reasons, [.filePicker])
     }
+
+    /// APP-644 (live 2026-11-02: with Boring Notch running FERB couldn't be dragged or clicked at all): a visible window
+    /// of another app above FERB's handle layer and below menus, over the camera's centre, holds the notch, and FERB
+    /// rests beside everything those windows cover. The menu bar, status items, FERB's own windows, menus and
+    /// invisible windows never count.
+    // decision: APP-644
+    func testANotchAppsWindowOverTheCameraHoldsTheNotch() {
+        let cutout = CGRect(x: 620, y: 0, width: 200, height: 32)            // window-server coordinates
+        func row(_ pid: Int32, _ layer: Int, _ bounds: CGRect, alpha: Double = 1) -> ScreenWindow {
+            ScreenWindow(windowID: UInt32(pid), ownerPID: pid, layer: layer, bounds: bounds, alpha: alpha)
+        }
+        let notchApp = row(77, 27, CGRect(x: 520, y: 0, width: 400, height: 40))
+        XCTAssertEqual(NotchOverlap.notchHolder(in: [notchApp], cutout: cutout, ownPIDs: [1], ferbLayer: 25),
+                       notchApp.bounds)
+        let others = [row(10, 24, CGRect(x: 0, y: 0, width: 1440, height: 32)),         // the menu bar
+                      row(11, 25, CGRect(x: 640, y: 0, width: 30, height: 32)),         // a status item
+                      row(1, 27, CGRect(x: 600, y: 0, width: 240, height: 40)),         // FERB's own
+                      row(12, NotchOverlap.popUpMenuLayer, CGRect(x: 600, y: 0, width: 300, height: 300)),
+                      row(13, 27, CGRect(x: 600, y: 0, width: 240, height: 40), alpha: 0),
+                      row(14, 27, CGRect(x: 1000, y: 0, width: 200, height: 40))]       // not over the camera
+        XCTAssertNil(NotchOverlap.notchHolder(in: others, cutout: cutout, ownPIDs: [1], ferbLayer: 25))
+    }
 }

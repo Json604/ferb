@@ -2341,3 +2341,12 @@ request = "Review desktop and phone layouts, try the task/reminder/memory previe
 pass = "The site matches FERB's glass identity with readable plain typography, rounded surfaces and restrained reduced-motion-aware animation. Navigation and preview controls work. Only the owner-supplied Apple Silicon DMG is offered; no broken download is presented."
 decisions = ["REL-405", "REL-1"]
 sitting = "website review before deployment"
+
+[LIVE-707]
+title = "With Boring Notch running, FERB sits beside the notch and can be dragged and clicked"
+area = "app"
+surface = "A notched Mac running Boring Notch (the friend's), with the build carrying APP-644."
+request = "Open FERB with Boring Notch running; click and drag FERB's handle. Quit Boring Notch, wait a few seconds, then start it again."
+pass = "FERB's handle sits on the top edge beside Boring Notch's area, opens on click and drags; with Boring Notch quit FERB goes back to the notch as it was set, and steps aside again when Boring Notch returns."
+decisions = ["APP-644"]
+sitting = "after step 13"

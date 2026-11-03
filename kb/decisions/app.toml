@@ -1569,3 +1569,24 @@ words = "it was the m1 mac friedn, yes startup music shuodl play"
 rule = "The first-launch music plays on a first run even when macOS's \"Play user interface sound effects\" is off, at FERB's volume and the Mac's output volume (not the alert volume). FERB's own sound switches and the call rule (another app using the microphone) still apply; every other FERB sound still follows the interface-sound switch."
 why = "A friend's M1 played no startup music; the agent asked whether it should play with interface sounds off. Keeping the call rule is the agent's reading."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift"]
+
+[APP-644]
+title = "When another app's window holds the notch, FERB rests beside it"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "(a) FERB moves its pill beside the notch when another app's window covers it,"
+rule = "When a visible window of another app sits above FERB's handle layer (below menus) over the hardware notch's centre, as a notch app such as Boring Notch does, FERB doesn't dock into the notch: its handle rests on the top edge clear of everything those windows cover, and the notch accepts no dock. Looked at when the screen changes and shortly after any app launches or quits; when the other app leaves, FERB follows its saved placement again. Menu bar, status items, FERB's own windows and menus never count."
+why = "Live 2026-11-02: on a friend's notched Mac with Boring Notch, FERB couldn't be dragged or clicked at all; the owner picked moving aside over raising FERB above the other app."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/NotchYield.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-707"]
+
+[APP-645]
+title = "A newer build installed mid-tour replays the startup before the tour resumes"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "replay"
+rule = "When a newer build's quiet update finds a tour a quit interrupted, the resumed tour opens with the startup again (the first-launch music and the Dense entrance), and the resumed beat waits until it ends. A plain quit and reopen of the same build still resumes without it."
+why = "Answer to: should installing a newer build replay the startup music and animation for someone halfway through the tour?"
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift"]

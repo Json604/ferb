@@ -101,7 +101,9 @@ final class IntroController {
     /// still needed (signed out, a grant gone since). `firstRun`: a new install (Task 9 sets it), whose tour opens with
     /// the first-launch clip; a replay or a resume plays none. The running tour keeps the controller alive until it
     /// ends (`end(stoppingSound:)` is every end's cleanup).
-    func start(beats: [IntroBeat], firstRun: Bool = false) {
+    /// `startup`: the startup (clip and entrance) plays even though the tour resumes mid-way; a newer build installed
+    /// during a tour (APP-645). The resumed beat waits for it to end.
+    func start(beats: [IntroBeat], firstRun: Bool = false, startup: Bool = false) {
         guard !running else { return }
         let resume = progress.resumeBeat.flatMap { beats.contains($0) ? $0 : nil }
         var plan = beats
@@ -119,7 +121,7 @@ final class IntroController {
         orb.onHomeArrival = { [weak notch] in notch?.pulseIntro() }
         notch.onIntroAction = { [weak self] action in self?.handle(action) }
         notch.introHoldsWork = true
-        if firstRun && resume == nil && plan.first == .meet {
+        if (firstRun && resume == nil && plan.first == .meet) || startup {
             sound.play(.firstLaunch, at: nil)
             arrival?.show(seconds: clipSeconds)
             clipEnded = false
@@ -158,6 +160,9 @@ final class IntroController {
     }
 
     private func perform(_ plan: [IntroBeat], ifNeeded: Set<IntroBeat>, resuming: Bool) async {
+        if plan.first != .meet && !clipEnded {           // a replayed startup ends before the resumed beat (APP-645)
+            _ = await suspend { [weak self] (resume: @escaping (Bool?) -> Void) in self?.clipWaiter = { resume(true) } }
+        }
         if resuming {
             await waitForService()
             notch.onStepBehindSettings?()        // a Quit & Reopen left Settings open under the notch (APP-642)

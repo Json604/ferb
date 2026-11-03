@@ -172,6 +172,19 @@ public enum NotchOverlap {
 
     /// Converts an AppKit screen rect (origin at the bottom left of the primary display) to window-server
     /// coordinates (origin at its top left).
+    /// Another app holds the camera housing, as a notch app (Boring Notch and the like) does: one of its visible windows
+    /// sits above FERB's handle layer, below menus, over the cutout's centre (window-server coordinates). The menu bar
+    /// and status items sit at or below FERB's layer, so they never count. Returns the span those windows cover (their
+    /// union), which FERB rests beside (APP-644); nil when nothing holds the notch.
+    public static func notchHolder(in rows: [ScreenWindow], cutout: CGRect, ownPIDs: Set<Int32>,
+                                   ferbLayer: Int) -> CGRect? {
+        let centre = CGPoint(x: cutout.midX, y: cutout.midY)
+        return rows.filter { row in
+            row.layer > ferbLayer && row.layer < popUpMenuLayer && !ownPIDs.contains(row.ownerPID)
+                && row.alpha >= minimumVisibleAlpha && row.bounds.contains(centre)
+        }.map(\.bounds).reduce(nil) { held, bounds in held.map { $0.union(bounds) } ?? bounds }
+    }
+
     public static func windowServerRect(_ rect: CGRect, primaryDisplayHeight: CGFloat) -> CGRect {
         CGRect(x: rect.minX, y: primaryDisplayHeight - rect.maxY, width: rect.width, height: rect.height)
     }
