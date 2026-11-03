@@ -116,10 +116,15 @@ final class FerbSoundEngine: FerbSoundPlaying {
 
     /// The gain at today's settings, before placement: FERB's volume (relative to the default) times the alert
     /// volume. Nil when sound is off (the system's UI sounds or FERB's feedback).
-    var settingsGain: Float? {
-        guard AudioOutputFacts.uiSoundsEnabled(preference), feedbackEnabled else { return nil }
+    var settingsGain: Float? { gain(for: nil) }
+
+    /// The first-launch music follows FERB's volume and the Mac's output volume, not the interface-sound switch or
+    /// the alert volume (APP-643).
+    private func gain(for s: FerbSound?) -> Float? {
+        let music = s == .firstLaunch
+        guard music || AudioOutputFacts.uiSoundsEnabled(preference), feedbackEnabled else { return nil }
         let volume = min(max(defaults.object(forKey: "feedback.volume") as? Double ?? Self.defaultVolume, 0), 0.5)
-        let gain = Float(volume / Self.defaultVolume) * AudioOutputFacts.alertVolume(preference)
+        let gain = Float(volume / Self.defaultVolume) * (music ? 1 : AudioOutputFacts.alertVolume(preference))
         return gain > 0 ? gain : nil
     }
 
@@ -138,10 +143,10 @@ final class FerbSoundEngine: FerbSoundPlaying {
                                   onACall: { [inputProcesses, ownProcess] in inputProcesses().contains { !ownProcess($0) } })
     }
 
-    func allows(_ s: FerbSound) -> Bool { decision(for: s) != nil && settingsGain != nil }
+    func allows(_ s: FerbSound) -> Bool { decision(for: s) != nil && gain(for: s) != nil }
 
     func play(_ s: FerbSound, at point: CGPoint?) {
-        guard let decision = decision(for: s), let gain = settingsGain else { return }
+        guard let decision = decision(for: s), let gain = gain(for: s) else { return }
         let subtle = decision.subtle
         guard let url = FerbSoundFiles.files(for: s, subtle: subtle).randomElement(),
               let data = library.data(for: url, roomSend: FerbSoundFiles.isFinishedMix(s)

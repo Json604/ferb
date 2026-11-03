@@ -58,10 +58,11 @@ public enum SoundPolicy {
 
     /// Whether and how a sound plays: the system's "Play user interface sound effects", FERB's master switch and the
     /// sound's own switch, at the chosen intensity. During a call (another app running microphone input; read only
-    /// when everything else lets the sound play) only needs you plays, at Subtle (owner, 2026-11-01).
+    /// when everything else lets the sound play) only needs you plays, at Subtle (owner, 2026-11-01). The first-launch
+    /// music isn't an interface sound: it plays with the system's interface sounds off (APP-643).
     public static func decide(_ s: FerbSound, uiSoundsEnabled: Bool, feedbackEnabled: Bool, switchOn: Bool, subtle: Bool,
                               onACall: () -> Bool) -> SoundDecision? {
-        guard uiSoundsEnabled, feedbackEnabled, switchOn else { return nil }
+        guard uiSoundsEnabled || s == .firstLaunch, feedbackEnabled, switchOn else { return nil }
         guard onACall() else { return SoundDecision(subtle: subtle) }
         return s == .needsYou ? SoundDecision(subtle: true) : nil
     }

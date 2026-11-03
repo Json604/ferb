@@ -1559,3 +1559,13 @@ status = "active"
 rule = "When the tour resumes (after a quit, e.g. macOS's Quit & Reopen) and whenever the logo docks beside System Settings, the notch steps behind Settings' window if it lies under the tour's surface, through the same path as Settings coming forward (the yield to the app under the pinned chat, rechecked shortly after). A click on FERB brings it back as before."
 why = "Live 2026-11-02 on the owner's and a friend's Mac: after Full Disk Access's Quit & Reopen, FERB relaunched in front and covered System Settings, because Settings never came forward and the yield follows only app activation."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift"]
+
+[APP-643]
+title = "The first-launch music plays even when the Mac's interface sounds are off"
+by = "owner"
+date = 2026-11-03
+status = "active"
+words = "it was the m1 mac friedn, yes startup music shuodl play"
+rule = "The first-launch music plays on a first run even when macOS's \"Play user interface sound effects\" is off, at FERB's volume and the Mac's output volume (not the alert volume). FERB's own sound switches and the call rule (another app using the microphone) still apply; every other FERB sound still follows the interface-sound switch."
+why = "A friend's M1 played no startup music; the agent asked whether it should play with interface sounds off. Keeping the call rule is the agent's reading."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift"]

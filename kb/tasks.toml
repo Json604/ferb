@@ -412,14 +412,6 @@ status = "blocked"
 why = "Owner 2026-11-02: buy the Developer ID (Individual) and adopt it after FERB is ready to try; blocked on the account. Plan: kb/plans/developer-id.md (what changes, what could break, migration)."
 decisions = ["DMN-513", "REL-403"]
 
-[T-28]
-title = "Update ferb.kartikey.xyz for people to try FERB (owner, with the UI agent)"
-area = "release"
-kind = "chore"
-status = "open"
-why = "Owner 2026-11-02: accelerator applications need a site and a build people can try; the owner updates the site with the UI agent that polishes setup."
-decisions = ["DMN-513"]
-
 [T-29]
 title = "Build DMN-513: the daemon as a user LaunchAgent, with smooth moves from older installs"
 area = "daemon"
@@ -451,4 +443,3 @@ kind = "build"
 status = "open"
 why = "Owner requested PostHog at the end of the website work. Obtain the project configuration, implement analytics, and reflect actual collection in the privacy disclosure before deployment."
 decisions = ["REL-407"]
-after = ["T-28"]

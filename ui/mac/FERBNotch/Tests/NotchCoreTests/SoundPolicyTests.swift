@@ -29,4 +29,16 @@ final class SoundPolicyTests: XCTestCase {
         XCTAssertNil(decide(ui: true, feedback: false))
         XCTAssertEqual(decide(ui: true, feedback: true), SoundDecision(subtle: false))
     }
+
+    /// APP-643 (owner, 2026-11-03: a friend's M1 played no startup music): the first-launch music plays with the
+    /// system's interface sounds off; every other sound still follows that switch, and FERB's own switches still apply.
+    // decision: APP-643
+    func testTheFirstLaunchMusicPlaysWithInterfaceSoundsOff() {
+        XCTAssertNotNil(SoundPolicy.decide(.firstLaunch, uiSoundsEnabled: false, feedbackEnabled: true, switchOn: true,
+                                           subtle: false, onACall: { false }))
+        XCTAssertNil(SoundPolicy.decide(.done, uiSoundsEnabled: false, feedbackEnabled: true, switchOn: true,
+                                        subtle: false, onACall: { false }))
+        XCTAssertNil(SoundPolicy.decide(.firstLaunch, uiSoundsEnabled: false, feedbackEnabled: false, switchOn: true,
+                                        subtle: false, onACall: { false }))
+    }
 }
