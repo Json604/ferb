@@ -2990,3 +2990,12 @@ request = "With the chat closed, click once on the camera housing. Close it (Esc
 pass = "The click opens FERB with the cursor in the text field (as double-tap right Option does); the press-and-drag tears FERB out and it follows the pointer with the approved feel and docks back; clicks beside the housing reach the menu bar and a click on the strip below reaches the app underneath; nothing visible is added to the notch; hover opens FERB again once turned on; the pill opens and drags with hover off."
 decisions = ["APP-705", "APP-706", "APP-597", "APP-625", "APP-629"]
 sitting = "after this change is installed"
+
+[LIVE-770]
+title = "Clicks on a page whose frames come and go land; a click that couldn't start can be retried"
+area = "hands"
+surface = "FERB.app with this build; the store's extension 0.19.2 in the paired profile (chrome://extensions shows 0.19.2)"
+request = "Ask FERB to open a page with ads or embedded frames (e.g. a news or course site) and click through two or three links or buttons on it; then read the task with `ferb trace TASK --full`."
+pass = "Each click lands. No browser.act step says background_input_unavailable with \"outcome unknown\"; if a click couldn't be prepared, its step is a plain failure (no \"outcome unknown\") and the worker tries it again or says why, instead of refusing to repeat it."
+decisions = ["HAND-422", "HAND-423"]
+sitting = "after this change is installed"

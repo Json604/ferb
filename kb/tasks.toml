@@ -446,12 +446,12 @@ why = "APP-666 dropped Try's preview; FERB.app no longer calls intro.preview. St
 decisions = ["APP-666"]
 
 [T-1041]
-title = "Upload extension 0.19.1 to the Chrome Web Store"
+title = "Upload extension 0.19.2 to the Chrome Web Store"
 area = "hands"
 kind = "chore"
 status = "open"
-why = "Owner's step: build/store/ferb-extension-0.19.1.zip (same permissions as 0.19.0, no re-approval). Until it's live, a borrowed tab whose page hangs still times out at task end (HAND-418)."
-decisions = ["HAND-418"]
+why = "Owner's step: build/store/ferb-extension-0.19.2.zip (same permissions as 0.19.1, no re-approval; includes 0.19.1). Until it's live, a hung borrowed tab times out at task end (HAND-418) and a click whose tab couldn't be prepared is \"outcome unknown\", never retried (HAND-422/423)."
+decisions = ["HAND-418", "HAND-422", "HAND-423"]
 
 [T-1042]
 title = "The planner's cached prefix stays at 10,752 tokens while its prompt grows"

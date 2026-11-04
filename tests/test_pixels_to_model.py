@@ -1851,11 +1851,12 @@ def test_captures_of_an_unscriptable_page_stay_armed_and_never_cycle_the_debugge
 
 @pytest.mark.parametrize("op", ["screenshot", "record_frame"])
 def test_an_input_setup_error_of_a_ready_tab_doesnt_refuse_its_captures(op: str) -> None:
-    """Round 5 (item 2): a tab FERB attached fully, where one iframe's input session once failed to set up (its
-    inputErrors are never cleared): attach() refuses input commands, but a capture of the ready tab needs no more."""
+    """Round 5 (item 2): a tab FERB attached fully, where one iframe's input session failed to set up and is still
+    there: attach() refuses input commands (after one fresh attach, HAND-423), but a capture of the ready tab needs no
+    more."""
     out = _stateful('''
       await attach(19);
-      tabState(19).inputErrors.push('No session with given id');
+      tabState(19).inputErrors.set('S1', 'No session with given id');
       const res = [];
       for (let i = 0; i < 2; i++) { try { const r = await commands[OP]({tab_id: 19, _timeout_ms: 3000});
           res.push(r.data ? 'data' : JSON.stringify(r)); } catch (e) { res.push('error: ' + String(e.message || e)); } }
