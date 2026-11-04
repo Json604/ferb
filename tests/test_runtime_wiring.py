@@ -103,3 +103,44 @@ def test_the_codex_runtime_redacts_its_errors_with_the_daemons_redactor(daemon: 
     monkeypatch.setattr('ferb.runtimes.codex_exec.codex_binary', lambda *_: d.home / 'fake-codex')
     rt = d._make_runtime('orchestrator', mode='supervisor', tool_names=[], schema={'type': 'object'})
     assert rt.redact is d.redact
+
+
+# decision: RUN-424, RUN-404, ORCH-315
+def test_availability_is_read_once_and_refreshed_only_by_events_that_change_it(daemon: RunningDaemon,
+                                                                               monkeypatch) -> None:
+    """Owner 2026-11-04: no sign-in check on every message. Each runtime's availability is read once and kept; a
+    sign-in failure from a call itself still says so (ORCH-315) and makes that runtime unavailable; a runtime change
+    or the app's AI status read refreshes it. No real Keychain or login is read."""
+    from ferb.core.types import RuntimeEvent
+    from tests.conftest import FakeRuntime, chat, install
+    d = daemon.daemon
+    del d._runtime_available                        # the fixture's stand-in: back to the daemon's own
+    signed = {name: name in ("codex", "anthropic") for name in CATALOG}
+    reads: list[str] = []
+
+    def available(entry, home, model=None):
+        reads.append(entry.name)
+        return (signed[entry.name], "" if signed[entry.name] else "sign in")
+    monkeypatch.setattr(type(CATALOG["codex"]), "available", available)
+    monkeypatch.setattr(type(CATALOG["codex"]), "signed_in", lambda entry, home: (signed[entry.name], ""))
+    d._available_cache.clear()
+    assert d.supervisor.worker_types() == ["default", "codex", "anthropic"]
+    assert d.supervisor.worker_types() == ["default", "codex", "anthropic"]
+    assert sorted(reads) == sorted(CATALOG)         # one read per runtime, not one per turn
+
+    class Codex(FakeRuntime):
+        name = "codex"
+    script = install(daemon, [RuntimeEvent("error", {"message": "Codex runtime reported an error: unauthorized",
+                                                    "account": "signed_out"})])
+    d.supervisor.make_runtime = lambda role, *, mode, tool_names, schema, effort=None: Codex(script, mode, tool_names)
+    reads.clear()
+    [reply] = [e for e in chat(daemon, "what's the weather like?") if e["type"] == "reply"]
+    assert reply["text"].startswith("Codex isn't signed in for FERB") and reply["runtime_switch"]["runtime"] == "codex"
+    assert reply["runtime_switch"]["choices"] == ["anthropic"]
+    assert d.supervisor.worker_types() == ["default", "anthropic"] and reads == []   # the call's own word, no probe
+
+    daemon.run(d._runtimes_status(None, {}))       # the app reads its AI status after a sign-in: read afresh
+    assert d.supervisor.worker_types() == ["default", "codex", "anthropic"]
+    signed["openai"] = True
+    daemon.run(d._runtimes_use(None, {"runtime": "openai", "roles": ["worker"]}))
+    assert "openai" in d.supervisor.worker_types()   # a runtime change reads that runtime again

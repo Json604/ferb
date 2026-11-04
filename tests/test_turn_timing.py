@@ -236,7 +236,8 @@ async def test_codex_reports_its_start_steps_and_each_calls_timing(tmp_path, mon
     task = Task("t", None, "reply", "d", TASK.identity, set(), "mixed", "r", [], None)
     run = await stream.start(rt, task, ModelRequest("FERB instructions", ("context",)))
     steps = run.state["start_steps"]
-    assert {"files", "spawn", "initialize", "account", "thread_start", "turn_start"} <= set(steps)
+    assert {"files", "spawn", "initialize", "thread_start", "turn_start"} <= set(steps)
+    assert "account" not in steps                             # no sign-in check on every call (RUN-422)
     assert steps["spawn"] == 50
     events = stream.events(rt, run)
     await anext(events)

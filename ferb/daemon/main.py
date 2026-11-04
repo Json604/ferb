@@ -164,7 +164,7 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         self.destinations: KnownDestinations | None = None    # SQ6: the destinations FERB knows
         self.device_id = "unknown-device"                     # [device] id, read at start (_load_config)
         self.protection: Protection | None = None             # the [protection] lists, read once at start (rule 10)
-        self._available_cache: dict[str, tuple[float, bool]] = {}
+        self._available_cache: dict[str, tuple[str | None, bool]] = {}   # runtime -> (model, available), RUN-424
         # Slow reads the planner's facts and availability need on every turn (TCC checks, browser profile files),
         # kept for FRESH_S and refreshed in a worker thread
         self._fresh = _Fresh(FRESH_S)
@@ -444,6 +444,8 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         self.server.ready.clear()
         await self.server.start()          # refuses to start if another daemon answers on the socket
         await self._prepare_codex()
+        # RUN-424: each runtime's availability is read once here (off the loop), then kept until an event changes it
+        await asyncio.to_thread(self._worker_types)
         self.missing_dev_tools = await asyncio.to_thread(self.developer_tools)
         new_session = self._record_start()
         await self._restore_service_definition()

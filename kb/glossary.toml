@@ -98,7 +98,7 @@ see = ["STORE-402", "STORE-412"]
 
 ["exchange"]
 meaning = "One owner message (or several read together) and FERB's reply to it; the unit the planner's recent conversation counts."
-see = ["ORCH-303", "ORCH-318"]
+see = ["ORCH-303", "ORCH-529"]
 
 ["part"]
 meaning = "One of the owner's asks in a message (not a plan step); each gets its own row in the turn card and posts once."

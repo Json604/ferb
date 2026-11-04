@@ -10,6 +10,19 @@ import httpx
 from ferb.runtimes.api import ProviderError, ToolCall, Turn
 from ferb.runtimes.usage import Usage
 
+async def next_output(events: Any) -> Any:
+    """The next event of a runtime's stream that isn't a `progress` sign of life (ORCH-528); None at its end."""
+    async for event in events:
+        if event.kind != "progress":
+            return event
+    return None
+
+
+def without_progress(events: list[Any]) -> list[Any]:
+    """A runtime's events without its `progress` signs of life (ORCH-528)."""
+    return [e for e in events if e.kind != "progress"]
+
+
 FS_LIST = {"name": "fs.list", "description": "List a folder.",
            "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}
 

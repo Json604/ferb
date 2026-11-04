@@ -53,6 +53,8 @@ class EnvironmentPort:
     running_apps: Callable[[], list[tuple[str, str, int]]]   # (bundle id, name, pid) running now
     relevant_context: Callable[[str], Any]              # (text, origin, payload, source refs), run off the loop
     worker_types: Callable[[], list[str]]
+    # a runtime's own call said its sign-in failed: the cached availability takes that in (RUN-424)
+    runtime_signed_out: Callable[[str], None]
     signals: Callable[[], tuple[datetime | None, datetime | None]]   # (owner last active, last trail event)
     skills_catalog: Callable[[], list[dict[str, str]]]
     abilities_catalog: Callable[[], list[dict[str, Any]]]

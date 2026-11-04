@@ -94,7 +94,8 @@ async def test_tool_call_goes_through_ferb_and_back(case) -> None:
     bridge = FakeBridge()
     script = Scripted([(200, case["tool"]("fs_list", {"path": "/tmp"})), (200, case["final"])])
     events = await run(make(case, script, bridge=bridge))
-    assert [e.kind for e in events] == ["usage", "tool_call", "usage", "final"]
+    # the tool's result going back is a sign of life for the silence guard (ORCH-528)
+    assert [e.kind for e in events] == ["usage", "tool_call", "progress", "usage", "final"]
     assert bridge.calls == [("fs.list", {"path": "/tmp"})]
     case["check_result"](script.requests[1][1], image=False)
 
@@ -124,7 +125,8 @@ async def test_a_supervisor_run_with_a_run_token_looks_up_through_ferb(case) -> 
     bridge = FakeBridge()
     script = Scripted([(200, case["tool"]("fs_list", {"path": "/tmp"})), (200, case["final"])])
     events = await run(make(case, script, mode="supervisor", bridge=bridge), token="tok")
-    assert [e.kind for e in events if e.kind != "text_delta"] == ["usage", "tool_call", "usage", "final"]
+    assert [e.kind for e in events if e.kind not in ("text_delta", "progress")] == ["usage", "tool_call", "usage",
+                                                                                   "final"]
     assert bridge.calls == [("fs.list", {"path": "/tmp"})]
     plain = Scripted([(200, case["final"])])
     await run(make(case, plain, mode="supervisor", bridge=FakeBridge()), token="")

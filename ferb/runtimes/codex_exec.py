@@ -391,8 +391,8 @@ class CodexRuntime:
         # Codex's own error text passes through this before it is raised or reported (rule 14): the daemon's redactor,
         # which knows the values the owner stored, else the secret pattern classes
         self.redact = redact or Redactor()
-        # timeout_s: the one overall limit on this call, start and answer together (catalog.call_limit: the planner's
-        # 90 s, another non-worker call's limit, None for a worker)
+        # timeout_s: the one overall limit on this call, start and answer together (catalog.call_limit: none for the
+        # planner's (ORCH-528) and a worker's, CALL_LIMIT_S for another non-worker call)
         self.shim_cmd, self.output_schema, self.timeout_s = shim_cmd, output_schema, timeout_s
         self.model = model or default_model()
         # Told (task id, "<thread>/<call id>") when Codex gives up a FERB tool call on its own: it sends the shim no

@@ -101,6 +101,8 @@ def _codex_failure(prefix: str, error: Any, redact: Callable[[Any], Any],
     failure.overflow = isinstance(error, dict) and error.get('codexErrorInfo') == 'contextWindowExceeded'
     info = error.get('codexErrorInfo') if isinstance(error, dict) else None
     failure.account = ACCOUNT_INFO.get(info, '') if isinstance(info, str) else ''
+    if not failure.account and _signed_out(error):
+        failure.account = 'signed_out'         # the sign-in's refresh refused: Codex's own OAuth error code (RUN-422)
     return failure
 
 
@@ -132,12 +134,31 @@ class AccountError(ProtocolError, RuntimeUnavailable):
         super().__init__(f'{recovery} ({detail})')
 
 
-def _account_error(error: Any) -> AccountError:
-    error = error if isinstance(error, dict) else {}
-    # Inspect provider contents only to choose a fixed category; never retain or emit them.
-    markers = r'(?<![a-z_])(?:refresh_token_(?:reused|expired|invalidated)|invalid_grant)(?![a-z_])'
-    reason = 'auth_required' if re.search(markers, json.dumps(error).lower()) else 'account_unavailable'
-    return AccountError(reason, error.get('code'))
+# The OAuth error codes Codex reports when FERB's ChatGPT sign-in can no longer be refreshed: a sign-in fact, as
+# CodexErrorInfo `unauthorized` is (structural codes in Codex's error, never the meaning of its words)
+SIGNED_OUT_CODES = r'(?<![a-z_])(?:refresh_token_(?:reused|expired|invalidated)|invalid_grant)(?![a-z_])'
+
+
+def _signed_out(error: Any) -> bool:
+    """Whether Codex's error object carries one of SIGNED_OUT_CODES. Its contents are inspected only for that; never
+    retained or emitted beyond what codex_error keeps."""
+    return isinstance(error, dict) and re.search(SIGNED_OUT_CODES, json.dumps(error).lower()) is not None
+
+
+def _chatgpt_login(auth: bytes) -> bool:
+    """Whether FERB's Codex login file holds a ChatGPT sign-in, not an API key (which Codex's account/read reports as
+    `apiKey` when the file has OPENAI_API_KEY set or auth_mode "apikey"; measured on the pinned 0.166.0 with HOME and
+    CODEX_HOME temporary, 2026-11-04): ChatGPT tokens and no key. Structure only: no value is kept or shown."""
+    try:
+        login = json.loads(auth)
+    except ValueError:
+        return False
+    if not isinstance(login, dict):
+        return False
+    key, mode = login.get('OPENAI_API_KEY'), login.get('auth_mode')
+    if (isinstance(key, str) and key) or (isinstance(mode, str) and mode.lower() == 'apikey'):
+        return False
+    return isinstance(login.get('tokens'), dict)
 
 
 def codex_error(prefix: str, error: Any, redact: Callable[[Any], Any]) -> str:
@@ -248,7 +269,7 @@ def _command(runtime: CodexRuntime, catalog: Path | None, token_file: Path | Non
 
 async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_token: str = "") -> RunHandle:
     """RUN-420: the start is timed step by step on the runtime's clock (`start_steps` in the run state: files, the
-    app-server's spawn, initialize, the account check, the thread's start or resume, the turn's start; CodexRuntime
+    app-server's spawn, initialize, the thread's start or resume, the turn's start; CodexRuntime
     adds its version check), and each model call after it by `CallTimer` from the arrival of Codex's output
     (`_observe`)."""
     from ferb.runtimes.codex_exec import CODEX_USER, codex_home, locked_catalog
@@ -280,7 +301,6 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
         'deadline': (asyncio.get_running_loop().time() + runtime.timeout_s
                      if runtime.timeout_s is not None else None)}
     run = RunHandle('run-' + secrets.token_hex(6), runtime.name, task.id, state)
-    checking_account = False
     try:
         token_file = None
         if runtime.mode == 'worker' or run_token:      # a planner's lookups too (RUN-415, ORCH-516)
@@ -289,6 +309,8 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
             state['token_file'] = token_file
         async with asyncio.timeout_at(state['deadline']):
             state['auth_original'] = state['auth_source'].read_bytes()
+            if not _chatgpt_login(state['auth_original']):
+                raise AccountError('auth_required')      # only FERB's ChatGPT sign-in, never an API key (RUN-422)
             _private_write(state['auth_copy'], state['auth_original'])
             user_home = runtime.ferb_home / CODEX_USER
             user_home.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -307,21 +329,10 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
                                          'capabilities': {'experimentalApi': True}})
             await _write(run, {'method': 'initialized'})
             steps.mark('initialize')
-            checking_account = True
-            try:
-                account = await _rpc(run, 'account/read', {'refreshToken': False})
-            except AccountError:
-                raise
-            except (ProtocolError, OSError):
-                # The check never completed (the app-server exited or its pipe broke): an account failure all the same,
-                # so the request gets a reply naming it rather than a generic apology (L21).
-                raise AccountError('account_unavailable') from None
-            checking_account = False
-            details = account.get('account')
-            if not isinstance(details, dict) or details.get('type') != 'chatgpt':
-                raise AccountError('auth_required')
-            _save_refresh(state)
-            steps.mark('account')
+            # RUN-422 (owner, 2026-11-04: "if its not connected it'll give error and then we'll know"): no account/read
+            # before the thread. It waited on Codex's workspace routing lookup (a ChatGPT round trip, 0.25-2.7 s a call)
+            # that the turn doesn't wait for; a sign-in Codex refuses comes back as the turn's own error
+            # (CodexErrorInfo unauthorized, or a refresh-token error code), which becomes ORCH-315's offer
             resumed, developer = None, False
             if runtime.cache_role and runtime.mode == 'supervisor':
                 # RUN-416: every turn of the cached role resumes its fixed thread (one prompt_cache_key, so the
@@ -348,11 +359,6 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
             state['turn_id'] = turn['turn']['id']
             steps.mark('turn_start')
         return run
-    except TimeoutError:
-        await cancel(run)
-        if checking_account:                    # the startup timeout ran out while the account check was pending
-            raise AccountError('account_unavailable') from None
-        raise
     except BaseException:
         await cancel(run)
         raise
@@ -550,8 +556,6 @@ async def _rpc(run: RunHandle, method: str, params: dict[str, Any]) -> dict[str,
         obj = await future
         result = obj.get('result')
         if 'error' in obj or not isinstance(result, dict):
-            if method == 'account/read':
-                raise _account_error(obj.get('error'))
             raise ProtocolError(codex_error('Codex could not complete ' + method, obj.get('error'), state['redact']))
         return result
     finally:
@@ -608,6 +612,9 @@ async def _watch_catalog(runtime: CodexRuntime, run: RunHandle) -> None:
             seen = {n.removeprefix('functions.') for n in tools_in(text)}
             if state.get('timer') is not None:
                 state['timer'].sent()            # Codex's request trace: the provider request goes out now (RUN-421)
+            # Codex refreshed its sign-in (if it had to) before this request: published now, so a run starting while
+            # this one goes on copies the new login instead of reusing a spent refresh token (RUN-422)
+            _save_refresh(state)
             state['seen'] |= seen
             if not state.get('catalog_unreadable'):
                 state['catalog_observed'] = True
@@ -691,6 +698,10 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     return
                 if params.get('turnId') != state['turn_id']:
                     continue
+                # ORCH-528: any notification of this turn that hands nothing over (a reasoning or commentary delta, an
+                # item starting) is still the model working: a `progress` event, so the silence guard sees it. A retry
+                # is not (it yields `retrying`, which never counts as life)
+                progress = True
                 if method in {'item/started', 'item/completed'}:
                     item = params.get('item', {})
                     kind = item.get('type')
@@ -711,6 +722,7 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                             runtime.on_abandoned(run.task_id, f"{state['thread_id']}/{item.get('id')}")
                         yield RuntimeEvent('tool_call', {'tool': item.get('tool'), 'status': item.get('status'),
                                                        'arguments': item.get('arguments')})
+                        progress = False
                     if kind == 'agentMessage':
                         # Codex 0.166.0's MessagePhase: commentary, partial_answer ("stable answer text that may be
                         # followed by more assistant output or tools") or final_answer; None from models that send no
@@ -721,6 +733,7 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                             final = str(item.get('text', ''))
                         if runtime.mode == 'worker' and method == 'item/completed':
                             yield RuntimeEvent('message', {'text': str(item.get('text', ''))})
+                            progress = False
                 elif method == 'item/agentMessage/delta' and phases.get(params.get('itemId')) == 'final_answer':
                     if runtime.output_schema is not None and isinstance(params.get('delta'), str):
                         pending_text.append(params['delta'])
@@ -733,14 +746,18 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     timings = state.get('timings')
                     yield RuntimeEvent('usage', asdict(from_codex(runtime.model, mapped))
                                        | ({'timing': timings.popleft()} if timings else {}))
+                    progress = False
                 elif method == 'error' and params.get('willRetry') is True:
                     # Codex retries it itself and "this will not interrupt a turn" (v2 ErrorNotification,
                     # app-server-protocol v2/notification.rs:62-69): reported, and the run goes on
                     yield RuntimeEvent('retrying', {'message': codex_error('Codex is retrying after an error',
                                                                            params.get('error'), runtime.redact)})
+                    progress = False
                 elif method == 'error':
                     raise _codex_failure('Codex runtime reported an error', params.get('error'), runtime.redact,
                                          runtime)
+                if progress:
+                    yield RuntimeEvent('progress', {})
     except (ProtocolError, TimeoutError) as exc:
         if state['violation']:
             yield RuntimeEvent('violation', {'unexpected_tools': sorted(state['violation'])} |

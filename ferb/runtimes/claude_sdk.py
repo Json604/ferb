@@ -247,9 +247,10 @@ class ClaudeRuntime:
             if timer is not None and isinstance(m, (StreamEvent, AssistantMessage)):
                 timer.output()
             if isinstance(m, UserMessage):
-                if timer is not None and isinstance(m.content, list) and any(
-                        isinstance(b, ToolResultBlock) for b in m.content):
-                    timer.handed_back()
+                if isinstance(m.content, list) and any(isinstance(b, ToolResultBlock) for b in m.content):
+                    if timer is not None:
+                        timer.handed_back()
+                    yield RuntimeEvent("progress", {})     # a tool's result went back: a sign of life (ORCH-528)
                 run.state.setdefault("pending_updates", set()).discard(m.uuid)
                 continue
             if isinstance(m, SystemMessage) and m.subtype == "init":
@@ -275,8 +276,11 @@ class ClaudeRuntime:
                     delta = event.get('delta') or {}
                     if delta.get('type') == 'input_json_delta' and delta.get('partial_json'):
                         yield RuntimeEvent('text_delta', {'text': delta['partial_json']})
+                        continue
                 elif kind == 'content_block_stop':
                     structured_blocks.discard(event.get('index'))
+                # ORCH-528: every other stream event (thinking, a block starting or ending) is the model working
+                yield RuntimeEvent('progress', {})
             elif isinstance(m, AssistantMessage):
                 if account := ACCOUNT_ERRORS.get(str(getattr(m, "error", None) or "")):
                     run.state["account"] = account   # the SDK's own error kind (AssistantMessageError), step 8b

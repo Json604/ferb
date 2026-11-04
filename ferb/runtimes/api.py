@@ -245,7 +245,10 @@ class ApiRuntime:
                     while (fragment := await fragments.get()) is not None:
                         if r.cancelled:
                             return
-                        yield RuntimeEvent('text_delta', {'text': fragment})
+                        # "" is a streamed event with no answer text (thinking, a block starting): a sign of life for
+                        # the silence guard (ORCH-528)
+                        yield (RuntimeEvent('text_delta', {'text': fragment}) if fragment
+                               else RuntimeEvent('progress', {}))
                     turn = await r.inflight
                 except asyncio.CancelledError:
                     if r.cancelled and not _consumer_cancelled():
@@ -291,6 +294,7 @@ class ApiRuntime:
                     if outcome is None or r.cancelled:
                         return
                     results.append(outcome)
+                    yield RuntimeEvent("progress", {})       # the tool's result is back: a sign of life (ORCH-528)
                 self.provider.add_results(r.state, turn, results)
         finally:
             r.closed = True
@@ -361,7 +365,7 @@ class ApiRuntime:
                                 raise ProviderError(f'{self.name}: malformed response stream event') from None
                             if text:
                                 emitted = True
-                                on_delta(text)
+                            on_delta(text or "")      # "" still shows the model working (ORCH-528)
                         data = parser.finish()
                     else:
                         await resp.aread()
