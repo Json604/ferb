@@ -435,7 +435,7 @@ title = "Harden the prompts: look memory up before stating owner facts, never fi
 area = "prompts"
 kind = "build"
 status = "open"
-why = "Owner 2026-11-04, to start once this install's testing and fixes are done: research how others write prompts models follow, then propose hard lookup/no-guess rules (interaction.md, worker.md:47, supervisor.md:9-24) for the owner's decision before any edit."
+why = "Owner 2026-11-04, after this install works: research prompts models follow; propose hard rules: look up before stating owner facts, never fill gaps, prefer FERB's records (task.evidence) over the screen (12:28 it answered from a terminal on screen). Owner decides before edits."
 
 [T-1033]
 title = "Remove the unused plan-only preview (intro.preview) and its chat preview rows"
