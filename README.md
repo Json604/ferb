@@ -57,7 +57,7 @@ Keychain items.
 - **Remember**: facts you mention, even in passing, kept as a short profile and searched by meaning and keywords on your
   Mac. After a task it notes how the work was done, so the same kind of task goes faster next time. It can import what
   ChatGPT, Claude, Gemini, Claude Code and Codex CLI know about you (the last 3 months).
-- **Voice**: hold Right Command + Option to dictate, and FERB can answer aloud in the Mac's voice.
+- **Dictation**: hold Right Command + Option to dictate a message. FERB always replies in text in the chat; it never speaks.
 - **Sign in for you**: passwords, one-time codes and card details go through a sealed path; the model never sees them.
   FERB tries simple "verify you are human" checks itself and hands the tab to you when it can't.
 - **Report a failure**: a failed task offers **Send to developer**: FERB prepares the task's record (secrets removed),

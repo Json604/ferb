@@ -60,6 +60,18 @@ def test_the_about_summary_is_built_from_code_and_config_and_stays_the_same(daem
     assert d._about_summary() != first and d._models()["worker"].startswith("Claude")
 
 
+# decision: VOICE-410
+def test_ferbs_facts_say_it_replies_in_text_and_never_aloud(daemon: RunningDaemon) -> None:
+    """Live 2026-11-04: asked "do you also speak back?", FERB guessed about itself. Every role's facts now carry it:
+    messages come typed or dictated, and FERB's replies are text only."""
+    facts = daemon.run(_facts(daemon)).lower()
+    assert "dictate" in facts and "replies in text" in facts and "never speaks aloud" in facts
+
+
+async def _facts(daemon: RunningDaemon) -> str:
+    return daemon.daemon._facts()
+
+
 # decision: DMN-6, DMN-22
 def test_the_lookup_tool_only_reads_and_hides_secrets(daemon: RunningDaemon) -> None:
     d = daemon.daemon

@@ -30,6 +30,8 @@ public enum AppGuide {
     ]
 
     public static let howtos: [HowTo] = [
+        HowTo(title: "Talk to FERB",
+              steps: "Type in the notch, or hold right Command + Option to dictate. FERB always replies in text in the chat; it never speaks aloud"),
         HowTo(title: "Stop everything FERB is doing", steps: "FERB window → Tasks → Stop everything (Resume FERB undoes it)"),
         HowTo(title: "Stop one task", steps: "FERB window → Tasks → the task → Stop"),
         HowTo(title: "See or change what FERB remembers", steps: "FERB window → Memory: Always on, Not right, Forget…"),

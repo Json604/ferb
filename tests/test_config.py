@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 
-from ferb.config import FEEDBACK_DECIDED, FERB_WRITTEN, LIMITS_DECIDED, Config, InsecureConfig
+from ferb.config import (FEEDBACK_DECIDED, FERB_WRITTEN, LIMITS_DECIDED, UPGRADES, VOICE_DECIDED, Config,
+                         InsecureConfig)
 
 EXISTING = """# FERB runtime config. Owner-only (0600).
 
@@ -113,6 +114,29 @@ def test_the_relay_decision_drops_the_old_feedback_address(home: Path) -> None:
     c.set("feedback", "relay_url", "https://relay.example.org/report")
     c.upgrade(FEEDBACK_DECIDED)
     assert c.section("feedback") == {"relay_url": "https://relay.example.org/report"}
+
+
+# decision: VOICE-410
+def test_the_no_voice_decision_drops_the_speech_settings_and_keeps_the_rest(home: Path) -> None:
+    """Owner 2026-11-04: FERB never speaks. An older config's `[voice] tts`, `voice` and `rate` go, once and journaled
+    by the daemon (it applies every UPGRADES entry); the hearing signature an older setup kept there, and other
+    tables, stay."""
+    assert VOICE_DECIDED in UPGRADES
+    c = Config(home)
+    c.set("voice", "tts", "macos")
+    c.set("voice", "voice", "Daniel")
+    c.set("voice", "rate", 190)
+    c.set("voice", "requirement", 'identifier "com.example.app"')
+    c.set("browser", "task_max_tabs", 50)
+    changes = c.upgrade(VOICE_DECIDED)
+    assert sorted(ch["key"] for ch in changes) == ["voice.rate", "voice.tts", "voice.voice"]
+    assert c.section("voice") == {"requirement": 'identifier "com.example.app"'}
+    assert c.get("browser", "task_max_tabs") == 50
+    assert c.upgrade(VOICE_DECIDED) == []
+    c.remove("voice", "requirement")
+    c.set("voice", "rate", 190)
+    c.upgrade(VOICE_DECIDED)
+    assert "[voice]" not in (home / "config.toml").read_text()      # a table left empty goes
 
 
 def test_the_limits_ferb_wrote_take_the_decided_values_and_an_owner_value_stays(home: Path) -> None:

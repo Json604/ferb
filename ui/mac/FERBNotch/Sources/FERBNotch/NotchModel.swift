@@ -110,8 +110,6 @@ final class NotchModel: ObservableObject {
     @Published var voiceTranscript = ""
     @Published var voiceFinishing = false
     private var voiceDraft = ""
-    /// The words the last dictation added: a draft still holding them is sent as a voice turn, answered aloud.
-    private var lastDictation: String?
     /// Settings → Notch & Shortcuts: a held dictation sends its draft when the keys are released.
     static let sendOnReleaseKey = "voice.sendOnRelease"
     let rpc: DaemonRPCTransport
@@ -653,7 +651,6 @@ final class NotchModel: ObservableObject {
             case .success(let text):
                 self.session.draft = self.voiceDraft + (self.voiceDraft.isEmpty || text.isEmpty ? "" : " ") + text
                 if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    self.lastDictation = text
                     send = held && self.preferences.bool(forKey: Self.sendOnReleaseKey)
                 }
             case .failure(let error): self.promptError = error.localizedDescription
@@ -691,10 +688,7 @@ final class NotchModel: ObservableObject {
         guard !session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if handleLocalNotchCommand(session.draft) { return }
         let outgoing = PastedRequest(text: session.draft, provenance: pasteProvenance).markedText
-        let draft = session.draft
-        let spoken = lastDictation.map { draft.contains($0) } ?? false
-        lastDictation = nil
-        begin(request: draft, outgoing: outgoing, sources: session.attachments, spoken: spoken, keepComposer: false)
+        begin(request: session.draft, outgoing: outgoing, sources: session.attachments, keepComposer: false)
     }
 
     /// A message of the owner's that isn't the composer's (the suggestion they picked in the tour's Try beat): sent
@@ -705,7 +699,7 @@ final class NotchModel: ObservableObject {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { started?(nil); return }
         whenComposerFree { [weak self] in
             guard let self else { started?(nil); return }
-            let id = self.begin(request: text, outgoing: text, sources: [], spoken: false, keepComposer: true)
+            let id = self.begin(request: text, outgoing: text, sources: [], keepComposer: true)
             started?(id)                // computed first: an optional call skips evaluating its argument
         }
     }
@@ -758,7 +752,7 @@ final class NotchModel: ObservableObject {
     }
 
     @discardableResult
-    private func begin(request: String, outgoing: String, sources: [URL], spoken: Bool, keepComposer: Bool) -> UUID? {
+    private func begin(request: String, outgoing: String, sources: [URL], keepComposer: Bool) -> UUID? {
         localSettingReply = nil
         let held = (draft: session.draft, sources: session.attachments)
         if let active = session.activeTaskID { workSessions[active] = session }
@@ -793,7 +787,7 @@ final class NotchModel: ObservableObject {
             onInteraction?()
             onPresentationChange?(true)
         }
-        submitToDaemon(localID: id, text: outgoing, sources: sources, speak: spoken)
+        submitToDaemon(localID: id, text: outgoing, sources: sources)
         return id
     }
 

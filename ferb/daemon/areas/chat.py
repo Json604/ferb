@@ -164,7 +164,6 @@ class Chat:
         if not ids:
             raise FerbError("task.stop needs the ids of the tasks to stop; stopping everything is stop.engage")
         stopped = [t for t in ids if self.supervisor.stop_tree(t)]
-        self.speech.interrupt()                         # a stop also stops FERB talking
         for t in stopped:
             self._journal().append("task.stopped", {"task_id": t, "by": "owner"})
         return {"stopped": stopped}
@@ -298,9 +297,9 @@ class Chat:
     async def _chat_send(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
         """One chat turn: an acknowledgement on receipt, then the supervisor's events, merged with bus events about
         the tasks this turn started (tool calls, owner questions and action observations) so the app can show them
-        inline. Every event names this message's request_id and when it was sent (L7). `speak: true` (the app's
-        dictation, VOICE-403): the turn's replies and its task's answer are also spoken. Any new message
-        interrupts what FERB was saying."""
+        inline. Every event names this message's request_id and when it was sent (L7). FERB never speaks
+        (VOICE-409): every reply is text, whether the message was typed or dictated; a `speak` flag an older FERB.app
+        sends is ignored."""
         received = self.clock.now()
         if self._shutting_down:
             raise FerbError("daemon is shutting down; no new chat task was started")
@@ -314,13 +313,9 @@ class Chat:
         hit = getattr(self.redact, "hit", None)            # a specific secret only: a saved value or a credential format
         if any(hit(p) for p in input_paths) if hit is not None else self.redact(input_paths) != input_paths:
             raise FerbError('input_paths contains protected secret text; rename the attachment before sharing its path')
-        speak = params.get("speak", False)
-        if not isinstance(speak, bool):
-            raise FerbError("speak must be true or false")
         session_id = str(params.get("session_id", "default"))
         if session_id.startswith(RESERVED_SESSIONS):     # FERB's own planner sessions (a schedule's, the intro preview)
             raise FerbError("session_id names one of FERB's own sessions, not a chat")
-        self.speech.interrupt()                         # the owner said something new: FERB stops talking
         raw = str(params.get("text", ""))
         hidden = self._secret_kinds(raw)                # the kinds masked below, by name: the notice and the fact line
         text = self._hide_code_reply(self.redact(raw), session_id)
@@ -338,20 +333,12 @@ class Chat:
         def stamped(ev: dict[str, Any]) -> dict[str, Any]:
             return {**ev, "request_id": request_id, "at": self.clock.now().isoformat()}
 
-        def voiced(ev: dict[str, Any]) -> None:
-            """Speak this turn's own words when its message, or a spoken one read with it, asked for that."""
-            if ev.get("type") == "merged" and speak:
-                self._voiced.add(str(ev.get("into")))
-            elif speak or request_id in self._voiced:
-                self._speak_event(ev)
-
         async def turn() -> None:
             try:
                 async for ev in self.supervisor.send(session_id, text,  # type: ignore[union-attr]
                                                      input_paths=input_paths, request_id=request_id, screen=screen,
                                                      hidden=hidden):
                     ev = stamped(ev)
-                    voiced(ev)
                     if ev.get("task_id"):
                         my_tasks.add(ev["task_id"])
                         if attached["on"]:
@@ -374,11 +361,8 @@ class Chat:
                 # notch offers Send to developer on it (L35)
                 self._journal().append("chat.reply", {"session_id": session_id, "request_id": request_id,
                                                       "text": said}, origin=origin_.FERB)
-                failed = stamped({"type": "reply", "text": said, "status": "failed"})
-                voiced(failed)
-                await queue.put(failed)
+                await queue.put(stamped({"type": "reply", "text": said, "status": "failed"}))
             finally:
-                self._voiced.discard(request_id)
                 if screen is not None and not screen.done():   # the turn ended before routing used it
                     screen.cancel()
                 await queue.put(None)

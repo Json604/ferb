@@ -45,8 +45,12 @@ DOWNLOAD_RETIRED = (("browser", "download_max_mb"),)
 # address`, read by no build since) goes; `[feedback] relay_url` is the new key.
 FEEDBACK_DECIDED = "feedback-relay-2026-11-01"
 FEEDBACK_RETIRED = (("feedback", "address"),)
+# FERB never speaks (VOICE-409, owner 2026-11-04): the speech settings go. `[voice] requirement` (an older setup's
+# record of FERB.app's signature for hearing) is not a speech setting and stays.
+VOICE_DECIDED = "no-voice-2026-11-04"
+VOICE_RETIRED = (("voice", "tts"), ("voice", "voice"), ("voice", "rate"))
 # The owner's decisions applied to config.toml once each, in this order, each journaled (`config.upgraded`).
-UPGRADES = (LIMITS_DECIDED, DOWNLOADS_DECIDED, FEEDBACK_DECIDED)
+UPGRADES = (LIMITS_DECIDED, DOWNLOADS_DECIDED, FEEDBACK_DECIDED, VOICE_DECIDED)
 
 
 class InsecureConfig(FerbError):
@@ -204,6 +208,8 @@ class Config:
             return self.upgrade_downloads()
         if name == FEEDBACK_DECIDED:
             return self.retire(FEEDBACK_RETIRED)
+        if name == VOICE_DECIDED:
+            return self.retire(VOICE_RETIRED)
         raise ValueError(f"no config upgrade {name!r}")
 
     def retire(self, keys: tuple[tuple[str, str], ...]) -> list[dict[str, Any]]:
