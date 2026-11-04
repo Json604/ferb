@@ -2334,15 +2334,6 @@ pass = "Each sound rings about as long as the Apple Pay sound and still sounds l
 decisions = ["APP-653"]
 sitting = "step 13"
 
-[LIVE-706]
-title = "Review the FERB glass landing page"
-area = "release"
-surface = "FERB website local preview"
-request = "Review desktop and phone layouts, try the task/reminder/memory preview and its keyboard controls, read the installation note and privacy page, then supply the Apple Silicon DMG URL."
-pass = "The site matches FERB's glass identity with readable plain typography, rounded surfaces and restrained reduced-motion-aware animation. Navigation and preview controls work. Only the owner-supplied Apple Silicon DMG is offered; no broken download is presented."
-decisions = ["REL-405", "REL-1"]
-sitting = "website review before deployment"
-
 [LIVE-707]
 title = "With Boring Notch running, FERB sits beside the notch and can be dragged and clicked"
 area = "app"
@@ -2643,3 +2634,12 @@ request = "Grant Input Monitoring; when the tour comes forward saying it is on, 
 pass = "Each grant brings the tour forward without taking the keyboard; each click into Settings' pane sends the tour behind Settings at once; picking the next permission docks beside Settings with the tour behind it."
 decisions = ["APP-690", "APP-687"]
 sitting = "after this change is installed"
+
+[LIVE-754]
+title = "The simple FERB site and its privacy page, deployed"
+area = "release"
+surface = "https://ferb.kartikey.xyz and https://ferb.kartikey.xyz/privacy, after the owner deploys site/ on Vercel, on a Mac and a phone"
+request = "Open the home page and the privacy page on a Mac and on a phone; follow the download, github and privacy links; open the first-open note; try the links with the keyboard."
+pass = "One calm light page in the manner of kartikey.xyz with the FERB logo as before; no sideways scroll on the phone; the download stays inactive until its URL is given; /privacy shows the full policy in the same style; every link works and shows a focus ring."
+decisions = ["REL-412", "REL-413", "REL-1"]
+sitting = "website review after deployment"

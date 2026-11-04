@@ -3,335 +3,107 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#111210" />
+    <meta name="theme-color" content="#fafafa" />
     <meta
       name="description"
       content="FERB is a personal assistant for your Mac. Give it a task, keep working, and let it take care of the steps in between."
     />
-    <meta
-      property="og:title"
-      content="FERB — A little presence. A lot off your mind."
-    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="FERB" />
     <meta
       property="og:description"
       content="A personal assistant that works across your Mac, in the background."
     />
-    <meta property="og:type" content="website" />
     <meta property="og:url" content="https://ferb.kartikey.xyz/" />
-    <title>FERB — Your Mac, with a little help.</title>
+    <title>FERB — a personal assistant for your Mac</title>
     <link rel="stylesheet" href="/styles.css" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" href="/logo.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <script src="/site.js" defer></script>
   </head>
-  <body class="landing">
+  <body>
     <a class="skip-link" href="#main">Skip to content</a>
-    <svg
-      class="icon-definitions"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <symbol id="apple" viewBox="0 0 24 24">
-        <path
-          fill="currentColor"
-          d="M17.05 12.54c.03 3.1 2.72 4.13 2.75 4.14-.02.07-.43 1.47-1.42 2.92-.86 1.25-1.75 2.5-3.15 2.52-1.37.03-1.82-.81-3.39-.81-1.57 0-2.06.79-3.36.84-1.35.05-2.38-1.35-3.25-2.6-1.77-2.57-3.12-7.27-1.3-10.44.9-1.57 2.52-2.57 4.28-2.59 1.34-.03 2.61.9 3.44.9.82 0 2.36-1.12 3.98-.95.68.03 2.57.27 3.79 2.05-.1.06-2.26 1.32-2.23 4.02ZM14.46 4.77c.72-.87 1.21-2.08 1.08-3.28-1.04.04-2.3.69-3.05 1.56-.67.77-1.27 2-1.11 3.18 1.16.09 2.35-.59 3.08-1.46Z"
-        />
-      </symbol>
-      <symbol id="github" viewBox="0 0 24 24">
-        <path
-          fill="currentColor"
-          d="M12 .8a11.4 11.4 0 0 0-3.6 22.2c.6.1.8-.3.8-.6v-2.2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.2c0 .3.2.7.8.6A11.4 11.4 0 0 0 12 .8Z"
-        />
-      </symbol>
-    </svg>
-    <header class="site-header wrap">
-      <a class="wordmark" href="/" aria-label="FERB home">ferb<span>.</span></a>
-      <nav aria-label="Main navigation">
-        <a href="#experience">See FERB work</a
-        ><a href="https://github.com/Json604/ferb"
-          ><svg aria-hidden="true"><use href="#github" /></svg> GitHub</a
-        ><a class="nav-download" href="#download"
-          ><svg aria-hidden="true"><use href="#apple" /></svg> Get FERB</a
-        >
-      </nav>
-    </header>
-    <main id="main" class="wrap">
-      <section class="hero" aria-labelledby="hero-title">
-        <div class="hero-copy">
-          <p class="eyebrow">
-            <span class="status-dot"></span> A PERSONAL ASSISTANT FOR YOUR MAC
-          </p>
-          <h1 id="hero-title">
-            A little presence.<br /><span>A lot off your mind.</span>
-          </h1>
-          <p class="lede">
-            Give FERB something to do. Keep doing your thing.<br
-              class="desktop-break"
-            />
-            It works across your Mac, quietly in the background.
-          </p>
-          <div class="hero-actions">
-            <a class="button primary" href="#download"
-              ><svg aria-hidden="true"><use href="#apple" /></svg>Get FERB for
-              Mac</a
-            ><a class="text-link" href="#experience">Watch FERB work</a>
-          </div>
-          <p class="compatibility">Apple Silicon · macOS 14.2 or later</p>
-        </div>
+    <main id="main">
+      <header>
+        <img class="brand" src="/logo.svg" alt="FERB logo" width="48" height="48" />
+        <h1>ferb<span class="dot" aria-hidden="true">.</span></h1>
+        <nav class="links" aria-label="Links">
+          <a href="#download">download</a>
+          <a href="https://github.com/Json604/ferb">github</a>
+          <a href="/privacy">privacy</a>
+        </nav>
+      </header>
+
+      <p class="intro">
+        A personal assistant for your Mac. Give it something to do, keep doing
+        your thing, and it takes care of the steps in between.
+      </p>
+
+      <hr />
+
+      <section aria-labelledby="what">
+        <h2 id="what">what it does</h2>
+        <ul class="plain">
+          <li>
+            Works across your Mac, quietly in the background. Your cursor,
+            keyboard and focus stay yours.
+          </li>
+          <li>
+            Remembers your preferences and gets better at work you repeat. You
+            can review, correct or remove what it remembers.
+          </li>
+          <li>Reminders and scheduled work arrive from the notch.</li>
+          <li>
+            Prepares hard-to-undo actions and asks you first. You can stop any
+            task.
+          </li>
+          <li>Works with the AI you choose: ChatGPT, Claude or an API key.</li>
+        </ul>
       </section>
-      <section
-        class="demo-stage"
-        id="experience"
-        aria-label="Illustrated FERB walkthrough"
-      >
-        <div class="hero-scene">
-          <div class="scene-top">
-            <span>A DAY WITH FERB</span
-            ><span>Interactive illustration · sample data</span>
-          </div>
-          <div class="desktop-scene" data-mode="background">
-            <div class="mac-bar">
-              <span>● &nbsp; Workspace</span><span>Mon 9:41 AM</span>
-            </div>
-            <div class="workspace" id="workspace">
-              <div class="window-top">
-                <span class="traffic">● ● ●</span
-                ><span id="window-label">Your document</span>
-              </div>
-              <div class="workspace-body" id="workspace-body">
-                <span class="document-label">LAUNCH NOTES</span>
-                <h3>A little room to think.</h3>
-                <p>The next big idea starts here.</p>
-                <div class="writing-lines"><i></i><i></i><i></i></div>
-                <p class="typing-line">
-                  And a clear afternoon to make it happen.<span
-                    class="caret"
-                  ></span>
-                </p>
-              </div>
-            </div>
-            <div class="background-work" id="background-work">
-              <span class="document-label">FERB'S WORKSPACE</span>
-              <h4 id="work-title">Preparing your brief</h4>
-              <div class="work-row">
-                <span>Research</span><span>Complete</span>
-              </div>
-              <div class="work-row">
-                <span>Project notes</span><span>Collected</span>
-              </div>
-              <div class="work-row">
-                <span>Morning brief</span><span>Ready</span>
-              </div>
-            </div>
-            <div class="notch-demo">
-              <div class="notch-cap"></div>
-              <div
-                class="notch-content"
-                id="demo-content"
-                role="tabpanel"
-                aria-labelledby="tab-background"
-                tabindex="0"
-              >
-                <div class="demo-heading">
-                  <img src="/logo.svg" alt="" width="28" height="28" /><span
-                    id="demo-state"
-                    >Working in the background</span
-                  ><span class="small-dot"></span>
-                </div>
-                <p class="chat-user" id="demo-request">
-                  Pull together a brief for my next meeting.
-                </p>
-                <p class="chat-reply" id="demo-reply">
-                  I’ll gather the notes. You keep going.
-                </p>
-                <div class="demo-result">
-                  <strong id="demo-title">Your brief is ready.</strong>
-                  <p id="demo-detail">
-                    Research and project notes, brought together.
-                  </p>
-                </div>
-                <div class="composer">
-                  <span>Message FERB…</span
-                  ><svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5Zm-3 6v1a6 6 0 0 0 12 0v-1M12 18v4m-3 0h6"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.5"
-                    />
-                  </svg>
-                </div>
-              </div>
-            </div>
-            <div class="scene-bottom">
-              <span id="scene-caption">Your work, uninterrupted.</span
-              ><span class="local-badge">Sample Mac</span>
-            </div>
-          </div>
-          <div class="story-caption">
-            <div>
-              <span id="scene-number">01 / 08</span>
-              <h2 id="story-title">You work. FERB works alongside you.</h2>
-              <p id="story-detail">
-                Research, files and app tasks happen in the background.
-              </p>
-            </div>
-            <button
-              class="play-control"
-              id="play-tour"
-              type="button"
-              aria-pressed="false"
-            >
-              Play tour
-            </button>
-          </div>
-          <div
-            class="demo-tabs"
-            role="tablist"
-            aria-label="Explore FERB features"
-          >
-            <button
-              id="tab-background"
-              type="button"
-              role="tab"
-              aria-controls="demo-content"
-              aria-selected="true"
-              tabindex="0"
-              data-scene="background"
-            >
-              Background tasks</button
-            ><button
-              id="tab-input"
-              type="button"
-              role="tab"
-              aria-controls="demo-content"
-              aria-selected="false"
-              tabindex="-1"
-              data-scene="input"
-            >
-              While you type</button
-            ><button
-              id="tab-secrets"
-              type="button"
-              role="tab"
-              aria-controls="demo-content"
-              aria-selected="false"
-              tabindex="-1"
-              data-scene="secrets"
-            >
-              Protected input</button
-            ><button
-              id="tab-local"
-              type="button"
-              role="tab"
-              aria-controls="demo-content"
-              aria-selected="false"
-              tabindex="-1"
-              data-scene="local"
-            >
-              Local data</button
-            ><button
-              id="tab-reminder"
-              type="button"
-              role="tab"
-              aria-controls="demo-content"
-              aria-selected="false"
-              tabindex="-1"
-              data-scene="reminder"
-            >
-              Reminders</button
-            ><button
-              id="tab-memory"
-              type="button"
-              role="tab"
-              aria-controls="demo-content"
-              aria-selected="false"
-              tabindex="-1"
-              data-scene="memory"
-            >
-              Memory</button
-            ><button
-              id="tab-approval"
-              type="button"
-              role="tab"
-              aria-controls="demo-content"
-              aria-selected="false"
-              tabindex="-1"
-              data-scene="approval"
-            >
-              Your control</button
-            ><button
-              id="tab-ai"
-              type="button"
-              role="tab"
-              aria-controls="demo-content"
-              aria-selected="false"
-              tabindex="-1"
-              data-scene="ai"
-            >
-              Your AI
-            </button>
-          </div>
-        </div>
+
+      <section aria-labelledby="private">
+        <h2 id="private">your data</h2>
+        <p>
+          Your tasks, history and memory are stored on your Mac; there is no
+          FERB server. To do its work, FERB sends context to the AI service you
+          connect, with known kinds of secrets removed first. Passwords and
+          one-time codes are filled through a sealed path: the model gets a
+          handle, never the secret.
+        </p>
+        <p><a href="/privacy">Read the privacy policy</a></p>
       </section>
-      <section
-        class="download-section"
-        id="download"
-        aria-labelledby="download-title"
-      >
-        <div class="download-glow" aria-hidden="true"></div>
-        <img
-          class="download-logo"
-          src="/logo.svg"
-          alt=""
-          width="80"
-          height="80"
-        />
-        <p class="eyebrow">MAKE YOURSELF AT HOME</p>
-        <h2 id="download-title">Make room for FERB.</h2>
-        <p>Your Mac. Your AI. A little more breathing room.</p>
+
+      <hr />
+
+      <section id="download" aria-labelledby="download-title">
+        <h2 id="download-title">download</h2>
         <button
-          class="button primary download-button"
+          class="download"
           type="button"
           disabled
           aria-describedby="download-status"
         >
-          <svg aria-hidden="true"><use href="#apple" /></svg>Download for Mac
-          <span class="download-format">.dmg</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M17.05 12.54c.03 3.1 2.72 4.13 2.75 4.14-.02.07-.43 1.47-1.42 2.92-.86 1.25-1.75 2.5-3.15 2.52-1.37.03-1.82-.81-3.39-.81-1.57 0-2.06.79-3.36.84-1.35.05-2.38-1.35-3.25-2.6-1.77-2.57-3.12-7.27-1.3-10.44.9-1.57 2.52-2.57 4.28-2.59 1.34-.03 2.61.9 3.44.9.82 0 2.36-1.12 3.98-.95.68.03 2.57.27 3.79 2.05-.1.06-2.26 1.32-2.23 4.02ZM14.46 4.77c.72-.87 1.21-2.08 1.08-3.28-1.04.04-2.3.69-3.05 1.56-.67.77-1.27 2-1.11 3.18 1.16.09 2.35-.59 3.08-1.46Z"
+            />
+          </svg>
+          Download for Mac <span class="format">.dmg</span>
         </button>
-        <p class="compatibility">Apple Silicon (M1 or later) · macOS 14.2+</p>
-        <p class="download-status" id="download-status">
+        <p class="note">Apple Silicon (M1 or later) · macOS 14.2 or later</p>
+        <p class="note" id="download-status">
           The download will be available here soon.
         </p>
-        <div class="install-steps">
-          <div>
-            <span>1</span>
-            <p>
-              Open the DMG.<br /><strong>Drag FERB to Applications.</strong>
-            </p>
-          </div>
-          <div>
-            <span>2</span>
-            <p>
-              Make the introductions.<br /><strong
-                >Connect your AI and permissions.</strong
-              >
-            </p>
-          </div>
-          <div>
-            <span>3</span>
-            <p>
-              Start with one thing.<br /><strong
-                >Ask FERB to lend a hand.</strong
-              >
-            </p>
-          </div>
-        </div>
-        <details class="install-note">
-          <summary>
-            Opening FERB for the first time <span aria-hidden="true">+</span>
-          </summary>
+
+        <ol class="steps">
+          <li>Open the DMG and drag FERB to Applications.</li>
+          <li>Connect your AI and allow its permissions.</li>
+          <li>Start with one thing: ask FERB to lend a hand.</li>
+        </ol>
+
+        <details>
+          <summary>Opening FERB for the first time</summary>
           <p>
             The current build uses FERB’s own signing certificate. If macOS
             blocks it, go to System Settings → Privacy &amp; Security and choose
@@ -339,16 +111,16 @@
           </p>
         </details>
       </section>
+
+      <hr />
+
+      <footer>
+        <p>made with care by <a href="https://kartikey.xyz">kartikey</a></p>
+        <p>
+          <a href="https://github.com/Json604/ferb">source code</a> ·
+          <a href="/privacy">privacy</a>
+        </p>
+      </footer>
     </main>
-    <footer class="site-footer wrap">
-      <a class="wordmark" href="/">ferb<span>.</span></a>
-      <p>Made with care by <a href="https://kartikey.xyz">Kartikey</a></p>
-      <nav aria-label="Footer">
-        <a href="/privacy.html">Privacy</a
-        ><a href="https://github.com/Json604/ferb"
-          ><svg aria-hidden="true"><use href="#github" /></svg> Source code</a
-        >
-      </nav>
-    </footer>
   </body>
 </html>
