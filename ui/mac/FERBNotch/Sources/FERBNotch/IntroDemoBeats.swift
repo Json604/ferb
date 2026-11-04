@@ -5,8 +5,8 @@ private typealias Pick = IntroCopy.Pick
 
 /// The tour's demo beats (kb area app steps 6–7). Try runs the suggestion the owner picks for real, through the same
 /// path as a typed message (`chat.send`: the real daemon and gateway, their usual questions and confirmations; APP-666),
-/// in the open chat with its turn card and live preview, the orb at the app it works in, while the notch says where it
-/// stands. Control is taught by doing; Stop is practised on a real look-only task the tour starts (APP-667).
+/// in the open chat with its turn card and live preview, while the notch says where it stands; no orb flies in this
+/// working step (APP-693). Control is taught by doing; Stop is practised on a real look-only task the tour starts (APP-667).
 /// A suggested first task (`intro.suggest`) and the one app it would use, as macOS names it ("" for the browser).
 struct IntroSuggestion: Equatable {
     var request: String
@@ -38,13 +38,6 @@ extension IntroController {
             let outcome = await runForReal(suggestions[index])
             guard live else { return }
             let other = suggestions.indices.first { !ran.contains(suggestions[$0].request) }
-            // The orb comes back while the owner may already answer (a tap is never lost).
-            let trip = orbTrip
-            orbTrip = nil
-            orbHoming = Task { [orb] in
-                await trip?.value
-                await orb.flyHome()
-            }
             guard case .choice(Pick.otherSuggestion)? = await ask(IntroCopy.ran(outcome, otherLeft: other != nil)),
                   let other else { return leaveChat() }
             index = other
@@ -70,18 +63,12 @@ extension IntroController {
         return nil
     }
 
-    /// The suggestion as the owner's message (APP-666), shown in the open chat, the orb at the app it works in; the
-    /// notch follows its turn (planning, the step it is on, a question for the owner) with the time it has run, until
+    /// The suggestion as the owner's message (APP-666), shown in the open chat (no orb, APP-693); the notch follows its
+    /// turn (planning, the step it is on, a question for the owner) with the time it has run, until
     /// it ends or the owner goes on without waiting (it keeps running as any task does).
     func runForReal(_ suggestion: IntroSuggestion) async -> IntroCopy.Outcome {
         ran.insert(suggestion.request)
         openChat()
-        let target = apps.target(app: suggestion.app)
-        let homing = orbHoming
-        orbTrip = Task { [orb] in
-            await homing?.value                      // the last trip home lands first
-            await orb.launch(to: target.point, instruction: IntroCopy.workingIn(target, browser: suggestion.app.isEmpty))
-        }
         let since = Date()
         say(IntroCopy.starting.waiting(since: since))
         guard let id = await startTask(suggestion.request) else { return .notStarted }

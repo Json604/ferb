@@ -207,6 +207,13 @@ enum IntroCopy {
     static let lookingAtBrowsers = IntroLine(text: "Looking at your browsers…")
     static let pairingOrb = IntroLine(text: "If your browser asks, turn FERB on here")
     static let paired = IntroLine(text: "Paired.")
+    /// `line` with each installed Chrome-family browser FERB doesn't support yet named under it (HAND-415).
+    static func noting(_ unsupported: [UnsupportedBrowser], on line: IntroLine) -> IntroLine {
+        guard !unsupported.isEmpty else { return line }
+        var noted = line
+        noted.detail = ([line.detail].compactMap { $0 } + unsupported.map { $0.message + "." }).joined(separator: "\n")
+        return noted
+    }
 
     /// Pair all while it runs (HAND-412): which profiles are pairing, each result as it lands, the skipped ones.
     static func pairing(_ progress: PairProgress) -> IntroLine {
@@ -315,11 +322,6 @@ enum IntroCopy {
                       + [IntroChoice(Pick.notNow, "Not now")])
     }
     static let starting = IntroLine(text: "Starting it…")
-    /// The orb's bubble at the app the task works in.
-    static func workingIn(_ target: IntroAppTarget, browser: Bool) -> IntroLine {
-        IntroLine(text: browser || target.name.isEmpty ? "I'm working in your browser" : "I'm working in \(target.name)",
-                  iconPath: target.iconPath)
-    }
 
     /// Where a task the tour started stands, from its turn in the chat (APP-666).
     enum TaskState: Equatable {

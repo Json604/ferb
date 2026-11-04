@@ -285,7 +285,7 @@ def chrome_data(root: Path) -> Path:
     for folder in PROFILES:                                   # the FERB extension is loaded in each (like real ones)
         (d / folder).mkdir(exist_ok=True)
         (d / folder / "Secure Preferences").write_text(json.dumps(
-            {"extensions": {"settings": {FERB_EXTENSION_ID: {"location": 4}}}}))
+            {"extensions": {"settings": {FERB_EXTENSION_ID: {"location": 4, "path": "/ferb/extension"}}}}))
     return d
 
 

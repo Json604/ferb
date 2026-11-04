@@ -194,12 +194,22 @@ public struct BrowserRow: Equatable, Identifiable {
     public let profiles: [BrowserProfileRow]
 }
 
+/// An installed Chromium-family browser FERB doesn't support yet (HAND-415): its name and the daemon's plain line.
+public struct UnsupportedBrowser: Equatable, Identifiable {
+    public var id: String { bundleID }
+    public let app: String
+    public let bundleID: String
+    public let message: String
+}
+
 /// `setup.browsers`'s reply. `problem`: what kept FERB from connecting the browsers (no Full Disk Access yet, or a
-/// browser folder that refused FERB's files, DMN-507), in the daemon's words; empty when nothing did.
+/// browser folder that refused FERB's files, DMN-507), in the daemon's words; empty when nothing did. `browsers` holds
+/// only browsers whose app is installed (HAND-414); `unsupported`, the Chromium-family ones FERB can't pair yet.
 public struct BrowserSnapshot: Equatable {
     public let storeURL: URL?
     public let extensionDir: String
     public let browsers: [BrowserRow]
+    public let unsupported: [UnsupportedBrowser]
     public let problem: String
 
     public init?(reply: [String: Any]) {
@@ -207,6 +217,11 @@ public struct BrowserSnapshot: Equatable {
         storeURL = (reply["store_url"] as? String).flatMap(URL.init(string:))
         extensionDir = reply["extension_dir"] as? String ?? ""
         problem = reply["problem"] as? String ?? ""
+        unsupported = (reply["unsupported"] as? [[String: Any]] ?? []).compactMap { row in
+            guard let app = row["app"] as? String, !app.isEmpty else { return nil }
+            return UnsupportedBrowser(app: app, bundleID: row["bundle_id"] as? String ?? app,
+                                      message: row["message"] as? String ?? "\(app) isn't supported by FERB yet")
+        }
         self.browsers = browsers.compactMap { browser in
             guard let name = browser["browser"] as? String, !name.isEmpty else { return nil }
             let profiles = (browser["profiles"] as? [[String: Any]] ?? []).compactMap { p -> BrowserProfileRow? in

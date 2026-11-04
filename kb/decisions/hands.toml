@@ -664,3 +664,36 @@ why = "Owner, 2026-11-04: \"it doesnt show it cause i removed the extension from
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 paths = ["ferb/daemon/areas/browsers.py", "ferb/device/extensions.py", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift"]
 live = ["LIVE-732"]
+
+[HAND-414]
+title = "A browser is offered only when its app is installed; its profiles come from its own Local State"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "are browsers hardcoded here??? cause i dont use arc and dont have it. DONT HAVE HARD CODED BROWSERS AND PROFILES HERE"
+rule = "A browser is offered, discovered, paired, listed or asked about only while its app is actually installed on this Mac (its bundle id resolved through Launch Services), and its profiles come only from that browser's own Local State. A user-data folder an uninstalled browser left behind is ignored everywhere: setup.browsers, Pair all, the planner's facts, browser_profiles, the resolver, native-host manifest and Web Store request writes. profiles.BROWSERS stays only as the map of known browsers' data folders."
+why = "Owner's run of build 202611040536: Pair all listed Arc “Your Arc” with Add to Arc on a Mac without Arc; Arc's user-data folder was still there, and a browser counted as installed once its Local State existed."
+paths = ["ferb/act/browser/profiles.py", "ferb/act/browser/autoinstall.py", "ferb/daemon/areas/browsers.py"]
+live = ["LIVE-751"]
+
+[HAND-415]
+title = "An installed Chromium browser FERB doesn't know is named as not supported yet"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Setup also asks Launch Services which apps open https links. Each one whose Info.plist declares Chromium's extension file type (org.chromium.extension, kept from Chromium's app Info.plist; Electron apps don't declare it) and whose bundle id profiles.BROWSERS doesn't know is named in setup.browsers (`unsupported`), in `ferb setup`'s text and after Pair all in the tour and Settings → Browsers as \"<App> isn't supported by FERB yet\". A copy in a Trash is skipped; no list (Launch Services unavailable) names none."
+why = "HAND-414: the browser set must not depend only on the table; a Chromium browser FERB can't pair is told, never silently passed over. The file-type declaration is a structural fact (seen in Google Chrome 156 and Brave 1.97 here; not checked for Edge, Vivaldi, Opera, Arc or Dia)."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ferb/act/browser/profiles.py::unsupported", "ferb/device/extensions.py", "ferb/daemon/areas/browsers.py", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift"]
+live = ["LIVE-751"]
+
+[HAND-416]
+title = "An extension entry counts as installed only as Chromium reads it; a removed copy reads as removed"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "A FERB entry in a profile's extensions.settings counts as installed only with an integer `location` and a non-empty string `path`, as Chromium's ExtensionPrefs::GetInstalledInfoHelper requires, and not with the old `state` 2 (an external extension the owner uninstalled). Keys left under the id otherwise read as not added. A store copy listed in `extensions.external_uninstalls`, or left with `state` 2, reads as removed, so Pair all offers Add to <browser> (HAND-413) and opens no pairing page there."
+why = "Owner's run of build 202611040536: five profiles whose extension the owner removed sat at \"Pairing…\"; any entry under FERB's id without a disable reason read as on. Chromium's extension_prefs.cc: an uninstall deletes the entry and, for an external install, lists the id in external_uninstalls."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ferb/act/browser/profiles.py::installed_entry", "ferb/act/browser/autoinstall.py::_removed"]
+live = ["LIVE-752"]

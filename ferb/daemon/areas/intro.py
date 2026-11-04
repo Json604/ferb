@@ -18,8 +18,8 @@ from ferb.orchestrator.worker import couldnt
 # show, true of any Mac; one on the Mac and its files, one in the browser (owner, 2026-11-01)
 GENERAL_TASKS = ("Find three things on my Mac I could tidy up and tell me why, without changing anything.",
                  "Compare three well-reviewed electric kettles on the web and tell me which is the best value.")
-# the one main app each general task would use, as macOS names it; "" is the owner's default browser (the app resolves
-# it), so the intro's orb can point there while the task runs
+# the one main app each general task would use, as macOS names it, "" for the owner's default browser; kept in
+# the reply (PRM-317), though the Try beat sends no orb there any more (APP-693)
 GENERAL_APPS = ("Finder", "")
 # an app name is a short label the app matches against running apps' names
 APP_NAME_MAX = 60

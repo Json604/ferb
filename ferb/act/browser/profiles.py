@@ -2,10 +2,13 @@
 Must not choose between plausible names/accounts or launch a visible URL as a background action.
 Discovery reads Local State only; exact configured folders prevent accidental creation of profiles.
 Name, account and saved-alias matches are returned together, never resolved by tier priority.
-Every Chromium-family browser FERB knows is listed in BROWSERS; one counts as installed once it has created its
-user-data folder (its Local State). Profile settings (Preferences, Secure Preferences) are only ever read."""
+BROWSERS maps each Chromium-family browser FERB knows to its user-data folder. One counts as installed only while
+Launch Services knows its app on this Mac and it has created its user-data folder (its Local State): a folder an
+uninstalled browser left behind is ignored everywhere (HAND-414). Profiles come only from that browser's own Local
+State. Profile settings (Preferences, Secure Preferences) are only ever read."""
 
 import json
+import plistlib
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +32,37 @@ def _launch_services(bundle_id: str) -> Path | None:
 
 locate: Callable[[str], Path | None] = _launch_services     # tests replace it
 _located: dict[str, Path] = {}
+
+
+def _app_installed(bundle_id: str) -> bool:
+    """Whether Launch Services knows an app with this bundle id on this Mac (HAND-414): its bundle is there and isn't
+    in a Trash. A Mac where Launch Services can't be asked (PyObjC missing) falls back to the app folders."""
+    try:
+        import objc
+        from AppKit import NSWorkspace
+        with objc.autorelease_pool():
+            url = NSWorkspace.sharedWorkspace().URLForApplicationWithBundleIdentifier_(bundle_id)
+            path = Path(str(url.path())) if url is not None else None
+    except Exception:
+        b = next((b for b in BROWSERS.values() if b.bundle_id == bundle_id), None)
+        return b is not None and any((root / f"{b.app}.app").is_dir()
+                                     for root in (Path("/Applications"), Path.home() / "Applications"))
+    return path is not None and path.is_dir() and ".Trash" not in path.parts
+
+
+has_app: Callable[[str], bool] = _app_installed              # tests replace it
+
+
+def app_installed(browser: str) -> bool:
+    """The browser's app is installed on this Mac (HAND-414): only then is it offered, discovered, paired, listed or
+    asked about."""
+    b = BROWSERS.get(browser)
+    if b is None:
+        return False
+    try:
+        return bool(has_app(b.bundle_id))
+    except Exception:
+        return False
 
 
 @dataclass(frozen=True)
@@ -84,8 +118,73 @@ def data_dir(browser: str, support: Path | None = None) -> Path:
 
 
 def installed(support: Path | None = None) -> list[str]:
-    """The browsers that have created their user-data folder, in BROWSERS order."""
-    return [b for b in BROWSERS if (data_dir(b, support) / "Local State").is_file()]
+    """The browsers whose app is installed (HAND-414) and that have created their user-data folder, in BROWSERS
+    order. A user-data folder whose browser's app is gone is ignored."""
+    return [b for b in BROWSERS if (data_dir(b, support) / "Local State").is_file() and app_installed(b)]
+
+
+def only_installed(dirs: dict[str, Path]) -> dict[str, Path]:
+    """The given browser -> user-data folder map, keeping only browsers whose app is installed (HAND-414)."""
+    return {b: d for b, d in dirs.items() if app_installed(b)}
+
+
+# Chromium's own file type for an extension package, which Chromium's app Info.plist declares (chrome/app/
+# app-Info.plist: CFBundleDocumentTypes and UTExportedTypeDeclarations) and every Chromium-built browser keeps; seen in
+# Google Chrome and Brave. Electron apps, also built on Chromium's engine, don't declare it.
+CHROMIUM_EXTENSION_TYPE = "org.chromium.extension"
+
+
+def _https_handlers() -> list[Path]:
+    """Every app bundle Launch Services lists as opening https links, read only; nothing opens."""
+    import objc
+    from AppKit import NSWorkspace
+    from Foundation import NSURL
+    with objc.autorelease_pool():
+        urls = NSWorkspace.sharedWorkspace().URLsForApplicationsToOpenURL_(NSURL.URLWithString_("https://example.com"))
+        return [Path(str(u.path())) for u in urls or ()]
+
+
+handlers: Callable[[], list[Path]] = _https_handlers         # tests replace it
+
+
+def _info(app: Path) -> dict[str, Any]:
+    try:
+        with (app / "Contents" / "Info.plist").open("rb") as f:
+            info = plistlib.load(f)
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+def chromium_family(info: dict[str, Any]) -> bool:
+    """A structural fact from an app's Info.plist: it declares Chromium's extension file type."""
+    declared = [t.get("UTTypeIdentifier") for key in ("UTExportedTypeDeclarations", "UTImportedTypeDeclarations")
+                for t in (info.get(key) or []) if isinstance(t, dict)]
+    opened = [c for d in (info.get("CFBundleDocumentTypes") or []) if isinstance(d, dict)
+              for c in (d.get("LSItemContentTypes") or [])]
+    return CHROMIUM_EXTENSION_TYPE in declared + opened
+
+
+def unsupported() -> list[dict[str, str]]:
+    """Each installed app macOS lists as opening https links that is a Chromium-family browser BROWSERS doesn't know
+    (HAND-415), as {"app", "bundle_id"}: setup names it as not supported yet instead of passing it over. Read only;
+    never raises (no list: none)."""
+    known = {b.bundle_id.casefold() for b in BROWSERS.values()}
+    try:
+        apps = handlers()
+    except Exception:
+        return []
+    out: dict[str, dict[str, str]] = {}
+    for app in apps:
+        if ".Trash" in app.parts:
+            continue
+        info = _info(app)
+        ident = str(info.get("CFBundleIdentifier") or "")
+        if not ident or ident.casefold() in known or ident.casefold() in out or not chromium_family(info):
+            continue
+        name = str(info.get("CFBundleDisplayName") or info.get("CFBundleName") or app.stem)
+        out[ident.casefold()] = {"app": name, "bundle_id": ident}
+    return sorted(out.values(), key=lambda r: r["app"].casefold())
 
 
 @dataclass(frozen=True)
@@ -122,7 +221,8 @@ def last_used(browser: str, data_dir: Path | None = None) -> str | None:
 
 
 def discover_all(data_dirs: dict[str, Path] | None = None) -> list[BrowserProfile]:
-    dirs = data_dirs or {b: SUPPORT / v.data for b, v in BROWSERS.items()}
+    """Every profile of every browser whose app is installed (HAND-414), from its own Local State."""
+    dirs = only_installed(data_dirs if data_dirs is not None else {b: data_dir(b) for b in installed()})
     return [p for b, d in dirs.items() for p in discover(b, d)]
 
 
@@ -130,9 +230,10 @@ def with_paired(discovered: list[BrowserProfile], paired: list[tuple[str, str]])
     """The discovered profiles, plus each paired (browser, folder) of a browser discovery found no profile in (Full
     Disk Access off, its Local State unreadable), from FERB's own pairing record, named by its folder (HAND-407). A
     browser whose profiles were read keeps only those: a paired folder missing there is gone, and starting it would
-    create it."""
+    create it. A browser whose app isn't installed adds nothing (HAND-414)."""
     read = {p.browser for p in discovered}
-    extra = [BrowserProfile(b, f, f, "") for b, f in dict.fromkeys(paired) if b in BROWSERS and b not in read]
+    extra = [BrowserProfile(b, f, f, "") for b, f in dict.fromkeys(paired)
+             if b in BROWSERS and b not in read and app_installed(b)]
     return discovered + extra
 
 
@@ -256,6 +357,21 @@ def extension_prefs(folder: Path) -> list[dict[str, Any]]:
     return out
 
 
+# Chromium's old Extension::State value for an external extension the owner uninstalled (kept in profiles written
+# before Chromium moved that record to `extensions.external_uninstalls`).
+EXTERNAL_EXTENSION_UNINSTALLED = 2
+
+
+def installed_entry(entry: dict[str, Any]) -> bool:
+    """Whether a settings entry is an installed extension as Chromium reads it (HAND-416): Chromium's
+    ExtensionPrefs::GetInstalledInfoHelper (extensions/browser/extension_prefs.cc) skips an entry without an integer
+    `location` or a string `path`, and older builds marked an external extension the owner removed with `state` 2.
+    Anything else left under the id (a few keys written after a removal) is not an installed copy."""
+    location, path = entry.get("location"), entry.get("path")
+    return isinstance(location, int) and not isinstance(location, bool) and isinstance(path, str) and bool(path) \
+        and entry.get("state") != EXTERNAL_EXTENSION_UNINSTALLED
+
+
 def extension_enabled(entry: dict[str, Any]) -> bool:
     """Chromium records why an extension is off in `disable_reasons` (a bit mask, a list in newer versions); older
     versions also kept `state` (0 = disabled)."""
@@ -310,8 +426,9 @@ def extension_entry(p: BrowserProfile, extension_ids: tuple[str, ...] | frozense
     installed = []
     for i in extension_ids:
         found = [s[i] for s in sections if isinstance(s, dict) and isinstance(s.get(i), dict)]
-        if found:
-            installed.append((i, {k: v for entry in found for k, v in entry.items()}))
+        merged = {k: v for entry in found for k, v in entry.items()}
+        if found and installed_entry(merged):
+            installed.append((i, merged))
     return next((e for e in installed if extension_enabled(e[1])), installed[0] if installed else None)
 
 

@@ -316,8 +316,8 @@ class Browsers:
         """Each installed browser's user-data folder (tests give their own); none before Full Disk Access (DMN-507)."""
         if not self._other_app_data():
             return {}
-        if self.browser_data_dirs is not None:
-            return dict(self.browser_data_dirs)
+        if self.browser_data_dirs is not None:          # only browsers whose app is installed (HAND-414)
+            return browser_profiles.only_installed(self.browser_data_dirs)
         return {b: browser_profiles.data_dir(b, self.browser_support)
                 for b in browser_profiles.installed(self.browser_support)}
 
@@ -734,7 +734,8 @@ class Browsers:
         states = await asyncio.to_thread(autoinstall.read_states, self.browser_support, store, ids, paired,
                                          self.browser_data_dirs)
         connected = {key for key, br in self.hub.bridges.items() if br.conn} if self.hub is not None else set()
-        rows = browser_rows(states, store, extension_path(self.home), self._identity_profile(), connected)
+        others = await asyncio.to_thread(browser_profiles.unsupported)          # HAND-415
+        rows = browser_rows(states, store, extension_path(self.home), self._identity_profile(), connected, others)
         problems = ([files["problem"]] if files.get("problem") else []) + await self._extension_problems()
         return rows | ({"problem": " ".join(problems)} if problems else {})
 

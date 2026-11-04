@@ -131,7 +131,8 @@ def extension_setup(env: Env) -> None:
     # requests FERB wrote for another id (changed, cleared, mistyped) go before the current one is written
     withdrawn = autoinstall.withdraw(env.inst.home, store if autoinstall.valid_id(store) else "")
     states = autoinstall.prepare(env.browser_support, store, ids, paired, home=env.inst.home)
-    for line in autoinstall.describe(states, store, extension_path(env.inst.home), withdrawn):
+    for line in autoinstall.describe(states, store, extension_path(env.inst.home), withdrawn,
+                                     profiles.unsupported()):
         env.say(line)
 
 

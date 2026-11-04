@@ -163,7 +163,7 @@ def test_suggest_falls_back_to_the_general_task_without_a_scan(daemon: RunningDa
     assert _journal(daemon, "intro.suggested")[-1].data == {"fits": True, "from_scan": 1, "why": "topped up"}
 
 
-# decision: PRM-317
+# decision: APP-693
 # decision: DMN-500
 def test_suggest_uses_the_scan_when_seen(daemon: RunningDaemon) -> None:
     asked: list[dict[str, Any]] = []

@@ -61,10 +61,6 @@ final class IntroController {
     var ran: Set<String> = []
     var seenControls: Set<IntroControl> = []
     var controlWaiter: (() -> Void)?
-    /// The orb on its way to an app (Try's task): the flight home waits for it to have arrived.
-    var orbTrip: Task<Void, Never>?
-    /// The orb on its way home after a task: the next trip out leaves once it has landed.
-    var orbHoming: Task<Void, Never>?
 
     var rpc: DaemonRPCTransport { setup.rpc }
     /// The tour is on and this beat wasn't skipped.

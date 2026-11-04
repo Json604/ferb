@@ -874,12 +874,12 @@ decisions = ["APP-505"]
 sitting = "step 13, sitting 1"
 
 [LIVE-542]
-title = "The orb points at the previewed app and at the browser being paired"
+title = "The orb points at the browser being paired"
 area = "app"
 surface = "The intro on a fresh install"
-request = "Watch the orb during the Try preview and during browser pairing."
-pass = "It points at the previewed app's window (or rests below the notch with the app's icon) and at the browser's window while pairing."
-decisions = ["APP-501", "APP-513", "PRM-317"]
+request = "Watch the orb during browser pairing."
+pass = "It points at the browser's window while pairing (Try's working step has no orb, APP-693)."
+decisions = ["APP-501", "APP-511"]
 sitting = "step 13, sitting 1"
 
 [LIVE-543]
@@ -2497,8 +2497,8 @@ title = "Try runs the picked suggestion for real and shows it working"
 area = "app"
 surface = "FERB.app with this build, replaying the intro to Try; signed in; the default suggestions or the scan's"
 request = "In Try, pick a suggestion and watch; then Try the other one; then Continue."
-pass = "The picked task starts at once as your message in the open chat (a normal task in its trace, usual questions asked), its card and preview fill, the orb flies to its app, and the notch says the step with the time ticking. It ends with Done (or what happened) and the result in the chat; no Do it for real. The other suggestion runs the same way. Both only look and report: nothing moved, deleted, sent or bought."
-decisions = ["APP-666", "DMN-533"]
+pass = "The picked task starts at once as your message in the open chat (a normal task in its trace, usual questions asked), its card and preview fill, and the notch says the step with the time ticking. It ends with Done (or what happened) and the result in the chat; no Do it for real. The other suggestion runs the same way. Both only look and report: nothing moved, deleted, sent or bought."
+decisions = ["APP-693", "DMN-533"]
 sitting = "after this change is installed"
 
 [LIVE-729]
@@ -2643,3 +2643,30 @@ request = "Open the home page and the privacy page on a Mac and on a phone; foll
 pass = "One calm light page in the manner of kartikey.xyz with the FERB logo as before; no sideways scroll on the phone; the download stays inactive until its URL is given; /privacy shows the full policy in the same style; every link works and shows a focus ring."
 decisions = ["REL-412", "REL-413", "REL-1"]
 sitting = "website review after deployment"
+
+[LIVE-751]
+title = "Only browsers installed on this Mac are offered; an unknown Chromium browser is named"
+area = "hands"
+surface = "FERB.app with this build on a Mac where an uninstalled browser (for example Arc) left its folder in ~/Library/Application Support"
+request = "Open Settings → Browsers (or replay the tour to Pair all) and press Pair all."
+pass = "Only browsers whose app is installed are listed, paired or offered Add to; the uninstalled one appears nowhere (also not in a task's browser choices). A Chromium-family browser FERB doesn't know, if one is installed, is named as \"… isn't supported by FERB yet\"."
+decisions = ["HAND-414", "HAND-415"]
+sitting = "after this change is installed"
+
+[LIVE-752]
+title = "A profile whose FERB extension you removed shows Add to, not Pairing…"
+area = "hands"
+surface = "FERB.app with this build; a Chrome or Brave profile where you removed FERB's extension yourself"
+request = "Press Pair all."
+pass = "That profile is skipped as removed (or not added) with Add to <browser>; no pairing page opens there and nothing sits at \"Pairing…\"."
+decisions = ["HAND-416", "HAND-413"]
+sitting = "after this change is installed"
+
+[LIVE-753]
+title = "Try's working step shows no orb"
+area = "app"
+surface = "FERB.app with this build, replaying the intro to Try"
+request = "Pick a suggestion and watch it run."
+pass = "No orb leaves the notch and no \"I'm working in …\" bubble or orb sound comes; the chat's turn card and the notch line show the task."
+decisions = ["APP-693"]
+sitting = "after this change is installed"
