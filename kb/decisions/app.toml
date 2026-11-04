@@ -1814,7 +1814,8 @@ live = ["LIVE-728"]
 title = "Stop is practised on a real look-only task the tour starts"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "APP-696"
 rule = "The Control beat's Stop step starts a real task through the same chat path as Try: the suggestion Try didn't run (both are look-only, DMN-533), else a fresh intro.suggest one. The line offers Stop this task, which acts at once: the same task.stop for that task as the task list's Stop task, \"Stopping it…\" shown immediately, and the step counts then; the line follows the turn until the chat shows it stopped, with Go on so an unconfirmed stop never holds the beat. A task that ends before Stop, or can't start, is told and the beat goes on. Nothing in the step can hang."
 why = "APP-666 removed the preview the old Stop step replayed; stopping Try's own task would cut short the result the owner watches, and a look-only task leaves nothing half-done. Owner on the old step (2026-11-04): \"this step stops too ig\" (read: it got stuck too)."
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
@@ -1959,3 +1960,37 @@ why = "APP-594 guarded the only lookup of a model-named app, which APP-693 remov
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 untestable = "The lookup is removed; nothing is left to exercise."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroAppTargets.swift"]
+
+[APP-696]
+title = "The tour never starts a task the owner didn't ask for; Control only offers to stop Try's"
+by = "agent"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-667"]
+rule = "No beat starts a task the owner didn't pick: Not now in Try runs nothing, anywhere in the tour. Control's Stop step offers the owner's own Try task if it still runs: Stop it now acts at once (task.stop for that task, as the task list's Stop task, also while it waits on the owner; \"Stopping it…\" at once; Go on so an unconfirmed stop never holds the beat), Let it finish leaves it running. With nothing running the line says where Stop is (Tasks, then Stop task) and the beat goes on."
+why = "Owner, fresh run of build 202611040627 (2026-11-04): \"it started doing the task i said not now, why??? it didnt listen to me, is this hardcoded??\" After Not now in Try, APP-667's stop practice started the other suggestion as a real task (chat.message 12:05:52) and showed \"Now stop me\"."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04). Journal rows 52-55 (intro.suggested 12:05:35, chat.message 12:05:52)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroControls.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::stopTurn"]
+live = ["LIVE-756", "LIVE-729"]
+
+[APP-697]
+title = "A grant macOS reports on when FERB asks opens no pane and docks nothing"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "When macOS's own request for a grant (setup.permission_request) answers that it is already on, FERB opens no System Settings pane for it, the logo doesn't dock beside Settings and the tour doesn't step behind Settings: the row is read again and, being on, the tour (already in front) says it is on, as for any confirmed grant (APP-687). A grant still off after the request goes on as APP-510/642 say."
+why = "Owner 2026-11-04: \"the only time ferb window wasnt getting out of focus was at input monitoring step\". Input Monitoring read on once asked (after Accessibility), yet FERB opened its pane, docked the logo, stepped behind and came straight forward; the owner dragged the logo in with the tour in front."
+evidence = "Fix batch approved. Journal: input_monitoring requested, status granted, 12:03:24.24. Log: Privacy_ListenEvent pane opened 12:03:25.78; FERB's panel kept key through the owner's drag from the orb (12:03:29-31); the extension took the drop and set the row at 12:03:32.53."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::grant", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::grantAndConfirm"]
+live = ["LIVE-757"]
+
+[APP-698]
+title = "While FERB.app sets its background service up, the menu bar says setting up, not \"isn't running\""
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "While the packaged FERB.app hasn't set its background service up yet (an install or update still to run and not failed: a first run before Meet, a quiet update), runs `setup --service`, restarts the service (APP-598/662), or starts it again (a grant's wait, a resumed tour), a daemon that doesn't answer shows in the menu bar as \"Setting up FERB…\" with the neutral icon and no Restart, and the notch's profile menu says the same. Only a service that should run and doesn't (after setup, or after a failed install, whose reason the tour shows, APP-685) is \"FERB isn't running — Restart\"."
+why = "Owner, fresh install of build 202611040627 (2026-11-04): before setup got going the menu bar showed the error state saying FERB couldn't be started, though the service simply didn't exist yet."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/MenuBarState.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::settingUpService", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift::watchServiceSetup", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::serviceSettingUp", "ui/mac/FERBNotch/Sources/FERBNotch/ProfileMenuButton.swift"]
+live = ["LIVE-758"]

@@ -23,8 +23,12 @@ final class ScriptedRPC: DaemonRPCTransport, @unchecked Sendable {
         return try await call(method, params: params)
     }
 
+    /// Runs as each call arrives, before it is answered (a test changes what the daemon reads from then on).
+    var onCall: ((String) -> Void)?
+
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         recorded.append(method, params)
+        onCall?(method)
         if let left = failFirst[method], left > 0 {
             failFirst[method] = left - 1
             throw DaemonRPCError.invalidResponse

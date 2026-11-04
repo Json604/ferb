@@ -142,7 +142,7 @@ enum SetupReplies {
 
     static func permissions(accessibility: String = "denied", screen: String = "granted", fda: String = "denied",
                             fdaBlocked: String = "", setupDone: Bool = false,
-                            screenRestartNeeded: Bool = false) -> [String: Any] {
+                            screenRestartNeeded: Bool = false, input: String = "granted") -> [String: Any] {
         func row(_ id: String, _ status: String, _ anchor: String, required: Bool, requestable: Bool,
                  restart: Bool = false, blocked: String = "", process: String = "daemon",
                  restartNeeded: Bool = false) -> [String: Any] {
@@ -155,7 +155,8 @@ enum SetupReplies {
                         restart: true, restartNeeded: screenRestartNeeded),
                     row("full_disk_access", fda, "Privacy_AllFiles", required: true, requestable: false, restart: true,
                         blocked: fdaBlocked),
-                    row("input_monitoring", "granted", "Privacy_ListenEvent", required: false, requestable: true)]
+                    row("input_monitoring", input, "Privacy_ListenEvent", required: false, requestable: true,
+                        restart: true)]
         return ["rows": rows, "automation": [["name": "Notes", "bundle_id": "com.apple.Notes", "status": "denied"],
                                              ["name": "Mail", "bundle_id": "com.apple.mail", "status": "not_determined"]],
                 "automation_pane": pane + "Privacy_Automation", "grant_target": agent,

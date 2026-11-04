@@ -16,7 +16,8 @@ from ferb.orchestrator.worker import couldnt
 
 # shown when the scan isn't ready or found nothing clear, and to top up a reply with fewer than two: general, safe to
 # show, true of any Mac; one on the Mac and its files, one in the browser (owner, 2026-11-01)
-GENERAL_TASKS = ("Find three things on my Mac I could tidy up and tell me why, without changing anything.",
+GENERAL_TASKS = ("Find the five biggest files in my Downloads folder and tell me what each is, without changing "
+                 "anything.",
                  "Compare three well-reviewed electric kettles on the web and tell me which is the best value.")
 # the one main app each general task would use, as macOS names it, "" for the owner's default browser; kept in
 # the reply (PRM-317), though the Try beat sends no orb there any more (APP-693)

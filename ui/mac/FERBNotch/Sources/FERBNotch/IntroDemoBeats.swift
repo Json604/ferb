@@ -6,7 +6,8 @@ private typealias Pick = IntroCopy.Pick
 /// The tour's demo beats (kb area app steps 6–7). Try runs the suggestion the owner picks for real, through the same
 /// path as a typed message (`chat.send`: the real daemon and gateway, their usual questions and confirmations; APP-666),
 /// in the open chat with its turn card and live preview, while the notch says where it stands; no orb flies in this
-/// working step (APP-693). Control is taught by doing; Stop is practised on a real look-only task the tour starts (APP-667).
+/// working step (APP-693). Control is taught by doing; the tour starts no task of its own: Stop is offered on the
+/// owner's Try task while it still runs, else only shown (APP-696).
 /// A suggested first task (`intro.suggest`) and the one app it would use, as macOS names it ("" for the browser).
 struct IntroSuggestion: Equatable {
     var request: String
@@ -31,7 +32,6 @@ extension IntroController {
             await dwell(Timing.scan)
         }
         guard live, let suggestions = await suggestions() else { return leaveChat() }
-        offered = suggestions
         guard case .choice(let picked)? = await ask(IntroCopy.suggest(suggestions.map(\.request))),
               var index = suggestions.indices.first(where: { Pick.suggestion($0) == picked }) else { return leaveChat() }
         while live {
@@ -72,6 +72,7 @@ extension IntroController {
         let since = Date()
         say(IntroCopy.starting.waiting(since: since))
         guard let id = await startTask(suggestion.request) else { return .notStarted }
+        tryTasks.append(id)
         let answer = await whileRunning(id) { [weak self] in
             IntroCopy.running(self?.taskState(id) ?? .starting).waiting(since: since)
         }
@@ -141,7 +142,7 @@ extension IntroController {
 
     // MARK: 7. Control
 
-    /// Each control once, in any order: double-tap right ⌥, hold right ⌘+⌥, Stop on a real task (APP-667), Pause FERB
+    /// Each control once, in any order: double-tap right ⌥, hold right ⌘+⌥, Stop (APP-696), Pause FERB
     /// from the menu (lifted at once). The beat goes on once each has been seen. A FERB the owner had paused before the
     /// beat stays paused: the step is explained, not practised.
     func control() async {
@@ -151,7 +152,7 @@ extension IntroController {
         var lifted = false
         while live, let next = IntroControl.allCases.first(where: { !seenControls.contains($0) }) {
             if next == .stop {
-                await practiseStop()
+                await stopStep()
                 seenControls.insert(.stop)
                 continue
             }
@@ -185,27 +186,19 @@ extension IntroController {
         waiting?()
     }
 
-    /// Stop, practised on a real task (APP-667): the suggestion Try didn't run (both are look-only by design,
-    /// DMN-533), started through the normal path in the open chat. Stop this task acts at once: the same `task.stop`
-    /// as the task list's Stop task, "Stopping it…" at once, and the step counts then; the line follows the turn until
-    /// it shows stopped, and Go on never leaves the owner waiting. A task that ends first, or can't start, is told and
-    /// the beat goes on: nothing here can hang.
-    func practiseStop() async {
-        guard let request = await stopPracticeRequest() else {
-            guard live else { return }
-            say(IntroCopy.stopUnavailable)
+    /// Stop, without starting anything (APP-696; owner, 2026-11-04: "it started doing the task i said not now, why???
+    /// it didnt listen to me"). The owner's own Try task still running is offered: Stop it now acts at once (the same
+    /// `task.stop` as the task list's Stop task, "Stopping it…" at once, the line follows the turn until it shows
+    /// stopped, Go on never leaves the owner waiting), Let it finish goes on and leaves it running. With nothing
+    /// running (Not now in Try, a task already done, a resumed tour) the line only says where Stop is and the beat
+    /// goes on. Nothing here can hang.
+    func stopStep() async {
+        guard let id = tryTasks.last(where: { !ended($0) }) else {
+            say(IntroCopy.control(.stop))
             return await dwell(Timing.line * 2)
         }
-        guard live else { return }
         openChat()
         let since = Date()
-        say(IntroCopy.startingStopTask.waiting(since: since))
-        guard let id = await startTask(request) else {
-            guard live else { return }
-            say(IntroCopy.stopUnavailable)
-            return await dwell(Timing.line * 2)
-        }
-        ran.insert(request)
         var pressed: Date?
         sideChoices[Pick.stopTask] = { [weak self] in
             guard let self, self.live, pressed == nil else { return }
@@ -214,19 +207,15 @@ extension IntroController {
             self.say(IntroCopy.stopping.waiting(since: pressed ?? Date()))
         }
         defer { sideChoices[Pick.stopTask] = nil }
-        _ = await whileRunning(id) {
+        let request = turn(id)?.request ?? ""
+        let answer = await whileRunning(id) {
             if let pressed { return IntroCopy.stopping.waiting(since: pressed) }
-            return IntroCopy.stopNow(request).waiting(since: since)
+            return IntroCopy.stopOffer(request).waiting(since: since)
         }
         guard live else { return }
-        say(pressed == nil ? IntroCopy.finishedBeforeStop : IntroCopy.stopped)
+        if pressed != nil { say(IntroCopy.stopped) }
+        else if answer == .choice(Pick.letFinish) { say(IntroCopy.lettingItFinish) }
+        else { say(IntroCopy.finishedFirst) }
         await dwell(Timing.line * 2)
-    }
-
-    /// A suggestion Try hasn't run, from Try's two or, after a resume or a skipped Try, from `intro.suggest`; nil when
-    /// none can be had.
-    private func stopPracticeRequest() async -> String? {
-        if offered.isEmpty, let fresh = await suggestions() { offered = fresh }
-        return offered.first { !ran.contains($0.request) }?.request ?? offered.first?.request
     }
 }

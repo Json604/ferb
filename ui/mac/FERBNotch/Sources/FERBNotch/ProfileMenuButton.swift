@@ -51,7 +51,7 @@ struct ProfileMenuButton: NSViewRepresentable {
                 }
             }
             menu.addItem(.separator())
-            let connection = NSMenuItem(title: model.connectionStatus, action: nil, keyEquivalent: "")
+            let connection = NSMenuItem(title: model.connectionLine, action: nil, keyEquivalent: "")
             let connectionMenu = NSMenu()
             add("Reconnect to FERB", to: connectionMenu) { [model] in
                 model.disconnectDaemon()

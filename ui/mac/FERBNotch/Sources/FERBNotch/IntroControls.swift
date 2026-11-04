@@ -1,14 +1,15 @@
 import Foundation
 
 /// The controls the tour teaches by doing (kb area app): double-tap right ⌥ (open or close), hold
-/// right ⌘+⌥ (talk), Stop on a real task the tour starts (APP-667), and Pause FERB from the menu.
+/// right ⌘+⌥ (talk), Stop (offered on the owner's Try task while it runs, else shown; APP-696), and Pause FERB from the
+/// menu.
 enum IntroControl: CaseIterable {
     case toggle, talk, stop, pause
 }
 
 /// Where the tour hears the owner use a control. PanelCoordinator reports the real ones (NotchShortcutMonitor's
 /// double-tap and hold, the menu's Pause FERB) to its `IntroControlSignals`; Stop comes from the tour's own line, on
-/// the task it started (IntroController.practiseStop).
+/// the owner's Try task (IntroController.stopStep).
 @MainActor
 protocol IntroControlFeeding: AnyObject {
     var onControl: ((IntroControl) -> Void)? { get set }

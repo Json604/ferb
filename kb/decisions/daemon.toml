@@ -616,7 +616,8 @@ paths = ["ferb/orchestrator/supervisor.py", "ferb/sense/front_window.py", "ferb/
 title = "The intro's suggested first tasks are look-only, because they now run for real"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "DMN-542"
 rule = "intro.suggest still works as DMN-500 says; since the owner's pick now runs for real (APP-666), each suggestion only looks, finds, compares or summarises and tells the owner what it found, changing nothing (no moving, renaming, sorting or deleting files; no sending, posting, buying or signing in), the prompt says so (orchestrator/prompts/intro.md), and GENERAL_TASKS' Mac task says \"without changing anything\". Whatever it does still goes through the gateway and its confirmations."
 why = "APP-666 runs the picked suggestion as a real task; the old prompt allowed \"sorts or prepares\" because nothing ran."
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
@@ -644,3 +645,15 @@ why = "A multi-step service operation started by the app must not be cut in half
 evidence = "Owner approved the fix batch (2026-11-04). The 09:32 failure was not this (APP-683), but nothing kept a child of FERB.app out of its process group."
 paths = ["ferb/cli/__init__.py", "ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
 live = ["LIVE-741"]
+
+[DMN-542]
+title = "The intro's first tasks finish in the background with what FERB can read right after setup"
+by = "agent"
+date = 2026-11-04
+status = "active"
+supersedes = ["DMN-533"]
+rule = "As DMN-500 says, plus: each suggestion can be finished entirely in the background with what FERB can read right after setup (files and folders, apps, the scan's facts, public web pages FERB opens itself; never browsing history, HAND-421), with no question for the owner on the way (no confirmation, sign-in or foreground work), and only looks, finds, compares or summarises, changing nothing. The prompt (orchestrator/prompts/intro.md) says so; GENERAL_TASKS follow it."
+why = "Owner's run, 2026-11-04: \"Summarise my recently visited coding pages in Brave and group them by topic\" needed a foreground question (open Brave's history page, approval 12:08:10): history can't be read through the extension and FERB's trail is empty on a fresh install."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04). Journal rows 54-57."
+paths = ["ferb/daemon/areas/intro.py::GENERAL_TASKS", "ferb/orchestrator/prompts/intro.md"]
+live = ["LIVE-728"]
