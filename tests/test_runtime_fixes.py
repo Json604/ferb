@@ -13,7 +13,7 @@ import pytest
 
 import ferb.runtimes.codex_exec as cx
 from ferb.core.types import Identity, ModelRequest, Task
-from ferb.runtimes.catalog import CALL_LIMIT_S, PLANNER_LIMIT_S, call_limit
+from ferb.runtimes.catalog import CALL_LIMIT_S, call_limit
 from tests.support.claude_home import signed_in_home
 from tests.support.runtime_fakes import FakeBridge, FakeProvider, Process, Scripted
 
@@ -129,7 +129,7 @@ async def test_a_server_to_client_request_is_a_violation_naming_the_request(tmp_
     assert answer["error"]["code"] == -32601                 # FERB told Codex no
 
 
-# decision: RUN-406
+# decision: RUN-423
 @pytest.mark.anyio
 async def test_one_deadline_covers_start_and_answer(tmp_path, monkeypatch) -> None:
     """One limit for the whole call (was 900 s to start plus another 900 s for the answer)."""
@@ -148,7 +148,7 @@ async def test_one_deadline_covers_start_and_answer(tmp_path, monkeypatch) -> No
     assert loop.time() - began < 1.0
 
 
-# decision: RUN-406, ORCH-311
+# decision: RUN-423, ORCH-528
 @pytest.mark.anyio
 async def test_a_worker_run_has_no_deadline(tmp_path, monkeypatch) -> None:
     import ferb.runtimes.codex_stream as stream
@@ -162,9 +162,9 @@ async def test_a_worker_run_has_no_deadline(tmp_path, monkeypatch) -> None:
     await stream.cancel(run)
 
 
-# decision: RUN-406, ORCH-311
+# decision: RUN-423, ORCH-528
 def test_call_limits_planner_other_calls_and_workers() -> None:
-    assert PLANNER_LIMIT_S == 90 and call_limit("supervisor", True) == 90
+    assert call_limit("supervisor", True) is None                     # the planner: only the silence guard
     assert call_limit("supervisor", False) == CALL_LIMIT_S and call_limit("worker", False) is None
 
 
@@ -211,8 +211,8 @@ def test_the_locked_catalog_is_written_once_and_again_only_when_codex_s_changes(
     assert len(json.loads(cx.locked_catalog(tmp_path).read_text())["models"]) == 2 and len(writes) == 2  # type: ignore[union-attr]
 
 
-# decision: RUN-406, ORCH-311, RUN-401
-def test_daemon_builds_codex_with_the_planners_90_s_and_others_their_limit(daemon, monkeypatch) -> None:
+# decision: RUN-423, ORCH-528, RUN-401
+def test_daemon_builds_codex_with_no_planner_limit_and_others_their_limit(daemon, monkeypatch) -> None:
     from ferb.orchestrator.schemas import QUESTION_SCHEMA, SUPERVISOR_SCHEMA, WORKER_SCHEMA
     d = daemon.daemon
     codex_home(d.home)
@@ -220,7 +220,7 @@ def test_daemon_builds_codex_with_the_planners_90_s_and_others_their_limit(daemo
     planner = d._build_runtime("codex", "orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
     dispatch = d._build_runtime("codex", "orchestrator", mode="supervisor", tool_names=[], schema=QUESTION_SCHEMA)
     worker = d._build_runtime("codex", "worker:default", mode="worker", tool_names=[], schema=WORKER_SCHEMA)
-    assert (planner.timeout_s, dispatch.timeout_s, worker.timeout_s) == (PLANNER_LIMIT_S, CALL_LIMIT_S, None)
+    assert (planner.timeout_s, dispatch.timeout_s, worker.timeout_s) == (None, CALL_LIMIT_S, None)
     assert planner.cache_role == "planner"                # P20 on by default since the live injection eval passed
     assert dispatch.cache_role is None and worker.cache_role is None     # only the planner's turn
     d.config.set("runtimes", "codex_planner_cache", False)       # the owner can still turn it off
@@ -346,7 +346,7 @@ def test_a_failed_claude_sign_out_keeps_the_marker(tmp_path, monkeypatch) -> Non
 
 # ---------- direct APIs ----------
 
-# decision: RUN-406
+# decision: RUN-423
 @pytest.mark.anyio
 async def test_a_direct_api_call_ends_at_its_time_limit() -> None:
     from ferb.runtimes.api import ApiRuntime

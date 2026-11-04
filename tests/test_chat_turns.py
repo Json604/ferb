@@ -1,19 +1,21 @@
 """Step 8c end-to-end runs (TEST-500): a chat turn through the real daemon, gateway and scripted model. The
-restart rule and its shared time limit (ORCH-311, ORCH-318), cross-chat control, a stop that finds the work
-finished, folders in the plan line (HAND-204), "keep the tabs open" (HAND-201), the planner's context
-ordered most-stable first with task state once and bounded history (ORCH-303), questions recorded with their kind,
-and a remembered fact sourced to the message that holds it."""
+restart rule and the silence guard on a planner turn with no overall limit (ORCH-528, ORCH-529), cross-chat
+control, a stop that finds the work finished, folders in the plan line (HAND-204), "keep the tabs open" (HAND-201),
+the planner's context ordered most-stable first with task state once and bounded history (ORCH-303), questions
+recorded with their kind, and a remembered fact sourced to the message that holds it."""
+import asyncio
 import json
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from ferb.cli.client import Client
 from ferb.core.context import count_tokens
+from ferb.core.types import RunHandle, RuntimeEvent
 from ferb.orchestrator.supervisor import (FOLD_CHUNK_TOKENS, RECENT_CONVERSATION_TOKENS, RECENT_EXCHANGES, SUMMARY_DAYS,
                                           SUMMARY_TOKENS)
-from tests.conftest import STALL, RunningDaemon, chat, done, install, outcome, report, sup, task
+from tests.conftest import STALL, FakeRuntime, RunningDaemon, chat, done, install, outcome, report, sup, task
 
 
 class Stream:
@@ -77,9 +79,9 @@ async def _trees(d: RunningDaemon) -> list[tuple[str, str]]:
     return d.daemon.supervisor.running_trees()
 
 
-# decision: ORCH-318
+# decision: ORCH-529
 def test_four_quick_messages_are_two_turns(daemon: RunningDaemon) -> None:
-    """ORCH-318: the second message comes before FERB's first reply, so the turn restarts once and reads both; the
+    """ORCH-529: the second message comes before FERB's first reply, so the turn restarts once and reads both; the
     third and fourth come while the restarted turn is still thinking, so they wait and are read together next."""
     release = threading.Event()
 
@@ -113,27 +115,94 @@ def test_four_quick_messages_are_two_turns(daemon: RunningDaemon) -> None:
     assert len(_journal(daemon, "chat.restarted")) == 1
 
 
-# decision: ORCH-311, ORCH-318
-def test_a_planner_that_runs_out_of_time_replies_plainly_and_the_restart_shares_the_limit(daemon) -> None:
-    """ORCH-311 and ORCH-318: one time limit covers the turn, its restart included; when it runs out the owner reads a
-    plain reply (no stack, no internal words) instead of waiting."""
-    daemon.daemon.supervisor.planner_limit_s = 1.0
-    script = install(daemon, [STALL, STALL])
-    started = time.monotonic()
+WORKING = "__working__"
+
+
+class _Working(FakeRuntime):
+    """The scripted runtime, whose planner step WORKING keeps showing life: a progress event (reasoning, say) every
+    30 s of FERB's clock for 300 s, then its answer."""
+
+    def __init__(self, script: Any, mode: str, tools: list[str], clock: Any) -> None:
+        super().__init__(script, mode, tools)
+        self.clock = clock
+
+    async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
+        if run.state["key"] == "supervisor" and self.script.sup and self.script.sup[0] == WORKING:
+            self.script.sup.pop(0)
+            for _ in range(10):
+                self.clock.advance(30)
+                yield RuntimeEvent("progress", {})
+                await asyncio.sleep(0.05)                       # the watchdog looks in between
+            yield RuntimeEvent("usage", {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.001})
+            yield RuntimeEvent("final", {"text": sup("reply", "Worked it out.")})
+            return
+        async for event in super().events(run):
+            yield event
+
+
+def _watch_closely(daemon: RunningDaemon) -> None:
+    daemon.daemon.supervisor.heartbeat_poll_s = 0.01             # the watchdog's poll, in real time
+
+
+# decision: ORCH-528
+def test_a_planner_turn_that_keeps_working_is_never_cut(daemon: RunningDaemon) -> None:
+    """Live 2026-11-04: a planner call streaming its answer was cut at 90 s. Now a turn whose runtime keeps producing
+    events (here only reasoning-like progress) runs past 90 s and past 180 s to its answer."""
+    _watch_closely(daemon)
+    script = install(daemon, [WORKING])
+    clock = daemon.daemon.clock
+    daemon.daemon.supervisor.make_runtime = lambda role, *, mode, tool_names, schema, effort=None: _Working(
+        script, mode, tool_names, clock)
+    started = clock.monotonic()
+    events = chat(daemon, "plan my week")
+    assert [e["text"] for e in events if e["type"] == "reply"] == ["Worked it out."]
+    assert clock.monotonic() - started >= 300                    # 5 minutes of FERB's clock, never silent for 3
+    assert not _journal(daemon, "chat.failed")
+
+
+# decision: ORCH-528
+def test_a_planner_silent_for_three_minutes_is_stopped_with_a_plain_reply(daemon: RunningDaemon) -> None:
+    """A runtime that shows no sign of life for the silence window (180 s) is stopped, once, and the owner reads a
+    plain reply saying nothing came back for 3 minutes: no stack, no internal words."""
+    _watch_closely(daemon)
+    script = install(daemon, [STALL, sup("reply", "Never reached.")])
     m1 = Stream(daemon, "what's on my screen?")
     m1.acked()
     _until(lambda: len(_planner_calls(script)) == 1)
-    time.sleep(0.4)
-    m2 = Stream(daemon, "and in the other window?")
+    daemon.call_soon(daemon.daemon.clock.advance, 179)
+    time.sleep(0.2)
+    assert not m1.ended.is_set()                                 # 179 s of silence is not yet 180
+    daemon.call_soon(daemon.daemon.clock.advance, 2)
     events = m1.done()
-    elapsed = time.monotonic() - started
-    assert [e["type"] for e in m2.done()] == ["merged"]
     replies = [e for e in events if e["type"] == "reply"]
     assert len(replies) == 1 and replies[0]["status"] == "failed"
     text = replies[0]["text"]
-    assert "1 seconds" in text and not any(w in text for w in ("Error", "Traceback", "Timeout", "planner"))
-    assert elapsed < 1.9                                        # not 1 s more for the restart
-    assert [row["why"] for row in _journal(daemon, "chat.failed")] == ["TimeoutError"]
+    assert "3 minutes" in text and not any(w in text for w in ("Error", "Traceback", "Stalled", "planner"))
+    assert len(_planner_calls(script)) == 1                      # stopped, not tried again behind the owner's back
+    assert [row["why"] for row in _journal(daemon, "chat.failed")] == ["Stalled"]
+
+
+# decision: ORCH-529
+def test_a_restart_counts_once_and_the_silence_guard_watches_it(daemon: RunningDaemon) -> None:
+    """ORCH-529: a message before the first reply restarts the turn once; a third waits its turn. The restarted call is
+    watched by the same silence guard, and the waiting message is answered after."""
+    _watch_closely(daemon)
+    script = install(daemon, [STALL, STALL, sup("reply", "The later message, answered.")])
+    m1 = Stream(daemon, "what's on my screen?")
+    m1.acked()
+    _until(lambda: len(_planner_calls(script)) == 1)
+    m2 = Stream(daemon, "and in the other window?")
+    _until(lambda: len(_planner_calls(script)) == 2)            # restarted with both messages
+    m3 = Stream(daemon, "also remind me at nine")
+    m3.acked()
+    time.sleep(0.2)
+    assert len(_planner_calls(script)) == 2                     # no second restart
+    daemon.call_soon(daemon.daemon.clock.advance, 181)
+    first = m1.done()
+    assert [e["type"] for e in m2.done()] == ["merged"]
+    assert [e["status"] for e in first if e["type"] == "reply"] == ["failed"]
+    assert [e["text"] for e in m3.done() if e["type"] == "reply"] == ["The later message, answered."]
+    assert len(_planner_calls(script)) == 3 and len(_journal(daemon, "chat.restarted")) == 1
 
 
 # decision: ORCH-508
@@ -319,7 +388,7 @@ def test_two_turns_without_a_fold_share_the_cached_prefix(daemon: RunningDaemon)
     assert later.cacheable > earlier.cacheable
 
 
-# decision: ORCH-318
+# decision: ORCH-529
 def test_a_side_entry_reply_never_lets_the_next_message_in_before_the_task_registers(daemon, monkeypatch) -> None:
     """Fix list (Intake): a turn's side entries can send a reply-type event (here a conversation change refused) before
     its task registers; the next message still waits until the plan line is out, then has a turn of its own."""

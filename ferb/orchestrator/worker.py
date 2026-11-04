@@ -288,6 +288,7 @@ class WorkerRuns:
     apps: Callable[[], list[tuple[str, str]]]
     running_apps: Callable[[], list[tuple[str, str, int]]]
     on_violation: Any
+    runtime_signed_out: Callable[[str], None]
     heartbeat_poll_s: float
     stall_s: float
     _active: dict[str, tuple[AgentRuntime, RunHandle]]
@@ -470,17 +471,26 @@ class WorkerRuns:
                    images: tuple[ModelImage, ...] = (),
                    notify: Callable[[dict[str, Any]], None] | None = None,
                    on_tool: Callable[[], None] | None = None,
-                   on_timing: Callable[[dict[str, Any]], None] | None = None) -> str:
+                   on_timing: Callable[[dict[str, Any]], None] | None = None, retry_silent: bool = True) -> str:
         """A worker's run, once (its tree's orchestrator decides any retry). Any other call (the planner's turn, a
         dispatch, a question, a summary) is watched for silence too, and one that showed no sign of life for stall_s
         from its very start is tried once more (owner 2026-10-27, after a scheduled slot check's planner call sat silent
         for 15 minutes); a second silence, or a call that went quiet after answering in part, fails with that reason.
-        `on_tool`: told when the model calls a tool (the planner's draft starts over: ORCH-516). `on_timing`: told the
-        call's timing when it ends, however it ends (`_run_once`, ORCH-526)."""
+        `retry_silent` False (the planner's turn, ORCH-528): a silence is not tried again; Stalled goes to the caller,
+        which tells the owner plainly. `on_tool`: told when the model calls a tool (the planner's draft starts over:
+        ORCH-516). `on_timing`: told the call's timing when it ends, however it ends (`_run_once`, ORCH-526)."""
         once = partial(self._run_once, rt, task, system, ctx, token, parent_span, tree, worker_id, on_delta=on_delta,
                        on_usage=on_usage, images=images, notify=notify, on_tool=on_tool, on_timing=on_timing)
         if worker_id:
             return await once()
+        if not retry_silent:
+            try:
+                return await once()
+            except Stalled:
+                s = self.spans.start("model.stall", task_id=task.id if task.id != task.request_id else None,
+                                     parent_id=parent_span, input={"runtime": rt.name, "attempt": 1})
+                self.spans.finish(s, error=f"no sign of life for {self.stall_s:g} s")
+                raise
         for attempt in (1, 2):
             try:
                 return await once()
@@ -571,7 +581,7 @@ class WorkerRuns:
             else:
                 start.cancel()
         # The stall watchdog covers startup too: a worker runtime has no startup timeout, so an app-server that never
-        # answers its account check would otherwise hold the attempt until Stop. Every other call is watched as well,
+        # answers its start would otherwise hold the attempt until Stop. Every other call is watched as well,
         # under its own id (owner 2026-10-27: a planner call sat silent for 15 minutes).
         watch_id = worker_id or f"call:{parent_span}"
         if not worker_id:
@@ -589,6 +599,8 @@ class WorkerRuns:
             if not worker_id:
                 self._stalled.discard(watch_id)
             if isinstance(exc, RuntimeUnavailable):     # a login problem is never the network's
+                if getattr(exc, "account", "") == "signed_out":
+                    self.runtime_signed_out(rt.name)    # its availability is now what the runtime said (RUN-424)
                 raise ServiceError(str(exc), rt.name, getattr(exc, "reason", "") != "auth_required",
                                    account=getattr(exc, "account", "")) from None
             current = asyncio.current_task()
@@ -668,6 +680,8 @@ class WorkerRuns:
                     raise ImageRefused(str(ev.data.get("message")), rt.name)
                 elif ev.kind == "error":
                     account = str(ev.data.get("account") or "")      # the adapter's account fact (step 8b)
+                    if account == "signed_out":
+                        self.runtime_signed_out(rt.name)   # its availability is now what the runtime said (RUN-424)
                     raise ServiceError(str(ev.data.get("message")), rt.name, network=not account,
                                        account=account if account in ACCOUNT_PROBLEMS else "")
                 elif ev.kind == "invalid_answer":      # the adapter's own schema check found the answer outside it

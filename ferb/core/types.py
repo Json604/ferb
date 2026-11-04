@@ -258,9 +258,11 @@ class RunHandle:
 class RuntimeEvent:
     # invalid_answer: the model answered, but its final answer doesn't match the requested schema (format repair, not
     # a failed call); data["message"] says where. retrying: the runtime hit an error it retries itself (Codex
-    # willRetry); the run goes on; data["message"] is the runtime's redacted error
+    # willRetry); the run goes on; data["message"] is the runtime's redacted error. progress: the runtime showed the
+    # model working with nothing to hand over (a reasoning or commentary delta, a stream event, a tool's result going
+    # back); data is empty. It is only a sign of life for the silence guard (ORCH-528)
     kind: Literal["message", "text_delta", "tool_call", "usage", "final", "error", "violation", "invalid_answer",
-                  "retrying"]
+                  "retrying", "progress"]
     data: dict[str, Any]
 
 

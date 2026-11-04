@@ -15,18 +15,19 @@ from ferb.core.errors import Unsupported
 from ferb.core.types import ModelLimits
 
 ROLES = ("orchestrator", "worker", "checker")
-# Owner, 2026-10-30 (ORCH-311): the planner's call has 90 s. Every other call that isn't a
-# worker's (a dispatch, a question, a summary, distillation) has one overall limit, beside the 180 s silence guard in
-# ferb/orchestrator/worker.py; a worker has none (it may wait on the owner for as long as the owner takes).
-PLANNER_LIMIT_S = 90.0
+# Owner, 2026-11-04 (ORCH-528, replacing ORCH-311's 90 s): the planner's call has no overall limit; like every call it
+# is stopped only by the silence guard (guards.STALL_S, 180 s with no event from the runtime, ferb/orchestrator/
+# worker.py). Every other call that isn't a worker's (a dispatch, a question, a summary, distillation) also has one
+# overall limit beside that guard; a worker has none (it may wait on the owner for as long as the owner takes).
 CALL_LIMIT_S = 900.0
 
 
 def call_limit(mode: str, planner: bool) -> float | None:
-    """The overall time one call may take: the planner's, another non-worker call's, or none for a worker."""
-    if mode == "worker":
+    """The overall time one call may take: none for the planner's (ORCH-528) or a worker's, CALL_LIMIT_S for another
+    non-worker call."""
+    if mode == "worker" or planner:
         return None
-    return PLANNER_LIMIT_S if planner else CALL_LIMIT_S
+    return CALL_LIMIT_S
 
 
 
@@ -76,7 +77,7 @@ class Build:
     model: str
     deps: RuntimeDeps
     effort: str | None = None
-    planner: bool = False                 # the planner's chat turn (P20 cache, PLANNER_LIMIT_S)
+    planner: bool = False                 # the planner's chat turn (P20 cache; no overall limit, ORCH-528)
     limit_s: float | None = None
 
 

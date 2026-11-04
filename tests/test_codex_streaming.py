@@ -7,7 +7,7 @@ import pytest
 
 from ferb.core.types import Identity, ModelRequest, Task
 from ferb.runtimes.codex_exec import CodexRuntime
-from tests.support.runtime_fakes import Process
+from tests.support.runtime_fakes import Process, next_output
 
 CODEX_START = CodexRuntime.start
 
@@ -39,9 +39,9 @@ async def test_final_answer_deltas_arrive_before_turn_completion(tmp_path, monke
     proc = Process()
     stream, rt, run, seen = await begin(tmp_path, monkeypatch, proc)
     events = stream.events(rt, run)
-    first = await anext(events)
+    first = await next_output(events)
     assert first.kind == 'text_delta' and first.data == {'text': '{"text":"Hello '}
-    second = await anext(events)
+    second = await next_output(events)
     assert second.kind == 'text_delta' and second.data == {'text': 'there"}'}
     proc.complete()
     rest = [ev async for ev in events]
@@ -78,15 +78,6 @@ async def test_unexpected_actual_tool_catalog_blocks_text_and_final(tmp_path, mo
     got = [ev async for ev in stream.events(rt, run)]
     assert any(ev.kind == 'violation' for ev in got)
     assert not any(ev.kind in {'text_delta', 'final'} for ev in got)
-
-
-@pytest.mark.anyio
-async def test_non_subscription_auth_is_rejected_before_turn(tmp_path, monkeypatch):
-    proc = Process(account='apiKey')
-    with pytest.raises(ValueError, match='subscription'):
-        await begin(tmp_path, monkeypatch, proc)
-    assert proc.returncode is not None
-    assert not any(m['method'] == 'turn/start' for m in proc.requests)
 
 
 @pytest.mark.anyio
@@ -252,8 +243,8 @@ async def test_late_catalog_violation_is_drained_before_final(tmp_path, monkeypa
     proc = Process()
     stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
     events = stream.events(rt, run)
-    assert (await anext(events)).kind == 'text_delta'
-    assert (await anext(events)).kind == 'text_delta'
+    assert (await next_output(events)).kind == 'text_delta'
+    assert (await next_output(events)).kind == 'text_delta'
     proc.complete()
     proc.stderr.queue.put_nowait(b'TRACE {"tools":[{"type":"function","name":"shell"}]}\n')
     got = [ev async for ev in events]
@@ -336,7 +327,7 @@ async def test_worker_steers_same_turn_while_events_are_read_without_restarting(
     assert token.read_text() == 'private-token' and token.stat().st_mode & 0o777 == 0o600
     assert 'model_reasoning_effort="low"' not in seen['cmd']
     assert 'effort' not in next(m['params'] for m in proc.requests if m['method'] == 'turn/start')
-    first = asyncio.create_task(anext(events))
+    first = asyncio.create_task(next_output(events))
     steering = asyncio.create_task(rt.continue_(run, 'Keep it under ₹300'))
     msg = await asyncio.wait_for(proc.steers.get(), 1)
     assert msg['params'] == {'threadId': 'th', 'expectedTurnId': 'tu',
@@ -429,61 +420,112 @@ async def test_worker_answer_is_checked_once_by_ferb_and_closed_run_rejects_stee
         await rt.continue_(run, 'new correction')
     assert not any(m['method'] == 'turn/steer' for m in proc.requests)
 
-class AccountProcess(Process):
-    def __init__(self, error=None, hold=False):
+class HeldProcess(Process):
+    """The app-server stand-in that can hold its answer to thread/start (a start that stalls) and, at turn/start,
+    writes a refreshed sign-in into its own copy of the login before its request trace (Codex refreshing a stale
+    login as its request goes out)."""
+
+    def __init__(self, hold=False):
         super().__init__()
-        self.error, self.hold = error, hold
-        self.account_requested = asyncio.Event()
-        self.account_id = None
+        self.hold = hold
+        self.thread_requested = asyncio.Event()
+        self.thread_message = None
         self.auth_path = None
         self.refresh = None
 
     def write(self, data):
         message = json.loads(data)
-        if message['method'] != 'account/read':
-            return super().write(data)
-        self.requests.append(message)
-        self.account_id = message['id']
-        self.account_requested.set()
-        if not self.hold:
-            self.answer_account()
-
-    def answer_account(self):
-        if self.refresh is not None:
+        if message['method'] == 'thread/start' and self.hold:
+            self.requests.append(message)
+            self.thread_message = message
+            self.thread_requested.set()
+            return
+        if message['method'] == 'turn/start' and self.refresh is not None:
             self.auth_path.write_text(self.refresh)
-        result = {'error': self.error} if self.error is not None else {'result': {'account': {'type': 'chatgpt'}}}
-        self.stdout.put({'id': self.account_id, **result})
+        super().write(data)
+
+    def answer_thread(self):
+        self.hold = False
+        message, self.thread_message = self.thread_message, None
+        self.requests.pop()
+        super().write(json.dumps(message))
 
 
+# decision: RUN-422
 @pytest.mark.anyio
-@pytest.mark.parametrize('marker,reason', [
-    ('refresh_token_reused', 'auth_required'), ('refresh_token_expired', 'auth_required'),
-    ('refresh_token_invalidated', 'auth_required'), ('invalid_grant', 'auth_required'),
-    ('upstream temporarily unavailable', 'account_unavailable'),
+async def test_a_turn_makes_no_account_call(tmp_path, monkeypatch):
+    """Owner 2026-11-04: no sign-in check on every message. Codex's account/read waited on a ChatGPT round trip
+    (0.25-2.7 s a call, live); the start goes straight from initialize to the thread."""
+    proc = Process()
+    stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
+    proc.complete()
+    got = [ev async for ev in stream.events(rt, run)]
+    assert got[-1].kind == 'final'
+    assert [m['method'] for m in proc.requests if 'id' in m] == ['initialize', 'thread/start', 'turn/start']
+    assert 'account' not in run.state['start_steps']
+
+
+# decision: RUN-422
+@pytest.mark.anyio
+@pytest.mark.parametrize('login', [
+    '{"OPENAI_API_KEY": "sk-test-only-fixture", "tokens": null}',
+    '{"auth_mode": "apikey", "OPENAI_API_KEY": "sk-test-only-fixture"}',
+    '{"OPENAI_API_KEY": "sk-test-only-fixture", "tokens": {"refresh_token": "test-only-fixture"}}',
+    '{}', 'not json', '[]',
 ])
-# decision: RUN-1
-async def test_account_failure_is_actionable_without_provider_secrets_or_starting_turn(tmp_path, monkeypatch, marker, reason):
+async def test_only_a_chatgpt_login_runs_and_never_an_api_key(tmp_path, monkeypatch, login):
+    """The account/read check is gone, its billing guard is not: FERB's Codex login file must hold ChatGPT tokens and
+    no API key (what Codex reports as an `apiKey` account), read from the file before anything starts."""
     import ferb.runtimes.codex_stream as stream
-    proc = AccountProcess(error={'code': -32000, 'message': marker + ' secret-provider-payload',
-                                 'data': {'credential': 'secret-provider-payload'}})
-    with pytest.raises(stream.AccountError) as caught:
-        await begin(tmp_path, monkeypatch, proc)
-    assert caught.value.reason == reason and caught.value.code == -32000
-    assert 'secret-provider-payload' not in str(caught.value)
-    assert ('sign in to ChatGPT in Settings → AI' in str(caught.value)) == (reason == 'auth_required')
-    assert '`ferb' not in str(caught.value)                       # app words: no command
-    assert not any(m['method'] in {'thread/start', 'turn/start'} for m in proc.requests)
-    assert proc.returncode is not None
+    spawned = []
+
+    async def spawn(*cmd, **kw):
+        spawned.append(cmd)
+        return Process()
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
+    rt = runtime(tmp_path)
+    (tmp_path / 'codex-home' / 'auth.json').write_text(login)
+    task = Task('t', None, 'reply', 'd', Identity.OWNER, set(), 'mixed', 'r', [], None)
+    with pytest.raises(stream.AccountError, match='sign in to ChatGPT in Settings') as caught:
+        await stream.start(rt, task, ModelRequest('instructions', ('context',)))
+    assert caught.value.reason == 'auth_required' and caught.value.account == 'signed_out'
+    assert 'sk-test-only-fixture' not in str(caught.value)
+    assert spawned == []                                     # nothing started, nothing sent
 
 
+# decision: RUN-422, ORCH-315
 @pytest.mark.anyio
-async def test_refresh_published_before_next_start_and_again_after_turn(tmp_path, monkeypatch):
+@pytest.mark.parametrize('error, account', [
+    ({'message': 'unauthorized', 'codexErrorInfo': 'unauthorized'}, 'signed_out'),
+    ({'message': 'refresh failed', 'data': {'code': 'refresh_token_expired'}}, 'signed_out'),
+    ({'message': 'refresh failed', 'data': {'error': 'invalid_grant'}}, 'signed_out'),
+    ({'message': 'upstream temporarily unavailable'}, None),
+])
+async def test_a_sign_in_the_turn_itself_refuses_is_an_account_fact(tmp_path, monkeypatch, error, account):
+    """With no check before the turn, Codex's own refusal of the sign-in is what tells: its CodexErrorInfo, or the
+    OAuth code of a refresh it couldn't make, marks the error `signed_out` (ORCH-315's sign-in offer); anything else
+    stays a plain error. Only Codex's message and codes are kept, never the rest of its error object."""
+    proc = Process()
+    stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
+    proc.stdout.put({'method': 'error', 'params': {'threadId': 'th', 'turnId': 'tu',
+                                                   'error': {**error, 'secret': 'secret-provider-payload'}}})
+    got = [ev async for ev in stream.events(rt, run)]
+    assert got[-1].kind == 'error' and got[-1].data.get('account') == account
+    assert 'secret-provider-payload' not in json.dumps(got[-1].data)
+
+
+# decision: RUN-422
+@pytest.mark.anyio
+async def test_refresh_published_as_the_request_goes_out_and_again_after_turn(tmp_path, monkeypatch):
+    """A refreshed login is published when the run's request goes out (Codex refreshes before it), so a run starting
+    while the first goes on copies the new login instead of a spent refresh token; and again when the run ends."""
     import ferb.runtimes.codex_stream as stream
     rt = runtime(tmp_path)
     source = tmp_path / 'codex-home' / 'auth.json'
-    first, second = AccountProcess(hold=True), AccountProcess()
+    first, second = HeldProcess(), HeldProcess()
     first.refresh = '{"tokens":{"refresh_token":"first-refresh-fixture"}}'
     processes, copies = [], []
+
     async def spawn(*cmd, **kw):
         proc = first if not processes else second
         proc.auth_path = Path(kw['env']['CODEX_HOME']) / 'auth.json'
@@ -493,10 +535,8 @@ async def test_refresh_published_before_next_start_and_again_after_turn(tmp_path
     monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
     task = Task('t', None, 'reply', 'd', Identity.OWNER, set(), 'mixed', 'r', [], None)
     request = ModelRequest('instructions', ('context',))
-    initial = asyncio.create_task(stream.start(rt, task, request))
-    await asyncio.wait_for(first.account_requested.wait(), 1)
-    first.answer_account()
-    run1 = await asyncio.wait_for(initial, 1)
+    run1 = await asyncio.wait_for(stream.start(rt, task, request), 1)
+    await asyncio.wait_for(run1.state['catalog_checked'].wait(), 1)     # its request went out
     run2 = await asyncio.wait_for(stream.start(rt, task, request), 1)
     assert copies[1] == first.refresh and source.read_text() == first.refresh
     assert first.returncode is None  # Refresh is shared while the first model turn remains active.
@@ -508,11 +548,12 @@ async def test_refresh_published_before_next_start_and_again_after_turn(tmp_path
 
 
 @pytest.mark.anyio
-async def test_stalled_account_start_does_not_block_another_start(tmp_path, monkeypatch):
+async def test_a_stalled_start_does_not_block_another_start(tmp_path, monkeypatch):
     import ferb.runtimes.codex_stream as stream
     rt = runtime(tmp_path)
-    first, second = AccountProcess(hold=True), AccountProcess()
+    first, second = HeldProcess(hold=True), HeldProcess()
     processes = []
+
     async def spawn(*cmd, **kw):
         proc = first if not processes else second
         processes.append(proc)
@@ -521,7 +562,7 @@ async def test_stalled_account_start_does_not_block_another_start(tmp_path, monk
     task = Task('t', None, 'reply', 'd', Identity.OWNER, set(), 'mixed', 'r', [], None)
     request = ModelRequest('instructions', ('context',))
     initial = asyncio.create_task(stream.start(rt, task, request))
-    await asyncio.wait_for(first.account_requested.wait(), 1)
+    await asyncio.wait_for(first.thread_requested.wait(), 1)
     run = await asyncio.wait_for(stream.start(rt, task, request), 1)
     assert not initial.done() and first.returncode is None
     initial.cancel()
@@ -530,24 +571,6 @@ async def test_stalled_account_start_does_not_block_another_start(tmp_path, monk
     await stream.cancel(run)
     assert first.returncode is not None and second.returncode is not None
 
-@pytest.mark.anyio
-@pytest.mark.parametrize('account', [None, {}, {'type': 'apiKey'}])
-async def test_missing_or_wrong_account_explains_subscription_login(tmp_path, monkeypatch, account):
-    import ferb.runtimes.codex_stream as stream
-    class MissingAccount(Process):
-        def write(self, data):
-            message = json.loads(data)
-            if message['method'] == 'account/read':
-                self.requests.append(message)
-                self.stdout.put({'id': message['id'], 'result': {'account': account}})
-            else:
-                super().write(data)
-    proc = MissingAccount()
-    with pytest.raises(stream.AccountError, match='sign in to ChatGPT in Settings') as caught:
-        await begin(tmp_path, monkeypatch, proc)
-    assert caught.value.reason == 'auth_required'
-    assert not any(m['method'] in {'thread/start', 'turn/start'} for m in proc.requests)
-
 
 @pytest.mark.anyio
 async def test_early_refresh_does_not_overwrite_owner_login_or_adopt_its_baseline(tmp_path, monkeypatch):
@@ -555,28 +578,30 @@ async def test_early_refresh_does_not_overwrite_owner_login_or_adopt_its_baselin
     rt = runtime(tmp_path)
     source = tmp_path / 'codex-home' / 'auth.json'
     original = source.read_bytes()
-    proc = AccountProcess(hold=True)
+    proc = HeldProcess(hold=True)
     proc.refresh = '{"tokens":{"refresh_token":"old-run-refresh-fixture"}}'
+
     async def spawn(*cmd, **kw):
         proc.auth_path = Path(kw['env']['CODEX_HOME']) / 'auth.json'
         return proc
     monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
     task = Task('t', None, 'reply', 'd', Identity.OWNER, set(), 'mixed', 'r', [], None)
     starting = asyncio.create_task(stream.start(rt, task, ModelRequest('instructions', ('context',))))
-    await asyncio.wait_for(proc.account_requested.wait(), 1)
+    await asyncio.wait_for(proc.thread_requested.wait(), 1)
     owner_login = '{"tokens":{"refresh_token":"owner-new-login-fixture"}}'
     source.write_text(owner_login)
-    proc.answer_account()
+    proc.answer_thread()
     run = await asyncio.wait_for(starting, 1)
+    await asyncio.wait_for(run.state['catalog_checked'].wait(), 1)
     assert source.read_text() == owner_login and run.state['auth_original'] == original
     await stream.cancel(run)
     assert source.read_text() == owner_login
 
 
 def test_account_error_never_retains_a_non_numeric_provider_code():
-    from ferb.runtimes.codex_stream import _account_error
-    error = _account_error({'code': 'secret-provider-payload', 'message': 'unknown provider failure'})
-    assert error.reason == 'account_unavailable' and error.code is None
+    from ferb.runtimes.codex_stream import AccountError
+    error = AccountError('auth_required', 'secret-provider-payload')    # type: ignore[arg-type]
+    assert error.reason == 'auth_required' and error.code is None
     assert 'secret-provider-payload' not in str(error)
 
 

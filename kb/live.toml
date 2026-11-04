@@ -399,12 +399,12 @@ sitting = "step 13, sitting 2"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-407]
-title = "Codex planner and start: compaction off, overflow, no version subprocess, 90 s cut"
+title = "Codex planner and start: compaction off, overflow, no version subprocess"
 area = "runtimes"
 surface = "FERB.app on Codex, the owner's journal and process list"
-request = "After the owner installs the build, read the first start's journal; start a run and watch processes; send a planner prompt over ~245k tokens and one over the window; let a planner turn run past 90 s."
-pass = "No `runtime.codex_problem`; no `codex --version` process per run; no `contextCompaction` item; the over-window prompt comes back as an overflow; the planner turn is cut at 90 s with a plain reply."
-decisions = ["RUN-402", "RUN-406", "RUN-407"]
+request = "After the owner installs the build, read the first start's journal; start a run and watch processes; send a planner prompt over ~245k tokens and one over the window."
+pass = "No `runtime.codex_problem`; no `codex --version` process per run; no `contextCompaction` item; the over-window prompt comes back as an overflow. (The planner's 90 s cut is gone: LIVE-764.)"
+decisions = ["RUN-402", "RUN-423", "RUN-407"]
 sitting = "step 13, sitting 2"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
@@ -1095,7 +1095,7 @@ area = "orchestration"
 surface = "FERB.app on the owner's Mac, owner-controlled surfaces (AGENTS.md rule 16)"
 request = "Send a message, then another before FERB replies; later send one after the reply; then send 4 quick messages."
 pass = "The planner restarts once and reads both; a later message waits its turn; 4 quick messages make 2 turns."
-decisions = ["ORCH-318"]
+decisions = ["ORCH-529"]
 sitting = "step 13, sitting 3"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
@@ -2954,4 +2954,30 @@ surface = "A FERB.app build with APP-704 on a notched Mac running macOS 27, dock
 request = "Hover the notch so the chat opens, press on the camera housing and drag down and to the right; drop it on the right edge. Wait for the resting line, hover it, drag it back into the notch. Switch apps a few times and swipe between desktops with FERB open, then drag again. Afterwards run: log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" AND category == \"notch\"' --info"
 pass = "The first press on the housing tears FERB out and it follows the pointer with its surface (the approved feel, APP-629); it stays on the edge where dropped and docks back into the notch; it still drags after app switches; during the desktop swipe it stays fixed to the notch (APP-562). The log shows \"attached to fixed overlay space\" and no \"attachment failed\"."
 decisions = ["APP-704", "APP-597", "APP-625", "APP-562"]
+
+[LIVE-764]
+title = "A long planner answer is never cut while it is being written"
+area = "orchestration"
+surface = "FERB.app with this build on Codex, the owner's chat"
+request = "Ask for something that takes the planner over 90 s to answer in one reply (e.g. a detailed week plan from a long pasted list); then read the turn with `ferb trace` (model.turn timing)."
+pass = "The reply arrives whole even though the planner call ran past 90 s; no \"couldn't work out a reply within 90 seconds\"; `chat.failed` has no row for it."
+decisions = ["ORCH-528", "ORCH-529", "RUN-423"]
+sitting = "after this change is installed"
+
+[LIVE-765]
+title = "A Codex message no longer spends seconds on a sign-in check"
+area = "runtimes"
+surface = "FERB.app with this build on Codex, the owner's chat and a small task"
+request = "Send a few chat messages and start one small task; read each planner turn's and worker's timing with `ferb trace --json` (start_steps_ms and the first model call's runtime_ms / ttft_ms)."
+pass = "start_steps_ms has no `account` step; initialize to turn_start takes well under a second; the first model call's ttft is not longer by the time the account step used to take (0.25-2.7 s), i.e. the routing lookup didn't just move into the call."
+decisions = ["RUN-422"]
+sitting = "after this change is installed"
+
+[LIVE-766]
+title = "A sign-in the runtime refuses still says so with the one-tap switch"
+area = "runtimes"
+surface = "FERB.app with this build, FERB's own Codex sign-in (owner-controlled)"
+request = "In Settings → AI sign out of ChatGPT for FERB (or let its sign-in lapse), keep another runtime signed in, and send a message."
+pass = "FERB says Codex isn't signed in for FERB and offers the other signed-in runtime with one tap; it never switches by itself; after signing in again the next message runs on Codex."
+decisions = ["RUN-422"]
 sitting = "after this change is installed"

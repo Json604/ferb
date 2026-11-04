@@ -76,7 +76,8 @@ legacy = "notes/runtimes.md What exists today: Codex adapter; fix list: item gat
 title = "Call time limits: planner 90 s, other non-worker calls 900 s, workers none"
 by = "agent"
 date = 2026-10-30
-status = "active"
+status = "superseded"
+superseded_by = "RUN-423"
 rule = "`catalog.call_limit` gives one deadline across start and answer, applied by every adapter: the planner's call 90 s (orchestration owner decision 11), every other non-worker call 900 s beside the 180 s silence guard, a worker none (it may wait on the owner as long as the owner takes)."
 rejected = ["Codex's doubled 900 s start plus 900 s events timeouts"]
 paths = ["ferb/runtimes/catalog.py::call_limit", "ferb/runtimes/catalog.py::CALL_LIMIT_S"]
@@ -213,7 +214,7 @@ title = "Codex and the Claude Agent SDK report their start step by step"
 by = "agent"
 date = 2026-11-04
 status = "active"
-rule = "A Codex start records `start_steps` (ms) in its run state on the runtime's clock: version, files, spawn (the app-server), initialize, account, thread_start or thread_resume, turn_start. A Claude Agent SDK start records options, connect (Claude Code ready) and query. The orchestrator copies them onto the run's timing as start_steps_ms (ORCH-526). Nothing else about the run changes."
+rule = "A Codex start records `start_steps` (ms) in its run state on the runtime's clock: version, files, spawn (the app-server), initialize, thread_start or thread_resume, turn_start (no account step since RUN-422). A Claude Agent SDK start records options, connect (Claude Code ready) and query. The orchestrator copies them onto the run's timing as start_steps_ms (ORCH-526). Nothing else about the run changes."
 why = "Owner 2026-11-04 (\"i approve all fixes\"): a Codex planner reply took 10.7 s, two ~5 s model calls and 0.79 s before the first with no span covering it, and the trace couldn't say where the time went."
 paths = ["ferb/runtimes/codex_exec.py::CodexRuntime.start", "ferb/runtimes/codex_stream.py::start", "ferb/runtimes/claude_sdk.py::ClaudeRuntime.start"]
 
@@ -225,3 +226,37 @@ status = "active"
 rule = "Codex: a call begins at turn/start or a FERB tool's completion; its request goes out at its request trace line; its output is item starts, deltas and completions, timed when read, not when consumed; a usage report that follows a tool already run keeps the tool out of both calls. The direct-API loop: from its POST (a retry's wait counts as runtime_ms) through each streamed event; an unstreamed answer is one output. Claude Agent SDK: one usage per turn, so its timing covers the turn, tools included."
 why = "Owner 2026-11-04 (\"i approve all fixes\"): a Codex planner reply took 10.7 s, two ~5 s model calls and 0.79 s before the first with no span covering it, and the trace couldn't say where the time went."
 paths = ["ferb/runtimes/codex_stream.py::_observe", "ferb/runtimes/api.py::ApiRuntime._call", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._events"]
+
+[RUN-422]
+title = "No sign-in check before each Codex call; Codex's own refusal tells"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Codex sends no account/read before the thread. Its ChatGPT-only guard reads FERB's login file instead: ChatGPT tokens and no OPENAI_API_KEY or auth_mode apikey, else the start is refused as signed out with nothing spawned. A refreshed login is published when the request trace shows the request went out, and again at the run's end. A sign-in Codex refuses comes back as the turn's own error (CodexErrorInfo unauthorized, or a refresh-token OAuth code), marked signed_out for ORCH-315's message and offer."
+why = "Owner 2026-11-04: \"so 2.7 every message is just this check??? can this be avoided?? ... if its not connected it'll give error and then we'll know wont we?\" Every Codex call spent 0.25-2.7 s in account/read (start_steps_ms.account)."
+rejected = ["Keeping account/read and caching its answer (each call is a fresh app-server, so there is nothing to cache in)", "Dropping the ChatGPT-only guard with the call (an API-key login would bill the owner's key)"]
+evidence = "Pinned Codex 0.166.0, temporary HOME and CODEX_HOME, a local stand-in backend: account/read waits on the workspace routing lookup (GET /backend-api/wham/accounts/check, retried); without it the turn's request went out at 0.12 s while that lookup was held 2 s."
+paths = ["ferb/runtimes/codex_stream.py::start", "ferb/runtimes/codex_stream.py::_chatgpt_login", "ferb/runtimes/codex_stream.py::_codex_failure", "ferb/runtimes/codex_stream.py::_watch_catalog"]
+live = ["LIVE-765", "LIVE-766"]
+
+[RUN-423]
+title = "Call time limits: none for the planner and workers, 900 s for other non-worker calls"
+by = "agent"
+date = 2026-11-04
+status = "active"
+supersedes = ["RUN-406"]
+rule = "`catalog.call_limit` gives one deadline across start and answer, applied by every adapter: none for the planner's call (ORCH-528) or a worker's, CALL_LIMIT_S (900 s) for other non-worker calls beside the silence guard. Every adapter reports a contentless `progress` event for output that hands nothing over (Codex's reasoning, commentary and item notifications; the Claude SDK's stream events and tool results; the API loop's stream events without answer text and tool results): life for the silence guard only; a retry still isn't."
+why = "ORCH-528 (owner, 2026-11-04) lifted the planner's 90 s; reasoning-only progress must count as activity, and before this Codex surfaced none of it."
+rejected = ["Codex's doubled 900 s start plus 900 s events timeouts"]
+paths = ["ferb/runtimes/catalog.py::call_limit", "ferb/runtimes/catalog.py::CALL_LIMIT_S", "ferb/core/types.py::RuntimeEvent", "ferb/runtimes/codex_stream.py::events", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._events", "ferb/runtimes/api.py::ApiRuntime._events"]
+
+[RUN-424]
+title = "Runtime availability is the last known state, refreshed by events, never probed per call"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The daemon keeps each runtime's availability (RUN-404) as last known: read at start, then again only after the owner's runtime or model change (runtimes.use, a one-tap switch, a model changed in config), a sign-in (Claude's finishing; the app's runtimes.status, which reads all afresh), a runtimes.check, or a call the runtime refused for its sign-in, which marks it unavailable (`runtime.signed_out`). No timed expiry. The Claude marker file and the API key read for the request itself stay."
+why = "Owner 2026-11-04: \"does it run for API and claude too??? fix this for them too\". The API runtimes re-ran a `security` Keychain presence check each (about 10 ms, on the event loop) whenever the old 60 s cache expired; the Claude SDK had no per-call probe."
+rejected = ["A shorter or longer expiry (any expiry probes again on some turn)"]
+paths = ["ferb/daemon/areas/runtimes.py::Runtimes._runtime_available", "ferb/daemon/areas/runtimes.py::Runtimes._runtime_signed_out", "ferb/daemon/areas/runtimes.py::Runtimes._runtimes_status", "ferb/orchestrator/worker.py::WorkerRuns._run_once"]
+live = ["LIVE-766"]

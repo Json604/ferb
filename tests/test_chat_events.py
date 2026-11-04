@@ -79,7 +79,7 @@ def test_ack_arrives_before_the_planner_is_called(daemon):
     assert message_row['request_id'] == first['request_id'] and ack_seq < message_seq
 
 
-# decision: ORCH-318
+# decision: ORCH-529
 def test_two_sends_on_one_session_each_get_their_own_ack_and_request_id(daemon):
     release, called = threading.Event(), threading.Event()
 

@@ -57,8 +57,8 @@ class Runtimes:
                        effort: str | None = None) -> Any:
         """One runtime for a role (D32), through its factory in the runtime table. `effort`: the reasoning effort a
         worker-mode run asks for (L39: "high" for the checker of a step that changed files), each adapter's own
-        setting; None keeps the runtime's default. The call's time limit: the planner's chat turn 90 s, another
-        non-worker call CALL_LIMIT_S, a worker none (catalog.call_limit)."""
+        setting; None keeps the runtime's default. The call's time limit: none for the planner's chat turn (ORCH-528)
+        or a worker, CALL_LIMIT_S for another non-worker call (catalog.call_limit)."""
         from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA
         from ferb.runtimes.catalog import CATALOG, Build, call_limit, model_for
         entry = CATALOG.get(name)
@@ -129,21 +129,34 @@ class Runtimes:
         return key
 
     def _runtime_available(self, name: str) -> bool:
-        """The runtime table's availability (a model set and signed in), read at most once a minute per runtime."""
+        """The runtime table's availability (a model set and signed in), as last known (RUN-424): read once (the
+        daemon's start reads every runtime), then again only after an event that can change it: the owner's runtime
+        or model choice (runtimes.use, a one-tap switch), a sign-in (Claude's finishing; the app's AI status read,
+        runtimes.status, which reads every runtime afresh after a ChatGPT sign-in or a saved key), a runtime check,
+        or a call the runtime refused for its sign-in (`_runtime_signed_out`). No per-turn sign-in or Keychain probe."""
         from ferb.runtimes.catalog import CATALOG, model_for
-        now = time.monotonic()
+        model = model_for(self.config, name)
         hit = self._available_cache.get(name)
-        if hit is None or now - hit[0] > 60:
+        if hit is None or hit[0] != model:              # a model changed in config is a change too
             entry = CATALOG.get(name)
-            hit = (now, entry is not None and entry.available(self.home, model_for(self.config, name))[0])
+            hit = (model, entry is not None and entry.available(self.home, model)[0])
             self._available_cache[name] = hit
         return hit[1]
 
+    def _runtime_signed_out(self, name: str) -> None:
+        """A call `name` ran said its sign-in failed (ORCH-315's account fact): it counts as unavailable until the next
+        sign-in, runtime change, status read or start reads it again (RUN-424)."""
+        from ferb.runtimes.catalog import model_for
+        self._available_cache[name] = (model_for(self.config, name), False)
+        self._journal().append("runtime.signed_out", {"runtime": name})
+
     async def _runtimes_status(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """L34 C: Choose your AI's live status (and Settings → AI): each runtime's availability, each role's runtime."""
+        """L34 C: Choose your AI's live status (and Settings → AI): each runtime's availability, each role's runtime.
+        Read afresh, so it also refreshes the daemon's last known availability (RUN-424)."""
         from ferb.cli import runtimes as runtimes_cli
         out = await asyncio.to_thread(runtimes_cli.status, self.home)
         for row in out["runtimes"]:
+            self._available_cache[row["name"]] = (row["model"], bool(row["usable"]))
             if row["name"] == "claude":
                 row["sign_in"] = self.claude_sign_in.status()      # L34 C: a sign-in under way, or how it ended
         return out

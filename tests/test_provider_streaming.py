@@ -13,6 +13,7 @@ from ferb.runtimes.claude_sdk import ClaudeRuntime
 from ferb.runtimes.google_api import GoogleProvider
 from ferb.runtimes.openai_api import OpenAIProvider
 from tests.support.claude_home import signed_in_home
+from tests.support.runtime_fakes import next_output
 
 TASK = Task('t', None, 'reply', 'dev', Identity.OWNER, set(), 'mixed', 'r', [], None)
 SCHEMA = {'type': 'object', 'properties': {'text': {'type': 'string'}}, 'required': ['text']}
@@ -87,7 +88,7 @@ async def test_provider_delta_arrives_while_completion_is_still_blocked(provider
     run = await rt.start(TASK, ModelRequest('instructions', ('message',)), '')
     events = rt.events(run)
     try:
-        early = await asyncio.wait_for(anext(events), 1)
+        early = await asyncio.wait_for(next_output(events), 1)
         assert early.kind == 'text_delta' and early.data == {'text': FIRST}
         assert not gate.is_set()
         gate.set()
@@ -160,8 +161,8 @@ async def test_cancel_closes_a_stream_waiting_for_more_text(provider):
     rt = runtime(provider, body, [])
     run = await rt.start(TASK, ModelRequest('', ('message',)), '')
     events = rt.events(run)
-    await asyncio.wait_for(anext(events), 1)
-    pending = asyncio.create_task(anext(events, None))
+    await asyncio.wait_for(next_output(events), 1)
+    pending = asyncio.create_task(next_output(events))
     await rt.cancel(run)
     assert await asyncio.wait_for(pending, 1) is None
     await events.aclose()
@@ -175,7 +176,7 @@ async def test_closing_the_event_iterator_cancels_the_active_stream_reader():
     rt = runtime('openai', body, [])
     run = await rt.start(TASK, ModelRequest('', ('message',)), '')
     events = rt.events(run)
-    assert (await asyncio.wait_for(anext(events), 1)).kind == 'text_delta'
+    assert (await asyncio.wait_for(next_output(events), 1)).kind == 'text_delta'
     await events.aclose()
     assert body.closed and run.state['run'].inflight.done() and run.state['run'].client.is_closed
 
@@ -195,7 +196,7 @@ async def test_closing_after_a_fragment_retrieves_an_already_failed_api_call():
     reported = []
     loop.set_exception_handler(lambda _, context: reported.append(context.get('message', '')))
     try:
-        assert (await anext(events)).kind == 'text_delta'
+        assert (await next_output(events)).kind == 'text_delta'
         inflight = weakref.ref(run.state['run'].inflight)
         assert inflight() is not None and inflight().done()
         await events.aclose()
@@ -240,7 +241,7 @@ async def test_claude_streams_only_the_structured_output_tool_payload():
     assert rt._options('run', None).include_partial_messages is True
     events = rt.events(RunHandle('run', 'claude', 't', {'client': Client(), 'checked_auth': False}))
     try:
-        early = await asyncio.wait_for(anext(events), 1)
+        early = await asyncio.wait_for(next_output(events), 1)
         assert early.kind == 'text_delta' and early.data['text'] == FIRST
         gate.set()
         rest = [event async for event in events]

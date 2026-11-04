@@ -70,8 +70,9 @@ from ferb.orchestrator.schemas import (CHECKER_SCHEMA, QUESTION_SCHEMA, SUMMARY_
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
 from ferb.orchestrator.worker import (BUG, ConnectionNotice, ImageRefused, InvalidAnswer, Overflowed, ServiceDown,
-                                      ServiceError, WorkerRuns, account_problem, couldnt, model_limits, reason, reserve_tokens)
-from ferb.runtimes.catalog import PLANNER_LIMIT_S, label
+                                      ServiceError, Stalled, WorkerRuns, account_problem, couldnt, model_limits, reason,
+                                      reserve_tokens)
+from ferb.runtimes.catalog import label
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import blocked as blocked_
 from ferb.policy import confirm, provenance
@@ -162,7 +163,8 @@ WAITING_TOKENS = 2000       # this chat's ended tasks waiting on the owner in th
 TOOLLESS_ROLES = frozenset({"question.md", "attention.md"})
 NO_CATALOG_ROLES = TOOLLESS_ROLES | {"supervisor.md"}
 # ORCH-516: the planner's lookups, read-only through FERB's gateway on a run token that covers only these tools; at most
-# PLANNER_LOOKUPS calls per planner call (an agent's technical bound against a looping call; the 90 s limit still holds)
+# PLANNER_LOOKUPS calls per planner call (an agent's technical bound against a looping call; the silence guard still
+# holds, ORCH-528)
 PLANNER_TOOLS = frozenset({"memory.read", "chat.history", "task.evidence", "trail.query", "trail.days"})
 PLANNER_SCOPES = frozenset({"task:read", "trail:read"})
 PLANNER_LOOKUPS = 10
@@ -182,11 +184,12 @@ SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older convers
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
 ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
 ANSWERED = "Got your answer."
-# ORCH-318 (owner, 2026-10-30): a turn restarts at most once, for a message sent before its first reply; its planner
-# calls, the restart's included, share one time limit (ORCH-311, PLANNER_LIMIT_S)
+# ORCH-529 (owner, 2026-11-04, replacing ORCH-318's shared 90 s): a turn restarts at most once, for a message sent
+# before its first reply. The turn has no overall time limit (ORCH-528): each of its planner calls, the restart's
+# included, is stopped only by the silence guard (STALL_S with no event from the runtime), and then it says so plainly
 MAX_RESTARTS = 1
-TIMED_OUT = ("I couldn't work out a reply within {limit:g} seconds, so I stopped. Send it again and I'll try once "
-             "more.")
+SILENT = ("I stopped because nothing came back from the AI service for {minutes:g} minutes. Send it again and I'll "
+          "try once more.")
 STOP_SETTLING = "I've asked it to stop; it's still finishing what it was doing, so I haven't started anything else."
 RETRY_SETTLING = "I've stopped the earlier attempt; I'll start again as soon as it has finished."
 STOPPED = "Stopped, as you asked."
@@ -484,13 +487,12 @@ class _Turn:
 @dataclass
 class _Run:
     """A chat's turn while it holds the chat: its messages (the first leads, the others were read with it), whether it
-    is still thinking (no reply yet), its restarts and the deadline its planner calls share (ORCH-318)."""
+    is still thinking (no reply yet) and its restarts (ORCH-529)."""
     lead: _Arrival
     arrivals: list[_Arrival]
     thinking: bool = True
     restarts: int = 0
     restart: bool = False
-    deadline: float | None = None
     think: "asyncio.Task[None] | None" = None
     start: _Start | None = None
     seen: dict[str, Any] | None = None           # the lead's front window, awaited once
@@ -843,6 +845,7 @@ class Supervisor(WorkerRuns):
         # What the Mac, FERB's tools and the owner's activity look like now (EnvironmentPort)
         self.relevant_context: Callable[[str], Any] = environment.relevant_context   # text, or (text, origin, ...)
         self.worker_types: Callable[[], list[str]] = environment.worker_types
+        self.runtime_signed_out: Callable[[str], None] = environment.runtime_signed_out
         self.sessions: dict[str, ChatSession] = {}
         self.continuity = Continuity(journal.db, gateway.redact, spans.task_origins)
         self.plans = PlanStore(journal.db, gateway.redact)
@@ -865,8 +868,6 @@ class Supervisor(WorkerRuns):
         self._episode_jobs: set[asyncio.Task[None]] = set()           # learning captures after an outcome (L28)
         self._capture_lock = asyncio.Lock()
         self._lines: dict[str, _ChatLine] = {}        # chat id -> its messages in arrival order (ORCH-318)
-        # ORCH-311 and ORCH-318: a chat turn's planner calls, a restart's included, share this many seconds
-        self.planner_limit_s: float = PLANNER_LIMIT_S
         # L3: what FERB itself just asked a chat about an answer, used by that chat's next message only: the owner's
         # earlier words (a "which one is it for?") or None (a "Yes or No?"), and the questions it named.
         self._answer_focus: dict[str, _Focus] = {}
@@ -2024,13 +2025,12 @@ class Supervisor(WorkerRuns):
         turn = _Turn(request_id, ChatSession(session_id), words=m.own_words, payload=m.for_model,
                      own_words=m.own_words, typed=m.own_words, typed_lines=m.typed_lines, for_model=m.for_model,
                      untrusted=bool(m.untrusted), message_origin={origins_.FERB, origins_.INFERRED}, preview=True)
-        try:
-            async with asyncio.timeout(self.planner_limit_s):
-                turn.environment = dict(await _value(self.environment(m.own_words)) or {})
-                try:
-                    out = await self._supervise(turn)
-                except (ValidationError, InvalidAnswer) as exc:    # the schema repair a chat turn gets (_decide)
-                    out = await self._supervise(turn, repair=[str(exc)])
+        try:            # no overall limit: its planner call is stopped only by the silence guard (ORCH-528)
+            turn.environment = dict(await _value(self.environment(m.own_words)) or {})
+            try:
+                out = await self._supervise(turn)
+            except (ValidationError, InvalidAnswer) as exc:    # the schema repair a chat turn gets (_decide)
+                out = await self._supervise(turn, repair=[str(exc)])
         except BaseException as exc:
             self.journal.append("intro.preview", {"request_id": request_id, "shown": False,
                                                   "why": type(exc).__name__})
@@ -2051,8 +2051,9 @@ class Supervisor(WorkerRuns):
         yield {"type": "done", "preview": True, "request_id": request_id}
 
     async def _turn(self, session_id: str, run: _Run, release: Callable[[], None]) -> AsyncIterator[dict[str, Any]]:
-        """The turn: the planner thinks (restarted, at most MAX_RESTARTS times, by a message sent before its first reply,
-        within one shared time limit), then the turn routes its choice and replies once (`_exit`), or starts its task."""
+        """The turn: the planner thinks (restarted, at most MAX_RESTARTS times, by a message sent before its first
+        reply; no overall time limit, only the silence guard on each planner call, ORCH-528), then the turn routes its
+        choice and replies once (`_exit`), or starts its task."""
         while True:
             run.restart = False
             events: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
@@ -2091,25 +2092,24 @@ class Supervisor(WorkerRuns):
             self._turns.pop(turn.request_id, None)
 
     async def _think(self, session_id: str, run: _Run, emit: Callable[[dict[str, Any]], None]) -> None:
-        """Take the turn's messages in and decide, all within the turn's one time limit (ORCH-311, ORCH-318): it starts with
-        the turn and a restart keeps it, so a burst of messages can't hold FERB past it."""
-        if run.deadline is None:
-            run.deadline = asyncio.get_running_loop().time() + self.planner_limit_s
-        async with asyncio.timeout_at(run.deadline):
-            run.turn = await self._intake(session_id, run)
-            run.out = await self._decide(run.turn, emit=emit)
-            run.turn.decided = self.clock.monotonic()       # FERB's work after it is timed to the reply (ORCH-525)
+        """Take the turn's messages in and decide. No overall time limit (ORCH-528, ORCH-529): a planner call that keeps
+        producing events (deltas, reasoning, tool calls and results, usage) runs to its answer, and one silent for
+        STALL_S is stopped by the watchdog (`_run_once`) and ends the turn with Stalled; a restart is still at most one
+        (MAX_RESTARTS), so a burst of messages can't restart it again and again."""
+        run.turn = await self._intake(session_id, run)
+        run.out = await self._decide(run.turn, emit=emit)
+        run.turn.decided = self.clock.monotonic()       # FERB's work after it is timed to the reply (ORCH-525)
 
     async def _failed(self, turn: _Turn, failure: BaseException) -> AsyncIterator[dict[str, Any]]:
         """A turn whose planner failed before routing still answers, in the conversation record too, so the next turn's
         history shows what FERB told the owner (L21); the reply says the turn failed, so the notch offers Send to
-        developer on it (L35). The time limit says so plainly (ORCH-311); a usage limit or a sign-in problem offers
-        another signed-in runtime with one tap (ORCH-315), never switching by itself."""
+        developer on it (L35). A planner call stopped for silence says so plainly (ORCH-528); a usage limit or a sign-in
+        problem offers another signed-in runtime with one tap (ORCH-315), never switching by itself."""
         self.journal.append("chat.failed", {"request_id": turn.request_id, "why": type(failure).__name__,
                                             "detail": str(failure)})
         extra: dict[str, Any] = {}
-        if isinstance(failure, TimeoutError):
-            text = TIMED_OUT.format(limit=self.planner_limit_s)
+        if isinstance(failure, Stalled):
+            text = SILENT.format(minutes=self.stall_s / 60)
         elif (account := getattr(failure, "account", "")) in ("usage_limit", "signed_out"):
             runtime = str(getattr(failure, "runtime", ""))
             text = account_problem(runtime, account)
@@ -2918,7 +2918,7 @@ class Supervisor(WorkerRuns):
             final = await self._run(rt, chat_task, system, self._with_newly_always_on(ctx), token, span.id,
                                     None, "", on_usage=usage.update, images=images, notify=notify,
                                     on_delta=draft.feed if draft else None, on_tool=draft.restart if draft else None,
-                                    on_timing=call.update)
+                                    on_timing=call.update, retry_silent=False)
             clocked.mark("model_call")
             result = SupervisorOutcome.model_validate_json(final)
             if draft:
@@ -2976,7 +2976,8 @@ class Supervisor(WorkerRuns):
                                    self.clock.now(), span_id, task_id))
         self.continuity.lend(task_id, turn.session.id)
         token = self.tokens.issue(task_id, holder, set(PLANNER_SCOPES), Identity.OWNER,
-                                  ttl_s=3 * max(self.planner_limit_s, 60.0), observe_only=True,
+                                  # no overall limit (ORCH-528): the token ends with the call (_lookups_end)
+                                  ttl_s=float("inf"), observe_only=True,
                                   tools=frozenset(tools), max_calls=PLANNER_LOOKUPS)
         return token, holder
 
