@@ -505,11 +505,11 @@ why = "APP-598/662 never restart the service while a task runs, and nothing tell
 decisions = ["APP-598", "APP-662", "APP-679"]
 
 [T-1048]
-title = "The paused scheduled-run test fails under load"
+title = "Two tests fail only under the full run's load"
 area = "tests"
 kind = "bug"
 status = "open"
-why = "test_pausing_a_scheduled_run_pauses_its_schedule_and_resuming_it_resumes_the_schedule failed in three full runs on 2026-11-04 while agents built Swift, and passed alone 5/5. A timing dependence (TEST-508) or a product race left after T-1005."
+why = "test_pausing_a_scheduled_run... (3 full runs 2026-11-04) and test_a_sealed_value_straddling_the_cut... (seals with daemon.call_soon, then reads) pass alone and fail under load. Make them deterministic (TEST-508) or find the product race."
 decisions = ["ORCH-308", "ORCH-312"]
 
 
