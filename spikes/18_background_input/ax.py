@@ -82,5 +82,3 @@ def keys_to_pid(pid: int, text: str) -> None:
             Quartz.CGEventKeyboardSetUnicodeString(ev, 1, ch)
             Quartz.CGEventPostToPid(pid, ev)
             time.sleep(0.02)
-
-

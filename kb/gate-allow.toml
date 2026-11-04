@@ -47,3 +47,138 @@ reason = "the memory agent rebased its branch onto ui/ux 5b113f30 (2026-11-04); 
 [[audit]]
 commit = "a39be49bfc"
 reason = "the memory agent rebased its branch onto ui/ux 5b113f30 (2026-11-04); each replayed commit passed kb check, and the merge 37a7d603 and every push since passed the full gate"
+
+[[secret]]
+path = "tests/support/fake_claude.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_confirmations.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_daily_activity.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_downloads.py"
+pattern = "JSON web token"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_episode_capture.py"
+pattern = "JSON web token"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_evidence_store.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_labelled_secret_classes.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_learning.py"
+pattern = "private key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_learning_alive.py"
+pattern = "AWS access key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_learning_alive.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_learning_alive.py"
+pattern = "JSON web token"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_mac_shell.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_memory.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_packaging.py"
+pattern = "private key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_perception_capture.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_recovery.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_redact.py"
+pattern = "AWS access key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_redact.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_redact.py"
+pattern = "JSON web token"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_redact.py"
+pattern = "OpenAI API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_redact.py"
+pattern = "Slack token"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_redact.py"
+pattern = "private key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_redaction_scaling.py"
+pattern = "private key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_reply_streaming.py"
+pattern = "private key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_sense.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_step_lines.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "tests/test_stop.py"
+pattern = "Anthropic API key"
+reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
