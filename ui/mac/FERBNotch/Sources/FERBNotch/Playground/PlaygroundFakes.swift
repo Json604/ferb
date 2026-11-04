@@ -157,11 +157,16 @@ final class PlaygroundSound: FerbSoundPlaying {
         self.state = state
     }
 
+    nonisolated static let simulatedCaller: pid_t = 999_999
+
     convenience init(state: PlaygroundState, defaults: UserDefaults = .standard,
                      preference: @escaping @MainActor (String) -> Any? = { AudioOutputFacts.globalPreference($0) }) {
         let engine = FerbSoundEngine(defaults: defaults, preference: preference,
                                     // A synthetic external process exercises the real call policy without reading the Mac's mic.
-                                    inputProcesses: { state.simulatesCall ? [0] : [] }, ownProcess: { _ in false })
+                                    // (an invented pid whose facts say it is an app, so it counts as a call)
+                                    inputProcesses: { state.simulatesCall ? [PlaygroundSound.simulatedCaller] : [] },
+                                    ownProcess: { _ in false },
+                                    processFacts: { _ in ProcessFacts(appName: "Simulated call") })
         self.init(engine: engine, state: state)
     }
 

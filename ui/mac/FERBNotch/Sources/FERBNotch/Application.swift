@@ -153,11 +153,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// An update Sparkle will install on quit installs only with nothing running, or after the owner's Quit and
     /// Install (UpdateCoordinator.beforeQuit).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        PermissionRelaunchWatcher.noteQuit()        // System Settings' Quit & Reopen: FERB comes back (APP-661)
         guard let updates, updates.installArmed, !updates.prepared else { return .terminateNow }
         updates.beforeQuit { allow in NSApp.reply(toApplicationShouldTerminate: allow) }
         return .terminateLater
     }
     func applicationWillTerminate(_ notification: Notification) {
+        PermissionRelaunchWatcher.startIfNoted(poll: appSetup.model.grantPoll)
         appSetup.stop()
         coordinator?.tearDown()
     }

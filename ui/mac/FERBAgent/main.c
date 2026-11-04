@@ -6,8 +6,9 @@
  * code here enforces where it may be used (rule 5), before Python starts:
  *  - Only FERB's own entry points run, exactly as FERB starts them: `-m ferb.daemon` (the LaunchAgent),
  *    `-I -m ferb.cli.mcp` (the runtimes' MCP shim) and `-I -m ferb.memory.card_reader` (episode-card reads, Task 22:
- *    its input comes on stdin and its database from the owner's FERB home, so it takes no path); the daemon starts the
- *    last two through sys.executable. `-c`, scripts, other modules, extra arguments and any other option are refused,
+ *    its input comes on stdin and its database from the owner's FERB home, so it takes no path) and
+ *    `-I -m ferb.device.grant_probe` (a fresh reading of the grants the daemon caches until it restarts, APP-662: no
+ *    input, two answers out); the daemon starts the last three through sys.executable. `-c`, scripts, other modules, extra arguments and any other option are refused,
  *    however the agent was started (launchd, `open`, a shell).
  *  - Only the owner's FERB home: FERB_HOME unset is the owner's ~/.ferb (from the account database, never $HOME); set,
  *    it must be that same folder (device and inode), and Python is then given the owner's path, not the one passed.
@@ -39,7 +40,8 @@ static int is_arg(int argc, char **argv, int i, const char *value) {
 static int entry_point(int argc, char **argv) {
     if (argc == 3 && is_arg(argc, argv, 1, "-m") && is_arg(argc, argv, 2, "ferb.daemon")) return 1;
     if (argc == 4 && is_arg(argc, argv, 1, "-I") && is_arg(argc, argv, 2, "-m")
-            && (is_arg(argc, argv, 3, "ferb.cli.mcp") || is_arg(argc, argv, 3, "ferb.memory.card_reader")))
+            && (is_arg(argc, argv, 3, "ferb.cli.mcp") || is_arg(argc, argv, 3, "ferb.memory.card_reader")
+                || is_arg(argc, argv, 3, "ferb.device.grant_probe")))
         return 1;
     return 0;
 }

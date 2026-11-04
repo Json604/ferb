@@ -288,6 +288,9 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         from ferb.device import permissions as _permissions
         self.permission_check: Callable[[], dict[str, str]] = _permissions.check_all
         self.permission_request: Callable[[str], Any] = _permissions.request
+        # APP-662: a fresh process's reading of the grants this process caches until it restarts; exactly this entry
+        # point (the packaged app's agent accepts only exact ones), no arguments. Tests replace it.
+        self.grant_probe = [sys.executable, "-I", "-m", "ferb.device.grant_probe"]
         self._input_monitoring_asked = False                  # asked with the owner's first request
         self.automation_check: Callable[[str], Awaitable[Any]] = (
             lambda bundle: _permissions.automation_async(bundle, ask=False))

@@ -709,7 +709,8 @@ def agent_stub(tmp_path_factory: pytest.TempPathFactory) -> Path:
     report = ("import json, os, sys\nprint(json.dumps({'module': __name__, 'argv': sys.argv[1:], "
               "'executable': sys.executable, 'isolated': sys.flags.isolated, 'ferb_home': os.environ.get('FERB_HOME'), "
               "'environ': dict(os.environ)}))\n")
-    for module in ("ferb/cli/mcp.py", "ferb/device/detector.py", "ferb/daemon/__main__.py", "ferb/memory/card_reader.py"):
+    for module in ("ferb/cli/mcp.py", "ferb/device/detector.py", "ferb/daemon/__main__.py", "ferb/memory/card_reader.py",
+                   "ferb/device/grant_probe.py"):
         (site / module).write_text(report)
     exe = app / "Contents" / "Helpers" / "FERB.app" / "Contents" / "MacOS" / "FERB"
     exe.parent.mkdir(parents=True)
@@ -726,7 +727,8 @@ def _stub(exe: Path, *args: str, **env: str) -> subprocess.CompletedProcess[str]
 
 def test_the_agent_runs_only_ferbs_own_entry_points(agent_stub: Path, tmp_path: Path) -> None:
     import json
-    for argv in (["-m", "ferb.daemon"], ["-I", "-m", "ferb.cli.mcp"], ["-I", "-m", "ferb.memory.card_reader"]):
+    for argv in (["-m", "ferb.daemon"], ["-I", "-m", "ferb.cli.mcp"], ["-I", "-m", "ferb.memory.card_reader"],
+                 ["-I", "-m", "ferb.device.grant_probe"]):                 # APP-662's fresh grant reading
         seen = json.loads(_stub(agent_stub, *argv).stdout)
         assert seen["module"] == "__main__" and seen["isolated"] == 1
     (tmp_path / "script.py").write_text("print('ran')\n")
@@ -735,7 +737,8 @@ def test_the_agent_runs_only_ferbs_own_entry_points(agent_stub: Path, tmp_path: 
                ["-I", "-m", "ferb.device.detector", str(tmp_path / "e.jsonl")],   # `ferb watch` runs it, not the agent
                ["-I", "-m", "ferb.cli.mcp", "x"], ["-i", "-m", "ferb.daemon"], [],
                ["-m", "ferb.memory.card_reader"], ["-I", "-m", "ferb.memory.card_reader", "/etc/passwd"],
-               ["-I", "-m", "ferb.memory"])                                # the card reader: exactly, no path
+               ["-I", "-m", "ferb.memory"],                                 # the card reader: exactly, no path
+               ["-m", "ferb.device.grant_probe"], ["-I", "-m", "ferb.device.grant_probe", "x"])
     for argv in refused:
         r = _stub(agent_stub, *argv)
         assert r.returncode == 64 and "ran" not in r.stdout and "FERB" in r.stderr, argv

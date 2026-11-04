@@ -110,7 +110,7 @@ extension IntroController {
     private func dockForPermission(_ row: PermissionRow, added: Bool) {
         let target = setup.permissions?.grantTarget ?? ""
         let isList = !SetupModel.answeredInPopup.contains(row.id)
-        let both = row.id == "full_disk_access"
+        let both = Self.bothFERBLists.contains(row.id)
         let switchOn = both ? "Turn both FERB switches on" : "Turn FERB on"
         let instruction = added
             ? IntroLine(text: "Added to the list", detail: row.restartToCheck
@@ -122,9 +122,13 @@ extension IntroController {
         notch.onStepBehindSettings?()            // Settings, not the notch, is what the owner works in now (APP-642)
     }
 
-    /// What the logo carries into a privacy list: FERB's agent app (`target`, the daemon's grant target). Full Disk
-    /// Access lists FERB.app as a second "FERB" too, and people switched on the wrong one, so that list gets both, the
-    /// app holding the agent among them (APP-646).
+    /// The privacy lists that show FERB.app as a second "FERB" beside its agent, where people switched on the wrong one
+    /// and the step stuck: the logo carries both apps there and the lines say to turn both switches on (APP-646 for
+    /// Full Disk Access, APP-659 for Screen & System Audio Recording). FERB's check still reads the agent's grant.
+    static let bothFERBLists: Set<String> = ["full_disk_access", "screen_recording"]
+
+    /// What the logo carries into a privacy list: FERB's agent app (`target`, the daemon's grant target), and in
+    /// `bothFERBLists` FERB.app too, the app holding the agent.
     static func dragItems(_ target: String, both: Bool) -> [URL] {
         let agent = URL(fileURLWithPath: target)
         let helpers = agent.deletingLastPathComponent()
@@ -134,7 +138,12 @@ extension IntroController {
     }
 
     private func permissionOverview(_ visit: PermissionVisit) -> IntroLine {
-        IntroCopy.permissionOverview(rows: setup.setupRows, selected: visit.active, requesting: visit.requesting,
+        // A switch macOS has on that the background part uses only after a restart: it restarts now (APP-662)
+        if setup.restarting, let id = visit.active {
+            return IntroLine(text: "\(PermissionCopy.label(id)) is on",
+                             detail: "Restarting FERB's background part so it can use it. One moment.")
+        }
+        return IntroCopy.permissionOverview(rows: setup.setupRows, selected: visit.active, requesting: visit.requesting,
                                      added: visit.added, busy: visit.task != nil)
     }
 }

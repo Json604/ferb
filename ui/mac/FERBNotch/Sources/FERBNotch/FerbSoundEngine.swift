@@ -2,6 +2,7 @@ import AppKit
 import AVFAudio
 import AudioCapture
 import NotchCore
+import os
 
 /// What plays FERB's sounds; the intro's controller and its tests take this, not the engine.
 @MainActor
@@ -76,6 +77,7 @@ final class FerbSoundEngine: FerbSoundPlaying {
     private let measureLatency: @MainActor () -> TimeInterval
     private let inputProcesses: @MainActor () -> [pid_t]
     private let ownProcess: (pid_t) -> Bool
+    private let processFacts: (pid_t) -> ProcessFacts?
     private let idleSleep: @Sendable (TimeInterval) async -> Void
     private var warm = false
     private var busyUntil = Date.distantPast
@@ -89,7 +91,8 @@ final class FerbSoundEngine: FerbSoundPlaying {
          measureLatency: @escaping @MainActor () -> TimeInterval = { AudioOutputFacts.outputLatency() },
          idleSleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(for: .seconds($0)) },
          inputProcesses: @escaping @MainActor () -> [pid_t] = { AudioOutputFacts.processesRunningInput() },
-         ownProcess: @escaping (pid_t) -> Bool = { AudioOutputFacts.isFerbProcess($0) }) {
+         ownProcess: @escaping (pid_t) -> Bool = { AudioOutputFacts.isFerbProcess($0) },
+         processFacts: @escaping (pid_t) -> ProcessFacts? = { AudioOutputFacts.processFacts($0) }) {
         self.engine = engine
         self.defaults = defaults
         self.preference = preference
@@ -99,6 +102,7 @@ final class FerbSoundEngine: FerbSoundPlaying {
         self.idleSleep = idleSleep
         self.inputProcesses = inputProcesses
         self.ownProcess = ownProcess
+        self.processFacts = processFacts
         measuredLatency = measureLatency()
         // The output changed (headphones, a display's speakers): AVAudioEngine has stopped itself. Players are reset
         // so the next sound starts cleanly; keeping warm survives the change.
@@ -132,16 +136,30 @@ final class FerbSoundEngine: FerbSoundPlaying {
     private var feedbackEnabled: Bool { defaults.object(forKey: "feedback.enabled") as? Bool ?? true }
 
     /// Whether and how the sound plays now (SoundPolicy.decide), read at play time: the system's UI sounds, FERB's
-    /// master switch, the sound's own switch, Standard/Subtle, and a call: a process other than FERB's own running
-    /// microphone input (a handful of Core Audio reads, made only when everything else lets the sound play).
+    /// master switch, the sound's own switch, Standard/Subtle, and a call: an app other than FERB holding the
+    /// microphone (MicrophoneUse: each input process counted through the app it belongs to; a system daemon no app
+    /// owns, such as Siri's listener, never counts). A handful of Core Audio and process reads, made only when
+    /// everything else lets the sound play. A sound the call silences is logged with the app's name, so a silent
+    /// startup can be explained from the system log.
     func decision(for s: FerbSound) -> SoundDecision? {
         let toggle = SoundSwitch(s)
-        return SoundPolicy.decide(s, uiSoundsEnabled: AudioOutputFacts.uiSoundsEnabled(preference),
-                                  feedbackEnabled: feedbackEnabled,
-                                  switchOn: defaults.object(forKey: toggle.key) as? Bool ?? toggle.onByDefault,
-                                  subtle: defaults.string(forKey: SoundPolicy.intensityKey) == "subtle",
-                                  onACall: { [inputProcesses, ownProcess] in inputProcesses().contains { !ownProcess($0) } })
+        var callingApp: String?
+        let decision = SoundPolicy.decide(s, uiSoundsEnabled: AudioOutputFacts.uiSoundsEnabled(preference),
+                                          feedbackEnabled: feedbackEnabled,
+                                          switchOn: defaults.object(forKey: toggle.key) as? Bool ?? toggle.onByDefault,
+                                          subtle: defaults.string(forKey: SoundPolicy.intensityKey) == "subtle",
+                                          onACall: { [inputProcesses, ownProcess, processFacts] in
+            callingApp = MicrophoneUse.callingApp(inputs: inputProcesses(), isOwn: ownProcess, facts: processFacts)
+            return callingApp != nil
+        })
+        if decision == nil, let callingApp {
+            let sound = String(describing: s)
+            Self.log.notice("FERB stayed silent (\(sound, privacy: .public)): \(callingApp, privacy: .public) is using the microphone")
+        }
+        return decision
     }
+
+    private static let log = Logger(subsystem: "com.ferb.FERB", category: "sound")
 
     func allows(_ s: FerbSound) -> Bool { decision(for: s) != nil && gain(for: s) != nil }
 

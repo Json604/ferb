@@ -30,6 +30,9 @@ final class SetupModel: ObservableObject {
     /// Grants whose switch applies only after a restart: the service restarts once when FERB comes back to the front.
     private var restartOnReturn: Set<String> = []
     @Published private(set) var restarting = false
+    /// The rows a grant's wait reads through a fresh process too (`setup.permissions` `fresh`, APP-662): the running
+    /// daemon sees these switches only after a restart.
+    private var freshReads: Set<String> = []
     @Published private(set) var browsers: BrowserSnapshot?
     @Published private(set) var persona: PersonaState = .loading
     /// FERB's own Google account (APP-1, optional): as set now, and the profiles found for the address typed.
@@ -112,13 +115,19 @@ final class SetupModel: ObservableObject {
     /// is an accessory app that never comes to the front by itself, so leaving Settings is the signal (owner's live run,
     /// 2026-11-01). A daemon that stops answering for `serviceStartAfter` reads (macOS's "Quit & Reopen" can end it
     /// with a clean exit, which launchd doesn't restart) is started again, once per silence.
+    /// While it waits, the row is also read by a fresh process (APP-662): the moment that sees the switch on while the
+    /// daemon still reads it off, the service restarts at once (once per wait, never while a task runs), so the row
+    /// ticks within a poll and a restart instead of waiting for the owner to leave System Settings.
     func grantAndConfirm(_ row: PermissionRow, polls limit: Int? = nil, asked: (() -> Void)? = nil) async -> Bool {
         let undecided = row.status == .notDetermined
+        if row.restartToCheck { freshReads.insert(row.id) }
+        defer { freshReads.remove(row.id) }
         await grant(row)
         asked?()
         var polls = 0
         var inSettings = false
         var unanswered = 0
+        var restartedForSwitch = false
         while !Task.isCancelled {
             if let now = allRows.first(where: { $0.id == row.id }) {
                 if now.status == .granted { return true }
@@ -134,6 +143,10 @@ final class SetupModel: ObservableObject {
             inSettings = front
             if await refreshPermissions() {
                 unanswered = 0
+                if !restartedForSwitch, allRows.first(where: { $0.id == row.id })?.restartNeeded == true {
+                    restartedForSwitch = true
+                    await restartUnlessWorking()
+                }
             } else {
                 unanswered += 1
                 if unanswered == serviceStartAfter { _ = await service.start() }
@@ -416,7 +429,8 @@ final class SetupModel: ObservableObject {
     func refreshPermissions() async -> Bool {
         var answered = false
         do {
-            let reply = try await rpc.call("setup.permissions", params: [:], wait: 10)
+            let params: [String: Any] = freshReads.isEmpty ? [:] : ["fresh": freshReads.sorted()]
+            let reply = try await rpc.call("setup.permissions", params: params, wait: 10)
             if let snapshot = PermissionSnapshot(reply: reply) { permissions = snapshot }
             clearNotAnswering()
             answered = true
