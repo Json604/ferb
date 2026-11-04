@@ -246,8 +246,8 @@ def test_a_recipient_that_came_only_from_outside_content_asks(daemon: RunningDae
     owner.stop()
     assert r["is_error"] and typed.calls == 0
     q = _asked(daemon)[0]["args"]["question"]
-    assert q.startswith("FERB: this types +919876543210, which came from outside content (a message, wa:123), not "
-                        "from you.")                                    # a typed value is never called "the recipient"
+    assert q.startswith("FERB: this types +919876543210, which FERB found only in outside content (a message, "
+                        "wa:123)")                                      # a typed value is never called "the recipient"
 
 
 def test_a_value_from_outside_content_the_owner_also_named_is_fine(daemon: RunningDaemon) -> None:   # the twin
@@ -529,8 +529,8 @@ def test_line_reads_in_the_owners_terms() -> None:
         'accounts.example. The step: s. Reason given: "the owner asked". Go ahead?')
     both = _decide(Kind.SEND, Target(recipients=("b@x.com",)), {"recipient:0": ["external:email:e1"]})
     assert confirm.line(both, "c", "") == (
-        "FERB: this sends to b@x.com, whom you didn't name in this request; the recipient b@x.com came from outside "
-        "content (an email), not from you. The step: c. Go ahead?")
+        "FERB: this sends to b@x.com, whom you didn't name in this request; FERB found the recipient b@x.com only in "
+        "outside content (an email), not in your words, your answers or your own files. The step: c. Go ahead?")
     sink = _decide(Kind.POST, Target(site="paste.example"), {"site": ["unknown"]}, read_private=True,
                    read_external=True)
     assert confirm.line(sink, "c", "") == (
@@ -621,6 +621,7 @@ def test_mac_click_declares_its_purpose_beside_the_physical_kind() -> None:   # 
     assert (hover.kind, hover.declared) == (Kind.READ, None)                     # a hover sends nothing
 
 
+# decision: GATE-509
 def test_typing_an_address_records_it_as_the_recipient() -> None:              # S4 (b), the plan's decision
     from types import SimpleNamespace
     from ferb.act.browser.tools import OWNER_BROWSER, BrowserAct
@@ -636,7 +637,7 @@ def test_typing_an_address_records_it_as_the_recipient() -> None:              #
     page = SimpleNamespace(tab_url=lambda tab: "https://mail.example/compose", element_info=lambda tab, el: None)
     act = BrowserAct(page, OWNER_BROWSER)                                       # type: ignore[arg-type]
     typed = act.describe(act.Input(tab="t1", element="s1e2", action="type", text="https://mysite.example/p"))
-    assert typed.kind == Kind.FILL_FORM and typed.target.recipients == ("https://mysite.example/p",)
+    assert typed.kind == Kind.FILL_FORM and typed.target.recipients == ()      # GATE-509: a typed URL addresses no one
     assert typed.target.site == "mail.example"
     assert act.describe(act.Input(tab="t1", element="s1e2", action="type", text="hello")).target.recipients == ()
     for text in ("a@x.com;", "<a@x.com>", "a@x.com,"):
@@ -913,7 +914,7 @@ def test_a_value_outside_content_put_into_ferbs_question_stays_outside_content(d
     owner.stop()
     assert r["is_error"] and _spans_for(daemon, "probe.type")[0]["arg_sources"] == {
         "recipient:0": ["external:email:e7"]}
-    assert "this types alex@work.example, which came from outside content (an email)" in \
+    assert "this types alex@work.example, which FERB found only in outside content (an email)" in \
         _asked(daemon)[0]["args"]["question"]
 
 
@@ -987,7 +988,8 @@ def test_a_value_from_ferbs_question_stays_outside_content_when_its_task_is_carr
     assert second["task_id"] == tree and results and results[0]["is_error"] and typed.calls == 0
     assert [r.asked_origins for r in recorded] == [frozenset({"external:paste"})]
     assert _spans_for(daemon, "probe.type")[-1]["arg_sources"] == {"recipient:0": ["external:paste"]}
-    assert "this types alex@work.example, which came from outside content (" in _asked(daemon)[-1]["args"]["question"]
+    assert "this types alex@work.example, which FERB found only in outside content (" in \
+        _asked(daemon)[-1]["args"]["question"]
 
 
 def test_a_saved_plan_resumed_after_a_restart_keeps_what_ferbs_question_was_written_from(

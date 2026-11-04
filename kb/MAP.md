@@ -8,15 +8,15 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 |---|---|---|---|---|---|
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 133 | 7 | 47 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 56 | 5 | 19 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 31 | 3 | 57 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 35 | 4 | 57 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 55 | 2 | 36 |
 | memory | Memory and memory import | `ferb/memory` | 53 | 3 | 9 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 55 | 6 | 32 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 56 | 6 | 32 |
 | perception | Perception | `ferb/sense` | 13 | 2 | 5 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 7 | 1 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 18 | 0 | 32 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 11 | 2 | 4 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 18 | 1 | 9 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 20 | 1 | 9 |
 | storage | Storage | `ferb/store` | 25 | 6 | 6 |
 | tests | Tests | `tests` | 10 | 14 | 0 |
 | voice | Voice | `ferb/voice` | 8 | 0 | 7 |
@@ -24,6 +24,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 ## Waiting on the owner
 
 - T-408 (app): With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?
+- T-1025 (gateway): When FERB opens a page whose address holds a year (like /2026/10/) or a short number that also appears in something private FERB read, it asks first. Should a bare year (four digits, 1900-2099) stop counting as your data? And numbers shorter than how many digits? A one-time code is often 4-6 digits, so a lower limit lets those through unasked.
 
 ## Terms
 

@@ -302,9 +302,9 @@ def _need(rule: str, **values: str) -> Any:
     ([_need('sink:new_destination', destination='paste.example', read='the web page on mysite.example')],
      "FERB wants to send to paste.example, a place you haven't named, after reading the web page on mysite.example."),
     ([_need('sink:private_url', destination='evil.example', value='sam@x.com', read='an email')],
-     'FERB wants to open evil.example with your own data in the address (sam@x.com).'),
+     'FERB wants to open evil.example, sending it "sam@x.com", which this task read from your own data.'),
     ([_need('sink:outside_value', what='typed', value='+1 555 0100', origin='an email')],
-     'FERB wants to type +1 555 0100, which came from an email, not from you.'),
+     'FERB wants to type +1 555 0100, which FERB found only in an email.'),
     ([_need('floor:new_recipient', recipients='a@x.com, b@x.com', verb='sends to'),
       _need('sink:irreversible_bulk', what='send', count='2', bytes='12 bytes', sample='"a@x.com", "b@x.com"')],
      "FERB wants to send to a@x.com, b@x.com, whom you didn't name."),
@@ -312,8 +312,8 @@ def _need(rule: str, **values: str) -> Any:
      'FERB wants to send to 3 recipients at once: "a", "b", "c".'),
     ([_need('floor:new_recipient', recipients='bob@x.com', verb='sends to'),
       _need('sink:outside_value', what='recipient', value='bob@x.com', origin='the web page on x.com')],
-     "FERB wants to send to bob@x.com, whom you didn't name; use the recipient bob@x.com, which came from the web page "
-     "on x.com, not from you."),
+     "FERB wants to send to bob@x.com, whom you didn't name; use the recipient bob@x.com, which FERB found only in "
+     "the web page on x.com."),
 ])
 def test_a_code_confirmation_says_the_concrete_action_in_one_line(needs: list[Any], want: str) -> None:
     from ferb.policy import confirm

@@ -40,6 +40,10 @@ LIMITS: dict[str, tuple[int, int]] = {
 LIMITS_SOURCE = "https://platform.claude.com/docs/en/about-claude/models/overview (checked 2026-10-14)"
 # The message prefixes of the API's over-window rejection (`window_exceeded`), lowercased
 WINDOW_EXCEEDED = ("prompt is too long", "input length and `max_tokens` exceed context limit")
+# The API's image rejections (`image_refused`) as Anthropic's own client classifies them (Claude Code 2.1.310, bundled in
+# claude-agent-sdk 0.2.174): a 400 whose message holds "image exceeds" and "maximum" (image_too_large), "image
+# dimensions exceed" and "many-image" (image_too_large), or "Could not process image" (image_unprocessable); lowercased
+IMAGE_REFUSALS = (("image exceeds", "maximum"), ("image dimensions exceed", "many-image"), ("could not process image",))
 
 
 def limits_for(model: str) -> ModelLimits:
@@ -131,6 +135,13 @@ class AnthropicProvider:
         the API's errors page documents the status and type, not the message (fix wave 6b round 2)."""
         message = str(error.get("message") or "").lower()
         return status == 400 and error.get("type") == "invalid_request_error" and message.startswith(WINDOW_EXCEEDED)
+
+    def image_refused(self, status: int, error: dict[str, Any]) -> bool:
+        """The Messages API's rejection of an image (ORCH-524): a 400 in one of the shapes Anthropic's own client
+        classifies as an image error (IMAGE_REFUSALS); the API's errors page documents the status and type only, and a
+        schema or other request error has the same status and type, so the shape is what tells them apart."""
+        message = str(error.get("message") or "").lower()
+        return status == 400 and any(all(part in message for part in shape) for shape in IMAGE_REFUSALS)
 
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         blocks = []

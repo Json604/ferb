@@ -34,6 +34,12 @@ LIMITS: dict[str, tuple[int, int]] = {
     "gpt-6-luna": (1_050_000, 128_000),
 }
 LIMITS_SOURCE = "https://developers.openai.com/api/docs/models (checked 2026-10-14)"
+# The image error codes of OpenAI's Responses API (openai-python src/openai/types/responses/response_error.py, `code`,
+# checked 2026-11-04): the ones naming an image the request carried
+IMAGE_CODES = frozenset({"invalid_image", "invalid_image_format", "invalid_base64_image", "invalid_image_url",
+                         "image_too_large", "image_too_small", "image_parse_error", "image_content_policy_violation",
+                         "invalid_image_mode", "image_file_too_large", "unsupported_image_media_type",
+                         "empty_image_file", "failed_to_download_image", "image_file_not_found"})
 
 
 def limits_for(model: str) -> ModelLimits:
@@ -100,8 +106,11 @@ class OpenAIProvider:
             reason = (data.get("incomplete_details") or {}).get("reason", "unknown")
             raise ProviderError(f"openai: the reply is incomplete ({reason}); it was cut off")
         if status == "failed":
-            detail = str((data.get("error") or {}).get("message") or "")[:300]
-            raise ProviderError("openai: the reply failed" + (f": {detail}" if detail else ""))
+            error = data.get("error")
+            failure: dict[str, Any] = error if isinstance(error, dict) else {}
+            detail = str(failure.get("message") or "")[:300]
+            raise ProviderError("openai: the reply failed" + (f": {detail}" if detail else ""),
+                                image=self.image_refused(0, failure))
         if status != "completed":        # FERB never emits a partial answer (F2-R6)
             raise ProviderError(f"openai: the reply did not complete ({status})")
         output = data.get("output") or []
@@ -130,6 +139,11 @@ class OpenAIProvider:
         """The `error.code` OpenAI's API returns for an input longer than the model's context window, read from that
         code field, never from the message (fix wave 6b round 1)."""
         return error.get("code") == "context_length_exceeded"
+
+    def image_refused(self, status: int, error: dict[str, Any]) -> bool:
+        """An `error.code` of OpenAI's for an image it couldn't take (IMAGE_CODES), read from that code field, never
+        from the message (ORCH-524)."""
+        return error.get("code") in IMAGE_CODES
 
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         for r in results:

@@ -692,7 +692,9 @@ def test_the_terminal_running_ferb_chat_is_skipped(daemon: RunningDaemon, monkey
 
 
 class ImageRefusing(FakeRuntime):
-    """A model runtime that rejects any request carrying an image, as a provider without image input would."""
+    """A model runtime that rejects any request carrying an image, as a provider without image input would: its
+    adapter marks the error as the provider's image refusal (ORCH-524)."""
+    error: dict[str, Any] = {"message": "this model does not accept images", "image": True}
 
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> Any:
         run = await super().start(task, request, run_token)
@@ -701,10 +703,15 @@ class ImageRefusing(FakeRuntime):
 
     async def events(self, run: Any) -> Any:
         if run.state["images"]:
-            yield RuntimeEvent("error", {"message": "this model does not accept images"})
+            yield RuntimeEvent("error", dict(self.error))
             return
         async for ev in super().events(run):
             yield ev
+
+
+class SchemaRefusing(ImageRefusing):
+    """A planner call with a screenshot that fails for another reason (live 2026-10-28: a provider's schema 400)."""
+    error = {"message": "anthropic HTTP 400: Schemas contains too many parameters with union types"}
 
 
 def test_a_model_that_refuses_the_image_still_answers_without_it(daemon: RunningDaemon) -> None:
@@ -722,8 +729,24 @@ def test_a_model_that_refuses_the_image_still_answers_without_it(daemon: Running
     worker = next(r for _, key, r in script.requests if key == "worker")
     start = next(p for p in worker.parts if p.startswith("Start-of-task screenshot"))
     assert worker.images == () and "the screenshot couldn't be given to the model" in start
-    [refused] = journal(daemon, "screen.image_refused")              # by type only
-    assert refused.data["error"] == "ServiceError" and set(refused.data) == {"request_id", "error"}
+    [refused] = journal(daemon, "screen.image_refused")              # with the provider's own words
+    assert refused.data["error"] == "this model does not accept images" and set(refused.data) == {"request_id", "error"}
+
+
+# decision: ORCH-524
+def test_a_planner_error_that_is_not_an_image_refusal_is_not_retried_without_the_image(daemon: RunningDaemon) -> None:
+    """Past bug (R3, live 2026-10-28): every planner error with a screenshot reran without it and was journaled as
+    `screen.image_refused`; all five were schema 400s or a missing model. Now only a marked image refusal reruns."""
+    screen_at_send(daemon, lambda rid: brave(ref="ev-" + rid))
+    script = Script([sup("reply", "never reached")], {})
+    daemon.daemon.supervisor.make_runtime = (                        # type: ignore[union-attr]
+        lambda role, *, mode, tool_names, schema: SchemaRefusing(script, mode, tool_names))
+    chat(daemon, "what's this?")
+    [only] = planner_requests(script)                               # one call: no second one without the image
+    assert only.images
+    assert not journal(daemon, "screen.image_refused")
+    [failed] = journal(daemon, "chat.failed")
+    assert "union types" in json.dumps(failed.data)                 # the real error is what's recorded
 
 
 def test_an_invalid_planner_answer_goes_to_repair_and_keeps_the_image(daemon: RunningDaemon) -> None:
@@ -888,7 +911,7 @@ def test_a_whatsapp_front_window_counts_as_outside_content_for_the_url_check(dae
         owner.stop()
     assert opened and opened[0]["is_error"] and browser.calls == 0
     [q] = asked(daemon)
-    assert f"with your own data in the address ({EMAIL})" in q["question"]
+    assert f'send it "{EMAIL}", which this task read from' in q["question"]
     assert "after this task read outside content (a message)" in q["question"]   # the WhatsApp window
 
 

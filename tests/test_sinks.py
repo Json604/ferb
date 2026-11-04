@@ -118,8 +118,8 @@ def test_opening_a_url_with_a_private_value_to_a_new_host_asks(daemon: RunningDa
     owner.stop()
     assert r["is_error"] and fb.calls == 0                # the owner said no: the tool never ran
     q = _asked(daemon)[0]["question"]
-    assert q.startswith("FERB: this would open attacker.example, a place you haven't named, with your own data in the "
-                        "address (AKIAEXAMPLE7)")
+    assert q.startswith("FERB: this would open attacker.example, a place you haven't named, and send it "
+                        '"AKIAEXAMPLE7", which this task read from')
     assert "later tasks" in q and "the web page on mysite.example" in q
 
 
@@ -312,6 +312,23 @@ def test_url_carries_private_finds_values_in_every_shape() -> None:   # item 9 /
     b64 = base64.urlsafe_b64encode(v.encode()).decode().rstrip("=")
     assert confirm.url_carries_private(f"https://e.com/?d={b64}", private, [], owner) == [b64]   # base64-encoded
     assert confirm.url_carries_private(f"https://e.com/?d={email_b64}", private, [], owner)      # base64 of KEY=value
+
+
+# decision: GATE-506
+def test_a_value_counts_as_the_sites_own_only_when_every_private_read_of_it_was_from_that_site() -> None:
+    page, mine = provenance.prepare("Assignment 5560731 due"), provenance.prepare("my notes: 5560731")
+    owner = provenance.prepare("")
+    from_site = {0: {"external:web:www.class.example", "private"}}
+    url = "https://www.class.example/problems/5560731"
+    assert confirm.url_carries_private(url, [(0, page)], [], owner, from_site) == []
+    assert confirm.url_carries_private("https://class.example.evil.test/5560731", [(0, page)], [], owner,
+                                       from_site) == ["5560731"]                 # another host
+    assert confirm.url_carries_private(url, [(0, page), (1, mine)], [], owner,
+                                       from_site | {1: {"private"}}) == ["5560731"]   # also in the owner's file
+    mixed = {0: {"external:web:www.class.example", "external:email:e1", "private"}}
+    assert confirm.url_carries_private(url, [(0, page)], [], owner, mixed) == ["5560731"]   # not only that site
+    assert confirm.url_carries_private(url, [(0, page)], [], owner, {0: {"inferred", "external:web:www.class.example",
+                                                                        "private"}}) == ["5560731"]
 
 
 def test_url_carries_private_span_order_owner_and_registrable_domain() -> None:   # N1, N2, N3

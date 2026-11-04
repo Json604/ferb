@@ -27,11 +27,13 @@ RETRY_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504, 529})
 
 class ProviderError(Exception):
     """A provider failure, worded without the key or the request. `overflow`: the provider's documented
-    window-exceeded error (fix wave 6b round 1: a check may run once more without its optional recorded calls)."""
+    window-exceeded error (fix wave 6b round 1: a check may run once more without its optional recorded calls).
+    `image`: the provider's own rejection of an image in the request (`Provider.image_refused`, ORCH-524: only then is
+    the planner's turn run again without the owner's screenshot)."""
 
-    def __init__(self, message: str, overflow: bool = False, account: str = '') -> None:
+    def __init__(self, message: str, overflow: bool = False, account: str = '', image: bool = False) -> None:
         super().__init__(message)
-        self.overflow, self.account = overflow, account
+        self.overflow, self.account, self.image = overflow, account, image
 
 
 # HTTP statuses that are account facts no model can change (step 8b, ORCH-315): a key the provider refused,
@@ -41,7 +43,8 @@ ACCOUNT_STATUS = {401: 'signed_out', 403: 'signed_out', 402: 'usage_limit', 429:
 # technical words (kb area runtimes: owner-facing errors in app words, plain cause first)
 HTTP_CAUSES = {400: "it refused the request FERB sent", 401: "it didn't accept FERB's API key",
                403: "it didn't accept FERB's API key", 402: "the account's usage limit is reached",
-               404: "it doesn't know the model FERB asked for", 408: "it timed out",
+               404: ("it doesn't offer the model FERB asked for to this API key: pick another model or service "
+                     "in Settings → AI"), 408: "it timed out",
                413: "the request was too large for it", 429: "the account's usage or rate limit is reached"}
 
 
@@ -96,6 +99,9 @@ class Provider(Protocol):
     # model's window, by the shape the provider defines (fix wave 6b rounds 1-2: a check reruns without its recorded
     # calls); a provider with none to cite answers False
     def window_exceeded(self, status: int, error: dict[str, Any]) -> bool: ...
+    # Whether an error response is this provider's own rejection of an image in the request, by the shape the provider
+    # (or its own client) defines (ORCH-524); a provider with none to cite answers False
+    def image_refused(self, status: int, error: dict[str, Any]) -> bool: ...
     def add_message(self, state: dict[str, Any], message: str) -> None: ...
 
 
@@ -243,7 +249,8 @@ class ApiRuntime:
                     r.closed = True
                     yield RuntimeEvent("error", {"message": str(e).replace(r.key, '[key]')} |
                                        ({"overflow": True} if e.overflow else {}) |
-                                       ({"account": e.account} if e.account else {}))
+                                       ({"account": e.account} if e.account else {}) |
+                                       ({"image": True} if e.image else {}))
                     return
                 yield RuntimeEvent("usage", asdict(turn.usage))
                 if not turn.calls:
@@ -327,9 +334,10 @@ class ApiRuntime:
                     if resp.status_code != 200:
                         await resp.aread()
                         error = _error_of(resp)
+                        shape = error if isinstance(error, dict) else {}
                         raise ProviderError(self._error_text(resp, r.key), overflow=self.provider.window_exceeded(
-                            resp.status_code, error if isinstance(error, dict) else {}),
-                            account=ACCOUNT_STATUS.get(resp.status_code, ''))
+                            resp.status_code, shape), account=ACCOUNT_STATUS.get(resp.status_code, ''),
+                            image=self.provider.image_refused(resp.status_code, shape))
                     if streaming and resp.headers.get('content-type', '').split(';', 1)[0].strip().lower() == 'text/event-stream':
                         parser = getattr(self.provider, 'stream_parser')()
                         async for event in _sse_events(resp):

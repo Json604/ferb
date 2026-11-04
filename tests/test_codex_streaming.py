@@ -154,19 +154,35 @@ async def test_a_turn_error_event_carries_codexs_message(tmp_path, monkeypatch):
     assert 'overflow' not in got[-1].data
 
 
+# decision: RUN-417
 @pytest.mark.anyio
-async def test_a_model_codex_cant_run_is_said_plainly_as_needing_a_newer_codex(tmp_path, monkeypatch):
-    """Codex 0.166.0's CodexErrorInfo `modelNotFound`: FERB already checked the model against the pinned catalog, so the
-    owner reads that it may need a newer Codex, which a FERB update brings, before Codex's own words."""
+@pytest.mark.parametrize("shipped, offered, says", [
+    (["gpt-test"], ["other-model"], "Your ChatGPT plan doesn't include gpt-test right now"),   # the account lacks it
+    (["gpt-test"], None, "Your ChatGPT plan doesn't include gpt-test right now"),              # no list kept
+    (["other-model"], None, "can't run gpt-test: it needs a newer Codex"),                     # the pin lacks it
+    (["gpt-test"], ["gpt-test"], "ChatGPT didn't run gpt-test"),                               # neither is shown
+    (None, None, "ChatGPT didn't run gpt-test"),                                               # no catalog to read
+])
+async def test_a_model_codex_cant_run_says_the_cause_the_catalogs_show(tmp_path, monkeypatch, shipped, offered, says):
+    """Past bug (live 2026-11-04): Codex's `modelNotFound` always blamed an old Codex, while the owner's ChatGPT plan
+    had stopped offering the model. The cause now comes from the catalog shipped with the pinned Codex and the model
+    list Codex fetched for FERB's login, never from Codex's own words; those still follow."""
     from ferb.runtimes.codex_exec import CODEX_VERSION
+    (tmp_path / 'run').mkdir(exist_ok=True)
+    if shipped is not None:
+        (tmp_path / 'run' / f'codex-bundled-{CODEX_VERSION}.json').write_text(
+            json.dumps({'models': [{'slug': m} for m in shipped]}))
     proc = Process()
     stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
-    proc.notify('error', {'error': {'message': 'The model does not exist or you do not have access to it.',
-                                    'codexErrorInfo': 'modelNotFound'}, 'willRetry': False})
+    rt.model = 'gpt-test'
+    if offered is not None:
+        (tmp_path / 'codex-home' / 'models_cache.json').write_text(json.dumps({'models': [{'slug': m} for m in offered]}))
+    proc.notify('error', {'error': {'message': "The 'gpt-test' model is not supported when using Codex with a ChatGPT "
+                                               "account.", 'codexErrorInfo': 'modelNotFound'}, 'willRetry': False})
     got = [ev async for ev in stream.events(rt, run)]
     message = got[-1].data['message']
-    assert got[-1].kind == 'error' and message.startswith(f"Codex {CODEX_VERSION} can't run this model")
-    assert 'newer Codex' in message and 'FERB update' in message and 'modelNotFound' in message
+    assert got[-1].kind == 'error' and says in message
+    assert 'not supported when using Codex' in message and 'modelNotFound' in message
 
 
 @pytest.mark.anyio

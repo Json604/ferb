@@ -80,6 +80,9 @@ class FakeProvider:
     def window_exceeded(self, status, error) -> bool:
         return False
 
+    def image_refused(self, status, error) -> bool:
+        return False
+
 
 # ---------- Codex app-server ----------
 

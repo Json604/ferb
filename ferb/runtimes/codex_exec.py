@@ -258,6 +258,31 @@ def too_new(entry: dict[str, Any]) -> bool:
     return wanted is not None and wanted > (_version(CODEX_VERSION) or ())
 
 
+def model_refusal(ferb_home: Path, model: str) -> str:
+    """Why Codex's model service answered `modelNotFound` for `model` (RUN-417), from files only (M8), never the
+    owner's ~/.codex: "codex" when the pinned Codex can't run it (the catalog shipped with it lacks the model, or a
+    catalog entry asks for a newer client: `too_new`); "plan" when the pinned Codex knows the model and the model list
+    Codex last fetched for FERB's own login (`codex-home/models_cache.json`) lacks it or wasn't kept, so the ChatGPT
+    account's plan is what doesn't offer it; "" when that list offers it or the shipped catalog can't be read (then
+    neither is blamed)."""
+    try:
+        shipped = _models(json.loads(_bundled_path(ferb_home).read_text()))
+    except (OSError, ValueError):
+        shipped = None
+    if shipped is None:
+        return ""
+    entry = next((m for m in shipped if isinstance(m, dict) and m.get("slug") == model), None)
+    home = codex_home(ferb_home)
+    try:
+        offered = _models(json.loads((home / "models_cache.json").read_text())) if home is not None else None
+    except (OSError, ValueError):
+        offered = None
+    mine = next((m for m in offered or [] if isinstance(m, dict) and m.get("slug") == model), None)
+    if entry is None or too_new(entry) or (mine is not None and too_new(mine)):
+        return "codex"
+    return "" if mine is not None else "plan"
+
+
 def limits_for(ferb_home: Path, model: str) -> ModelLimits:
     """L28: the input window Codex runs this model with, as Codex reports it: its catalog's `context_window` times its
     `effective_context_window_percent` (272,000 x 95 % = 258,400 for gpt-5.6-sol in the bundled catalogs of Codex

@@ -125,6 +125,11 @@ class GoogleProvider:
         than reading the rejection, so FERB has no shape to cite (fix wave 6b round 2; an owner-acceptance residual)."""
         return False
 
+    def image_refused(self, status: int, error: dict[str, Any]) -> bool:
+        """Never marked: Google's API answers a bad image with its generic 400 INVALID_ARGUMENT and documents no code
+        for it, so FERB has no shape to cite and the planner's turn is not rerun without the screenshot (ORCH-524)."""
+        return False
+
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         parts = []
         for r in results:

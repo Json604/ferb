@@ -86,21 +86,34 @@ class ProtocolError(ValueError):
 ACCOUNT_INFO = {'usageLimitExceeded': 'usage_limit', 'unauthorized': 'signed_out'}
 
 
-def _codex_failure(prefix: str, error: Any, redact: Callable[[Any], Any]) -> ProtocolError:
+def _codex_failure(prefix: str, error: Any, redact: Callable[[Any], Any],
+                   runtime: 'CodexRuntime | None' = None) -> ProtocolError:
     """A turn's or run's failure as Codex reported it (`codex_error`), marked as an overflow when its CodexErrorInfo is
     `contextWindowExceeded` (app-server protocol v2; fix wave 6b round 1: a check may run once more without its
-    optional recorded calls). Codex's `modelNotFound` (a CodexErrorInfo since 0.166.0) is said plainly first: FERB
-    checks a model against the pinned Codex's catalog before it runs, so a refusal here most likely means the model
-    needs a newer Codex."""
+    optional recorded calls). Codex's `modelNotFound` (a CodexErrorInfo since 0.166.0) is said plainly first, with the
+    cause the catalogs show (RUN-417, `codex_exec.model_refusal`): the ChatGPT plan doesn't offer the model, or the
+    pinned Codex is too old for it, or neither is shown."""
     if isinstance(error, dict) and error.get('codexErrorInfo') == 'modelNotFound':
-        from ferb.runtimes.codex_exec import CODEX_VERSION
-        prefix = (f"Codex {CODEX_VERSION} can't run this model: it may need a newer Codex, which comes with a FERB "
-                  "update")
+        prefix = model_not_found(runtime)
     failure = ProtocolError(codex_error(prefix, error, redact))
     failure.overflow = isinstance(error, dict) and error.get('codexErrorInfo') == 'contextWindowExceeded'
     info = error.get('codexErrorInfo') if isinstance(error, dict) else None
     failure.account = ACCOUNT_INFO.get(info, '') if isinstance(info, str) else ''
     return failure
+
+
+def model_not_found(runtime: 'CodexRuntime | None') -> str:
+    """The owner's line for Codex's `modelNotFound` (RUN-417): the cause the catalogs show, and what to do."""
+    from ferb.runtimes.codex_exec import CODEX_VERSION, model_refusal
+    model = runtime.model if runtime is not None else ""
+    cause = model_refusal(runtime.ferb_home, model) if runtime is not None and model else ""
+    if cause == "plan":
+        return (f"Your ChatGPT plan doesn't include {model} right now: renew the plan, or pick another service in "
+                "Settings → AI")
+    if cause == "codex":
+        return f"Codex {CODEX_VERSION} can't run {model}: it needs a newer Codex, which comes with a FERB update"
+    return (f"ChatGPT didn't run {model or 'this model'} for FERB's ChatGPT account: try again, or pick another "
+            "service in Settings → AI")
 
 
 class AccountError(ProtocolError, RuntimeUnavailable):
@@ -631,7 +644,7 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     await _check_catalog(run)
                     if turn.get('status') != 'completed' or turn.get('error') or not final:
                         raise _codex_failure('Codex runtime did not complete its final answer', turn.get('error'),
-                                             runtime.redact)
+                                             runtime.redact, runtime)
                     # the answer is checked against the schema once, by FERB's caller (core/structured.check_final)
                     for text in pending_text:
                         yield RuntimeEvent('text_delta', {'text': text})
@@ -686,7 +699,8 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     yield RuntimeEvent('retrying', {'message': codex_error('Codex is retrying after an error',
                                                                            params.get('error'), runtime.redact)})
                 elif method == 'error':
-                    raise _codex_failure('Codex runtime reported an error', params.get('error'), runtime.redact)
+                    raise _codex_failure('Codex runtime reported an error', params.get('error'), runtime.redact,
+                                         runtime)
     except (ProtocolError, TimeoutError) as exc:
         if state['violation']:
             yield RuntimeEvent('violation', {'unexpected_tools': sorted(state['violation'])} |

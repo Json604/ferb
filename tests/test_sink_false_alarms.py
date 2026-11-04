@@ -80,6 +80,28 @@ def _open(daemon: RunningDaemon, grant: Any, url: str) -> tuple[dict[str, Any], 
 
 # ---------- the URL check (S4, L4) ----------
 
+# decision: GATE-506, GATE-507
+def test_a_value_read_only_from_the_destinations_own_page_goes_back_to_it_unasked(daemon: RunningDaemon) -> None:
+    """Past bug (G2, live 2026-10-18): a class id read from the owner's signed-in page on a site asked "your own data in
+    the address (149496)" when FERB opened that same site with it. The site already had it; another host still asks,
+    and the question names the value and where this task read it."""
+    grant, browser = browser_grant(daemon, FERB_BROWSER, "check my class page", [_web()])
+    gateway_tool_call(daemon, grant, "probe.web")
+
+    async def record() -> None:
+        spans = daemon.daemon.spans
+        page = spans.start("tool.call", task_id=grant.task_id, input={"tool": "browser.snapshot", "kind": "read"})
+        spans.finish(page, output={"text": "Assignment 5560731 due Friday"},
+                     origin="external:web:www.class.example,private")
+    daemon.run(record())
+    same, none = _open(daemon, grant, "https://www.class.example/problems/5560731")
+    assert not same["is_error"] and none == []
+    other, questions = _open(daemon, grant, "https://elsewhere.example/?id=5560731")
+    assert other["is_error"] and len(questions) == 1
+    assert '"5560731", which this task read from the result of browser.snapshot on www.class.example' in \
+        questions[0]["question"]
+
+
 @pytest.mark.parametrize("url", ["https://www.google.com/search?q=concerts+in+mumbai",
                                  "https://www.youtube.com/playlist?list=WL",
                                  "https://x.com/i/history",
@@ -109,7 +131,7 @@ def test_a_real_private_value_to_a_host_nobody_named_still_asks_naming_only_what
     result, questions = _open(daemon, grant, f"https://tracker.example/?u={EMAIL}")
     assert result["is_error"] and browser.calls == 0 and len(questions) == 1
     q = questions[0]["question"]
-    assert f"with your own data in the address ({EMAIL})" in q
+    assert f'send it "{EMAIL}", which this task read from' in q
     # the outside content named is the page the task read, not what FERB's history was once made from
     assert "after this task read outside content (the web page on mysite.example)" in q
     for inherited in ("downloaded file", "text you pasted", "news.example", "more"):
@@ -369,6 +391,23 @@ def test_the_owners_own_number_in_ferbs_history_is_not_outside_content(daemon: R
     assert not result["is_error"] and typed.calls == 1 and questions == []
 
 
+# decision: GATE-508
+def test_a_value_also_in_the_owners_own_file_is_not_outside_content(daemon: RunningDaemon) -> None:
+    """Past bug (G4, live 2026-10-12..24): typing the owner's own phone or address asked "which came from outside
+    content ... not from you" because a page also showed it. A value FERB also read from the owner's own file is
+    theirs; one found only on a page still asks (below)."""
+    typed = FakeCap("probe.type", "fill_form", {"probe"})
+    page = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/account"),),
+                   content={"text": "Signed in as +91 91234 56789"})
+    mine = FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/resume.txt"),),
+                   content={"text": "Phone: +91 91234 56789"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("fill in the signup form"), [typed, page, mine])
+    gateway_tool_call(daemon, grant, "probe.web")
+    gateway_tool_call(daemon, grant, "probe.file")
+    result, questions = _call(daemon, grant, "probe.type", to="+91 91234 56789")
+    assert not result["is_error"] and typed.calls == 1 and questions == []
+
+
 def test_a_value_found_only_on_a_web_page_still_asks(daemon: RunningDaemon) -> None:
     typed = FakeCap("probe.type", "fill_form", {"probe"})
     page = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://mysite.example/contact"),),
@@ -378,5 +417,5 @@ def test_a_value_found_only_on_a_web_page_still_asks(daemon: RunningDaemon) -> N
     _expose(daemon, grant.task_id, HISTORY, INHERITED)
     result, questions = _call(daemon, grant, "probe.type", to="+91 91234 56789")
     assert result["is_error"] and typed.calls == 0 and len(questions) == 1
-    assert "this types +91 91234 56789, which came from outside content (the web page on mysite.example)" in \
+    assert "this types +91 91234 56789, which FERB found only in outside content (the web page on mysite.example)" in \
         questions[0].reason

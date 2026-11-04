@@ -178,3 +178,22 @@ rule = "With `codex_planner_cache` on, every planner turn resumes the fixed-id t
 why = "Live 2026-11-03: every planner turn was user-role, as four old pasted-as-owner-words messages refused the owner's session for good; ephemeral threads meant a new cache key each turn: 0-11,776 of 38-48k tokens cached on a byte-stable prefix."
 rejected = ["Narrowing the paste check to the cached parts: the owner's decision removes its reason", "An ephemeral thread for refused turns: a new cache key every turn"]
 paths = ["ferb/runtimes/codex_stream.py", "ferb/daemon/areas/runtimes.py::Runtimes._codex_cache_refusal", "ferb/runtimes/catalog.py", "ferb/store/retention.py"]
+
+[RUN-417]
+title = "Codex's modelNotFound says the cause the catalogs show"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Codex's `modelNotFound` says its cause from files (codex_exec.model_refusal, never ~/.codex): the pinned Codex's shipped catalog lacks the model or an entry needs a newer client: needs a newer Codex (a FERB update); the pin knows it but FERB's login's model list (codex-home/models_cache.json) lacks it or wasn't kept: the ChatGPT plan doesn't include it (renew, or pick another service in Settings → AI); else a line blaming neither. Codex's words follow. A direct-API 404 says the model isn't offered to this key."
+why = "Live 2026-11-04: the owner was told Codex 0.166.0 may need a FERB update for gpt-5.6-sol, while their ChatGPT plan had stopped offering it."
+rejected = ["Reading Codex's message text (\"not supported when using Codex with a ChatGPT account\") to choose the cause"]
+paths = ["ferb/runtimes/codex_exec.py::model_refusal", "ferb/runtimes/codex_stream.py::model_not_found", "ferb/runtimes/api.py::HTTP_CAUSES"]
+
+[RUN-418]
+title = "Adapters mark only the provider's own image rejection"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The direct-API loop marks an error `image` only from the provider's own shape: OpenAI's Responses API image codes (`error.code` in IMAGE_CODES, from openai-python response_error.py); Anthropic 400s in the shapes its own client calls image errors (Claude Code 2.1.310: \"image exceeds\"+\"maximum\", \"image dimensions exceed\"+\"many-image\", \"Could not process image\"). Google, Codex's CodexErrorInfo and the Agent SDK define no image error: those never mark one, and a real image refusal there fails with its own words."
+why = "ORCH-524 needs a structural image-refusal fact; free-text matching is what made every error look like one."
+paths = ["ferb/runtimes/api.py::ProviderError", "ferb/runtimes/anthropic_api.py::AnthropicProvider.image_refused", "ferb/runtimes/openai_api.py::OpenAIProvider.image_refused", "ferb/runtimes/google_api.py::GoogleProvider.image_refused"]
