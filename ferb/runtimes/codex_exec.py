@@ -26,6 +26,7 @@ import os
 import platform
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Literal
 
@@ -379,8 +380,11 @@ class CodexRuntime:
                  redact: Callable[[Any], Any] | None = None, cache_role: str | None = None,
                  cache_scope: str = "", cache_refusal: Callable[[Task], str] | None = None,
                  on_cache_skipped: Callable[[str, str], None] | None = None,
-                 on_cache_fallback: Callable[[str, str], None] | None = None, effort: str | None = None) -> None:
+                 on_cache_fallback: Callable[[str, str], None] | None = None, effort: str | None = None,
+                 monotonic: Callable[[], float] = time.monotonic) -> None:
         self.binary, self.mode, self.ferb_home = binary, mode, ferb_home
+        # the clock the run's timing reads (RUN-419, RUN-420): its start steps and each model call's; tests give a fake
+        self.monotonic = monotonic
         # L39: a worker-mode run's reasoning effort when the caller asks for one (a checker of a step that changed
         # files: "high"); None keeps the model's default. Supervisor runs stay low (SUPERVISOR_SETTINGS)
         self.effort = effort
@@ -428,10 +432,18 @@ class CodexRuntime:
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         """Every run is an app-server run (codex_stream): the instructions go apart in thread/start, so Codex counts
         the context alone."""
+        from ferb.core.timing import Steps
+        steps = Steps(self.monotonic)                # RUN-420: the start's own steps, this one first
         check_input(request.context)
         await ensure_version(self.binary)
+        version = steps.mark("version")
         from ferb.runtimes.codex_stream import start
-        return await start(self, task, request, run_token)
+        run = await start(self, task, request, run_token)
+        state = getattr(run, "state", None)
+        held = state.get("start_steps") if isinstance(state, dict) else None
+        if isinstance(state, dict) and isinstance(held, dict):
+            state["start_steps"] = {"version": version, **held}
+        return run
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         from ferb.runtimes.codex_stream import events

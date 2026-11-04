@@ -22,6 +22,7 @@ from ferb.core.errors import (AuthError, FerbError, InputTooLarge, ModelLimitsUn
                               Refused, RuntimeUnavailable)
 from ferb.core.prompts import load_prompt
 from ferb.core.structured import InvalidAnswer, check_final
+from ferb.core.timing import CallTimer, Steps
 from ferb.core.interfaces import AgentRuntime
 from ferb.core.types import ModelImage, ModelLimits, ModelRequest, Outcome, RunHandle, Task
 from ferb.orchestrator.tree import TaskRecord
@@ -390,6 +391,7 @@ class WorkerRuns:
         self.publish("task.started", {"task_id": task.id, "worker_id": worker_id})
         self.activity.start(worker_id)
         failure = None
+        timing: dict[str, Any] = {}               # the run's timing (ORCH-526), on its span with the result
         try:
             if task.role == 'worker':
                 # Runtime construction can itself fail (for example missing subscription login).
@@ -400,7 +402,7 @@ class WorkerRuns:
             rt = self.make_runtime(role, mode="worker", tool_names=tools, schema=schema,
                                    **({"effort": effort} if effort else {}))   # D32: each adapter's own setting
             final = await self._run(rt, task, self._system(prompt, roles=roles), full_ctx, token, wspan.id, tree,
-                                    worker_id, images=images)
+                                    worker_id, images=images, on_timing=timing.update)
             try:
                 result: dict[str, Any] | Outcome = json.loads(final)
             except json.JSONDecodeError as exc:     # outside FERB's form, as check_final words it
@@ -457,7 +459,8 @@ class WorkerRuns:
         self.spans.finish(wspan, output={"result": (result.summary if isinstance(result, Outcome)
                                                     else json.dumps(result)),
                                          "status": result.status if isinstance(result, Outcome)
-                                         else result.get("status")}, error=failure)
+                                         else result.get("status")} | ({"timing": timing} if timing else {}),
+                          error=failure)
         return result, worker_id          # `task.finished` is the tree's, published once when it ends
 
     async def _run(self, rt: AgentRuntime, task: Task, system: str, ctx: list[ContextBlock], token: str, parent_span: str,
@@ -465,14 +468,16 @@ class WorkerRuns:
                    on_usage: Callable[[dict[str, Any]], None] | None = None,
                    images: tuple[ModelImage, ...] = (),
                    notify: Callable[[dict[str, Any]], None] | None = None,
-                   on_tool: Callable[[], None] | None = None) -> str:
+                   on_tool: Callable[[], None] | None = None,
+                   on_timing: Callable[[dict[str, Any]], None] | None = None) -> str:
         """A worker's run, once (its tree's orchestrator decides any retry). Any other call (the planner's turn, a
         dispatch, a question, a summary) is watched for silence too, and one that showed no sign of life for stall_s
         from its very start is tried once more (owner 2026-10-27, after a scheduled slot check's planner call sat silent
         for 15 minutes); a second silence, or a call that went quiet after answering in part, fails with that reason.
-        `on_tool`: told when the model calls a tool (the planner's draft starts over: ORCH-516)."""
+        `on_tool`: told when the model calls a tool (the planner's draft starts over: ORCH-516). `on_timing`: told the
+        call's timing when it ends, however it ends (`_run_once`, ORCH-526)."""
         once = partial(self._run_once, rt, task, system, ctx, token, parent_span, tree, worker_id, on_delta=on_delta,
-                       on_usage=on_usage, images=images, notify=notify, on_tool=on_tool)
+                       on_usage=on_usage, images=images, notify=notify, on_tool=on_tool, on_timing=on_timing)
         if worker_id:
             return await once()
         for attempt in (1, 2):
@@ -493,9 +498,31 @@ class WorkerRuns:
                         on_usage: Callable[[dict[str, Any]], None] | None = None,
                         images: tuple[ModelImage, ...] = (),
                         notify: Callable[[dict[str, Any]], None] | None = None,
-                        on_tool: Callable[[], None] | None = None) -> str:
+                        on_tool: Callable[[], None] | None = None,
+                        on_timing: Callable[[dict[str, Any]], None] | None = None) -> str:
         """`notify`: where a chat turn's live line goes (its stream); a task's run tells its tree's live line, and a run
-        with neither (a learner, the attention check, the chat summary) tells no one of a lost connection."""
+        with neither (a learner, the attention check, the chat summary) tells no one of a lost connection.
+
+        Timing (ORCH-526), on FERB's injected clock, never any content: `prepare` (the request built: tool schemas,
+        context assembly, the trace's input record), `start` (the runtime's own start: for Codex its process, account
+        check, thread start or resume and turn start, with its own `start_steps` when it reports them), `stream` (the
+        model calls and the tools between them, until the final answer or the end), `close` (the runtime closed);
+        `on_timing` gets them with the number of model calls. Each usage report carries its call's timing: the
+        runtime's own (`CallTimer` on its stream, RUN-419) or, when it gives none, one from the events' arrival here."""
+        steps = Steps(self.clock.monotonic)
+        arrival = CallTimer(self.clock.monotonic, "arrival")
+        calls = 0
+        started: list[RunHandle] = []
+
+        def tell_timing(last: str) -> None:
+            steps.mark(last)
+            if on_timing is None:
+                return
+            facts: dict[str, Any] = {**steps.facts(), "model_calls": calls}
+            held = getattr(started[0], "state", None) if started else None
+            if isinstance(held, dict) and isinstance(held.get("start_steps"), dict):
+                facts["start_steps_ms"] = dict(held["start_steps"])      # the runtime's own, on its own clock
+            on_timing(facts)
         revision = len(tree.steering.messages) if tree is not None else 0
         if tree is not None and task.role == 'worker':
             # A startup failure is a current-attempt failure, not a stale result to retry forever.
@@ -518,6 +545,7 @@ class WorkerRuns:
                                            {"reference": block.reference, "chars": len(block.text)}
                                            for block in ctx if block.text]})
             self.spans.finish(refused, output={"chars": exc.chars, "max_input_chars": exc.max_chars}, error=str(exc))
+            tell_timing("prepare")
             raise
         exposure = getattr(self, '_context_exposure', None)
         if exposure is not None:
@@ -533,8 +561,8 @@ class WorkerRuns:
                                              "cacheable_parts": assembly.cacheable,
                                              # the images' evidence rows, never their bytes (L12)
                                              **({"image_evidence": [i.ref for i in images]} if images else {})})
+        steps.mark("prepare")
         start = asyncio.ensure_future(rt.start(task, request, token))
-        started: list[RunHandle] = []
 
         async def stop() -> None:
             if started:
@@ -552,6 +580,7 @@ class WorkerRuns:
         try:
             run = await start
         except BaseException as exc:
+            tell_timing("start")
             watchdog.cancel()
             if not worker_id:
                 self.activity.end(watch_id)
@@ -567,6 +596,8 @@ class WorkerRuns:
                 raise Stalled(progressed=False) from None   # the watchdog's cancellation, not Stop or shutdown
             raise
         started.append(run)
+        steps.mark("start")
+        arrival.begin()
         # which role held the context's parts (P20, review I3): "developer" for a cached Codex planner turn, which says
         # so in its run state; every other run puts them in the user turn
         state = getattr(run, "state", None)
@@ -600,6 +631,8 @@ class WorkerRuns:
                     progressed = progressed or ev.kind in ("text_delta", "final", "tool_call", "message")
                 if notice is not None and ev.kind not in ("retrying", "error", "violation"):
                     notice.back()                        # a real event: the connection is back (an error ends the run)
+                if ev.kind in ("text_delta", "message", "tool_call"):
+                    arrival.output()                     # model output, as it reached FERB (ORCH-526)
                 if ev.kind == "text_delta":
                     if on_delta is not None:
                         on_delta(str(ev.data.get('text', '')))
@@ -607,11 +640,15 @@ class WorkerRuns:
                     if on_tool is not None:
                         on_tool()
                 elif ev.kind == "usage":
+                    # one usage report per model call: its timing is the runtime's own, else its arrival here
+                    calls += 1
+                    seen = arrival.done()
+                    usage = dict(ev.data) if "timing" in ev.data else {**ev.data, "timing": seen}
                     if on_usage is not None:
-                        on_usage(dict(ev.data))
+                        on_usage(dict(usage))
                     s = self.spans.start("model.usage", task_id=task.id if task.id != task.request_id else None,
                                          parent_id=parent_span, input={"runtime": rt.name})
-                    self.spans.finish(s, output=dict(ev.data), cost_usd=ev.data.get("cost_usd"))            # traced, never limited
+                    self.spans.finish(s, output=usage, cost_usd=ev.data.get("cost_usd"))   # traced, never limited
                 elif ev.kind == "retrying":              # an error the runtime retries itself: recorded, run goes on
                     message = str(ev.data.get("message", ""))
                     s = self.spans.start("model.retry", task_id=task.id if task.id != task.request_id else None,
@@ -645,6 +682,7 @@ class WorkerRuns:
                             "meaning": "tool names observed in provider request traces; not proof of invocation or complete deferred inventory"})
                     final = str(ev.data.get("text", ""))
         finally:
+            steps.mark("stream")
             watchdog.cancel()
             if not worker_id:
                 self.activity.end(watch_id)
@@ -657,11 +695,14 @@ class WorkerRuns:
                 self._worker_runs.pop(worker_id, None)
                 self._connection.pop(worker_id, None)
                 await rt.cancel(run)
-            if tree is not None:
-                async with tree.steering.lock:
+            try:
+                if tree is not None:
+                    async with tree.steering.lock:
+                        await close()
+                else:
                     await close()
-            else:
-                await close()
+            finally:
+                tell_timing("close")
         if watch_id in self._stalled:
             if not worker_id:
                 self._stalled.discard(watch_id)

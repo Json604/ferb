@@ -31,8 +31,9 @@ from ferb.core.errors import Deferred, FerbError, PlanRejected
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
 from ferb.core.context import Assembly, ContextBlock, count_tokens, overhead_chars, overhead_tokens
 from ferb.core.prompts import load_prompt
+from ferb.core.timing import Steps
 from ferb.trace.lines import clip
-from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
+from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Span, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import DESTINATION_HELP, EFFECT_HELP, FsRoots, Gateway, Observer, observes
 from ferb.memory.items import CAPTURE_TOLD, capture, query_terms, quoted
@@ -403,6 +404,22 @@ class _Start:
     paths: list[str]
 
 
+class _Prepare:
+    """The planner's work before its model call (ORCH-525): one `planner.prepare` span (no task id, the turn's request
+    id) from the turn's intake, or from the start of a repair call, to its model.turn span, with each step's duration
+    on FERB's injected clock. No content."""
+
+    def __init__(self, spans: Any, clock: Clock, request_id: str, repair: bool = False) -> None:
+        self.spans = spans
+        self.span: Span = spans.start("planner.prepare", task_id=None, input={
+            "role": "supervisor", "request_id": request_id, **({"repair": True} if repair else {})})
+        self.steps = Steps(clock.monotonic)
+
+    def finish(self, error: BaseException | None = None) -> None:
+        self.spans.finish(self.span, output=self.steps.facts(),
+                          error=f"{type(error).__name__}: {error}" if error is not None else None)
+
+
 @dataclass
 class _Turn:
     """One planning turn, typed (step 8c; it replaces the untyped per-request dict): a chat turn, a scheduled run's or
@@ -443,6 +460,8 @@ class _Turn:
     answered_tree: str | None = None  # the task whose question this turn answered
     release: Callable[[], None] = _nothing     # lets the chat's next message in (the turn has replied)
     preview: bool = False            # the intro's plan-only preview (`Supervisor.preview`): no live owner state shown
+    prepare: _Prepare | None = None   # the planner's pre-call span, open from intake to its call (ORCH-525)
+    decided: float | None = None      # when the planner's decision came back (monotonic): the reply's span
 
     @property
     def request_ids(self) -> frozenset[str]:
@@ -2066,6 +2085,7 @@ class Supervisor(WorkerRuns):
         async with asyncio.timeout_at(run.deadline):
             run.turn = await self._intake(session_id, run)
             run.out = await self._decide(run.turn, emit=emit)
+            run.turn.decided = self.clock.monotonic()       # FERB's work after it is timed to the reply (ORCH-525)
 
     async def _failed(self, turn: _Turn, failure: BaseException) -> AsyncIterator[dict[str, Any]]:
         """A turn whose planner failed before routing still answers, in the conversation record too, so the next turn's
@@ -2117,6 +2137,17 @@ class Supervisor(WorkerRuns):
                 "session_id": session_id, "request_id": arrival.request_id, "text": m.for_model,
                 "untrusted_parts": len(m.untrusted) + bool(arrival.paths), "input_paths": arrival.paths}
                 | ({} if arrival is run.lead else {"read_with": run.lead.request_id}))
+        # what FERB does from the message to the planner's model call is timed (ORCH-525): this intake's steps here, the
+        # context's in `_supervise`, which ends the span
+        prep = _Prepare(self.spans, self.clock, run.lead.request_id)
+        try:
+            return await self._take_in(run, start, prep)
+        except BaseException as exc:
+            prep.finish(exc)
+            raise
+
+    async def _take_in(self, run: _Run, start: _Start, prep: _Prepare) -> _Turn:
+        """`_intake`'s turn, built from its journaled messages: their words, the environment and the front window."""
         marks = [a.marked for a in run.arrivals]
         own_words = "\n".join(m.own_words for m in marks)
         own_lines = "\n".join(m.typed_lines for m in marks)
@@ -2140,17 +2171,20 @@ class Supervisor(WorkerRuns):
         # outside content in the continuation (S4 b); FERB's question itself is model-written
         made = {o for a in run.arrivals if a.entry is not None for o in origins_.split(a.entry.origin)} | \
             ({origins_.INFERRED} if start.asked else set()) | {o for e in start.carried for o in origins_.split(e.origin)}
+        prep.steps.mark("messages")
         environment = await _value(self.environment(words))
+        prep.steps.mark("environment")
         if run.seen is None:
             run.seen = (await self._screen_at_send(run.lead.request_id, run.lead.screen)
                         if run.lead.screen is not None else {})
+            prep.steps.mark("front_window")       # the wait for the capture at send (DMN-520), redaction included
         turn = _Turn(run.lead.request_id, start.session, words=words, payload=payload, own_words=own_words,
                      typed=typed, typed_lines=typed_lines, for_model=for_model,
                      untrusted=any(m.untrusted for m in marks),
                      entries=[a.entry for a in run.arrivals if a.entry is not None], carried=start.carried,
                      focus=start.focus, clarified=start.asked, asked_outside=set(start.asked_outside),
                      input_paths=paths, attached=attached, message_origin=made, environment=dict(environment or {}),
-                     screen=dict(run.seen) if run.seen else None)
+                     screen=dict(run.seen) if run.seen else None, prepare=prep)
         self._turns[turn.request_id] = turn
         return turn
 
@@ -2255,6 +2289,12 @@ class Supervisor(WorkerRuns):
         if kind == "clarify":
             data["question_kind"] = "which" if made == {origins_.FERB, origins_.INFERRED} else "clarify"
         self.journal.append(f"chat.{kind}", data, origin=origins_.join(made))
+        if turn.decided is not None:       # FERB's work from the planner's decision to its first reply (ORCH-525)
+            after = self.spans.start("planner.reply", task_id=None, input={"role": "supervisor",
+                                                                          "request_id": turn.request_id, "kind": kind})
+            self.spans.finish(after, output={"after_decision_ms": int(round(
+                (self.clock.monotonic() - turn.decided) * 1000))})
+            turn.decided = None
         if kind == "clarify":
             self.journal.append("question.asked", {"kind": data["question_kind"], "request_id": turn.request_id,
                                                    "session_id": turn.session.id})
@@ -2764,81 +2804,109 @@ class Supervisor(WorkerRuns):
         planner looks them up when it needs them, read-only, through the gateway (`_lookup_grant`, ORCH-516). `emit`
         streams the reply's draft; `notify` is the turn's live line for a lost connection (fix wave 7): the owner's
         chat stream, never a scheduled run's."""
-        lookups = self._lookup_tools(turn)
-        rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=lookups, schema=SUPERVISOR_SCHEMA)
-        session = turn.session
-        conversation, ages = self._conversation_blocks(turn.request_ids, session.id)
-        env = turn.environment
-        stable_text = (str(env["stable"]) + "\n\n") if env.get("stable") else ""
-        # Each block with where its text came from (S3): the Mac inventory and running apps are FERB-measured owner
-        # state; history carries its stored labels; task goals and reports are model-written.
-        stable: list[tuple[ContextBlock, set[str]]] = [
-            (ContextBlock('Layer 1 — stable device and capabilities:\n' + stable_text,
-                          "actions.search and current device facts", protected=True, cache=True),
-             {origins_.PRIVATE}), *conversation]
-        situation: list[tuple[ContextBlock, set[str]]] = []
-        # a preview's turn (the intro's demo) is told no schedule or reminder of the owner's, only what FERB can use
-        live_facts = self.live_facts(owner_state=False) if turn.preview else self.live_facts()
-        live = "\n".join(part for part in (str(env.get("live") or ""), live_facts) if part.strip())
-        if live:
-            situation.append((ContextBlock('Layer 2 — right now (changes between turns):\n' + live,
-                                           "current device facts", protected=True), {origins_.PRIVATE}))
-        # a preview's turn (the intro's demo) plans its one request: no running task, open question or earlier chat of
-        # the owner's is in it (nor a notice: continuity.RESERVED_SESSIONS), so it can't answer or control any of them
-        tasks_block = self._task_state(session) if not turn.preview else None
-        owner_active, last_event = self.signals()
-        since, since_origins, since_refs, since_texts = (self._since_last_talk(turn.request_ids) if not turn.preview
-                                                         else ([], set(), [], []))
-        situation.append((ContextBlock('Layer 2 — situation:\n' + context.time_block(
-            self.clock.now(), None, None, owner_active, last_event, ages=ages, since_last_talk=since),
-            "chat.history", protected=True, source_refs=tuple(since_refs), payload="\n".join(since_texts)),
-            {origins_.FERB} | since_origins))           # FERB's clock, plus the reminders it quotes
-        if turn.screen is not None:                       # L12: what the owner saw as they sent this message
-            situation.append(front_window_block(turn.front_window, turn.front_image, FRONT_WINDOW,
-                                                turn.screen.get("image_withheld"),
-                                                turn.screen.get("front_window_missing")))
-        if turn.schedule_previous is not None or session.id.startswith(SCHEDULE_SESSION):
-            situation.append(self._previous_run_block(turn.schedule_previous))   # a recurring run compares with it
-        images = (turn.front_image,) if turn.front_image is not None else ()
-        state: list[tuple[ContextBlock, set[str]]] = []
-        if tasks_block is not None:
-            state.append(tasks_block)
-        if not turn.preview:
-            state.append(self._questions_block(session))
-        if repair:
-            state.append((ContextBlock('Layer 6 — plan repair:\n' + load_prompt(self._approach() + "/repair.md") + "\n" +
-                                       json.dumps(repair), "plan validation", protected=True), {origins_.FERB}))
-        several = len(turn.entries) > 1
-        state.append((ContextBlock(("Layer 5 — owner's new messages, sent one after another before FERB replied (read "
-                                    "them together; the last one is the most recent):\n" if several else
-                                    "Layer 5 — owner's complete new message:\n") + turn.payload,
-                                   REQUEST_REFERENCE, protected=True,
-                                   source_refs=tuple("journal:" + e.id for e in turn.entries)),
-                      turn.message_origin or {origins_.external("unlabeled")}))
-        sourced = stable + situation + state
-        blocks = [dataclasses.replace(block, origin=origins_.join(made)) if block.source_refs else block
-                  for block, made in sourced]
-        # The situation's full texts are also attached to a task as its planner snapshot (task.evidence planner-context).
-        turn.planner_sources = json.dumps([
-            {"reference": block.reference, "text": block.text, "origin": origins_.join(made),
-             "source_refs": _stored_refs(block.source_refs)} for block, made in situation], ensure_ascii=False)
-        snapshot = "; original planner snapshot: task.evidence kind=context.source query=planner-context"
-        first, last = len(stable), len(stable) + len(situation)
-        ctx = [dataclasses.replace(block, reference=block.reference + snapshot) if first <= i < last else block
-               for i, block in enumerate(blocks)]
-        chat_task = Task(turn.request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed",
-                         turn.request_id, [], None)
+        # FERB's own work before the model call, step by step (ORCH-525): the span the intake opened, or a new one
+        prep, turn.prepare = turn.prepare, None
+        if prep is None:
+            prep = _Prepare(self.spans, self.clock, turn.request_id, repair=bool(repair))
+        try:
+            lookups = self._lookup_tools(turn)
+            rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=lookups, schema=SUPERVISOR_SCHEMA)
+            prep.steps.mark("runtime")
+            session = turn.session
+            conversation, ages = self._conversation_blocks(turn.request_ids, session.id)
+            prep.steps.mark("conversation")
+            env = turn.environment
+            stable_text = (str(env["stable"]) + "\n\n") if env.get("stable") else ""
+            # Each block with where its text came from (S3): the Mac inventory and running apps are FERB-measured owner
+            # state; history carries its stored labels; task goals and reports are model-written.
+            stable: list[tuple[ContextBlock, set[str]]] = [
+                (ContextBlock('Layer 1 — stable device and capabilities:\n' + stable_text,
+                              "actions.search and current device facts", protected=True, cache=True),
+                 {origins_.PRIVATE}), *conversation]
+            situation: list[tuple[ContextBlock, set[str]]] = []
+            # a preview's turn (the intro's demo) is told no schedule or reminder of the owner's, only what FERB can use
+            live_facts = self.live_facts(owner_state=False) if turn.preview else self.live_facts()
+            live = "\n".join(part for part in (str(env.get("live") or ""), live_facts) if part.strip())
+            prep.steps.mark("live_facts")
+            if live:
+                situation.append((ContextBlock('Layer 2 — right now (changes between turns):\n' + live,
+                                               "current device facts", protected=True), {origins_.PRIVATE}))
+            # a preview's turn (the intro's demo) plans its one request: no running task, open question or earlier chat
+            # of the owner's is in it (nor a notice: continuity.RESERVED_SESSIONS), so it can't answer or control any of
+            # them
+            tasks_block = self._task_state(session) if not turn.preview else None
+            prep.steps.mark("tasks")
+            owner_active, last_event = self.signals()
+            since, since_origins, since_refs, since_texts = (self._since_last_talk(turn.request_ids) if not turn.preview
+                                                             else ([], set(), [], []))
+            situation.append((ContextBlock('Layer 2 — situation:\n' + context.time_block(
+                self.clock.now(), None, None, owner_active, last_event, ages=ages, since_last_talk=since),
+                "chat.history", protected=True, source_refs=tuple(since_refs), payload="\n".join(since_texts)),
+                {origins_.FERB} | since_origins))           # FERB's clock, plus the reminders it quotes
+            if turn.screen is not None:                       # L12: what the owner saw as they sent this message
+                situation.append(front_window_block(turn.front_window, turn.front_image, FRONT_WINDOW,
+                                                    turn.screen.get("image_withheld"),
+                                                    turn.screen.get("front_window_missing")))
+            if turn.schedule_previous is not None or session.id.startswith(SCHEDULE_SESSION):
+                situation.append(self._previous_run_block(turn.schedule_previous))   # a recurring run compares with it
+            images = (turn.front_image,) if turn.front_image is not None else ()
+            state: list[tuple[ContextBlock, set[str]]] = []
+            if tasks_block is not None:
+                state.append(tasks_block)
+            if not turn.preview:
+                state.append(self._questions_block(session))
+            if repair:
+                state.append((ContextBlock('Layer 6 — plan repair:\n' + load_prompt(self._approach() + "/repair.md")
+                                           + "\n" + json.dumps(repair), "plan validation", protected=True),
+                              {origins_.FERB}))
+            several = len(turn.entries) > 1
+            state.append((ContextBlock(("Layer 5 — owner's new messages, sent one after another before FERB replied "
+                                        "(read them together; the last one is the most recent):\n" if several else
+                                        "Layer 5 — owner's complete new message:\n") + turn.payload,
+                                       REQUEST_REFERENCE, protected=True,
+                                       source_refs=tuple("journal:" + e.id for e in turn.entries)),
+                          turn.message_origin or {origins_.external("unlabeled")}))
+            sourced = stable + situation + state
+            blocks = [dataclasses.replace(block, origin=origins_.join(made)) if block.source_refs else block
+                      for block, made in sourced]
+            # The situation's full texts are also attached to a task as its planner snapshot (task.evidence
+            # planner-context).
+            turn.planner_sources = json.dumps([
+                {"reference": block.reference, "text": block.text, "origin": origins_.join(made),
+                 "source_refs": _stored_refs(block.source_refs)} for block, made in situation], ensure_ascii=False)
+            snapshot = "; original planner snapshot: task.evidence kind=context.source query=planner-context"
+            first, last = len(stable), len(stable) + len(situation)
+            ctx = [dataclasses.replace(block, reference=block.reference + snapshot) if first <= i < last else block
+                   for i, block in enumerate(blocks)]
+            chat_task = Task(turn.request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed",
+                             turn.request_id, [], None)
+            prep.steps.mark("blocks")
+        except BaseException as exc:
+            prep.finish(exc)
+            raise
+        prep.finish()
         span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": turn.request_id,
                                                                    "repair": bool(repair)})
         shape = getattr(rt, "shape", None)          # a runtime whose provider gets the schema reshaped (D32)
         draft = (ReplyDraft(self.gateway.redact, emit, shape.field if getattr(shape, "mapped", False) else None)
                  if emit is not None and isinstance(self.gateway.redact, Redactor) else None)
         usage: dict[str, Any] = {}
+        # the turn's time around its model call (ORCH-526): FERB before it, the call (its own parts: `_run_once`),
+        # FERB after it (the answer's check, the lookups read); the parts add up to the total
+        clocked = Steps(self.clock.monotonic)
+        call: dict[str, Any] = {}
+
+        def timing() -> dict[str, Any]:
+            return {**clocked.facts(), **({"call": call} if call else {})}
         token, looker = self._lookup_grant(turn, span.id, lookups)
+        system = self._system("supervisor.md", live=False)
+        clocked.mark("ferb_before")
         try:
-            final = await self._run(rt, chat_task, self._system("supervisor.md", live=False), ctx, token, span.id,
+            final = await self._run(rt, chat_task, system, ctx, token, span.id,
                                     None, "", on_usage=usage.update, images=images, notify=notify,
-                                    on_delta=draft.feed if draft else None, on_tool=draft.restart if draft else None)
+                                    on_delta=draft.feed if draft else None, on_tool=draft.restart if draft else None,
+                                    on_timing=call.update)
+            clocked.mark("model_call")
             result = SupervisorOutcome.model_validate_json(final)
             if draft:
                 draft.finish(final)
@@ -2848,15 +2916,18 @@ class Supervisor(WorkerRuns):
                 turn.turn_origins = {o for (block, made), seen in zip(given, assembly.shown)
                                      if seen or not block.history for o in made}
             self._lookups_read(turn)       # and what it looked up, each result with its recorded origins (S3, S4)
+            clocked.mark("ferb_after")
             # cached input tokens per turn (L28): the provider's count, next to the turn it belongs to
             self.spans.finish(span, output={"text": final, "usage": {k: usage[k] for k in (
                 "input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens", "reasoning_tokens")
-                if k in usage}})
+                if k in usage}, "timing": timing()})
             return result
         except BaseException as exc:
             if draft:
                 draft.abort()
-            self.spans.finish(span, output={"text": locals().get("final", "")}, error=f"{type(exc).__name__}: {exc}")
+            clocked.mark("ferb_after" if "model_call" in clocked.steps else "model_call")
+            self.spans.finish(span, output={"text": locals().get("final", ""), "timing": timing()},
+                              error=f"{type(exc).__name__}: {exc}")
             self._lookups_read(turn)       # a failed turn's lookups still count for a repair's or retry's answer
             # ORCH-524: only the provider's own refusal of the image, as its adapter marked it (ImageRefused), is
             # retried without the image. Any other failure (an account, schema, timeout or network error) goes on as

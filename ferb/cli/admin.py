@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, TextIO
 
 from ferb.cli.client import Client
-from ferb.trace import render
+from ferb.trace import render, timing
 
 
 ANSI = re.compile(r"\x1b\[[0-9;?<>=]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\x1b[78=>]|[\x00-\x08\x0e-\x1f]")
@@ -115,11 +115,13 @@ def verdict(client: Client, task_id: str, verdict_: str, note: str, out: TextIO)
 def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False, raw: bool = False) -> int:
     """`ferb trace`: the story (default), --full / --json (raw, for debugging)."""
     result = client.call("trace.get", {"task_id": task_id or "last"})
+    # where each turn's time went (ORCH-527), from the timing its spans recorded
+    breakdown = timing.breakdown(result.get("spans") or [])
     if raw:
-        print(json.dumps(result, ensure_ascii=False, indent=2), file=out)
+        print(json.dumps(result | {"timing": breakdown}, ensure_ascii=False, indent=2), file=out)
         return 0
     if full:
-        for line in render_trace(result, True):
+        for line in render_trace(result, True) + timing.lines(breakdown):
             print(line, file=out)
         return 0
     episode = result.get("episode")

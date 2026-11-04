@@ -18,14 +18,16 @@ import os
 import secrets
 import shutil
 import tempfile
+import time
 import uuid
 from dataclasses import asdict
 from pathlib import Path
 from contextlib import suppress
-from typing import Any, AsyncIterator, Literal
+from typing import Any, AsyncIterator, Callable, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import ModelLimitsUnknown, Unsupported
+from ferb.core.timing import CallTimer, Steps
 from ferb.core.types import ModelImage, ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.runtimes.schema_shape import Shape, for_anthropic
@@ -135,8 +137,11 @@ class ClaudeRuntime:
     def __init__(self, mode: Literal["supervisor", "worker"], proxy: ToolListProxy, ferb_home: str,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
                  output_schema: dict[str, Any] | None = None, model: str | None = None,
-                 effort: str | None = None, limit_s: float | None = None) -> None:
+                 effort: str | None = None, limit_s: float | None = None,
+                 monotonic: Callable[[], float] = time.monotonic) -> None:
         self.mode, self.proxy, self.ferb_home, self.shim_cmd = mode, proxy, ferb_home, shim_cmd
+        # the clock the run's timing reads (RUN-419, RUN-420): its start steps and its turn's; tests give a fake
+        self.monotonic = monotonic
         self.output_schema, self.model = output_schema, model
         # what Claude Code receives, and how its answers come back to FERB's form (schema_shape)
         self.shape: Shape | None = for_anthropic(output_schema) if output_schema else None
@@ -189,13 +194,18 @@ class ClaudeRuntime:
         from claude_agent_sdk import ClaudeSDKClient
         run_id = "run-" + secrets.token_hex(6)
         deadline = asyncio.get_running_loop().time() + self.limit_s if self.limit_s is not None else None
+        steps, timer = Steps(self.monotonic), CallTimer(self.monotonic)     # RUN-420, RUN-419
         token_file = write_token_file(run_token) if self.mode == "worker" or run_token else None
         client = None
         try:
             client = ClaudeSDKClient(options=self._options(run_id, token_file))
+            steps.mark("options")
             async with asyncio.timeout_at(deadline):
                 await client.connect()
+                steps.mark("connect")                  # Claude Code's process started and ready
+                timer.begin()
                 await client.query(_frames(request))
+                steps.mark("query")
         except BaseException:
             if client is not None:
                 with suppress(Exception):
@@ -205,7 +215,8 @@ class ClaudeRuntime:
             _remove_token(token_file)
             raise
         return RunHandle(run_id, self.name, task.id, {"client": client, "checked_auth": False,
-                                                      "token_file": token_file, "deadline": deadline})
+                                                      "token_file": token_file, "deadline": deadline,
+                                                      "start_steps": steps.steps, "timer": timer})
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         client = run.state["client"]
@@ -223,12 +234,22 @@ class ClaudeRuntime:
             await inner.aclose()
 
     async def _events(self, run: RunHandle, client: Any) -> AsyncIterator[RuntimeEvent]:
-        from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, ToolUseBlock, UserMessage
+        from claude_agent_sdk import (AssistantMessage, ResultMessage, SystemMessage, ToolResultBlock, ToolUseBlock,
+                                      UserMessage)
         from claude_agent_sdk.types import StreamEvent
         structured_blocks: set[int] = set()
+        # RUN-421: the turn's timing from the messages' arrival: Claude Code's streamed events and assistant messages
+        # are the model's output, a tool result goes back, the result ends it. One result covers the whole turn (its
+        # API calls and the tools between them), as its usage does.
+        timer: CallTimer | None = run.state.get("timer")
         # receive_response stops at the first ResultMessage, even with queued input.
         async for m in client.receive_messages():
+            if timer is not None and isinstance(m, (StreamEvent, AssistantMessage)):
+                timer.output()
             if isinstance(m, UserMessage):
+                if timer is not None and isinstance(m.content, list) and any(
+                        isinstance(b, ToolResultBlock) for b in m.content):
+                    timer.handed_back()
                 run.state.setdefault("pending_updates", set()).discard(m.uuid)
                 continue
             if isinstance(m, SystemMessage) and m.subtype == "init":
@@ -275,7 +296,8 @@ class ClaudeRuntime:
                 if cost is not None:
                     cost, run.state["cost_so_far"] = max(cost - run.state.get("cost_so_far", 0.0), 0.0), cost
                 yield RuntimeEvent("usage", asdict(from_anthropic(self.model or "claude", dict(m.usage or {}),
-                                                                  billing="subscription", provider_cost=cost)))
+                                                                  billing="subscription", provider_cost=cost))
+                                   | ({"timing": timer.done()} if timer is not None else {}))
                 if getattr(m, "is_error", False):
                     run.state["closed"] = True
                     detail = m.result or str(getattr(m, "errors", None)) or m.subtype

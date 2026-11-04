@@ -197,3 +197,31 @@ status = "active"
 rule = "The direct-API loop marks an error `image` only from the provider's own shape: OpenAI's Responses API image codes (`error.code` in IMAGE_CODES, from openai-python response_error.py); Anthropic 400s in the shapes its own client calls image errors (Claude Code 2.1.310: \"image exceeds\"+\"maximum\", \"image dimensions exceed\"+\"many-image\", \"Could not process image\"). Google, Codex's CodexErrorInfo and the Agent SDK define no image error: those never mark one, and a real image refusal there fails with its own words."
 why = "ORCH-524 needs a structural image-refusal fact; free-text matching is what made every error look like one."
 paths = ["ferb/runtimes/api.py::ProviderError", "ferb/runtimes/anthropic_api.py::AnthropicProvider.image_refused", "ferb/runtimes/openai_api.py::OpenAIProvider.image_refused", "ferb/runtimes/google_api.py::GoogleProvider.image_refused"]
+
+[RUN-419]
+title = "Each model call's usage report carries its timing"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Every adapter times each model call with ferb/core/timing.py CallTimer on an injected monotonic clock and adds `timing` to its usage event, whole ms and no content: runtime_ms (the call's begin to the provider request, only where the runtime shows it), ttft_ms (to the first output), generate_ms (first to last output), tail_ms (to the usage report), total_ms (their sum) and `by`. A call begins when its request is handed over or the previous call's tool result goes back."
+why = "Owner 2026-11-04 (\"i approve all fixes\"): a Codex planner reply took 10.7 s, two ~5 s model calls and 0.79 s before the first with no span covering it, and the trace couldn't say where the time went."
+rejected = ["A new event kind every consumer must learn", "Reading Codex's log for timestamps after the run"]
+paths = ["ferb/core/timing.py", "ferb/orchestrator/worker.py::WorkerRuns._run_once"]
+
+[RUN-420]
+title = "Codex and the Claude Agent SDK report their start step by step"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "A Codex start records `start_steps` (ms) in its run state on the runtime's clock: version, files, spawn (the app-server), initialize, account, thread_start or thread_resume, turn_start. A Claude Agent SDK start records options, connect (Claude Code ready) and query. The orchestrator copies them onto the run's timing as start_steps_ms (ORCH-526). Nothing else about the run changes."
+why = "Owner 2026-11-04 (\"i approve all fixes\"): a Codex planner reply took 10.7 s, two ~5 s model calls and 0.79 s before the first with no span covering it, and the trace couldn't say where the time went."
+paths = ["ferb/runtimes/codex_exec.py::CodexRuntime.start", "ferb/runtimes/codex_stream.py::start", "ferb/runtimes/claude_sdk.py::ClaudeRuntime.start"]
+
+[RUN-421]
+title = "Where each runtime's call timing comes from"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Codex: a call begins at turn/start or a FERB tool's completion; its request goes out at its request trace line; its output is item starts, deltas and completions, timed when read, not when consumed; a usage report that follows a tool already run keeps the tool out of both calls. The direct-API loop: from its POST (a retry's wait counts as runtime_ms) through each streamed event; an unstreamed answer is one output. Claude Agent SDK: one usage per turn, so its timing covers the turn, tools included."
+why = "Owner 2026-11-04 (\"i approve all fixes\"): a Codex planner reply took 10.7 s, two ~5 s model calls and 0.79 s before the first with no span covering it, and the trace couldn't say where the time went."
+paths = ["ferb/runtimes/codex_stream.py::_observe", "ferb/runtimes/api.py::ApiRuntime._call", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._events"]
