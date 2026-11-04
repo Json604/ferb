@@ -3,7 +3,7 @@ import Darwin
 import NotchCore
 import os
 
-/// APP-684: a quit System Settings sent (macOS's Quit & Reopen after a privacy switch) leaves a detached watcher that
+/// APP-689: a quit System Settings sent (macOS's Quit & Reopen after a privacy switch) leaves a detached watcher that
 /// reopens FERB.app if macOS's own relaunch doesn't come (PermissionRelaunch). Read while the quit is being handled;
 /// started as FERB terminates.
 @MainActor
@@ -22,7 +22,7 @@ enum PermissionRelaunchWatcher {
         let given = event.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason))
             ?? event.paramDescriptor(forKeyword: AEKeyword(kAEQuitReason))
         let reason = given.map { $0.enumCodeValue != 0 ? $0.enumCodeValue : $0.typeCodeValue }
-        let reopens = PermissionRelaunch.reopensAfter(senderBundleID: bundleID, quitReason: reason)
+        let reopens = PermissionRelaunch.reopensAfter(senderBundleID: bundleID)   // the reason is only logged (APP-689)
         let said = reason.map { "reason '\(PermissionRelaunch.text($0))'" } ?? "no reason"
         log.notice("Quit asked by \(bundleID ?? "an unknown process", privacy: .public) (pid \(pid), \(said, privacy: .public)): \(reopens ? "a reopen watcher starts as FERB exits" : "no reopen watcher", privacy: .public)")
         if reopens { sender = pid }
@@ -55,6 +55,7 @@ enum PermissionRelaunchWatcher {
         defer { cArgs.forEach { free($0) } }
         var child: pid_t = 0
         let status = posix_spawn(&child, "/bin/sh", &actions, &attributes, &cArgs, environ)
-        log.notice("Reopen watcher \(status == 0 ? "started" : "failed", privacy: .public) (sender pid \(sender))")
+        // Its own steps go to the system log tagged ferb-relaunch (PermissionRelaunch.script).
+        log.notice("Reopen watcher \(status == 0 ? "started (pid \(child))" : "failed (\(status))", privacy: .public) for \(Bundle.main.bundleURL.path, privacy: .public) (sender pid \(sender))")
     }
 }

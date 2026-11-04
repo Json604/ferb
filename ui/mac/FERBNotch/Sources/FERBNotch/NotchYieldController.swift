@@ -38,6 +38,14 @@ final class NotchYieldController {
     var layout: () -> Layout?
     /// The bundle identifier of a process, to recognise system text-input windows.
     var bundleID: (Int32) -> String? = { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+    /// Whether a process can ever be the active app: not an app extension, view service or other process whose
+    /// activation is prohibited (those draw parts of another app's windows, APP-690).
+    var canBeActive: (Int32) -> Bool = { pid in
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
+        return app.activationPolicy != .prohibited
+    }
+    /// The app in front now.
+    var frontmostApp: () -> Int32? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }
     /// A window that un-minimizes or unhides when its app comes forward isn't on screen yet at activation.
     var activationRecheckDelay: Duration = .milliseconds(500)
     /// The app FERB is yielding to because one of its windows lies under the pinned chat.
@@ -149,7 +157,11 @@ final class NotchYieldController {
         if yieldsToAnotherApp, isOnNotch(point, layout) { return summon() }
         guard !yieldsToCoveredApp, layout.pinnedChat != nil else { return false }
         let rows = windows()
-        if let app = NotchOverlap.owner(at: point, in: rows, ownPIDs: ownPIDs) { yieldIfUnderChat(app, rows: rows) }
+        // A click into System Settings' pane lands on its extension's window: it counts for Settings (APP-690).
+        if let app = NotchOverlap.clickedApp(at: point, in: rows, ownPIDs: ownPIDs, canBeActive: canBeActive,
+                                             frontmost: frontmostApp) {
+            yieldIfUnderChat(app, rows: rows)
+        }
         return false
     }
 

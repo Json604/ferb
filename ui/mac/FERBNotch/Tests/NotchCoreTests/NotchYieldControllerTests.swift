@@ -15,6 +15,8 @@ final class NotchYieldControllerTests: XCTestCase {
         windows = []
         controller = NotchYieldController(model: model, ownPIDs: [F.ferb], windows: { [unowned self] in self.windows },
                                           layout: { [unowned self] in self.layout() })
+        controller.canBeActive = { _ in true }                  // the fixture's processes are ordinary apps
+        controller.frontmostApp = { nil }
     }
 
     override func tearDown() async throws {
@@ -57,6 +59,37 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
         controller.companionFocused(123)
         model.introLine = nil
+        XCTAssertFalse(model.isYielded)
+    }
+
+    /// Owner, 2026-11-04: "ferb comes forward now, but doesnt go back. even press on settings". After a grant the tour
+    /// comes forward over System Settings (APP-687); a click into Settings' pane lands on a window its Privacy &
+    /// Security extension owns (a process that can never be active), which has nothing under the tour, so FERB stayed
+    /// in front. The click counts for the frontmost app, Settings, at every grant.
+    // decision: APP-690
+    func testAClickIntoSettingsPaneDrawnByItsExtensionStepsBehindSettingsAfterEachAcknowledgement() {
+        let settings: Int32 = 500
+        let pane: Int32 = 501                                   // the extension drawing the pane
+        let settingsWindow = F.window(settings, layer: 0, 400, 40, 700, 600, id: 21)
+        let paneWindow = F.window(pane, layer: 0, 620, 440, 480, 200, id: 22)   // below the tour's surface
+        windows = [paneWindow, settingsWindow, F.window(F.finder, layer: 0, 1200, 600, 200, 200)]
+        controller.canBeActive = { $0 != pane }
+        controller.frontmostApp = { settings }
+        model.introLine = IntroLine(text: "Turn FERB on")
+        let inPane = CGPoint(x: 800, y: 520)
+        for _ in 0..<2 {
+            controller.appActivated(settings)                   // the grant's dock steps behind Settings (APP-642)
+            XCTAssertTrue(model.isYielded)
+            controller.summon()                                 // macOS confirmed it: forward to say so (APP-687)
+            XCTAssertFalse(model.isYielded)
+            controller.ownerClicked(at: inPane)                 // the owner clicks into Settings' pane
+            XCTAssertTrue(model.isYielded)
+            XCTAssertEqual(controller.coveredApp, settings)
+            XCTAssertEqual(controller.coveringWindow(), 21)
+        }
+        // A regular app's own window with nothing under the tour still never yields to the frontmost app.
+        controller.summon()
+        controller.ownerClicked(at: CGPoint(x: 1300, y: 700))
         XCTAssertFalse(model.isYielded)
     }
 

@@ -2587,7 +2587,7 @@ area = "app"
 surface = "A fresh first-run tour on this build, at the permissions beat, System Settings beside it"
 request = "Grant Full Disk Access as the tour shows (both FERB switches on) and choose Quit & Reopen when macOS asks; leave System Settings open. Then, once the tour is back, quit FERB from its menu and open it again from Spotlight."
 pass = "Within about five seconds of the quit FERB is back by itself in the notch on the permissions beat, saying Full Disk Access is on; no setup window at any point. The log (com.ferb.FERB, category relaunch) names the quit's sender, its reason and the watcher. Across both reopens the background part keeps running: `launchctl print gui/$(id -u)/com.ferb.daemon` finds it and no \"booting out service: caller = smd\" appears."
-decisions = ["APP-683", "APP-684", "APP-685", "APP-686", "DMN-536", "DMN-537"]
+decisions = ["APP-683", "APP-684", "APP-685", "APP-686", "APP-689", "DMN-536", "DMN-537"]
 sitting = "after this change is installed"
 
 [LIVE-742]
@@ -2625,3 +2625,21 @@ request = "Open the disk image and install FERB from it."
 pass = "The same window says only \"Drag FERB to Applications\" (no Gatekeeper note) and FERB opens without Open Anyway."
 decisions = ["REL-408"]
 sitting = "after the Developer ID"
+
+[LIVE-748]
+title = "Every list permission's Quit & Reopen brings FERB back to the tour by itself"
+area = "app"
+surface = "A fresh first-run tour on this build at the permissions beat, System Settings beside it"
+request = "Grant Screen & System Audio Recording as the tour shows and choose Quit & Reopen when macOS asks; leave System Settings open. Repeat for Full Disk Access and Input Monitoring if macOS asks to quit for them."
+pass = "Each time, within about five seconds FERB is back in the notch on the permissions beat (from /Applications/FERB.app), saying the permission is on. The log shows \"Quit asked by ... reason 'rlgo'): a reopen watcher starts\", \"Reopen watcher started\" with the app path, and ferb-relaunch lines ending in \"opening /Applications/FERB.app\" or \"FERB is running again\"."
+decisions = ["APP-689"]
+sitting = "after this change is installed"
+
+[LIVE-749]
+title = "After a grant's acknowledgement, a click into System Settings puts the tour behind it again"
+area = "app"
+surface = "A fresh first-run tour (or a replay with list permissions off), System Settings beside the notch and overlapping the tour"
+request = "Grant Input Monitoring; when the tour comes forward saying it is on, click inside System Settings' pane (the list, not the sidebar). Pick the next permission and repeat after its grant."
+pass = "Each grant brings the tour forward without taking the keyboard; each click into Settings' pane sends the tour behind Settings at once; picking the next permission docks beside Settings with the tour behind it."
+decisions = ["APP-690", "APP-687"]
+sitting = "after this change is installed"

@@ -1856,7 +1856,8 @@ live = ["LIVE-741"]
 title = "After any Quit & Reopen from System Settings, FERB comes back within a few looks"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "APP-689"
 supersedes = ["APP-661"]
 rule = "A quit System Settings (app or extension) sends that isn't a log out, restart or shut down (kAEQuitReason logo, rlgo, rrst, rsdn, rest, shut), whatever other reason it carries, leaves a detached watcher as FERB terminates (own session, no FERB descriptors). After FERB exits it looks every grant poll (~1.5 s) while the sender lives, at most three looks (APP-598's serviceStartAfter); FERB running again stops it, else it opens FERB.app in the background, which resumes the tour (APP-686). The sender, the reason code and the decision are logged (category relaunch)."
 why = "Owner, 2026-11-04: \"the quit and reopen didnt reopen on fda\". APP-661 skipped the watcher for a quit carrying any reason, and waited for the sender to exit, which Settings' extension doesn't do while Settings stays open."
@@ -1909,3 +1910,26 @@ why = "APP-650 named the setup window, which APP-685 removed; the rest holds. Ow
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
 live = ["LIVE-710"]
+
+[APP-689]
+title = "Every quit System Settings sends leaves the reopen watcher, whatever its quit reason"
+by = "agent"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-684"]
+rule = "A quit System Settings (app or extension) sends, whatever its kAEQuitReason (Quit & Reopen's is rlgo; a real log out or restart comes from loginwindow), leaves a detached watcher as FERB terminates. After FERB exits it looks every grant poll while the sender lives, at most three looks (APP-598); FERB's executable running again stops it, else it runs open -g on FERB.app's own bundle path, which resumes the tour (APP-686). FERB logs sender, reason, decision and watcher (category relaunch); the watcher logs its steps tagged ferb-relaunch."
+why = "Owner, 2026-11-04: \"ferb didnt open on quit and reopen\". APP-684 excluded rlgo as a log out, so no watcher started; its script also read $3 inside a shell function (the function's own empty argument), so it could never see FERB running again."
+evidence = "Log 11:16:02 and 11:17:54: \"Quit asked by com.apple.settings.PrivacySecurity.extension (..., reason 'rlgo'): no reopen watcher\"; normal terminate from /Applications/FERB.app; no macOS relaunch. A LaunchServices-opened probe app's setsid child outlived it. Fix batch approved."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/PermissionRelaunch.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PermissionRelaunchWatcher.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Application.swift"]
+live = ["LIVE-748"]
+
+[APP-690]
+title = "A click into a window an extension draws for an app counts as a click into that app"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Where APP-559 yields to an app the owner clicks into under the pinned chat or the tour's surface, a click on an ordinary (layer 0) window owned by a process that can never be the active app (activation prohibited, or no LaunchServices app: app extensions and view services) counts for the frontmost app, whose window that one is part of. So after a grant brings the tour forward over System Settings (APP-687), a click into Settings' pane (drawn by its Privacy & Security extension) steps the tour behind Settings again, at every grant. Clicks on other apps' own windows are unchanged."
+why = "Owner, 2026-11-04: \"ferb comes forward now, but doesnt go back. even press on settings even taking it back\". The click landed on the extension's window, which has nothing under the tour, so nothing yielded; the forward itself never stopped the yield."
+evidence = "Log 11:14:50: WindowServer rule \"vbi_... -> <token: 25221; pid: 6793>; reason: associated\": Settings' remote view window is SecurityPrivacyExtension's; view services here report activationPolicy prohibited or no NSRunningApplication. Fix batch approved."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/NotchYield.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchYieldController.swift"]
+live = ["LIVE-749"]
