@@ -313,7 +313,7 @@ struct PermissionsSettingsPage: View {
     var body: some View {
         if let setup = actions.setup {
             WindowPage { WindowSettingsSection { PermissionsStepView(model: setup) } }
-                .onAppear { setup.startPolling() }
+                .onAppear { setup.startPolling(.permissions) }
                 .onDisappear { setup.stopPolling() }
         } else {
             WindowPage { WindowSettingsSection { OnlyInTheApp() } }

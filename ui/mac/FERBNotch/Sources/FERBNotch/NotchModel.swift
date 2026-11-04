@@ -295,11 +295,15 @@ final class NotchModel: ObservableObject {
     /// While the tour runs, a request typed or spoken stays in the composer instead of starting a task, except while
     /// the tour's own real task runs (APP-666: its questions may need a typed answer); it is sent after the tour.
     var introHoldsWork = false
-    /// The running tour is at the permissions beat or later: its line offers Skip tour (APP-638).
+    /// The running tour is at the permissions beat or later: its line offers Skip tour (APP-685).
     @Published var introSkippable = false
     /// The tour wants System Settings in front of it: the notch steps behind Settings' window when it lies under the
     /// tour's surface, as when Settings comes forward (APP-642).
     var onStepBehindSettings: (() -> Void)?
+    /// The tour has something to acknowledge (a grant macOS just confirmed): the notch stops yielding and shows above
+    /// System Settings, without taking keyboard focus (APP-687, APP-562); the next dock beside Settings steps behind
+    /// it again (APP-642).
+    var onComeForward: (() -> Void)?
     static let introHeldWork = "It'll wait here until the tour ends."
     /// What the owner is typing into the intro line's field. Emptied whenever the line changes (or goes), so a key
     /// pasted for one line can never show in, or be sent from, the next line's field.

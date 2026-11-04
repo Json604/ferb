@@ -33,6 +33,16 @@ extension IntroController {
         }
         guard live else { return }
         let visit = PermissionVisit()
+        // Back from macOS's Quit & Reopen: the grant FERB was waiting on when it quit, confirmed now, is acknowledged
+        // in front of System Settings like any other (APP-687).
+        if let waited = progress.pendingGrant {
+            progress.pendingGrant = nil
+            if setup.setupRows.contains(where: { $0.id == waited && $0.status == .granted }) {
+                visit.confirmed = waited
+                say(permissionOverview(visit))
+                notch.onComeForward?()
+            }
+        }
         // Each step of a grant's wait shows the moment it starts, not at the next poll (a check or a restart can be
         // shorter than one).
         let steps = setup.$grantWait.dropFirst().removeDuplicates().sink { [weak self] wait in
@@ -90,6 +100,13 @@ extension IntroController {
             }
         }
         guard live else { return }
+        // The last grant's rows can read granted a moment before its own wait returns: let that wait finish, so its
+        // confirmation (the line, coming forward) and the hop aren't lost; a wait for anything else is cancelled.
+        if visit.result == nil, let active = visit.active,
+           setup.setupRows.contains(where: { $0.id == active && $0.status == .granted }) {
+            await visit.task?.value
+            if visit.result == true && visit.guided { orb.hop() }
+        }
         visit.task?.cancel()
         await visit.task?.value
         if visit.guided { await orb.flyHome() }
@@ -109,6 +126,7 @@ extension IntroController {
         visit.requesting = true
         visit.result = nil
         visit.confirmed = nil
+        progress.pendingGrant = row.id                             // a Quit & Reopen may end FERB before it's confirmed
         visit.task = Task { [weak self] in
             guard let self else { return }
             let banner = row.id == "notifications" && row.status == .notDetermined
@@ -123,8 +141,12 @@ extension IntroController {
             visit.requesting = false
             visit.result = granted
             guard self.live else { return }
+            self.progress.pendingGrant = nil
             if granted { visit.confirmed = row.id }                // the system confirmed it (APP-510): said at once
             self.say(self.permissionOverview(visit))
+            // ...and seen: the tour comes forward over System Settings to acknowledge it, without the keyboard focus
+            // (APP-687); the hop follows in the beat's loop, and the next grant's dock steps behind Settings again.
+            if granted { self.notch.onComeForward?() }
         }
     }
 

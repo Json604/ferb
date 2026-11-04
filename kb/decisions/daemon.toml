@@ -622,3 +622,25 @@ why = "APP-666 runs the picked suggestion as a real task; the old prompt allowed
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 paths = ["ferb/daemon/areas/intro.py::GENERAL_TASKS", "ferb/orchestrator/prompts/intro.md"]
 live = ["LIVE-728"]
+
+[DMN-536]
+title = "A restart with no job to restart loads the LaunchAgent, and launchctl failures always say why"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Setup restarts an unchanged, loaded definition with one `launchctl kickstart -k` (no moment with the label unloaded, DMN-515). When that kickstart fails (launchd has no such job, or one it is still tearing down), setup loads the LaunchAgent instead (`load`: boot out whatever holds the label, wait, bootstrap, DMN-517's retry); a failure says what launchctl answered to each. Every launchctl failure FERB reports carries launchctl's exit code and its words, or says it printed nothing; none ends empty."
+why = "Owner's fresh install, 2026-11-04: after macOS booted FERB's LaunchAgent out (APP-683), the quiet update took the restart path, `kickstart -k` failed and FERB.app showed \"ferb: restarting the daemon failed:\" with no reason; the service stayed unloaded."
+evidence = "restart() was a lone kickstart whose error text was launchctl's output only (empty here); launchd was still tearing the job down (\"scheduling cleanup in 5 sec\", 09:32:48.925) as setup ran. Owner approved the fix batch."
+paths = ["ferb/device/install.py"]
+live = ["LIVE-741"]
+
+[DMN-537]
+title = "FERB.app's service commands run in a session of their own"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "FERB.app runs `setup --service` and `setup --cleanup` with FERB_OWN_SESSION=1; the command then moves to a session of its own (setsid) before it changes anything, so FERB.app quitting can't take it down with the app's process group between a bootout and a bootstrap. A quit still reaches it as SetupCommand's SIGTERM, held until the service is loaded again (_finish_install). Run any other way, nothing changes."
+why = "A multi-step service operation started by the app must not be cut in half by the app quitting (macOS's Quit & Reopen quits FERB.app mid-grant)."
+evidence = "Owner approved the fix batch (2026-11-04). The 09:32 failure was not this (APP-683), but nothing kept a child of FERB.app out of its process group."
+paths = ["ferb/cli/__init__.py", "ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
+live = ["LIVE-741"]

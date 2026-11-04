@@ -17,8 +17,8 @@ public enum AppSetupAction: Equatable {
 public enum SetupLaunch: Equatable {
     case nothing                 // this app's build runs and setup is finished
     case intro([IntroBeat])      // the first-run intro: every beat, or only those for what is missing
-    case window(SetupStep)       // the compact setup window at that step (a Grant it left before macOS restarted FERB)
     case quietUpdate             // `ferb setup --service --update`, then the intro only if a grant is missing
+    // There is no setup window (APP-685): setup and its errors live in the notch tour only.
 }
 
 /// An SMAppService registration's status as macOS reports it (SMAppService.Status): only a 2026-11 build's, which
@@ -28,6 +28,18 @@ public enum ServiceStatus: Equatable {
 
     /// macOS still lists the registration, so launchd would start that build's constrained job.
     public var listed: Bool { self == .enabled || self == .requiresApproval }
+
+    /// The registration FERB.app retires (APP-683). SMAppService's status for FERB's bundled plist name also reads
+    /// enabled for FERB's own user LaunchAgent: same label, its program inside FERB.app (live 2026-11-04: notFound at
+    /// the first launch, enabled at the next, and the unregister that followed had macOS boot FERB's running LaunchAgent
+    /// job out). So the status counts only when launchd runs the label from another definition (`loadedFrom`, the
+    /// `path =` of `launchctl print`; nil when it names none), or runs nothing under it and no LaunchAgent naming the
+    /// label exists. `loaded`: launchd has the label.
+    public static func retired(reported: ServiceStatus, loaded: Bool, loadedFrom: String?, launchAgent: String,
+                               launchAgentExists: Bool) -> ServiceStatus {
+        if loaded { return loadedFrom == launchAgent ? .notRegistered : reported }
+        return launchAgentExists ? .notRegistered : reported
+    }
 }
 
 /// What the setup window says about the background service, in the app's words (plain cause first).
@@ -86,33 +98,28 @@ public enum AppSetupPlan {
 
     /// At launch: the whole intro for a new install or another installation (after the owner's yes), a quiet update
     /// for a replaced build or a stopped service, and otherwise what `needs` still asks for. `tour`: the beats of a
-    /// tour a quit interrupted (IntroProgress.interrupted), picked up where it was; it wins over `resume`, the step a
-    /// Grant in the compact window left when macOS restarted FERB (Screen Recording's "Quit & Reopen"), reopened done
-    /// or not.
-    public static func atLaunch(_ action: AppSetupAction, needs: IntroNeeds, tour: [IntroBeat]? = nil,
-                                resume: SetupStep? = nil) -> SetupLaunch {
+    /// tour a quit interrupted (IntroProgress.interrupted, e.g. macOS's Quit & Reopen during a grant), picked up at its
+    /// saved beat (APP-686: never a window).
+    public static func atLaunch(_ action: AppSetupAction, needs: IntroNeeds, tour: [IntroBeat]? = nil) -> SetupLaunch {
         switch action {
         case .install, .confirmReplace: return .intro(IntroBeat.allCases)
         case .update: return .quietUpdate
-        case .none: return settled(needs, tour: tour, resume: resume)
+        case .none: return settled(needs, tour: tour)
         }
     }
 
     /// After a quiet update: as at launch, except that a first run plays the whole tour.
-    public static func afterUpdate(_ needs: IntroNeeds, tour: [IntroBeat]? = nil,
-                                   resume: SetupStep? = nil) -> SetupLaunch {
+    public static func afterUpdate(_ needs: IntroNeeds, tour: [IntroBeat]? = nil) -> SetupLaunch {
         if let tour, !tour.isEmpty { return .intro(tour) }
         if needs.firstRun { return .intro(IntroBeat.allCases) }
-        return settled(needs, tour: nil, resume: resume)
+        return settled(needs, tour: nil)
     }
 
     /// On a finished setup a required grant missing now (switched off since, by the owner or a macOS update) brings
-    /// back Allow all and home, and nothing else, at every launch as after an update (APP-657; the old window
-    /// reopened on Permissions there).
-    private static func settled(_ needs: IntroNeeds, tour: [IntroBeat]?, resume: SetupStep?) -> SetupLaunch {
+    /// back Allow all and home, and nothing else, at every launch as after an update (APP-686).
+    private static func settled(_ needs: IntroNeeds, tour: [IntroBeat]?) -> SetupLaunch {
         if let tour, !tour.isEmpty { return .intro(tour) }
         if needs.setupDone && !needs.firstRun && !needs.missingPermissions.isEmpty { return .intro([.permissions, .home]) }
-        if let resume { return .window(resume) }
         let beats = IntroPlan.beats(needs, replay: false)
         return beats.isEmpty ? .nothing : .intro(beats)
     }
@@ -131,14 +138,6 @@ public enum AppSetupPlan {
 
     /// Replay intro (Settings → General, the menu's Set Up FERB…): every beat. It resets no setup, sign-in or grant.
     public static func replay(_ needs: IntroNeeds) -> SetupLaunch { .intro(IntroPlan.beats(needs, replay: true)) }
-
-    /// After the intro (skipped, or a grant still off at Home): the compact setup window's step for the first required
-    /// thing left (`remaining`: "sign_in", then permission ids), the background service first; nil when nothing is.
-    public static func afterIntro(_ remaining: [String], serviceSetUp: Bool) -> SetupStep? {
-        if !serviceSetUp { return .welcome }
-        guard let first = remaining.first else { return nil }
-        return first == "sign_in" ? .ai : .permissions
-    }
 
     /// FERB's own Codex sign-in (C2): Choose your AI's Sign in with ChatGPT runs it.
     /// FERB never uses the owner's personal Codex login.

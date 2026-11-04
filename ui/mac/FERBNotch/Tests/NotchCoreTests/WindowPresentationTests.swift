@@ -31,7 +31,7 @@ final class WindowPresentationTests: XCTestCase {
     /// Owner, 2026-11-04: Command-Q in Settings quit FERB, notch included. Command-Q closes FERB's window when it's in
     /// front; with another window in front it quits as before. The window opens on the owner's Space without switching
     /// Spaces, and pointer moves reach the notch while it is in front.
-    // decision: APP-654, APP-650, APP-656
+    // decision: APP-654, APP-688, APP-656
     func testQuitKeyClosesOnlyTheFERBWindowInFront() throws {
         _ = NSApplication.shared
         let controller = FERBWindowController(store: FERBWindowStore(rpc: ScriptedRPC()),

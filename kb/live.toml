@@ -2580,3 +2580,30 @@ request = "Set up the quick permissions, then Screen Recording: take your time b
 pass = "From the first read on, every wait shows what is happening now with a spinner and, after a few seconds, the time: asking macOS, opening System Settings at the pane, waiting for you to turn FERB (both FERBs) on, each check with macOS (a count going up), restarting FERB's background part (\"is on\" only once macOS saw it), starting it again, picking up after the reopen, then \"… is on. macOS confirmed it.\" The row says the same step and ticks only when macOS confirms."
 decisions = ["APP-679"]
 sitting = "after this change is installed"
+
+[LIVE-741]
+title = "Full Disk Access's Quit & Reopen brings FERB back to the tour with its background part still running"
+area = "app"
+surface = "A fresh first-run tour on this build, at the permissions beat, System Settings beside it"
+request = "Grant Full Disk Access as the tour shows (both FERB switches on) and choose Quit & Reopen when macOS asks; leave System Settings open. Then, once the tour is back, quit FERB from its menu and open it again from Spotlight."
+pass = "Within about five seconds of the quit FERB is back by itself in the notch on the permissions beat, saying Full Disk Access is on; no setup window at any point. The log (com.ferb.FERB, category relaunch) names the quit's sender, its reason and the watcher. Across both reopens the background part keeps running: `launchctl print gui/$(id -u)/com.ferb.daemon` finds it and no \"booting out service: caller = smd\" appears."
+decisions = ["APP-683", "APP-684", "APP-685", "APP-686", "DMN-536", "DMN-537"]
+sitting = "after this change is installed"
+
+[LIVE-742]
+title = "A permission macOS confirms brings the tour forward over System Settings"
+area = "app"
+surface = "A fresh first-run tour (or a replay with a list permission switched off), System Settings beside it, the owner typing in another app"
+request = "At the permissions beat pick a list permission (Accessibility), drag the logo in and turn FERB on, then click into another app's text field and keep typing."
+pass = "The moment macOS confirms it, the notch comes forward over System Settings saying the permission is on (with the hop where the logo is out); the keys you type keep going to your app. Picking the next permission puts the notch behind Settings again while you work there."
+decisions = ["APP-687"]
+sitting = "after this change is installed"
+
+[LIVE-743]
+title = "A background-service failure shows in the notch with its reason and Try again"
+area = "app"
+surface = "This build with FERB's service switched off under System Settings → General → Login Items → Allow in the Background, during an unfinished tour"
+request = "Quit FERB, switch FERB off under Allow in the Background, open FERB, follow what the notch says, then switch FERB back on."
+pass = "No setup window appears. The notch shows the service step (Login Items guidance, or the failure's own reason with Try again); once FERB is on again it sets the service up and the tour continues at the beat it was on."
+decisions = ["APP-685", "APP-686"]
+sitting = "after this change is installed"

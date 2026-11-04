@@ -208,7 +208,7 @@ final class IntroControllerTests: XCTestCase {
 
     /// The first run's Dense entrance is drawn for exactly the clip and is gone when the clip ends; a replay draws
     /// none, and a tour torn down mid-clip takes it down with it.
-    // decision: APP-638, APP-612
+    // decision: APP-685, APP-612
     func testFirstRunDrawsTheStartupArrivalOverTheClipOnly() async {
         let arrival = FakeArrival()
         let t = tour(.install, clipSeconds: 7.3, arrival: arrival)
@@ -239,9 +239,9 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertFalse(cut.visible)
     }
 
-    /// APP-638: Skip tour shows from the permissions beat to the end, never before; it ends the tour the way the
+    /// APP-685: Skip tour shows from the permissions beat to the end, never before; it ends the tour the way the
     /// tour's own interruption does (what is still required waits in the compact window).
-    // decision: APP-638
+    // decision: APP-685
     func testSkipTourIsOfferedFromPermissionsOnwardOnly() async {
         let early = tour()
         early.rig.rpc.replies["runtimes.status"] = Self.notConnected        // it waits at sign-in
@@ -281,6 +281,52 @@ final class IntroControllerTests: XCTestCase {
         await t.pick("permissions.next")
         await eventually { t.orb.docks.count == 1 }
         XCTAssertEqual(steps, 2)
+    }
+
+    /// Owner, 2026-11-04: "when the permission is added, the ferb screen doesnt automatically comes forward to
+    /// acknowledge that." The grant macOS confirms brings the tour forward over System Settings (the notch stops
+    /// yielding, PanelCoordinator), with the line saying it is on; the next grant's dock steps behind Settings again.
+    // decision: APP-687
+    func testAConfirmedGrantBringsTheTourForwardToAcknowledgeIt() async {
+        let t = tour()
+        var forward = 0
+        var behind = 0
+        var lineWhenForward: String?
+        t.notch.onComeForward = { forward += 1; lineWhenForward = t.notch.introLine?.text }
+        t.notch.onStepBehindSettings = { behind += 1 }
+        let off = SetupReplies.permissions(accessibility: "denied", fda: "granted")
+        t.rig.rpc.replies["setup.permissions"] = off
+        t.controller.start(beats: [.permissions, .home])
+        await t.pick("permissions.next")
+        await eventually { t.orb.docks.count == 1 }
+        XCTAssertEqual(behind, 1)                                         // docked beside Settings: stepped behind it
+        XCTAssertEqual(forward, 0)                                        // nothing confirmed yet
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
+        await eventually { forward == 1 }
+        XCTAssertTrue(lineWhenForward?.contains("is on") == true)
+        await eventually { t.progress.done }
+        XCTAssertEqual(forward, 1)
+    }
+
+    /// After macOS's Quit & Reopen the resumed beat finds the grant FERB was waiting on confirmed: it is acknowledged
+    /// in front of Settings too (after the resume's own step behind Settings, APP-642).
+    // decision: APP-687
+    func testAGrantConfirmedWhileFERBWasQuitIsAcknowledgedOnResume() async {
+        let t = tour()
+        var order: [String] = []
+        t.notch.onComeForward = { order.append("forward") }
+        t.notch.onStepBehindSettings = { order.append("behind") }
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "denied", fda: "granted")
+        var progress = t.progress
+        progress.resumeBeat = .permissions                                // reopened by Quit & Reopen
+        progress.pendingGrant = "full_disk_access"                        // FERB quit while waiting on it
+        t.controller.start(beats: [.permissions, .home])
+        await eventually { order.contains("forward") }
+        XCTAssertEqual(order.prefix(2), ["behind", "forward"])
+        XCTAssertTrue(t.notch.introLine?.text.contains("is on") == true)
+        XCTAssertNil(t.progress.pendingGrant)
+        t.notch.introAction(.skipTour)
+        await eventually { !t.controller.running }
     }
 
     /// APP-645 (owner: "replay"): a newer build installed mid-tour plays the startup again, the clip with the Dense
@@ -635,7 +681,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Skip, resume, the notch
 
-    // decision: APP-638
+    // decision: APP-685
     func testSkipMidFlightTearsEverythingDown() async {
         let t = tour()
         var finished = 0
@@ -664,7 +710,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.orb.tearDowns, 1)
     }
 
-    // decision: APP-638
+    // decision: APP-685
     func testQuitAndReopenResumesTheBeat() async {
         let t = tour()
         t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "denied", fda: "granted")
@@ -752,7 +798,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.lines.all.filter { $0 == IntroCopy.allAllowed }.count, 1)
     }
 
-    // decision: APP-638
+    // decision: APP-685
     func testResumeRunsEarlierStepsOnlyWhenStillNeeded() async {
         let signedOut = tour()
         signedOut.rig.rpc.replies["runtimes.status"] = Self.notConnected
@@ -780,7 +826,7 @@ final class IntroControllerTests: XCTestCase {
     /// A tour quit at Allow all and reopened while the daemon is down (macOS's "Quit & Reopen" ended it, or it is still
     /// starting): the tour says it is picking up and waits, then starts the service, instead of reading the
     /// silence as signed out and asking for sign-in again (which also moved the resume point back to sign-in).
-    // decision: APP-638, APP-598
+    // decision: APP-685, APP-598
     func testAResumedTourWaitsForTheServiceBeforeAnyBeat() async {
         let t = tour()
         var progress = t.progress
@@ -801,7 +847,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Round 2
 
-    // decision: APP-638
+    // decision: APP-685
     func testSkipWithNothingLeftRecordsSetupDone() async {
         let t = tour()
         var finished = 0
@@ -853,7 +899,7 @@ final class IntroControllerTests: XCTestCase {
 
     /// The sound engine is shared with everyday sounds: the real orb's teardown stops only its own motion, and only a
     /// skip stops what is playing; the natural end lets a ringing sound finish.
-    // decision: APP-638
+    // decision: APP-685
     func testOnlyASkipStopsTheSharedSoundsWithTheRealOrb() async {
         let finished = tour(realOrb: true)
         var ended = 0

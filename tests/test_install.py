@@ -477,6 +477,37 @@ def test_a_registered_job_macos_submits_again_after_the_bootout_is_retried_until
     assert 15 <= clock.now - start < 20 and r.loaded_from == registered
 
 
+# decision: DMN-536, DMN-515
+def test_a_restart_with_no_job_to_restart_loads_the_launch_agent_and_says_why_it_failed(tmp_path: Path) -> None:
+    """Live 2026-11-04: macOS's unregister of a same-label SMAppService registration booted FERB's LaunchAgent out
+    just before the quiet update, whose unchanged definition then took the restart path: `kickstart -k` found nothing
+    (or a job launchd was still tearing down) and setup failed with "restarting the daemon failed:" and no reason. A
+    loaded job restarts with one kickstart and nothing else; with none, or one being torn down, the plist is
+    bootstrapped; a failure carries launchctl's exit code and words, never nothing."""
+    from ferb.device.install import InstallError
+    inst = bundled(tmp_path)
+    r: BundleRunner = inst.run  # type: ignore[assignment]
+    inst.install()
+    before = len(r.cmds)
+    inst.restart()                                               # loaded: one kickstart, no unload window
+    assert [c[:2] for c in r.cmds[before:] if c[0] == "launchctl" and c[1] != "print"] == [["launchctl", "kickstart"]]
+
+    r.loaded = False                                             # booted out by someone else
+    inst.restart()
+    assert r.loaded and r.loaded_from == str(inst.plist_path)
+
+    r.kickstart_refuses = 37                                     # launchd is still tearing the job down, silently
+    bootstraps = r.ran("launchctl", "bootstrap")
+    inst.install(update_only=True)                               # unchanged definition: the restart path
+    assert r.loaded and r.ran("launchctl", "bootstrap") == bootstraps + 1
+
+    r.kickstart_refuses, r.fail = 37, ("launchctl", "bootstrap")
+    with pytest.raises(InstallError) as failed:
+        inst.restart()
+    said = str(failed.value)
+    assert "launchctl exited 37" in said and "launchctl exited 1: network unreachable" in said
+
+
 # decision: DMN-514
 def test_a_changed_launch_agent_is_put_back_at_the_daemons_start(tmp_path: Path) -> None:
     """Rule 6: the LaunchAgent is user-writable. At start the daemon writes back a plist that isn't exactly what setup

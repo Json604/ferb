@@ -1,70 +1,8 @@
 import SwiftUI
 import NotchCore
 
-/// Setup uses the notch's black glass, typography and quiet controls.
-struct SetupView: View {
-    @ObservedObject var model: SetupModel
-    var close: () -> Void = {}
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack(spacing: 9) {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
-                    .resizable().frame(width: 26, height: 26)
-                Text("ferb.").font(.system(size: 16, weight: .semibold))
-                Spacer()
-                Text("MAKE YOURSELF AT HOME").font(.system(size: 9, weight: .medium)).tracking(1.6)
-                    .foregroundStyle(.white.opacity(0.45))
-                Button(action: close) { Image(systemName: "xmark").font(.system(size: 11, weight: .medium)) }
-                    .buttonStyle(FerbButtonStyle(quiet: true)).help("Close setup")
-            }
-            .padding(.bottom, 6)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                switch model.step {
-                case .welcome: WelcomeStep(model: model)
-                case .ai: AIStepView(model: model)
-                case .permissions: PermissionsStepView(model: model).frame(minHeight: 380)
-                case .browsers: BrowsersStepView(model: model).frame(minHeight: 380)
-                case .identity: IdentityStepView(model: model)
-                case .persona: PersonaStep(model: model)
-                case .done: DoneStep()
-                }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }.scrollIndicators(.hidden)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            if let message = model.message { Text(message).font(.callout).foregroundStyle(.secondary) }
-            HStack {
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("\(model.step.rawValue + 1) / \(SetupStep.allCases.count)")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
-                    SetupDots(current: model.step)
-                }
-                Spacer()
-                Button { Task { await model.primary() } } label: {
-                    HStack(spacing: 24) {
-                        Text(model.primaryTitle)
-                        Image(systemName: "arrow.right").font(.system(size: 12, weight: .medium))
-                    }
-                }
-                .buttonStyle(SetupActionStyle(primary: true))
-                .keyboardShortcut(.defaultAction)
-                .disabled(model.primaryDisabled)
-            }
-        }
-        .padding(32)
-        .frame(width: 560, height: 550)
-        .buttonStyle(SetupActionStyle())
-        .textFieldStyle(SetupFieldStyle())
-        .foregroundStyle(.white.opacity(0.92))
-        .background {
-            SetupGlass()
-                .overlay(LinearGradient(colors: [.black.opacity(0.98), .black.opacity(0.55)],
-                                        startPoint: .top, endPoint: .bottom))
-        }
-        .preferredColorScheme(.dark)
-    }
-}
+// Setup's step views, shown in Settings' pages (there is no setup window, APP-685), in the notch's black glass,
+// typography and quiet controls.
 
 struct SetupGlass: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
@@ -99,17 +37,6 @@ struct SetupFieldStyle: TextFieldStyle {
     }
 }
 
-struct SetupDots: View {
-    let current: SetupStep
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(SetupStep.allCases, id: \.rawValue) { step in
-                Circle().fill(step == current ? Color.primary : Color.secondary.opacity(0.35)).frame(width: 7, height: 7)
-            }
-        }
-    }
-}
-
 struct StepHeader: View {
     let title: String
     let lines: [String]
@@ -117,29 +44,6 @@ struct StepHeader: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.system(size: 26, weight: .semibold)).tracking(-0.6)
             ForEach(lines, id: \.self) { Text($0).foregroundStyle(.secondary) }
-        }
-    }
-}
-
-struct WelcomeStep: View {
-    @ObservedObject var model: SetupModel
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StepHeader(title: "FERB works on your Mac in the background", lines: [
-                "What FERB keeps (its memory, history and settings) stays on this Mac, in ~/.ferb.",
-                "What FERB sends to the AI service you choose is redacted first: passwords, codes and keys never leave."])
-            if model.serviceRunning {
-                ProgressView()
-                Text(model.serviceLine).font(.callout).lineLimit(2)
-            }
-            if let error = model.serviceError {
-                Text("FERB couldn't set up its background service:").bold()
-                ScrollView { Text(error).font(.system(.callout, design: .monospaced)).textSelection(.enabled) }
-                    .frame(maxHeight: 140)
-                if model.serviceNeedsApproval {
-                    Button("Open Login Items Settings") { model.openLoginItems() }
-                }
-            }
         }
     }
 }
@@ -422,41 +326,6 @@ struct OwnerProfilePicker: View {
             .labelsHidden()
         }
         .task { if model.browsers == nil { await model.refreshBrowsers() } }
-    }
-}
-
-struct PersonaStep: View {
-    @ObservedObject var model: SetupModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StepHeader(title: "Getting to know you", lines: ["FERB looked at which apps you use, on this Mac only."])
-            switch model.persona {
-            case .loading, .scanning:
-                ProgressView("Looking at your apps…")
-            case .seen(let summary):
-                Text(summary).textSelection(.enabled)
-                Text("Tell FERB if any of it is wrong; you can see and change it on the Memory page.")
-                    .foregroundStyle(.secondary)
-            case .finished:
-                Text("Done.").foregroundStyle(.secondary)
-            case .failed(let why):
-                Text("FERB couldn't look at your apps: \(why)").foregroundStyle(.secondary)
-            }
-            if let line = model.personaMessage { Text(line).font(.callout) }
-        }
-    }
-}
-
-struct DoneStep: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StepHeader(title: "FERB is ready", lines: ["FERB lives in the notch at the top of your screen.",
-                                                       "Three things to know:"])
-            Text("• Double-tap the right Option key to open FERB, or click the notch.")
-            Text("• Hold right Command + Option and speak to ask by voice.")
-            Text("• Close the notch and keep working: FERB tells you when it needs you or finishes.")
-        }
     }
 }
 

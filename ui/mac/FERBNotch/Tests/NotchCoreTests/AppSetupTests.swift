@@ -109,7 +109,7 @@ final class AppSetupTests: XCTestCase {
     /// kb area app: a new install (or another installation, after the owner's yes) meets FERB through the
     /// whole tour, with the first-launch clip; so does an install that never finished setup nor saw the tour. A quit
     /// tour picks up its own plan, and the intro's resume wins over the old window's.
-    // decision: APP-635, APP-638
+    // decision: APP-635, APP-685
     func testNewInstallLaunchesTheIntro() {
         let fresh = needs(done: false, signedIn: false, missing: ["accessibility"], unpaired: true, firstRun: true)
         XCTAssertEqual(AppSetupPlan.atLaunch(.install, needs: fresh), .intro(IntroBeat.allCases))
@@ -122,8 +122,8 @@ final class AppSetupTests: XCTestCase {
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: false, firstRun: true)), .intro(IntroBeat.allCases))
         // Quit at Screen Recording and reopen: the same tour at the same beat, no clip again.
         XCTAssertFalse(AppSetupPlan.firstRun(.none, setupDone: false, introDone: false, resuming: true))
-        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: false), tour: IntroBeat.allCases,
-                                             resume: .permissions), .intro(IntroBeat.allCases))
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: false), tour: IntroBeat.allCases),
+                       .intro(IntroBeat.allCases))
         XCTAssertEqual(AppSetupPlan.afterUpdate(needs(done: true), tour: [.permissions, .home]),
                        .intro([.permissions, .home]))
         XCTAssertTrue(AppSetupPlan.needsConfirmation(.confirmReplace(current: "/x")))
@@ -131,8 +131,8 @@ final class AppSetupTests: XCTestCase {
     }
 
     /// An existing install that has finished setup sees nothing new (Settings offers Replay intro), as before the
-    /// intro; a grant turned off since gets its beats plus Home (APP-657); a replaced build still updates quietly first.
-    // decision: APP-635, APP-657
+    /// intro; a grant turned off since gets its beats plus Home (APP-686); a replaced build still updates quietly first.
+    // decision: APP-635, APP-686
     func testFinishedSetupLaunchesNothing() {
         XCTAssertFalse(AppSetupPlan.firstRun(.none, setupDone: true, introDone: false, resuming: false))
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true)), .nothing)
@@ -184,24 +184,14 @@ final class AppSetupTests: XCTestCase {
     }
 
     /// Replay intro (Settings → General, and the menu's Set Up FERB…): every beat, whatever is set up already.
-    // decision: APP-638, APP-668
+    // decision: APP-685, APP-668
     func testReplayFromSettingsRunsEveryBeat() {
         XCTAssertEqual(AppSetupPlan.replay(needs(done: true)), .intro(IntroBeat.allCases))
         XCTAssertEqual(AppSetupPlan.replay(needs(done: false, missing: ["accessibility"])), .intro(IntroBeat.allCases))
     }
 
-    /// Skipping (or a grant still off at Home) opens the compact setup window on the first required step left:
-    /// the background service, then sign-in, then permissions; nothing left opens nothing.
-    // decision: APP-638
-    func testSkippingTheIntroOpensTheCompactSetupOnWhatsLeft() {
-        XCTAssertEqual(AppSetupPlan.afterIntro(["sign_in", "accessibility"], serviceSetUp: true), .ai)
-        XCTAssertEqual(AppSetupPlan.afterIntro(["accessibility"], serviceSetUp: true), .permissions)
-        XCTAssertNil(AppSetupPlan.afterIntro([], serviceSetUp: true))
-        XCTAssertEqual(AppSetupPlan.afterIntro(["sign_in"], serviceSetUp: false), .welcome)
-    }
-
     /// A quit tour resumes with the beats it was running (a replay's, an upgrade's, a first run's).
-    // decision: APP-638
+    // decision: APP-685
     func testAQuitTourResumesWithItsOwnPlan() {
         var progress = IntroProgress(defaults: scratchDefaults("AppSetupTests"))
         XCTAssertNil(progress.interrupted)
@@ -215,42 +205,90 @@ final class AppSetupTests: XCTestCase {
         XCTAssertNil(progress.interrupted)
     }
 
-    /// Owner 2026-10-26: after Screen Recording's "Quit & Reopen" FERB came back without its setup window (setup counted
-    /// as done from an earlier install). A Grant in progress in the compact window reopens it on that step, done or not.
-    // decision: APP-595
-    func testLaunchReopensTheStepAGrantRestartedFrom() {
-        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true), resume: .permissions), .window(.permissions))
-        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: false), resume: .permissions),
-                       .window(.permissions))
-        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true), resume: nil), .nothing)
-        XCTAssertEqual(AppSetupPlan.atLaunch(.update, needs: needs(done: true), resume: .permissions), .quietUpdate)
+    /// Owner 2026-11-04: macOS's Quit & Reopen during Full Disk Access, then FERB opened by hand, showed the old compact
+    /// setup window ("why is this even here??? isnt it notch only??") instead of resuming the tour. A launch with a tour
+    /// a quit interrupted resumes that tour at its beat, setup done or not; nothing launches a window.
+    // decision: APP-685, APP-686
+    func testALaunchAfterAQuitResumesTheTourNeverAWindow() {
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: false), tour: [.permissions, .home]),
+                       .intro([.permissions, .home]))
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true), tour: [.permissions, .home]),
+                       .intro([.permissions, .home]))
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true)), .nothing)
+        XCTAssertEqual(AppSetupPlan.atLaunch(.update, needs: needs(done: false), tour: [.permissions]), .quietUpdate)
     }
 
-    /// Restart's repair while a tour runs: the tour ends through its own skip (orb, sound and lines torn down) and
-    /// exactly one compact window shows, on Welcome, where the tour's end leaves it.
+    /// Live 2026-11-04: the launch's quiet update failed ("restarting the daemon failed:") and the compact window came
+    /// up. Now the failure is the tour's service line in the notch, with the reason and Try again, no window; once the
+    /// service is set up the launch resumes the tour a quit interrupted, at its beat.
     @MainActor
-    // decision: APP-638
-    func testARepairDuringATourEndsItAndShowsOneWindowOnWelcome() async {
+    // decision: APP-685, APP-686
+    func testAFailedQuietUpdateShowsInTheNotchAndThenResumesTheTour() async {
         _ = NSApplication.shared
         let rig = SetupRig()
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()
+        rig.rpc.replies["runtimes.status"] = IntroControllerTests.connected     // signed in: sign-in isn't run again
+        let defaults = scratchDefaults("AppSetupTests")
+        var progress = IntroProgress(defaults: defaults)
+        progress.plan = IntroBeat.allCases                          // a tour Quit & Reopen ended at the permissions beat
+        progress.resumeBeat = .permissions
+        let controller = AppSetupController(model: rig.model(), defaults: defaults)
+        controller.makeTourParts = { (FakeOrb(), FakeSoundPlayer()) }
+        controller.makeArrival = { nil }                            // a newer build replays the startup (APP-645)
+        controller.introSleeper = FakeIntroSleeper()
+        let notch = NotchModel(rpc: rig.rpc, preferences: defaults)
+        controller.notch = notch
+        controller.introControls = FakeControlFeed()
+        let windowsBefore = Set(NSApp.windows.map(ObjectIdentifier.init))
+        await controller.launch(.quietUpdate, action: .update, needs: needs(done: false))
+        XCTAssertEqual(rig.runner.runs.last, ["setup", "--service", "--update"])
+        rig.runner.say("ferb: restarting the daemon failed (launchctl exited 113: Could not find service)")
+        rig.runner.finish(1)
+        await eventually { notch.introLine?.choices.contains { $0.id == IntroCopy.Pick.retry } == true }
+        XCTAssertTrue(notch.introLine?.detail?.contains("launchctl exited 113") == true)    // the real reason
+        XCTAssertTrue(controller.touring)
+        XCTAssertTrue(NSApp.windows.filter { !windowsBefore.contains(ObjectIdentifier($0)) && $0.isVisible }.isEmpty)
+        notch.onIntroAction?(.choose(IntroCopy.Pick.retry))         // Try again
+        await eventually { rig.runner.runs.count == 2 }
+        rig.runner.finish(0)
+        await eventually { notch.introSkippable }                   // the tour resumed at its permissions beat
+        XCTAssertEqual(IntroProgress(defaults: defaults).resumeBeat, .permissions)
+        XCTAssertTrue(NSApp.windows.filter { !windowsBefore.contains(ObjectIdentifier($0)) && $0.isVisible }.isEmpty)
+        notch.onIntroAction?(.skipTour)
+        await eventually { !controller.touring }
+    }
+
+    /// Restart's repair while a tour runs: the tour is interrupted where it is (orb, sound and lines torn down, its
+    /// beat kept) and the service step shows alone in the notch; no window.
+    @MainActor
+    // decision: APP-685
+    func testARepairDuringATourKeepsItsPlaceAndShowsTheServiceInTheNotch() async {
+        _ = NSApplication.shared
+        let rig = SetupRig()
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()
         let defaults = scratchDefaults("AppSetupTests")
         let controller = AppSetupController(model: rig.model(), defaults: defaults)
         let orb = FakeOrb()
         let sound = FakeSoundPlayer()
         controller.makeTourParts = { (orb, sound) }
-        controller.notch = NotchModel(rpc: rig.rpc, preferences: defaults)
+        let notch = NotchModel(rpc: rig.rpc, preferences: defaults)
+        controller.notch = notch
         controller.introControls = FakeControlFeed()
-        await controller.launch(.intro(IntroBeat.allCases), action: .none, needs: needs(done: false))
-        XCTAssertTrue(controller.touring)
-        controller.repair(.none)            // a service set up but not starting: the tour's end would pick sign-in
-        await eventually { !controller.touring }
+        var progress = IntroProgress(defaults: defaults)
+        progress.resumeBeat = .permissions
+        await controller.launch(.intro([.permissions, .home]), action: .none, needs: needs(done: false))
+        await eventually { notch.introSkippable }
+        let windowsBefore = Set(NSApp.windows.map(ObjectIdentifier.init))
+        controller.repair(.none)            // a service set up but not starting: set up again
         XCTAssertEqual(orb.tearDowns, 1)
-        XCTAssertEqual(sound.warm.last, false)
-        XCTAssertNil(controller.notch?.introLine)
-        let windows = NSApp.windows.filter { $0.delegate === controller && $0.isVisible }
-        XCTAssertEqual(windows.count, 1)
-        XCTAssertEqual(controller.model.step, .welcome)
-        controller.setupWindow?.close()
+        XCTAssertEqual(IntroProgress(defaults: defaults).resumeBeat, .permissions)
+        await eventually { rig.runner.runs.last == ["setup", "--service", "--update"] }
+        XCTAssertTrue(controller.touring)
+        XCTAssertTrue(NSApp.windows.filter { !windowsBefore.contains(ObjectIdentifier($0)) && $0.isVisible }.isEmpty)
+        rig.runner.finish(0)
+        await eventually { notch.introSkippable }                   // back at the permissions beat
+        notch.onIntroAction?(.skipTour)
+        await eventually { !controller.touring }
     }
 
     /// The quiet update's decision reads its needs here: a required grant is missing as in Allow all (FERB.app's own
@@ -284,29 +322,32 @@ final class AppSetupTests: XCTestCase {
     }
 
     /// U3/D4: with setup recorded done, a grant switched off since brings back Allow all and home at the next launch
-    /// (a first run still gets the whole tour). U2: a Grant from Settings that succeeded leaves no setup window to
-    /// reopen; one in an unfinished setup still resumes (APP-595).
-    @MainActor
-    // decision: APP-657
-    func testALaunchNoticesAGrantSwitchedOffAndForgetsAGrantThatSucceeded() async {
+    /// (a first run still gets the whole tour).
+    // decision: APP-686
+    func testALaunchNoticesAGrantSwitchedOff() {
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true, missing: ["accessibility"])),
                        .intro([.permissions, .home]))
-        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true, missing: ["accessibility"]),
-                                             resume: .permissions), .intro([.permissions, .home]))
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true, missing: ["accessibility"], firstRun: true)),
                        .intro(IntroBeat.allCases))
-        let rig = SetupRig()
-        rig.app.notificationStatus = .granted
-        rig.app.microphoneStatus = .granted
-        let defaults = scratchDefaults("AppSetupTests")
-        let controller = AppSetupController(model: rig.model(), defaults: defaults)
-        defaults.set(SetupStep.permissions.rawValue, forKey: SetupModel.resumeKey)      // a Grant was pressed
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
-        await controller.model.refreshPermissions()
-        XCTAssertEqual(SetupModel.pendingResume(defaults), .permissions)                 // setup not done: it resumes
-        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted",
-                                                                        setupDone: true)
-        await controller.model.refreshPermissions()
-        XCTAssertNil(SetupModel.pendingResume(defaults))
+    }
+
+    /// Live 2026-11-04: SMAppService's status for FERB's bundled plist read enabled at the relaunch because FERB's own
+    /// LaunchAgent ran under the same label, and the unregister that followed booted the running daemon out. It counts
+    /// only when launchd runs the label from another definition, or nothing runs and no LaunchAgent names it.
+    // decision: APP-683
+    func testOnlyAnotherDefinitionsJobCountsAsA2026_11Registration() {
+        let launchAgent = "/Users/o/Library/LaunchAgents/com.ferb.daemon.plist"
+        let bundled = "/Applications/FERB.app/Contents/Library/LaunchAgents/com.ferb.daemon.plist"
+        XCTAssertEqual(ServiceStatus.retired(reported: .enabled, loaded: true, loadedFrom: launchAgent,
+                                             launchAgent: launchAgent, launchAgentExists: true), .notRegistered)
+        XCTAssertEqual(ServiceStatus.retired(reported: .enabled, loaded: false, loadedFrom: nil,
+                                             launchAgent: launchAgent, launchAgentExists: true), .notRegistered)
+        XCTAssertEqual(ServiceStatus.retired(reported: .enabled, loaded: true, loadedFrom: bundled,
+                                             launchAgent: launchAgent, launchAgentExists: false), .enabled)
+        XCTAssertEqual(ServiceStatus.retired(reported: .requiresApproval, loaded: false, loadedFrom: nil,
+                                             launchAgent: launchAgent, launchAgentExists: false), .requiresApproval)
+        XCTAssertEqual(LaunchctlPlan.loadedPath("gui/501/com.ferb.daemon = {\n\tactive count = 1\n\tpath = \(launchAgent)\n"
+                                                + "\tstate = running\n"), launchAgent)
+        XCTAssertNil(LaunchctlPlan.loadedPath("state = running\n"))
     }
 }

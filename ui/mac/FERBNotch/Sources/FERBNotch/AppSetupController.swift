@@ -11,19 +11,19 @@ enum AppName {
 /// user LaunchAgent, DMN-513), and every later beat reads and acts through the daemon. After the app is replaced by a
 /// new build, an older install's LaunchAgent or a 2026-11 build's SMAppService registration is found, the LaunchAgent
 /// differs from what setup wrote (DMN-514) or launchd doesn't have FERB running, launch updates the service quietly
-/// (`ferb setup --service --update`) and runs only the intro's beats for a required grant that's missing. A skipped
-/// intro (or a grant still off at its end) leaves the compact setup window on the first required step left. A
-/// checkout's LaunchAgent is replaced only after the owner says so, from the menu too. Replay intro (Settings → General, the menu's Set Up FERB…) runs every beat again. Closing
-/// the window doesn't stop a service run; quitting FERB stops it, and setup finishes reinstalling the service first.
-/// A development build, which has no Python inside, never installs anything.
+/// (`ferb setup --service --update`) and runs only the intro's beats for a required grant that's missing. Setup and its
+/// errors live in the notch tour only (APP-685, owner 2026-11-04): a failed service install or update is the tour's
+/// service line with its reason and Try again, and a launch with setup unfinished resumes the tour at its saved beat;
+/// there is no setup window. A skipped intro (or a grant still off at its end) comes back as the tour at the next
+/// launch. A checkout's LaunchAgent is replaced only after the owner says so, from the menu too. Replay intro
+/// (Settings → General, the menu's Set Up FERB…) runs every beat again. Quitting FERB stops a service run, and setup
+/// finishes reinstalling the service first. A development build, which has no Python inside, never installs anything.
 @MainActor
-final class AppSetupController: NSObject, NSWindowDelegate {
+final class AppSetupController: NSObject {
     private let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath()
-    private var window: NSWindow?
-    var onFinished: (() -> Void)?
     /// Setup has nothing left to do (L34 Phase F): at launch when this build is set up, after a quiet update that
-    /// needs no permission, or at the setup window's Done. The app applies the login-item default here (plan G adds
-    /// "Updated to …").
+    /// needs no permission, or at the tour's end with nothing required left. The app applies the login-item default
+    /// here (plan G adds "Updated to …").
     var onSettled: (() -> Void)?
     /// The notch the intro speaks in and the controls it teaches (PanelCoordinator's), set before launch.
     var notch: NotchModel?
@@ -39,11 +39,9 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     }
     /// The tour's waits (nil: real time). Only the intro playground sets it, to run the tour faster or slower.
     var introSleeper: IntroSleeping?
-    /// A repair ended the tour: its end leaves the compact window where the repair put it.
-    private var repairing = false
-    /// A tour is on, or ending.
+    /// A tour is on, or ending (the service step of a repair included).
     var touring: Bool { intro != nil }
-    /// Where the intro stands (IntroProgress) and the setup window's Grant resume (SetupModel.resumeKey) live here.
+    /// Where the intro stands (IntroProgress) lives here.
     private let defaults: UserDefaults
     private var progress: IntroProgress { IntroProgress(defaults: defaults) }
     private let injectedModel: SetupModel?
@@ -73,12 +71,10 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     var makeArrival: () -> IntroArrivalShowing? = { StartupArrival() }
 
     lazy var model: SetupModel = {
-        let model = injectedModel ?? SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
-                                                app: SystemAppPermissions(), system: SystemOpener(),
-                                                keys: KeychainAPIKeyStore(), service: DaemonService(),
-                                                background: isPackaged ? background : nil)
-        model.resumeDefaults = defaults
-        return model
+        injectedModel ?? SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
+                                    app: SystemAppPermissions(), system: SystemOpener(),
+                                    keys: KeychainAPIKeyStore(), service: DaemonService(),
+                                    background: isPackaged ? background : nil)
     }()
 
     var isPackaged: Bool {
@@ -96,13 +92,11 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     /// install has nothing to read yet, and an update reads after it has run (quietUpdate).
     func decideAtLaunch(_ action: AppSetupAction) async {
         let needs = action == .none ? await readNeeds(action) : Self.newInstall(action)
-        let decision = AppSetupPlan.atLaunch(action, needs: needs, tour: progress.interrupted,
-                                             resume: SetupModel.pendingResume(defaults))
+        let decision = AppSetupPlan.atLaunch(action, needs: needs, tour: progress.interrupted)
         await launch(decision, action: action, needs: needs)
     }
 
-    /// FERB isn't running and Restart couldn't start it: the service is set up again from the setup window, as
-    /// Set Up FERB… did before the intro. A repair never starts a tour.
+    /// FERB isn't running and Restart couldn't start it: the service is set up again in the notch (APP-685).
     func repairService() {
         guard isPackaged else { return }
         let action = currentAction()
@@ -110,14 +104,40 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         repair(action)
     }
 
-    /// The repair wins over a tour: the tour is skipped (its own teardown: orb, sound, lines), then one compact
-    /// window shows on Welcome, and the tour's end doesn't move it. A task the tour started keeps its own turn.
+    /// The repair wins over a tour: the tour is interrupted where it is (its own teardown: orb, sound, lines; its
+    /// place kept), the service step runs alone in the notch, its failure shown with the reason and Try again, and
+    /// once the service runs the launch goes on as after a quiet update, resuming that tour (APP-685). A task the
+    /// tour started keeps its own turn.
     func repair(_ action: AppSetupAction) {
-        if let intro {
-            repairing = true
-            intro.skip()
+        if let intro, !intro.repairing {
+            intro.interrupt()
+            self.intro = nil
+            orb = nil
+            sound = nil
         }
-        show(.welcome, action: action)
+        guard intro == nil else { return }               // a repair already shows
+        if !model.serviceRunning { model.serviceAction = action == .none ? .update : action }
+        startRepair(update: false)
+    }
+
+    /// The service step alone in the notch; once the service runs, the launch's decision (the tour, or nothing).
+    private func startRepair(update: Bool) {
+        guard let notch, let introControls else { return }
+        let (orb, sound) = makeTourParts()
+        let controller = IntroController(setup: model, orb: orb, sound: sound, notch: notch, progress: progress,
+                                         controls: introControls, sleeper: introSleeper)
+        controller.onFinished = { [weak self, weak controller] in
+            guard let self else { return }
+            let repaired = controller?.repaired ?? false
+            self.intro = nil
+            self.orb = nil
+            self.sound = nil
+            if repaired { Task { @MainActor in await self.afterQuietUpdate(update: update) } }
+        }
+        self.orb = orb
+        self.sound = sound
+        intro = controller
+        controller.startRepair()
     }
 
     /// Set Up FERB… and Settings → General → Replay intro: every beat again, ignored while a tour runs. It resets no
@@ -142,7 +162,6 @@ final class AppSetupController: NSObject, NSWindowDelegate {
             if !needs.setupDone && progress.done && model.permissions != nil { await model.recordFinished() }
             onSettled?()
         case .quietUpdate: quietUpdate()
-        case .window(let step): show(step, action: action)
         case .intro(let beats):
             if case .confirmReplace(let current) = action, !confirmReplacing(current) { return }
             startTour(beats, action: action, firstRun: needs.firstRun, startup: startup)
@@ -152,10 +171,8 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     /// One tour: its controller, orb and sound engine live until it ends. A tour can't start without the notch.
     private func startTour(_ beats: [IntroBeat], action: AppSetupAction, firstRun: Bool, startup: Bool = false) {
         guard intro == nil else { return }
-        guard let notch, let introControls else { show(.welcome, action: action); return }
+        guard let notch, let introControls else { return }
         if !model.serviceRunning { model.serviceAction = action }
-        window?.close()                                       // the compact window gives way to the tour
-        defaults.removeObject(forKey: SetupModel.resumeKey)   // the intro's own resume wins
         var progress = self.progress
         if firstRun { progress.resumeBeat = nil }            // a new install starts at Meet, whatever a quit left
         progress.plan = beats
@@ -174,30 +191,22 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         if !controller.running { tourEnded(left: []) }       // nothing in the plan to run
     }
 
-    /// The tour ended (finished or skipped): the compact window on the first required step left, else settled.
+    /// The tour ended (finished or skipped): settled when nothing required is left; otherwise nothing opens, and the
+    /// next launch brings the tour back for what is missing (APP-508, APP-685: never a window).
     private func tourEnded(left: [String]) {
         intro = nil
         orb = nil
         sound = nil
         var progress = self.progress
         progress.plan = nil
-        defaults.removeObject(forKey: SetupModel.resumeKey)   // the tour's grants left it
-        if repairing {
-            repairing = false
-            return
-        }
         let serviceSetUp = model.serviceAction == .none && !model.serviceRunning
-        if let step = AppSetupPlan.afterIntro(left, serviceSetUp: serviceSetUp) {
-            show(step, action: model.serviceAction)
-        } else {
-            onSettled?()
-        }
+        if left.isEmpty && serviceSetUp { onSettled?() }
     }
 
     /// What this install still needs, read from the daemon and the system: only what the decision depends on. A
     /// quit tour or a first run needs nothing more; a finished setup needs only its grants, read at every launch so a
-    /// grant switched off since is noticed (APP-657). The launch's reads leave no "isn't answering" line behind on the
-    /// shared model (the daemon may only be slow to start; the setup window's own polling says so if it lasts).
+    /// grant switched off since is noticed (APP-686). The launch's reads leave no "isn't answering" line behind on the
+    /// shared model (the daemon may only be slow to start).
     private func readNeeds(_ action: AppSetupAction) async -> IntroNeeds {
         let done = await model.setupDone()
         let progress = self.progress
@@ -257,33 +266,25 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         return await background.unregisterForUninstall()
     }
 
-    /// The service updated with no window; if that fails, the compact window shows its reason, and its Try Again
-    /// continues this launch once the service is up (live 2026-11-02: it went on through the window's steps instead
-    /// of the tour).
+    /// The service updated with nothing shown; if that fails, the notch shows the service step with the reason and
+    /// Try again (APP-685, live 2026-11-04: the old compact window came up with "restarting the daemon failed:"), and
+    /// once the service runs the launch goes on to its tour, resumed at its saved beat.
     private func quietUpdate() {
         model.serviceAction = .update
         model.runService { [weak self] ok in
             guard let self else { return }
-            guard ok else {
-                self.model.afterService = { [weak self] in
-                    Task { @MainActor in await self?.afterQuietUpdate(fromWindow: true) }
-                }
-                self.show(.welcome, action: .update)
-                return
-            }
-            Task { @MainActor in await self.afterQuietUpdate(fromWindow: false) }
+            guard ok else { self.startRepair(update: true); return }
+            Task { @MainActor in await self.afterQuietUpdate(update: true) }
         }
     }
 
-    /// What the launch still asks for once the updated service runs. From the repairing window, the tour replaces it
-    /// (startTour closes it) and nothing to do closes it.
-    private func afterQuietUpdate(fromWindow: Bool) async {
+    /// What the launch still asks for once the updated service runs.
+    private func afterQuietUpdate(update: Bool) async {
         let needs = await readNeeds(.update)
         let interrupted = progress.interrupted
         let decision = AppSetupPlan.afterUpdate(needs, tour: interrupted)
-        if fromWindow, decision == .nothing { window?.close() }
         // A newer build over a tour a quit interrupted: the startup plays again before the tour resumes (APP-645).
-        await launch(decision, action: .none, needs: needs, startup: interrupted != nil && !needs.firstRun)
+        await launch(decision, action: .none, needs: needs, startup: update && interrupted != nil && !needs.firstRun)
     }
 
     /// Whether launchd has FERB's agent running now (`launchctl print` only reads launchd's state).
@@ -309,48 +310,5 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         alert.addButton(withTitle: "Not Now")
         NSApp.activate(ignoringOtherApps: true)
         return alert.runModal() == .alertFirstButtonReturn
-    }
-
-    private func show(_ step: SetupStep, action: AppSetupAction) {
-        if !model.serviceRunning { model.serviceAction = action }
-        if window == nil {
-            let created = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 550),
-                                   styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
-            created.title = "Set Up \(AppName.current)"
-            created.isReleasedWhenClosed = false
-            created.delegate = self
-            created.titleVisibility = .hidden
-            created.titlebarAppearsTransparent = true
-            created.isOpaque = false
-            created.backgroundColor = .clear
-            created.isMovableByWindowBackground = true
-            for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                created.standardWindowButton(button)?.isHidden = true
-            }
-            created.contentView = NSHostingView(rootView: SetupView(model: model, close: { [weak created] in
-                created?.performClose(nil)
-            }))
-            created.contentView?.wantsLayer = true
-            created.contentView?.layer?.cornerRadius = 28
-            created.contentView?.layer?.masksToBounds = true
-            created.center()
-            window = created
-            model.onFinish = { [weak self] in
-                self?.window?.close()
-                self?.onFinished?()
-                self?.onSettled?()
-            }
-        }
-        model.go(step)
-        model.startPolling()
-        // The owner opened FERB or chose Set Up FERB…: on their Space, never switching Spaces (APP-650)
-        if let window { AppWindowPresentation.show(window) }
-    }
-
-    /// The compact setup window, when it exists (tests).
-    var setupWindow: NSWindow? { window }
-
-    func windowWillClose(_ notification: Notification) {
-        model.stopPolling()           // a service run keeps going: stopping it halfway could leave the service unloaded
     }
 }

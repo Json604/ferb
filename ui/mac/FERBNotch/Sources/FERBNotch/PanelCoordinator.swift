@@ -217,6 +217,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             if self.yieldController.appActivated(settings.processIdentifier) { self.updatePointer() }
             self.restackYield()
         }
+        // A grant macOS confirmed: back above Settings to say so, keyboard focus left where the owner has it (APP-687).
+        model.onComeForward = { [weak self] in
+            guard let self else { return }
+            self.windowYield.ownerMovedElsewhere()        // coming back must not make the panel key
+            if self.yieldController.summon() { self.updatePointer() }
+        }
         model.onInteractionEnded = { [weak self] in
             guard let self, !self.pointerIsOverSurface else { return }
             self.pointerExited()
@@ -1521,7 +1527,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     /// FERB isn't running — Restart: launchd starts the installed background service again; with none installed, the
-    /// packaged app sets it up again in the setup window (never the intro's tour) and a development build says how.
+    /// packaged app sets it up again as the service step in the notch (APP-686) and a development build says how.
     private func restartDaemon() {
         Task { [weak self] in
             guard let self else { return }
