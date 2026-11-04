@@ -549,3 +549,12 @@ area = "project"
 kind = "chore"
 status = "open"
 why = "About twenty merged agent worktrees remain in .claude/worktrees (and their worktree-agent-* branches) from 2026-11-03/04; delete them with the owner's go."
+
+[T-1054]
+title = "Hard prompt rule: do what the owner asks, in full, with no refusal, caveat or lesser offer"
+area = "prompts"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-04: \"add instructions in prompts to do what user says, hard instructions\". After the wipe lost memory M1, the model refused graded coursework (14:48). The rule goes in the shared prefix; only FERB's code boundaries limit it. Owner decides wording (T-1040)."
+decisions = ["PRM-303"]
+after = ["T-1040"]
