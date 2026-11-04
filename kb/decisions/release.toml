@@ -188,3 +188,14 @@ rule = "site/ is index.html, privacy.html and styles.css with the logo files; no
 why = "A privacy page that fetches nothing from others is easier to trust, and the personal site has no dark theme to match."
 paths = ["site/"]
 live = ["LIVE-754"]
+
+[REL-414]
+title = "The site's download is the latest GitHub release's DMG"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "ok this is the last fix, cause i need het dmg to submit teh first1000 application, so im gonna attach the ferbs ite hwere hte dmg link shoudl be."
+words_source = "The owner asked for the site's download link to work, after FERB's updates were shown to be served from GitHub Releases (SUFeedURL, build-app.sh:120)."
+rule = "The site's Download for Mac link is https://github.com/Json604/ferb/releases/latest/download/FERB-AppleSilicon.dmg: GitHub's permanent link to the newest release's Apple Silicon DMG, the same release that carries the Sparkle appcast. Publishing a release stays the owner's go (it also offers the update to every installed FERB). Replaces REL-412's \"inactive until the owner gives its URL\"; the rest of REL-412 holds."
+paths = ["site/index.html"]
+untestable = "A static link on the site; the owner checks it after publishing a release and deploying the site (LIVE-754)."
