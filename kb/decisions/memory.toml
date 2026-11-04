@@ -583,3 +583,13 @@ rule = "A day whose distillation failed stays in `pending_days`, so each hourly 
 why = "Live 2026-11-01: one \"Codex isn't signed in\" parked the day for good with no journal row; the retry command the code named didn't exist."
 paths = ["ferb/memory/distill.py::Distiller", "ferb/daemon/areas/rpc.py", "ferb/cli/setup.py"]
 live = ["LIVE-716"]
+
+[MEM-422]
+title = "Each failed episode card is journaled; stuck cards show in ferb doctor"
+by = "agent"
+date = 2026-11-04
+status = "active"
+words_source = "Owner approved the audit fix batch 2026-11-04: \"i approve all fixes\"; coordinator scoped this follow-up to M1's card case, keeping the two-failure stop until the owner rules on retry caps."
+rule = "An episode card that can't be built is still tried once more on the next hourly pass and, failed twice on the same inputs, waits for them to change (unchanged). Each failure is journaled `memory.cards_failed` with the task id, the error and what follows (tried once more, or waits until its task changes). `Learning.stuck_cards` lists the parked ones; `doctor.check` returns them as `learning.stuck_cards` and `ferb doctor` shows each. The pointer to a nonexistent `ferb memory consolidate` (and its unused `force`) is gone."
+why = "A card's failure was recorded only in learning_card_inputs, with no journal row and nothing showing it, and the code named a retry command that doesn't exist (audit M1 follow-up, 2026-11-04)."
+paths = ["ferb/memory/learning.py::Learning", "ferb/daemon/areas/memory.py", "ferb/daemon/areas/rpc.py", "ferb/cli/setup.py"]

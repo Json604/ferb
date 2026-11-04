@@ -916,6 +916,9 @@ def doctor(env: Env) -> int:
             add(Check(f"learning {day['day']}", "warn",
                       f"not learned from yet ({day['attempts']} tries): {day['error']}",
                       "FERB tries that day again every hour; sign in to its AI service if it says signed out"))
+        for card in (report.get("learning") or {}).get("stuck_cards", []):     # MEM-422
+            add(Check(f"episode card {card['task_id']}", "warn", f"couldn't be built twice: {card['error']}",
+                      "FERB tries it again when that task changes (a new verdict or a rebuilt episode)"))
         try:
             c = env.connect()
             sense = c.call("sense.status")

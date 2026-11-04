@@ -356,6 +356,7 @@ def test_a_card_parked_by_the_old_redaction_refusal_is_read_again_once(tmp_path)
         assert store.cards_to_read() == ['t-old']
         store.capture_episode('t-old')
         assert store.current_card('t-old') is not None and store.cards_to_read() == []
+        assert store.stuck_cards() == [{"task_id": "t-other", "error": "the reader crashed"}]   # MEM-422: doctor
     finally:
         db.close()
 
@@ -404,3 +405,29 @@ REVISION_DISHES = ('egg curry', 'paneer', 'dal')
 
 
 ORDERS, BILLING = 'orders@shop.example', 'billing@shop.example'
+
+
+# decision: MEM-422
+def test_each_failed_episode_card_is_journaled_with_why_and_what_follows(daemon, monkeypatch):
+    """A card that couldn't be built was recorded only in learning_card_inputs (failed, then parked after the second
+    failure) with no journal row, and the code pointed to a `ferb memory consolidate` that doesn't exist."""
+    from ferb.memory.learning import LearningRefused
+    from tests.support.cards import finished_task
+    d = daemon.daemon
+
+    async def refuse(task_id, apps):
+        raise LearningRefused("the reader crashed")
+    monkeypatch.setattr(d, "_capture_card", refuse)
+
+    async def go():
+        finished_task(d.db, d.spans, d.learning, "t-card")
+        for _ in range(3):                                      # three hourly passes: tried, tried again, parked
+            await d._refresh_cards()
+        return [(e.data["task_id"], e.data["error"], e.data["next"])
+                for e in d._journal().of_kind("memory.cards_failed")]
+    assert daemon.run(go()) == [("t-card", "the reader crashed", "tried once more next hour"),
+                                ("t-card", "the reader crashed", "waits until its task changes")]
+
+    async def stuck():
+        return d.learning.stuck_cards()
+    assert daemon.run(stuck()) == [{"task_id": "t-card", "error": "the reader crashed"}]
