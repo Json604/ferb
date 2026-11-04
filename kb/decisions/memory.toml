@@ -627,7 +627,7 @@ by = "agent"
 date = 2026-11-04
 status = "active"
 supersedes = ["MEM-36"]
-rule = "Code joins at once, under \"Recently said\" while it fits, only facts whose `subject` is \"owner\": the owner's words (MEM-35; not a fact placed by search, memory.search_only), the Mac scan's facts (MEM-423), and FERB's other understanding or observations once a save shows them holding up (a second day). The owner's words about anything else wait for the weekly pass, which places them like any fact. A join that isn't the owner's words adds its \"Now always on\" card. The pass is the only scheduled rewrite; the owner's pins survive it."
+rule = "Code joins at once, under \"Recently said\" while it fits, only facts whose `subject` is \"owner\": the owner's words (MEM-35; not a fact placed by search, memory.search_only), the Mac scan's facts (MEM-423), and FERB's other understanding or observations once a save shows them holding up (a second day). The owner's words about anything else wait for the weekly pass, which places them like any fact. A join that isn't the owner's words adds its \"Now always on\" card (the scan's joins: MEM-427). The pass is the only scheduled rewrite; the owner's pins survive it."
 why = "T-5: code joined the owner's words whatever their subject, against MEM-35 (live 2026-11-03: one such entry). MEM-423 adds the scan's facts. Entries older builds joined for other subjects stay until the next pass re-chooses."
 paths = ["ferb/memory/profile.py::CoreProfile.saved"]
 live = ["LIVE-736", "LIVE-737"]
@@ -638,6 +638,16 @@ by = "agent"
 date = 2026-11-04
 status = "active"
 supersedes = ["MEM-24"]
-rule = "Code gathers the 25 most-used apps (TOP_APPS), installed/used counts, browsers and Chromium profiles; one model call (mac_profile.md) writes the summary and facts, stored observed and active at once, and in Tier 1 at once within its budget (MEM-423). Shown once (setup step, else one chat notice). Re-checked weekly with the profile pass; re-interpreted only when the 10 most-used apps, browsers or profiles changed (facts_fingerprint); a key not given again ends. A re-interpretation's facts are scan facts too: a new version takes its entry's place at once (MEM-7); a new key joins with its card."
+rule = "Code gathers the 25 most-used apps (TOP_APPS), installed/used counts, browsers and Chromium profiles; one model call (mac_profile.md) writes the summary and facts, stored observed and active at once, and in Tier 1 at once within its budget (MEM-423). Shown once (setup step, else one chat notice). Re-checked weekly with the profile pass; re-interpreted only when the 10 most-used apps, browsers or profiles changed (facts_fingerprint); a key not given again ends. A re-interpretation's facts are scan facts too: a new version takes its entry's place at once (MEM-7); a new key joins (told: MEM-427)."
 why = "MEM-423 (owner, 2026-11-04)."
 paths = ["ferb/device/persona.py::TOP_APPS", "ferb/memory/mac_profile.py"]
+
+[MEM-427]
+title = "How the Mac scan's joins are told; no upgrade step for older scan facts"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The scan's joins post no \"Now always on\" notice each. A scan the setup step or the chat's \"here's what I saw\" notice shows is their telling; Correct / Forget stay on the Memory page. A quiet weekly re-check (or a scan with nothing shown) whose facts join or take an entry's place in Tier 1 posts ONE notice carrying a note card per fact, after everything else (`PersonaReview._store`, `CoreProfile.holding_joins`). Scan facts an older build saved join at the next re-check or pass: no one-time upgrade step."
+why = "Coordinator's rulings 2026-11-04 on the questions MEM-423 left: the owner's proposal said they already see the scan's facts in setup; ten notices at setup would repeat it."
+paths = ["ferb/daemon/persona.py::PersonaReview", "ferb/daemon/areas/memory.py", "ferb/memory/profile.py::CoreProfile.holding_joins"]
+live = ["LIVE-736"]

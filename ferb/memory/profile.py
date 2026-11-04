@@ -20,9 +20,10 @@ profile is due for a pass."""
 
 import hashlib
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from ferb.core.interfaces import Clock
 from ferb.core.types import Identity, MemoryItem, Task
@@ -91,6 +92,18 @@ class CoreProfile:
         # MEM-15: told the facts of FERB's understanding or observation that just joined the profile (code's join
         # or the pass's), each once: the daemon adds a quiet "Now always on" note card
         self.on_joined: Callable[[list[MemoryItem]], None] = lambda items: None
+        self._held: list[MemoryItem] | None = None       # `holding_joins`: joins kept back from `on_joined`
+
+    @contextmanager
+    def holding_joins(self) -> Iterator[list[MemoryItem]]:
+        """Within it, code's joins are collected instead of told (`on_joined`), so the caller tells them its own way:
+        the Mac scan's joins (MEM-427), shown by "here's what I saw" or told as one notice."""
+        held: list[MemoryItem] = []
+        outer, self._held = self._held, held
+        try:
+            yield held
+        finally:
+            self._held = outer
 
     # ---------- reads ----------
 
@@ -289,7 +302,10 @@ class CoreProfile:
         self._write(item.id, RECENT, self._next_position(), "code")
         self.record("memory.profile_changed", {"added": item.id, "by": "code"})
         if item.origin != "owner_stated":
-            self.on_joined([item])
+            if self._held is not None:
+                self._held.append(item)
+            else:
+                self.on_joined([item])
         self.on_change()
 
     def add(self, item_id: str, section: str = "", *, by: str = "owner") -> None:

@@ -2551,8 +2551,8 @@ title = "The Mac scan's facts are always on at once, labelled observed"
 area = "memory"
 surface = "FERB.app with this build on the owner's Mac; the Memory page and chat"
 request = "Run the setup step's \"what I saw\" scan again (or let the weekly re-check find a change), then open the Memory page's core profile and look at chat."
-pass = "Each fact listed under \"here's what I saw\" is in the core profile right away, labelled observed, and chat shows one \"Now always on: … (observed)\" card per new fact with Correct / Forget. Something FERB worked out from a chat (FERB's understanding) is not in the core profile on the day it was saved."
-decisions = ["MEM-423", "MEM-425"]
+pass = "Each fact listed under \"here's what I saw\" is in the core profile right away, labelled observed, with no extra \"Now always on\" notices after a setup scan; a weekly re-check that changes them posts one \"Now always on: … (observed)\" notice with a card per fact (Correct / Forget). Something FERB worked out from a chat (FERB's understanding) is not in the core profile on the day it was saved."
+decisions = ["MEM-423", "MEM-425", "MEM-427"]
 sitting = "after this change is installed"
 
 [LIVE-737]
