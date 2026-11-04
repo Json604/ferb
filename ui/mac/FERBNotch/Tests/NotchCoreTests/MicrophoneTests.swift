@@ -52,8 +52,10 @@ private final class FakeMicrophone: VoiceCapturing {
     var completion: ((Result<String, Error>) -> Void)?
     var finished = false
     var cancelled = false
-    func start(update: @escaping (String) -> Void, completion: @escaping (Result<String, Error>) -> Void) {
-        self.update = update; self.completion = completion
+    var level: (([Double], TimeInterval) -> Void)?
+    func start(update: @escaping (String) -> Void, level: @escaping ([Double], TimeInterval) -> Void,
+               completion: @escaping (Result<String, Error>) -> Void) {
+        self.update = update; self.level = level; self.completion = completion
     }
     func finish() { finished = true }
     func cancel() { cancelled = true }

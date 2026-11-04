@@ -788,7 +788,8 @@ private final class ScriptedMicrophone: VoiceCapturing {
     let text: String
     private var completion: ((Result<String, Error>) -> Void)?
     init(text: String) { self.text = text }
-    func start(update: @escaping (String) -> Void, completion: @escaping (Result<String, Error>) -> Void) {
+    func start(update: @escaping (String) -> Void, level: @escaping ([Double], TimeInterval) -> Void,
+               completion: @escaping (Result<String, Error>) -> Void) {
         update(text)
         self.completion = completion
     }

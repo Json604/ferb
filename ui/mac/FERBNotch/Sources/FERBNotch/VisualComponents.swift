@@ -105,37 +105,38 @@ struct FerbButtonStyle: ButtonStyle {
     }
 }
 
-/// An example signal, separate from the future microphone meter.
+/// The dictation meter (APP-674): drawn only from the microphone's loudness (VoiceLevel), never from a clock. The
+/// newest level sits in the centre and older ones move outward, so the bars are a still line in silence and move
+/// only with the voice. Reduce Motion keeps the bars still and shows loudness by brightness alone.
 struct VoiceLight: View {
-    let listening: Bool
-    let startedAt: Date
-    var active = true
+    @ObservedObject var meter: VoiceMeter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    static let bars = 49
+    static let quietHeight: CGFloat = 2, tallest: CGFloat = 27
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !active || reduceMotion)) { timeline in
-            let elapsed = timeline.date.timeIntervalSince(startedAt)
-            HStack(alignment: .center, spacing: 2) {
-                ForEach(0..<49, id: \.self) { index in
-                    Capsule()
-                        .fill(.white.opacity(listening ? 0.94 : 0.64))
-                        .frame(width: 2, height: height(index, elapsed: elapsed))
-                }
+        let value = meter.value
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(0..<Self.bars, id: \.self) { index in
+                Capsule()
+                    .fill(.white.opacity(reduceMotion ? 0.4 + 0.54 * value.level : 0.94))
+                    .frame(width: 2, height: reduceMotion ? 3 : Self.height(index, history: value.history))
             }
-            .shadow(color: .white.opacity(listening ? 0.3 : 0.12), radius: 4)
-            .frame(height: 27)
         }
+        // Blocks can arrive in bursts (a 100 ms hardware buffer is five of them): a short linear blend, no spring.
+        .animation(reduceMotion ? nil : .linear(duration: 0.08), value: value.history)
+        .shadow(color: .white.opacity(0.3), radius: 4)
+        .frame(height: Self.tallest)
         .accessibilityHidden(true)
     }
 
-    private func height(_ index: Int, elapsed: Double) -> CGFloat {
-        let x = Double(index)
-        let envelope = 3 + 16 * exp(-pow((x - 15) / 5, 2)) + 22 * exp(-pow((x - 30) / 6, 2))
-        if reduceMotion { return listening ? 5 : max(2, envelope * 0.25) }
-        // A low-amplitude breath while visible; it is not a microphone signal.
-        guard listening else { return max(2, envelope * (0.23 + 0.045 * sin(elapsed * 1.5 + x * 0.09))) }
-        let movement = 0.27 + 0.73 * abs(sin(elapsed * 4.6 + x * 0.18) * cos(elapsed * 2.1 - x * 0.09))
-        return max(2, envelope * movement)
+    /// A bar's height: the level `distance` blocks old, tapered toward the edges; the quiet height at level 0.
+    static func height(_ index: Int, history: [Double]) -> CGFloat {
+        let distance = abs(index - (bars - 1) / 2)
+        let level = distance < history.count ? history[distance] : 0
+        let taper = 0.35 + 0.65 * exp(-pow(Double(distance) / 12, 2))
+        return quietHeight + (tallest - quietHeight) * CGFloat(taper * min(1, max(0, level)))
     }
 }
 

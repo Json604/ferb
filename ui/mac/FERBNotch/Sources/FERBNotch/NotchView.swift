@@ -334,9 +334,10 @@ struct NotchView: View {
 
     private var listening: some View {
         VStack(spacing: 9) {
-            VoiceLight(listening: true, startedAt: model.voiceStartedAt, active: model.expanded)
+            VoiceLight(meter: model.voiceMeter)
+            // The newest words stay in view: a long dictation drops its start from the preview, never its end.
             Text(model.voiceFinishing ? "Finishing…" : (model.voiceTranscript.isEmpty ? "Listening…" : model.voiceTranscript))
-                .font(.system(size: 12)).foregroundStyle(Palette.secondary).lineLimit(3)
+                .font(.system(size: 12)).foregroundStyle(Palette.secondary).lineLimit(3).truncationMode(.head)
             HStack {
                 Button { model.edit() } label: { Image(systemName: "keyboard") }
                     .buttonStyle(FerbButtonStyle(quiet: true))

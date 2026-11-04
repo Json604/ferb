@@ -101,7 +101,8 @@ final class NotchYieldModelTests: XCTestCase {
 
 @MainActor
 private final class SilentMicrophone: VoiceCapturing {
-    func start(update: @escaping (String) -> Void, completion: @escaping (Result<String, Error>) -> Void) {}
+    func start(update: @escaping (String) -> Void, level: @escaping ([Double], TimeInterval) -> Void,
+               completion: @escaping (Result<String, Error>) -> Void) {}
     func finish() {}
     func cancel() {}
 }
