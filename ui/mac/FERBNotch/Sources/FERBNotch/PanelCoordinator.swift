@@ -114,6 +114,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private let indicatorPanel = FerbIndicatorPanel(contentRect: CGRect(x: 0, y: 0, width: 58, height: 30),
                                                     styleMask: [.borderless, .nonactivatingPanel],
                                                     backing: .buffered, defer: false)
+    /// The camera housing's topmost point row while docked, reaching above the screen's top edge (APP-710).
+    let edgeRowPanel = FerbIndicatorPanel(contentRect: CGRect(x: 0, y: 0, width: 58, height: 2),
+                                          styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     private var activityPanel: TaskActivityPanel?
     private var activityTaskID: String?
     private var geometry: NotchGeometry?
@@ -329,7 +332,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         magneticFieldPanel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
         magneticFieldPanel.collectionBehavior = Self.overlayBehavior
         magneticFieldPanel.contentView = magneticField
-        overlaySpace.attach([panel, tracerPanel, indicatorPanel, magneticFieldPanel])
+        overlaySpace.attach([panel, tracerPanel, indicatorPanel, edgeRowPanel, magneticFieldPanel])
         NotificationCenter.default.addObserver(self, selector: #selector(displayParametersChanged),
                                               name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(screenDidWake),
@@ -485,6 +488,21 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.model.toggle(byPress: true)
         }
         indicatorPanel.contentView = control
+
+        edgeRowPanel.title = "FERB notch edge"
+        edgeRowPanel.backgroundColor = .clear
+        edgeRowPanel.isOpaque = false
+        edgeRowPanel.hasShadow = false
+        edgeRowPanel.hidesOnDeactivate = false
+        edgeRowPanel.canBecomeVisibleWithoutLogin = false
+        edgeRowPanel.isReleasedWhenClosed = false
+        edgeRowPanel.level = indicatorPanel.level
+        edgeRowPanel.collectionBehavior = Self.overlayBehavior
+        edgeRowPanel.animationBehavior = .none
+        edgeRowPanel.acceptsMouseMovedEvents = true
+        let edgeRow = NotchEdgeRowView(frame: .zero)
+        edgeRow.handle = control
+        edgeRowPanel.contentView = edgeRow
     }
 
     private func showTaskActivity(_ taskID: String) {
@@ -975,6 +993,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         indicatorFrame = isDocked ? NotchDocking.dragRegion(cutout: cutoutFrame) : indicatorFrame(on: screen)
         indicatorPanel.setFrame(indicatorFrame, display: true)
         if indicatorControl?.isAttached != true { indicatorPanel.orderFrontRegardless() }
+        // Docked, the housing's topmost row takes a press too, closed or open (APP-710); undocked there is no housing.
+        if isDocked {
+            edgeRowPanel.setFrame(NotchDocking.edgeRow(cutout: cutoutFrame), display: true)
+            edgeRowPanel.orderFrontRegardless()
+        } else {
+            edgeRowPanel.orderOut(nil)
+        }
         tracerPanel.setFrame(frame(for: CGSize(width: model.handleWidth + 40,
                                                height: model.cutoutHeight + 24)), display: true)
         pointerIsInside = false
@@ -1042,10 +1067,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             // Re-add the persistent indicator and light, and the chat unless it is intentionally yielding.
             overlaySpace.rejoin(tracerPanel)
             overlaySpace.rejoin(indicatorPanel)
+            overlaySpace.rejoin(edgeRowPanel)
             overlaySpace.rejoin(magneticFieldPanel)
             if let activityPanel { overlaySpace.rejoin(activityPanel) }
             if !model.isYielded { overlaySpace.rejoin(panel) }
             if indicatorPanel.isVisible { indicatorPanel.orderFrontRegardless() }
+            if edgeRowPanel.isVisible { edgeRowPanel.orderFrontRegardless() }
             if tracerPanel.isVisible { tracerPanel.orderFrontRegardless() }
             if magneticFieldPanel.isVisible { magneticFieldPanel.orderFrontRegardless() }
             if !model.isYielded && panel.isVisible { panel.orderFrontRegardless() }
@@ -1618,6 +1645,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         panel.orderOut(nil)
         tracerPanel.orderOut(nil)
         indicatorPanel.orderOut(nil)
+        edgeRowPanel.orderOut(nil)
         overlaySpace.stop()
         presentationRevision = UUID()
         hoverTask?.cancel()

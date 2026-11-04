@@ -165,6 +165,87 @@ final class NotchDragTests: XCTestCase {
         }
     }
 
+    /// Owner, 0.27.1 on macOS 27.2: "drag works, but it only doesnt work at the extreme top of the notch, fix that, it
+    /// should work at all notch area". The window server never gives a window the press on its own topmost point row,
+    /// so the handle and the open surface, both flush with the screen's top edge, lost that row to the menu bar; and the
+    /// pill's corner radius clipped the closed housing's fill at its square top corners. The edge row reaches above the
+    /// screen's top edge across the housing alone, and a press there opens or drags FERB, closed or open.
+    // decision: APP-710, APP-711, APP-705
+    func testThePressReachesTheHousingsTopmostRowAndCorners() throws {
+        // The geometry: the row reaches above the top edge, covers the topmost row, and is no wider than the housing.
+        let cutout = CGRect(x: 600.5, y: 868, width: 179, height: 32)
+        let row = NotchDocking.edgeRow(cutout: cutout)
+        XCTAssertGreaterThanOrEqual(row.maxY, cutout.maxY + 1, "the row must reach above the screen's top edge")
+        XCTAssertLessThanOrEqual(row.minY, cutout.maxY - 1, "the row must cover the topmost point row")
+        XCTAssertEqual(row.minX, cutout.minX)
+        XCTAssertEqual(row.maxX, cutout.maxX)
+
+        // The closed, docked handle's fill reaches its square top corners (no pill corner radius clipping it).
+        _ = NSApplication.shared
+        let lone = FerbIndicatorControl(model: NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults()))
+        let region = NotchDocking.dragRegion(cutout: cutout)
+        lone.frame = CGRect(origin: .zero, size: region.size)
+        let window = FerbIndicatorPanel(contentRect: lone.frame, styleMask: [.borderless, .nonactivatingPanel],
+                                        backing: .buffered, defer: true)
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.contentView = lone
+        lone.isDocked = true
+        for x in [CGFloat(0.5), region.width - 0.5] {
+            XCTAssertGreaterThan(try pressAlpha(lone, at: CGPoint(x: x, y: region.height - 0.5)), 0,
+                                 "the housing's top corner at x \(x) passed the press through")
+        }
+
+        // The real coordinator: docked, the row's window sits over the housing above the top edge and takes the press.
+        guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 && $0.auxiliaryTopLeftArea != nil })
+        else { throw XCTSkip("Needs a display with a hardware notch") }
+        for content in ["closed", "chat"] {
+            for drag in [false, true] {
+                let defaults = scratchDefaults()
+                NotchDocking.save(true, in: defaults)
+                if let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+                    defaults.set(id.intValue, forKey: "notch.indicatorDisplayID")
+                }
+                let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
+                model.setHoverEnabled(false)
+                let coordinator = PanelCoordinator(model: model, defaults: defaults)
+                defer { coordinator.tearDown() }
+                coordinator.updateScreen()
+                XCTAssertTrue(model.isNotchDocked)
+                if content == "chat" { model.expand(focus: false) }
+                let edge = coordinator.edgeRowPanel
+                XCTAssertTrue(edge.isVisible, "\(content): no window over the housing's topmost row")
+                XCTAssertGreaterThanOrEqual(edge.frame.maxY, screen.frame.maxY + 1, "\(content): it stops at the edge")
+                XCTAssertLessThanOrEqual(edge.frame.minY, screen.frame.maxY - 1)
+                let housingX = ((screen.auxiliaryTopLeftArea?.maxX ?? 0) + (screen.auxiliaryTopRightArea?.minX ?? 0)) / 2
+                XCTAssertTrue(edge.frame.minX < housingX && housingX < edge.frame.maxX)
+                XCTAssertLessThanOrEqual(edge.frame.width, model.handleWidth + 1, "\(content): wider than the housing")
+                let view = try XCTUnwrap(edge.contentView)
+                XCTAssertGreaterThan(try pressAlpha(view, at: CGPoint(x: view.bounds.midX, y: view.bounds.midY)), 0)
+                XCTAssertLessThan(try pressAlpha(view, at: CGPoint(x: view.bounds.midX, y: view.bounds.midY)), 0.02)
+                let control = try XCTUnwrap(coordinator.indicatorControl)
+                var pointer = CGPoint(x: housingX, y: screen.frame.maxY - 0.5)
+                control.pointerLocation = { pointer }
+                func event(_ type: NSEvent.EventType) throws -> NSEvent {
+                    try XCTUnwrap(NSEvent.mouseEvent(with: type, location: edge.convertPoint(fromScreen: pointer),
+                        modifierFlags: [], timestamp: 0, windowNumber: edge.windowNumber, context: nil,
+                        eventNumber: 1, clickCount: 1, pressure: 1))
+                }
+                view.mouseDown(with: try event(.leftMouseDown))
+                if drag {
+                    pointer.y -= 130
+                    view.mouseDragged(with: try event(.leftMouseDragged))
+                    XCTAssertFalse(model.isNotchDocked, "\(content): a drag from the topmost row didn't tear it out")
+                    view.mouseUp(with: try event(.leftMouseUp))
+                    XCTAssertFalse(edge.isVisible, "\(content): undocked, nothing may take the housing's row")
+                } else {
+                    view.mouseUp(with: try event(.leftMouseUp))
+                    XCTAssertEqual(model.bodyVisible, content == "closed", "\(content): the press didn't toggle FERB")
+                }
+            }
+        }
+    }
+
     /// Live 2026-11-02 (a friend's M1, no notch): the handle never sat at the top centre and jumped sideways when
     /// dropped near it, because the virtual notch there was avoided like a camera. Only a hardware notch is avoided.
     // decision: APP-640, APP-625

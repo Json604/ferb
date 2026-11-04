@@ -42,6 +42,43 @@ private final class HandlePressShape: NSView {
     }
 }
 
+/// The camera housing's topmost point row, in a window of its own that reaches one point above the screen's top edge
+/// (NotchDocking.edgeRow, APP-710; owner, 2026-11-04: "it should work at all notch area"). It draws the same invisible
+/// fill as the housing and hands every press, drag and pointer move to the handle, closed or inside the open surface,
+/// so the topmost row opens or drags FERB exactly as the rest of the housing does.
+final class NotchEdgeRowView: NSView {
+    weak var handle: FerbIndicatorControl?
+    private var tracking: NSTrackingArea?
+    override var isOpaque: Bool { false }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(false)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.withAlphaComponent(HandlePressShape.alpha).setFill()
+        bounds.fill()
+    }
+
+    override func updateTrackingAreas() {
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) { handle?.onPointerChanged?() }
+    override func mouseExited(with event: NSEvent) { handle?.onPointerChanged?() }
+    override func mouseMoved(with event: NSEvent) { handle?.onPointerChanged?() }
+    // The handle reads the global pointer, never the event's window position, so the press works from this window.
+    override func mouseDown(with event: NSEvent) { handle?.mouseDown(with: event) }
+    override func mouseDragged(with event: NSEvent) { handle?.mouseDragged(with: event) }
+    override func mouseUp(with event: NSEvent) { handle?.mouseUp(with: event) }
+}
+
 final class FerbIndicatorControl: NSView {
     var onDragBegan: ((CGPoint) -> Void)?
     var onDragged: ((CGPoint) -> Void)?
@@ -185,8 +222,9 @@ final class FerbIndicatorControl: NSView {
             homeLine.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         }
         layoutIndicatorContent()
-        // The idle bar has no material capsule, outline, shadow, or status tint.
-        layer?.cornerRadius = isResting ? 0 : 15
+        // The idle bar has no material capsule, outline, shadow, or status tint. Docked there is no capsule either, and
+        // the pill's corner radius would clip the housing's press fill at its square top corners (APP-710).
+        layer?.cornerRadius = (isResting || isDocked) ? 0 : 15
         layer?.borderWidth = 0
         layer?.backgroundColor = (isResting || isAttached || isDocked) ? nil : NSColor.black.cgColor
         layer?.borderColor = (glow ? NSColor.systemYellow : NSColor.white.withAlphaComponent(0.18)).cgColor

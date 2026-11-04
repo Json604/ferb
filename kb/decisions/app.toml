@@ -2081,3 +2081,25 @@ words = "yes it shoudl stay open"
 words_source = "Answer to: should a chat opened with double-tap right Option also stay open when the pointer passes over and leaves (as a press-opened one does, APP-707)?"
 rule = "Double-tap right Option opens the chat with APP-707's mark (NotchModel.toggle(byPress:)), so it stays open on hover-out until Escape, the double-tap/shortcut, Hide or a click elsewhere. Hover-opened chats still fold on hover-out (APP-557)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::modifierDoubleTapped"]
+
+[APP-710]
+title = "The camera housing's topmost point row takes a press through a window reaching above the screen edge"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Refines APP-706. Docked, FERB keeps one more window in its overlay space (APP-563): NotchDocking.edgeRow, exactly the camera housing's width, from 1 pt below the screen's top edge to 1 pt above it. It draws the housing's alpha-0.01 fill and hands every press, drag and pointer move to the handle, closed or attached to the open surface, so the top row opens or drags FERB by the same path and feel (APP-597, APP-629). Shown whenever FERB is docked, ordered out otherwise; the rest of the menu bar and the strip below keep their clicks."
+why = "Owner, 0.27.1: \"it only doesnt work at the extreme top of the notch, fix that, it should work at all notch area.\" The window server never gives a window the press on its own topmost point row; at the top edge it goes to the menu bar at any layer, and the handle and surface start exactly there."
+evidence = "SLSFindWindowAndOwner: installed FERB lost y 0-0.5 across the housing to MenuBarAgent; a scratch window flush with the top lost it at layers 25-2000 and kept it 1 pt higher; left/bottom edges lose nothing. Playground with the fix: y 0-0.5 went to the edge row (645,-1 179x2)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchDocking.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-771"]
+
+[APP-711]
+title = "The docked handle has no corner radius"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Refines APP-706: docked (closed or open), the handle's layer has corner radius 0, like the resting line, so the housing's press fill reaches its square top corners at the screen edge; only the lower corners stay rounded (NotchDocking.pressShape's own outline). The edge pill keeps its 15-point radius."
+why = "The pill's 15-point layer radius also applied while docked, where the handle has no capsule, and clipped the press fill: up to 10 points at each top corner of the housing passed presses to the menu bar."
+evidence = "Hit map of installed FERB's closed handle (SLSFindWindowAndOwner): both top corners rounded by about 15 pt. A scratch view with layer radius 15 clipped its subview's fill for the window server and cacheDisplay; radius 0 did not. Playground with the fix: whole top rows went to FERB."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift"]
+live = ["LIVE-771"]
