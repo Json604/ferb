@@ -437,3 +437,10 @@ status = "blocked"
 why = "G6/H7 (2026-11-04): HAND-410 gives what the pinned helper allows. The exact OSStatus needs a helper code change (ready outside the repo), which re-pins it (REL-404): every saved secret then asks for the login password once more on each Mac (T-502)."
 decisions = ["HAND-410", "REL-404"]
 ask = "To show the Keychain's exact reason when a saved secret can't be read (for example \"user interaction is not allowed\"), the small secrets helper has to be rebuilt. After that update, macOS asks once more for your login password for each saved secret on each Mac. Rebuild it now, or keep today's shorter reasons?"
+
+[T-1040]
+title = "Harden the prompts: look memory up before stating owner facts, never fill a gap"
+area = "prompts"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-04, to start once this install's testing and fixes are done: research how others write prompts models follow, then propose hard lookup/no-guess rules (interaction.md, worker.md:47, supervisor.md:9-24) for the owner's decision before any edit."
