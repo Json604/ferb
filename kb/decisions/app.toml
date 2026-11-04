@@ -222,7 +222,8 @@ legacy = "notes/setup-intro.md The direction (Motion) and Constraints (Reduce Mo
 title = "The intro's eight beats, in order"
 by = "owner"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-668"
 words = "yes yes, this is what i meant"
 rule = "The tour runs: 1 Meet (the notch says hello in one or two lines; the full sound logo plays once); 2 Sign in; 3 Allow all, guided; 4 Pair all browsers; 5 FERB's own email, optional; 6 Try: look, tell, show the journey; 7 Control, taught by doing with today's controls (double-tap right Option, hold to talk, Control-Option-Space, stopping a task, pausing FERB), each done once; 8 Back to the notch: FERB small in the notch with one line on how to bring it back. Replay intro is in Settings."
 why = "The owner agreed this journey and its order with these words on 2026-11-01; the beats' wording is an agent's description."
@@ -309,7 +310,8 @@ legacy = "notes/setup-intro.md journey step 5"
 title = "Try: look, tell and show a task's journey; the demo never acts"
 by = "owner"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-666"
 words = "look and tell it can do it. NOT ACTUALLY DO IN THE DEMO. BUT SHOW the journey that it can do and the visuals in the chat too"
 rule = "FERB says in one or two specific lines what it saw from the scan, then suggests two first tasks that fit this user, of different kinds where possible (one on the Mac or in files, one in the browser); with no clear scan, two general tasks. The user picks one and \"Show the other one\" previews the second. The preview shows the plan and the answer-in-steps rows and cards in the real chat UI, each marked as a preview, while the orb flies to the apps it would use. Nothing is clicked, typed, sent, opened or changed."
 supersedes = ["PRM-316"]
@@ -322,7 +324,8 @@ legacy = "notes/setup-intro.md journey step 6"
 title = "No real task runs during the tour"
 by = "agent"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-666"
 rule = "A \"Do it for real\" choice taken in the Try beat starts as a normal real task, with its usual questions, only after the tour ends at Home. Stopping is practised in the Control beat on the Try beat's preview, replayed as a running preview."
 why = "The tour itself never runs real work."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroControls.swift"]
@@ -1701,3 +1704,47 @@ rule = "FERB.app keeps the last update result (FERBUpdateLastResult in its own d
 why = "Audit U5 (owner approved the fixes 2026-11-04): with automatic updates on, a failed check, download or signature left no trace and the owner kept an old build unknowingly."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/UpdateCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SparkleUpdater.swift", "ui/mac/FERBNotch/Sources/FERBNotch/UpdateNotes.swift", "ui/mac/FERBNotch/Sources/NotchCore/UpdatePlan.swift"]
 live = ["LIVE-713"]
+
+[APP-665]
+title = "Every wait in the tour says what FERB is doing and stays visibly alive"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Every tour step that waits on something (service install, Login Items, sign-in, a key check, the scan, Pair all and each profile, Add to, FERB's email, intro.suggest, the Try task, the stop practice) shows a notch line saying what FERB is doing now, updated as the state changes, with a spinner and, after 3 s, the time waited (IntroLine.since; nothing moves or resizes). A wait on something outside FERB offers a way on. Motion follows APP-504."
+why = "Owner's tour of build 202611040231 (2026-11-04): \"theres no feedback or whatsoever shown in notch what is happening, it seems stuck ... the non feedback thing is everywhere in setup tour.\""
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/IntroLine.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift"]
+live = ["LIVE-730"]
+
+[APP-666]
+title = "Try runs the picked task for real and shows it working"
+by = "owner"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-513", "APP-514"]
+words = "it didnt do anything here, the orb came to say i'd use finder but nothing opened or whatsoever. lets make it work and show too, lets drop the do it for real or stuff."
+rule = "As in APP-513: one or two lines on what the scan saw, then two first tasks that fit this user, of different kinds where possible; with no clear scan, two general ones. The picked task now runs for real at once, as the owner's message through chat.send (the real daemon and gateway, their usual questions; nothing bypassed), shown live: the chat's turn card and preview, the orb at its app, a notch line with its step, the result. Then Try the other one, or Continue; Not now skips. No plan-only preview, no Do it for real."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ferb/daemon/areas/intro.py"]
+live = ["LIVE-728"]
+
+[APP-667]
+title = "Stop is practised on a real look-only task the tour starts"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The Control beat's Stop step starts a real task through the same chat path as Try: the suggestion Try didn't run (both are look-only, DMN-533), else a fresh intro.suggest one. The line offers Stop this task, which acts at once: the same task.stop for that task as the task list's Stop task, \"Stopping it…\" shown immediately, and the step counts then; the line follows the turn until the chat shows it stopped, with Go on so an unconfirmed stop never holds the beat. A task that ends before Stop, or can't start, is told and the beat goes on. Nothing in the step can hang."
+why = "APP-666 removed the preview the old Stop step replayed; stopping Try's own task would cut short the result the owner watches, and a look-only task leaves nothing half-done. Owner on the old step (2026-11-04): \"this step stops too ig\" (read: it got stuck too)."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroControls.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift"]
+live = ["LIVE-729"]
+
+[APP-668]
+title = "No Control-Option-Space hot key; the tour's eight beats"
+by = "owner"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-505"]
+words = "who added this??? remove this ctrloptionspace"
+rule = "FERB has no Control-Option-Space hot key: not registered, no Control step, not in the app guide, Settings, Home's line or the playground. The rest of APP-505 holds: 1 Meet (hello in one or two lines; the sound logo once); 2 Sign in; 3 Allow all, guided; 4 Pair all browsers; 5 FERB's own email, optional; 6 Try (APP-666); 7 Control, taught by doing (double-tap right Option, hold to talk, stopping a task, pausing FERB), each once; 8 Back to the notch with one line on how to bring FERB back. Replay intro is in Settings."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroControls.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppScreens.swift", "ui/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift"]
+live = ["LIVE-729"]

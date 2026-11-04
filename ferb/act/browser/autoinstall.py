@@ -176,6 +176,8 @@ class ProfileStatus:
     enabled: bool
     removed: bool            # the owner removed the store copy earlier: the browser won't add it again
     paired: bool | None      # None: not checked (FERB's daemon didn't answer)
+    version: str = ""        # the installed copy's version from the profile's files (HAND-412); "" when unknown
+    disabled_for: frozenset[int] = frozenset()   # Chromium's reason codes for a copy that is off (HAND-412)
 
 
 @dataclass(frozen=True)
@@ -193,7 +195,9 @@ def profile_status(p: profiles.BrowserProfile, ids: tuple[str, ...], data_dir: P
         if valid_id(store_id) else False
     return ProfileStatus(p.browser, p.folder, p.display_name, found[0] if found else "",
                          bool(found and profiles.extension_enabled(found[1])), removed,
-                         None if paired is None else (p.browser, p.folder) in paired)
+                         None if paired is None else (p.browser, p.folder) in paired,
+                         profiles.extension_version(found[1], data_dir / p.folder, found[0]) if found else "",
+                         profiles.disable_reasons(found[1]) if found else frozenset())
 
 
 def prepare(support: Path, store_id: str, ids: tuple[str, ...], paired: set[tuple[str, str]] | None,

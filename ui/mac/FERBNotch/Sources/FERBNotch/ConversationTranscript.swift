@@ -157,10 +157,6 @@ private struct TurnView: View {
                 // Step 8e: the task's cards (payments, sends, links, files) under its card's footer.
                 if let cards = turn.cards { ResultCardsView(cards: cards, turnID: turn.id, model: model) }
             }
-            if turn.preview && turn.status == "previewRunning" {
-                // Practising Stop (the tour's controls): the same words as a running task's button; nothing runs.
-                Button("Stop this task") { model.introAction(.stopPreview) }.buttonStyle(FerbButtonStyle())
-            }
             ForEach(Array((turn.parts ?? []).enumerated()), id: \.offset) { _, part in    // parts saved before cards
                 FerbBubble { MarkdownContent(part).equatable() }
             }

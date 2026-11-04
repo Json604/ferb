@@ -23,7 +23,7 @@ public enum AppGuide {
     public struct Shortcut: Equatable { public let action: String; public let keys: String }
 
     public static let shortcuts: [Shortcut] = [
-        Shortcut(action: "Open / close FERB", keys: "Double-tap right Option, or Control–Option–Space"),
+        Shortcut(action: "Open / close FERB", keys: "Double-tap right Option"),
         Shortcut(action: "Dictation", keys: "Hold right Command + Option"),
         Shortcut(action: "Submit / new line", keys: "Return / Shift–Return"),
         Shortcut(action: "FERB's window and Settings", keys: "FERB's menu bar icon → Open FERB Window, or ⌘, in it"),

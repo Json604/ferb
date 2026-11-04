@@ -184,7 +184,6 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
             jump: { [weak self] beat, complete in self?.jump(to: beat, completeEarlier: complete) },
             restartService: { Task { _ = await services.service.restart() } },
             control: { [weak coordinator] control in coordinator?.introControls.saw(control) },
-            stopPreview: { services.notch.introAction(.stopPreview) },
             openNotch: { [weak coordinator] in coordinator?.showFromMenu() },
             closeNotch: { services.notch.collapse() },
             place: { [weak self] placement, display in self?.place(placement, display: display) },

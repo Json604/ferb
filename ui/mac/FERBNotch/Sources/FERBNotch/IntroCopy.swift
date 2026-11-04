@@ -16,7 +16,11 @@ enum IntroCopy {
         static let identityNow = "identityNow", identityLater = "identityLater"
         static func profile(_ index: Int) -> String { "profile.\(index)" }
         static func suggestion(_ index: Int) -> String { "suggestion.\(index)" }
-        static let otherSuggestion = "otherSuggestion", doItForReal = "doItForReal", notNow = "notNow"
+        static let otherSuggestion = "otherSuggestion", notNow = "notNow", goOn = "goOn"
+        static let stopTask = "stopTask", stopWaiting = "stopWaiting", pairOne = "pairOne"
+        /// Add to <browser> on one profile of Pair all's result (HAND-413): its row's id is "browser/folder".
+        static func add(_ id: String) -> String { "add." + id }
+        static func addedRow(_ pick: String) -> String? { pick.hasPrefix("add.") ? String(pick.dropFirst(4)) : nil }
     }
 
     // MARK: 1. Meet
@@ -63,6 +67,7 @@ enum IntroCopy {
                   entry: IntroEntry(placeholder: "\(provider.label) API key", secure: true))
     }
     static func checking(_ status: String?) -> IntroLine { IntroLine(text: "Checking that it answers…", detail: status) }
+    static let openingClaude = IntroLine(text: "Opening Claude's sign-in…")
     static func connected(_ name: String) -> IntroLine {
         IntroLine(text: "Connected. I'll use \(name).",
                   detail: "While we go on, I'll take a quick look at the apps you use, so I can suggest something useful.")
@@ -128,17 +133,74 @@ enum IntroCopy {
                                     detail: "I'll pair with each one so I can help on the web. A browser may ask you to turn FERB on.",
                                     choices: [IntroChoice(Pick.pairAll, "Pair all"),
                                               IntroChoice(Pick.browsersLater, "Later")])
-    static let pairing = IntroLine(text: "Pairing your browsers…")
+    static let lookingAtBrowsers = IntroLine(text: "Looking at your browsers…")
     static let pairingOrb = IntroLine(text: "If your browser asks, turn FERB on here")
     static let paired = IntroLine(text: "Paired.")
-    static func notPaired(_ why: String) -> IntroLine {
-        IntroLine(text: "Not all of them paired.", detail: why,
-                  choices: [IntroChoice(Pick.pairAll, "Try again"), IntroChoice(Pick.next, "Continue")])
+
+    /// Pair all while it runs (HAND-412): which profiles are pairing, each result as it lands, the skipped ones.
+    static func pairing(_ progress: PairProgress) -> IntroLine {
+        let open = progress.pairing
+        let text = open.count == 1 ? "Pairing \(progress.landed + 1) of \(progress.tried): \(open[0].title)…"
+            : open.count > 1 ? "Pairing \(progress.tried) profiles…" : "Pairing your browsers…"
+        var line = IntroLine(text: text, detail: progress.tried == 0 ? nil
+                             : "\(progress.landed) of \(progress.tried) done. If a browser asks, turn FERB on there.")
+        line.checklist = pairChecklist(progress)
+        line.checklistHint = "A browser may open a page for a moment while it pairs."
+        return line
     }
+
+    /// Pair all's result when not every profile paired (HAND-411): one row per profile with its own step; the ones
+    /// FERB's store page fixes offer Add to <browser> (HAND-413).
+    static func notPaired(_ progress: PairProgress, message: String) -> IntroLine {
+        let paired = progress.rows.filter { $0.state == .paired }.count
+        var line = IntroLine(text: progress.rows.isEmpty ? "Not all of them paired."
+                             : "\(paired) of \(progress.rows.count) paired.",
+                             detail: progress.rows.isEmpty ? message
+                                : progress.rows.contains(where: \.canAdd)
+                                    ? "The others need a step from you. Add opens FERB's store page in that profile."
+                                    : "The others need a step from you.",
+                             choices: [IntroChoice(Pick.pairAll, "Try again"), IntroChoice(Pick.next, "Continue")])
+        line.checklist = pairChecklist(progress)
+        line.checklistHint = "Point at a profile to see what it needs."
+        return line
+    }
+
+    private static func pairChecklist(_ progress: PairProgress) -> [IntroChecklistItem] {
+        progress.rows.map { row in
+            let status: String
+            switch row.state {
+            case .pairing: status = "Pairing…"
+            case .paired: status = "Paired"
+            case .failed: status = row.canAdd ? "Add to \(row.label)" : "Didn't pair"
+            case .skipped: status = row.canAdd ? "Add to \(row.label)" : "Needs a step"
+            }
+            return IntroChecklistItem(id: row.id, title: row.title,
+                                      detail: row.why.isEmpty ? status : row.why, complete: row.state == .paired,
+                                      actionID: row.canAdd && row.state != .paired ? Pick.add(row.id) : nil,
+                                      active: row.state == .pairing, status: status)
+        }
+    }
+
     static func noProfiles(_ why: String) -> IntroLine {
         IntroLine(text: "No browser profiles found.", detail: why,
                   choices: [IntroChoice(Pick.pairAll, "Try again"), IntroChoice(Pick.next, "Continue")])
     }
+    static func openingStore(_ row: PairProgress.Row) -> IntroLine {
+        IntroLine(text: "Opening FERB's store page in \(row.title)…")
+    }
+    /// Waiting for the extension to appear in that profile after Add to (HAND-413).
+    static func waitingForAdd(_ row: PairProgress.Row, added: Bool) -> IntroLine {
+        IntroLine(text: added ? "FERB is in \(row.title). Turn it on there."
+                              : "Waiting for FERB to be added in \(row.title)…",
+                  detail: added ? "\(row.label) may show “Action required”, or a switch on its extensions page."
+                                : "Click Add to \(row.label) on the page that opened.",
+                  choices: [IntroChoice(Pick.stopWaiting, "Stop waiting")])
+    }
+    static func readyToPair(_ row: PairProgress.Row) -> IntroLine {
+        IntroLine(text: "FERB is on in \(row.title).", detail: "Pair it now?",
+                  choices: [IntroChoice(Pick.pairOne, "Pair"), IntroChoice(Pick.notNow, "Not now")])
+    }
+    static func pairingOne(_ row: PairProgress.Row) -> IntroLine { IntroLine(text: "Pairing \(row.title)…") }
 
     // MARK: 5. FERB's own email
 
@@ -160,6 +222,7 @@ enum IntroCopy {
                                                                      "\($0.element.name) in \($0.element.browserName)") }
                       + [IntroChoice(Pick.identityLater, "Later")])
     }
+    static let identityLooking = IntroLine(text: "Looking for that account in your browsers…")
     static let identityPairing = IntroLine(text: "Setting up my account…",
                                            detail: "Turn FERB's extension on in that profile if the browser asks.")
     static func identityResult(_ line: String?) -> IntroLine { IntroLine(text: line ?? "Done.") }
@@ -176,28 +239,49 @@ enum IntroCopy {
                                                    IntroChoice(Pick.notNow, "Skip this")])
     static func suggest(_ requests: [String]) -> IntroLine {
         IntroLine(text: "Here are two things I could do for you.",
-                  detail: "Pick one and I'll show you how I'd do it. I won't do anything yet.",
+                  detail: "Pick one and I'll do it now, while you watch. It's a real task: I'll ask you before anything that needs your OK.",
                   choices: requests.enumerated().map { IntroChoice(Pick.suggestion($0.offset), $0.element) }
                       + [IntroChoice(Pick.notNow, "Not now")])
     }
-    static let previewing = IntroLine(text: "Here's how I'd do it…")
-    /// The orb's bubble at the app the previewed task would use: it only points.
-    static func wouldUse(_ target: IntroAppTarget, browser: Bool) -> IntroLine {
-        IntroLine(text: browser || target.name.isEmpty ? "I'd use your browser for this" : "I'd use \(target.name) for this",
+    static let starting = IntroLine(text: "Starting it…")
+    /// The orb's bubble at the app the task works in.
+    static func workingIn(_ target: IntroAppTarget, browser: Bool) -> IntroLine {
+        IntroLine(text: browser || target.name.isEmpty ? "I'm working in your browser" : "I'm working in \(target.name)",
                   iconPath: target.iconPath)
     }
-    static func previewed(otherShown: Bool) -> IntroLine {
-        IntroLine(text: "That's how I'd do it. Nothing was done.",
-                  detail: "Want me to do it for real once the tour ends?",
-                  choices: [IntroChoice(Pick.doItForReal, "Do it for real")]
-                      + (otherShown ? [] : [IntroChoice(Pick.otherSuggestion, "Show the other one")])
-                      + [IntroChoice(Pick.notNow, "Not now")])
+
+    /// Where a task the tour started stands, from its turn in the chat (APP-666).
+    enum TaskState: Equatable {
+        case starting, planned(String), step(Int, Int, String), asking, working
     }
-    static func previewFailed(_ why: String) -> IntroLine {
-        IntroLine(text: "I couldn't show that plan right now.", detail: why,
-                  choices: [IntroChoice(Pick.notNow, "Continue")])
+    static func running(_ state: TaskState) -> IntroLine {
+        let detail: String
+        switch state {
+        case .starting: detail = "Planning it…"
+        case .planned(let plan): detail = plan
+        case .step(let index, let total, let label): detail = "Step \(index) of \(total): \(label)"
+        case .asking: detail = "I'm asking you something in the chat."
+        case .working: detail = "Watch it in the chat."
+        }
+        return IntroLine(text: state == .asking ? "Waiting for your answer…" : "On it…", detail: detail,
+                         choices: [IntroChoice(Pick.goOn, "Continue the tour")])
     }
-    static let willDoIt = IntroLine(text: "I'll start it when the tour ends.", detail: "It runs as a normal task, with its usual questions.")
+
+    /// How the tour's task ended (APP-666).
+    enum Outcome: Equatable { case done, failed, stopped, stillRunning, notStarted }
+    static func ran(_ outcome: Outcome, otherLeft: Bool) -> IntroLine {
+        let text: String, detail: String
+        switch outcome {
+        case .done: (text, detail) = ("Done.", "The result is in the chat.")
+        case .failed: (text, detail) = ("That didn't work out.", "What happened is in the chat.")
+        case .stopped: (text, detail) = ("Stopped.", "What it did before stopping is in the chat.")
+        case .stillRunning: (text, detail) = ("It keeps running.", "Its result will arrive in the chat.")
+        case .notStarted: (text, detail) = ("I couldn't start it.", "Check that I'm connected, then ask me in the chat.")
+        }
+        return IntroLine(text: text, detail: detail,
+                         choices: (otherLeft ? [IntroChoice(Pick.otherSuggestion, "Try the other one")] : [])
+                            + [IntroChoice(Pick.next, "Continue")])
+    }
 
     // MARK: 7. Control
 
@@ -208,11 +292,8 @@ enum IntroCopy {
         case .talk:
             return IntroLine(text: "Hold right ⌘ Command and ⌥ Option together and talk to me. Let go when you're done.",
                              detail: "Nothing you say now starts a task.")
-        case .summon:
-            return IntroLine(text: "Control-Option-Space opens me too. Try it.")
         case .stop:
-            return IntroLine(text: "Here's that plan again, running as a preview.",
-                             detail: "Press Stop this task. That's how you stop anything I'm doing.")
+            return IntroLine(text: "Now stop me.", detail: "Press Stop this task. That's how you stop anything I'm doing.")
         case .pause:
             return IntroLine(text: "Last one: click my icon in the menu bar and choose Pause FERB.",
                              detail: "Paused, I don't see or touch anything. I'll switch myself back on right away.")
@@ -221,11 +302,24 @@ enum IntroCopy {
     static let alreadyPaused = IntroLine(text: "I'm paused right now, as you left me.",
                                          detail: "That's Pause FERB in my menu-bar icon: I don't see or touch anything until you choose Resume. I'll stay paused.")
     static let controlsDone = IntroLine(text: "You've got it.")
+    /// The stop practice (APP-667): a real, look-only task the owner stops while it runs.
+    static let startingStopTask = IntroLine(text: "Starting a task you can stop…")
+    static func stopNow(_ request: String) -> IntroLine {
+        IntroLine(text: "Now stop me.",
+                  detail: "I'm working on “\(request)”. Press Stop this task: that's how you stop anything I'm doing.",
+                  choices: [IntroChoice(Pick.stopTask, "Stop this task")])
+    }
+    static let stopping = IntroLine(text: "Stopping it…", choices: [IntroChoice(Pick.goOn, "Go on")])
+    static let stopped = IntroLine(text: "Stopped.", detail: "That's all it takes. The chat shows it stopped.")
+    static let finishedBeforeStop = IntroLine(text: "It finished before you stopped it.",
+                                              detail: "While a task runs, Stop this task stops it.")
+    static let stopUnavailable = IntroLine(text: "I couldn't start a task to stop just now.",
+                                           detail: "While a task runs, Stop this task stops it.")
 
     // MARK: 8. Home
 
     static let home = IntroLine(text: "That's it. I'll be up here in the notch.",
-                                detail: "Double-tap right ⌥, or press Control-Option-Space, whenever you need me. You can replay this tour in Settings.")
+                                detail: "Double-tap right ⌥ whenever you need me. You can replay this tour in Settings.")
 
     // MARK: Helpers
 

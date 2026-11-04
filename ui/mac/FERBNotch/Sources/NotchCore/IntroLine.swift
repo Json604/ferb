@@ -11,6 +11,11 @@ public struct IntroLine: Equatable, Sendable {
     /// An app whose icon shows beside the line (the orb's bubble pointing at an app): its bundle's path.
     public var iconPath: String?
     public var checklist: [IntroChecklistItem] = []
+    /// What the checklist's description box says while no item is hovered or active (the permissions' hint when nil).
+    public var checklistHint: String?
+    /// Set while FERB waits on something (a sign-in, the scan, a pairing, a task): the line shows that it is alive
+    /// (a spinner) and, past a few seconds, how long it has been waiting (APP-665). Nil: the line only says something.
+    public var since: Date?
     public init(text: String, detail: String? = nil, choices: [IntroChoice] = [], entry: IntroEntry? = nil,
                 iconPath: String? = nil) {
         self.text = text
@@ -19,6 +24,24 @@ public struct IntroLine: Equatable, Sendable {
         self.entry = entry
         self.iconPath = iconPath
     }
+
+    /// This line, shown as a wait that started at `since` (APP-665).
+    public func waiting(since: Date) -> IntroLine {
+        var line = self
+        line.since = since
+        return line
+    }
+
+    /// How long a wait has run, as the line shows it ("0:07", "1:02"); nil for the first few seconds, when a spinner
+    /// says enough (APP-665).
+    public static func elapsed(since: Date, now: Date) -> String? {
+        let seconds = Int(now.timeIntervalSince(since))
+        guard seconds >= elapsedAfter else { return nil }
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    /// A wait shorter than this shows only its spinner.
+    public static let elapsedAfter = 3
 }
 
 /// A button under FERB's line: its id is what the intro controller is told, its title what the owner reads.

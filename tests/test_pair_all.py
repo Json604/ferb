@@ -105,3 +105,79 @@ def test_pair_all_pairs_only_the_profiles_that_are_on_and_names_the_rest(
 
 async def _skips(d: Any) -> list[Any]:
     return list(d.journal.of_kind("browsers.pair_all_skipped"))
+
+
+def _status(daemon: RunningDaemon, support: Path, dirs: dict[str, Path]) -> Any:
+    d = daemon.daemon
+    d.browser_support, d.browser_data_dirs = support, dirs
+    d.data_access = lambda: True
+    d._connect_browsers = _no_files                     # type: ignore[method-assign]
+    return d
+
+
+# decision: HAND-412
+def test_pair_all_opens_no_page_in_a_profile_whose_installed_copy_is_too_old(
+        daemon: RunningDaemon, tmp_path: Path) -> None:
+    """Past bug (owner's tour, 2026-11-04): profiles on 0.15.x got a pairing page each and held Pair all for the whole
+    timeout, then said only "didn't answer". The version their files name is read first: too old is skipped."""
+    support = tmp_path / "Support"
+    chrome = _browser(support, "Google/Chrome", {
+        "Default": {"state": 1, "path": f"{STORE_EXTENSION_ID}/0.15.13_0"},
+        "Profile 1": {"state": 1, "manifest": {"version": "0.19.0"}},
+        "Profile 2": {"state": 1, "disable_reasons": [4], "path": f"{STORE_EXTENSION_ID}/0.19.0_0"}})
+    reply, tried = _pair_all(daemon, {"chrome": chrome}, support)
+    assert tried == ["chrome/Profile 1"]
+    assert _reasons(reply) == {"chrome/Default": "too_old", "chrome/Profile 2": "off"}
+    assert "0.15.13" in next(s["step"] for s in reply["skipped"] if s["reason"] == "too_old")
+
+
+# decision: HAND-412, HAND-413
+def test_pair_all_streams_its_plan_each_result_and_the_reply(daemon: RunningDaemon, tmp_path: Path) -> None:
+    support = tmp_path / "Support"
+    chrome = _browser(support, "Google/Chrome", {"Default": ON, "Profile 1": ON, "Profile 2": None,
+                                                 "Profile 3": OFF}, removed=("Profile 2",))
+    d = _status(daemon, support, {"chrome": chrome})
+
+    async def pair_one(p: Any, timeout_s: float) -> dict[str, Any]:
+        return {"browser": p.browser, "folder": p.folder, "name": p.display_name, "paired": p.folder == "Default"}
+    d._pair_one = pair_one                               # type: ignore[method-assign]
+
+    async def events() -> list[dict[str, Any]]:
+        return [e async for e in d._setup_browsers_pairing(None, {})]
+    out = daemon.run(events())
+    assert [e["type"] for e in out] == ["plan", "result", "result", "done"]
+    assert {t["folder"] for t in out[0]["todo"]} == {"Default", "Profile 1"}
+    adds = {s["folder"]: s["can_add"] for s in out[0]["skipped"]}
+    assert adds == {"Profile 2": True, "Profile 3": False}        # the store page adds a removed copy, not an off one
+    assert out[-1]["paired"] == 1 and len(out[-1]["results"]) == 2
+
+
+# decision: HAND-412
+def test_a_pairing_ends_at_once_when_the_extension_is_refused_or_turned_off(
+        daemon: RunningDaemon, tmp_path: Path) -> None:
+    """The wait no longer runs to its timeout when FERB already knows the answer: the page's key was used but the hello
+    was refused (too old), or the profile's files now say the copy is off. A wait that ran on would hang here (the
+    test clock never moves)."""
+    support = tmp_path / "Support"
+    chrome = _browser(support, "Google/Chrome", {"Default": ON, "Profile 1": ON})
+    d = _status(daemon, support, {"chrome": chrome})
+    d.pair_load_wait_s = 0.0
+    [default] = [p for p in d._profiles() if p.folder == "Default"]
+    [other] = [p for p in d._profiles() if p.folder == "Profile 1"]
+
+    async def answered_then_refused(browser: str, folder: str, token: str) -> None:
+        d.db.conn.execute("INSERT INTO ext_installs (install_id, browser, folder, identity, key, last_seq, paired_at) "
+                          "VALUES ('install-old', ?, ?, 'owner', x'00', 0, 'now')", (browser, folder))
+        d.pairings.paired.add(token)
+        d.hub.note_refusal("extension_too_old", "the FERB extension in this profile is too old", "install-old")
+    d._open_pairing = answered_then_refused              # type: ignore[method-assign]
+    first = daemon.run(d._pair_one(default, 60.0))
+    assert first["paired"] is False and first["reason"] == "problem"
+
+    async def turned_off_meanwhile(browser: str, folder: str, token: str) -> None:
+        (chrome / folder / "Preferences").write_text(json.dumps(
+            {"extensions": {"settings": {STORE_EXTENSION_ID: OFF}}}))
+    d._open_pairing = turned_off_meanwhile               # type: ignore[method-assign]
+    second = daemon.run(d._pair_one(other, 60.0))
+    assert second["paired"] is False and second["reason"] == "off"
+    assert not d.pairings._tokens                         # neither page's key can pair later

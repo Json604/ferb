@@ -116,6 +116,15 @@ public struct BrowserProfileRow: Equatable, Identifiable {
     public let state: ProfileSetupState
     public let ferbIdentity: Bool
     public let connected: Bool
+    public init(browser: String, folder: String, name: String, state: ProfileSetupState, ferbIdentity: Bool,
+                connected: Bool) {
+        self.browser = browser
+        self.folder = folder
+        self.name = name
+        self.state = state
+        self.ferbIdentity = ferbIdentity
+        self.connected = connected
+    }
 }
 
 public struct BrowserRow: Equatable, Identifiable {

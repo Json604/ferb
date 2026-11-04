@@ -1,6 +1,7 @@
-"""Own the daemon's side of the intro's "Try" beat (kb area app): `intro.suggest`, two first tasks that
-fit what FERB saw on this Mac (topped up with general tasks), and `intro.preview`, the picked task's plan shown as rows
-without doing any of it. Must not act, start a task or record chat: the preview is the planner's turn alone
+"""Own the daemon's side of the intro's "Try" beat (kb area app): `intro.suggest`, two look-only first tasks that
+fit what FERB saw on this Mac (topped up with general tasks; DMN-533). The owner's pick runs for real as their own
+message through `chat.send` (APP-666), not here. `intro.preview`, the old plan-only preview, is no longer used by
+FERB.app (T-1033 removes it). Must not act, start a task or record chat: the preview is the planner's turn alone
 (Supervisor.preview) and the suggestion one tool-less model call; both are FERB.app's only (auth.APP_ONLY)."""
 
 import asyncio
@@ -15,10 +16,10 @@ from ferb.orchestrator.worker import couldnt
 
 # shown when the scan isn't ready or found nothing clear, and to top up a reply with fewer than two: general, safe to
 # show, true of any Mac; one on the Mac and its files, one in the browser (owner, 2026-11-01)
-GENERAL_TASKS = ("Find three things on my Mac I could tidy up, and show me how you'd do it.",
+GENERAL_TASKS = ("Find three things on my Mac I could tidy up and tell me why, without changing anything.",
                  "Compare three well-reviewed electric kettles on the web and tell me which is the best value.")
 # the one main app each general task would use, as macOS names it; "" is the owner's default browser (the app resolves
-# it), so the intro's orb can point there while the plan shows
+# it), so the intro's orb can point there while the task runs
 GENERAL_APPS = ("Finder", "")
 # an app name is a short label the app matches against running apps' names
 APP_NAME_MAX = 60

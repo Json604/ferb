@@ -196,7 +196,7 @@ extension SoundSwitch {
         case .listeningStart: return "Dictation starts"
         case .listeningEnd: return "Dictation stops"
         case .tour: return "The sounds of the first-run tour"
-        case .summon: return "You open FERB with the shortcut"
+        case .summon: return "You open FERB"
         case .paused: return "You pause FERB"
         }
     }
@@ -328,10 +328,15 @@ struct BrowsersSettingsPage: View {
     var body: some View {
         if let setup = actions.setup {
             WindowPage {
-                WindowSettingsSection { BrowsersStepView(model: setup) }
+                WindowSettingsSection {
+                    BrowsersStepView(model: setup)
+                    // Pair all's result and Add to's outcome (HAND-411, HAND-413); the setup window shows its own
+                    if let message = setup.message { Text(message).font(.callout).foregroundStyle(.secondary) }
+                }
                 WindowSettingsSection(title: "FERB's own account") { IdentityStepView(model: setup, showsHeader: false) }
             }
             .task { await setup.refreshBrowsers(); await setup.refreshIdentity() }
+            .onDisappear { setup.stopWatchingForExtension() }
         } else {
             WindowPage { WindowSettingsSection { OnlyInTheApp() } }
         }

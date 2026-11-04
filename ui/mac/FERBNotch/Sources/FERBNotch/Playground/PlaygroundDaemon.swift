@@ -12,6 +12,9 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
 
     init(state: PlaygroundState) { self.state = state }
 
+    /// Simulated tasks the owner stopped (`task.stop`): their stream ends stopped at its next step.
+    @MainActor private var stopped: Set<String> = []
+
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         try await answer(method, params)
     }
@@ -115,6 +118,9 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             state.saved.browsersPaired = true
             return ["profiles": 2, "skipped": [[String: Any]](),
                     "results": [["name": "Personal", "paired": true], ["name": "Work", "paired": true]]]
+        case "task.stop":
+            stopped.formUnion(params["task_ids"] as? [String] ?? [])
+            return ["stopped": params["task_ids"] ?? []]
         case "setup.browser_pair":
             await state.pause(1.5)
             return ["paired": !s.pairingFails, "why": "FERB isn't turned on in that profile"]
@@ -185,13 +191,56 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
                 try await workspace.chat(params["text"] as? String ?? "", yield: yield)
                 return
             }
-            // "Do it for real" after Home, or anything typed in the notch: nothing runs in the playground.
+            // The tour's Try task, its stop practice, or anything typed in the notch: a simulated task whose
+            // steps tick by; nothing real runs in the playground. task.stop ends it stopped.
+            let request = params["text"] as? String ?? ""
             let id = "playground-" + UUID().uuidString.prefix(8)
-            state.note("daemon ← chat.send (nothing runs in the playground)")
+            let task = "task-" + id
+            state.note("daemon ← chat.send (a simulated task; nothing real runs)")
             yield(["type": "ack", "request_id": id, "at": Self.now(), "text": "On it."])
             await state.pause(1.0)
-            let text = "This is the intro playground: nothing real runs here, so I didn't do anything."
-            yield(["type": "reply", "request_id": id, "at": Self.now(), "text": text, "display_text": text])
+            let plan = Self.plan(for: request)
+            yield(["type": "plan", "request_id": id, "task_id": task, "at": Self.now(), "text": plan.line,
+                   "plan_line": plan.line, "goal": request, "identity": "owner", "total": plan.steps.count])
+            for (index, label) in plan.steps.enumerated() {
+                let row: [String: Any] = ["type": "part", "request_id": id, "task_id": task, "part": "\(index + 1)",
+                                          "step": "\(index + 1)", "kind": "do", "label": label, "at": Self.now()]
+                yield(row.merging(["state": "working"]) { $1 })
+                await state.pause(2.0)
+                try Task.checkCancellation()
+                if stopped.contains(task) {
+                    let text = "Stopped. This is the intro playground: nothing real ran."
+                    yield(["type": "outcome", "request_id": id, "task_id": task, "status": "stopped",
+                           "answer": text, "at": Self.now()])
+                    return
+                }
+                yield(row.merging(["state": "done"]) { $1 })
+            }
+            let text = "This is the intro playground: I went through the steps, but nothing real ran."
+            yield(["type": "outcome", "request_id": id, "task_id": task, "status": "done", "answer": text,
+                   "at": Self.now()])
+        case "setup.browsers_pairing":
+            let fails = state.saved.pairingFails
+            let todo: [[String: Any]] = [["browser": "chrome", "folder": "Default", "name": "Personal",
+                                          "label": "Google Chrome"],
+                                         ["browser": "chrome", "folder": "Profile 1", "name": "Work",
+                                          "label": "Google Chrome"]]
+            let skipped: [[String: Any]] = fails ? [["browser": "brave", "folder": "Default", "name": "Personal",
+                                                     "label": "Brave", "reason": "removed", "can_add": true,
+                                                     "step": "FERB's extension was removed there, so Brave won't add it again: add FERB from its Chrome Web Store page in Brave"]] : []
+            yield(["type": "plan", "profiles": 2 + skipped.count, "todo": todo, "skipped": skipped])
+            var results: [[String: Any]] = []
+            for (index, row) in todo.enumerated() {
+                await state.pause(1.5)
+                let paired = !(fails && index == 1)
+                let result = row.merging(["paired": paired, "reason": paired ? "" : "off",
+                                          "why": paired ? "" : "turn FERB on in Google Chrome's extensions"]) { $1 }
+                results.append(result)
+                yield(result.merging(["type": "result"]) { $1 })
+            }
+            if !fails { state.saved.browsersPaired = true }
+            yield(["type": "done", "profiles": 2 + skipped.count, "skipped": skipped, "results": results,
+                   "paired": results.filter { $0["paired"] as? Bool == true }.count])
         default:
             // logs.subscribe, notifications.subscribe: open and quiet until the app leaves
             while !Task.isCancelled { try await Task.sleep(for: .seconds(3600)) }
@@ -201,7 +250,7 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
     // MARK: Replies
 
     static let suggestions: [IntroSuggestion] = [
-        IntroSuggestion(request: "Find three things on my Mac I could tidy up, and show me how you'd do it.", app: "Finder"),
+        IntroSuggestion(request: "Find three things on my Mac I could tidy up and tell me why, without changing anything.", app: "Finder"),
         IntroSuggestion(request: "Compare three well-reviewed electric kettles on the web and tell me which is the best value.",
                         app: "")]
 

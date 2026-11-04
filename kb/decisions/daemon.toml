@@ -611,3 +611,14 @@ words = "a) Keep 10 s as the safety limit"
 rule = "The planner waits at most 10 s (FRONT_WINDOW_WAIT_S, ScreenCaptureKit's own capture timeout) for the owner's front window, then plans without it. At each start the daemon loads Vision's text recognizer once in the background, so the first image redaction doesn't pay for it. A capture the planner stops waiting for is journaled as screen.capture_stalled with the step it was on and how long it ran."
 why = "DMN-519's 2 s would have dropped the screenshot on most messages (median 2.4 s from message to plan over 90 messages; a slow browser capture ~6 s); the 10 s \"Hello\" is fixed at its cause instead."
 paths = ["ferb/orchestrator/supervisor.py", "ferb/sense/front_window.py", "ferb/daemon/areas/desktop.py", "ferb/sanitize/images.py", "ferb/daemon/main.py"]
+
+[DMN-533]
+title = "The intro's suggested first tasks are look-only, because they now run for real"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "intro.suggest still works as DMN-500 says; since the owner's pick now runs for real (APP-666), each suggestion only looks, finds, compares or summarises and tells the owner what it found, changing nothing (no moving, renaming, sorting or deleting files; no sending, posting, buying or signing in), the prompt says so (orchestrator/prompts/intro.md), and GENERAL_TASKS' Mac task says \"without changing anything\". Whatever it does still goes through the gateway and its confirmations."
+why = "APP-666 runs the picked suggestion as a real task; the old prompt allowed \"sorts or prepares\" because nothing ran."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ferb/daemon/areas/intro.py::GENERAL_TASKS", "ferb/orchestrator/prompts/intro.md"]
+live = ["LIVE-728"]

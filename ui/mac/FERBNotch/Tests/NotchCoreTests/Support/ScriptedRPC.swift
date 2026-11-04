@@ -38,11 +38,34 @@ final class ScriptedRPC: DaemonRPCTransport, @unchecked Sendable {
         return replies[method] ?? ["ok": true]
     }
 
+    /// Streams that stay open after their `events` until `endStream` (a task still running).
+    var heldStreams: Set<String> = []
+    private var open: [String: [AsyncThrowingStream<[String: Any], Error>.Continuation]] = [:]
+    private let lock = NSLock()
+
     func stream(_ method: String, params: [String: Any]) -> AsyncThrowingStream<[String: Any], Error> {
         recorded.append(method, params)
         let items = events[method] ?? []
+        let held = heldStreams.contains(method)
         return AsyncThrowingStream { continuation in
             for item in items { continuation.yield(item) }
+            if held {
+                self.lock.lock()
+                self.open[method, default: []].append(continuation)
+                self.lock.unlock()
+            } else {
+                continuation.finish()
+            }
+        }
+    }
+
+    /// Ends every open `method` stream after yielding `events`.
+    func endStream(_ method: String, with events: [[String: Any]] = []) {
+        lock.lock()
+        let waiting = open.removeValue(forKey: method) ?? []
+        lock.unlock()
+        for continuation in waiting {
+            for event in events { continuation.yield(event) }
             continuation.finish()
         }
     }

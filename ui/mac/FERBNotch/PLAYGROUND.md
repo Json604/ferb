@@ -58,7 +58,7 @@ to start if that path is your real `~/.ferb`, is inside it, or contains it.
 | Sounds: `FerbSoundEngine` and the bundled sound files; system UI sound settings and alert volume | Call activity (idle unless *Simulate a call* is on), so host speech services cannot silence the audition; macOS permission popups: answered by the panel's "When FERB asks" choice |
 | `SetupModel` (the grant, confirm and resume logic) and `SetupView` (the compact window after a skip) | `ferb setup --service` / `--codex-login`, Claude sign-in, API keys (never stored), Login Items, launchd restart |
 | The launch decision (`AppSetupPlan`), resume after a quit (`IntroProgress`) | Browsers, pairing, FERB's email, the Mac scan, the microphone (dictation "hears" a fixed sentence) |
-| The real keyboard controls (double-tap right ⌥, hold right ⌘⌥, ⌃⌥Space) | "Do it for real": the reply says nothing runs in the playground |
+| The real keyboard controls (double-tap right ⌥, hold right ⌘⌥) | The Try task and the stop practice: a simulated task whose steps tick by (Stop ends it); nothing real runs |
 
 Not in the playground: a live Sparkle updater, registered login items or background services, or real macOS notification banners. The app window and Settings use simulated services in whole-app review. The playground code is compiled into debug builds only (`FERB_PLAYGROUND` in
 `Package.swift`); FERB.app is built release by `scripts/build-app.sh` and contains none of it.
@@ -87,7 +87,7 @@ Things it can't fake, and why:
 - **Background service, sign-in, browsers**: install fails; Login Items needs your OK (and allowed); sign-in fails;
   sign out; pairing fails.
 - **Try**: suggestions and the plan preview each Normal / Slow / Fails; whether the Mac scan "saw" something.
-- **Controls**: buttons for each control the Control beat teaches, Stop on the replayed preview, open/close the notch.
+- **Controls**: buttons for each control the Control beat teaches, open/close the notch (Stop is on the tour's own line, on the simulated task).
 - **Look**: sound on/off; *Simulate a call* to check the real call-quieting policy (off on launch, independent of the host microphone); speed 0.25×–4×; where the notch sits (in the notch, or an edge) and on which display.
 - **Log**: what the fake daemon was asked and what the fakes did.
 

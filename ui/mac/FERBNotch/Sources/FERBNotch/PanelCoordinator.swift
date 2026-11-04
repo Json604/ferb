@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import SwiftUI
-import Carbon
 import Quartz
 import NotchCore
 
@@ -157,8 +156,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var dragCanvasActive = false
     private var dragPreferredSize = CGSize.zero
     private var eventMonitors: [Any] = []
-    private var hotKey: EventHotKeyRef?
-    private var hotKeyHandler: EventHandlerRef?
     private var previewURL: URL?
     private let yieldController: NotchYieldController
     private let windowYield: NotchWindowYield
@@ -277,7 +274,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                       open: { [weak self] target in self?.open(target) })
         model.onApprovalResolved = { [weak self] id in self?.poster?.withdrawQuestion(id) }
         statusRefresh = model.objectWillChange.sink { [weak self] _ in self?.queueStatusRefresh() }
-        registerShortcut()
         shortcuts.onDoubleTap = { [weak self] in self?.modifierDoubleTapped() }
         shortcuts.onHoldBegan = { [weak self] in
             self?.hoverTask?.cancel()
@@ -1545,21 +1541,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     @objc func showFromMenu() { beginInteraction(); model.expand() }
 
-    private func registerShortcut() {
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, context in
-            guard let context else { return OSStatus(eventNotHandledErr) }
-            let coordinator = Unmanaged<PanelCoordinator>.fromOpaque(context).takeUnretainedValue()
-            Task { @MainActor in coordinator.shortcutPressed() }
-            return noErr
-        }, 1, &eventType, context, &hotKeyHandler)
-        let id = EventHotKeyID(signature: OSType(0x46455242), id: 1)
-        let status = RegisterEventHotKey(UInt32(kVK_Space), UInt32(controlKey | optionKey), id,
-                                        GetApplicationEventTarget(), 0, &hotKey)
-        if status != noErr { NSLog("FERB Notch: shortcut unavailable; use the menu-bar control (%d).", status) }
-    }
-
     /// The modifier double-tap: opens or closes the notch; opening it plays summon.
     func modifierDoubleTapped() {
         if summonFromYield() { model.feedback.play(.summon) }
@@ -1568,17 +1549,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             if model.expanded { model.feedback.play(.summon) }
         }
         introControls.saw(.toggle)
-    }
-
-    /// The Control-Option-Space hot key: opening FERB plays summon; closing it plays nothing.
-    func shortcutPressed() {
-        defer { introControls.saw(.summon) }
-        if summonFromYield() { model.feedback.play(.summon); return }
-        if model.expanded && model.compactPlanText == nil { model.collapse(keyboard: true); return }
-        model.feedback.play(.summon)
-        beginInteraction()
-        if model.session.phase == .ready || model.session.phase == .draft { model.edit(keyboard: true) }
-        else { model.expand(keyboard: true); panel.makeKey() }
     }
 
     @objc private func showSettings() {
@@ -1636,8 +1606,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         yieldWatch?.cancel()
         yieldWatch = nil
         yieldController.stop()
-        if let hotKey { UnregisterEventHotKey(hotKey) }
-        if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
         eventMonitors.forEach(NSEvent.removeMonitor)
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
