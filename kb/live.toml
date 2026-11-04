@@ -2981,3 +2981,12 @@ request = "In Settings → AI sign out of ChatGPT for FERB (or let its sign-in l
 pass = "FERB says Codex isn't signed in for FERB and offers the other signed-in runtime with one tap; it never switches by itself; after signing in again the next message runs on Codex."
 decisions = ["RUN-422"]
 sitting = "after this change is installed"
+
+[LIVE-768]
+title = "With hover off, a press on the closed notch opens FERB or drags it"
+area = "app"
+surface = "A FERB.app build with APP-705 on a notched Mac (macOS 27), docked in the notch, Settings → \"Open when I hover over FERB\" turned off; also a notchless display or a Mac where FERB sits as the edge pill"
+request = "With the chat closed, click once on the camera housing. Close it (Escape), then press on the housing and drag down and to the right; drop it on the right edge, then drag it back into the notch. Click the menu bar just left and right of the housing and on the strip just below it. Turn hover back on and check that hovering the notch still opens FERB. With the pill on an edge (or on a notchless Mac), click it and drag it with hover off."
+pass = "The click opens FERB with the cursor in the text field (as double-tap right Option does); the press-and-drag tears FERB out and it follows the pointer with the approved feel and docks back; clicks beside the housing reach the menu bar and a click on the strip below reaches the app underneath; nothing visible is added to the notch; hover opens FERB again once turned on; the pill opens and drags with hover off."
+decisions = ["APP-705", "APP-706", "APP-597", "APP-625", "APP-629"]
+sitting = "after this change is installed"

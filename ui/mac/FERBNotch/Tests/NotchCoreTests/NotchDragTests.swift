@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import XCTest
 @testable import FERBNotch
 import NotchCore
@@ -71,6 +72,95 @@ final class NotchDragTests: XCTestCase {
                 XCTAssertFalse(model.isNotchDocked, "\(content)")
                 if content == "reminder" { XCTAssertNotNil(model.compactReminderCard) }
                 hit.mouseUp(with: try event(.leftMouseUp))
+            }
+        }
+    }
+
+    /// The alpha the window server sees at a point of the handle (its own unflipped coordinates): it passes a press on
+    /// a fully transparent pixel through to the window below and delivers it on any other (APP-705).
+    private func pressAlpha(_ control: NSView, at point: CGPoint) throws -> CGFloat {
+        control.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(control.bitmapImageRepForCachingDisplay(in: control.bounds))
+        control.cacheDisplay(in: control.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / control.bounds.width
+        let color = try XCTUnwrap(rep.colorAt(x: Int(point.x * scale), y: Int((control.bounds.height - point.y) * scale)))
+        return color.alphaComponent
+    }
+
+    /// Owner, 2026-11-04: with "Open when I hover over FERB" off there was no way to grab the docked notch, because
+    /// the closed handle drew nothing and every press went through to the menu bar. Only the camera housing takes
+    /// the press; the strip below it and anything inside the open surface stay as they were.
+    // decision: APP-705, APP-706
+    func testOnlyTheClosedDockedHandlesHousingTakesAPress() throws {
+        _ = NSApplication.shared
+        let control = FerbIndicatorControl(model: NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults()))
+        let cutout = CGRect(x: 600, y: 868, width: 200, height: 32)
+        let region = NotchDocking.dragRegion(cutout: cutout)
+        control.frame = CGRect(origin: .zero, size: region.size)
+        // In a window (never shown), as in FERB.
+        let window = FerbIndicatorPanel(contentRect: control.frame, styleMask: [.borderless, .nonactivatingPanel],
+                                        backing: .buffered, defer: true)
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.contentView = control
+        control.isDocked = true
+        let housing = CGPoint(x: region.width / 2, y: region.height - 6)
+        let strip = CGPoint(x: region.width / 2, y: NotchDocking.pullDepth / 2)
+        XCTAssertGreaterThan(try pressAlpha(control, at: housing), 0, "the housing passed the press through")
+        XCTAssertLessThan(try pressAlpha(control, at: housing), 0.02, "the housing's fill must stay invisible")
+        XCTAssertEqual(try pressAlpha(control, at: strip), 0, "the strip under the housing took the press")
+        XCTAssertEqual(try pressAlpha(control, at: CGPoint(x: 1, y: 1)), 0)
+        control.isAttached = true
+        XCTAssertEqual(try pressAlpha(control, at: housing), 0, "inside the open surface the surface takes the press")
+    }
+
+    /// A press on the closed handle, docked in the notch or on an edge, opens FERB with focused typing whatever the
+    /// hover setting, and a press-and-drag from the housing tears it out of the notch.
+    // decision: APP-705, APP-597
+    func testAPressOnTheClosedHandleOpensOrDragsWithHoverOff() throws {
+        _ = NSApplication.shared
+        guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
+        for docked in [true, false] {
+            for drag in [false, true] {
+                let defaults = scratchDefaults()
+                NotchDocking.save(docked, in: defaults)
+                let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
+                model.setHoverEnabled(false)
+                let coordinator = PanelCoordinator(model: model, defaults: defaults)
+                defer { coordinator.tearDown() }
+                coordinator.updateScreen()
+                let control = try XCTUnwrap(coordinator.indicatorControl)
+                let window = try XCTUnwrap(control.window)
+                XCTAssertFalse(model.bodyVisible)
+                // In the housing when docked (on a Mac without a notch it falls back to the pill), in the pill if not.
+                let local = model.isNotchDocked ? CGPoint(x: control.bounds.midX, y: control.bounds.maxY - 6)
+                                                : CGPoint(x: control.bounds.midX, y: control.bounds.midY)
+                if model.isNotchDocked {
+                    XCTAssertGreaterThan(try pressAlpha(control, at: local), 0, "the press on the housing went through")
+                }
+                var pointer = window.convertPoint(toScreen: control.convert(local, to: nil))
+                control.pointerLocation = { pointer }
+                func event(_ type: NSEvent.EventType) throws -> NSEvent {
+                    try XCTUnwrap(NSEvent.mouseEvent(with: type, location: window.convertPoint(fromScreen: pointer),
+                        modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                        eventNumber: 1, clickCount: 1, pressure: 1))
+                }
+                let focused = drag ? nil : expectation(description: "focused typing")
+                let watch = model.$focusRequest.dropFirst().sink { _ in focused?.fulfill() }
+                defer { watch.cancel() }
+                control.mouseDown(with: try event(.leftMouseDown))
+                if drag {
+                    pointer.y -= 130
+                    control.mouseDragged(with: try event(.leftMouseDragged))
+                    XCTAssertFalse(model.isNotchDocked, "docked \(docked): the drag didn't tear it out")
+                    control.mouseUp(with: try event(.leftMouseUp))
+                    XCTAssertFalse(model.bodyVisible, "a drag is not a click")
+                } else {
+                    control.mouseUp(with: try event(.leftMouseUp))
+                    XCTAssertTrue(model.bodyVisible, "docked \(docked): the press didn't open FERB")
+                    // The focus request follows on the main queue (present); this only drains it.
+                    if let focused { wait(for: [focused], timeout: 5) }
+                }
             }
         }
     }

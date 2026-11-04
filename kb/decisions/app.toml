@@ -2028,3 +2028,25 @@ why = "Owner, v0.27.0 on macOS 27.2: \"the notch is not draggable\". macOS 27.2 
 evidence = "Fix batch approved. Installed FERB's notch windows sat on every managed Space; the camera's clicks went to MenuBarAgent (SLSFindWindowAndOwner). Probes: attach statuses 0/3/3 with every window a member. Playground with this change: attached (move 3, show 3), its open panel took the camera's clicks."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift", "ui/mac/FERBNotch/Sources/NotchCore/OverlaySpaceCheck.swift"]
 live = ["LIVE-767"]
+
+[APP-705]
+title = "A press on the closed notch opens or drags FERB, whatever the hover setting"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "yes it should work"
+why = "Asked: \"If 'Open when I hover over FERB' is off there's no way to grab it. Should clicking or pressing directly on the closed notch also work, opening it or starting a drag, even without the hover?\""
+rule = "The closed, docked notch (and the edge pill on notchless Macs) accepts a press directly, whatever the hover setting: a click opens FERB with focused typing as double-tap right Option does (APP-552), a press-and-drag moves it by the same drag path and feel (APP-597, APP-629). Only the visible handle's shape (the camera housing, the pill) takes the press; the rest of the menu bar keeps its clicks. Hover opening, APP-704, the yield rules and reminder arrivals are unchanged."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchDocking.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/NotchDragTests.swift"]
+live = ["LIVE-768"]
+
+[APP-706]
+title = "The closed, docked handle draws an invisible fill over the camera housing alone"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "APP-705's press reaches the docked handle through the window server's per-pixel hit test: docked and outside the open surface, the handle draws black at alpha 0.01 over the camera housing only (NotchDocking.pressShape: its bounds less the 12-point strip below, lower corners rounded). The window keeps AppKit's default mouse handling (ignoresMouseEvents never set, APP-560), so transparent pixels stay click-through. The press takes the handle's existing click (the shortcut's toggle) and drag path."
+why = "Docked and closed, the handle drew nothing, and the window server passes a press on a fully transparent pixel to the window below. Setting ignoresMouseEvents false would make the whole window, the strip under the housing included, swallow other apps' clicks."
+evidence = "Scratch probes, macOS 27.2 (SLSFindWindowAndOwner): an alpha-0 pixel passed the click through, alpha 0.002 and up took it; the handle's own view arrangement took the click at the housing and passed it through at the strip."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchDocking.swift"]
+live = ["LIVE-768"]

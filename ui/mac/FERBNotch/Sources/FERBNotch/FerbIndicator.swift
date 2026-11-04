@@ -10,6 +10,38 @@ final class FerbIndicatorPanel: NSPanel {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
+/// What makes the closed, docked handle take a press (owner, 2026-11-04, APP-705). Docked and closed, the handle
+/// draws nothing, and the window server passes a press on a fully transparent pixel through to the window below, so
+/// the camera housing could only be reached by hovering it open first. This fill covers the housing alone at an alpha
+/// no one can see (the housing has no pixels; its rounded lower corners sit over the menu bar), so a press there
+/// reaches the handle whatever the hover setting, while the strip below and the rest of the menu bar stay
+/// click-through. It is never a hit target itself: the press goes to the handle's own click and drag path.
+private final class HandlePressShape: NSView {
+    /// Any alpha above zero counts as a hit for the window server (probed on macOS 27.2: 0 passed through, 0.002
+    /// hit); 0.01 stays clear of rounding to zero in an 8-bit backing.
+    static let alpha: CGFloat = 0.01
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var isOpaque: Bool { false }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        layerContentsRedrawPolicy = .duringViewResize
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// The housing's outline: square along the screen's top edge, its two lower corners rounded like the camera's.
+    override func draw(_ dirtyRect: NSRect) {
+        let r = min(10, bounds.height / 2, bounds.width / 2)
+        let path = NSBezierPath()
+        path.move(to: CGPoint(x: bounds.minX, y: bounds.maxY))
+        path.line(to: CGPoint(x: bounds.maxX, y: bounds.maxY))
+        path.appendArc(from: CGPoint(x: bounds.maxX, y: bounds.minY), to: CGPoint(x: bounds.midX, y: bounds.minY), radius: r)
+        path.appendArc(from: CGPoint(x: bounds.minX, y: bounds.minY), to: CGPoint(x: bounds.minX, y: bounds.maxY), radius: r)
+        path.close()
+        NSColor.black.withAlphaComponent(Self.alpha).setFill()
+        path.fill()
+    }
+}
+
 final class FerbIndicatorControl: NSView {
     var onDragBegan: ((CGPoint) -> Void)?
     var onDragged: ((CGPoint) -> Void)?
@@ -27,6 +59,7 @@ final class FerbIndicatorControl: NSView {
     private let logo = NSImageView(frame: CGRect(x: 5, y: 4, width: 22, height: 22))
     private let statusDot = NSView(frame: CGRect(x: 45, y: 12, width: 6, height: 6))
     private let homeLine = NSView()
+    private let pressShape = HandlePressShape()
 
     init(model: NotchModel) {
         self.model = model
@@ -34,6 +67,8 @@ final class FerbIndicatorControl: NSView {
         wantsLayer = true
         layer?.cornerRadius = 15
         layer?.borderWidth = 0
+        pressShape.isHidden = true
+        addSubview(pressShape)
         if let url = Bundle.module.url(forResource: "ferb-mark", withExtension: "svg"),
            let image = NSImage(contentsOf: url) {
             logo.image = image
@@ -118,6 +153,7 @@ final class FerbIndicatorControl: NSView {
         statusDot.frame = CGRect(x: bounds.width - 13, y: 12, width: 6, height: 6)
         // Fill to the physical screen edge; only the inward corners are rounded.
         homeLine.frame = bounds
+        pressShape.frame = NotchDocking.pressShape(in: bounds)
         homeLine.layer?.cornerRadius = 2.5
         switch model.indicatorEdge {
         case "left": homeLine.layer?.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
@@ -142,6 +178,8 @@ final class FerbIndicatorControl: NSView {
         logo.isHidden = isDocked
         statusDot.isHidden = isDocked
         homeLine.isHidden = isDocked
+        // Inside the open surface the surface takes the press; on its own and docked, only the housing does.
+        pressShape.isHidden = !(isDocked && !isAttached)
         setAccessibilityHelp(isDocked ? "Drag below the notch to detach FERB" : "Drag FERB to another edge or onto the Mac notch")
         effectiveAppearance.performAsCurrentDrawingAppearance {
             homeLine.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
