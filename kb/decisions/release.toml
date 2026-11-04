@@ -199,3 +199,14 @@ words_source = "The owner asked for the site's download link to work, after FERB
 rule = "The site's Download for Mac link is https://github.com/Json604/ferb/releases/latest/download/FERB-AppleSilicon.dmg: GitHub's permanent link to the newest release's Apple Silicon DMG, the same release that carries the Sparkle appcast. Publishing a release stays the owner's go (it also offers the update to every installed FERB). Replaces REL-412's \"inactive until the owner gives its URL\"; the rest of REL-412 holds."
 paths = ["site/index.html"]
 untestable = "A static link on the site; the owner checks it after publishing a release and deploying the site (LIVE-754)."
+
+[REL-415]
+title = "FERB 0.27.0 is the first public release"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "publish. it works. publish the ferb site too adn do eveyhign"
+words_source = "The owner's go to publish, after their fresh-install test of build 202611040720 on 2026-11-04."
+rule = "The version is 0.27.0 (ferb/__init__.py, pyproject.toml, uv.lock), tagged v0.27.0 and published as a GitHub release carrying the Apple Silicon DMG and its Sparkle appcast. Replaces REL-2's \"The version stays 0.27.0.dev1 for now\"; the rest of REL-2 (no .dev release, newer than the last tag, the store serves the extension minimum) holds."
+paths = ["pyproject.toml", "ferb/__init__.py"]
+untestable = "The release itself; REL-2's tests keep the two version strings equal and refuse a .dev release."
