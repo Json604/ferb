@@ -512,13 +512,6 @@ status = "open"
 why = "test_pausing_a_scheduled_run_pauses_its_schedule_and_resuming_it_resumes_the_schedule failed in three full runs on 2026-11-04 while agents built Swift, and passed alone 5/5. A timing dependence (TEST-508) or a product race left after T-1005."
 decisions = ["ORCH-308", "ORCH-312"]
 
-[T-1049]
-title = "Bring main up to v0.27.0"
-area = "project"
-kind = "question"
-status = "open"
-why = "v0.27.0 was released from ui/ux (tag on bc070ac9); main is still the old history. Moving main is a push to the default branch, the owner's go."
-ask = "v0.27.0 shipped from the ui/ux branch. Should I fast-forward main to it (and keep working on ui/ux), or leave main as it is?"
 
 [T-1050]
 title = "Setup changes ship only after a fresh-install run on a second macOS user"

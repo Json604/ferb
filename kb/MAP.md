@@ -13,7 +13,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | memory | Memory and memory import | `ferb/memory` | 58 | 3 | 0 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 59 | 8 | 6 |
 | perception | Perception | `ferb/sense` | 15 | 2 | 0 |
-| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 7 | 7 | 0 |
+| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 8 | 6 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 17 | 3 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 17 | 2 | 2 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 23 | 2 | 0 |
@@ -29,7 +29,6 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1044 (memory): When a day's learning pass keeps failing, FERB now retries it every hour forever (one AI call an hour). Episode cards stop after 2 failures. Do you want a limit, e.g. stop after N tries or retry daily instead of hourly, and the same for cards?
 - T-1045 (orchestration): When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?
 - T-1046 (app): In a reply's sites row (one site + "+N"), should clicking a site in the list open it in your browser, or stay as plain text?
-- T-1049 (project): v0.27.0 shipped from the ui/ux branch. Should I fast-forward main to it (and keep working on ui/ux), or leave main as it is?
 - T-1050 (project): Should every build that changes setup go through one fresh-install run (on a second macOS user account you create once) before it ships, with setup changes made one at a time?
 - T-1057 (project): Go through the agent-set and code-only limits (highlighted rows in the FERB Limits page) and say, for each you care about, keep, change (to what) or remove; the rest stay as they are and get recorded as your decision.
 

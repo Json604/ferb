@@ -102,7 +102,7 @@ Upgrading from any older FERB build must keep working (STORE-403).
 - **North star:** an agent that controls the Mac the way the owner can, in the background, and keeps learning by doing.
 
 ## Branch
-Work happens on the branch the owner names (currently `ui/ux`). Agents commit and push there through the hooks;
+Work happens on the branch the owner names (currently `main`). Agents commit and push there through the hooks;
 never force-push. The checkout can be shared by parallel agents: never `git stash`, never reset others' work, and check
 `git diff --cached` before committing.
 

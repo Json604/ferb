@@ -71,3 +71,14 @@ rule = "FERB targets macOS (FERB.app) and phone companions on iPhone and Android
 why = "The owner judged the port to cost much time for no improvement."
 paths = ["kb/plans"]
 untestable = "A scope decision: there is no code to test, only the absence of a Windows port."
+
+[PROJ-507]
+title = "Work continues on main"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "btw we cna move to main branch. the ui/ux is a good base to continue on. can we??"
+words_source = "Answer to T-1049 after v0.27.0 shipped from ui/ux."
+rule = "main is fast-forwarded to ui/ux (no merge, no rewrite) and is the branch agents commit and push to from now on (AGENTS.md \"Branch\"). ui/ux stays as it is; nothing is deleted."
+paths = ["AGENTS.md"]
+untestable = "A branch choice; git shows it."
