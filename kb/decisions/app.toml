@@ -2050,3 +2050,24 @@ why = "Docked and closed, the handle drew nothing, and the window server passes 
 evidence = "Scratch probes, macOS 27.2 (SLSFindWindowAndOwner): an alpha-0 pixel passed the click through, alpha 0.002 and up took it; the handle's own view arrangement took the click at the housing and passed it through at the strip."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchDocking.swift"]
 live = ["LIVE-768"]
+
+[APP-707]
+title = "A chat opened by a press on the closed notch stays open until Escape or a click elsewhere"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "stay open until escape or click elsewhere"
+why = "Asked: \"with hover off, a chat you open with a click still closes when the pointer leaves it, like any unpinned chat does today. Should a click-opened chat stay open until you press Escape, use the shortcut, or click elsewhere?\""
+rule = "A chat the owner opens by pressing the closed notch or the edge pill (APP-705) does not fold when the pointer leaves it, whatever the hover setting: it stays open until Escape, the double-tap or shortcut toggle, Hide, or a click outside FERB's surfaces (into another app or the desktop). A hover-opened chat still folds on hover-out after APP-557's grace, and ordinary controls still never pin it (APP-553). Pinning (APP-558) is unchanged. Opening by press takes no more keyboard focus than APP-552 and APP-553 already give."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/ClickOpenedChatTests.swift"]
+live = ["LIVE-769"]
+
+[APP-708]
+title = "A press-opened chat is marked on the model; only hover-out reads the mark"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "APP-707 is one mark on NotchModel (openedByPress), set only when the handle's press opens the chat (toggle(byPress:)) and cleared by collapse() and by any other route that opens a closed chat. Only PanelCoordinator's hover-out (pointerExited and its grace task) reads it. Every other close is unchanged: Escape, Hide and the shortcut collapse; a click into another app, the desktop or another FERB window (Settings, Quick Look, APP-558) dismisses; menus, the file picker and dictation still defer. The mark survives pin and unpin."
+why = "One shared path: hover-out is the only automatic fold the owner's answer removes, so only that path reads the mark, and every explicit close goes on clearing it with the chat."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-769"]

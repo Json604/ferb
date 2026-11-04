@@ -103,6 +103,11 @@ final class NotchModel: ObservableObject {
     var reconciledMissingTasks = Set<String>()
     @Published private(set) var isPinned = false
     @Published private(set) var isHeaderOnly = false
+    /// The owner opened this chat with a press on the closed notch or pill (APP-705). Kept until the chat closes.
+    private(set) var openedByPress = false
+    /// A chat the owner opened with a press stays open when the pointer leaves it, whatever the hover setting, until
+    /// Escape, the shortcut, Hide or a click outside FERB (APP-707). A hover-opened chat folds on hover-out (APP-557).
+    var staysOpenOnHoverOut: Bool { openedByPress && expanded }
 
     let feedback: SoundFeedback
     var cursor: CursorController?
@@ -455,6 +460,7 @@ final class NotchModel: ObservableObject {
     /// `focus: false`: opened by FERB itself (the intro), never the owner: the chat shows without taking keyboard focus
     /// (rule 10); the panel becomes key only on the owner's click or shortcut.
     func expand(keyboard: Bool = false, focus: Bool = true) {
+        if !expanded { openedByPress = false }
         cancelPinnedFold()
         isHeaderOnly = false
         session.expand()
@@ -468,6 +474,7 @@ final class NotchModel: ObservableObject {
         cancelPinnedFold()
         isPinned = false
         isHeaderOnly = false
+        openedByPress = false
         heldVoiceSnapshot = nil
         microphone.cancel()
         // Hiding cancels microphone capture; committed work keeps running.
@@ -560,11 +567,14 @@ final class NotchModel: ObservableObject {
         else { resumePendingPinnedFold(); onInteractionEnded?() }
     }
 
-    func toggle() {
+    /// `byPress`: the owner pressed the closed notch or pill (APP-705); the chat it opens stays open on hover-out.
+    func toggle(byPress: Bool = false) {
         // The interaction callback can consume a compact arrival by opening chat. Decide before that callback.
         let close = expanded && compactPlanText == nil
         onInteraction?()
-        close ? collapse() : expand()
+        if close { collapse(); return }
+        expand()
+        if byPress { openedByPress = true }
     }
 
     func edit(keyboard: Bool = false) {

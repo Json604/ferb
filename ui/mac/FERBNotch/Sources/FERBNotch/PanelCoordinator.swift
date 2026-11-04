@@ -118,7 +118,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var activityTaskID: String?
     private var geometry: NotchGeometry?
     private var statusItem: NSStatusItem?
-    private var hoverTask: Task<Void, Never>?
+    /// The pending hover open or hover-out fold (tests await it).
+    private(set) var hoverTask: Task<Void, Never>?
+    /// Where the pointer is, in screen coordinates (tests place it).
+    var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
+    /// How the hover open and hover-out grace pass (tests end them at once instead of racing a clock).
+    var hoverWait: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     private var indicatorRestTask: Task<Void, Never>?
     private(set) weak var indicatorControl: FerbIndicatorControl?
     private var presentedExpanded = false
@@ -340,19 +345,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                                                               name: name, object: nil)
         }
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in
-            guard let self else { return }
-            let location = NSEvent.mouseLocation
-            let cameBack = self.yieldController.ownerClicked(at: self.windowServerPoint(location))
-            // The click went to another app: coming back must not take the focus the owner moved there.
-            self.windowYield.ownerMovedElsewhere()
-            if cameBack {
-                // A click on the notch brought FERB back: focus the visible input, like hover and the shortcut.
-                self.updatePointer()
-                self.focusVisibleInput()
-            }
-            self.restackYield()
-            guard self.model.expanded, !self.panel.frame.contains(location) else { return }
-            self.model.dismissAutomatically()
+            self?.ownerClickedInAnotherApp()
         }) { eventMonitors.append(monitor) }
         // Global monitors do not receive clicks in our Settings/Quick Look windows.
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] event in
@@ -376,6 +369,23 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self?.updatePointer(revealPinnedHeader: true)
             return event
         }) { eventMonitors.append(monitor) }
+    }
+
+    /// A click that went to another app or the desktop (the global monitor). It closes an unpinned chat, a
+    /// press-opened one included (APP-707).
+    func ownerClickedInAnotherApp() {
+        let location = pointerLocation()
+        let cameBack = yieldController.ownerClicked(at: windowServerPoint(location))
+        // The click went to another app: coming back must not take the focus the owner moved there.
+        windowYield.ownerMovedElsewhere()
+        if cameBack {
+            // A click on the notch brought FERB back: focus the visible input, like hover and the shortcut.
+            updatePointer()
+            focusVisibleInput()
+        }
+        restackYield()
+        guard model.expanded, !panel.frame.contains(location) else { return }
+        model.dismissAutomatically()
     }
 
     private func configurePanel() {
@@ -472,7 +482,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         control.onClick = { [weak self] in
             guard let self else { return }
             self.cancelMagneticInteraction()
-            self.model.toggle()
+            self.model.toggle(byPress: true)
         }
         indicatorPanel.contentView = control
     }
@@ -1332,7 +1342,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var previewWindows: [UUID: NSWindow] = [:]
 
     private var pointerIsOverSurface: Bool {
-        let point = NSEvent.mouseLocation
+        let point = pointerLocation()
         if model.expanded, previewWindows.values.contains(where: { $0.isVisible && $0.frame.contains(point) }) {
             return true
         }
@@ -1349,13 +1359,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         return indicatorHitFrame.contains(point)
     }
 
-    private func updatePointer(revealPinnedHeader: Bool = false) {
+    func updatePointer(revealPinnedHeader: Bool = false) {
         guard indicatorDragPointer == nil, dockingRevision == nil else { return }
         // While FERB yields it is ordered out: hover must not open, reveal, fold or dismiss it. Entering the notch
         // brings it back, and like any hover that focuses the visible input.
         var broughtBack = false
         if model.isYielded {
-            switch yieldController.pointerMoved(to: windowServerPoint(NSEvent.mouseLocation)) {
+            switch yieldController.pointerMoved(to: windowServerPoint(pointerLocation())) {
             case .hidden: return
             case .broughtBack: broughtBack = true
             case .visible: break
@@ -1388,9 +1398,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
         guard model.hoverOpensChat,
               !model.expanded else { return }
-        hoverTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            guard let self else { return }
+        hoverTask = Task { [weak self, hoverWait] in
+            do { try await hoverWait(.milliseconds(100)) } catch { return }
+            guard let self, !Task.isCancelled else { return }
             self.model.expand()
         }
     }
@@ -1402,16 +1412,18 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             model.foldPinnedBody()
             return
         }
-        guard !model.blocksAutomaticDismissal, model.expanded else {
+        // A chat the owner opened with a press stays until Escape, the shortcut, Hide or a click outside (APP-707).
+        guard !model.blocksAutomaticDismissal, !model.staysOpenOnHoverOut, model.expanded else {
             scheduleIndicatorRest()
             return
         }
         // Allow the pointer to cross the popover arrow/gap without folding either
         // surface. Once outside both windows, a preview must close with the chat.
         let delay = previewWindows.isEmpty ? 60 : 250
-        hoverTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(delay)) } catch { return }
-            guard let self, !self.pointerIsOverSurface, !self.model.blocksAutomaticDismissal, self.model.expanded else { return }
+        hoverTask = Task { [weak self, hoverWait] in
+            do { try await hoverWait(.milliseconds(delay)) } catch { return }
+            guard let self, !Task.isCancelled, !self.pointerIsOverSurface, !self.model.blocksAutomaticDismissal,
+                  !self.model.staysOpenOnHoverOut, self.model.expanded else { return }
             self.model.dismissAutomatically()
         }
     }
