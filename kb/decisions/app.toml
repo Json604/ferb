@@ -1599,7 +1599,8 @@ paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/
 title = "Full Disk Access gets both FERBs in one drag; other lists keep the agent alone"
 by = "owner"
 date = 2026-11-03
-status = "active"
+status = "superseded"
+superseded_by = "APP-659"
 words = "btu the onlt 2 step issue ive necountered wiht si of full disk access, otheres i havent"
 rule = "In the tour, the logo dragged into System Settings' Full Disk Access list carries both FERB.app and its agent app (the daemon's grant target), and its lines say to turn both FERB switches on. Every other privacy list keeps dragging the agent app alone. FERB keeps two apps (FERB.app and the agent); FERB's check still reads the agent's grant."
 why = "Full Disk Access listed two \"FERB\" rows and the owner switched on the wrong one; the merge into one identity was dropped after testing (owner: \"lets jsut ahve the two apps as it is\")."
@@ -1731,3 +1732,48 @@ rule = "The listening waveform is drawn only from the microphone's loudness: RMS
 why = "Owner on build 202611040231: \"its a constant moving animation it should move when voice comes\" (fixes approved 2026-11-04). VoiceLight drew sine waves from a clock, never the microphone. The dB range and time constants are display tuning set without a live microphone (APP-567)."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/Dictation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/VisualComponents.swift"]
 live = ["LIVE-733"]
+
+[APP-659]
+title = "Screen Recording gets both FERBs in one drag too, like Full Disk Access"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "the full disk worked smoothly for 2 permissions for ferb, add that to screen recording too, cause its stuck"
+supersedes = ["APP-646"]
+rule = "In the tour, the logo dragged into System Settings' Full Disk Access list and its Screen & System Audio Recording list carries both FERB.app and its agent app (the daemon's grant target), and its lines say to turn both FERB switches on. Accessibility and Input Monitoring keep dragging the agent app alone. FERB keeps two apps (FERB.app and the agent); FERB's check still reads the agent's grant."
+why = "Owner's fresh first run, 2026-11-04: Screen & System Audio Recording listed two \"FERB\" rows, one on and one off, and the step stuck."
+evidence = "Accessibility and Input Monitoring are read by the daemon itself (AX, IOHID: the agent's grant) and FERB.app makes no Accessibility, input-monitoring or screen-capture call, so FERB.app shows in those lists only if added by hand."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbParts.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift"]
+live = ["LIVE-723"]
+
+[APP-660]
+title = "The call rule counts an app holding the microphone, never a system daemon"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "APP-528's \"another app is using the microphone\" is read per sound: each process running microphone input counts through the app it belongs to: itself when it is a running app that isn't background-only, else the outermost app bundle holding its executable, else the first such app up the process macOS holds responsible for it and its parent chain. A process no app owns (Siri's always-on listener, corespeechd) never counts, nor do FERB's own processes. When a call silences a sound, the system log (subsystem com.ferb.FERB, category sound) names the sound and the app."
+why = "APP-528 (owner): \"while another app is using the microphone\". Audit U1: corespeechd alone held input on the owner's Mac, so the first-launch music and every cue but needs you were silent on the fresh run (2026-11-04). Which app holds the microphone is a structural fact."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/MicrophoneUse.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AudioOutputFacts.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift"]
+live = ["LIVE-724"]
+
+[APP-661]
+title = "After macOS's Quit & Reopen, FERB comes back even if System Settings closes first"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "When System Settings (its app or an extension) sends FERB.app a quit with no log out, restart or shut down reason, FERB starts a detached watcher as it terminates (own session, none of FERB's descriptors). Once FERB has exited it looks every grant poll (APP-510, ~1.5 s) while the quit's sender lives; if FERB.app runs again it stops, and if the sender is gone with FERB not running it opens FERB.app in the background, which resumes the tour at its step (APP-595). Other quits are unchanged. The sender and the watcher are logged (category relaunch)."
+why = "Owner, 2026-11-04: \"I pressed on Quit & Reopen after the Screen Recording permission, it didn't reopen, just quit.\""
+evidence = "System log: Settings' Privacy extension relaunched FERB 3.1 s after an earlier quit (08:05:50 to :53). At 08:07:03 FERB quit in 6 ms; Settings closed 2.2 s later, ending that extension before its relaunch; FERB came back only when the owner opened it (08:08:08)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/PermissionRelaunch.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PermissionRelaunchWatcher.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Application.swift"]
+live = ["LIVE-725"]
+
+[APP-662]
+title = "A switch turned on registers within a poll: a fresh reading, then an immediate restart"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "While a grant waits on Screen Recording or Input Monitoring, FERB.app asks `setup.permissions` to read that row fresh (`fresh`): the daemon runs exactly `-I -m ferb.device.grant_probe` (an agent entry point; ctypes, no input) and marks the row `restart_needed` when that new process reads it on and the daemon off; status stays what the daemon can use. On the first such reading of a wait FERB restarts the service at once (never while a task runs) and the notch says so; the row ticks when the restarted daemon reads it. APP-598 stays as the fallback."
+why = "Owner, 2026-11-04: \"it couldnt detect instantly that it got the screen recording permission. why is that its slow in recognizing it got the permission??\""
+evidence = "macOS caches Screen Recording per process until it restarts, so the daemon kept reading off; APP-598 restarted it only once the owner left Settings (log: 08:08:32). A process started now reads TCC as it is: a real system check (APP-510), never a drop."
+paths = ["ferb/device/grant_probe.py", "ferb/device/permissions.py", "ferb/daemon/areas/rpc.py", "ui/mac/FERBAgent/main.c", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift"]
+live = ["LIVE-726"]

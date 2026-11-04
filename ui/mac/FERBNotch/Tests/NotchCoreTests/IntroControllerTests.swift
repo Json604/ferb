@@ -282,15 +282,16 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertFalse(arrival.visible)
     }
 
-    /// APP-646 (owner, 2026-11-03: the only two-FERB problem was Full Disk Access): that list gets both FERB.app and
-    /// its agent app in one drag, with "both switches" wording; every other list keeps the agent alone.
-    // decision: APP-646
+    /// APP-646, now APP-659 (owner): Full Disk Access gets both FERB.app and its agent app in one drag, with "both
+    /// switches" wording; a list outside `bothFERBLists` keeps the agent alone.
+    // decision: APP-659
     func testFullDiskAccessDragsBothFERBsAndOtherListsOnlyTheAgent() async {
-        let agent = URL(fileURLWithPath: SetupReplies.agent)
-        XCTAssertEqual(IntroController.dragItems(SetupReplies.agent, both: true),
-                       [agent, URL(fileURLWithPath: "/Applications/FERB.app")])
-        XCTAssertEqual(IntroController.dragItems(SetupReplies.agent, both: false), [agent])
-        XCTAssertEqual(IntroController.dragItems("/opt/python3.12", both: true), [URL(fileURLWithPath: "/opt/python3.12")])
+        // Paths, not URLs: URL(fileURLWithPath:) adds a trailing slash only when the folder exists on this Mac (TEST-508)
+        func paths(_ urls: [URL]) -> [String] { urls.map(\.path) }
+        XCTAssertEqual(paths(IntroController.dragItems(SetupReplies.agent, both: true)),
+                       [SetupReplies.agent, "/Applications/FERB.app"])
+        XCTAssertEqual(paths(IntroController.dragItems(SetupReplies.agent, both: false)), [SetupReplies.agent])
+        XCTAssertEqual(paths(IntroController.dragItems("/opt/python3.12", both: true)), ["/opt/python3.12"])
 
         let t = tour()
         t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "denied")
@@ -298,6 +299,22 @@ final class IntroControllerTests: XCTestCase {
         await t.pick("permissions.next")
         await eventually { t.orb.docks.count == 1 }
         XCTAssertEqual(t.orb.dragged.first?.count, 2)
+        XCTAssertEqual(t.orb.docks[0].instruction?.detail, "then turn both FERB switches on")
+    }
+
+    /// APP-659 (owner, 2026-11-04: "add that to screen recording too, cause its stuck"): Screen & System Audio
+    /// Recording also lists two "FERB" rows, so its drag carries both apps with the same "both switches" wording;
+    /// Accessibility and Input Monitoring keep the agent alone.
+    // decision: APP-659
+    func testScreenRecordingDragsBothFERBsLikeFullDiskAccess() async {
+        XCTAssertEqual(IntroController.bothFERBLists, ["full_disk_access", "screen_recording"])
+        let t = tour()
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", screen: "denied",
+                                                                         fda: "granted")
+        t.controller.start(beats: [.permissions, .home])
+        await t.pick("permissions.next")                                   // Screen Recording is the one left
+        await eventually { t.orb.docks.count == 1 }
+        XCTAssertEqual(t.orb.dragged.first?.map(\.path), [SetupReplies.agent, "/Applications/FERB.app"])   // TEST-508
         XCTAssertEqual(t.orb.docks[0].instruction?.detail, "then turn both FERB switches on")
     }
 

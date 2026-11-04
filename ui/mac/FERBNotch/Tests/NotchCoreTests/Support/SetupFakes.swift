@@ -141,15 +141,18 @@ enum SetupReplies {
     static let agent = "/Applications/FERB.app/Contents/Helpers/FERB.app"
 
     static func permissions(accessibility: String = "denied", screen: String = "granted", fda: String = "denied",
-                            fdaBlocked: String = "", setupDone: Bool = false) -> [String: Any] {
+                            fdaBlocked: String = "", setupDone: Bool = false,
+                            screenRestartNeeded: Bool = false) -> [String: Any] {
         func row(_ id: String, _ status: String, _ anchor: String, required: Bool, requestable: Bool,
-                 restart: Bool = false, blocked: String = "", process: String = "daemon") -> [String: Any] {
+                 restart: Bool = false, blocked: String = "", process: String = "daemon",
+                 restartNeeded: Bool = false) -> [String: Any] {
             ["id": id, "status": status, "process": process, "required": required, "pane": pane + anchor,
-             "requestable": requestable, "restart_to_check": restart, "blocked": blocked]
+             "requestable": requestable, "restart_to_check": restart, "blocked": blocked,
+             "restart_needed": restartNeeded]
         }
         let rows = [row("accessibility", accessibility, "Privacy_Accessibility", required: true, requestable: true),
                     row("screen_recording", screen, "Privacy_ScreenCapture", required: true, requestable: true,
-                        restart: true),
+                        restart: true, restartNeeded: screenRestartNeeded),
                     row("full_disk_access", fda, "Privacy_AllFiles", required: true, requestable: false, restart: true,
                         blocked: fdaBlocked),
                     row("input_monitoring", "granted", "Privacy_ListenEvent", required: false, requestable: true)]

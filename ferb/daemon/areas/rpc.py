@@ -478,13 +478,36 @@ class Rpc:
                 return permissions.Status.UNKNOWN.value
         statuses = await asyncio.gather(*(automation(bundle) for _, bundle in apps))
         clipboard = permissions.clipboard_row(await asyncio.to_thread(self._clipboard_access))   # owner decision 2
-        return {"rows": permissions.rows(grants, self._setup_containment()) + [clipboard],
+        # APP-662: the rows FERB.app is waiting on (`fresh`) that this process still reads off are read again by a
+        # fresh process, which sees a switch the owner just turned on; the app then restarts this daemon at once
+        asked = params.get("fresh")
+        waiting = {p for p in asked if isinstance(p, str)} if isinstance(asked, list) else set()
+        pending = {p for p in waiting & permissions.FRESH_READ if grants.get(p) != permissions.Status.GRANTED.value}
+        restart = permissions.restart_needed(grants, await self._fresh_grants()) if pending else frozenset()
+        return {"rows": permissions.rows(grants, self._setup_containment(), restart & pending) + [clipboard],
                 "automation": [{"name": name, "bundle_id": bundle, "status": status}
                                for (name, bundle), status in zip(apps, statuses)],
                 "automation_pane": permissions.pane_url("automation"),
                 "grant_target": permissions.grant_target(app_bundle(), sys.executable),
                 "app_panes": permissions.app_panes(APP_BUNDLE_ID),
                 "setup_done": int(self.config.get("setup", "permissions_version", 0) or 0) >= 27}
+
+    async def _fresh_grants(self) -> dict[str, str]:
+        """`ferb.device.grant_probe`'s answer, from a process started now (the agent app, as this daemon's child).
+        It waits as long as this RPC's automation reads (2 s); a probe that doesn't answer is killed and gives none."""
+        from ferb.device import permissions
+        proc = await asyncio.create_subprocess_exec(
+            *self.grant_probe, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL)
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), 2)
+        except TimeoutError:
+            out = b""
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+        return permissions.fresh_answer(out)
 
     async def _setup_permission_request(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """L34 C: the owner's Grant on one row: macOS's own prompt, which also lists FERB in that pane; made here so the

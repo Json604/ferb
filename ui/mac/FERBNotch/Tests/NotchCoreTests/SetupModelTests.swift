@@ -221,6 +221,30 @@ final class SetupModelTests: XCTestCase {
         XCTAssertTrue(model.offersRestart)                              // the button stays for that
     }
 
+    /// Live 2026-11-04: the owner's Screen Recording switch was on, but the row ticked only after they left System
+    /// Settings (the daemon caches the grant until it restarts). A grant's wait asks for a fresh reading of its row; the
+    /// moment it reads on there, the service restarts at once (once), and the row ticks after the restart.
+    // decision: APP-662
+    func testASwitchTurnedOnRestartsTheServiceAtOnceWithoutLeavingSettings() async {
+        let rig = SetupRig()
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "denied")
+        let model = rig.model()
+        model.frontmostApp = { SettingsAnchor.bundleID }                   // the owner stays in System Settings
+        await model.refreshPermissions()
+        XCTAssertNil(rig.rpc.params(of: "setup.permissions").first?["fresh"])   // nobody waiting: no fresh reading
+        let row = model.allRows.first { $0.id == "screen_recording" }!
+        rig.service.onRestart = {                                           // the restarted daemon reads it on
+            rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "granted")
+        }
+        let waiting = Task { await model.grantAndConfirm(row, polls: 400) }
+        await eventually { rig.rpc.params(of: "setup.permissions").contains { $0["fresh"] as? [String] == ["screen_recording"] } }
+        XCTAssertEqual(rig.service.restarts, 0)                              // still off everywhere: no restart
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "denied", screenRestartNeeded: true)
+        let granted = await waiting.value
+        XCTAssertTrue(granted)
+        XCTAssertEqual(rig.service.restarts, 1)
+    }
+
     // decision: APP-510
     func testARowStillOffAfterItsGrantOffersFERBToDragIn() async {
         // A friend's newer macOS didn't list FERB in its pane (2026-10-27): the agent app can be dragged in

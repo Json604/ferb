@@ -51,3 +51,60 @@ final class SoundPolicyTests: XCTestCase {
         XCTAssertEqual(SoundPolicy.outcomeSound("failed"), .error)
     }
 }
+
+/// APP-528's "another app is using the microphone" counts apps, not system daemons (APP-660; audit U1: Siri's
+/// always-on listener, corespeechd, silenced the first-launch music and every cue on the owner's Mac).
+final class MicrophoneUseTests: XCTestCase {
+    /// Invented processes: a speech daemon with no app (40); a call app (50); a browser (60) whose helper (61) runs
+    /// the call; a helper inside the browser's bundle (62); a service launchd started for the browser (70); FERB (90)
+    /// and its helper (91).
+    private let facts: [pid_t: ProcessFacts] = [
+        40: ProcessFacts(responsible: 40, parent: 1),
+        50: ProcessFacts(appName: "Example Call", responsible: 50, parent: 1),
+        60: ProcessFacts(appName: "Example Browser", responsible: 60, parent: 1),
+        61: ProcessFacts(responsible: 60, parent: 60),
+        62: ProcessFacts(bundleApp: "Example Browser", parent: 1),
+        70: ProcessFacts(responsible: 60, parent: 1),
+        90: ProcessFacts(appName: "FERB", parent: 1),
+        91: ProcessFacts(responsible: 90, parent: 90),
+    ]
+
+    private func caller(_ inputs: [pid_t]) -> String? {
+        MicrophoneUse.callingApp(inputs: inputs, isOwn: { $0 == 90 }, facts: { self.facts[$0] })
+    }
+
+    private func decide(_ s: FerbSound, inputs: [pid_t]) -> SoundDecision? {
+        SoundPolicy.decide(s, uiSoundsEnabled: true, feedbackEnabled: true, switchOn: true, subtle: false,
+                           onACall: { caller(inputs) != nil })
+    }
+
+    // decision: APP-660
+    func testADaemonNoAppOwnsNeverCountsAsACall() {
+        XCTAssertNil(caller([40]))
+        XCTAssertEqual(decide(.firstLaunch, inputs: [40]), SoundDecision(subtle: false))   // the startup music plays
+        XCTAssertEqual(decide(.notification, inputs: [40]), SoundDecision(subtle: false))
+        XCTAssertNil(caller([12345]))                                                       // a process gone: no app
+    }
+
+    // decision: APP-660, APP-528
+    func testAnAppHoldingTheMicrophonePlaysOnlyNeedsYouSoftly() {
+        XCTAssertEqual(caller([40, 50]), "Example Call")
+        XCTAssertNil(decide(.firstLaunch, inputs: [50]))
+        XCTAssertNil(decide(.error, inputs: [50]))
+        XCTAssertEqual(decide(.needsYou, inputs: [50]), SoundDecision(subtle: true))
+    }
+
+    // decision: APP-660
+    func testAnAppsHelperCountsAsThatApp() {
+        XCTAssertEqual(caller([61]), "Example Browser")          // the browser's helper process, by parent/responsible
+        XCTAssertEqual(caller([62]), "Example Browser")          // a helper inside the browser's bundle
+        XCTAssertEqual(caller([70]), "Example Browser")          // a service launchd started, responsible to the browser
+        XCTAssertNil(decide(.firstLaunch, inputs: [61]))
+    }
+
+    // decision: APP-528
+    func testFERBsOwnProcessesNeverCount() {
+        XCTAssertNil(caller([90]))
+        XCTAssertNil(caller([91]))
+    }
+}

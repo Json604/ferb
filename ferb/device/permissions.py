@@ -7,6 +7,7 @@ CLI's process. Automation can be *requested* (prompt) only from the daemon, so t
 
 import asyncio
 import ctypes
+import json
 import logging
 import os
 import subprocess
@@ -269,6 +270,27 @@ REQUESTABLE = frozenset({"accessibility", "screen_recording", "input_monitoring"
 # Input Monitoring likewise on a friend's Macs, 2026-10-27; Full Disk Access may need it too): the window restarts the
 # service when FERB comes back to the front after the Grant, and offers "Restart FERB to check"
 RESTART_TO_CHECK = frozenset({"screen_recording", "input_monitoring", "full_disk_access"})
+# APP-662: the cached ones a fresh process reads as TCC says now (`ferb.device.grant_probe`); Full Disk Access is a file
+# opened on every check (DMN-518), so it needs no second reader
+FRESH_READ = frozenset({"screen_recording", "input_monitoring"})
+
+
+def fresh_answer(out: bytes) -> dict[str, str]:
+    """`grant_probe`'s printed answer, only its known keys and string values; anything unreadable is no answer."""
+    try:
+        answer = json.loads(out)
+    except ValueError:
+        return {}
+    if not isinstance(answer, dict):
+        return {}
+    return {p: v for p, v in answer.items() if p in FRESH_READ and isinstance(v, str)}
+
+
+def restart_needed(grants: dict[str, str], fresh: dict[str, str]) -> frozenset[str]:
+    """The grants a fresh process reads on while this daemon still reads them off: on in macOS, usable by the
+    daemon only after it restarts (APP-662)."""
+    on = Status.GRANTED.value
+    return frozenset(p for p in FRESH_READ if fresh.get(p) == on and grants.get(p) != on)
 FDA_WAITS = "FERB's shell sandbox and network proxy must be working first"
 
 
@@ -280,13 +302,17 @@ def fda_ready(containment: dict[str, Any]) -> bool:
                 and containment.get("proxy_alive", True))
 
 
-def rows(grants: dict[str, str], containment: dict[str, Any]) -> list[dict[str, Any]]:
+def rows(grants: dict[str, str], containment: dict[str, Any],
+         restart: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
     """The daemon's own grants as setup rows: `process` "daemon" is FERB's agent app (the daemon's TCC identity).
-    Hearing's Speech Recognition is FERB.app's own, the grant dictation already asks for: the app's microphone row."""
+    Hearing's Speech Recognition is FERB.app's own, the grant dictation already asks for: the app's microphone row.
+    `status` is what this daemon can use now; `restart_needed` marks a grant macOS has on that it uses only after a
+    restart (`restart_needed()`), which FERB.app restarts it for at once."""
     ready = fda_ready(containment)
     out: list[dict[str, Any]] = [
         {"id": p, "status": grants.get(p, Status.UNKNOWN.value), "process": "daemon", "required": True,
          "pane": pane_url(p), "requestable": p in REQUESTABLE, "restart_to_check": p in RESTART_TO_CHECK,
+         "restart_needed": p in restart,
          "blocked": "" if p != "full_disk_access" or ready else FDA_WAITS}
         for p in DAEMON_PERMISSIONS]
     return out

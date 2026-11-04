@@ -308,3 +308,48 @@ def test_full_disk_access_is_read_where_this_macos_keeps_a_protected_file(tmp_pa
         system.chmod(0o600)
     monkeypatch.setattr(P, "_fda_probes", lambda: (missing,))
     assert P.full_disk_access() == P.Status.UNKNOWN           # nothing to read: never "granted"
+
+
+# decision: APP-662
+def test_a_switch_turned_on_while_the_daemon_runs_is_seen_by_a_fresh_process(daemon) -> None:
+    """Live 2026-11-04: the owner's Screen Recording switch was on, but the running daemon read it off (macOS caches it
+    per process) until FERB restarted it when the owner left System Settings. A row FERB.app waits on is read again by
+    a fresh process; on there and off here, it says restart_needed, and its status stays what this daemon can use."""
+    import sys
+    d = daemon.daemon
+    d.permission_check = lambda: {"accessibility": "granted", "screen_recording": "denied",
+                                  "input_monitoring": "granted", "full_disk_access": "granted"}
+    d._clipboard_access = lambda: "allow"
+    d._running_apps = lambda: []
+    started: list[int] = []
+    fresh = '{"screen_recording": "granted", "input_monitoring": "granted"}'
+    d.grant_probe = [sys.executable, "-c", f"print({fresh!r})"]
+    real_fresh = d._fresh_grants
+
+    async def counted() -> dict[str, str]:
+        started.append(1)
+        return await real_fresh()
+    d._fresh_grants = counted
+
+    def rows(params: dict[str, object]) -> dict[str, dict[str, object]]:
+        reply = daemon.run(d._setup_permissions(None, params))
+        return {r["id"]: r for r in reply["rows"]}
+    waiting = rows({"fresh": ["screen_recording"]})
+    assert waiting["screen_recording"]["restart_needed"] is True
+    assert waiting["screen_recording"]["status"] == "denied"             # not usable until the restart
+    assert waiting["input_monitoring"]["restart_needed"] is False         # already on here
+    assert started == [1]
+    plain = rows({})                                                       # nobody waiting: no second process
+    assert not plain["screen_recording"]["restart_needed"] and started == [1]
+    d.grant_probe = [sys.executable, "-c", "print('not json')"]           # an unreadable answer is no answer
+    assert rows({"fresh": ["screen_recording"]})["screen_recording"]["restart_needed"] is False
+
+
+# decision: APP-662
+def test_the_fresh_reading_counts_only_known_grants_turned_on() -> None:
+    assert P.fresh_answer(b'{"screen_recording": "granted", "full_disk_access": "granted", "x": 1}') == {
+        "screen_recording": "granted"}
+    assert P.fresh_answer(b"[]") == {} and P.fresh_answer(b"") == {}
+    assert P.restart_needed({"screen_recording": "denied"}, {"screen_recording": "granted"}) == {"screen_recording"}
+    assert P.restart_needed({"screen_recording": "granted"}, {"screen_recording": "granted"}) == frozenset()
+    assert P.restart_needed({"input_monitoring": "denied"}, {"input_monitoring": "denied"}) == frozenset()

@@ -32,9 +32,12 @@ public struct PermissionRow: Equatable, Identifiable {
     public let requestable: Bool
     public let restartToCheck: Bool
     public let blocked: String
+    /// macOS has the switch on, but the running daemon uses it only after a restart (a fresh process read it on,
+    /// APP-662); `status` stays what the daemon can use now.
+    public let restartNeeded: Bool
 
     public init(id: String, status: GrantStatus, process: String, required: Bool, pane: URL?, requestable: Bool,
-                restartToCheck: Bool = false, blocked: String = "") {
+                restartToCheck: Bool = false, blocked: String = "", restartNeeded: Bool = false) {
         self.id = id
         self.status = status
         self.process = process
@@ -43,6 +46,7 @@ public struct PermissionRow: Equatable, Identifiable {
         self.requestable = requestable
         self.restartToCheck = restartToCheck
         self.blocked = blocked
+        self.restartNeeded = restartNeeded
     }
 
     public init?(daemon row: [String: Any]) {
@@ -50,7 +54,8 @@ public struct PermissionRow: Equatable, Identifiable {
         self.init(id: id, status: GrantStatus(daemon: row["status"]), process: row["process"] as? String ?? "daemon",
                   required: row["required"] as? Bool ?? false, pane: (row["pane"] as? String).flatMap(URL.init(string:)),
                   requestable: row["requestable"] as? Bool ?? false,
-                  restartToCheck: row["restart_to_check"] as? Bool ?? false, blocked: row["blocked"] as? String ?? "")
+                  restartToCheck: row["restart_to_check"] as? Bool ?? false, blocked: row["blocked"] as? String ?? "",
+                  restartNeeded: row["restart_needed"] as? Bool ?? false)
     }
 }
 

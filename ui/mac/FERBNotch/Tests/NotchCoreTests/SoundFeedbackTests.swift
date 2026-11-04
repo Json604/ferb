@@ -104,7 +104,7 @@ final class SoundFeedbackTests: XCTestCase {
     // decision: APP-528
     func testDuringACallOnlyNeedsYouPlaysAtSubtle() {
         let defaults = scratchDefaults("SoundFeedbackTests")
-        var running: [pid_t] = [1]                          // another app (not FERB) runs microphone input
+        var running: [pid_t] = [4242]                       // another app (not FERB) runs microphone input
         let engine = makeEngine(defaults: defaults, input: { running })
         XCTAssertEqual(engine.decision(for: .needsYou), SoundDecision(subtle: true))
         for sound: FerbSound in [.error, .notification, .listeningStart, .listeningEnd, .intro, .orbHop] {
@@ -214,7 +214,7 @@ final class SoundFeedbackTests: XCTestCase {
     func testAHandoffSoundsAsNeedsYouAndDuringACallAtSubtle() {
         let defaults = scratchDefaults("SoundFeedbackTests")
         let feedback = SoundFeedback(defaults: defaults)
-        let player = DecidingPlayer(makeEngine(defaults: defaults, input: { [1] }))        // another app is on a call
+        let player = DecidingPlayer(makeEngine(defaults: defaults, input: { [4242] }))     // another app is on a call
         feedback.player = player
         let center = FakeNotificationCenter()
         let poster = NotificationPoster(center: center, settle: .zero)
@@ -288,8 +288,10 @@ final class SoundFeedbackTests: XCTestCase {
     }
 
     private func makeEngine(defaults: UserDefaults, input: @escaping @MainActor () -> [pid_t] = { [] }) -> FerbSoundEngine {
+        // Invented process facts (TEST-508: never the Mac's real processes): pid 4242 is an app holding the microphone
         FerbSoundEngine(defaults: defaults, preference: { _ in nil }, headphones: { false }, screens: { [] },
-                        measureLatency: { 0 }, inputProcesses: input)
+                        measureLatency: { 0 }, inputProcesses: input, ownProcess: { $0 == getpid() },
+                        processFacts: { $0 == 4242 ? ProcessFacts(appName: "Example Call") : ProcessFacts(parent: 1) })
     }
 
     private func begin(_ request: String, in model: NotchModel) -> UUID {

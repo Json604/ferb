@@ -1,6 +1,7 @@
 import AppKit
 import CoreAudio
 import Darwin
+import NotchCore
 
 /// What the system says about sound: the user's sound settings, the current output device, and which processes are
 /// running microphone input.
@@ -91,6 +92,41 @@ enum AudioOutputFacts {
         let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath().path + "/"
         return URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath().path.hasPrefix(bundle)
     }
+
+    /// What MicrophoneUse needs to know about one process: whether it is an app (a running application that isn't
+    /// background-only), the outermost app bundle holding its executable, the process macOS holds responsible for it
+    /// and its parent. Nil when the process can't be read (gone, or another user's).
+    static func processFacts(_ pid: pid_t) -> ProcessFacts? {
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
+        var facts = ProcessFacts()
+        if let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy != .prohibited {
+            facts.appName = app.localizedName ?? app.bundleIdentifier ?? "an app"
+        }
+        let components = URL(fileURLWithPath: String(cString: path)).pathComponents
+        if let outer = components.firstIndex(where: { $0.hasSuffix(".app") }) {
+            facts.bundleApp = String(components[outer].dropLast(4))
+        }
+        if let responsible = responsiblePID(pid), responsible > 0 { facts.responsible = responsible }
+        var info = proc_bsdinfo()
+        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) > 0 {
+            facts.parent = pid_t(info.pbi_ppid)
+        }
+        return facts
+    }
+
+    /// The process macOS holds responsible for `pid` (an XPC service's app, as Activity Monitor shows it), from
+    /// libsystem's responsibility call, resolved defensively like the other private symbols FERB uses (APP-563): nil
+    /// when this macOS doesn't have it, and the parent chain is used alone.
+    private static func responsiblePID(_ pid: pid_t) -> pid_t? {
+        typealias Responsible = @convention(c) (pid_t) -> pid_t
+        guard let symbol = responsibilitySymbol else { return nil }
+        return unsafeBitCast(symbol, to: Responsible.self)(pid)
+    }
+
+    private static let responsibilitySymbol: UnsafeMutableRawPointer? = {
+        dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid")   // RTLD_DEFAULT
+    }()
 
     private static func defaultOutputDevice() -> AudioDeviceID? {
         let device: AudioDeviceID? = property(AudioObjectID(kAudioObjectSystemObject),

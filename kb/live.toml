@@ -2465,4 +2465,39 @@ surface = "FERB.app with this build, the notch's dictation (held Right Command +
 request = "Hold Right Command + Option and stay silent for three seconds; say \"find my notes about the launch\", pause about five seconds, say \"and the budget sheet\", pause about ten seconds, say \"from last week\", then release. Repeat once with Reduce Motion on."
 pass = "The waveform is a still line while you're silent and moves as you speak. The draft holds all three phrases in order, none lost or cut off at a pause, and dictation stays open until you release. With Reduce Motion the bars stay still and only brighten with your voice."
 decisions = ["APP-673", "APP-674", "APP-675", "APP-568"]
+
+[LIVE-723]
+title = "The Screen Recording step carries both FERBs and ticks"
+area = "app"
+surface = "FERB.app with this build, a fresh first run (or Settings → General → Replay intro) with Screen Recording off for both FERB rows; System Settings → Privacy & Security"
+request = "At the permissions beat pick Screen Recording, drag the logo into Screen & System Audio Recording's list and turn on what it says."
+pass = "The logo's lines say to turn both FERB switches on; after the drop both \"FERB\" rows are in the list and on, and the Screen Recording row ticks without further steps. Accessibility and Input Monitoring still drag one FERB."
+decisions = ["APP-659"]
+sitting = "after this change is installed"
+
+[LIVE-724]
+title = "The first-launch music plays while Siri listens, and a real call still quiets FERB"
+area = "app"
+surface = "FERB.app with this build on the owner's Mac with \"Hey Siri\"/Siri listening on; a call app or a browser tab with the microphone open"
+request = "Replay the intro from a first run (or a fresh start) with no call; then start a call or a browser Meet test with the microphone on and trigger a FERB error or notification. Afterwards run `log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" AND category == \"sound\"'`."
+pass = "With only Siri listening the first-launch music and the tour sounds play. During the call only needs you plays, softly; the log names the call app (or the browser) for each silenced sound, never corespeechd."
+decisions = ["APP-660"]
+sitting = "after this change is installed"
+
+[LIVE-725]
+title = "Quit & Reopen brings FERB back at the same step even when System Settings closes at once"
+area = "app"
+surface = "FERB.app with this build mid-tour at the permissions beat; System Settings"
+request = "Turn on FERB.app's Screen Recording switch, choose Quit & Reopen, and close System Settings right away (within a second or two). Repeat once leaving System Settings open."
+pass = "Both times FERB comes back by itself within a few seconds, in the permissions beat where it left (no second FERB). `log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" AND category == \"relaunch\"'` shows the quit asked by System Settings and the watcher started. A plain Quit FERB from the menu-bar menu doesn't reopen it."
+decisions = ["APP-661"]
+sitting = "after this change is installed"
+
+[LIVE-726]
+title = "A Screen Recording switch turned on ticks within seconds without leaving System Settings"
+area = "app"
+surface = "FERB.app with this build at the permissions beat, Screen Recording off for FERB's agent; System Settings stays in front"
+request = "Pick Screen Recording and turn on the FERB agent's switch (choose Later if macOS offers Quit & Reopen for it); stay in System Settings."
+pass = "Within about two seconds the notch says Screen Recording is on and FERB's background part is restarting, and the row ticks a few seconds later, all without leaving System Settings. No restart happens while a task runs."
+decisions = ["APP-662"]
 sitting = "after this change is installed"
