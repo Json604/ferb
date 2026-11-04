@@ -502,6 +502,36 @@ def test_an_agent_asks_for_a_snapshot_and_it_is_recorded(daemon: RunningDaemon) 
     assert daemon.run(ledger()) == 0                                        # reversible: no ledger row
 
 
+# decision: HAND-408
+def test_a_snapshot_whose_date_looks_like_a_card_is_stored_whole_and_retention_deletes_it(
+        daemon: RunningDaemon) -> None:
+    """Live 2026-11-03: 4 of 25 snapshot records held com.apple.TimeMachine.[redacted].local (their date digits pass
+    Luhn), so `ferb restore` couldn't name them and retention dropped the record, leaving the snapshot. FERB's own
+    strict-form name is stored whole; anything else tmutil says is still redacted."""
+    name = "com.apple.TimeMachine.2026-11-03-000612.local"                    # its 14 date digits pass Luhn
+    service = _snaps(daemon, _Snapshots())
+    service.take = lambda: name
+    grant, _ = gateway_setup(daemon, set(), gateway_request("clear out the old builds"), [])
+    out = gateway_tool_call(daemon, grant, "recovery.snapshot", before="delete every build folder")["content"]
+    assert out["snapshot_date"] == "2026-11-03 00:06:12" and "2026-11-03 00:06:12" in out["note"]
+    [row] = _snapshot_rows(daemon)
+    assert row["saved_to"] == name
+    deleted: list[str] = []
+
+    async def delete(n: str) -> bool:
+        deleted.append(n)
+        return True
+
+    async def purge() -> int:
+        return await recovery.purge_snapshots("2999-01-01T00:00:00+00:00", daemon.daemon.db, delete)
+    assert daemon.run(purge()) == 1 and deleted == [name] and _snapshot_rows(daemon) == []
+
+    service.take = lambda: "Created snapshot 4111 1111 1111 1111"             # not FERB's form: redacted as before
+    service._changed = True                                                   # as after a command: a fresh one
+    gateway_tool_call(daemon, grant, "recovery.snapshot", before="again")
+    assert all("4111" not in r["saved_to"] for r in _snapshot_rows(daemon))
+
+
 # decision: HAND-206
 def test_the_last_snapshot_is_reused_only_while_no_command_ran_since(daemon: RunningDaemon) -> None:
     """HAND-206: a fresh snapshot before each shell command, skipped only when no command ran since the

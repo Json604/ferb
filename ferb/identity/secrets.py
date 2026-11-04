@@ -7,13 +7,18 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
+from ferb.core.errors import Refused
 from ferb.core.types import SecretRef, SecretSpec
 
 SERVICE = "ferb"
 
 
 class SecretUnavailable(Exception):
-    pass
+    """A configured secret couldn't be read; `reason`: why, when the helper said (HAND-410; never the value)."""
+
+    def __init__(self, key: str, reason: str = "") -> None:
+        super().__init__(key)
+        self.reason = reason
 
 
 def normalize_origin(origin: str) -> str:
@@ -79,8 +84,8 @@ class KeychainSecretStore:
         if ref.key not in self._specs():
             raise SecretUnavailable(ref.key)
         code, out = await self._find(ref, reveal=True)
-        if code != 0:
-            raise SecretUnavailable(ref.key)             # never include output: keep secrets out of messages
+        if code != 0:                                    # never the command's output: keep secrets out of messages
+            raise SecretUnavailable(ref.key, out if not self._keychain else "")
         return out.removesuffix("\n") if self._keychain else out
 
     async def _find(self, ref: SecretRef, reveal: bool) -> tuple[int, str]:
@@ -90,6 +95,8 @@ class KeychainSecretStore:
                 out = await asyncio.to_thread(request, {'operation': 'lookup' if reveal else 'present',
                                                         'service': SERVICE, 'account': ref.key})
                 return (0, str(out.get('value', ''))) if reveal or out.get('present') else (1, '')
+            except Refused as e:                         # the helper's reason (HAND-410): no value, no account
+                return 1, str(e)
             except Exception:
                 return 1, ''
         cmd = ["security", "find-generic-password", "-s", SERVICE, "-a", ref.key, *(["-w"] if reveal else [])]

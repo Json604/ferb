@@ -664,3 +664,20 @@ def test_after_an_unknown_press_a_fresh_snapshot_doesnt_escape_the_repeat_check(
     assert again != first
     out = gateway_tool_call(daemon, grant, "mac.act", app="WhatsApp", action="press", element=again)
     assert out["content"].get("retry_action") and ran == [first]          # refused: the same press, not run again
+
+
+# decision: HAND-409
+def test_foreground_input_refused_while_the_owner_cant_be_watched_says_so_not_paused(daemon: Any) -> None:
+    """Fix batch 2026-11-04: with the owner-input tap down the daemon counts the owner as using the Mac (SENSE-406),
+    and the refusal said "FERB is paused", which wasn't true. The daemon's own input says which it is."""
+    from ferb.act.mac.input import PAUSED, UNMONITORED
+    inp = daemon.daemon.mac.input
+    inp.available = lambda: False                                    # as while the tap is down
+    with pytest.raises(Refused) as caught:
+        asyncio.run(inp.run([], "w", "type"))
+    assert str(caught.value) == UNMONITORED and "Input Monitoring" in UNMONITORED
+    sense, daemon.daemon.sense = daemon.daemon.sense, SimpleNamespace(paused=True)
+    try:
+        assert inp.why_unavailable() == PAUSED                       # the real pause keeps its words
+    finally:
+        daemon.daemon.sense = sense

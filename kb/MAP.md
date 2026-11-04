@@ -8,8 +8,8 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 |---|---|---|---|---|---|
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 139 | 7 | 52 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 56 | 5 | 19 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 31 | 3 | 57 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 55 | 2 | 36 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 31 | 4 | 57 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 60 | 2 | 38 |
 | memory | Memory and memory import | `ferb/memory` | 55 | 3 | 10 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 55 | 6 | 32 |
 | perception | Perception | `ferb/sense` | 15 | 2 | 6 |
@@ -24,6 +24,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 ## Waiting on the owner
 
 - T-408 (app): With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?
+- T-1020 (gateway): To show the Keychain's exact reason when a saved secret can't be read (for example "user interaction is not allowed"), the small secrets helper has to be rebuilt. After that update, macOS asks once more for your login password for each saved secret on each Mac. Rebuild it now, or keep today's shorter reasons?
 
 ## Terms
 

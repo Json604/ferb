@@ -141,6 +141,9 @@ class Server:
         # its type), and an owner-side call that took `CLIENT_WAIT_S` or longer (its method and seconds)
         self.on_internal: Callable[[str, BaseException], None] = lambda method, error: None
         self.on_slow: Callable[[str, float], None] = lambda method, seconds: None
+        # HAND-406: a native host's auth.hello refused (why, the origin it gave): the extension never gets as far as a
+        # hello, and the host only exits, so the daemon records it
+        self.on_native_refused: Callable[[str, str], None] = lambda why, origin: None
         # whether a cli connection's process is FERB.app (its audit token -> bool; app_peer.AppPeers in the daemon):
         # the gate of auth.APP_ONLY methods. Fails closed until the daemon sets it.
         self.is_app: Callable[[bytes | None], bool] = Server.is_app_default
@@ -155,6 +158,10 @@ class Server:
     def is_app_default(token: bytes | None) -> bool:
         """No check in place: nobody is FERB.app (fails closed)."""
         return False
+
+    def _native_refused(self, req: Request, why: str) -> None:
+        if req.params.get("role") == Role.NATIVE_HOST.value:
+            self._tell(self.on_native_refused, why, str(req.params.get("origin") or "")[:120])
 
     @staticmethod
     def _tell(hook: Callable[..., None], *args: Any) -> None:
@@ -269,9 +276,11 @@ class Server:
             await self._send(writer, _error(req.id, INVALID_REQUEST, str(e.errors()[0]["msg"])))
             return None
         except AuthError as e:
+            self._native_refused(req, str(e))
             await self._send(writer, _error(req.id, UNAUTHORIZED, str(e)))
             return None
         except Unsupported as e:
+            self._native_refused(req, str(e))
             await self._send(writer, _error(req.id, UNSUPPORTED, str(e)))
             return None
         await self._send(writer, _result(req.id, {"role": session.role.value}))

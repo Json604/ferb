@@ -2430,4 +2430,21 @@ surface = "FERB.app with this build in daily use"
 request = "Ask FERB something that finishes, something that fails, and something that needs your answer; look at Settings → Sounds."
 pass = "The finished answer is silent; the failure plays error and the question plays needs you; Settings has no Done sound row and every other row is as before."
 decisions = ["APP-651"]
+
+[LIVE-720]
+title = "A profile with an old FERB extension is named as too old, and connects once updated"
+area = "hands"
+surface = "FERB.app with this build; one of the owner's paired profiles still on a FERB extension older than MIN_EXTENSION_VERSION (or any profile, after updating)"
+request = "Open Settings → Browsers (setup.browsers). Ask FERB to open a page in that profile. Then update the FERB extension there (Chrome Web Store) and ask again."
+pass = "Before the update, the browsers message and FERB's reply say that profile's FERB extension is too old and to update it (never \"probably isn't running\"), and `ferb logs`/the journal has browser.connection_refused with reason extension_too_old. After the update the page opens through the extension."
+decisions = ["HAND-406"]
+sitting = "after this change is installed"
+
+[LIVE-721]
+title = "A snapshot whose name looks like a card number is listed whole and removed by retention"
+area = "hands"
+surface = "FERB.app with this build, a few shell commands in a disposable folder over a day or two"
+request = "Run tasks that take snapshots; after a day open `ferb restore` (or Settings → Data → Restore) and look at the snapshot rows; after retention runs, compare `tmutil listlocalsnapshots /` with the records."
+pass = "No snapshot row reads com.apple.TimeMachine.[redacted].local; FERB's old snapshots are deleted by retention, not only dropped from the list."
+decisions = ["HAND-408"]
 sitting = "after this change is installed"

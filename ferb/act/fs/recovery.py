@@ -793,13 +793,21 @@ class Snapshots:
             return self._fail("tmutil refused or is unavailable")
         self._failed = None
         eid = str(self.ids.new_id())
-        # Redacted first, then cut: a secret straddling the cut is still whole when the redactor sees it.
-        stored = str(self.redact({"name": name})["name"])[:200]
+        # HAND-408: a name of the strict form is FERB's own identifier, made by `local_snapshot` from tmutil's date
+        # digits alone, so it carries nothing to hide and is stored as is (its date looks like a card number to the
+        # redactor, which masked it: restore and retention couldn't find the snapshot). Anything else tmutil said is
+        # redacted first, then cut: a secret straddling the cut is still whole when the redactor sees it.
+        strict = _SNAPSHOT_NAME.fullmatch(name)
+        stored = name if strict else str(self.redact({"name": name})["name"])[:200]
         before = str(self.redact({"before": reason})["before"])[:200]
         at = self.clock.now().isoformat()
         self.db.conn.execute(_INSERT, (eid, task_id, "snapshot", STARTUP_DISK, stored, before, at, None, None))
-        self._last = {"snapshot": stored, "record": eid, "taken_at": at}
-        return {"snapshot": stored, "record": eid}
+        out = {"snapshot": stored, "record": eid}
+        if strict:                     # its date as Time Machine lists it, in a form no redaction pass mistakes
+            d = strict.group(1)
+            out["snapshot_date"] = f"{d[:10]} {d[11:13]}:{d[13:15]}:{d[15:17]}"
+        self._last = out | {"taken_at": at}
+        return out
 
     def _fail(self, why: str) -> dict[str, Any]:
         """A failed attempt: nothing to reuse; the next request tries again once RETRY_AFTER_FAILURE_S passed."""
@@ -842,6 +850,8 @@ class RecoverySnapshot:
         if "error" in out:
             return ToolResult(out | {"next": "Decide whether the work is still right without a snapshot; if you go "
                                              "on, say in your report that no snapshot was taken."}, is_error=True)
-        how = f"The owner can open it from macOS Recovery or Time Machine (admin rights): {out['snapshot']}."
+        which = (f"the local snapshot of {out['snapshot_date']} ({out['snapshot']})" if out.get("snapshot_date")
+                 else out["snapshot"])
+        how = f"The owner can open it from macOS Recovery or Time Machine (admin rights): {which}."
         reused = "The last snapshot is reused: no command ran since it was taken. " if out.get("reused") else ""
         return ToolResult(out | {"note": reused + how})

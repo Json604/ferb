@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ferb.act.mac.driver import MacComputerDriver, profiles_dir, same_title
-from ferb.act.mac.input import RealInput
+from ferb.act.mac.input import PAUSED, UNMONITORED, RealInput
 from ferb.act.mac.launched import LaunchedApps, brought_forward
 from ferb.act.mac.profile import Profiles
 from ferb.act.shell.local import DirectReports, LocalAccess
@@ -269,6 +269,8 @@ class Desktop:
 
     async def _build_mac_and_shell(self) -> None:
         device = self.device_id
+        def why_unavailable() -> str:                  # HAND-409: the real reason foreground input is unavailable
+            return PAUSED if self.sense is not None and self.sense.paused else UNMONITORED
         def owner_wait(holder: str, on: bool) -> None:          # the owner's time never counts as a stall
             if self.supervisor is not None:
                 self.supervisor.activity.waiting(holder, on)
@@ -280,7 +282,7 @@ class Desktop:
         def owner_active() -> bool:                    # foreground input always yields when the owner provides input
             return self.owner_input.active() or not self.owner_input.running
         self.mac = MacComputerDriver(device, RealInput(owner_active, self.gui, on_wait=owner_wait,
-                                                       available=available),
+                                                       available=available, why_unavailable=why_unavailable),
                                      excluded=self.config.exclude_apps, web_secrets=self._web_secrets,
                                      profiles=Profiles(profiles_dir(self.home)))   # what landed per app, learned
         self.mac.snapshot_images = lambda: bool(self.config.get("mac", "snapshot_image", True))   # image + tree

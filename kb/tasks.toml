@@ -419,3 +419,12 @@ kind = "build"
 status = "open"
 why = "Owner \"yes yes yes\" (2026-11-03): history/memory outside content triggers the sink question; questions name real sites; origin = made-from. Design in kb/local/origin-split.md (untracked); build after the planner lookup tools merge; first a test proving the sink gap."
 decisions = ["GATE-202"]
+
+[T-1020]
+title = "Should the secret helper report the Keychain's status (it re-pins the helper)?"
+area = "gateway"
+kind = "question"
+status = "blocked"
+why = "G6/H7 (2026-11-04): HAND-410 gives what the pinned helper allows. The exact OSStatus needs a helper code change (ready outside the repo), which re-pins it (REL-404): every saved secret then asks for the login password once more on each Mac (T-502)."
+decisions = ["HAND-410", "REL-404"]
+ask = "To show the Keychain's exact reason when a saved secret can't be read (for example \"user interaction is not allowed\"), the small secrets helper has to be rebuilt. After that update, macOS asks once more for your login password for each saved secret on each Mac. Rebuild it now, or keep today's shorter reasons?"

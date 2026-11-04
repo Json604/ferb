@@ -126,6 +126,16 @@ def discover_all(data_dirs: dict[str, Path] | None = None) -> list[BrowserProfil
     return [p for b, d in dirs.items() for p in discover(b, d)]
 
 
+def with_paired(discovered: list[BrowserProfile], paired: list[tuple[str, str]]) -> list[BrowserProfile]:
+    """The discovered profiles, plus each paired (browser, folder) of a browser discovery found no profile in (Full
+    Disk Access off, its Local State unreadable), from FERB's own pairing record, named by its folder (HAND-407). A
+    browser whose profiles were read keeps only those: a paired folder missing there is gone, and starting it would
+    create it."""
+    read = {p.browser for p in discovered}
+    extra = [BrowserProfile(b, f, f, "") for b, f in dict.fromkeys(paired) if b in BROWSERS and b not in read]
+    return discovered + extra
+
+
 @dataclass(frozen=True)
 class Resolution:
     kind: Literal["one", "ambiguous", "none"]
