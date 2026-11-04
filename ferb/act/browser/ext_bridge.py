@@ -31,7 +31,8 @@ from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSI
 from ferb.act.browser.downloads import Downloads, TaskTab
 from ferb.act.browser.uploads import StagingFailed, Uploads, source_path, tab_key
 from ferb.act.browser.pairing import Binding, Pairings
-from ferb.act.browser.profiles import BROWSERS, BrowserProfile, open_known_profile, running as browser_running
+from ferb.act.browser.profiles import (BROWSERS, BrowserProfile, open_known_profile, running as browser_running,
+                                      with_paired)
 from ferb.act.browser.resolver import Resolver
 from ferb.act.browser.snapshot import FIELD_KINDS, element as page_element
 from ferb.act.browser.tools import Secrets
@@ -115,6 +116,21 @@ def _app_bundle(pid: int | None) -> str | None:
     except (OSError, ValueError, plistlib.InvalidFileException):
         return None
     return bundle if isinstance(bundle, str) and bundle else None
+
+
+def too_old(version: str) -> str:
+    """The plain reason a profile's FERB extension is below the minimum (HAND-406): what the owner does about it."""
+    return (f"the FERB extension in this profile is too old (version {version}; FERB needs {MIN_EXTENSION_VERSION} or "
+            "later): update it")
+
+
+def version_refusal(version: str, protocol: int) -> tuple[str, str]:
+    """(reason code, plain why) for a hello whose version or protocol FERB can't use: an extension older than FERB
+    needs is updated; one newer than this FERB means FERB itself is updated."""
+    if protocol > PROTOCOL_VERSION:
+        return "extension_newer", (f"the FERB extension in this profile (version {version}, protocol {protocol}) is "
+                                   f"newer than this FERB (protocol {PROTOCOL_VERSION}): update FERB")
+    return "extension_too_old", too_old(version) + f" (its protocol {protocol}, FERB's {PROTOCOL_VERSION})"
 
 
 def peer_refusal(app: str | None, browser: str | None = None) -> str | None:
@@ -390,6 +406,35 @@ class Hub:
         self.on_download: Callable[["Bridge", Event], None] = _let_download_go
         self.drivers: list["_TabDriver"] = []               # the browser drivers (they register): whose tab is it
         self._jobs: set["asyncio.Task[Any]"] = set()
+        # HAND-406: every connection or hello FERB doesn't take, with its reason (reason code, plain why, the profile
+        # or the app when known; never a message's contents). The daemon journals it, bounded per reason and profile.
+        self.record_refusal: Callable[[dict[str, Any]], None] = lambda facts: None
+
+    def note_refusal(self, reason: str, why: str, install_id: str | None = None, app: str | None = None,
+                     **facts: Any) -> None:
+        """Record one refused connection or message (HAND-406). A paired install's refusal is also kept for this run
+        (`refused`), so the planner's facts, the tool errors and Settings say why its profile isn't connected."""
+        binding = self.pairings.binding(install_id) if install_id and self.pairings is not None else None
+        if binding is not None:
+            self.refused[binding.install_id] = why
+        out = {"reason": reason, "why": why, **facts}
+        if binding is not None:
+            out["profile"] = f"{binding.browser}/{binding.folder}"
+        if app:
+            out["app"] = app
+        try:
+            self.record_refusal(out)
+        except Exception:
+            pass                                             # a recording never changes the connection
+
+    def problem(self, binding: Binding) -> str | None:
+        """Why this paired profile's extension can't be used, as far as FERB knows: its refusal in this run, else the
+        version it last reported when FERB needs a newer one (kept in the pairing record, so a restart, or an
+        extension too old to get as far as a hello, doesn't hide it). None: nothing known against it."""
+        if (why := self.refused.get(binding.install_id)) is not None:
+            return why
+        version = self.pairings.version(binding.install_id) if self.pairings is not None else ""
+        return too_old(version) if version and not version_ok(version) else None
 
     def task_tab(self, br: "Bridge", chrome_id: int) -> TaskTab | None:
         """The live task that drives this tab now, in any driver; None: the extension must not hold its downloads."""
@@ -485,6 +530,7 @@ class Hub:
         conn.app = await asyncio.to_thread(_app_bundle, conn.browser_pid)
         if (why := peer_refusal(conn.app)) is not None:   # only a browser FERB knows starts the extension's host
             self.publish("browser.connection_refused", {"why": why})
+            self.note_refusal("peer", why, app=conn.app)
             try:
                 writer.write(json.dumps({"type": "refused", "reason": why}).encode() + b"\n")
                 await writer.drain()
@@ -496,10 +542,13 @@ class Hub:
                 try:
                     raw = json.loads(line)
                 except ValueError:
-                    continue
+                    raw = None
                 m = parse(raw) if isinstance(raw, dict) else None
                 if m is not None:
                     await self._handle(conn, m)
+                else:                                        # dropped, nothing acts; recorded (never its contents)
+                    self.note_refusal("malformed", "a message from the FERB extension wasn't in FERB's format, so "
+                                      "FERB dropped it", conn.install_id, conn.app)
         except (ConnectionError, asyncio.LimitOverrunError, ValueError):
             pass
         finally:
@@ -514,9 +563,12 @@ class Hub:
         if not v.accepted:
             if m.type == "hello" and v.reason in {"bad_mac", "replay"}:
                 why = f"extension pairing failed ({v.reason}); pair this profile again (browser_pair, or Settings → Browsers)"
-                self.refused[m.install_id] = why
+                self.note_refusal(str(v.reason), why, m.install_id, conn.app)
                 conn.writer.write(json.dumps({"type": "refused", "reason": why}).encode() + b"\n")
                 await conn.writer.drain()
+            elif m.type in ("hello", "pair"):                # a pairing that didn't take (unknown or expired token)
+                self.note_refusal(str(v.reason), f"the FERB extension's {m.type} was refused ({v.reason})",
+                                  m.install_id, conn.app)
             return                                           # unpaired / bad MAC / replay: dropped, nothing acts
         if v.reply is not None:                              # just paired: hand the key back on this connection
             self.unpaired.pop(m.install_id, None)
@@ -549,10 +601,11 @@ class Hub:
                 hello = Hello.model_validate(body)
             except ValueError:
                 return
+            self.pairings.record_version(m.install_id, hello.version)   # authenticated: kept, accepted or not
             if hello.protocol != PROTOCOL_VERSION or not version_ok(hello.version):
-                why = (f"extension {hello.version} (protocol {hello.protocol}), FERB needs {MIN_EXTENSION_VERSION} "
-                       f"(protocol {PROTOCOL_VERSION}): reload the FERB extension")
-                self.refused[m.install_id] = why
+                reason, why = version_refusal(hello.version, hello.protocol)
+                self.note_refusal(reason, why, m.install_id, conn.app, version=hello.version[:32],
+                                  protocol=hello.protocol)
                 conn.writer.write(json.dumps({"type": "refused", "reason": why,
                                               "required_protocol": PROTOCOL_VERSION,
                                               "minimum_version": MIN_EXTENSION_VERSION}).encode() + b"\n")
@@ -562,7 +615,8 @@ class Hub:
             refusal = ("the FERB extension sent no signing nonce: reload the FERB extension"
                        if not hello.nonce or key is None else peer_refusal(conn.app, v.binding.browser))
             if refusal is not None:
-                self.refused[m.install_id] = refusal
+                self.note_refusal("no_nonce" if not hello.nonce or key is None else "peer", refusal, m.install_id,
+                                  conn.app)
                 conn.writer.write(json.dumps({"type": "refused", "reason": refusal}).encode() + b"\n")
                 await conn.writer.drain()
                 return
@@ -572,8 +626,6 @@ class Hub:
                 return
             conn.nonce, conn.key, conn.dseq = hello.nonce, key, 0     # this connection's signing state (protocol 18)
             br.attach(conn, hello)
-            self.pairings.db.conn.execute("UPDATE ext_installs SET ext_version = ? WHERE install_id = ?",
-                                          (hello.version, m.install_id))
             # identity: in FERB's own profile every download is FERB's, so a hold the daemon never takes is failed, not
             # handed to the browser (D35).
             conn.writer.write(json.dumps(br.envelope(conn, "welcome", {
@@ -953,7 +1005,7 @@ class _TabDriver:
         if br.conn is None and self.wake is not None:
             kwargs: dict[str, Any] = {"launch": self.launch} if self.launch else {}
             # Never restore a previously focused app after this wait: the owner can switch apps meanwhile.
-            open_known_profile(br.binding.browser, br.binding.folder, None, self.profiles(),
+            open_known_profile(br.binding.browser, br.binding.folder, None, self.known(),
                                is_running=self.is_running, **kwargs)
             if not await self._came(br, WINDOWLESS_WAIT_S):
                 reason = self.hub.refused.get(br.binding.install_id)
@@ -967,14 +1019,23 @@ class _TabDriver:
                         "bar or clicks): that takes over the owner's screen.")
                 if reason is not None:
                     raise DriverError(f"{br.name}'s FERB extension was refused: {reason}.")
-                open_known_profile(br.binding.browser, br.binding.folder, None, self.profiles(), window=True, **kwargs)
+                open_known_profile(br.binding.browser, br.binding.folder, None, self.known(), window=True, **kwargs)
                 if not await self._came(br, WINDOW_WAIT_S):
+                    if (known := self.hub.problem(br.binding)) is not None:   # e.g. too old to reach a hello (HAND-406)
+                        raise DriverError(f"{br.name} didn't connect, even with its window open: {known}. Tell the "
+                                          "owner; only they can fix this.")
                     raise DriverError(f"{br.name} didn't connect, even with its window open: its FERB extension may "
                                       "be turned off there; ask the owner to reload the FERB extension in that "
                                       "profile.")
         if br.conn is None:
             raise DriverError(f"{br.name} isn't connected")
         return br
+
+    def known(self) -> list[BrowserProfile]:
+        """The profiles FERB may start: those discovered, plus the paired ones of a browser discovery found none in
+        (Full Disk Access off, its Local State unreadable), from FERB's own pairing records (HAND-407)."""
+        pairings = getattr(self.hub, "pairings", None)
+        return with_paired(self.profiles(), [(b.browser, b.folder) for b in pairings.all()] if pairings else [])
 
     @staticmethod
     async def _came(br: Bridge, wait: float) -> bool:
@@ -2288,13 +2349,21 @@ class Router(_TabDriver):
 
     def profile_candidates(self) -> list[dict[str, Any]]:
         out = []
-        for p in self.profiles():
+        for p in self.known():
             br = self.hub.bridge(p.browser, p.folder)
             if br is not None and br.binding.identity is Identity.FERB:
                 continue
-            out.append({"profile":f"{p.browser}/{p.folder}", "name":p.display_name, "account":p.email,
-                        "paired":br is not None, "connected":bool(br is not None and br.conn is not None)})
+            connected = bool(br is not None and br.conn is not None)
+            row = {"profile":f"{p.browser}/{p.folder}", "name":p.display_name, "account":p.email,
+                   "paired":br is not None, "connected":connected}
+            if br is not None and not connected and (problem := self.hub.problem(br.binding)) is not None:
+                row["refused"] = problem                    # HAND-406: why it can't connect, as FERB knows it
+            out.append(row)
         return out
+
+    def profiles_note(self) -> str | None:
+        """Why discovery found no profiles, when FERB knows (HAND-407: Full Disk Access is off); None otherwise."""
+        return self.resolver.unseen() if not self.profiles() else None
 
     def __init__(self, hub: Hub, resolver: Resolver, profiles: Callable[[], list[BrowserProfile]],
                  wake: WakeServer | None = None, launch: Callable[[list[str]], None] | None = None) -> None:
@@ -2332,14 +2401,14 @@ class Router(_TabDriver):
 
     def not_connected(self) -> list[dict[str, str]]:
         """The paired owner profiles a listing of every profile skipped: not connected, usually just not running."""
-        return [{"profile": br.name, "why": self.hub.refused.get(br.binding.install_id) or
+        return [{"profile": br.name, "why": self.hub.problem(br.binding) or
                  "not connected (usually the profile just isn't running): browser_open with this profile starts it in "
                  "the background"} for br in self._owner_bridges(None, connected_only=False) if br.conn is None]
 
     async def open_tabs(self, profile: str | None = None, task: str | None = None) -> list[dict[str, Any]]:
         """The owner's open tabs in their connected profiles: a reference, the site and whether it's the active one.
         A tab this task already took over is listed with its tab id; FERB's own tabs and other tasks' aren't."""
-        names = {(p.browser, p.folder): p.display_name for p in self.profiles()}
+        names = {(p.browser, p.folder): p.display_name for p in self.known()}
         out = []
         selected = self._owner_bridges(profile, connected_only=False)
         if profile and self.wake is not None:
@@ -2349,7 +2418,7 @@ class Router(_TabDriver):
                 await self._connected(br)
         missing = [br for br in selected if br.conn is None]
         if missing and profile:
-            details = "; ".join(f"{br.name}: " + (self.hub.refused.get(br.binding.install_id) or
+            details = "; ".join(f"{br.name}: " + (self.hub.problem(br.binding) or
                                "paired but not connected (usually the profile just isn't running)")
                                for br in missing)
             raise Refused(details + ". No tab inventory is available for these profiles; this is a connection "
@@ -2544,8 +2613,9 @@ class FerbIdentity(_TabDriver):
         origin = await self._checked_origin(t, frame, ref)
         try:
             value = await self._store._reveal(ref)
-        except SecretUnavailable:
-            raise Refused(f"secret {ref.key} isn't in the Keychain") from None
+        except SecretUnavailable as e:                         # HAND-410: why, when the helper said
+            raise Refused(f"secret {ref.key} couldn't be read from the Keychain: {e.reason}" if e.reason
+                          else f"secret {ref.key} isn't in the Keychain") from None
         self.add_secret_value(value)                          # scrub it if a page or error ever echoes it back
         r = await self._sealed_fill(t, frame, snap, local, origin, value, intent_id)
         del value

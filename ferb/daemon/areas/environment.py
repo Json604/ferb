@@ -287,9 +287,9 @@ class Environment:
         "extension transport disconnected" read as broken; live 2026-10-26: "may switch Space" made a worker ask."""
         if bridge is not None and bridge.conn:
             return ", connected"
-        refused = self.hub.refused.get(binding.install_id) if self.hub is not None else None
+        refused = self.hub.problem(binding) if self.hub is not None else None     # HAND-406: e.g. too old
         if refused:
-            return f"; its extension was refused: {refused}"
+            return f"; not connected: {refused} (only the owner can fix this; browser tools can't use it until then)"
         if self.router is not None and self.router.wake is not None:
             return ("; not connected now (usually the profile just isn't running) — FERB's browser tools start it in "
                     "the background and open its tab there themselves, nothing to ask")
