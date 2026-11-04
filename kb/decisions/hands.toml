@@ -730,3 +730,25 @@ why = "Owner, 2026-11-04, on task 59d60965's last line \"I couldn't tidy up ever
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 paths = ["ferb/orchestrator/leftovers.py", "ferb/orchestrator/supervisor.py", "ferb/act/browser/ext_bridge.py", "ferb/daemon/areas/desktop.py"]
 live = ["LIVE-760"]
+
+[HAND-422]
+title = "A browser act that fails before its first input event is a known failure"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "In the extension, an error raised while an acting command's tab is prepared for input (attach: the debugger, its frame sessions, focus emulation, FERB's viewport, the readiness probe), while it reads where the target is (topPoint; a scroll's container), or for an unknown op, is marked nothingSent: the outcome is \"failed\". From the command's first input event on (a move, a press, text, a page-script action, a file set) an error, timeout or detach stays \"unknown\". Extension 0.19.2; minimum stays 0.19.0."
+why = "Schedule run, 2026-11-04 16:03:54 and 16:04:09: two browser.act clicks came back OutcomeUnknown with background_input_unavailable (\"Session with given id not found\"), thrown by attach() before any input event; FERB then refused to repeat clicks that never reached the page."
+evidence = "Owner, 2026-11-04: \"update the extension and give me the zip to upload\""
+paths = ["extensions/chromium/background.js"]
+live = ["LIVE-770"]
+
+[HAND-423]
+title = "A frame's setup error refuses input only while the frame is there, after one fresh attach"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The extension keeps a frame session's setup error by its session id: it goes when Chrome reports the frame session detached, isn't recorded when the frame went before its setup ended, and every new debugger session starts with no frame sessions and no errors. When attach finds an error of a frame session that is still there, it lets the debugger go and attaches once more (every frame set up afresh), unless the tab holds a download for FERB (letting go would hand it to the browser); if an error remains after that, the command fails with nothing sent (HAND-422)."
+why = "Same trace as HAND-422: a frame session's setup error (\"Session with given id not found\", a frame that came and went) was pushed to a list nothing ever cleared, so every later input command on that tab was refused until the tab was let go."
+evidence = "Owner, 2026-11-04: \"update the extension and give me the zip to upload\""
+paths = ["extensions/chromium/background.js"]
+live = ["LIVE-770"]

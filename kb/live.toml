@@ -2998,4 +2998,12 @@ surface = "A FERB.app build with APP-707 on a notched Mac (macOS 27), docked in 
 request = "With hover off and the chat closed, click the camera housing, then move the pointer away from the chat and wait a few seconds. Press Escape. Click the housing again, move away, then click into another app's window. Click the housing again and double-tap right Option. Turn hover on: hover the notch until the chat opens, then move the pointer away. Then click the housing quickly (before hover opens it) and move away."
 pass = "A click-opened chat stays open after the pointer leaves, with hover off or on, and the cursor is in its text field as before; Escape, the click into another app and the double-tap each close it; a hover-opened chat still folds as soon as the pointer leaves it, as before."
 decisions = ["APP-707", "APP-708", "APP-705", "APP-557"]
+
+[LIVE-770]
+title = "Clicks on a page whose frames come and go land; a click that couldn't start can be retried"
+area = "hands"
+surface = "FERB.app with this build; the store's extension 0.19.2 in the paired profile (chrome://extensions shows 0.19.2)"
+request = "Ask FERB to open a page with ads or embedded frames (e.g. a news or course site) and click through two or three links or buttons on it; then read the task with `ferb trace TASK --full`."
+pass = "Each click lands. No browser.act step says background_input_unavailable with \"outcome unknown\"; if a click couldn't be prepared, its step is a plain failure (no \"outcome unknown\") and the worker tries it again or says why, instead of refusing to repeat it."
+decisions = ["HAND-422", "HAND-423"]
 sitting = "after this change is installed"

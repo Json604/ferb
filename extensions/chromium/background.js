@@ -527,7 +527,7 @@ async function executeCommand(m) {
   const handler = OPS.includes(m.op) ? commands[m.op] : null;
   let body, nothingSent = false;
   try {
-    if (!handler) throw new Error(`unknown op ${m.op}`);
+    if (!handler) throw beforeInput(new Error(`unknown op ${m.op}`));
     if (ACTING.has(m.op) && m.args && Number.isInteger(m.args.tab_id)) await awake(m.args.tab_id);
     const value = await withTimeout(handler({ ...(m.args || {}), _timeout_ms: m.timeout_ms || 30000 }, m.id),
                                     m.timeout_ms || 30000);
@@ -538,8 +538,8 @@ async function executeCommand(m) {
     nothingSent = !!(e && e.nothingSent);
   }
   // A handler error may follow partial input; a timeout does not cancel the renderer operation. Only an error raised
-  // before anything reached the page (refusedCommand) is a known failure, and so is any read's (READ_OPS: it changed
-  // nothing, so retrying it is no repeat).
+  // before anything reached the page (nothingSent: refusedCommand, awake, the preparation before input, HAND-422) is a
+  // known failure, and so is any read's (READ_OPS: it changed nothing, so retrying it is no repeat).
   const read = READ_OPS.has(m.op) || (m.op === "dialog" && !(m.args && m.args.decision));
   const outcome = body.status === "ok" ? (body.value && body.value.ok === false ? "failed" : "done")
     : nothingSent || read ? "failed" : "unknown";
@@ -792,7 +792,7 @@ async function readMaskState(tabId) {
 const TABS = new Map();          // tabId -> { attached, armed, ready, detached, dialogs, expect, leaving, frames, ax, shot }
 function tabState(tabId) {
   let t = TABS.get(tabId);
-  if (!t) { t = { attached: false, armed: false, ready: false, detached: null, dialogs: [], fileChoosers: [], inputErrors: [], expect: null, leaving: false, frames: {}, sessions: new Map(), axErrors: [], shot: null,
+  if (!t) { t = { attached: false, armed: false, ready: false, detached: null, dialogs: [], fileChoosers: [], inputErrors: new Map(), expect: null, leaving: false, frames: {}, sessions: new Map(), axErrors: [], shot: null,
                   redirects: new Map(), native: new Map(), held: new Map(), popup: false };
             TABS.set(tabId, t); }
   return t;
@@ -809,25 +809,60 @@ async function cdp(tabId, method, params, sessionId) {
   }
 }
 
-async function attach(tabId) {
+// HAND-422: preparing a tab for input (the debugger, its frame sessions, focus emulation, FERB's viewport, the readiness
+// probe) and reading where the target is send the page nothing the command asked for, so a failure there is a known
+// one: marked nothingSent, the outcome is "failed". From the command's first input event on (a press, a move to the
+// target, typed text, a page-script action, a file set on a field) an error stays "unknown" (executeCommand).
+function beforeInput(e) {
+  const failed = e instanceof Error ? e : new Error(String(e));
+  failed.nothingSent = true;
+  return failed;
+}
+async function prepared(step) {
+  try { return await step(); }
+  catch (e) { throw beforeInput(e); }
+}
+
+function attach(tabId) {
+  return prepared(() => attachForInput(tabId));
+}
+
+async function attachForInput(tabId) {
   const t = tabState(tabId);
-  if (t.attached && t.ready) {
-    await Promise.all(t.sessions.values());
-    if (t.inputErrors.length) throw Error(`background_input_unavailable: ${t.inputErrors.join("; ")}`);
-    return t;
-  }
+  if (!(t.attached && t.ready)) { await attachFresh(tabId); return t; }
+  await Promise.all(t.sessions.values());
+  if (!t.inputErrors.size) return t;
+  // HAND-423: a frame session of this debugger session failed its setup and is still there. The debugger is let go and
+  // attached again once (every frame session set up afresh), unless the tab holds a download for FERB, which letting
+  // go would hand to the browser. Still failing: a known failure, nothing was sent.
+  const why = () => [...t.inputErrors.values()].join("; ");
+  if ([...downloads.values()].some(tr => tr.tabId === tabId))
+    throw Error(`background_input_unavailable: ${why()}`);
+  await letGoOfDebugger(tabId);
+  await attachFresh(tabId);
+  await Promise.all(t.sessions.values());
+  if (t.inputErrors.size) throw Error(`background_input_unavailable: ${why()} (after attaching again)`);
+  return t;
+}
+
+async function attachFresh(tabId) {
+  const t = tabState(tabId);
   await arm(tabId);
   try {
     await inputSetup(tabId);
     await ready(tabId);                                        // the owner's own tab keeps its real viewport
     t.ready = true;
-    return t;
   } catch (e) {
-    await dropDownloads(tabId);
-    t.attached = false; t.armed = false; t.emulated = false;
-    try { await chrome.debugger.detach({tabId}); } catch (_) {}
+    await letGoOfDebugger(tabId);
     throw e;
   }
+}
+
+async function letGoOfDebugger(tabId) {
+  const t = tabState(tabId);
+  await dropDownloads(tabId);
+  t.attached = false; t.armed = false; t.ready = false; t.emulated = false;
+  try { await chrome.debugger.detach({tabId}); } catch (_) {}
 }
 
 // What trusted input needs besides the debugger, before the readiness probe: file-chooser interception, focus
@@ -856,6 +891,7 @@ async function arm(tabId) {
     try { await chrome.debugger.attach({ tabId }, "1.3"); }
     catch (e) { throw debuggerRefused(e); }
     t.attached = true; t.detached = null; t.ready = false; t.armed = false; t.emulated = false;   // a new session
+    t.sessions.clear(); t.inputErrors.clear();   // the old session's frame sessions, and their errors, went with it
   }
   if (t.armed) return t;
   try {
@@ -966,7 +1002,7 @@ chrome.debugger.onEvent.addListener((src, method, params) => {
   if (method === "Target.attachedToTarget") {
     const t = tabState(src.tabId), sid = params.sessionId;
     if (params.targetInfo && params.targetInfo.type === "iframe") {
-      t.sessions.set(sid, (async () => {
+      const setup = (async () => {
         if (t.armed) {                                         // an OOPIF's own requests and its page hook
           await cdp(src.tabId, "Fetch.enable", { patterns: DOWNLOAD_PATTERNS }, sid);
           await installHook(src.tabId, sid);
@@ -975,12 +1011,20 @@ chrome.debugger.onEvent.addListener((src, method, params) => {
         await cdp(src.tabId, "Page.setInterceptFileChooserDialog", {enabled: !t.resting}, sid);
         await cdp(src.tabId, "Target.setAutoAttach", {autoAttach: true, waitForDebuggerOnStart: false, flatten: true}, sid);
       })().catch(e => {
-        const error = String(e.message || e); t.axErrors.push(error); t.inputErrors.push(error);
-      }));
+        const error = String(e.message || e); t.axErrors.push(error);
+        // A frame's error refuses input only while that frame session is there (HAND-423): a frame that went before
+        // its setup ended (an ad frame that came and went) leaves nothing behind.
+        if (t.sessions.get(sid) === setup) t.inputErrors.set(sid, error);
+      });
+      t.sessions.set(sid, setup);
     }
     return;
   }
-  if (method === "Target.detachedFromTarget") { tabState(src.tabId).sessions.delete(params.sessionId); return; }
+  if (method === "Target.detachedFromTarget") {
+    const t = tabState(src.tabId);
+    t.sessions.delete(params.sessionId); t.inputErrors.delete(params.sessionId);
+    return;
+  }
   if (method === "Page.fileChooserOpened") {
     const t = tabState(src.tabId);
     const fact = {reason:"native_file_chooser_intercepted", frame_id:params.frameId,
@@ -1400,7 +1444,7 @@ async function trusted(tabId, a) {
   const t = await attach(tabId);
   t.expect = a.expect_dialog ? { accept: a.expect_dialog === "accept", text: a.dialog_text || "" } : null;
   try {
-    const p = await topPoint(tabId, a.frame_id, a.snap, a.el);
+    const p = await prepared(() => topPoint(tabId, a.frame_id, a.snap, a.el));   // a read: nothing sent yet
     if (p.error) return { ok: false, detail: p.error };
     // A secret field (password, login code, card: content.js `fieldKind`) takes no typed text and no key that puts
     // text in (entersText); Return, Tab and the like still go (kb area hands).
@@ -1780,10 +1824,13 @@ const commands = {
         (await scriptable(tab_id, frame_id) ? " browser.act with action=scroll on an element of the latest snapshot " +
           "scrolls that element's area with page events" : ""));
     }
-    const target = await inFrame(tab_id, frame_id, c => window.__ferb.scroller(c), [cid]);
-    if (target.error) throw Error(target.error === 'stale' ? 'that container is from an older snapshot' : target.error);
-    const point = await toTopPoint(tab_id, frame_id, {x:target.px, y:target.py, occluded:target.occluded});
-    if (point.error || point.occluded) throw Error(point.error || 'scroll container is occluded');
+    const {target, point} = await prepared(async () => {          // reads where to scroll: nothing sent yet (HAND-422)
+      const target = await inFrame(tab_id, frame_id, c => window.__ferb.scroller(c), [cid]);
+      if (target.error) throw Error(target.error === 'stale' ? 'that container is from an older snapshot' : target.error);
+      const point = await toTopPoint(tab_id, frame_id, {x:target.px, y:target.py, occluded:target.occluded});
+      if (point.error || point.occluded) throw Error(point.error || 'scroll container is occluded');
+      return {target, point};
+    });
     const step = Number.isFinite(dy) ? dy : Math.round(target.viewport_h * 0.85) * (direction === 'up' ? -1 : 1);
     await cdp(tab_id, 'Input.dispatchMouseEvent', {type:'mouseMoved', x:point.x, y:point.y});
     await cdp(tab_id, 'Input.dispatchMouseEvent', {type:'mouseWheel', x:point.x, y:point.y, deltaX:0, deltaY:step});
