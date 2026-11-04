@@ -10,7 +10,8 @@ QUESTION 4, owner 2026-10-09: "Rahul" names "Rahul Verma"; "Rahul Verma" doesn't
 text's name for it ends is told by shape only (`_named_by_words`). Amounts match a token that is wholly a number (one
 leading currency symbol allowed), by value.
 `destination_shape` tells a typed value that is wholly an email address, a phone number or a URL (a shape, never a
-meaning): the browser and Mac typing tools record such a value as the call's recipient.
+meaning); the browser and Mac typing tools record a typed email address or phone number as the call's recipient
+(`typed_destination`), never a URL: a URL addresses no one (GATE-509).
 A value in the request's words (what the owner typed) is "owner_words"; one in the owner's owner.ask answers is
 "owner_answer" (a chosen option is model-written text the owner picked, so it never counts as their typed words); a
 value in both is both.
@@ -230,13 +231,15 @@ def destination_shape(text: str) -> str | None:
 
 
 def typed_destination(text: str) -> str | None:
-    """The destination a typed text is, without the punctuation around it ("<a@x.com>", "a@x.com,", "+91 98765
-    43210;"): the value when it has a destination's shape, else None. A phone number keeps its own parentheses."""
+    """The recipient a typed text is, without the punctuation around it ("<a@x.com>", "a@x.com,", "+91 98765
+    43210;"): the value when it is an email address or a phone number, else None. A phone number keeps its own
+    parentheses. A typed URL is no recipient (GATE-509): it addresses no one, typed into a field it is data, and opening
+    it is navigation, which the browser's own address check (the sink rule) and the foreground question cover."""
     value = text.strip()
     if _phone_shape(value):
         return value
     stripped = _strip(value)[1]
-    return stripped if stripped and destination_shape(stripped) else None
+    return stripped if stripped and destination_shape(stripped) in ("email", "phone") else None
 
 
 def sources(value: str, owner_text: str, external_texts: list[tuple[str, str]], aliases: tuple[str, ...] = (),

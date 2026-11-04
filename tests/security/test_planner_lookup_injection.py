@@ -68,4 +68,4 @@ def test_a_planted_instruction_in_a_looked_up_memory_item_stays_outside_data(dae
     assert [c["is_error"] for c in worker_calls] == [True, True] and send.calls == pay.calls == 0
     # the planted address is known as outside content through the lookup, so the No covers the payment too
     assert rules == {"floor:new_recipient": 1, "sink:outside_value": 1}
-    assert all("came from outside content" in json.dumps(c["content"]) for c in worker_calls)
+    assert all("only in outside content" in json.dumps(c["content"]) for c in worker_calls)

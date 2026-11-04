@@ -52,6 +52,12 @@ class ContextOverflow(ServiceError):
     the adapter marked it (`overflow` on its error event). Not a network failure."""
 
 
+class ImageRefused(ServiceError):
+    """The model service refused an image the request carried: the adapter's mark (`image` on its error event) from
+    the provider's own error code or shape (ORCH-524), never inferred from other errors. Only this reruns the planner's
+    turn without the owner's screenshot."""
+
+
 @dataclass
 class ServiceDown(Outcome):
     """An attempt that ended on an account fact its runtime reported, which no model can change (step 8b, owner decision
@@ -620,6 +626,8 @@ class WorkerRuns:
                     raise RuntimeViolation(f"{rt.name}: {ev.data}", rt.name, dict(ev.data))
                 elif ev.kind == "error" and ev.data.get("overflow"):     # the window-exceeded error, as marked
                     raise ContextOverflow(str(ev.data.get("message")), rt.name)
+                elif ev.kind == "error" and ev.data.get("image"):        # the provider refused the image, as marked
+                    raise ImageRefused(str(ev.data.get("message")), rt.name)
                 elif ev.kind == "error":
                     account = str(ev.data.get("account") or "")      # the adapter's account fact (step 8b)
                     raise ServiceError(str(ev.data.get("message")), rt.name, network=not account,

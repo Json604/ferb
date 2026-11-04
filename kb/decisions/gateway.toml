@@ -330,3 +330,41 @@ status = "active"
 words = "recommeded all"
 why = "Answer to T-515: the owner accepted the recommendation for every open question."
 rule = "The front window (topmost non-FERB window) is screenshotted, redacted, with every message for the planner and reused by the worker; browser windows, task tabs and recording frames go redacted; an image is withheld only when masking fails; excluded sites are captured as excluded, excluded apps are not looked at or named; never the whole desktop."
+
+[GATE-506]
+title = "A value read only from the destination's own pages is that site's, not a URL disclosure"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The browser URL sink (sink:private_url) does not count a value whose every private occurrence is inside a URL of the destination's host (as before) or in a record read from the destination's own site: a record whose outside labels are only web pages of hosts the destination covers (same host, www aside, or a host under it; never a sibling) plus at most the private label. A value also found anywhere else in private text (a file, another site's page, FERB's context, a mixed record) still counts. Read order (N1), followed links and decoded words (N2) are unchanged."
+why = "Audit G2 (owner 2026-11-04: \"i approve all fixes\"): 27 asked, 27 Yes; live 2026-10-18 a class id read from the owner's signed-in page on a site asked when FERB opened that site with it."
+rejected = ["Counting a value as public when the destination ever showed it, in any order: a page could list candidates after FERB read a secret and FERB's choice would leak it", "Dropping years or short numbers by a digit threshold (an owner decision: T-1025)", "Matching decoded words only when they are values (scenario #2 guards keep encoded words)"]
+paths = ["ferb/policy/confirm.py::_same_site_only", "ferb/policy/confirm.py::_read_from", "ferb/daemon/gateway.py::Gateway._sink_origins"]
+
+[GATE-507]
+title = "The URL sink question names the value that leaves and where the task read it"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "sink:private_url says which value of the owner's the address would send (the matched token, and the address piece it rides in when that differs, e.g. a decoded or embedded value) and where this task first read it (a file by path, a tool result by tool and site, or the context FERB gave the model), from span facts only, never the record's content beyond the value."
+why = "Audit G2: \"your own data in the address (2026)\" didn't say what was the owner's or why."
+paths = ["ferb/policy/confirm.py::url_private_values", "ferb/policy/confirm.py::_carried", "ferb/daemon/gateway.py::Gateway._read_as"]
+
+[GATE-508]
+title = "A value also in the owner's own files never came only from outside content"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Argument provenance (S3) lists `private` for a value found in a tool result of the tree whose labels are only the private label (and the owner's): a file, an app, nothing outside. S4(b) (sink:outside_value) asks only when a value came only from outside content: not when it is in the owner's words, answers or such a result. A mixed record (a signed-in page holding outside content) is not the owner's own for this. The question says FERB found it only in outside content, not \"not from you\". New-recipient, standing scopes and the sink rule are unchanged."
+why = "Audit G4: 13 questions, among them typing the owner's own phone and addresses, said \"came from outside content ... not from you\", false for the owner's own values."
+paths = ["ferb/daemon/gateway.py::Gateway._read_texts", "ferb/policy/confirm.py::decide"]
+
+[GATE-509]
+title = "A typed URL is no recipient"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The browser and Mac typing tools record a typed email address or phone number as the call's recipient (provenance.typed_destination), never a URL: a URL addresses no one. Typed into a field it is data; opening it is navigation, which the browser URL sink and the foreground and browser-page questions cover. Typed emails and phone numbers keep the S4(b) provenance question at typing time, because a browser send (a JS Send button) has no structural fact (act_kind is physical only; T-201) and the typing is the only structural point where an injected recipient is seen."
+why = "Audit G4: 5 of 13 typed-value questions were URLs (LinkedIn profiles, a visa site, chrome://extensions, which the browser-page question covers on its own). Moving the email/phone check to send time was weighed and rejected: it would depend on the worker's declaration and so weaken rule 9."
+rejected = ["Asking only at the send for typed emails and phones (declaration-dependent for browser sends)", "Exempting fields whose autocomplete says email or tel (an injected recovery address would go unasked)"]
+paths = ["ferb/policy/provenance.py::typed_destination"]

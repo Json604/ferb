@@ -68,8 +68,8 @@ from ferb.orchestrator.schemas import (CHECKER_SCHEMA, QUESTION_SCHEMA, SUMMARY_
                                        SupervisorOutcome, TaskSpec, WorkerReport, worker_schema)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
-from ferb.orchestrator.worker import (BUG, ConnectionNotice, InvalidAnswer, Overflowed, ServiceDown, ServiceError,
-                                      WorkerRuns, account_problem, couldnt, model_limits, reason, reserve_tokens)
+from ferb.orchestrator.worker import (BUG, ConnectionNotice, ImageRefused, InvalidAnswer, Overflowed, ServiceDown,
+                                      ServiceError, WorkerRuns, account_problem, couldnt, model_limits, reason, reserve_tokens)
 from ferb.runtimes.catalog import PLANNER_LIMIT_S, label
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import blocked as blocked_
@@ -2858,15 +2858,17 @@ class Supervisor(WorkerRuns):
                 draft.abort()
             self.spans.finish(span, output={"text": locals().get("final", "")}, error=f"{type(exc).__name__}: {exc}")
             self._lookups_read(turn)       # a failed turn's lookups still count for a repair's or retry's answer
-            # Only a model call that failed before any answer existed (a service or protocol error, no answer) is
-            # retried without the image; an answer that doesn't validate goes to _decide's repair as before.
-            if not (images and isinstance(exc, (ServiceError, ValueError))
-                    and not isinstance(exc, (ValidationError, InvalidAnswer))):
+            # ORCH-524: only the provider's own refusal of the image, as its adapter marked it (ImageRefused), is
+            # retried without the image. Any other failure (an account, schema, timeout or network error) goes on as
+            # what it is, with its own words, and costs no second call; an answer that doesn't validate goes to
+            # _decide's repair as before.
+            if not (images and isinstance(exc, ImageRefused)):
                 raise
-            refused = type(exc).__name__
+            refused = str(exc)
         finally:
             self._lookups_end(turn, looker)
-        # L12: a model that won't take the screenshot must not fail the message: once more without it, saying so
+        # L12: a model that won't take the screenshot must not fail the message: once more without it, saying so,
+        # with the provider's own words (free of the key; the journal redacts what it stores)
         self.journal.append("screen.image_refused", {"request_id": turn.request_id, "error": refused})
         assert turn.screen is not None
         turn.screen = {**turn.screen, "front_image": None, "image_withheld": IMAGE_REFUSED}

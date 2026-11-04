@@ -133,7 +133,7 @@ def test_a_value_only_in_pasted_text_is_outside_content_not_owner_words(ferb_yes
     grant, _ = gateway_setup(daemon, {"probe"}, req, [send])
     gateway_tool_call(daemon, grant, "probe.send", to="paste@evil.example")
     assert _inputs(daemon, "probe.send")[0]["arg_sources"] == {"recipient:0": ["external:paste"]}
-    assert "came from outside content (text you pasted)" in ferb_yes.asked[0]
+    assert "only in outside content (text you pasted)" in ferb_yes.asked[0]
     gateway_tool_call(daemon, grant, "probe.send", to="asked@ferb.example")
     assert _inputs(daemon, "probe.send")[1]["arg_sources"] == {"recipient:0": ["unknown"]}
     ferb_yes.expect("floor:new_recipient")                         # a new recipient still; not from the paste

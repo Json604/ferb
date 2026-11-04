@@ -420,6 +420,15 @@ status = "open"
 why = "Owner \"yes yes yes\" (2026-11-03): history/memory outside content triggers the sink question; questions name real sites; origin = made-from. Design in kb/local/origin-split.md (untracked); build after the planner lookup tools merge; first a test proving the sink gap."
 decisions = ["GATE-202"]
 
+[T-1025]
+title = "Should a year or a short plain number in an address count as the owner's data?"
+area = "gateway"
+kind = "question"
+status = "open"
+why = "Audit G2 after GATE-506: the URL sink still asks when a year or short number in an address also appears in the owner's data FERB read first (the planner's context holds dates). Narrowing it needs a threshold, the owner's (rule 18); a one-time code is a short number too."
+decisions = ["GATE-506", "GATE-507"]
+ask = "When FERB opens a page whose address holds a year (like /2026/10/) or a short number that also appears in something private FERB read, it asks first. Should a bare year (four digits, 1900-2099) stop counting as your data? And numbers shorter than how many digits? A one-time code is often 4-6 digits, so a lower limit lets those through unasked."
+
 [T-1020]
 title = "Should the secret helper report the Keychain's status (it re-pins the helper)?"
 area = "gateway"

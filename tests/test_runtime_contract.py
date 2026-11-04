@@ -205,6 +205,32 @@ async def test_openai_window_exceeded_error_is_marked_as_an_overflow(code, overf
     assert events[-1].kind == "error" and "400" in events[-1].data["message"]
     assert events[-1].data.get("overflow", False) is overflow
 
+# decision: ORCH-524, RUN-418
+@pytest.mark.anyio
+@pytest.mark.parametrize("case, status, body, image", [
+    ("anthropic", 400, {"type": "error", "error": {"type": "invalid_request_error", "message":
+     "messages.0.content.1.image.source.base64: image exceeds 5 MB maximum: 6291456 bytes > 5242880 bytes"}}, True),
+    ("anthropic", 400, {"type": "error", "error": {"type": "invalid_request_error",
+                                                   "message": "Could not process image"}}, True),
+    ("anthropic", 400, {"type": "error", "error": {"type": "invalid_request_error",
+                                                   "message": "Schemas contains too many parameters with union types"}},
+     False),
+    ("anthropic", 429, {"type": "error", "error": {"type": "rate_limit_error", "message": "rate limited"}}, False),
+    ("openai", 400, {"error": {"message": "Invalid image.", "type": "invalid_request_error",
+                               "code": "invalid_image"}}, True),
+    ("openai", 400, {"error": {"message": "Invalid schema for response_format", "type": "invalid_request_error",
+                               "code": "invalid_value"}}, False),
+    ("google", 400, {"error": {"code": 400, "status": "INVALID_ARGUMENT",
+                               "message": "Unable to process input image."}}, False),
+])
+async def test_only_a_providers_own_image_rejection_is_marked_as_one(case, status, body, image) -> None:
+    """Past bug (R3): any planner error with a screenshot was taken for an image refusal. The adapter now marks only
+    the provider's own image rejection (OpenAI's image error codes; the shapes Anthropic's own client classifies as image
+    errors); a schema, rate-limit or Google error (no documented image code) stays an ordinary error."""
+    events = await run(make(CASES[case], Scripted([(status, body)] * 5), mode="supervisor"), token="")
+    assert events[-1].kind == "error" and events[-1].data.get("image", False) is image
+
+
 def openai_tool(name, args):
     return {"status": "completed", "output": [{"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": name,
                                                "arguments": json.dumps(args)}], "usage": {"input_tokens": 10}}

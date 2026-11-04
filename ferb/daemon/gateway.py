@@ -214,11 +214,13 @@ class Destination(BaseModel):
 
 
 def snapshot_facts(out: dict[str, Any]) -> dict[str, Any]:
-    """What a call's result says about the S1 snapshot taken before it."""
+    """What a call's result says about the S1 snapshot taken before it: with its date (HAND-408), which the result's
+    redaction leaves readable where a card-like snapshot name is masked."""
     if "error" in out:
         return {"snapshot_error": out["error"]}
     return {"recovery_snapshot": {"snapshot": out.get("snapshot"), "record": out.get("record"),
-                                  "reused": bool(out.get("reused"))}}
+                                  "reused": bool(out.get("reused"))}
+            | ({"snapshot_date": out["snapshot_date"]} if out.get("snapshot_date") else {})}
 
 
 def lift_how(access: str) -> str:
@@ -751,8 +753,8 @@ class Gateway:
 
     def _arg_sources(self, spec: Any, rec: Any, grant: RunGrant) -> dict[str, list[str]]:
         """The owner's typed words for this request, the owner's answers in this task (apart: a chosen option is
-        not typed words), and the outside content read so far: the tree's outside tool results and the request's
-        pasted parts (`external:paste`: pasted text is outside content, MP2)."""
+        not typed words), the outside content read so far (the tree's outside tool results and the request's
+        pasted parts), and the tree's tool results that are wholly the owner's own data (`private`, GATE-508)."""
         root = rec.tree_id or grant.task_id
         request = self.state.requests.get(rec.task.request_id)
         known = self._outside.setdefault(root, OutsideTexts())
@@ -780,6 +782,10 @@ class Gateway:
             if external:
                 prepared = provenance.prepare(text)
                 known.texts += [(o, prepared) for o in external]
+            elif origin.PRIVATE in origins and origins <= {origin.PRIVATE, origin.OWNER}:
+                # GATE-508: a result wholly the owner's own data (a file, an app, no outside label): a value in it is
+                # theirs, so it never "came only from outside content"
+                known.texts.append((origin.PRIVATE, provenance.prepare(text)))
         known.floor = running - 1 if running is not None else max(known.seen, default=known.floor)
         known.seen = {r for r in known.seen if r > known.floor}
         return known
@@ -1169,12 +1175,41 @@ class Gateway:
         words = request.words if request is not None else ""
         owner_text = provenance.prepare(words + "\n" + "\n".join(self.spans.owner_answers(root)))
         private, outside_only = await self._sink_texts_ready(root)   # N1: span-ordered; a followed link read first
-        values = confirm.url_carries_private(url, private, outside_only, owner_text)
+        values = confirm.url_private_values(url, private, outside_only, owner_text, self._sink_origins(root))
         if not values:
             return None
-        return confirm.Need("sink:private_url", key, {"destination": host, "value": values[0],
+        first = values[0]
+        return confirm.Need("sink:private_url", key, {"destination": host, "value": first.piece,
+                                                      "matched": first.matched,
+                                                      "source": self._read_as(root, first.first_read),
                                                       "read": confirm.shown_origins(outside_labels)},
                             destinations=(("host", host),))
+
+    def _sink_origins(self, root: str) -> dict[int, set[str]]:
+        """Each source record's labels by span order, as `_sink_texts` last read them (GATE-506: a value read only from
+        the destination's own pages)."""
+        known = self._outside.setdefault(root, OutsideTexts())
+        found = {rowid: labels for rowid, (labels, _) in known.payloads.items()}
+        found.update({rowid: labels for joined in known.joined_files.values() for rowid, labels, _ in joined})
+        return found
+
+    def _read_as(self, root: str, rowid: int) -> str:
+        """Where this task read a record, in the owner's terms (GATE-507): a file by its path, a tool's result by the
+        tool and the site it read, the context FERB gave the model. Names only, never the record's content."""
+        known = self._outside.setdefault(root, OutsideTexts())
+        path = next((p for p, chunks in known.file_chunks.items() if rowid in chunks), "")
+        if path:
+            return f"your file {path}"
+        row = self.spans.db.conn.execute(
+            "SELECT kind, json_extract(input_json, '$.tool') AS tool, origin FROM spans WHERE rowid = ?",
+            (rowid,)).fetchone()
+        if row is None:
+            return "your own data"
+        if row["kind"] != "tool.call":
+            return "the context FERB gave the model (your conversation, memory or earlier results)"
+        sites = sorted({o.split(":", 2)[2] for o in origin.split(row["origin"]) if o.startswith("external:web:")})
+        on = f" on {', '.join(sites[:2])}" if sites else ""
+        return f"the result of {row['tool'] or 'a tool'}{on}"
 
     async def _floor_needs(self, c: "Call") -> list[confirm.Need] | dict[str, Any]:
         """D23 floor, D33, S4, SQ6, L39 (confirm.decide): the call's kind with every kind its declaration adds, and each

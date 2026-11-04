@@ -619,3 +619,13 @@ status = "active"
 rule = "untrusted.mark records the owner's chat message whole as their words: the composer's bracketed-paste markers and leaked ones are removed, and > quote lines and ``` blocks are no longer split out as data. The [policy] pasted_text_is_data switch and the chat.message field pasted_as_owner_words are retired (the planner-cache check no longer reads them, RUN-416). Readers of older records still leave out the parts those records wrapped (typed_lines_of, recorded_own_words, WRAPPED); FERB's earlier question and attachment paths stay wrapped as data."
 why = "ORCH-518 makes all of the owner's message theirs; the > and ``` heuristics marked the owner's own typing as outside data and served nothing else."
 paths = ["ferb/sanitize/untrusted.py::mark", "ferb/orchestrator/ports.py::EnvironmentPort"]
+
+[ORCH-524]
+title = "A planner turn reruns without the screenshot only when the provider refused the image"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "A planner call carrying the owner's screenshot is run once more without it only on ImageRefused: the adapter marked the error as the provider's own image rejection (RUN-418). Any other failure (account, schema, timeout, network, no model) goes on as itself with its own words through the normal failure path (chat.failed), with no second call. `screen.image_refused` records the provider's words, not only an exception class."
+why = "Audit R3 (owner 2026-11-04: \"i approve all fixes\"): all 5 live `screen.image_refused` rows (2026-10-28) were schema-union 400s or \"no model set\", each costing a second model call and a trace saying the image was refused."
+rejected = ["Matching the error's free text for the word image", "Keeping the broad retry and only rewording the journal row"]
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._supervise", "ferb/orchestrator/worker.py::ImageRefused"]

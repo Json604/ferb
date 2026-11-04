@@ -38,6 +38,7 @@ from urllib.parse import unquote_plus
 
 import idna
 
+from ferb.core import origin
 from ferb.core.types import Target
 from ferb.policy import provenance, tls, urls
 from ferb.policy.destinations import destination_of
@@ -344,14 +345,28 @@ def _host_had_it(seen: str, dest: str) -> bool:
     return dest in (seen, bare, "www." + bare) or dest.endswith("." + seen)
 
 
-def _same_site_only(private: list[tuple[int, provenance.Text]], dest: str) -> set[str]:
+def _read_from(labels: set[str], dest: str) -> bool:
+    """Whether a record was read from `dest`'s own site (GATE-506): its outside labels are all web pages of hosts `dest`
+    covers (`_host_had_it`), at least one, and nothing else but the private label (the owner's signed-in page there).
+    Context FERB assembled (its own, model-written or mixed labels) never is."""
+    web = [o.split(":", 2)[2] for o in labels if o.startswith(origin.EXTERNAL + ":web:") and o.count(":") >= 2]
+    return bool(web) and all(o == origin.PRIVATE or o.startswith(origin.EXTERNAL + ":web:") for o in labels) and \
+        all(_host_had_it(h.lower().rstrip("."), dest) for h in web)
+
+
+def _same_site_only(private: list[tuple[int, provenance.Text]], dest: str,
+                    origins: dict[int, set[str]] | None = None) -> set[str]:
     """The tokens of the owner's own data whose every occurrence is inside a URL whose host `dest` covers
-    (`_host_had_it`): a value that host already had in its own address, such as a reel's id in the owner's tab of that
-    reel. A token also found anywhere else in private text (another host's URL, plain text) isn't one. Shape only
-    (rule 6)."""
+    (`_host_had_it`), or in a record read from `dest`'s own site (`_read_from`, GATE-506: the owner's signed-in page
+    there, live 2026-10-18: a class id read from www.scaler.com's own page, sent back to www.scaler.com): a value that
+    host already had, such as a reel's id in the owner's tab of that reel. A token also found anywhere else in private
+    text (another host's URL or page, a file, plain text) isn't one. Shape and provenance only (rule 6)."""
     inside: set[str] = set()
     elsewhere: set[str] = set()
-    for _, t in private:
+    for order, t in private:
+        if origins is not None and _read_from(origins.get(order, set()), dest):
+            inside |= set(provenance.tokens(t.folded)) | _fine_tokens(t.folded)
+            continue
         rest, cut = [], 0
         for m in _URL_IN_TEXT.finditer(t.folded):
             parsed = urls.parse(m.group(0).rstrip(_TRAIL))
@@ -440,8 +455,26 @@ def _variants(piece: str) -> tuple[set[str], set[str]]:
     return shown, decoded
 
 
+@dataclass(frozen=True)
+class PrivateValue:
+    """A URL piece carrying the owner's data (GATE-507): the piece as it leaves, the token of the owner's data it
+    matched (the piece itself, or a value found inside or decoded from it), and the record that token was first read
+    from (span order), so the question can say which value leaves and where FERB read it."""
+    piece: str
+    matched: str
+    first_read: int
+
+
 def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
-                        outside: list[tuple[int, provenance.Text]], owner: provenance.Text) -> list[str]:
+                        outside: list[tuple[int, provenance.Text]], owner: provenance.Text,
+                        origins: dict[int, set[str]] | None = None) -> list[str]:
+    """`url_private_values`, as the pieces that would leave."""
+    return [v.piece for v in url_private_values(url, private, outside, owner, origins)]
+
+
+def url_private_values(url: str, private: list[tuple[int, provenance.Text]],
+                       outside: list[tuple[int, provenance.Text]], owner: provenance.Text,
+                       origins: dict[int, set[str]] | None = None) -> list[PrivateValue]:
     """The sink rule for navigation (S4, SQ6, carried item 8, Q8, N1, L4): the pieces of `url` that are a token of the
     owner's own data (a private tool result) and are not the owner's typed words and were not already public. Only a
     value counts, never an ordinary word (`_is_value`), unless it is hidden in base64/hex: the words of FERB's context
@@ -452,19 +485,21 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
     caller's). A URL seen verbatim in outside-only content read before the private value first appeared is a followed
     link: nothing asked. A value whose every private occurrence is inside a URL of the destination's own host (or a host
     it sits under) discloses nothing new to that host, so it doesn't count (L4, owner live use 2026-10-14: a
-    reel's id from the owner's own tab of that reel). Shape and provenance only, never a meaning (rule 6)."""
+    reel's id from the owner's own tab of that reel), and neither does one whose every private occurrence was read
+    from that site's own pages (`origins`: each record's labels by span order; GATE-506). Shape and provenance only,
+    never a meaning (rule 6)."""
     if not private:
         return []
     dest = urls.parse(url)
-    known_to_site = _same_site_only(private, dest.host) if dest is not None and dest.host else set()
+    known_to_site = _same_site_only(private, dest.host, origins) if dest is not None and dest.host else set()
     hits = _private_hits(_url_pieces(url), private, outside, owner, known_to_site)
     if not hits:
         return []
-    earliest = min(order for _, order in hits)
+    earliest = min(h.first_read for h in hits)
     seen_url = {url.casefold(), url.replace("\\", "/").casefold()}
     if any(order < earliest and any(u in t.folded for u in seen_url) for order, t in outside):
         return []                                             # a followed link, read before the private value
-    return [v for v, _ in hits]
+    return hits
 
 
 def text_carries_private(text: str, private: list[tuple[int, provenance.Text]],
@@ -476,13 +511,14 @@ def text_carries_private(text: str, private: list[tuple[int, provenance.Text]],
     if not private or not text.strip():
         return []
     pieces = [text.strip()] + [t for t in _FINE.split(text) if t]
-    return [v for v, _ in _private_hits(pieces, private, outside, owner, set())]
+    return [h.piece for h in _private_hits(pieces, private, outside, owner, set())]
 
 
 def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
                   outside: list[tuple[int, provenance.Text]], owner: provenance.Text,
-                  known_to_site: set[str]) -> list[tuple[str, int]]:
-    """Each piece that carries a value of the owner's own data, with the order it was first read privately."""
+                  known_to_site: set[str]) -> list[PrivateValue]:
+    """Each piece that carries a value of the owner's own data, with the value it matched and the order that value was
+    first read privately."""
     first_private: dict[str, int] = {}
     for order, t in private:
         for tok in _toks(t):
@@ -495,15 +531,16 @@ def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
         fp = first_private[tok]
         return any(tok in toks for order, toks in outside_toks if order < fp)
 
-    hits: list[tuple[str, int]] = []
+    hits: list[PrivateValue] = []
     for piece in pieces:
         value = piece.strip()
         # the owner-word exclusion is per matched form, so a typed word inside a decoded blob can't excuse the rest
         shown, decoded = _variants(piece)
         matched = {m for m in (shown | decoded) & set(first_private)
                    if m not in owner_toks and m not in known_to_site and not laundered(m)}
-        if matched and value and value not in [v for v, _ in hits]:
-            hits.append((value, min(first_private[m] for m in matched)))
+        if matched and value and value not in [h.piece for h in hits]:
+            first = min(matched, key=lambda m: (first_private[m], -len(m), m))   # the earliest read, longest form
+            hits.append(PrivateValue(value, first, first_private[first]))
     return hits
 
 
@@ -615,7 +652,7 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
     values = who + ([("amount", str(target.amount))] if target.amount is not None and Kind.PAY not in kinds else [])
     for k, value in values:                     # S4 (b): a value that came only from outside content
         outside = [s for s in arg_sources.get(k, []) if s != "unknown"]
-        if not outside or _owner(outside):
+        if not outside or _owner(outside) or origin.PRIVATE in outside:   # GATE-508: also in the owner's own data
             continue
         dest = None if k == "amount" else destination_of(value)
         if dest is not None and known(*dest):
@@ -756,13 +793,15 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
                 f"outside content ({v['read']})")
     if n.rule == "sink:private_url":
         read = f" ({v['read']})" if v.get("read") else ""
-        return (f"this would open {v['destination']}, a place you haven't named, with your own data in the address "
-                f"({v['value']}), after this task read outside content{read}; saying yes lets FERB reach "
+        return (f"this would open {v['destination']}, a place you haven't named, and send it {_carried(v)} in the "
+                f"address, after this task read outside content{read}; saying yes lets FERB reach "
                 f"{v['destination']} from the browser, now and in later tasks")
     if n.rule == "sink:outside_value" and v["what"] == "typed":
-        return f"this types {v['value']}, which came from outside content ({v['origin']}), not from you"
+        return (f"this types {v['value']}, which FERB found only in outside content ({v['origin']}), not in your words, "
+                "your answers or your own files")
     if n.rule == "sink:outside_value":
-        return f"the {v['what']} {v['value']} came from outside content ({v['origin']}), not from you"
+        return (f"FERB found the {v['what']} {v['value']} only in outside content ({v['origin']}), not in your words, "
+                "your answers or your own files")
     if n.rule == BULK and v.get("what") == "delete":
         counted = f"that is {v['counted']}; " if v.get("counted") else ""
         return (f"this permanently deletes {v['path']} ({counted}it skips the Trash): {v['files']} in {v['folders']}, "
@@ -776,6 +815,16 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
         return (f"this sends {v['bytes']} to {v['count']} recipients you didn't name in this request at once: "
                 f"{v['sample']}")
     return v.get("text", n.rule)                # a rule another part of FERB asks about in its own words
+
+
+def _carried(v: dict[str, str]) -> str:
+    """Which of the owner's values a URL would send, and why FERB counts it as theirs (GATE-507): the value, the piece
+    of the address it rides in when that differs, and where this task read it."""
+    value, matched = v.get("value", ""), v.get("matched") or v.get("value", "")
+    same = matched.casefold() == value.casefold()
+    inside = "" if same else f" (inside {shown_quoted(value)})"
+    where = v.get("source") or "your own data"
+    return f"{shown_quoted(value if same else matched)}{inside}, which this task read from {where}"
 
 
 _LIFTED = {   # what an escape lifts, in the owner's terms (D31): the protection list's kinds (protection.rules)
@@ -825,11 +874,11 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
         return (f"send to {v['destination']}, a place you haven't named, after reading "
                 f"{v['read'] or 'outside content'}")
     if n.rule == "sink:private_url":
-        return f"open {v['destination']} with your own data in the address ({v['value']})"
+        return f"open {v['destination']}, sending it {_carried(v)}"
     if n.rule == "sink:outside_value" and v["what"] == "typed":
-        return f"type {v['value']}, which came from {v['origin']}, not from you"
+        return f"type {v['value']}, which FERB found only in {v['origin']}"
     if n.rule == "sink:outside_value":
-        return f"use the {v['what']} {v['value']}, which came from {v['origin']}, not from you"
+        return f"use the {v['what']} {v['value']}, which FERB found only in {v['origin']}"
     if n.rule == BULK and v.get("what") == "delete":
         return f"permanently delete {v['path']}: {v['files']} in {v['folders']}, {v['bytes']}"
     if n.rule == BULK and "floor:new_recipient" in alongside:      # the new recipients are named beside it
