@@ -53,7 +53,6 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
         }
         appSetup.notch = services.notch
         appSetup.introControls = coordinator.introControls
-        appSetup.onFinished = { [weak coordinator] in coordinator?.showFromMenu() }
         appSetup.onSettled = { state.note("setup settled: nothing left for the intro") }
         self.appSetup = appSetup
         services.opener.onQuitAndReopen = { [weak self] in self?.relaunch(reopen: true) }
@@ -195,8 +194,7 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
             finishTask: { services.daemon.workspace.finishRunning() },
             showTaskPreview: { [weak self] in self?.appReview?.showPreview() },
             previewSetup: { [weak self] in
-                self?.appSetup?.repair(.none)
-                services.setup.go(.ai)
+                self?.appSetup?.repair(.none)          // the service step in the notch (APP-685): no window
             })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 820),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)

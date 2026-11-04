@@ -820,6 +820,26 @@ def test_the_cleanup_runs_with_the_daemon_stopped_removes_only_what_was_shown_an
     assert "✓ database: " in out.getvalue()
 
 
+# decision: DMN-537
+def test_the_apps_service_commands_leave_the_apps_session_only_when_it_asks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FERB.app quitting mid-install must not take `setup --service` down halfway between a bootout and a bootstrap:
+    run by FERB.app (FERB_OWN_SESSION=1) it moves to a session of its own; run any other way it stays where it is."""
+    import ferb.cli as cli
+    calls: list[str] = []
+    monkeypatch.setattr(cli.os, "setsid", lambda: calls.append("setsid"))
+    monkeypatch.delenv(cli.OWN_SESSION_ENV, raising=False)
+    cli.own_session()
+    assert calls == []
+    monkeypatch.setenv(cli.OWN_SESSION_ENV, "1")
+    cli.own_session()
+    assert calls == ["setsid"]
+
+    def refused() -> None:
+        raise PermissionError("already a process group leader")
+    monkeypatch.setattr(cli.os, "setsid", refused)
+    cli.own_session()                                           # a group leader is outside the app's group already
+
+
 # decision: DMN-515
 def test_the_cleanup_waits_while_another_daemon_answers_or_the_stopped_one_hasnt_exited(
         world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:

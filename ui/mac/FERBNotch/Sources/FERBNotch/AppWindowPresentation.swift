@@ -4,7 +4,7 @@ import Darwin
 /// A requested app window must appear where the owner is working, including over a full-screen app.
 /// AppKit can mark a regular window visible without assigning it a Space in that case (macOS 26).
 ///
-/// The window is on the owner's Space before FERB activates (APP-650). Activating first let macOS switch to a Space
+/// The window is on the owner's Space before FERB activates (APP-688). Activating first let macOS switch to a Space
 /// that still held the window (owner, 2026-11-04: Settings switched the screen to the home Space) while the window was
 /// then moved to the Space the owner had been on, because the move read the active Space before the switch landed.
 @MainActor

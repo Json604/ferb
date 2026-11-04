@@ -92,6 +92,13 @@ class InstallError(FerbError):
     pass
 
 
+def launchctl_words(r: "subprocess.CompletedProcess[str]") -> str:
+    """A failed launchctl call in words, never empty (live 2026-11-04: "restarting the daemon failed:" and nothing
+    after it): its exit code, then what it printed (error output first, its last 400 characters)."""
+    said = ((r.stderr or "").strip() or (r.stdout or "").strip())[-400:]
+    return f"launchctl exited {r.returncode}: {said}" if said else f"launchctl exited {r.returncode} and printed nothing"
+
+
 # `ferb setup --service` exits with this when the owner switched the service off in Login Items (FERB.app's
 # ServicePlan.switchedOffStatus): the app guides that one System Settings visit instead of showing an error.
 SWITCHED_OFF_STATUS = 3
@@ -600,7 +607,7 @@ class Installer:
                 return
             held = self.loaded() and not self._loaded_from(self.plist_path)
             if not held or time.monotonic() >= end:
-                raise InstallError(f"loading the LaunchAgent failed: {(r.stderr or r.stdout).strip()[-400:]}")
+                raise InstallError(f"loading the LaunchAgent failed: {launchctl_words(r)}")
             time.sleep(0.5)
 
     def unload(self) -> None:
@@ -624,7 +631,21 @@ class Installer:
         return pid if pid is not None and self.run(["/bin/kill", "-0", str(pid)]).returncode == 0 else None
 
     def restart(self) -> None:
-        self._ok(["launchctl", "kickstart", "-k", f"{self.domain}/{self.label}"], "restarting the daemon")
+        """The daemon restarted on its loaded definition with one `launchctl kickstart -k`, with no moment where the
+        label is unloaded. When launchd has no job to restart, or one it is still tearing down (live 2026-11-04:
+        macOS's own unregister of a same-label SMAppService registration booted FERB's LaunchAgent out just before
+        the quiet update), the LaunchAgent is loaded instead: `load` boots out whatever holds the label, waits for it
+        to go and bootstraps the plist (DMN-515, DMN-517). A failure says what launchctl answered to each."""
+        r = self.run(["launchctl", "kickstart", "-k", f"{self.domain}/{self.label}"])
+        if r.returncode == 0:
+            return
+        kicked = launchctl_words(r)
+        try:
+            self.load()
+        except ServiceSwitchedOff:
+            raise
+        except InstallError as e:
+            raise InstallError(f"restarting the daemon failed ({kicked}), and then {e}") from e
 
     def installed(self) -> bool:
         """Something to update: FERB.app's setup ran (its record), or the checkout's venv is there."""
@@ -926,4 +947,5 @@ class Installer:
     def _ok(self, cmd: list[str], what: str) -> None:
         r = self.run(cmd)
         if r.returncode != 0:
-            raise InstallError(f"{what} failed: {(r.stderr or r.stdout).strip()[-400:]}")
+            said = ((r.stderr or "").strip() or (r.stdout or "").strip())[-400:]
+            raise InstallError(f"{what} failed: {said or f'{cmd[0]} exited {r.returncode} and printed nothing'}")

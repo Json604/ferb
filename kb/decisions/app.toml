@@ -1065,7 +1065,8 @@ legacy = "test deletion review 2026-11-02 (kept guard)"
 title = "Setup survives macOS's grant flow"
 by = "agent"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "APP-686"
 rule = "A launch after a grant restarted FERB reopens the setup step it restarted from, and Allow all asks for notifications without waiting on macOS's banner."
 why = "Past bugs: 2026-10-26, and a friend's Allow all stalling on the notification banner, 2026-10-27."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift"]
@@ -1518,7 +1519,8 @@ live = ["LIVE-703"]
 title = "Skip tour from the permissions beat to the end"
 by = "owner"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "APP-685"
 supersedes = ["APP-618"]
 words = "also add a skip tour button on in the setup tour. starting from the permissions screen until end. not befire this."
 rule = "The tour's line offers Skip tour, in its header with no reserved footer, from the permissions beat to Home and never before it. Skip ends the tour as its internal interruption does: what is still required waits in the compact setup window. As in APP-618: Gravity — Dense is the startup; a quit resumes at the same beat; Settings can replay the tour; a resumed tour waits for the service; repair and teardown interrupt internally; automatic termination stays off during the tour."
@@ -1613,7 +1615,8 @@ paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift", "ui/mac/FE
 title = "FERB's windows open on the owner's Space without switching Spaces"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "APP-688"
 rule = "FERB's own windows (Settings and the rest of the FERB window, the setup window) join the Space the owner is on (moveToActiveSpace) and are put there before FERB activates, so activating never switches Spaces; the APP-630 move onto a full-screen Space stays."
 why = "Owner, 2026-11-04: opening Settings switched the screen to the home Space while the window opened on the Space the owner was on. FERB activated first, so macOS switched to a Space holding the window, and the move read the active Space before the switch landed. Rule 10."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift"]
@@ -1690,7 +1693,8 @@ live = ["LIVE-710"]
 title = "Every launch re-reads the grants; a finished setup missing one gets Allow all and Home"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "APP-686"
 rule = "Every launch that isn't a first run or a resumed tour reads the permission rows. With setup recorded done, a required grant now off (as in Allow all) brings back the permissions beat and Home, as after an update (APP-509). With setup done and every grant on, a Grant's saved setup step (APP-595) is cleared, so a Grant from Settings → Permissions doesn't reopen the setup window at later launches."
 why = "Audit U2, U3 and D4 (owner approved the fixes 2026-11-04): a grant switched off after setup was never noticed until an update, and a Grant in Settings reopened the compact setup window at every launch. APP-508: every permission is required."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift"]
@@ -1763,7 +1767,8 @@ live = ["LIVE-724"]
 title = "After macOS's Quit & Reopen, FERB comes back even if System Settings closes first"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "APP-684"
 rule = "When System Settings (its app or an extension) sends FERB.app a quit with no log out, restart or shut down reason, FERB starts a detached watcher as it terminates (own session, none of FERB's descriptors). Once FERB has exited it looks every grant poll (APP-510, ~1.5 s) while the quit's sender lives; if FERB.app runs again it stops, and if the sender is gone with FERB not running it opens FERB.app in the background, which resumes the tour at its step (APP-595). Other quits are unchanged. The sender and the watcher are logged (category relaunch)."
 why = "Owner, 2026-11-04: \"I pressed on Quit & Reopen after the Screen Recording permission, it didn't reopen, just quit.\""
 evidence = "System log: Settings' Privacy extension relaunched FERB 3.1 s after an earlier quit (08:05:50 to :53). At 08:07:03 FERB quit in 6 ms; Settings closed 2.2 s later, ending that extension before its relaunch; FERB came back only when the owner opened it (08:08:08)."
@@ -1835,3 +1840,72 @@ why = "Owner, 2026-11-04: \"theres no feedback or whatsoever shown in notch what
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift"]
 live = ["LIVE-739"]
+
+[APP-683]
+title = "Only another definition's job counts as a 2026-11 SMAppService registration"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "SMAppService's status for FERB's bundled plist name (Contents/Library/LaunchAgents/com.ferb.daemon.plist) counts as a 2026-11 build's registration to unregister (APP-602) only when launchd runs FERB's label from a definition other than the user LaunchAgent (the `path =` of `launchctl print gui/<uid>/com.ferb.daemon`), or runs nothing under it and no LaunchAgent naming the label exists. While FERB's own LaunchAgent holds the label, FERB.app never unregisters, at launch, before setup or at uninstall."
+why = "Owner's fresh install, 2026-11-04: the status read notFound at the first launch and enabled at the relaunch only because FERB's own LaunchAgent held the label; the relaunch unregistered, and macOS booted the running daemon out."
+evidence = "System log 2026-11-04 09:32:48: SMAppService status 1, \"Unregister:async error: 144\", launchd \"booting out service: caller = smd[532]\" for gui/501/com.ferb.daemon [51884]; journal daemon.stopped 09:32:49. Owner approved the fix batch."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
+live = ["LIVE-741"]
+
+[APP-684]
+title = "After any Quit & Reopen from System Settings, FERB comes back within a few looks"
+by = "agent"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-661"]
+rule = "A quit System Settings (app or extension) sends that isn't a log out, restart or shut down (kAEQuitReason logo, rlgo, rrst, rsdn, rest, shut), whatever other reason it carries, leaves a detached watcher as FERB terminates (own session, no FERB descriptors). After FERB exits it looks every grant poll (~1.5 s) while the sender lives, at most three looks (APP-598's serviceStartAfter); FERB running again stops it, else it opens FERB.app in the background, which resumes the tour (APP-686). The sender, the reason code and the decision are logged (category relaunch)."
+why = "Owner, 2026-11-04: \"the quit and reopen didnt reopen on fda\". APP-661 skipped the watcher for a quit carrying any reason, and waited for the sender to exit, which Settings' extension doesn't do while Settings stays open."
+evidence = "System log 09:32:17.777: \"Quit asked by com.apple.settings.PrivacySecurity.extension (pid 53856)\", AppKit terminated normally, no \"Reopen watcher\" line: noted without a sender, so the quit carried a reason (inferred). Owner approved the fix batch."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/PermissionRelaunch.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PermissionRelaunchWatcher.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Application.swift"]
+live = ["LIVE-741"]
+
+[APP-685]
+title = "Setup and its errors live in the notch tour only; there is no setup window"
+by = "owner"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-638"]
+words = "why is this even here??? isnt it notch only?? and why didnt it resume the tour???"
+rule = "Setup and its errors live in the notch tour only; the compact setup window (\"1 / 7\" and its failure page) is removed. A service install or update failure is the tour's service line with the real reason and Try again; a launch with setup unfinished resumes the tour at its saved beat, never a window. Settings stays a window (APP-600). As in APP-638: Skip tour shows from the permissions beat to Home, never before; a skip leaves what's required to the next launch's tour; Dense is the startup; a quit resumes at its beat; Settings replays the tour."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift"]
+live = ["LIVE-741", "LIVE-743"]
+
+[APP-686]
+title = "Every launch with setup unfinished resumes the tour; a service failure is the tour's service line"
+by = "agent"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-595", "APP-657"]
+rule = "A launch with a tour a quit interrupted resumes it at its saved beat, setup done or not. A failed quiet update, or Restart finding no service, runs the service step alone in the notch (IntroController.startRepair; a running tour is interrupted, its place kept); once the service runs the launch goes on as after a quiet update. A launch that isn't a first run or a resume reads the grants; setup done with one now off brings back Allow all and Home (APP-509). Allow all never waits on the notifications banner. FERBSetupResumeStep is no longer used."
+why = "APP-685 removed the window APP-595's resume step and APP-657's clearing of it served; what they otherwise said holds."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift"]
+live = ["LIVE-741", "LIVE-743"]
+
+[APP-687]
+title = "A grant macOS confirms brings the tour forward over System Settings to say so"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "When macOS confirms the grant the permission beat waited on, the tour's line says it is on and the notch comes forward over System Settings (it stops yielding, NotchModel.onComeForward) without taking keyboard focus (APP-562); the hop plays where the logo is out (APP-534). The next grant's dock beside Settings steps behind it again (APP-642). The grant waited on is kept across a quit (IntroProgress.pendingGrant): a beat resumed after macOS's Quit & Reopen that finds it confirmed acknowledges it the same way, after the resume's own step behind Settings."
+why = "Owner, 2026-11-04: \"when the permission is added, the ferb screen doesnt automatically comes forward to acknowledge that.\" APP-642 kept the notch behind Settings for the whole beat."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift"]
+live = ["LIVE-742"]
+
+[APP-688]
+title = "FERB's windows open on the owner's Space without switching Spaces"
+by = "agent"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-650"]
+rule = "FERB's own windows (Settings and the rest of the FERB window) join the Space the owner is on (moveToActiveSpace) and are put there before FERB activates, so activating never switches Spaces; the APP-630 move onto a full-screen Space stays."
+why = "APP-650 named the setup window, which APP-685 removed; the rest holds. Owner, 2026-11-04 (APP-650): opening Settings switched the screen to the home Space. Rule 10."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
+live = ["LIVE-710"]

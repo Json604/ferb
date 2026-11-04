@@ -79,7 +79,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             coordinator?.onSetUp = { [appSetup] in appSetup.replayIntro() }   // Set Up FERB…: the intro again
             coordinator?.onRepair = { [appSetup] in appSetup.repairService() }   // Restart found no service
         }
-        appSetup.onFinished = { [weak self] in self?.coordinator?.showFromMenu() }   // Done: into the notch
         if let coordinator {
             var actions = FERBAppActions(feedback: coordinator.model.feedback, cursor: coordinator.cursor)
             actions.setHoverEnabled = { [weak model = coordinator.model] enabled in model?.setHoverEnabled(enabled) }
@@ -153,13 +152,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// An update Sparkle will install on quit installs only with nothing running, or after the owner's Quit and
     /// Install (UpdateCoordinator.beforeQuit).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        PermissionRelaunchWatcher.noteQuit()        // System Settings' Quit & Reopen: FERB comes back (APP-661)
+        PermissionRelaunchWatcher.noteQuit()        // System Settings' Quit & Reopen: FERB comes back (APP-684)
         guard let updates, updates.installArmed, !updates.prepared else { return .terminateNow }
         updates.beforeQuit { allow in NSApp.reply(toApplicationShouldTerminate: allow) }
         return .terminateLater
     }
     func applicationWillTerminate(_ notification: Notification) {
-        PermissionRelaunchWatcher.startIfNoted(poll: appSetup.model.grantPoll)
+        PermissionRelaunchWatcher.startIfNoted(poll: appSetup.model.grantPoll, reads: appSetup.model.serviceStartAfter)
         appSetup.stop()
         coordinator?.tearDown()
     }

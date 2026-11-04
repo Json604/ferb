@@ -43,7 +43,7 @@ final class IntroController {
     /// The tour ended (finished or skipped); `remainingRequired` says what a skip left.
     var onFinished: (() -> Void)?
     private(set) var beat: IntroBeat?
-    /// After a skip: the required steps still missing ("sign_in", then permission ids), for the compact setup.
+    /// After a skip: the required steps still missing ("sign_in", then permission ids).
     private(set) var remainingRequired: [String] = []
     private(set) var running = false
 
@@ -132,7 +132,7 @@ final class IntroController {
         run = Task { [weak self] in await self?.perform(plan, ifNeeded: ifNeeded, resuming: resume != nil) }
     }
 
-    /// Skip tour (APP-638) and the internal interruption for repair or teardown. Everything the tour drew, played or
+    /// Skip tour (APP-685) and the internal interruption for repair or teardown. Everything the tour drew, played or
     /// said is gone at once; then what's still required is read again from the system and the daemon
     /// (`remainingRequired`) and `onFinished` runs. A task the tour started keeps running as any task does. With
     /// nothing required left, setup is recorded as done, as at Home.
@@ -140,6 +140,7 @@ final class IntroController {
         guard running else { return }
         progress.done = true
         progress.resumeBeat = nil
+        progress.pendingGrant = nil
         end(stoppingSound: true)
         Task { [weak self] in
             guard let self else { return }
@@ -149,6 +150,37 @@ final class IntroController {
             if self.remainingRequired.isEmpty { await self.setup.recordFinished() }
             self.onFinished?()
         }
+    }
+
+    /// The service step alone (APP-685): a launch's quiet update failed, or Restart found no service. It keeps the
+    /// tour's place (`progress`) untouched; `onFinished` runs once the service is set up, with `repaired` true.
+    func startRepair() {
+        guard !running else { return }
+        running = true
+        repairing = true
+        ProcessInfo.processInfo.disableAutomaticTermination(Self.terminationReason)
+        sound.keepWarm(true)
+        notch.onIntroAction = { [weak self] action in self?.handle(action) }
+        notch.introHoldsWork = true
+        run = Task { [weak self] in
+            guard let self else { return }
+            await self.repairService()
+            guard self.live else { return }
+            self.end(stoppingSound: false)
+            self.onFinished?()
+        }
+    }
+
+    /// This is `startRepair`'s service step, not a tour.
+    private(set) var repairing = false
+    /// The service set up by `startRepair`.
+    private(set) var repaired = false
+
+    /// Ends the tour where it is, keeping its place (`IntroProgress`): a repair takes over, and the tour resumes at
+    /// that beat once the service runs. `onFinished` doesn't run.
+    func interrupt() {
+        guard running else { return }
+        end(stoppingSound: true)
     }
 
     private func perform(_ plan: [IntroBeat], ifNeeded: Set<IntroBeat>, resuming: Bool) async {
@@ -164,7 +196,7 @@ final class IntroController {
             if ifNeeded.contains(next), !(await stillNeeded(next)) { continue }
             guard live else { return }
             beat = next
-            notch.introSkippable = next.rawValue >= IntroBeat.permissions.rawValue    // APP-638
+            notch.introSkippable = next.rawValue >= IntroBeat.permissions.rawValue    // APP-685
             if next != .home { progress.resumeBeat = next }
             switch next {
             case .meet: await meet()
@@ -185,7 +217,7 @@ final class IntroController {
     /// would read as signed out or no grants (the resume then asked for sign-in again and moved its place back there).
     /// A service that stays silent is started (macOS's "Quit & Reopen" can end it with a clean exit, which launchd
     /// doesn't restart); a running one is left alone. The line says which, alive (APP-665, APP-679): back after a quit
-    /// (macOS's Quit & Reopen, APP-661) and waiting for the service, then starting it.
+    /// (macOS's Quit & Reopen, APP-684) and waiting for the service, then starting it.
     private func waitForService() async {
         var unanswered = 0
         let since = Date()
@@ -219,6 +251,7 @@ final class IntroController {
     private func finish() {
         progress.done = true
         progress.resumeBeat = nil
+        progress.pendingGrant = nil
         end(stoppingSound: false)
         onFinished?()
     }
@@ -365,15 +398,31 @@ final class IntroController {
         await dwell(Timing.hello)
         guard live else { return }
         say(IntroCopy.gettingReady.waiting(since: Date()))      // APP-665: the install may still be running
-        var ready = await install.value
+        _ = await settleService(ready: await install.value)
+    }
+
+    /// Until the background service is set up: a failure shows in the notch with its reason and Try again, a service
+    /// switched off in Login Items gets the orb's one visit (APP-685: setup and its errors live in the tour only, never
+    /// a window). False when the tour ended first.
+    func settleService(ready: Bool) async -> Bool {
+        var ready = ready
         while live && !ready {
             if setup.serviceNeedsApproval {
                 ready = await approveInLoginItems()
             } else {
-                guard await ask(IntroCopy.serviceFailed(setup.serviceError)) != nil else { return }
+                guard await ask(IntroCopy.serviceFailed(setup.serviceError)) != nil else { return false }
                 ready = await working(IntroCopy.gettingReady) { await installService() }
             }
         }
+        return ready && live
+    }
+
+    /// A launch's quiet update failed, or Restart found no service (APP-685): the service step alone, in the notch.
+    /// After a failure its line shows at once; otherwise the setup runs first with its live line.
+    private func repairService() async {
+        let failed = setup.serviceError != nil || setup.serviceNeedsApproval
+        let ready = failed ? false : await working(IntroCopy.gettingReady) { await installService() }
+        repaired = await settleService(ready: ready)
     }
 
     /// `ferb setup --service`, which writes and loads the LaunchAgent (SetupModel.runService): nothing to do on an
@@ -413,7 +462,7 @@ final class IntroController {
     // MARK: 8. Home
 
     /// FERB small in the notch again, with one line on how to bring it back. With nothing required left, setup is
-    /// recorded as done (`setup.finish`, as the setup window's Done), so neither the tour nor the window comes back.
+    /// recorded as done (`setup.finish`), so the tour doesn't come back.
     private func home() async {
         orb.holdsHomecoming = false
         await orb.flyHome()

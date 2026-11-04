@@ -90,6 +90,18 @@ public struct IntroProgress {
         }
     }
 
+    public static let grantKey = "FERBIntroPendingGrant"
+
+    /// The grant the permission beat was waiting on, kept across a quit (macOS's Quit & Reopen): the resumed beat
+    /// acknowledges it when macOS now confirms it (APP-687).
+    public var pendingGrant: String? {
+        get { defaults.string(forKey: Self.grantKey) }
+        set {
+            if let newValue { defaults.set(newValue, forKey: Self.grantKey) }
+            else { defaults.removeObject(forKey: Self.grantKey) }
+        }
+    }
+
     /// The beats of a tour a quit interrupted (every beat if its plan wasn't kept); nil when none was.
     public var interrupted: [IntroBeat]? {
         resumeBeat == nil ? nil : (plan ?? IntroBeat.allCases)
@@ -99,5 +111,6 @@ public struct IntroProgress {
         defaults.removeObject(forKey: Self.beatKey)
         defaults.removeObject(forKey: Self.doneKey)
         defaults.removeObject(forKey: Self.planKey)
+        defaults.removeObject(forKey: Self.grantKey)
     }
 }

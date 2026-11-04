@@ -4,23 +4,30 @@ import XCTest
 @testable import FERBNotch
 @testable import NotchCore
 
-/// FERB.app's setup window (L34 C): what each step reads and does, with the daemon, the bundled command, macOS and the
-/// Keychain all faked.
+/// FERB.app's setup (L34 C), for the tour and Settings: what each step reads and does, with the daemon, the bundled
+/// command, macOS and the Keychain all faked.
 @MainActor
 final class SetupModelTests: XCTestCase {
-    func testWelcomeInstallsTheServiceThenShowsChooseYourAI() async {
+    private func runService(_ model: SetupModel) -> () -> Bool? {
+        var result: Bool?
+        model.runService { result = $0 }
+        return { result }
+    }
+
+    func testTheServiceRunInstallsItWithItsLiveLine() async {
         let rig = SetupRig()
         let model = rig.model(.install)
-        XCTAssertEqual(model.primaryTitle, "Set Up FERB")
-        await model.primary()
+        let done = runService(model)
         XCTAssertEqual(rig.runner.runs, [["setup", "--service"]])
-        XCTAssertTrue(model.serviceRunning && model.primaryDisabled)
+        XCTAssertTrue(model.serviceRunning)
         rig.runner.say("Setting up FERB's background service…")
         XCTAssertEqual(model.serviceLine, "Setting up FERB's background service…")
         rig.runner.finish(0)
         XCTAssertFalse(model.serviceRunning)
-        XCTAssertEqual(model.step, .ai)
-        XCTAssertEqual(model.serviceAction, .none)              // going back to Welcome never reinstalls
+        XCTAssertEqual(done(), true)
+        XCTAssertEqual(model.serviceAction, .none)              // a later run never reinstalls
+        _ = runService(model)
+        XCTAssertEqual(rig.runner.runs.count, 1)
     }
 
     /// DMN-513 (live 2026-11-02: a 2026-11 build's SMAppService registration carried that build's launch constraint, so
@@ -33,17 +40,15 @@ final class SetupModelTests: XCTestCase {
             let background = FakeBackgroundService()
             background.registration = listed
             let model = rig.model(.update, background: background)
-            await model.primary()
+            _ = runService(model)
             await eventually { rig.runner.isRunning }
             XCTAssertEqual(background.unregistrations, 1)            // before the command runs
             XCTAssertEqual(rig.runner.runs, [["setup", "--service", "--update"]])
             rig.runner.finish(0)
-            await eventually { model.step == .ai }
             XCTAssertNil(model.serviceError)
             XCTAssertEqual(model.serviceAction, .none)
-            model.go(.welcome)
             model.serviceAction = .update
-            await model.primary()                                    // a later run: nothing listed, nothing to undo
+            _ = runService(model)                                    // a later run: nothing listed, nothing to undo
             XCTAssertEqual(background.unregistrations, 1)
             rig.runner.finish(0)
         }
@@ -53,76 +58,46 @@ final class SetupModelTests: XCTestCase {
         let rig = SetupRig()
         let background = FakeBackgroundService()
         let model = rig.model(.install, background: background)
-        await model.primary()
+        _ = runService(model)
         XCTAssertEqual(rig.runner.runs, [["setup", "--service"]])  // no wait on macOS first
         rig.runner.finish(0)
-        XCTAssertEqual(model.step, .ai)
         XCTAssertEqual(background.unregistrations, 0)
     }
 
-    /// FERB switched off under Login Items → Allow in the Background: the command says so (its exit status), and
-    /// Welcome shows where to switch it on with the button, never a crash loop.
+    /// FERB switched off under Login Items → Allow in the Background: the command says so (its exit status), and the
+    /// tour shows where to switch it on, never a crash loop.
     // decision: DMN-513, APP-602
-    func testAServiceSwitchedOffInLoginItemsSaysWhereAndStaysOnWelcome() async {
+    func testAServiceSwitchedOffInLoginItemsSaysWhere() async {
         let rig = SetupRig()
         let background = FakeBackgroundService()
         background.off = true
         let model = rig.model(.update, background: background)
-        await model.primary()
+        let done = runService(model)
         rig.runner.say("FERB's background service is switched off: System Settings → General → Login Items → …")
         rig.runner.finish(ServicePlan.switchedOffStatus)
         XCTAssertFalse(model.serviceRunning)
-        XCTAssertEqual(model.step, .welcome)
+        XCTAssertEqual(done(), false)
         XCTAssertEqual(model.serviceError, ServicePlan.approval)
         XCTAssertTrue(model.serviceNeedsApproval)
         XCTAssertEqual(rig.runner.runs.count, 1)                    // nothing runs again by itself
         model.openLoginItems()
         XCTAssertEqual(background.openedSettings, 1)
-        XCTAssertEqual(model.serviceAction, .update)                // Try Again sets it up once the owner allowed it
+        XCTAssertEqual(model.serviceAction, .update)                // Try again sets it up once the owner allowed it
     }
 
-    func testAFailedServiceRunShowsItsLastLinesAndStaysOnWelcome() async {
+    // decision: APP-685
+    func testAFailedServiceRunKeepsItsLastLinesForTheTour() async {
         let rig = SetupRig()
         let model = rig.model(.install)
-        await model.primary()
+        let done = runService(model)
         rig.runner.say("Setting up FERB's background service…")
         rig.runner.say("ferb: FERB is running from its disk image: drag FERB.app to Applications, then open it from there")
         rig.runner.finish(1)
-        XCTAssertEqual(model.step, .welcome)
+        XCTAssertEqual(done(), false)
         XCTAssertTrue(model.serviceError?.contains("drag FERB.app to Applications") == true)
-        XCTAssertEqual(model.primaryTitle, "Try Again")
-        await model.primary()
+        _ = runService(model)                                       // Try again
         XCTAssertEqual(rig.runner.runs.count, 2)
         XCTAssertNil(model.serviceError)
-    }
-
-    /// Live 2026-11-02: the launch's quiet update failed, the window showed why, and its Try Again went on through the
-    /// window's steps instead of the tour. With the launch waiting (`afterService`), a successful Try Again hands back
-    /// to it, once; a failed one stays on Welcome with the launch still waiting.
-    // decision: APP-635
-    func testTryAgainAfterAFailedQuietUpdateContinuesTheLaunchNotTheWindow() async {
-        let rig = SetupRig()
-        let model = rig.model(.update)
-        var continued = 0
-        model.afterService = { continued += 1 }
-        await model.primary()
-        rig.runner.finish(1)
-        XCTAssertEqual(model.step, .welcome)
-        XCTAssertEqual(continued, 0)
-        await model.primary()                                        // Try Again
-        rig.runner.finish(0)
-        XCTAssertEqual(continued, 1)
-        XCTAssertEqual(model.step, .welcome)                         // the window doesn't move on to Choose your AI
-        XCTAssertNil(model.afterService)
-    }
-
-    func testAnInstalledServiceIsNeverReinstalledFromWelcome() async {
-        let rig = SetupRig()
-        let model = rig.model(.none)
-        XCTAssertEqual(model.primaryTitle, "Continue")
-        await model.primary()
-        XCTAssertTrue(rig.runner.runs.isEmpty)
-        XCTAssertEqual(model.step, .ai)
     }
 
     // decision: APP-510
@@ -185,7 +160,7 @@ final class SetupModelTests: XCTestCase {
         await eventually { model.allRows.first { $0.id == "notifications" }?.status == .granted }
     }
 
-    // decision: APP-595
+    // decision: APP-686
     func testAllowAllNeverWaitsOnTheNotificationBanner() async {
         // A friend's Allow all stalled on macOS's notification banner (2026-10-27): it is asked, hinted, never awaited
         let rig = SetupRig()
@@ -269,7 +244,7 @@ final class SetupModelTests: XCTestCase {
         let rig = SetupRig()
         rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()
         let model = rig.model()
-        await model.enter(.permissions)
+        await model.refreshPermissions()
         XCTAssertNil(rig.rpc.params(of: "setup.permissions").first?["hearing"])   // no probe of a second app
         XCTAssertTrue(model.allRows.filter { $0.id == "hearing" }.isEmpty)
     }
@@ -395,18 +370,6 @@ final class SetupModelTests: XCTestCase {
         model.message = nil
         await model.refreshBrowsers()
         XCTAssertNil(model.message)
-    }
-
-    func testDoneRecordsSetupAndOpensTheNotch() async {
-        let rig = SetupRig()
-        let model = rig.model()
-        var opened = false
-        model.onFinish = { opened = true }
-        model.step = .done
-        XCTAssertEqual(model.primaryTitle, "Open FERB")
-        await model.primary()
-        XCTAssertTrue(rig.rpc.methods().contains("setup.finish"))
-        XCTAssertTrue(opened)
     }
 
     private func aiReply(claude signIn: [String: Any], signedIn: Bool) -> [String: Any] {

@@ -111,7 +111,7 @@ struct PlaygroundPanel: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Play selected study from the top") { actions.restartFresh() }
             }
-            Button("Review setup window") { actions.previewSetup() }
+            Button("Review the service step") { actions.previewSetup() }
             TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Beat: " + beatName(IntroProgress(defaults: .standard).resumeBeat)).font(.callout.monospaced())

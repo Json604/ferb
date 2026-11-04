@@ -1,8 +1,8 @@
 import AppKit
 import NotchCore
 
-/// The setup window's state and actions (L34 C). Every fact comes from the daemon's setup RPCs or FERB.app's own
-/// permission APIs; the window decides no grant and no choice itself.
+/// Setup's state and actions (L34 C), for the tour and Settings' pages (there is no setup window, APP-685). Every fact
+/// comes from the daemon's setup RPCs or FERB.app's own permission APIs; nothing here decides a grant or a choice.
 @MainActor
 final class SetupModel: ObservableObject {
     @Published var step: SetupStep = .welcome
@@ -55,7 +55,6 @@ final class SetupModel: ObservableObject {
     /// macOS's side of the background service (DMN-513): a 2026-11 build's SMAppService registration to retire and
     /// Login Items' switch; nil in a development build and tests that don't fake it.
     let background: BackgroundServiceManaging?
-    var onFinish: (() -> Void)?
     private var poll: Task<Void, Never>?
 
     static let notAnswering = "FERB isn't answering right now; this step updates when it's back."
@@ -192,76 +191,11 @@ final class SetupModel: ObservableObject {
             && allRows.contains { $0.id == "full_disk_access" && $0.status != .granted }
     }
 
-    var primaryTitle: String {
-        switch step {
-        case .welcome:
-            if serviceError != nil { return "Try Again" }
-            return AppSetupPlan.serviceArguments(for: serviceAction) == nil ? "Continue" : "Set Up FERB"
-        case .done: return "Open FERB"
-        default: return "Continue"
-        }
-    }
-
-    var primaryDisabled: Bool { serviceRunning }
-
-    // MARK: Steps
-
-    /// The step a Grant left when macOS may restart FERB (Screen Recording's "Quit & Reopen"): reopened at the next launch,
-    /// cleared on leaving that step (owner 2026-10-26: setup didn't come back after the restart).
-    static let resumeKey = "FERBSetupResumeStep"
-    /// Where the resume step is kept: FERB.app's defaults (AppSetupController passes its own).
-    var resumeDefaults: UserDefaults = .standard
-    static func pendingResume(_ defaults: UserDefaults) -> SetupStep? {
-        (defaults.object(forKey: resumeKey) as? Int).flatMap(SetupStep.init(rawValue:))
-    }
-
-    func go(_ next: SetupStep) {
-        if next != .permissions { resumeDefaults.removeObject(forKey: Self.resumeKey) }
-        step = next
-        message = nil
-        Task { await self.enter(next) }
-    }
-
-    /// What a step reads on entering it; polling keeps it fresh afterwards.
-    func enter(_ step: SetupStep) async {
-        switch step {
-        case .permissions: await refreshPermissions()
-        case .persona: await refreshPersona()
-        case .identity: await refreshIdentity()
-        default: await refreshCurrentStep()
-        }
-    }
-
-    func primary() async {
-        switch step {
-        case .welcome: continueFromWelcome()
-        case .done: await finish()
-        default: if let next = step.next { go(next) }
-        }
-    }
-
-    /// Set when a launch's quiet update failed and this window is repairing it: run once the service is up, it
-    /// continues that launch's decision (the tour, or nothing) instead of this window's next step.
-    var afterService: (() -> Void)?
-
-    func continueFromWelcome() {
-        guard AppSetupPlan.serviceArguments(for: serviceAction) != nil else { go(.ai); return }
-        runService { [weak self] ok in
-            guard let self, ok else { return }
-            if let next = self.afterService {
-                self.afterService = nil
-                next()
-                return
-            }
-            self.go(.ai)
-        }
-    }
-
     /// `ferb setup --service [--update]`: the background service's LaunchAgent from this app, loaded and answering, no
     /// questions (DMN-513). A registration a 2026-11 build left is unregistered first, once (it would keep starting
     /// that build's constrained job under the same label). Switched off in Login Items, the command says so and the
-    /// window guides that one visit (`serviceNeedsApproval`); any other failure leaves its last lines (the reason and
-    /// its fix) on Welcome.
+    /// tour guides that one visit (`serviceNeedsApproval`); any other failure leaves its last lines (the reason and
+    /// its fix) in `serviceError`, which the tour's service line shows with Try again (APP-685).
     func runService(completion: @escaping (Bool) -> Void) {
         guard let arguments = AppSetupPlan.serviceArguments(for: serviceAction) else { completion(true); return }
         serviceError = nil
@@ -313,7 +247,9 @@ final class SetupModel: ObservableObject {
 
     // MARK: Polling
 
-    func startPolling() {
+    /// Re-reads `step`'s facts every 2 s while a Settings page shows them (Settings → Permissions passes .permissions).
+    func startPolling(_ step: SetupStep) {
+        self.step = step
         poll?.cancel()
         poll = Task { [weak self] in
             while !Task.isCancelled {
@@ -462,11 +398,6 @@ final class SetupModel: ObservableObject {
                           pane: permissions?.appPanes["notifications"], requestable: notifications == .notDetermined),
             PermissionRow(id: "microphone", status: microphone, process: "app", required: true,
                           pane: permissions?.appPanes[app.microphoneDeniedPane], requestable: microphone == .notDetermined)]
-        // A finished setup with every grant on has nothing to reopen: a Grant from Settings → Permissions that
-        // succeeded doesn't bring the setup window back at later launches (APP-657).
-        if answered, permissions?.setupDone == true, Self.allowAllOrder(setupRows).isEmpty {
-            resumeDefaults.removeObject(forKey: Self.resumeKey)
-        }
         return answered
     }
 
@@ -475,7 +406,6 @@ final class SetupModel: ObservableObject {
     /// `step` hears each part as it starts (macOS's question, Settings opening) for a grant's live line (APP-679).
     func grant(_ row: PermissionRow, step: ((GrantWait.Step) -> Void)? = nil) async {
         guard row.blocked.isEmpty else { return }
-        resumeDefaults.set(SetupStep.permissions.rawValue, forKey: Self.resumeKey)
         switch row.id {
         case "notifications":
             if row.status == .notDetermined {
@@ -789,14 +719,6 @@ final class SetupModel: ObservableObject {
     }
 
     // MARK: Done
-
-    /// Done: the daemon records setup as done only when every permission is granted, FERB.app's own included (it
-    /// reads its own; FERB.app reports these); Done still opens the notch, and launch shows the window again otherwise.
-    func finish() async {
-        await recordFinished()
-        stopPolling()
-        onFinish?()
-    }
 
     /// `setup.finish` with FERB.app's own rows: the daemon records setup as done only when every permission is on.
     func recordFinished() async {

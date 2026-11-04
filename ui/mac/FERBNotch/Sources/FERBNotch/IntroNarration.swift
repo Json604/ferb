@@ -136,7 +136,7 @@ struct IntroNarrationView: View {
     var inset = Self.surfaceInset
     /// The field's text (NotchModel.introTyped): emptied when the line changes, when the field goes and on submit.
     var typed: Binding<String> = .constant("")
-    /// From the permissions beat to the end, the header offers Skip tour (APP-638).
+    /// From the permissions beat to the end, the header offers Skip tour (APP-685).
     var canSkip = false
     @State private var hoveredPermission: String?
 

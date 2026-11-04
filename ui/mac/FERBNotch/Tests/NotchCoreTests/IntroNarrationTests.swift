@@ -75,7 +75,7 @@ final class IntroNarrationTests: XCTestCase {
         XCTAssertNil(model.introDisplayLine)
     }
 
-    // decision: APP-638
+    // decision: APP-685
     func testTearDownDuringAFlightLeavesNoOrbAndSchedulesNoMoreSound() async {
         let surface = FakeOrbSurface()
         let sound = FakeSoundPlayer()

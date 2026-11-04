@@ -359,6 +359,8 @@ class FakeRunner:
         # (its unregister still pending): the label looks free, then the bootstrap finds it taken.
         self.resubmits = 0
         self._comes_back: str | None = None
+        # The next kickstart fails with this exit code and no output (launchd tearing the job down), then works again.
+        self.kickstart_refuses: int | None = None
 
     def __call__(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         self.cmds.append(cmd)
@@ -407,7 +409,13 @@ class FakeRunner:
         elif cmd[:3] == ["launchctl", "kill", "SIGTERM"]:
             self.stopped = True
         elif cmd[:2] == ["launchctl", "kickstart"]:
-            self.stopped = not self.loaded
+            if self.kickstart_refuses is not None:               # a job launchd is still tearing down
+                code, self.kickstart_refuses = self.kickstart_refuses, None
+                return subprocess.CompletedProcess(cmd, code, "", "")
+            if not self.loaded:                                   # nothing to start, as launchctl says
+                return subprocess.CompletedProcess(cmd, 113, "", f'Could not find service "{cmd[-1].rsplit("/", 1)[-1]}"'
+                                                   f' in domain for user gui: 501\n')
+            self.stopped = False
         elif cmd[:2] == ["launchctl", "bootout"]:
             if self.loaded and self.resubmits > 0:
                 self._comes_back, self.resubmits = self.loaded_from, self.resubmits - 1

@@ -64,15 +64,42 @@ protocol BackgroundServiceManaging: AnyObject {
 @MainActor
 final class LaunchAgentService: BackgroundServiceManaging {
     private let service = SMAppService.agent(plistName: ServicePlan.plistName)
+    private let launchAgent = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/LaunchAgents/\(ServicePlan.plistName)").path
 
+    /// A 2026-11 build's registration only (APP-683): SMAppService also reports FERB's own LaunchAgent job as
+    /// enabled, and unregistering that boots the running daemon out.
     var registration: ServiceStatus {
+        let reported: ServiceStatus
         switch service.status {
-        case .enabled: return .enabled
-        case .requiresApproval: return .requiresApproval
-        case .notFound: return .notFound
-        case .notRegistered: return .notRegistered
-        @unknown default: return .notRegistered
+        case .enabled: reported = .enabled
+        case .requiresApproval: reported = .requiresApproval
+        case .notFound: reported = .notFound
+        case .notRegistered: reported = .notRegistered
+        @unknown default: reported = .notRegistered
         }
+        guard reported.listed else { return reported }
+        let printed = Self.launchdJob()
+        let agentNamesLabel = (try? Data(contentsOf: URL(fileURLWithPath: launchAgent))).flatMap {
+            try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any]
+        }?["Label"] as? String == LaunchctlPlan.label
+        return ServiceStatus.retired(reported: reported, loaded: printed != nil,
+                                     loadedFrom: printed.flatMap(LaunchctlPlan.loadedPath), launchAgent: launchAgent,
+                                     launchAgentExists: agentNamesLabel)
+    }
+
+    /// `launchctl print gui/<uid>/com.ferb.daemon` (it only reads launchd's state); nil when launchd has no such job.
+    private static func launchdJob() -> String? {
+        let launchctl = Process()
+        launchctl.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        launchctl.arguments = ["print", "gui/\(getuid())/\(LaunchctlPlan.label)"]
+        let pipe = Pipe()
+        launchctl.standardOutput = pipe
+        launchctl.standardError = FileHandle.nullDevice
+        do { try launchctl.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        launchctl.waitUntilExit()
+        return launchctl.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
     }
 
     func unregister() async throws {
@@ -151,6 +178,9 @@ final class SetupCommand: SetupCommandRunning {
         child.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         environment["PYTHONUNBUFFERED"] = "1"
+        // `setup --service` and `--cleanup` move to a session of their own, so FERB quitting can't cut a bootout and
+        // bootstrap in half (ferb/cli own_session, DMN-537); a quit still reaches them as cancel's SIGTERM.
+        environment["FERB_OWN_SESSION"] = "1"
         child.environment = environment
         let pipe = Pipe()
         child.standardOutput = pipe

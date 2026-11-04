@@ -7,6 +7,7 @@ restore, ps, verdict, runtimes and browsers for debugging. Errors are one plain 
 traceback."""
 
 import argparse
+import os
 import sys
 
 from ferb.cli import admin, logs
@@ -29,6 +30,23 @@ def plain_error(e: BaseException) -> str:
         return f"ferb: that failed inside FERB ({e}); `ferb stats` lists it"
     text = str(e).strip() or type(e).__name__
     return f"ferb: {text}"
+
+
+OWN_SESSION_ENV = "FERB_OWN_SESSION"
+
+
+def own_session() -> None:
+    """FERB.app runs `setup --service` and `setup --cleanup` with FERB_OWN_SESSION=1 (SetupCommand): the command moves
+    to a session of its own, so FERB.app quitting while it boots the service out and loads it again can't take it down
+    with the app's process group halfway (DMN-537). A quit still reaches it as FERB.app's SIGTERM, which it holds until
+    the service is loaded again (`_finish_install`). Already a group leader (setsid refused), it is outside the app's
+    group anyway."""
+    if os.environ.get(OWN_SESSION_ENV) != "1":
+        return
+    try:
+        os.setsid()
+    except OSError:
+        pass
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -207,6 +225,8 @@ def main(argv: list[str] | None = None) -> int:
             except (FerbError, OSError) as e:
                 print(plain_error(e), file=sys.stderr)
                 return 1
+        if args.cmd == "setup" and (args.service or args.cleanup):
+            own_session()
         inst = setup_cmd.installer(ferb_home(), SUPPORT, every_browser=args.cmd == "uninstall",
                                    cli_dir=Path.home() / ".local" / "bin")       # where FERB.app links `ferb`
         env = setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout, browser_support=SUPPORT)
