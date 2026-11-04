@@ -159,9 +159,25 @@ public enum NotchOverlap {
     /// The process that owns the frontmost window at a point, skipping FERB's own windows. Any window that isn't
     /// fully transparent can receive the click, however faint.
     public static func owner(at point: CGPoint, in windows: [ScreenWindow], ownPIDs: Set<Int32>) -> Int32? {
+        window(at: point, in: windows, ownPIDs: ownPIDs)?.ownerPID
+    }
+
+    /// The frontmost window at a point, skipping FERB's own windows.
+    public static func window(at point: CGPoint, in windows: [ScreenWindow], ownPIDs: Set<Int32>) -> ScreenWindow? {
         windows.first { window in
             !ownPIDs.contains(window.ownerPID) && window.layer >= 0 && window.alpha > 0 && window.bounds.contains(point)
-        }?.ownerPID
+        }
+    }
+
+    /// The app a click at a point went into (APP-690). Usually the clicked window's owner. An ordinary window
+    /// (layer 0) owned by a process that can never be the active app (an app extension or view service: System
+    /// Settings' panes are drawn by its extensions, e.g. Privacy & Security's) is part of the frontmost app's window,
+    /// so the click counts for the frontmost app. Nil when no other process's window is there.
+    public static func clickedApp(at point: CGPoint, in windows: [ScreenWindow], ownPIDs: Set<Int32>,
+                                  canBeActive: (Int32) -> Bool, frontmost: () -> Int32?) -> Int32? {
+        guard let window = window(at: point, in: windows, ownPIDs: ownPIDs) else { return nil }
+        if window.layer == 0, !canBeActive(window.ownerPID) { return frontmost() ?? window.ownerPID }
+        return window.ownerPID
     }
 
     /// At least one point of shared area: windows that only touch along an edge don't overlap.

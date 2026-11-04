@@ -217,7 +217,7 @@ final class IntroController {
     /// would read as signed out or no grants (the resume then asked for sign-in again and moved its place back there).
     /// A service that stays silent is started (macOS's "Quit & Reopen" can end it with a clean exit, which launchd
     /// doesn't restart); a running one is left alone. The line says which, alive (APP-665, APP-679): back after a quit
-    /// (macOS's Quit & Reopen, APP-684) and waiting for the service, then starting it.
+    /// (macOS's Quit & Reopen, APP-689) and waiting for the service, then starting it.
     private func waitForService() async {
         var unanswered = 0
         let since = Date()
