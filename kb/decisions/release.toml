@@ -210,3 +210,14 @@ words_source = "The owner's go to publish, after their fresh-install test of bui
 rule = "The version is 0.27.0 (ferb/__init__.py, pyproject.toml, uv.lock), tagged v0.27.0 and published as a GitHub release carrying the Apple Silicon DMG and its Sparkle appcast. Replaces REL-2's \"The version stays 0.27.0.dev1 for now\"; the rest of REL-2 (no .dev release, newer than the last tag, the store serves the extension minimum) holds."
 paths = ["pyproject.toml", "ferb/__init__.py"]
 untestable = "The release itself; REL-2's tests keep the two version strings equal and refuse a .dev release."
+
+[REL-416]
+title = "FERB 0.27.1: the update after the first release"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "do all these, give me to test on local adn then ship the update"
+words_source = "The owner's go for the planner silence guard, the notch drag fix and removing the per-call sign-in check, tested locally before shipping."
+rule = "The version is 0.27.1 (ferb/__init__.py, pyproject.toml, uv.lock), tagged v0.27.1 and published as the GitHub release whose appcast offers the update to installed copies, after the owner's local test. REL-415's 0.27.0 stays the first release."
+paths = ["pyproject.toml", "ferb/__init__.py"]
+untestable = "The release itself; REL-2's tests keep the version strings equal and refuse a .dev release."
