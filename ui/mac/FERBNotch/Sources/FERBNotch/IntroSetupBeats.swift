@@ -123,12 +123,13 @@ extension IntroController {
                 await orb.flyHome()
             }
             guard live else { return }
+            let unsupported = setup.browsers?.unsupported ?? []      // HAND-415: said, never passed over
             if let why = setup.message, !why.isEmpty {     // HAND-411: "Paired." only when every profile is
-                line = why == SetupModel.noBrowserProfiles ? IntroCopy.noProfiles(why)
-                    : IntroCopy.notPaired(progress, message: why)
+                line = IntroCopy.noting(unsupported, on: why == SetupModel.noBrowserProfiles ? IntroCopy.noProfiles(why)
+                    : IntroCopy.notPaired(progress, message: why))
                 continue
             }
-            say(IntroCopy.paired)
+            say(IntroCopy.noting(unsupported, on: IntroCopy.paired))
             await dwell(Timing.line)
             return
         }

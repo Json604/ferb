@@ -208,6 +208,9 @@ struct BrowsersStepView: View {
                 if snapshot.browsers.isEmpty {
                     Text("No Chrome-family browser has been opened on this Mac yet.").foregroundStyle(.secondary)
                 }
+                ForEach(snapshot.unsupported) { other in       // HAND-415: named, never passed over
+                    Text(other.message + ".").font(.callout).foregroundStyle(.secondary)
+                }
                 if snapshot.browsers.contains(where: { $0.profiles.contains { $0.state == .on && !$0.ferbIdentity } }) {
                     HStack {
                         Button("Pair all") { Task { await model.pairAll() } }.disabled(model.pairing)

@@ -10,8 +10,9 @@ from typing import Any
 from ferb.act.browser.autoinstall import STORE_EXTENSION_ID
 from tests.conftest import RunningDaemon
 
-ON: dict[str, Any] = {"state": 1}
-OFF: dict[str, Any] = {"state": 1, "disable_reasons": [1]}
+# installed as Chromium records it: a location (1: from the store) and a path (HAND-416)
+ON: dict[str, Any] = {"location": 1, "path": f"{STORE_EXTENSION_ID}/0.19.0_0"}
+OFF: dict[str, Any] = {**ON, "disable_reasons": [1]}
 
 
 def _browser(support: Path, folder: str, profiles: dict[str, dict[str, Any] | None], *,
@@ -122,9 +123,9 @@ def test_pair_all_opens_no_page_in_a_profile_whose_installed_copy_is_too_old(
     timeout, then said only "didn't answer". The version their files name is read first: too old is skipped."""
     support = tmp_path / "Support"
     chrome = _browser(support, "Google/Chrome", {
-        "Default": {"state": 1, "path": f"{STORE_EXTENSION_ID}/0.15.13_0"},
-        "Profile 1": {"state": 1, "manifest": {"version": "0.19.0"}},
-        "Profile 2": {"state": 1, "disable_reasons": [4], "path": f"{STORE_EXTENSION_ID}/0.19.0_0"}})
+        "Default": {"location": 1, "path": f"{STORE_EXTENSION_ID}/0.15.13_0"},
+        "Profile 1": {"location": 1, "path": f"{STORE_EXTENSION_ID}/1_0", "manifest": {"version": "0.19.0"}},
+        "Profile 2": {"location": 1, "disable_reasons": [4], "path": f"{STORE_EXTENSION_ID}/0.19.0_0"}})
     reply, tried = _pair_all(daemon, {"chrome": chrome}, support)
     assert tried == ["chrome/Profile 1"]
     assert _reasons(reply) == {"chrome/Default": "too_old", "chrome/Profile 2": "off"}

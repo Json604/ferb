@@ -215,11 +215,14 @@ def offline_trash(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
 @pytest.fixture(autouse=True)
 def no_launch_services(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Offline, a browser's executable never depends on which browsers this Mac has (HAND-247): Launch Services knows
-    none, so it is /Applications/<app>.app. Tests about the lookup set `profiles.locate` themselves."""
+    none, so it is /Applications/<app>.app. Every browser FERB knows counts as installed and no other app opens web
+    links (HAND-414/415). Tests about the lookup set `profiles.locate`, `has_app` or `handlers` themselves."""
     if not request.node.get_closest_marker("real"):
         import ferb.act.browser.profiles as profiles
         monkeypatch.setattr(profiles, "locate", lambda bundle_id: None)
         monkeypatch.setattr(profiles, "_located", {})
+        monkeypatch.setattr(profiles, "has_app", lambda bundle_id: True)
+        monkeypatch.setattr(profiles, "handlers", lambda: [])
 
 
 @pytest.fixture(autouse=True)

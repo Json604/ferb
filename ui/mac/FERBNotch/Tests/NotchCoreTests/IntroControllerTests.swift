@@ -84,17 +84,11 @@ final class IntroControllerTests: XCTestCase {
              RawWindow(pid: 10, bounds: CGRect(x: 420, y: 120, width: 100, height: 50), layer: 0)]
                 + (browser ? [RawWindow(pid: 20, bounds: CGRect(x: 0, y: 25, width: 1440, height: 875), layer: 0)] : [])
         }
-        resolver.defaultBrowser = { URL(fileURLWithPath: "/Applications/Example Browser.app") }
-        resolver.bundleID = { $0.lastPathComponent == "Example Browser.app" ? "com.example.browser" : nil }
-        resolver.installed = { ["Notes": "/System/Applications/Notes.app"][$0] }
         resolver.screens = { [(frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
                                visible: CGRect(x: 0, y: 0, width: 1440, height: 875))] }
         resolver.primaryHeight = { 900 }
-        resolver.notch = { CGPoint(x: 720, y: 888) }
         return resolver
     }
-    static let besideFinder = CGPoint(x: 384, y: 600)      // left of Finder's window (AppKit 400…1000, 400…800)
-    static let resting = CGPoint(x: 720, y: 600)           // below the notch, a third of the way down
 
     /// `realOrb`: the tour flies a real OrbController (on a fake surface and clock) sharing the tour's sound player,
     /// instead of the fake orb.
@@ -569,7 +563,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Try
 
-    // decision: APP-666
+    // decision: APP-693
     func testTheScanLineIsShownBeforeTheSuggestion() async {
         let t = tour()
         let summary = "You spend most days in a code editor and a design app."
@@ -586,7 +580,7 @@ final class IntroControllerTests: XCTestCase {
 
     /// Owner decision 2026-11-04 (APP-666): the picked suggestion runs for real, through the same `chat.send` as a typed
     /// message, in the open chat while the notch follows it; then the other one, or on. No plan-only preview.
-    // decision: APP-666
+    // decision: APP-693
     func testTryRunsThePickedTaskForRealThroughTheChat() async {
         let t = tour()
         t.controller.start(beats: [.tryIt, .home])
@@ -608,7 +602,7 @@ final class IntroControllerTests: XCTestCase {
     }
 
     /// A task that runs long never holds the tour: Continue the tour leaves it running, as any task.
-    // decision: APP-666
+    // decision: APP-693
     func testATryTaskThatRunsOnNeverHoldsTheTour() async {
         let t = tour()
         t.rig.rpc.events["chat.send"] = Self.taskEvents("r1", status: "")
@@ -860,23 +854,24 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.rig.rpc.params(of: "setup.finish").count, 1)
     }
 
-    // decision: APP-666
-    func testTryPointsTheOrbAtTheAppTheTaskWorksIn() async {
+    // decision: APP-693
+    func testTryRunsItsTaskWithNoOrb() async {
+        // Past complaint (owner, build 202611040536): the orb flew to the task's app with "I'm working in Visual
+        // Studio Code"; the owner asked for it gone from this step. The chat's turn card and the notch line remain.
         let t = tour()
         t.rig.rpc.replies["intro.suggest"] = ["suggestions": [["request": Self.suggestions[0], "app": "Finder"],
                                                               ["request": Self.suggestions[1], "app": "Notes"]],
                                               "fits": true]
         t.controller.start(beats: [.tryIt, .home])
         await t.pick("suggestion.0")
-        await eventually { t.orb.launches.count == 1 }
-        XCTAssertEqual(t.orb.launches.map(\.point), [Self.besideFinder])          // beside Finder's window
+        await eventually { t.notch.conversation.turns.contains { $0.request == Self.suggestions[0] && $0.status == "done" } }
         await t.pick("otherSuggestion")
-        await eventually { t.orb.launches.count == 2 }
-        XCTAssertEqual(t.orb.launches.last?.point, Self.resting)                // Notes isn't running
-        XCTAssertEqual(t.orb.launches.last?.instruction?.iconPath, "/System/Applications/Notes.app")
+        await eventually { t.rig.rpc.params(of: "chat.send").count == 2 }
         await t.pick("next")
         await eventually { t.progress.done }
-        XCTAssertEqual(t.orb.launches.count, 2)
+        XCTAssertEqual(t.orb.launches.count, 0)
+        XCTAssertLessThanOrEqual(t.orb.flyHomes, 1)                             // only Home's own call
+        XCTAssertFalse(t.lines.all.contains { $0.text.hasPrefix("I'm working in") })
     }
 
     // decision: APP-511
@@ -893,6 +888,23 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.orb.launches.first?.instruction, IntroCopy.pairingOrb)
         XCTAssertEqual(t.orb.launches.first?.point, CGPoint(x: 720, y: 791))    // inside a window too wide to stand beside
         XCTAssertEqual(pairedWhenHome, [true])                                  // home after the pair-all reply
+    }
+
+    /// An installed Chrome-family browser FERB doesn't know is named after Pair all, never passed over (HAND-415).
+    // decision: HAND-415
+    func testPairAllNamesABrowserFERBDoesntSupportYet() async {
+        let t = tour()
+        t.rig.rpc.replies["setup.browsers"] = [
+            "browsers": [["browser": "chrome", "label": "Google Chrome", "profiles": [[String: Any]]()]],
+            "unsupported": [["app": "Example Browser", "bundle_id": "com.example.browser",
+                             "message": "Example Browser isn't supported by FERB yet"]]]
+        t.controller.start(beats: [.browsers, .home])
+        await t.pick("pairAll")
+        await eventually { t.progress.done }
+        XCTAssertEqual(t.setup.browsers?.unsupported.map(\.app), ["Example Browser"])
+        XCTAssertTrue(t.lines.all.contains {
+            $0.text == IntroCopy.paired.text && $0.detail == "Example Browser isn't supported by FERB yet."
+        })
     }
 
     // MARK: Final review
@@ -1042,23 +1054,6 @@ final class IntroControllerTests: XCTestCase {
         })
         XCTAssertEqual(t.rig.service.restarts, 2)
         XCTAssertEqual(t.rig.service.starts, 1)
-    }
-}
-
-/// Where the intro's orb points for an app, from injected sources (no real app is looked up, opened or brought forward).
-@MainActor
-final class IntroAppTargetsTests: XCTestCase {
-    // decision: APP-594
-    func testAModelNamedAppIsNeverAPath() {
-        var probed: [String] = []
-        let exists: (String) -> Bool = { probed.append($0); return true }
-        for name in ["../x", "a/b", ".hidden", "Notes:x", "No\0tes", ""] {
-            XCTAssertNil(IntroAppResolver.installedApp(named: name, folders: ["/Applications"], exists: exists), name)
-        }
-        XCTAssertEqual(probed, [])                                              // refused before anything is looked at
-        XCTAssertEqual(IntroAppResolver.installedApp(named: "Notes", folders: ["/Applications", "/System/Applications"],
-                                                     exists: { $0 == "/System/Applications/Notes.app" }),
-                       "/System/Applications/Notes.app")
     }
 }
 

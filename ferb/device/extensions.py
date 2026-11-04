@@ -106,12 +106,15 @@ def not_paired_step(p: Any, label: str, requested: bool, store_url: str, extensi
 
 
 def browser_rows(states: list[Any], store_id: str, extension_dir: Path, ferb_identity: tuple[str, str] | None,
-                 connected: set[tuple[str, str]]) -> dict[str, Any]:
+                 connected: set[tuple[str, str]], unsupported: list[dict[str, str]] | None = None) -> dict[str, Any]:
     """`setup.browsers`'s reply: per browser whether FERB asked it to install the extension and whether Load unpacked is
-    the way there (as `autoinstall.describe` says it), and per profile its state."""
+    the way there (as `autoinstall.describe` says it), and per profile its state; `unsupported`: each installed
+    Chromium-family browser FERB doesn't know, with its plain line (HAND-415)."""
     from ferb.act.browser import autoinstall, profiles
     valid = autoinstall.valid_id(store_id)
     return {"store_url": store_page(store_id) or None, "extension_dir": str(extension_dir),
+            "unsupported": [{"app": u["app"], "bundle_id": u["bundle_id"],
+                             "message": autoinstall.unsupported_line(u["app"])} for u in unsupported or []],
             "browsers": [{"browser": s.browser, "label": profiles.BROWSERS[s.browser].label,
                           "requested": s.request is not None,
                           "manual": not valid,          # HAND-247: every browser adds FERB from its store page

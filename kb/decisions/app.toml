@@ -1055,7 +1055,8 @@ legacy = "test deletion review 2026-11-02 (kept guard)"
 title = "A model-named app is never a path"
 by = "agent"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "APP-694"
 rule = "An app name the model gives is refused before anything is looked up when it holds a path separator, a leading dot, a colon, a NUL or nothing; only a plain name is looked up in the app folders."
 why = "Argument boundary on model input (AGENTS.md rule 3)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroAppTargets.swift"]
@@ -1801,7 +1802,8 @@ live = ["LIVE-730"]
 title = "Try runs the picked task for real and shows it working"
 by = "owner"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "APP-693"
 supersedes = ["APP-513", "APP-514"]
 words = "it didnt do anything here, the orb came to say i'd use finder but nothing opened or whatsoever. lets make it work and show too, lets drop the do it for real or stuff."
 rule = "As in APP-513: one or two lines on what the scan saw, then two first tasks that fit this user, of different kinds where possible; with no clear scan, two general ones. The picked task now runs for real at once, as the owner's message through chat.send (the real daemon and gateway, their usual questions; nothing bypassed), shown live: the chat's turn card and preview, the orb at its app, a notch line with its step, the result. Then Try the other one, or Continue; Not now skips. No plan-only preview, no Do it for real."
@@ -1909,3 +1911,27 @@ why = "APP-650 named the setup window, which APP-685 removed; the rest holds. Ow
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
 live = ["LIVE-710"]
+
+[APP-693]
+title = "No orb in Try's working step"
+by = "owner"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-666", "PRM-317"]
+words = "remove this orb in this working step completely"
+rule = "While Try's picked task runs no orb leaves the notch: no flight to its app, no \"I'm working in …\" bubble, none of the orb's sounds. The rest of APP-666 holds: what the scan saw, two first tasks that fit this user (two general ones with no clear scan); the picked one runs for real as the owner's message through chat.send (usual questions, nothing bypassed), shown live in the chat's turn card and preview and in a notch line with its step and time, then the result; then Try the other one or Continue; Not now skips. Of PRM-317, each suggestion still names its main app (intro.suggest's `app`)."
+why = "Owner's run of build 202611040536: in the Try beat the orb flew to the task's app with a bubble \"I'm working in Visual Studio Code\"."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift", "ferb/daemon/areas/intro.py"]
+live = ["LIVE-753", "LIVE-728"]
+
+[APP-694]
+title = "FERB.app looks up no app a model named"
+by = "agent"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-594"]
+rule = "With the Try beat's orb gone (APP-693), FERB.app looks up no app by a name a model gave: the app lookup by name and its folder probe are removed. The intro's orb still points at a browser's front window while Pair all runs, matching names setup.browsers gave to running apps (IntroAppResolver.frontWindow)."
+why = "APP-594 guarded the only lookup of a model-named app, which APP-693 removed with the orb's flight; dead code is not kept."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+untestable = "The lookup is removed; nothing is left to exercise."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroAppTargets.swift"]

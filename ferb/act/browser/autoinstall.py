@@ -17,7 +17,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from ferb.act.browser import profiles
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
@@ -188,11 +188,24 @@ class BrowserState:
     error: str = ""          # why the request couldn't be written
 
 
+def _removed(sections: list[dict[str, Any]], store_id: str) -> bool:
+    """The owner removed the store copy (HAND-416): Chromium lists an external extension the owner uninstalled in
+    `extensions.external_uninstalls` and deletes its settings (ExtensionPrefs::OnExtensionUninstalled); older builds
+    left its settings with `state` 2 instead. Installing it again clears the record."""
+    for section in sections:
+        listed = section.get("external_uninstalls")
+        if isinstance(listed, list) and store_id in listed:
+            return True
+        entry = (section.get("settings") or {}).get(store_id) if isinstance(section.get("settings"), dict) else None
+        if isinstance(entry, dict) and entry.get("state") == profiles.EXTERNAL_EXTENSION_UNINSTALLED:
+            return True
+    return False
+
+
 def profile_status(p: profiles.BrowserProfile, ids: tuple[str, ...], data_dir: Path,
                    paired: set[tuple[str, str]] | None, store_id: str) -> ProfileStatus:
     found = profiles.extension_entry(p, ids, data_dir)
-    removed = any(store_id in (s.get("external_uninstalls") or []) for s in profiles.extension_prefs(data_dir / p.folder)) \
-        if valid_id(store_id) else False
+    removed = valid_id(store_id) and _removed(profiles.extension_prefs(data_dir / p.folder), store_id)
     return ProfileStatus(p.browser, p.folder, p.display_name, found[0] if found else "",
                          bool(found and profiles.extension_enabled(found[1])), removed,
                          None if paired is None else (p.browser, p.folder) in paired,
@@ -239,8 +252,10 @@ def read_states(support: Path, store_id: str, ids: tuple[str, ...], paired: set[
                 data_dirs: dict[str, Path] | None = None) -> list[BrowserState]:
     """Each installed browser's state as `prepare` reports it, read only: nothing is written (L34 C: the setup window
     polls it). `request` is the install request file when one is already there. `data_dirs` (browser -> user-data
-    folder) replaces discovery under `support` (the daemon's own mapping; tests)."""
-    dirs = data_dirs if data_dirs is not None else {b: profiles.data_dir(b, support) for b in profiles.installed(support)}
+    folder) replaces discovery under `support` (the daemon's own mapping; tests); either way only browsers whose app
+    is installed are read (HAND-414)."""
+    dirs = profiles.only_installed(data_dirs) if data_dirs is not None \
+        else {b: profiles.data_dir(b, support) for b in profiles.installed(support)}
     out = []
     for browser, data in dirs.items():
         request = data / "External Extensions" / f"{store_id}.json" if valid_id(store_id) else None
@@ -250,16 +265,22 @@ def read_states(support: Path, store_id: str, ids: tuple[str, ...], paired: set[
     return out
 
 
+def unsupported_line(app: str) -> str:
+    """What setup says about an installed Chromium-family browser FERB doesn't know (HAND-415)."""
+    return f"{app} isn't supported by FERB yet"
+
+
 def describe(states: list[BrowserState], store_id: str, extension_dir: Path,
-             withdrawn: Iterable[Path] = ()) -> list[str]:
+             withdrawn: Iterable[Path] = (), unsupported: Iterable[dict[str, str]] = ()) -> list[str]:
     """What setup tells the owner: per browser what was requested (or that FERB is added from its Web Store page there,
     INSTALL), per profile its state, which browsers to reopen, the Load-unpacked steps only when no store id is set,
-    and earlier requests removed."""
+    each installed Chromium-family browser FERB doesn't support yet (HAND-415), and earlier requests removed."""
     valid = valid_id(store_id)
     removed = [f"  Removed FERB's earlier install request {p}" for p in withdrawn]
+    others = [f"  {unsupported_line(u['app'])}." for u in unsupported]
     if not states:
         return ["Browser extension: no Chromium-family browser has been started on this Mac yet; FERB sets it up "
-                "the next time it updates after you start one.", *removed]
+                "the next time it updates after you start one.", *others, *removed]
     asked = [profiles.BROWSERS[s.browser].label for s in states if s.request is not None]
     if valid and asked:
         lines = [f"Browser extension: FERB asked {', '.join(asked)} to install it from the Chrome Web Store. Each "
@@ -302,7 +323,7 @@ def describe(states: list[BrowserState], store_id: str, extension_dir: Path,
     if any(p.paired is not True for s in states for p in s.profiles):
         lines.append("  To pair a profile with FERB turned on: Pair all or Pair in FERB's Settings → Browsers, or "
                      '`ferb browsers pair --browser <browser> "<profile>"`.')
-    return lines + removed
+    return lines + others + removed
 
 
 def package(source: Path, out_dir: Path) -> tuple[Path, list[str]]:
