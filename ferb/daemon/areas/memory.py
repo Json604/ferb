@@ -793,9 +793,9 @@ class MemoryGlue:
         return out
 
     def _now_always_on(self, items: list[Any]) -> None:
-        """MEM-15: facts of FERB's understanding or observation that just joined the core profile, each told once
-        by a quiet notice with its note card (the 8e note card, `always_on`), Correct / Forget on it; never a
-        question."""
+        """MEM-15, MEM-423: facts of FERB's understanding or observation (the Mac scan's too) that just joined the core
+        profile, each told once by a quiet notice with its note card (the 8e note card, `always_on`), Correct / Forget
+        on it; never a question."""
         from ferb.memory.items import label
         from ferb.orchestrator import cards
         for it in items:

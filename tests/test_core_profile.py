@@ -87,7 +87,7 @@ def test_the_profile_keeps_its_hard_budget(daemon: Any) -> None:
     assert PROFILE_TOKENS == 2500
 
 
-# decision: MEM-15, MEM-18
+# decision: MEM-423, MEM-424
 def test_a_preference_the_owner_states_joins_at_once_and_understanding_waits_to_hold_up(daemon: Any) -> None:
     d = daemon.daemon
     mine = owner_fact(daemon, "summaries", "short summary lists, no jargon", kind="preference")
@@ -100,13 +100,15 @@ def test_a_preference_the_owner_states_joins_at_once_and_understanding_waits_to_
     assert run(daemon, lambda: d.profile.holds_up(d.memory.get(guess.id)))     # stood a weekly pass uncorrected
 
 
-# decision: PRM-319
-def test_the_owners_words_about_anything_join_at_once_unless_placed_by_search(daemon: Any) -> None:
-    """MEM-15: the owner's own words join at once, whatever they are about (a project, a person); a fact the owner
-    placed by search (PRM-319's M7/M8, journaled by the seed) never does; FERB's understanding about someone
-    else doesn't join at once."""
+# decision: PRM-319, MEM-35, MEM-425
+def test_only_the_owners_words_about_themselves_join_at_once_the_pass_places_the_rest(daemon: Any) -> None:
+    """MEM-35 (T-5; live 2026-11-03: an owner fact about something else went always-on at once): the owner's words
+    about the owner join at once; what they say about a project or a person waits for the weekly pass, which may place
+    it; a fact the owner placed by search (PRM-319's M7/M8, journaled by the seed) never joins; FERB's understanding
+    about someone else doesn't join at once."""
     from ferb.memory.profile import SEARCH_ONLY_KIND
     d = daemon.daemon
+    mine = owner_fact(daemon, "city", "I live in Pune")
     project = owner_fact(daemon, "thesis_deadline", "my thesis is due on Dec 12", subject="project:thesis")
     person = owner_fact(daemon, "sam_role", "Sam is my landlord", kind="person", subject="person:sam")
     run(daemon, lambda: d._journal().append(SEARCH_ONLY_KIND, {"keys": [["project:acme", "acme_groups"]]}))
@@ -115,8 +117,15 @@ def test_the_owners_words_about_anything_join_at_once_unless_placed_by_search(da
     guess = run(daemon, lambda: d.memory.propose("person", "person:sam", "sam_handy", "Sam is handy", "inferred",
                                                  [("journal", src)]))
     ids = run(daemon, d.profile.ids)
-    assert project.id in ids and person.id in ids
-    assert placed.id not in ids and guess.id not in ids
+    assert mine.id in ids
+    assert project.id not in ids and person.id not in ids and placed.id not in ids and guess.id not in ids
+    assert run(daemon, lambda: d.profile.holds_up(project))           # eligible: the pass may place it
+    d._make_runtime = lambda *a, **k: FakeDistillRuntime({"sections": [
+        {"title": "Projects", "items": [project.id, placed.id]}, {"title": "About you", "items": [mine.id]}],
+        "ended": []})
+    result = daemon.run(d._profile_pass(force=True))
+    ids = run(daemon, d.profile.ids)
+    assert project.id in ids and mine.id in ids and placed.id not in ids and result["refused"] == [placed.id]
 
 
 # decision: MEM-7

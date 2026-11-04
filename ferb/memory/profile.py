@@ -6,14 +6,15 @@ into sections (`memory_profile`, migration 0053); the text is always rendered by
 (`items.LABELS`), what it is about and its id, so every entry points at its fact and the owner's words appear word for
 word. It is maintained by code and a model together (MEM-7):
 - code, at once: a new version of a fact in the profile takes its place (`follow`), an ended, retracted or forgotten one
-  leaves it, and a fact in the owner's own words, about anything, joins it under "Recently said" while it fits
-  (MEM-15), unless the owner placed that fact by search (`SEARCH_ONLY_KIND`);
+  leaves it, and a fact in the owner's own words about the owner (MEM-35: subject "owner"; what they say about other
+  things the pass places) joins it under "Recently said" while it fits, unless the owner placed that fact by search
+  (`SEARCH_ONLY_KIND`); so does each fact the Mac profile scan writes (MEM-423), labelled observed;
 - a weekly model pass (`run_pass`), or sooner when the profile is over its budget: it chooses and groups entries from the
   facts that hold up and names facts whose time has clearly passed; code checks every id, renders and retires.
-Facts that hold up (MEM-12): the owner's own words at once; FERB's understanding and what FERB observed once seen
-again (sources on two separate days) or after standing a full weekly pass uncorrected; an item the owner kept under an
-older build's Keep question. The app's own setup summary
-(`setup_persona`) never does.
+Facts that hold up (MEM-12, MEM-424): the owner's own words at once; the Mac profile scan's facts at once
+(`Memory.from_mac_scan`, MEM-423); FERB's understanding and what FERB observed otherwise once seen again (sources on two
+separate days) or after standing a full weekly pass uncorrected; an item the owner kept under an older build's Keep
+question. The app's old setup summary (`setup_persona`) never does.
 The hard budget (`PROFILE_TOKENS`) is enforced on every render: entries past it are left out, said in one line, and the
 profile is due for a pass."""
 
@@ -198,9 +199,10 @@ class CoreProfile:
 
     def holds_up(self, item: MemoryItem, now: datetime | None = None,
                  search_only: set[tuple[str, str]] | None = None) -> bool:
-        """MEM-12: may this fact enter the profile? The owner's words at once; FERB's understanding and what it
-        observed once seen again (sources on two separate days) or after standing a full weekly pass uncorrected.
-        Never outside content, an observed pattern still gathering days, or the old setup summary."""
+        """MEM-12, MEM-424: may this fact enter the profile? The owner's words at once; the Mac profile scan's facts
+        at once (MEM-423); FERB's understanding and what it observed otherwise once seen again (sources on two separate
+        days) or after standing a full weekly pass uncorrected. Never outside content, an observed pattern still
+        gathering days, or the old setup summary."""
         now = now or self.clock.now()
         if item.status != "active" or not current(item, now) or item.key in PERSONA_KEYS or item.set_aside:
             return False
@@ -212,6 +214,8 @@ class CoreProfile:
             return False
         if item.id in self._owner_kept():                # the owner's Keep under an older build (upgrade.py)
             return True
+        if item.origin == "observed" and self.memory.from_mac_scan(item.id):
+            return True                                  # MEM-423: the Mac profile scan's facts, at once
         days = int(self.db.conn.execute("SELECT COUNT(DISTINCT day) FROM memory_sources WHERE item_id = ?",
                                         (item.id,)).fetchone()[0])
         return days >= 2 or now - item.valid_from >= timedelta(days=PASS_DAYS)
@@ -265,15 +269,17 @@ class CoreProfile:
             self.on_change()
 
     def saved(self, item: MemoryItem) -> None:
-        """A fact became current or was seen again (`Memory.on_saved`), MEM-15: the owner's own words join the
-        profile at once, whatever they are about, under "Recently said", while they fit (not a fact the owner placed by
-        search, `holds_up`); FERB's understanding and what it observed about the owner join the same way once they hold
-        up (seen on two separate days; standing a week is the weekly pass's to see), and each such join is told once
-        (`on_joined`: the "Now always on" note card). An owner fact that doesn't fit makes the pass due early (`due`);
+        """A fact became current or was seen again (`Memory.on_saved`), MEM-35/MEM-425: the owner's own words about
+        the owner (subject "owner") join the profile at once under "Recently said", while they fit (not a fact the
+        owner placed by search, `holds_up`); what the owner says about anything else waits for the weekly pass, which
+        places it like any other fact. The Mac profile scan's facts join the same way at once (MEM-423), and FERB's
+        other understanding and observations about the owner once they hold up (seen on two separate days; standing a
+        week is the weekly pass's to see); each join that isn't the owner's words is told once (`on_joined`: the "Now
+        always on" note card, with its label). An owner fact that doesn't fit makes the pass due early (`due`);
         retrieval finds it meanwhile."""
-        if item.key in PERSONA_KEYS or item.id in self.ids() or not self.holds_up(item):
+        if item.key in PERSONA_KEYS or item.id in self.ids() or item.subject != "owner" or not self.holds_up(item):
             return
-        if item.origin != "owner_stated" and (item.origin not in ("inferred", "observed") or item.subject != "owner"):
+        if item.origin not in ("owner_stated", "inferred", "observed"):
             return
         room = self.budget_tokens * CHARS_PER_TOKEN - len(HEADER) - len(f"## {RECENT}") - 1
         if self.used_tokens() * CHARS_PER_TOKEN + len(entry_line(item)) + 1 > room:

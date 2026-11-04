@@ -1,11 +1,13 @@
 """Owns what FERB works out about the owner from their Mac (MEM-13). Must not ask the owner to
-approve it, store it as the owner's words, or let it into the core profile before it holds up.
+approve it or store it as the owner's words.
 
 Code gathers the facts (ferb/device/persona.py: installed apps from Info.plist, their use, browsers and profiles); one
 model call interprets them (what the owner mostly does, most-used apps, main browser and the main profile or account in
 it); code stores each conclusion as an observed memory item resting on a `MAC_PROFILE_KIND` journal row that holds the
 gathered facts (redacted), and the summary is shown once as "Here's what I saw: …" (no yes/no, MEM-12). A refresh
-whose facts changed replaces these items: same key, a new version; a key no longer given ends."""
+whose facts changed replaces these items: same key, a new version; a key no longer given ends. These are the scan's
+facts (`Memory.from_mac_scan`: they rest on that journal row): they join the core profile at once, labelled observed,
+within its budget (MEM-423); a refresh's new version of an entry takes its place there (`CoreProfile.follow`)."""
 
 import hashlib
 import json
