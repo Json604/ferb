@@ -444,3 +444,86 @@ kind = "build"
 status = "open"
 why = "APP-666 dropped Try's preview; FERB.app no longer calls intro.preview. Still in place: the intro.preview RPC, Supervisor.preview (_Turn.preview, PREVIEW_SESSION), its auth entry, Conversation's preview helpers, the transcript's preview label, the playground's preview picker, and their tests."
 decisions = ["APP-666"]
+
+[T-1041]
+title = "Upload extension 0.19.1 to the Chrome Web Store"
+area = "hands"
+kind = "chore"
+status = "open"
+why = "Owner's step: build/store/ferb-extension-0.19.1.zip (same permissions as 0.19.0, no re-approval). Until it's live, a borrowed tab whose page hangs still times out at task end (HAND-418)."
+decisions = ["HAND-418"]
+
+[T-1042]
+title = "The planner's cached prefix stays at 10,752 tokens while its prompt grows"
+area = "runtimes"
+kind = "bug"
+status = "open"
+why = "Live 2026-11-04 (Codex, v0.27.0 run): five planner turns in a row read exactly 10,752 cached of 14.8k-16.2k input, so the appended conversation wasn't reused turn to turn. Find what changes before it, with the new timing trace."
+decisions = ["RUN-416", "ORCH-325"]
+
+[T-1043]
+title = "The URL question treats www.reddit.com and old.reddit.com as different sites"
+area = "gateway"
+kind = "bug"
+status = "open"
+why = "Live 2026-11-04 12:26: a public post id read on www.reddit.com, sent to old.reddit.com, asked the owner (GATE-506 compares exact hosts). Compare registrable domains, and say plainly which value goes where."
+decisions = ["GATE-506"]
+
+[T-1044]
+title = "Should failed learning days and episode cards stop retrying after some tries?"
+area = "memory"
+kind = "question"
+status = "open"
+why = "MEM-421 retries a failed day every hourly pass with no limit (one model call an hour while it keeps failing); MEM-422 parks a card after two failures. A cap is the owner's (rule 18)."
+decisions = ["MEM-421", "MEM-422"]
+ask = "When a day's learning pass keeps failing, FERB now retries it every hour forever (one AI call an hour). Episode cards stop after 2 failures. Do you want a limit, e.g. stop after N tries or retry daily instead of hourly, and the same for cards?"
+
+[T-1045]
+title = "Offer another service with one tap when the plan doesn't include the model"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "RUN-417 now says plainly when the ChatGPT plan lacks the model; ORCH-315 offers a one-tap switch only for usage limits and sign-in failures."
+decisions = ["RUN-417", "ORCH-315"]
+ask = "When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?"
+
+[T-1046]
+title = "Should the sites list behind +N open each site when clicked?"
+area = "app"
+kind = "question"
+status = "open"
+why = "APP-700's popover lists every site as selectable text; the old chips weren't clickable either."
+decisions = ["APP-700"]
+ask = "In a reply's sites row (one site + \"+N\"), should clicking a site in the list open it in your browser, or stay as plain text?"
+
+[T-1047]
+title = "A permission switched on while a task runs waits silently for its restart"
+area = "app"
+kind = "bug"
+status = "open"
+why = "APP-598/662 never restart the service while a task runs, and nothing tells the owner; it restarts only when they leave System Settings again. Say so in the notch and restart once the task ends."
+decisions = ["APP-598", "APP-662", "APP-679"]
+
+[T-1048]
+title = "The paused scheduled-run test fails under load"
+area = "tests"
+kind = "bug"
+status = "open"
+why = "test_pausing_a_scheduled_run_pauses_its_schedule_and_resuming_it_resumes_the_schedule failed in three full runs on 2026-11-04 while agents built Swift, and passed alone 5/5. A timing dependence (TEST-508) or a product race left after T-1005."
+decisions = ["ORCH-308", "ORCH-312"]
+
+[T-1049]
+title = "Bring main up to v0.27.0"
+area = "project"
+kind = "question"
+status = "open"
+why = "v0.27.0 was released from ui/ux (tag on bc070ac9); main is still the old history. Moving main is a push to the default branch, the owner's go."
+ask = "v0.27.0 shipped from the ui/ux branch. Should I fast-forward main to it (and keep working on ui/ux), or leave main as it is?"
+
+[T-1050]
+title = "Setup changes ship only after a fresh-install run on a second macOS user"
+area = "project"
+kind = "question"
+status = "open"
+why = "2026-11-04: setup fixes kept breaking earlier ones because no one ran the whole flow on a real Mac between changes; offline tests use stand-ins for TCC, launchd and Quit & Reopen."
+ask = "Should every build that changes setup go through one fresh-install run (on a second macOS user account you create once) before it ships, with setup changes made one at a time?"

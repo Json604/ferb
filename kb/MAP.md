@@ -6,19 +6,19 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 152 | 8 | 8 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 152 | 10 | 8 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 59 | 5 | 5 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 35 | 5 | 45 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 69 | 2 | 10 |
-| memory | Memory and memory import | `ferb/memory` | 58 | 2 | 0 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 59 | 6 | 6 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 35 | 6 | 45 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 69 | 3 | 10 |
+| memory | Memory and memory import | `ferb/memory` | 58 | 3 | 0 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 59 | 7 | 6 |
 | perception | Perception | `ferb/sense` | 15 | 2 | 0 |
-| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 7 | 1 | 0 |
+| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 7 | 3 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 17 | 1 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 17 | 2 | 2 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 23 | 1 | 0 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 23 | 2 | 0 |
 | storage | Storage | `ferb/store` | 25 | 6 | 3 |
-| tests | Tests | `tests` | 10 | 14 | 0 |
+| tests | Tests | `tests` | 10 | 15 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
 
 ## Waiting on the owner
@@ -26,6 +26,11 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-408 (app): With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?
 - T-1020 (gateway): To show the Keychain's exact reason when a saved secret can't be read (for example "user interaction is not allowed"), the small secrets helper has to be rebuilt. After that update, macOS asks once more for your login password for each saved secret on each Mac. Rebuild it now, or keep today's shorter reasons?
 - T-1025 (gateway): When FERB opens a page whose address holds a year (like /2026/10/) or a short number that also appears in something private FERB read, it asks first. Should a bare year (four digits, 1900-2099) stop counting as your data? And numbers shorter than how many digits? A one-time code is often 4-6 digits, so a lower limit lets those through unasked.
+- T-1044 (memory): When a day's learning pass keeps failing, FERB now retries it every hour forever (one AI call an hour). Episode cards stop after 2 failures. Do you want a limit, e.g. stop after N tries or retry daily instead of hourly, and the same for cards?
+- T-1045 (orchestration): When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?
+- T-1046 (app): In a reply's sites row (one site + "+N"), should clicking a site in the list open it in your browser, or stay as plain text?
+- T-1049 (project): v0.27.0 shipped from the ui/ux branch. Should I fast-forward main to it (and keep working on ui/ux), or leave main as it is?
+- T-1050 (project): Should every build that changes setup go through one fresh-install run (on a second macOS user account you create once) before it ships, with setup changes made one at a time?
 
 ## Terms
 
