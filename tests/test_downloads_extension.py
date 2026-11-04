@@ -901,3 +901,31 @@ def test_the_extension_harness_returns_a_large_answer_whole():
     JSONDecodeError on ~500-byte answers under load; deterministic past the pipe buffer)."""
     out = worker('(async () => ({x: "y".repeat(1 << 20)}))()')
     assert out == {"x": "y" * (1 << 20)}
+
+
+# decision: HAND-418
+def test_letting_go_of_a_tab_never_waits_on_a_page_that_doesnt_answer() -> None:
+    """HAND-418 (live 2026-11-04, task 59d60965: `release_tab` of the owner's tab timed out twice, so the answer ended
+    with "browser cleanup incomplete"): a page that never answers a script or a page-side command (frozen, discarded,
+    mid-load) can't hold up letting go; the debugger still detaches and the reply comes at once."""
+    out = worker('''(async () => {
+      const cmds = [];
+      port = {postMessage() {}}; send = async () => {};
+      const never = new Promise(() => {});
+      chrome.scripting = {executeScript: () => never};                       // the page never answers
+      chrome.debugger = new Proxy({sendCommand: (t, m) => { cmds.push(m); return m.startsWith('Fetch.') ? Promise.resolve({}) : never; },
+                                   detach: async () => { cmds.push('detach'); },
+                                   onEvent: chrome.debugger.onEvent, onDetach: chrome.debugger.onDetach}, {get: (o, k) => o[k]});
+      chrome.tabs.get = async id => ({id, windowId: 9, url: 'https://s.example/'});
+      const t = tabState(8); t.attached = true; t.armed = true; t.hookId = 'h1';
+      await onPaused({tabId: 8}, {requestId: 'r8', request: {url: 'https://s.example/a', headers: {}},
+        responseStatusCode: 200, responseHeaders: [{name: 'Content-Type', value: 'application/zip'}]});
+      pageDownload(8, 0, {id: 'p1', name: 'a.txt', source_url: 'https://s.example/b'}, 'doc');   // content.js holds one
+      await mutateRecords(r => { r.tabs[8] = {task: 'x', root: 'x', borrowed: true}; });
+      const r = await Promise.race([commands.release_tab({tab_id: 8}),
+                                    new Promise(res => setTimeout(() => res('waited'), 500))]);
+      return {r, cmds, held: TABS.has(8), left: downloads.size};
+    })()''')
+    assert out["r"] != "waited" and out["r"]["released"] is True
+    assert "detach" in out["cmds"] and not out["held"] and out["left"] == 0
+    assert out["cmds"].index("Fetch.continueRequest") < out["cmds"].index("detach")   # the browser's hold goes back first

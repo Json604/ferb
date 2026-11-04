@@ -919,6 +919,12 @@ async function armPage(tabId, on) {                          // content.js in do
   } catch (_) { /* a page scripts can't reach holds no listener of ours */ }
 }
 
+// HAND-418 (live 2026-11-04: an owner's tab whose page didn't answer kept `release_tab` waiting past its timeout,
+// twice): letting go never waits on the page. What the browser itself holds for FERB (a held response) goes back first;
+// what only the page can answer (content.js's holds, its disarm, the hook's removal, focus emulation off) is asked
+// without waiting, since detaching the debugger ends the session's hook and emulation anyway, and a page that answers
+// later still lets go.
+const unawaited = (p) => { Promise.resolve(p).catch(() => {}); };
 async function detach(tabId) {
   const t = TABS.get(tabId);
   if (!t || !t.attached) { TABS.delete(tabId); return; }
@@ -926,14 +932,14 @@ async function detach(tabId) {
   t.leaving = true;
   if (t.armed) {                                             // let go of what this tab still holds, then of the page
     await dropDownloads(tabId);
-    await armPage(tabId, false);
+    unawaited(armPage(tabId, false));
     if (t.hookId) {                                          // documents loaded from now on are native again
-      try { await cdp(tabId, "Page.removeScriptToEvaluateOnNewDocument", { identifier: t.hookId }); } catch (_) { /* gone */ }
+      unawaited(cdp(tabId, "Page.removeScriptToEvaluateOnNewDocument", { identifier: t.hookId }));
       t.hookId = null;
     }
   }
+  unawaited(chrome.debugger.sendCommand({tabId}, 'Emulation.setFocusEmulationEnabled', {enabled:false}));
   try {
-    await chrome.debugger.sendCommand({tabId}, 'Emulation.setFocusEmulationEnabled', {enabled:false});
     await chrome.debugger.detach({tabId});
   } catch (e) {
     t.leaving = false;
@@ -1272,7 +1278,11 @@ async function releaseTransfer(tr) {
 // Letting go of a tab the owner keeps (release, disarm, a failed setup): what it holds goes back to the browser.
 // Closing FERB's own tab (`fail`): what it holds is failed, so nothing outlives the tab as a browser download.
 async function dropDownloads(tabId, fail = false) {
-  for (const tr of [...downloads.values()]) if (tr.tabId === tabId) await (fail ? releaseTransfer(tr) : handBack(tr));
+  for (const tr of [...downloads.values()]) {
+    if (tr.tabId !== tabId) continue;
+    const done = fail ? releaseTransfer(tr) : handBack(tr);
+    if (tr.page) unawaited(done); else await done;           // a page's own hold: asked, never waited on (HAND-418)
+  }
 }
 
 function forgetDownloads(tabId) {                    // the tab or its session is gone, and its held requests with it

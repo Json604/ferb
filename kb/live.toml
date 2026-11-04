@@ -2670,3 +2670,21 @@ request = "Pick a suggestion and watch it run."
 pass = "No orb leaves the notch and no \"I'm working in …\" bubble or orb sound comes; the chat's turn card and the notch line show the task."
 decisions = ["APP-693"]
 sitting = "after this change is installed"
+
+[LIVE-759]
+title = "Sites show as one site plus +N; a browser's own page isn't one"
+area = "app"
+surface = "FERB.app with this build; a Brave or Chrome profile paired"
+request = "Ask FERB to summarise your recent coding pages in that browser (or any task that visits two or more sites and opens the browser's History page)."
+pass = "Under the answer, in chat and in the notch, one site shows with \"+N\"; clicking it lists every site. No \"history\" (or other browser page) is listed, in the row or in the answer's text."
+decisions = ["APP-700", "APP-701"]
+sitting = "after this change is installed"
+
+[LIVE-760]
+title = "FERB lets go of your tabs at the task's end, and says plainly when it can't"
+area = "hands"
+surface = "FERB.app with this build; the store's extension 0.19.1 in the paired profile; a tab you left in the background for a while (Brave or Chrome may have put it to sleep)"
+request = "Ask FERB to read and summarise a few of your open tabs, including that background one."
+pass = "The answer ends without \"I couldn't tidy up…\"; no \"FERB started debugging this browser\" bar stays. If a leftover line ever appears, it names the browser, profile and tab title in plain words and says what to do, with no error codes."
+decisions = ["HAND-418", "HAND-419"]
+sitting = "after this change is installed"

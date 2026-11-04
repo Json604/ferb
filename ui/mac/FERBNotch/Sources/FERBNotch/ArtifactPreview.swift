@@ -389,10 +389,17 @@ struct ArtifactQuickLook: NSViewRepresentable {
     }
 }
 
+/// The sites row (APP-700, owner 2026-11-04: "we decided on one site plus rest under +x"): the first site, then
+/// "+N" opening the list of all of them. Link cards and the older "Sites contacted" text both show this way.
 struct VisitedSites {
     let all: [String]
     init(_ source: String) {
-        all = source.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        self.init(hosts: source.split(separator: ",").map(String.init))
+    }
+    init(hosts: [String]) {
+        var seen = Set<String>()
+        all = hosts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
     }
     var inline: String { all.first ?? "" }
     var remainingCount: Int { max(0, all.count - 1) }
@@ -401,6 +408,7 @@ struct VisitedSites {
 struct VisitedSitesView: View {
     let sites: VisitedSites
     @ObservedObject var model: NotchModel
+    var leading: CGFloat = 10
     @StateObject private var hover = SitesHoverState()
     var body: some View {
         Button {
@@ -438,7 +446,7 @@ struct VisitedSitesView: View {
             .background(TaskPreviewWindow(model: model))
         }
         .onChange(of: hover.isPresented) { _, visible in if !visible { hover.dismiss() } }
-        .padding(.leading, 10)
+        .padding(.leading, leading)
         .onChange(of: model.expanded) { _, visible in if !visible { hover.dismiss() } }
         .onChange(of: model.previewDismissalRevision) { _, _ in hover.dismiss() }
         .onChange(of: sites.all) { _, _ in hover.dismiss() }

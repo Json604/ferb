@@ -49,8 +49,9 @@ class Desktop:
             if drv is not None:
                 try:
                     resources.extend(await drv.release(task_id) or [])
-                except Exception as exc:
-                    resources.append({'resource': name, 'released': False, 'error': f"{type(exc).__name__}: {exc}"})
+                except Exception as exc:                  # each tab left behind, named for the owner (HAND-419)
+                    resources.append({'resource': name, 'released': False, 'error': f"{type(exc).__name__}: {exc}"} |
+                                     ({'tabs': tabs} if (tabs := getattr(exc, 'facts', {}).get('tabs')) else {}))
         if (kept := getattr(self, "downloads", None)) is not None:
             kept.forget_task(task_id)                    # after its tabs are let go of: their locks and unreported facts
         if self.shells is not None:
