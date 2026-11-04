@@ -14,6 +14,7 @@ from ferb.orchestrator import acks
 from ferb.orchestrator.continuity import RESERVED_SESSIONS
 from ferb.orchestrator.worker import couldnt
 from ferb.sanitize.redact import Redactor
+from ferb.sanitize.untrusted import mark
 
 
 class Chat:
@@ -321,8 +322,10 @@ class Chat:
         text = self._hide_code_reply(self.redact(raw), session_id)
         request_id = self.supervisor.ids.new_id()
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-        # Before the per-session routing lock: a message is acknowledged while an earlier one is still planning (P29)
-        queue.put_nowait(self._chat_ack(session_id, request_id, text, received, hidden))
+        # Before the per-session routing lock: a message is acknowledged while an earlier one is still planning (P29).
+        # The ack carries the message as chat.message records it (`mark`): the composer's paste markers and leaked
+        # ones removed, so the owner's bubble never shows them (APP-712)
+        queue.put_nowait(self._chat_ack(session_id, request_id, mark(text).for_model, received, hidden))
         # L12: what the owner has in front of them as they send, captured beside routing; the planner waits for it
         screen = (asyncio.ensure_future(self.front_window(request_id, session.pid if session is not None else None))
                   if self.front_window is not None else None)

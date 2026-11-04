@@ -699,7 +699,9 @@ final class NotchModel: ObservableObject {
         guard !session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if handleLocalNotchCommand(session.draft) { return }
         let outgoing = PastedRequest(text: session.draft, provenance: pasteProvenance).markedText
-        begin(request: session.draft, outgoing: outgoing, sources: session.attachments, keepComposer: false)
+        // The bubble shows the words without leaked paste markers until the ack brings the daemon's text (APP-713)
+        begin(request: PasteMarkers.removed(from: session.draft), outgoing: outgoing, sources: session.attachments,
+              keepComposer: false)
     }
 
     /// A message of the owner's that isn't the composer's (the suggestion they picked in the tour's Try beat): sent

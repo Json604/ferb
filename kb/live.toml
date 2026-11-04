@@ -3015,4 +3015,12 @@ surface = "A FERB.app build with APP-710 on a notched Mac (macOS 27), docked in 
 request = "Push the pointer all the way up against the top screen edge over the camera housing (centre, then each far corner of the housing) and press there: once to click, once to drag down and to the right; drop it on the right edge, then drag it back into the notch. Repeat with the chat open. Then click the menu bar right beside the housing and the strip just below it."
 pass = "A press at the topmost edge anywhere across the housing, corners included, behaves exactly like one lower down: the click opens (or closes) FERB, the drag tears it out with the approved feel and it docks back; it works with the chat closed and open, hover on and off. Clicks beside the housing reach the menu bar, a click on the strip below reaches the app underneath, and nothing visible is added at the notch."
 decisions = ["APP-710", "APP-711", "APP-705", "APP-706", "APP-629"]
+
+[LIVE-772]
+title = "A pasted correction to a running task shows clean, and FERB's reply shows once"
+area = "app"
+surface = "FERB.app with this build, its daemon included; a disposable folder"
+request = "Ask FERB for a task that takes a minute or two in a disposable folder. While it runs, copy two lines that contain apostrophes (e.g. \"Don't overwrite the original\" / \"Keep a notes file of what you've done\") and paste them into the notch as one message, then send. Also paste a line copied out of Terminal with bracketed paste on. Afterwards quit and reopen FERB.app and look at today's chat."
+pass = "Your bubble shows exactly the words you pasted, with no \"[200~\" or \"[201~\", during the task and after the restart. FERB's reply to the correction appears once (one bubble, not two identical ones), and the task carries on with the correction."
+decisions = ["APP-712", "APP-713", "APP-714"]
 sitting = "after this change is installed"

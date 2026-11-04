@@ -186,3 +186,15 @@ def test_a_code_reply_to_an_open_question_names_nothing(daemon: RunningDaemon) -
     events = _send(daemon, "482913")
     assert "hidden" not in events[0] and "482913" not in repr(events)
     assert not [data for kind, data in _journal(daemon) if kind == "chat.secret_hidden"]
+
+
+# decision: APP-712, ORCH-520
+def test_the_acks_message_is_the_message_as_recorded_without_paste_markers(daemon: RunningDaemon) -> None:
+    """Live 2026-11-04: the composer's paste brackets (ESC[200~ … ESC[201~) came back in ack.message, so the owner's
+    bubble showed "[200~ … [201~". The ack now carries the message exactly as chat.message records it."""
+    install(daemon, [sup("reply", "Noted.")])
+    composer = "\x1b[200~Save a copy next to the original; don\x1b[201~’\x1b[200~t overwrite it\x1b[201~"
+    leaked = "[200~Keep a running notes file[201~"
+    ack = _send(daemon, composer + "\n\n" + leaked)[0]
+    recorded = [data["text"] for kind, data in _journal(daemon) if kind == "chat.message"]
+    assert ack["message"] == recorded[-1] == "Save a copy next to the original; don’t overwrite it\n\nKeep a running notes file"
