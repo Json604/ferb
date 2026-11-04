@@ -102,21 +102,21 @@ live = ["LIVE-679"]
 title = "FERB website carries the app's glass identity with plain typography"
 by = "owner"
 date = 2026-11-03
-status = "active"
+status = "superseded"
+superseded_by = "REL-412"
 words = "ok build it withbpolished glass liek adn better round boxes adn the whoel ideology taht we have in ferb BUT with normal html text style like my perosnla site too. use my emil animation skills in local to enhance, use gradients where colors are there. have dmg download logo for apple arm only as of now."
 rule = "Build the FERB site with polished glass, rounded surfaces, gradients and the app's identity, using plain system typography like the personal site. Apply the owner's local Emil animation guidance. Offer only the Apple Silicon DMG with an Apple download icon. Keep the existing FERB logo. The owner will supply the download URL; leave it inactive until supplied."
 paths = ["site/"]
-live = ["LIVE-706"]
 
 [REL-406]
 title = "Make the website a visual FERB walkthrough; add PostHog last"
 by = "owner"
 date = 2026-11-03
-status = "active"
+status = "superseded"
+superseded_by = "REL-412"
 words = "i want the demombox expanding effect here. also an illustratrive real ferb wokring showing what ferb is made for - background task, inout monitoring, secure - nothign send to ll, local data etcect - basically showing eveyr featuer in this preview as good and smooth as possible"
 rule = "Remove the feature and principles sections requested by the owner. Make the expanding preview demonstrate FERB's capabilities with a notch closely matching the Mac app; replace decorative arrows with recognizable logos and refine the download section. Privacy claims still follow the existing local-storage and redacted-model-context boundaries; do not claim all AI processing is offline. Record PostHog as a final website integration task."
 paths = ["site/"]
-live = ["LIVE-706"]
 
 [REL-407]
 title = "Add PostHog at the end of the website work"
@@ -166,3 +166,25 @@ status = "active"
 rule = "Finder draws icon labels black over a background picture in any appearance; no view option changes it (macOS 27.2: icvp textColor in any form is ignored). So the background draws the names in white, and Finder's labels, at its smallest size (10), fall on a soft pool of the stage's black under each icon, unseen. Labels to the right scroll the window sideways. WindowBounds is the whole window: the 680 x 440 content plus a 32-point title bar (macOS 26+); on a 28-point title bar the window is 4 points taller than the picture (macOS 15 not checked)."
 paths = ["scripts/dmg_layout.py", "scripts/dmg-background/main.swift"]
 live = ["LIVE-745"]
+
+[REL-412]
+title = "The FERB site is one simple, elegant page like the personal site, with the clean logos"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "rebuild ferb.kartikey.xyz, i want it simple like kartikey.xyz, can take text from the current local ferb site. but should use clean logos like right now and just make it simple yet elegant"
+words_source = "relayed verbatim to the building agent by the coordinating agent, 2026-11-04"
+rule = "ferb.kartikey.xyz is one calm page in the manner of kartikey.xyz (narrow column, system type, thin rules, quiet links), with words from the earlier site; no glass, gradients or notch walkthrough demo. Still held: REL-1's logo and its derived files; only the Apple Silicon DMG with an Apple icon, inactive until the owner gives its URL; the first-open note; /privacy at the same URL; privacy claims keep local storage and redacted context to the chosen AI service, never all-offline AI; PostHog last (REL-407)."
+supersedes = ["REL-405", "REL-406"]
+paths = ["site/"]
+live = ["LIVE-754"]
+
+[REL-413]
+title = "How the simple site is made: static HTML and one stylesheet, light like kartikey.xyz"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "site/ is index.html, privacy.html and styles.css with the logo files; no JavaScript, build step, web fonts or third-party requests. Light only, as kartikey.xyz is (#fafafa, #333, 520px column, 1.7 line height). Its pixel-font headings become the system monospace, so no font is fetched. The policy keeps its words; only its frame and style changed. vercel.json cleanUrls serves /privacy."
+why = "A privacy page that fetches nothing from others is easier to trust, and the personal site has no dark theme to match."
+paths = ["site/"]
+live = ["LIVE-754"]
