@@ -2545,3 +2545,30 @@ request = "After Pair all, click Add to Google Chrome on the removed profile (to
 pass = "The store page opens in that exact profile; the notch shows \"Waiting for FERB to be added in Google Chrome “…”…\" with the time and Stop waiting; once FERB is on there it offers Pair and pairs only when you press it. The waiting-for-restart profile says it adds FERB at the next start and offers the store page as the faster way. No browser restarted or quit by itself."
 decisions = ["HAND-413"]
 sitting = "after this change is installed"
+
+[LIVE-736]
+title = "The Mac scan's facts are always on at once, labelled observed"
+area = "memory"
+surface = "FERB.app with this build on the owner's Mac; the Memory page and chat"
+request = "Run the setup step's \"what I saw\" scan again (or let the weekly re-check find a change), then open the Memory page's core profile and look at chat."
+pass = "Each fact listed under \"here's what I saw\" is in the core profile right away, labelled observed, with no extra \"Now always on\" notices after a setup scan; a weekly re-check that changes them posts one \"Now always on: … (observed)\" notice with a card per fact (Correct / Forget). Something FERB worked out from a chat (FERB's understanding) is not in the core profile on the day it was saved."
+decisions = ["MEM-423", "MEM-425", "MEM-427"]
+sitting = "after this change is installed"
+
+[LIVE-737]
+title = "The owner's words about something else wait for the weekly pass"
+area = "memory"
+surface = "FERB.app with this build on the owner's Mac; the Memory page"
+request = "Tell FERB one fact about yourself (\"I prefer short replies\") and one about something else (\"the community garden's gate code changes on Mondays\"). Open the Memory page's core profile."
+pass = "The fact about you is in the core profile at once (your words); the other one is saved in memory but not in the core profile until a weekly pass places it, if it chooses to."
+decisions = ["MEM-35", "MEM-425"]
+sitting = "after this change is installed"
+
+[LIVE-738]
+title = "A newly always-on fact is used at once and the planner's cache holds"
+area = "memory"
+surface = "FERB.app with this build on the owner's Mac; a chat and `ferb trace`"
+request = "In one chat, send two plain messages, then tell FERB a fact about yourself (\"I never want emojis in replies\"), then send another plain message. Read the last two planner turns with `ferb trace TASK --json`."
+pass = "The reply after the fact already follows it. The last planner turn shows the fact under \"Newly always on\" after the conversation, and its cached-input tokens are about as high as the turn before (the instructions didn't change); after a restart the fact is in the core profile in the instructions."
+decisions = ["MEM-428", "MEM-429"]
+sitting = "after this change is installed"

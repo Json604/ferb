@@ -142,7 +142,7 @@ def test_a_profile_entry_never_takes_a_slot_of_the_ranked_limit(daemon: Any) -> 
     tone = owner_fact(daemon, "permit_email_tone", "reply to permit emails in a formal tone", kind="preference")
     other = understood(daemon, "permit_email_signature", "permit email replies are signed Sam",
                        subject="project:permit")
-    assert "reply to permit emails in a formal tone" in run(daemon, d._core_profile_text)     # Tier 1, every role
+    assert "reply to permit emails in a formal tone" in run(daemon, d._core_profile_pending)  # Tier 1, every role (MEM-429)
     worker = [c["text"] for c in daemon.run(d._learning_candidates("draft the permit email reply", WORKER))]
     assert any("signed Sam" in t for t in worker) and not any("formal tone" in t for t in worker)
     found = daemon.run(d._memory_item_search("draft the permit email reply"))

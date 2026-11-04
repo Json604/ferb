@@ -18,7 +18,8 @@ JUST_BOOK = "no need to notify me, just book the first slot you find"
 
 
 def profile_text(d: Any) -> str:
-    return str(run(d, d.daemon._core_profile_text))
+    """Tier 1 as every prompt has it: the settled block and the entries newly always on (MEM-429)."""
+    return str(run(d, d.daemon._core_profile_text)) + str(run(d, d.daemon._core_profile_pending))
 
 
 # decision: MEM-7, MEM-21
@@ -54,17 +55,65 @@ def test_the_same_key_replaces_and_is_said_too(daemon: Any) -> None:
     assert (now.subject, now.content) == ("project:us_work_permit", JUST_BOOK)   # subject normalized like the key
 
 
-# decision: MEM-5
+# decision: MEM-5, MEM-429
 def test_the_profile_is_in_every_roles_instructions(daemon: Any) -> None:
-    """Always on in the planner's and the workers' prompts (the stable position, before the conversation)."""
+    """Always on in the planner's and the workers' prompts: a newly joined entry right after each one's cached part
+    from the turn it joins, then, once settled, in the stable position in the instructions (MEM-429)."""
     owner_fact(daemon, "reply_style", "keep replies short and plain", kind="preference")
     script = install(daemon, [sup("task", "On it.", task("Say hello"))], {"worker": done("Said hello.")})
     chat(daemon, "say hello")
+    for key in ("supervisor", "worker"):
+        [req] = [r for _, k, r in script.requests if k == key]
+        assert "keep replies short and plain" not in req.system
+        assert "keep replies short and plain" in "\n".join(req.parts[req.cacheable:])
+    run(daemon, lambda: daemon.daemon.profile.settle("test"))
+    script = install(daemon, [sup("task", "On it.", task("Say hello again"))], {"worker": done("Said hello.")})
+    chat(daemon, "say hello again")
     systems = {key: req.system for _, key, req in script.requests}
     assert "keep replies short and plain" in systems["supervisor"]
     assert "keep replies short and plain" in systems["worker"]
     assert "Tier 1 — core profile" in systems["worker"]
     assert "skills.read" not in systems["supervisor"] and "skills.read" in systems["worker"]   # lookup tools: workers
+
+
+# decision: MEM-428, MEM-429
+def test_a_join_leaves_the_cached_prefix_alone_until_a_fold_settles_it_and_a_forget_is_at_once(daemon: Any) -> None:
+    """Owner 2026-11-04 ("lets add a newly added always on at the end"): a fact joining Tier 1 leaves the planner's
+    cached prefix byte for byte as it was and shows after it, before the new message; a chat's running-summary fold
+    (which changes the prefix anyway) settles it into the block; forgetting a newly joined fact takes it out at once
+    without settling anything."""
+    d = daemon.daemon
+    sv = d.supervisor
+    owner_fact(daemon, "style", "keep replies short", kind="preference")
+    run(daemon, lambda: d.profile.settle("test"))
+    script = install(daemon, [sup("reply", "Ok.")] * 4, {"summary": json.dumps({"summary": "EARLIER"})})
+
+    def planner() -> Any:
+        chat(daemon, "hello", session="cache")
+        return [req for _, key, req in script.requests if key == "supervisor"][-1]
+    first = planner()
+    owner_fact(daemon, "tone", "never use emojis", kind="preference")
+    joined = planner()
+    assert joined.system == first.system                                     # the instructions: byte for byte
+    assert joined.parts[:first.cacheable] == first.parts[:first.cacheable]
+    live = "\n".join(joined.parts[joined.cacheable:])
+    assert "never use emojis" in live and "(your words" in live
+    assert live.index("never use emojis") < live.index("owner's complete new message")
+
+    async def fold() -> None:
+        entries = sv._timeline("", "cache", sv._summary("cache"))[0]
+        await sv._fold("cache", None, entries[:2])
+    daemon.run(fold())
+    folded = planner()
+    assert folded.system != first.system and "never use emojis" in folded.system
+    assert "never use emojis" not in "\n".join(folded.parts)
+    late = owner_fact(daemon, "music", "no music while I work", kind="preference")
+    assert "no music while I work" in "\n".join(planner().parts)
+    run(daemon, lambda: d.memory.forget(late.id))
+    daemon.run(d._settle_forgets())
+    after = planner()
+    assert "no music while I work" not in after.system + "\n".join(after.parts)
+    assert after.system == folded.system                                     # nothing settled for it
 
 
 # decision: MEM-5, MEM-17
@@ -78,6 +127,7 @@ def test_the_profile_keeps_its_hard_budget(daemon: Any) -> None:
             it = d.memory.propose("preference", "owner", f"rule_{i}", f"Always do thing number {i} the careful way",
                                   "owner_stated", [("journal", src.id)], 1.0)
             profile.add(it.id, "Preferences")
+        profile.settle("test")                       # into the block, whose render keeps the budget too
         text, left_out = profile.render()
         return text, left_out, profile.view()
     text, left_out, view = daemon.run(fill())
@@ -87,7 +137,7 @@ def test_the_profile_keeps_its_hard_budget(daemon: Any) -> None:
     assert PROFILE_TOKENS == 2500
 
 
-# decision: MEM-15, MEM-18
+# decision: MEM-423, MEM-424
 def test_a_preference_the_owner_states_joins_at_once_and_understanding_waits_to_hold_up(daemon: Any) -> None:
     d = daemon.daemon
     mine = owner_fact(daemon, "summaries", "short summary lists, no jargon", kind="preference")
@@ -100,13 +150,15 @@ def test_a_preference_the_owner_states_joins_at_once_and_understanding_waits_to_
     assert run(daemon, lambda: d.profile.holds_up(d.memory.get(guess.id)))     # stood a weekly pass uncorrected
 
 
-# decision: PRM-319
-def test_the_owners_words_about_anything_join_at_once_unless_placed_by_search(daemon: Any) -> None:
-    """MEM-15: the owner's own words join at once, whatever they are about (a project, a person); a fact the owner
-    placed by search (PRM-319's M7/M8, journaled by the seed) never does; FERB's understanding about someone
-    else doesn't join at once."""
+# decision: PRM-319, MEM-35, MEM-425
+def test_only_the_owners_words_about_themselves_join_at_once_the_pass_places_the_rest(daemon: Any) -> None:
+    """MEM-35 (T-5; live 2026-11-03: an owner fact about something else went always-on at once): the owner's words
+    about the owner join at once; what they say about a project or a person waits for the weekly pass, which may place
+    it; a fact the owner placed by search (PRM-319's M7/M8, journaled by the seed) never joins; FERB's understanding
+    about someone else doesn't join at once."""
     from ferb.memory.profile import SEARCH_ONLY_KIND
     d = daemon.daemon
+    mine = owner_fact(daemon, "city", "I live in Pune")
     project = owner_fact(daemon, "thesis_deadline", "my thesis is due on Dec 12", subject="project:thesis")
     person = owner_fact(daemon, "sam_role", "Sam is my landlord", kind="person", subject="person:sam")
     run(daemon, lambda: d._journal().append(SEARCH_ONLY_KIND, {"keys": [["project:acme", "acme_groups"]]}))
@@ -115,8 +167,15 @@ def test_the_owners_words_about_anything_join_at_once_unless_placed_by_search(da
     guess = run(daemon, lambda: d.memory.propose("person", "person:sam", "sam_handy", "Sam is handy", "inferred",
                                                  [("journal", src)]))
     ids = run(daemon, d.profile.ids)
-    assert project.id in ids and person.id in ids
-    assert placed.id not in ids and guess.id not in ids
+    assert mine.id in ids
+    assert project.id not in ids and person.id not in ids and placed.id not in ids and guess.id not in ids
+    assert run(daemon, lambda: d.profile.holds_up(project))           # eligible: the pass may place it
+    d._make_runtime = lambda *a, **k: FakeDistillRuntime({"sections": [
+        {"title": "Projects", "items": [project.id, placed.id]}, {"title": "About you", "items": [mine.id]}],
+        "ended": []})
+    result = daemon.run(d._profile_pass(force=True))
+    ids = run(daemon, d.profile.ids)
+    assert project.id in ids and mine.id in ids and placed.id not in ids and result["refused"] == [placed.id]
 
 
 # decision: MEM-7

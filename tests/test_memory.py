@@ -69,8 +69,8 @@ def test_chat_capture_needs_the_owners_own_words(daemon: RunningDaemon) -> None:
 # ---------- memory review I1 (MP2): only the owner's own words become owner_stated ----------
 
 def _identity(d: RunningDaemon) -> str:
-    """The core profile (Tier 1) every role's instructions carry."""
-    return str(run(d, d.daemon._core_profile_text))
+    """The core profile (Tier 1) every role's prompt carries: its settled block and what joined since (MEM-429)."""
+    return str(run(d, d.daemon._core_profile_text)) + str(run(d, d.daemon._core_profile_pending))
 
 
 # decision: MEM-12
@@ -111,7 +111,7 @@ def test_the_owners_own_words_are_saved_as_theirs(daemon: RunningDaemon) -> None
     assert (it.origin, it.status, it.content) == ("owner_stated", "active", "remember that my dentist is Dr. Rao")
 
 
-# decision: MEM-8, MEM-12, MEM-15
+# decision: MEM-8, MEM-12, MEM-423
 def test_a_paraphrase_is_saved_at_once_as_ferbs_understanding(daemon: RunningDaemon) -> None:
     """MEM-12: FERB's wording of what the owner said is saved at once, labelled FERB's understanding, with a quiet
     "Memory: noted" line; it reaches retrieved memory with its label, but not the core profile until it holds up."""
@@ -148,7 +148,7 @@ def test_owner_words_are_saved_as_their_clause_never_a_slice_dropping_a_negation
     assert "never share my links publicly" in _identity(daemon)
 
 
-# decision: MEM-15
+# decision: MEM-423
 def test_a_preference_in_the_owners_typed_words_joins_identity_whatever_was_on_screen(daemon: RunningDaemon) -> None:
     """Owner decision 2026-10-20 (O2): "No hold for my typed words." A preference saved from the owner's own typed
     sentence goes straight into their identity even when the turn showed outside content (a web page, the front

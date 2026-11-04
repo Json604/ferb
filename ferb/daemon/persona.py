@@ -18,8 +18,10 @@ class PersonaReview:
                  build: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]],
                  record: Callable[[str, dict[str, Any]], None],
                  tell: Callable[[str], Awaitable[None]] | None = None,
+                 tell_joined: Callable[[list[str]], Awaitable[None]] | None = None,
                  redact: Callable[[Any], Any] = lambda x: x, clock: Callable[[], str] = lambda: "") -> None:
         self.config, self.collect, self.build, self.record, self.tell = config, collect, build, record, tell
+        self.tell_joined = tell_joined
         self.state = PersonaState(config)          # persona.json in FERB's home, not config.toml
         self.redact, self.clock = redact, clock
         self.task: asyncio.Task[None] | None = None
@@ -84,6 +86,11 @@ class PersonaReview:
         self.record('memory.mac_profile_seen', {'facts': len(seen['facts']), 'quiet': quiet, 'shown_by': shown_by})
         if not quiet and shown_by != 'setup' and self.tell is not None and seen['shown']:
             await self.tell(str(seen['shown']))
+        # MEM-427: the facts newly always on are shown by "here's what I saw" (the setup step or the chat notice);
+        # when nothing shows them (a quiet re-check, or an empty summary), one notice tells them, after the rest
+        shown = not quiet and (shown_by == 'setup' or bool(seen['shown']))
+        if stored.get('joined') and not shown and self.tell_joined is not None:
+            await self.tell_joined([str(i) for i in stored['joined']])
 
     def needs_browser_part(self) -> bool:
         """DMN-507: what FERB saw was gathered before it had Full Disk Access, so the browsers' profiles were left out;

@@ -301,6 +301,7 @@ class WorkerRuns:
     _live: dict[str, asyncio.Queue[dict[str, Any]]]
 
     _system: Callable[[str], str]
+    _with_newly_always_on: Callable[[list[ContextBlock]], list[ContextBlock]]
     _approach: Callable[[], str]
     _set_status: Callable[..., None]
     cancel_tree: Callable[["_Tree"], None]
@@ -401,8 +402,8 @@ class WorkerRuns:
                     else "worker:" + (tree.runtime or tree.spec.worker_type))
             rt = self.make_runtime(role, mode="worker", tool_names=tools, schema=schema,
                                    **({"effort": effort} if effort else {}))   # D32: each adapter's own setting
-            final = await self._run(rt, task, self._system(prompt, roles=roles), full_ctx, token, wspan.id, tree,
-                                    worker_id, images=images, on_timing=timing.update)
+            final = await self._run(rt, task, self._system(prompt, roles=roles), self._with_newly_always_on(full_ctx),
+                                    token, wspan.id, tree, worker_id, images=images, on_timing=timing.update)
             try:
                 result: dict[str, Any] | Outcome = json.loads(final)
             except json.JSONDecodeError as exc:     # outside FERB's form, as check_final words it

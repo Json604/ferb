@@ -12,7 +12,7 @@ Origins, enforced in code:
 - `observed` ("observed"): from the owner's own activity. Its sources are trail rows with actor "owner" (FERB's own
   activity never becomes the owner's habits), active once that evidence spans 3 separate days; or the code-gathered
   facts of the owner's Mac (installed apps, their use, browsers and profiles: a `MAC_PROFILE_KIND` journal row,
-  MEM-13), active at once.
+  MEM-13), active at once, and in the core profile at once (MEM-423).
 - `third_party`: pages, emails, pasted text. A fact about the world only: never a preference, never about the owner.
 
 Versions: kind + subject + key name one fact (subject and key normalized alike, `subject_key` / `slug`). A newer version
@@ -394,6 +394,14 @@ class Memory:
             "SELECT s.kind, j.kind AS jkind FROM memory_sources s LEFT JOIN journal j ON j.id = s.source_id "
             "AND s.kind = 'journal' WHERE s.item_id = ?", (item_id,)).fetchall()
         return bool(rows) and all(r["kind"] == "journal" and r["jkind"] == MAC_PROFILE_KIND for r in rows)
+
+    def from_mac_scan(self, item_id: str) -> bool:
+        """Whether an item is one of the Mac profile scan's facts (MEM-13, MEM-24): it rests on a `MAC_PROFILE_KIND`
+        journal row, the gathered facts `mac_profile.store` saves each of its conclusions on (setup's scan and each
+        weekly re-interpretation alike). A structural fact of its sources, never of what it says."""
+        return self.db.conn.execute(
+            "SELECT 1 FROM memory_sources s JOIN journal j ON j.id = s.source_id WHERE s.item_id = ? "
+            "AND s.kind = 'journal' AND j.kind = ? LIMIT 1", (item_id, MAC_PROFILE_KIND)).fetchone() is not None
 
     # ---------- writes ----------
 

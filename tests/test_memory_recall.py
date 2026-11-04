@@ -360,7 +360,7 @@ def test_stale_facts_are_split_by_source(daemon: Any) -> None:
     assert daemon.run(d._memory_item_search("Goa week")) == [trip.id]
 
 
-# decision: MEM-15, MEM-18, MEM-36
+# decision: MEM-423, MEM-424, MEM-425
 def test_understanding_that_holds_up_joins_with_one_quiet_now_always_on_card(daemon: Any) -> None:
     """MEM-15: FERB's understanding joins the core profile once it holds up (here, seen on a second day), with one
     "Now always on" note card (the 8e note card, marked always_on), never a question; the owner's words join at
@@ -385,11 +385,12 @@ def test_understanding_that_holds_up_joins_with_one_quiet_now_always_on_card(dae
     assert run(daemon, lambda: d.state.approvals.pending()) == []
 
 
-# decision: MEM-7, MEM-15
+# decision: MEM-7, MEM-423, MEM-429
 def test_the_profile_and_so_the_cached_prefix_change_only_when_a_profile_entry_changes(daemon: Any) -> None:
-    """MEM-15's guarantee: the planner's instructions (the cached prefix) are identical across turns unless a
-    profile entry changed; saving a fact outside the profile changes nothing; nothing but the weekly pass rewrites it on
-    a schedule (the hourly jobs leave it as it is)."""
+    """MEM-15's guarantee: the planner's instructions (the cached prefix) are identical across turns unless the
+    profile's block changed; saving a fact outside the profile changes nothing; a new entry waits after the cached
+    part until the block settles (MEM-429); nothing but the weekly pass rewrites it on a schedule (the hourly jobs leave
+    it as it is)."""
     d = daemon.daemon
     d.learning.embedder = FakeEmbedder()
     owner_fact(daemon, "style", "keep replies short", kind="preference")
@@ -407,7 +408,9 @@ def test_the_profile_and_so_the_cached_prefix_change_only_when_a_profile_entry_c
     daemon.run(d._merge_playbooks())
     daemon.run(d._embed_now())
     assert system() == first
-    owner_fact(daemon, "tone", "never use emojis", kind="preference")       # a profile entry: the prefix changes
+    owner_fact(daemon, "tone", "never use emojis", kind="preference")       # newly always on: after the prefix
+    assert system() == first and "never use emojis" in planner_context(script)
+    run(daemon, lambda: d.profile.settle("test"))                            # settled: now the prefix changes
     changed = system()
     assert changed != first and "never use emojis" in changed
     assert system() == changed

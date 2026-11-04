@@ -32,14 +32,6 @@ kind = "bug"
 status = "open"
 why = "notes/memory.md: closed fact/identity nodes stay \"until the step-12 clean-up\"; ferb/store/cleanup.py PROTECTED_ROWS keeps every learning_nodes row but rollups, so upgrade.py:88's closed nodes are never removed."
 
-[T-5]
-title = "Tier 1 joins at once only the owner's words about themselves (MEM-35)"
-area = "memory"
-kind = "build"
-status = "open"
-why = "Built since 2026-11-01 for the owner's words about anything (the old MEM-19); the owner answered \"about myself\" on 2026-11-02."
-decisions = ["MEM-35", "MEM-36"]
-
 [T-6]
 title = "The daemon filters event topics for the notch instead of sending it every trail event"
 area = "daemon"

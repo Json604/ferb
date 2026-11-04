@@ -4,13 +4,14 @@ interprets them, and they are stored as observed memory, never as the owner's wo
 the facts changed. The old setup question's Save / Edit / Skip flow is gone."""
 import asyncio
 import json
-from datetime import timedelta
 from types import SimpleNamespace
 
 from ferb.config import Config
 from ferb.daemon.persona import PersonaReview
 from ferb.device.persona import PersonaState, facts_fingerprint, mac_facts, with_activity
-from tests.conftest import FakeDistillRuntime
+from ferb.memory.items import label
+from ferb.memory.profile import entry_line
+from tests.conftest import FakeDistillRuntime, trail_row
 
 FACTS = mac_facts([{'bundle_id': 'com.microsoft.VSCode', 'app': 'Code', 'uses': 5162, 'last_used': '2026-10-30'},
                    {'bundle_id': 'com.brave.Browser', 'app': 'Brave Browser', 'uses': 10652,
@@ -42,7 +43,7 @@ def harness(tmp_path, collector):
     return review, config, built, events
 
 
-# decision: MEM-24
+# decision: MEM-426
 def test_gathered_facts_keep_the_most_used_apps_and_owner_focus_only_as_a_fallback():
     rows = [{'bundle_id': 'code', 'app': 'Code', 'uses': None, 'last_used': 'unknown'},
             {'bundle_id': 'blender', 'app': 'Blender', 'uses': 0, 'last_used': 'unknown'}]
@@ -54,7 +55,7 @@ def test_gathered_facts_keep_the_most_used_apps_and_owner_focus_only_as_a_fallba
     assert [a['app'] for a in FACTS['apps']] == ['Brave Browser', 'Code']          # most used first, unused left out
 
 
-# decision: MEM-24
+# decision: MEM-426
 def test_a_refresh_is_worth_interpreting_only_when_the_apps_browsers_or_profiles_changed():
     busier = json.loads(json.dumps(FACTS))
     busier['apps'][0]['uses'] += 400                                            # counts move every day
@@ -64,7 +65,7 @@ def test_a_refresh_is_worth_interpreting_only_when_the_apps_browsers_or_profiles
     assert facts_fingerprint(other) != facts_fingerprint(FACTS)
 
 
-# decision: MEM-13, MEM-24
+# decision: MEM-13, MEM-426, MEM-423
 def test_what_ferb_saw_is_built_once_shown_once_in_chat_and_stored_as_observed(daemon):
     from ferb.cli.client import Client
     calls = []
@@ -88,7 +89,7 @@ def test_what_ferb_saw_is_built_once_shown_once_in_chat_and_stored_as_observed(d
         assert not client.call('chat.status', {'peek': True})['approvals']            # no yes/no (MEM-12)
         items = client.call('memory.list')['items']
         assert sorted(i['key'] for i in items) == ['main_activity', 'main_browser']
-        assert {i['origin'] for i in items} == {'observed'} and not any(i['in_profile'] for i in items)
+        assert {i['origin'] for i in items} == {'observed'} and all(i['in_profile'] for i in items)
         shown = [e for e in notices(daemon) if "Here's what I saw" in e.data['text']]
         assert len(shown) == 1
         client.call('chat.attach')                                                   # never built or shown twice
@@ -99,7 +100,7 @@ def test_what_ferb_saw_is_built_once_shown_once_in_chat_and_stored_as_observed(d
         client.close()
 
 
-# decision: MEM-24
+# decision: MEM-426
 def test_the_setup_step_shows_it_so_chat_does_not(daemon):
     from ferb.cli.client import Client
     daemon.daemon.persona_scan = lambda *args: FACTS
@@ -117,31 +118,47 @@ def test_the_setup_step_shows_it_so_chat_does_not(daemon):
         client.close()
 
 
-# decision: MEM-13, MEM-18
-def test_mac_facts_join_the_core_profile_only_once_they_hold_up(daemon):
-    daemon.daemon.persona_scan = lambda *args: FACTS
-    daemon.daemon._make_runtime = lambda *a, **k: FakeDistillRuntime(ANSWER)
+# decision: MEM-423, MEM-424, MEM-425, MEM-427
+def test_the_scans_facts_join_the_core_profile_at_once_and_other_guesses_still_wait(daemon):
+    """Owner 2026-11-04 (MEM-423): the scan's facts join Tier 1 as soon as they are saved, labelled observed; the setup
+    step showing them is their telling, so no "Now always on" notice follows (MEM-427); FERB's other observations and
+    understanding about the owner still wait to hold up (MEM-15's rule for everything else)."""
+    d = daemon.daemon
+    d.persona_scan = lambda *args: FACTS
+    d._make_runtime = lambda *a, **k: FakeDistillRuntime(ANSWER)
+    pattern = trail_row(daemon, d.clock.now().astimezone().date().isoformat())   # the owner's activity, one day
 
     async def go():
-        daemon.daemon._prepare_persona(shown_by='setup')
-        await daemon.daemon.persona.task
-        items = daemon.daemon.memory.items('active')
-        fresh = [daemon.daemon.profile.holds_up(it) for it in items]
-        daemon.daemon.clock.advance(timedelta(days=8).total_seconds())
-        later = [daemon.daemon.profile.holds_up(it) for it in daemon.daemon.memory.items('active')]
-        return fresh, later
-    fresh, later = daemon.run(go())
-    assert fresh == [False, False] and later == [True, True]
+        habit = d.memory.propose("preference", "owner", "code_host", "Uses GitHub daily", "observed",
+                                 [("trail", pattern)])
+        said = d._journal().append("chat.message", {"text": "learning piano"}).id
+        guess = d.memory.propose("fact", "owner", "piano", "The owner is learning piano", "inferred",
+                                 [("journal", said)])
+        d._prepare_persona(shown_by='setup')
+        await d.persona.task
+        scan = [it for it in d.memory.items('active') if d.memory.from_mac_scan(it.id)]
+        for _ in range(20):                                   # a notice would be posted by a spawned task
+            await asyncio.sleep(0)
+        return habit, guess, scan, d.profile.ids(), d.profile.prompt_text() + d.profile.pending_text()
+    habit, guess, scan, ids, text = daemon.run(go())
+    assert len(scan) == 2 and {it.id for it in scan} <= ids
+    for it in scan:
+        assert it.origin == 'observed' and entry_line(it) in text and label(it.origin) in entry_line(it)
+    assert habit.id not in ids and guess.id not in ids
+    assert not [n for n in notices(daemon) if any(c.get('always_on') for c in n.data.get('cards', []))]
 
 
-# decision: MEM-13, MEM-24
+# decision: MEM-13, MEM-426, MEM-427
 def test_a_refresh_replaces_what_changed_quietly(daemon):
+    """A re-check whose facts changed: what is no longer given ends; the changed and the new facts are always on at
+    once and told as ONE notice carrying a card each (MEM-427)."""
     other = json.loads(json.dumps(FACTS))
     other['browsers'] = ['arc']
     facts = [FACTS]
     daemon.daemon.persona_scan = lambda *args: facts[-1]
     answers = [ANSWER, {"summary": "You moved to Arc.", "facts": [
-        {"kind": "env", "key": "main_browser", "content": "The owner's main browser is Arc."}]}]
+        {"kind": "env", "key": "main_browser", "content": "The owner's main browser is Arc."},
+        {"kind": "env", "key": "main_editor", "content": "The owner's main editor is VS Code."}]}]
     daemon.daemon._make_runtime = lambda *a, **k: FakeDistillRuntime(answers.pop(0))
 
     async def go():
@@ -150,10 +167,22 @@ def test_a_refresh_replaces_what_changed_quietly(daemon):
         unchanged = await daemon.daemon.persona.refresh()
         facts.append(other)
         changed = await daemon.daemon.persona.refresh()
-        return unchanged, changed, [(i.key, i.content) for i in daemon.daemon.memory.items('active')]
+        return unchanged, changed, sorted((i.key, i.content, i.id in daemon.daemon.profile.ids())
+                                          for i in daemon.daemon.memory.items('active'))
     unchanged, changed, items = daemon.run(go())
     assert (unchanged, changed) == (False, True)
-    assert items == [('main_browser', "The owner's main browser is Arc.")]   # main_activity no longer given: ended
+    # main_activity no longer given: ended, and out of the core profile; the re-interpreted facts are in it at once
+    assert items == [('main_browser', "The owner's main browser is Arc.", True),
+                     ('main_editor', "The owner's main editor is VS Code.", True)]
+    [told] = [n.data for n in notices(daemon) if any(c.get('always_on') for c in n.data.get('cards', []))]
+    keys = {i.id: i.key for i in daemon.run(_active(daemon))}
+    assert sorted(keys[c['item_id']] for c in told['cards']) == ['main_browser', 'main_editor']
+
+
+def _active(daemon):
+    async def read():
+        return daemon.daemon.memory.items('active')
+    return read()
 
 
 def test_scan_errors_are_redacted_and_can_be_retried(tmp_path):

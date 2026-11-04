@@ -23,7 +23,9 @@ class MemoryPort:
     forget_request: Callable[[str, str], str]           # a forget asked in chat (I2): (item id, request id) -> a line
     question_answered: Callable[[Any], str]             # FERB's own follow-up once the owner answered its question
     settle: Callable[[], Awaitable[None]]               # what a forget left behind completes first (I2)
-    identity_context: Callable[[], str]
+    identity_context: Callable[[], str]                 # Tier 1's settled block, in every role's instructions
+    identity_pending: Callable[[], str]                 # Tier 1's newly always on entries, after the cached part
+    settle_identity: Callable[[str], None]              # those move into the block (a summary fold: MEM-429)
     on_episode: Callable[[str], Any]                    # a finished task's episode card (may return an awaitable)
     typed_behind_memory: Callable[[str], list[str]]     # what the owner typed behind their remembered items (S3)
 

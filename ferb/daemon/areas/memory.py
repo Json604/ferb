@@ -66,6 +66,7 @@ class MemoryGlue:
         # step 9a upgrade (STORE-403): memory cleaned once, then the core profile seeded from it, both journaled
         clean_before_tier1(self.memory, lambda kind, data: self._journal().append(kind, data))
         self.profile.seed()
+        self.profile.settle("start")                  # MEM-429: a start settles what joined Tier 1 before it
         # step 9b upgrade: the old fact-node copies close once (search reads memory_items itself)
         close_fact_nodes(self.db, self.clock.now().isoformat(), lambda kind, data: self._journal().append(kind, data))
         self._restore_memory_questions()
@@ -202,9 +203,19 @@ class MemoryGlue:
         return {"status": "done"}
 
     def _core_profile_text(self) -> str:
-        """Tier 1 for every role's instructions (planner and workers; kb area memory)."""
+        """Tier 1's settled block for every role's instructions (planner and workers; kb area memory)."""
         profile = getattr(self, "profile", None)
         return profile.prompt_text() if profile is not None and self.memory is not None else ""
+
+    def _core_profile_pending(self) -> str:
+        """MEM-429: Tier 1's entries newly always on since its block settled, for after each prompt's cached part."""
+        profile = getattr(self, "profile", None)
+        return profile.pending_text() if profile is not None and self.memory is not None else ""
+
+    def _settle_core_profile(self, why: str) -> None:
+        profile = getattr(self, "profile", None)
+        if profile is not None:
+            profile.settle(why)
 
     async def _reindex_search(self) -> None:
         """L36 §3: the search index by content (`search_text`), once per SEARCH_TEXT_VERSION, asked at every start (a
@@ -793,9 +804,9 @@ class MemoryGlue:
         return out
 
     def _now_always_on(self, items: list[Any]) -> None:
-        """MEM-15: facts of FERB's understanding or observation that just joined the core profile, each told once
-        by a quiet notice with its note card (the 8e note card, `always_on`), Correct / Forget on it; never a
-        question."""
+        """MEM-15, MEM-423: facts of FERB's understanding or observation (the Mac scan's too) that just joined the core
+        profile, each told once by a quiet notice with its note card (the 8e note card, `always_on`), Correct / Forget
+        on it; never a question."""
         from ferb.memory.items import label
         from ferb.orchestrator import cards
         for it in items:
@@ -1080,7 +1091,8 @@ class MemoryGlue:
             from ferb.daemon.persona import PersonaReview
             self.persona = PersonaReview(self.config, None, build=self._build_mac_profile,
                                          record=lambda kind, data: self._journal().append(kind, data),
-                                         tell=self._tell_mac_profile, redact=self.redact,
+                                         tell=self._tell_mac_profile, tell_joined=self._tell_mac_joins,
+                                         redact=self.redact,
                                          clock=lambda: self.clock.now().isoformat())
         if self.persona_scan is not None and self.persona.collect is None:
             scan = self.persona_scan
@@ -1106,11 +1118,34 @@ class MemoryGlue:
         return dict(self._mac_profile_service().start(refresh=refresh, shown_by=shown_by))
 
     async def _build_mac_profile(self, facts: dict[str, Any]) -> dict[str, Any]:
-        """MEM-13: a model interprets the gathered facts; code stores them as observed memory."""
+        """MEM-13: a model interprets the gathered facts; code stores them as observed memory. They join the core
+        profile at once (MEM-423) without a notice each (MEM-427): `joined` lists the stored facts that are newly in it
+        (a join, or a new version taking an entry's place), for `PersonaReview` to tell as one notice when nothing
+        else shows them."""
         from ferb.memory.mac_profile import interpret, store
         answer = await interpret(self._make_runtime, facts, device_id=str(self.config.get("device", "id", "dev")),
                                  spans=self.spans, usage=self._record_learning_usage("mac_profile"))
-        return store(self.memory, lambda kind, data: self._journal().append(kind, data), facts, answer)
+        before = self.profile.ids()
+        with self.profile.holding_joins():
+            stored = store(self.memory, lambda kind, data: self._journal().append(kind, data), facts, answer)
+        now = self.profile.ids() - before
+        return stored | {"joined": [f["id"] for f in stored["facts"] if f["id"] in now]}
+
+    async def _tell_mac_joins(self, ids: list[str]) -> None:
+        """MEM-427: a re-check's scan facts newly in the core profile, told as ONE quiet notice carrying a note card
+        each (Correct / Forget), its line as one join's (`_now_always_on`)."""
+        from ferb.memory.items import label
+        from ferb.orchestrator import cards
+        items = [it for i in ids if (it := self.memory.get(i)) is not None]
+        if not items:
+            return
+        texts = [" ".join(it.content.split()) for it in items]
+        line = "Now always on: " + ", ".join(f"“{t}”" for t in texts) + f" ({label(items[0].origin)})"
+        made = [cards.note(it.id, t, "saved", line) | {"label": label(it.origin), "origin": it.origin,
+                                                       "always_on": True} for it, t in zip(items, texts)]
+        await self._tell_owner(f"memory-always-on-scan-{self.clock.now().isoformat()}",
+                               ["memory:" + it.id for it in items], line,
+                               origin_.join({origin_.FERB, origin_.INFERRED}), cards=made)
 
     async def _tell_mac_profile(self, text: str) -> None:
         """Shown once in chat when the setup step didn't show it (MEM-13: "here's what I saw", no yes/no)."""
