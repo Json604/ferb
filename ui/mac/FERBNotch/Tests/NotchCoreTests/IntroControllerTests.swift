@@ -302,6 +302,37 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(forward, 1)
     }
 
+    /// Owner's run, 2026-11-04 12:03: "the only time ferb window wasnt getting out of focus was at input monitoring
+    /// step". Accessibility was confirmed, so Input Monitoring already read on when macOS answered the request; FERB
+    /// still opened its pane and docked the logo ("drag me"), stepped behind Settings and came forward at once to say
+    /// it was on, and the owner dragged the logo in with the tour in front. A grant macOS reports on opens no pane,
+    /// docks nothing and never steps behind: the tour, already in front, says it is on.
+    // decision: APP-697, APP-687
+    func testAGrantAlreadyOnWhenMacOSAnswersOpensNoPaneAndDocksNothing() async {
+        let t = tour()
+        var forward = 0
+        var behind = 0
+        t.notch.onComeForward = { forward += 1 }
+        t.notch.onStepBehindSettings = { behind += 1 }
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted",
+                                                                          input: "denied")
+        t.rig.rpc.replies["setup.permission_request"] = ["permission": "input_monitoring", "status": "granted"]
+        t.rig.rpc.onCall = { [rpc = t.rig.rpc] method in
+            guard method == "setup.permission_request" else { return }
+            rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
+        }
+        t.controller.start(beats: [.permissions, .home])
+        await t.pick("permissions.next")
+        await eventually { t.progress.done }
+        XCTAssertEqual(t.rig.rpc.params(of: "setup.permission_request").first?["permission"] as? String,
+                       "input_monitoring")
+        XCTAssertFalse(t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_ListenEvent") })
+        XCTAssertTrue(t.orb.docks.isEmpty)
+        XCTAssertEqual(behind, 0)
+        XCTAssertEqual(forward, 1)                                        // acknowledged, in front already
+        XCTAssertTrue(t.lines.all.contains { $0.text.contains("is on") })
+    }
+
     /// After macOS's Quit & Reopen the resumed beat finds the grant FERB was waiting on confirmed: it is acknowledged
     /// in front of Settings too (after the resume's own step behind Settings, APP-642).
     // decision: APP-687
@@ -619,54 +650,89 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Control
 
-    /// Stop is practised on a real task the tour starts (APP-667): Stop this task answers at once with the real
-    /// `task.stop` for that task, and the beat goes on once the chat shows it stopped. Past report (owner, 2026-11-04):
-    /// the old stop step seemed stuck.
-    // decision: APP-667, APP-668
-    func testControlBeatPractisesStopOnARealTask() async {
+    /// Owner, 2026-11-04: "it started doing the task i said not now, why??? it didnt listen to me". Not now in Try runs
+    /// nothing, and nothing later in the tour starts a task: Control only shows where Stop is.
+    // decision: APP-696, APP-668
+    func testNotNowInTryStartsNoTaskAnywhereInTheTour() async {
         let t = tour()
-        t.rig.rpc.events["chat.send"] = Self.taskEvents("r1", status: "")
-        t.rig.rpc.heldStreams = ["chat.send"]
-        t.controller.start(beats: [.control, .home])
+        t.controller.start(beats: [.tryIt, .control, .home])
+        await t.pick("notNow")
         await eventually { t.controls.onControl != nil }
         t.controls.send(.toggle)
         t.controls.send(.talk)
-        await eventually { t.rig.rpc.params(of: "chat.send").count == 1 }
-        await eventually { t.notch.conversation.turns.contains { $0.backendTaskID == "task-r1" } }
-        await t.pick("stopTask")
-        XCTAssertEqual(t.notch.introLine?.text, IntroCopy.stopping.text)        // at once, before the daemon answers
-        await eventually { t.rig.rpc.methods().contains("task.stop") }
-        XCTAssertEqual(t.rig.rpc.params(of: "task.stop").first?["task_ids"] as? [String], ["task-r1"])
-        t.rig.rpc.endStream("chat.send", with: [Self.outcome("r1", status: "stopped")])
         await eventually { t.notch.introLine == IntroCopy.control(.pause) }    // waiting on the last control
-        XCTAssertFalse(t.progress.done)
+        XCTAssertTrue(t.lines.all.contains(IntroCopy.control(.stop)))          // where Stop is, said only
+        XCTAssertTrue(t.rig.rpc.params(of: "chat.send").isEmpty)
+        XCTAssertEqual(t.rig.rpc.params(of: "intro.suggest").count, 1)         // Try's own, never another
         t.notch.daemonPaused = true
         t.controls.send(.pause)
         await eventually { t.progress.done }
+        XCTAssertTrue(t.rig.rpc.params(of: "chat.send").isEmpty)
         XCTAssertTrue(t.rig.rpc.methods().contains("sense.resume"))             // the pause is lifted at once
         XCTAssertFalse(t.notch.daemonPaused)
     }
 
-    /// The stop practice never hangs: a task that ends before Stop is told and the beat goes on; Go on leaves a stop
-    /// the daemon hasn't confirmed.
-    // decision: APP-667
-    func testTheStopPracticeCannotHang() async {
-        let finished = tour()                                                   // ends before the owner stops it
-        finished.controller.start(beats: [.control, .home])
-        await eventually { finished.controls.onControl != nil }
-        finished.controls.send(.toggle)
-        finished.controls.send(.talk)
-        await eventually { finished.notch.introLine == IntroCopy.control(.pause) }
-        XCTAssertTrue(finished.lines.all.contains(IntroCopy.finishedBeforeStop))
+    /// The owner's Try task still running when Control comes: Stop it now answers at once with the real `task.stop`
+    /// for that task and the beat goes on once the chat shows it stopped; Let it finish leaves it running. No second
+    /// task is started either way.
+    // decision: APP-696
+    func testControlOffersToStopTheOwnersTryTaskWhileItRuns() async {
+        for letItFinish in [false, true] {
+            let t = tour()
+            t.rig.rpc.events["chat.send"] = Self.taskEvents("r1", status: "")
+            t.rig.rpc.heldStreams = ["chat.send"]
+            t.controller.start(beats: [.tryIt, .control, .home])
+            await t.pick("suggestion.0")
+            await eventually { t.notch.conversation.turns.contains { $0.backendTaskID == "task-r1" } }
+            await t.pick("goOn")                                                // Continue the tour: it keeps running
+            await t.pick("next")
+            await eventually { t.controls.onControl != nil }
+            t.controls.send(.toggle)
+            t.controls.send(.talk)
+            if letItFinish {
+                await t.pick("letFinish")
+                await eventually { t.notch.introLine == IntroCopy.control(.pause) }
+                XCTAssertFalse(t.rig.rpc.methods().contains("task.stop"))
+            } else {
+                await t.pick("stopTask")
+                XCTAssertEqual(t.notch.introLine?.text, IntroCopy.stopping.text)    // at once, before the daemon answers
+                await eventually { t.rig.rpc.methods().contains("task.stop") }
+                XCTAssertEqual(t.rig.rpc.params(of: "task.stop").first?["task_ids"] as? [String], ["task-r1"])
+                t.rig.rpc.endStream("chat.send", with: [Self.outcome("r1", status: "stopped")])
+                await eventually { t.notch.introLine == IntroCopy.control(.pause) }
+            }
+            XCTAssertEqual(t.rig.rpc.params(of: "chat.send").count, 1)          // only the owner's pick ever ran
+            t.rig.rpc.endStream("chat.send")
+        }
+    }
+
+    /// Try's task already done: Control starts nothing and only shows where Stop is. Go on never leaves an unconfirmed
+    /// stop waiting.
+    // decision: APP-696
+    func testTheStopStepStartsNothingAfterTryAndCannotHang() async {
+        let done = tour()
+        done.controller.start(beats: [.tryIt, .control, .home])
+        await done.pick("suggestion.0")
+        await eventually { done.notch.conversation.turns.contains { $0.status == "done" } }
+        await done.pick("next")
+        await eventually { done.controls.onControl != nil }
+        done.controls.send(.toggle)
+        done.controls.send(.talk)
+        await eventually { done.notch.introLine == IntroCopy.control(.pause) }
+        XCTAssertTrue(done.lines.all.contains(IntroCopy.control(.stop)))
+        XCTAssertEqual(done.rig.rpc.params(of: "chat.send").count, 1)
 
         let unconfirmed = tour()
         unconfirmed.rig.rpc.events["chat.send"] = Self.taskEvents("r1", status: "")
         unconfirmed.rig.rpc.heldStreams = ["chat.send"]
-        unconfirmed.controller.start(beats: [.control, .home])
+        unconfirmed.controller.start(beats: [.tryIt, .control, .home])
+        await unconfirmed.pick("suggestion.0")
+        await eventually { unconfirmed.notch.conversation.turns.contains { $0.backendTaskID == "task-r1" } }
+        await unconfirmed.pick("goOn")
+        await unconfirmed.pick("next")
         await eventually { unconfirmed.controls.onControl != nil }
         unconfirmed.controls.send(.toggle)
         unconfirmed.controls.send(.talk)
-        await eventually { unconfirmed.notch.conversation.turns.contains { $0.backendTaskID == "task-r1" } }
         await unconfirmed.pick("stopTask")
         await unconfirmed.pick("goOn")                                          // the daemon never confirmed
         await eventually { unconfirmed.notch.introLine == IntroCopy.control(.pause) }
@@ -758,7 +824,8 @@ final class IntroControllerTests: XCTestCase {
         await eventually { t.controls.onControl != nil }
         t.controls.send(.toggle)
         t.controls.send(.talk)
-        await eventually { t.notch.expanded && t.rig.rpc.params(of: "chat.send").count == 2 }
+        await eventually { t.notch.introLine == IntroCopy.control(.pause) }
+        XCTAssertEqual(t.rig.rpc.params(of: "chat.send").count, 1)      // the tour starts no task of its own (APP-696)
         XCTAssertEqual(focused, 0)                                        // no open the tour made asked for focus
         XCTAssertEqual(interactions, 0)
         XCTAssertGreaterThan(quiet, 0)

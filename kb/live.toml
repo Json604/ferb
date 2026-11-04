@@ -2497,17 +2497,17 @@ title = "Try runs the picked suggestion for real and shows it working"
 area = "app"
 surface = "FERB.app with this build, replaying the intro to Try; signed in; the default suggestions or the scan's"
 request = "In Try, pick a suggestion and watch; then Try the other one; then Continue."
-pass = "The picked task starts at once as your message in the open chat (a normal task in its trace, usual questions asked), its card and preview fill, and the notch says the step with the time ticking. It ends with Done (or what happened) and the result in the chat; no Do it for real. The other suggestion runs the same way. Both only look and report: nothing moved, deleted, sent or bought."
-decisions = ["APP-693", "DMN-533"]
+pass = "The picked task starts at once as your message in the open chat (a normal task in its trace, usual questions asked), its card and preview fill, and the notch says the step with the time ticking. It ends with Done (or what happened) and the result in the chat; no Do it for real. The other suggestion runs the same way. Both only look and report: nothing moved, deleted, sent or bought, and neither asks to use the screen or anything else on the way (neither reads browsing history)."
+decisions = ["APP-693", "DMN-542"]
 sitting = "after this change is installed"
 
 [LIVE-729]
-title = "The Control beat practises Stop on a real task, at once, and has no Control-Option-Space"
+title = "The Control beat starts no task of its own and has no Control-Option-Space"
 area = "app"
 surface = "FERB.app with this build, replaying the intro to Control"
-request = "Do the controls as asked; at Stop, press Stop this task while it runs. Afterwards press Control-Option-Space."
-pass = "There is no Control-Option-Space step (and the key does nothing in FERB; the app guide and Home's line don't mention it). A real task starts; Stop this task shows \"Stopping it…\" at once, the chat shows the task stopped and the trace shows task.stop for it, then the beat goes on to Pause FERB. Nothing waits without a line or a way on."
-decisions = ["APP-667", "APP-668"]
+request = "Do the controls as asked. Afterwards press Control-Option-Space."
+pass = "There is no Control-Option-Space step (and the key does nothing in FERB; the app guide and Home's line don't mention it). The Stop step starts no task (no new message in the chat or the journal); it offers to stop Try's task only if it is still running (LIVE-756), else says where Stop is and goes on to Pause FERB. Nothing waits without a line or a way on."
+decisions = ["APP-696", "APP-668"]
 sitting = "after this change is installed"
 
 [LIVE-730]
@@ -2687,4 +2687,30 @@ surface = "FERB.app with this build; the store's extension 0.19.1 in the paired 
 request = "Ask FERB to read and summarise a few of your open tabs, including that background one."
 pass = "The answer ends without \"I couldn't tidy up…\"; no \"FERB started debugging this browser\" bar stays. If a leftover line ever appears, it names the browser, profile and tab title in plain words and says what to do, with no error codes."
 decisions = ["HAND-418", "HAND-419"]
+
+[LIVE-756]
+title = "Not now in Try runs nothing; Control offers to stop only the owner's own running Try task"
+area = "app"
+surface = "FERB.app with this build, replaying the intro to Try"
+request = "Run 1: in Try press Not now, then do the Control beat. Run 2: pick a suggestion, press Continue the tour while it still runs, then at Control press Stop it now (once more: Let it finish)."
+pass = "Run 1: no task starts anywhere in the tour (no message in the chat, no chat.message in the journal after Not now); the Stop step only says where Stop is and goes on. Run 2: Control says your task is still running with Stop it now and Let it finish; Stop it now shows \"Stopping it…\" at once and the chat shows it stopped (task.stop in the trace); Let it finish leaves it running to its result. No second task starts."
+decisions = ["APP-696"]
+sitting = "after this change is installed"
+
+[LIVE-757]
+title = "Input Monitoring after Accessibility: no System Settings visit when it already reads on"
+area = "app"
+surface = "A fresh first-run tour (or a replay with Accessibility and Input Monitoring off), System Settings beside the notch"
+request = "Grant Accessibility first (drag the logo in, switch it on); then pick Input Monitoring."
+pass = "If Input Monitoring already reads on once asked, the tour says it is on at once: no Input Monitoring pane opens, the logo doesn't dock or offer a drag, and nothing steps forward and back. If it reads off, its pane opens with the logo beside Settings and the tour behind it, as for every other list permission."
+decisions = ["APP-697", "APP-687"]
+sitting = "after this change is installed"
+
+[LIVE-758]
+title = "A fresh install's menu bar says setting up until the service runs, never \"isn't running\""
+area = "app"
+surface = "A fresh install of FERB.app with this build (no ~/Library/LaunchAgents/com.ferb.daemon.plist), then the finished setup"
+request = "Open FERB.app for the first time and click its menu-bar icon during the startup and Meet; later, with setup done, quit the daemon from Terminal (launchctl bootout gui/$UID/com.ferb.daemon) and click the icon again."
+pass = "Before and while Meet installs the service, and during a permission's restart, the icon is the plain waveform and the menu says \"Setting up FERB…\" with no Restart; the notch's profile menu says the same. With setup done and the service stopped, it shows \"FERB isn't running — Restart\" with the warning icon."
+decisions = ["APP-698"]
 sitting = "after this change is installed"

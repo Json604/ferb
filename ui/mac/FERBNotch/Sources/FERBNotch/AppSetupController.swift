@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import NotchCore
 
@@ -85,7 +86,22 @@ final class AppSetupController: NSObject {
     func startAtLaunch() {
         guard isPackaged else { return }
         let action = currentAction()
+        watchServiceSetup(pending: action != .none)
         Task { @MainActor in await self.decideAtLaunch(action) }
+    }
+
+    private var serviceSetupWatch: AnyCancellable?
+
+    /// The notch's menu bar follows whether setup is setting the background service up (APP-698): from launch, when
+    /// the service still has to be installed or updated (`pending`), until it runs, and again during any restart.
+    func watchServiceSetup(pending: Bool) {
+        notch?.serviceSettingUp = pending || model.settingUpService
+        serviceSetupWatch = model.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async {                 // objectWillChange fires before the change lands
+                guard let self else { return }
+                self.notch?.serviceSettingUp = self.model.settingUpService
+            }
+        }
     }
 
     /// The launch decision for `action`. Only this build's running service is asked what's still missing: a new

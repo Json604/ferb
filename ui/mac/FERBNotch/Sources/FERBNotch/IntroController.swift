@@ -13,8 +13,8 @@ enum IntroAnswer: Equatable {
 /// FERB.app's first-run tour (kb area app): Meet → Sign in → Permissions → Pair browsers → FERB's email →
 /// Try → Control → Home. FERB speaks in text lines in the notch, the orb points at places on screen, every grant counts
 /// only when the system confirms it, and every wait shows what FERB is doing, alive, with its elapsed time (APP-665).
-/// Try runs the task the owner picks for real, through the normal chat path (APP-666), and Control practises Stop on a
-/// real look-only task (APP-667). Skippable from the permissions beat (everything it drew or said is torn down at
+/// Try runs the task the owner picks for real, through the normal chat path (APP-666); the tour never starts a task the
+/// owner didn't ask for, so Control offers to stop Try's task only while it still runs (APP-696). Skippable from the permissions beat (everything it drew or said is torn down at
 /// once), resumable at the beat it was on (`IntroProgress`). SetupModel is the service layer; the beats are in
 /// IntroSetupBeats.swift and IntroDemoBeats.swift, the words in IntroCopy.swift.
 @MainActor
@@ -56,9 +56,11 @@ final class IntroController {
     private var answer: ((IntroAnswer) -> Void)?
     /// Choices that act at once while the tour waits on the system (Show FERB in Finder, Restart FERB to check).
     var sideChoices: [String: () -> Void] = [:]
-    /// Try's two suggestions and the ones that ran, so the stop practice runs one that hasn't (APP-667).
-    var offered: [IntroSuggestion] = []
+    /// The suggestions Try ran, so "Try the other one" offers one that hasn't run.
     var ran: Set<String> = []
+    /// The tasks the owner started in Try, newest last: Control offers to stop one still running and starts none of
+    /// its own (APP-696).
+    var tryTasks: [UUID] = []
     var seenControls: Set<IntroControl> = []
     var controlWaiter: (() -> Void)?
 
@@ -218,6 +220,8 @@ final class IntroController {
         var unanswered = 0
         let since = Date()
         var line = IntroCopy.resuming.waiting(since: since)
+        setup.waitingForService = true                       // the menu bar says setting up meanwhile (APP-698)
+        defer { setup.waitingForService = false }
         while live, !(await setup.serviceAnswers()) {
             say(line)
             unanswered += 1

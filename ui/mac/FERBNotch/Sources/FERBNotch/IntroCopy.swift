@@ -17,7 +17,7 @@ enum IntroCopy {
         static func profile(_ index: Int) -> String { "profile.\(index)" }
         static func suggestion(_ index: Int) -> String { "suggestion.\(index)" }
         static let otherSuggestion = "otherSuggestion", notNow = "notNow", goOn = "goOn"
-        static let stopTask = "stopTask", stopWaiting = "stopWaiting", pairOne = "pairOne"
+        static let stopTask = "stopTask", letFinish = "letFinish", stopWaiting = "stopWaiting", pairOne = "pairOne"
         /// Add to <browser> on one profile of Pair all's result (HAND-413): its row's id is "browser/folder".
         static func add(_ id: String) -> String { "add." + id }
         static func addedRow(_ pick: String) -> String? { pick.hasPrefix("add.") ? String(pick.dropFirst(4)) : nil }
@@ -366,7 +366,9 @@ enum IntroCopy {
             return IntroLine(text: "Hold right ⌘ Command and ⌥ Option together and talk to me. Let go when you're done.",
                              detail: "Nothing you say now starts a task.")
         case .stop:
-            return IntroLine(text: "Now stop me.", detail: "Press Stop this task. That's how you stop anything I'm doing.")
+            // Shown when nothing the owner started runs: the tour starts no task of its own (APP-696).
+            return IntroLine(text: "To stop me while I work: Tasks, then Stop task.",
+                             detail: "Tasks is at the top of the chat, next to History.")
         case .pause:
             return IntroLine(text: "Last one: click my icon in the menu bar and choose Pause FERB.",
                              detail: "Paused, I don't see or touch anything. I'll switch myself back on right away.")
@@ -375,19 +377,16 @@ enum IntroCopy {
     static let alreadyPaused = IntroLine(text: "I'm paused right now, as you left me.",
                                          detail: "That's Pause FERB in my menu-bar icon: I don't see or touch anything until you choose Resume. I'll stay paused.")
     static let controlsDone = IntroLine(text: "You've got it.")
-    /// The stop practice (APP-667): a real, look-only task the owner stops while it runs.
-    static let startingStopTask = IntroLine(text: "Starting a task you can stop…")
-    static func stopNow(_ request: String) -> IntroLine {
-        IntroLine(text: "Now stop me.",
-                  detail: "I'm working on “\(request)”. Press Stop this task: that's how you stop anything I'm doing.",
-                  choices: [IntroChoice(Pick.stopTask, "Stop this task")])
+    /// Stop (APP-696): offered only on the owner's own Try task while it still runs.
+    static func stopOffer(_ request: String) -> IntroLine {
+        IntroLine(text: "Your task is still running.",
+                  detail: "“\(request)”. Stop it now, or let it finish. Stopping works the same on anything I'm doing.",
+                  choices: [IntroChoice(Pick.stopTask, "Stop it now"), IntroChoice(Pick.letFinish, "Let it finish")])
     }
     static let stopping = IntroLine(text: "Stopping it…", choices: [IntroChoice(Pick.goOn, "Go on")])
     static let stopped = IntroLine(text: "Stopped.", detail: "That's all it takes. The chat shows it stopped.")
-    static let finishedBeforeStop = IntroLine(text: "It finished before you stopped it.",
-                                              detail: "While a task runs, Stop this task stops it.")
-    static let stopUnavailable = IntroLine(text: "I couldn't start a task to stop just now.",
-                                           detail: "While a task runs, Stop this task stops it.")
+    static let lettingItFinish = IntroLine(text: "It keeps running.", detail: "Its result will arrive in the chat.")
+    static let finishedFirst = IntroLine(text: "It finished.", detail: "The result is in the chat.")
 
     // MARK: 8. Home
 

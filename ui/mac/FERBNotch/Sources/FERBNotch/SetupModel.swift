@@ -130,6 +130,8 @@ final class SetupModel: ObservableObject {
             if grantWait?.id == row.id { grantWait = nil }
         }
         await grant(row) { [weak self] step in self?.moveGrant(step) }
+        // Already on once macOS answered: no pane, no dock beside Settings, nothing for the owner to do (APP-697).
+        if allRows.first(where: { $0.id == row.id })?.status == .granted { return true }
         moveGrant(.waitingForSwitch)
         asked?()
         var polls = 0
@@ -173,6 +175,18 @@ final class SetupModel: ObservableObject {
 
     /// The waited-on grant moves to `step` (nothing waits: nothing to show).
     private func moveGrant(_ step: GrantWait.Step) { grantWait?.move(to: step, at: Date()) }
+
+    /// A resumed tour is waiting for the background service to answer, starting it if it stays silent.
+    @Published var waitingForService = false
+
+    /// FERB.app is setting its background service up: an install or update not yet run (a first run before Meet)
+    /// and not failed, its command running, a restart, or a wait that starts it again. A daemon that doesn't answer
+    /// meanwhile is expected, so the menu bar says "Setting up FERB…", never "isn't running" (APP-698); a failed
+    /// install shows its reason in the tour and the menu bar's error again.
+    var settingUpService: Bool {
+        serviceRunning || restarting || waitingForService || grantWait?.step == .startingService
+            || (serviceAction != .none && serviceError == nil)
+    }
 
     /// Reads without an answer before a grant's wait starts the background service (about 4.5 s at `grantPoll`): a
     /// daemon that is only slow is never killed, `start` leaves a running one alone.
@@ -423,7 +437,13 @@ final class SetupModel: ObservableObject {
         default:
             if row.requestable {
                 step?(.asking)
-                _ = try? await rpc.call("setup.permission_request", params: ["permission": row.id], wait: 120)
+                let reply = try? await rpc.call("setup.permission_request", params: ["permission": row.id], wait: 120)
+                // macOS answers that it is already on (Input Monitoring reads on once Accessibility is, live
+                // 2026-11-04): System Settings has nothing to show, so its pane isn't opened (APP-697).
+                if GrantStatus(daemon: reply?["status"]) == .granted {
+                    await refreshPermissions()
+                    return
+                }
                 try? await Task.sleep(for: requestSettle)
             }
             step?(.opening)

@@ -38,13 +38,16 @@ public struct DaemonLink: Equatable {
 
 /// The menu bar's one state, most urgent first.
 public enum MenuBarState: Equatable {
-    case connecting, notRunning, needsYou(Int), stopped, paused, working(Int), ready
+    case connecting, settingUp, notRunning, needsYou(Int), stopped, paused, working(Int), ready
 
+    /// `settingUp`: FERB.app hasn't set the background service up yet, or is installing, starting or restarting it
+    /// now (a first run before Meet, a quiet update, a permission's restart): a daemon not answering then is expected,
+    /// never "isn't running" (APP-698). Only a service that should run and doesn't is `notRunning`.
     public static func derive(link: DaemonLink.State, paused: Bool, stopped: Bool, questions: Int,
-                              running: Int) -> MenuBarState {
+                              running: Int, settingUp: Bool = false) -> MenuBarState {
         switch link {
-        case .connecting: return .connecting
-        case .unreachable: return .notRunning
+        case .connecting: return settingUp ? .settingUp : .connecting
+        case .unreachable: return settingUp ? .settingUp : .notRunning
         case .connected: break
         }
         if questions > 0 { return .needsYou(questions) }
@@ -57,7 +60,7 @@ public enum MenuBarState: Equatable {
     /// SF Symbols available on macOS 14.
     public var symbol: String {
         switch self {
-        case .connecting, .ready: return "waveform"
+        case .connecting, .settingUp, .ready: return "waveform"
         case .working: return "ellipsis.circle"
         case .needsYou: return "exclamationmark.bubble"
         case .paused, .stopped: return "pause.circle"
@@ -68,6 +71,7 @@ public enum MenuBarState: Equatable {
     public var statusLine: String {
         switch self {
         case .connecting: return "Connecting to FERB…"
+        case .settingUp: return "Setting up FERB…"
         case .ready: return "FERB is ready"
         case .working(let n): return n == 1 ? "Working on 1 task" : "Working on \(n) tasks"
         case .needsYou(let n): return n == 1 ? "FERB needs you: 1 question" : "FERB needs you: \(n) questions"
@@ -98,7 +102,7 @@ public enum StatusMenu {
         if hasWindow { entries.append(.item("Open FERB Window", .openWindow, key: "")) }
         if state == .notRunning {
             entries.append(.item("Restart FERB", .restart, key: ""))
-        } else if state != .connecting {
+        } else if state != .connecting && state != .settingUp {
             if stopped { entries.append(.item("Lift Emergency Stop", .liftStop, key: "")) }
             entries.append(paused ? .item("Resume FERB", .resume, key: "") : .item("Pause FERB", .pause, key: ""))
         }

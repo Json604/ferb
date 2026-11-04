@@ -126,9 +126,20 @@ final class NotchModel: ObservableObject {
     /// L34 D: a question was answered (here or elsewhere), so its banner, if any, is withdrawn.
     var onApprovalResolved: ((String) -> Void)?
 
+    /// FERB.app's setup hasn't set the background service up yet, or is installing, starting or restarting it now
+    /// (AppSetupController keeps it): a daemon that doesn't answer meanwhile reads as setting up (APP-698).
+    @Published var serviceSettingUp = false
+
     var menuBarState: MenuBarState {
         MenuBarState.derive(link: daemonLink.state, paused: daemonPaused, stopped: daemonStopped,
-                            questions: pendingApprovals.count, running: runningTasks.count)
+                            questions: pendingApprovals.count, running: runningTasks.count,
+                            settingUp: serviceSettingUp)
+    }
+
+    /// The connection line of the notch's profile menu: what the menu bar says while the service is being set up,
+    /// never the refused connection's "isn't running" (APP-698).
+    var connectionLine: String {
+        menuBarState == .settingUp ? MenuBarState.settingUp.statusLine : connectionStatus
     }
     @Published var pendingApprovals: [DaemonApproval] = [] {
         didSet { if pendingApprovals != oldValue { taskListCache.invalidate() } }
@@ -702,7 +713,8 @@ final class NotchModel: ObservableObject {
     /// Stop exactly this turn's task (the tour's Stop on the task it started), through the same `task.stop` as the
     /// task list's Stop task; a turn whose task id hasn't come yet is stopped as soon as it does.
     func stopTurn(_ id: UUID) {
-        guard let turn = conversation.turns.first(where: { $0.id == id }), turn.status == "working" else { return }
+        // A task waiting on the owner's answer is still running and stops the same way (TaskItem.isRunning).
+        guard let turn = conversation.turns.first(where: { $0.id == id }), TaskItem.isRunning(turn.status) else { return }
         guard let backend = turn.backendTaskID, !backend.isEmpty else { pendingStops.insert(id); return }
         guard !stoppingTaskIDs.contains(backend) else { return }
         stoppingTaskIDs.insert(backend)
