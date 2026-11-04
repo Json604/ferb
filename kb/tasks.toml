@@ -558,3 +558,20 @@ status = "open"
 why = "Owner 2026-11-04: \"add instructions in prompts to do what user says, hard instructions\". After the wipe lost memory M1, the model refused graded coursework (14:48). The rule goes in the shared prefix; only FERB's code boundaries limit it. Owner decides wording (T-1040)."
 decisions = ["PRM-303"]
 after = ["T-1040"]
+
+[T-1055]
+title = "Tasks and schedules show a short name, not the planner's full instruction"
+area = "orchestration"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-04: long text in chat and the schedule box \"doesnt look smart at all\". Trace: sc-7884cee123 shows its 392-char run instruction; the task card its 474-char goal. Planner writes a short name; cards, Tasks and Schedules show it (+ repeat); full text under Details."
+decisions = ["ORCH-329", "APP-300"]
+
+[T-1056]
+title = "A clarifying question is only the question"
+area = "prompts"
+kind = "bug"
+status = "open"
+why = "Trace 2026-11-04 14:48: the planner's clarify was 325 chars (the question, then a restatement and \"I can't…\"), against interaction.md:9's \"no restating the request\"; 14:52's 54-char one was right. Goes into T-1040's wording, which the owner approves."
+decisions = ["PRM-312"]
+after = ["T-1040"]
