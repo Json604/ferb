@@ -561,11 +561,61 @@ class Browsers:
 
     async def _setup_browsers_pair_all(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Pair all (owner 2026-10-27: "a pair all which opens all pairs instantly and closes all too. SO THERES NO
-        MANUAL STEP LATER"): every profile whose FERB extension is in and not yet paired, all at once."""
-        todo = [p for p in self._profiles() if (p.browser, p.folder) != self._identity_profile()
-                and self._profile_state(p) == "installed"]
+        MANUAL STEP LATER"): every profile whose FERB extension is in and not yet paired, all at once.
+        HAND-411: every other owner profile is listed in `skipped` with its structural reason and the owner's step
+        (`not_paired_step`; a paired profile that can't connect gives `hub.problem`'s words), so nothing is passed
+        over in silence; `profiles` counts the owner's profiles (FERB's own is left out). Nothing opens or restarts a
+        browser here."""
+        from ferb.act.browser import autoinstall
+        from ferb.device.extensions import extension_path, not_paired_step, store_page
+        store = autoinstall.store_extension_id(self.config)
+        ids = autoinstall.accepted_extension_ids(self.config)
+        paired = {(b.browser, b.folder) for b in self.pairings.all()} if self.pairings is not None else None
+        data = await asyncio.to_thread(self._browser_data)
+        states = await asyncio.to_thread(autoinstall.read_states, self.browser_support, store, ids, paired, data)
+        known = {(p.browser, p.folder): p for p in await asyncio.to_thread(self._profiles)}
+        url, ext_dir, ferb = store_page(store), extension_path(self.home), self._identity_profile()
+        todo: list[Any] = []
+        skipped: list[dict[str, Any]] = []
+        labels: dict[tuple[str, str], str] = {}
+        owner = 0
+        for s in states:
+            label = browser_profiles.BROWSERS[s.browser].label if s.browser in browser_profiles.BROWSERS \
+                else s.browser
+            for st in s.profiles:
+                if (st.browser, st.folder) == ferb:
+                    continue
+                owner += 1
+                labels[(st.browser, st.folder)] = label
+                why = not_paired_step(st, label, s.request is not None, url, ext_dir)
+                if why is None and st.paired:
+                    why = self._paired_problem(st.browser, st.folder)
+                    if why is None:
+                        continue                            # paired already, nothing known against it
+                if why is not None:
+                    skipped.append({"browser": st.browser, "label": label, "folder": st.folder, "name": st.name,
+                                    "reason": why[0], "step": why[1]})
+                elif (p := known.get((st.browser, st.folder))) is not None:
+                    todo.append(p)
+        if skipped:
+            self._journal().append("browsers.pair_all_skipped", {"skipped": [
+                {k: s[k] for k in ("browser", "folder", "reason")} for s in skipped]})
         results = await asyncio.gather(*(self._pair_one(p, float(params.get("timeout_s", 60))) for p in todo))
-        return {"results": list(results), "paired": sum(1 for r in results if r.get("paired"))}
+        return {"profiles": owner, "skipped": skipped, "store_url": url or None,
+                "results": [r | {"label": labels.get((r["browser"], r["folder"]), r["browser"])} for r in results],
+                "paired": sum(1 for r in results if r.get("paired"))}
+
+    def _paired_problem(self, browser: str, folder: str) -> tuple[str, str] | None:
+        """A paired profile whose extension isn't connected and that FERB knows why (HAND-406: refused in this run,
+        or too old), as Pair all's skip reason."""
+        b = self.pairings.for_profile(browser, folder) if self.pairings else None
+        if b is None or self.hub is None:
+            return None
+        br = self.hub.bridges.get((browser, folder))
+        if br is not None and br.conn:
+            return None
+        why = self.hub.problem(b)
+        return ("problem", why) if why is not None else None
 
     async def _browsers_installed(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Is FERB's extension installed in that profile yet (read from its settings on disk)?"""

@@ -135,6 +135,10 @@ enum IntroCopy {
         IntroLine(text: "Not all of them paired.", detail: why,
                   choices: [IntroChoice(Pick.pairAll, "Try again"), IntroChoice(Pick.next, "Continue")])
     }
+    static func noProfiles(_ why: String) -> IntroLine {
+        IntroLine(text: "No browser profiles found.", detail: why,
+                  choices: [IntroChoice(Pick.pairAll, "Try again"), IntroChoice(Pick.next, "Continue")])
+    }
 
     // MARK: 5. FERB's own email
 

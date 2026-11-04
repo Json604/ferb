@@ -63,6 +63,27 @@ def profile_state(p: Any) -> str:
     return "paired" if p.paired else "on"
 
 
+def not_paired_step(p: Any, label: str, requested: bool, store_url: str, extension_dir: Path) -> tuple[str, str] | None:
+    """HAND-411: why Pair all can't pair this profile (`autoinstall.ProfileStatus`) as its extension stands, and the
+    owner's step, from facts FERB already reads: removed by the owner (the browser won't add it again), not added yet
+    with FERB's install request waiting for the browser's next start (`requested`), not added and no request, or added
+    but turned off. None: FERB's extension is on there."""
+    from ferb.act.browser import autoinstall
+    add = (f"add FERB from its Chrome Web Store page in {label} ({store_url})" if store_url
+           else f"add FERB's extension in {label} with Load unpacked ({extension_dir})")
+    if not p.extension_id:
+        if p.removed:
+            return "removed", f"FERB's extension was removed there, so {label} won't add it again: {add}"
+        if requested:
+            step = f"restart {label} once, then turn FERB on when it asks"
+            return "requested", step + (f"; if FERB isn't there then, {add}" if p.browser in autoinstall.UNCONFIRMED
+                                        else "")
+        return "not_added", add
+    if not p.enabled:
+        return "off", f"turn FERB on in {label}'s extensions"
+    return None
+
+
 def browser_rows(states: list[Any], store_id: str, extension_dir: Path, ferb_identity: tuple[str, str] | None,
                  connected: set[tuple[str, str]]) -> dict[str, Any]:
     """`setup.browsers`'s reply: per browser whether FERB asked it to install the extension and whether Load unpacked is

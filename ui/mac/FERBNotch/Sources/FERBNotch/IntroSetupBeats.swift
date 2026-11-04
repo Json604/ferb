@@ -100,8 +100,8 @@ extension IntroController {
                 await orb.flyHome()
             }
             guard live else { return }
-            if let why = setup.message, !why.isEmpty {
-                line = IntroCopy.notPaired(why)
+            if let why = setup.message, !why.isEmpty {     // HAND-411: "Paired." only when every profile is
+                line = why == SetupModel.noBrowserProfiles ? IntroCopy.noProfiles(why) : IntroCopy.notPaired(why)
                 continue
             }
             say(IntroCopy.paired)

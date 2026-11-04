@@ -632,3 +632,13 @@ rule = "helper.request turns a failure into a message with what is known: the Ke
 why = "Audit 2026-11-04 (G6, H7): ten browser.secret fills failed with only \"the secret operation failed\"."
 paths = ["ferb/identity/helper.py", "ferb/identity/secrets.py::KeychainSecretStore", "ferb/daemon/areas/browsers.py"]
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+
+[HAND-411]
+title = "Pair all names every profile it didn't pair, and \"Paired.\" means all of them"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Pair all still pairs only owner profiles whose FERB extension is on, on the owner's click, opening or restarting no browser. Its reply counts the owner's profiles and lists each other one in `skipped` with a reason and the owner's step, from facts already read (read_states, hub.problem): requested, not_added, off, removed, problem (HAND-406's words); journaled browsers.pair_all_skipped. FERB.app's one message (SetupModel.pairAllMessage, tour and Settings) is nil only when every owner profile is paired: else one line per profile, and none found says so."
+why = "Owner's question 2026-11-04 (browsers that all, none or some already have FERB's extension): Pair all passed over every profile without the extension on in silence, so the tour said \"Paired.\" when no browser had it yet, when only some did, or when it was off, removed or too old."
+paths = ["ferb/daemon/areas/browsers.py", "ferb/device/extensions.py", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift"]
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"

@@ -575,17 +575,37 @@ final class SetupModel: ObservableObject {
         await refreshBrowsers()
     }
 
+    /// The tour and Settings both show this message; nil only when every owner profile is paired (HAND-411).
     func pairAll() async {
         guard !pairing else { return }
         pairing = true
         defer { pairing = false }
+        var note: String?
         do {
-            let reply = try await rpc.call("setup.browsers_pair_all", params: [:], wait: 90)
-            let results = reply["results"] as? [[String: Any]] ?? []
-            let failed = results.filter { $0["paired"] as? Bool != true }.map { "\($0["name"] as? String ?? "a profile")" }
-            message = failed.isEmpty ? nil : "Not paired: " + failed.joined(separator: ", ") + ". Is FERB turned on there?"
-        } catch { message = error.localizedDescription }
+            note = Self.pairAllMessage(try await rpc.call("setup.browsers_pair_all", params: [:], wait: 90))
+        } catch { note = error.localizedDescription }
+        message = nil
         await refreshBrowsers()
+        if let note { message = note }
+    }
+
+    static let noBrowserProfiles = "FERB found no browser profiles on this Mac. Open your browser once, then try again."
+
+    /// Pair all's reply in the owner's words, one line per profile it didn't pair: each skipped profile's step (not
+    /// added yet, turned off, removed, too old) and each pairing that failed. nil only when every owner profile is
+    /// paired; none found says so. A reply without `profiles` (an older daemon) names only the failed pairings.
+    static func pairAllMessage(_ reply: [String: Any]) -> String? {
+        func line(_ row: [String: Any], _ text: String?) -> String {
+            let name = row["name"] as? String ?? row["folder"] as? String ?? "a profile"
+            let label = row["label"] as? String
+            return (label.map { "\($0) “\(name)”" } ?? "“\(name)”") + ": " + (text ?? "it didn't pair")
+        }
+        let skipped = (reply["skipped"] as? [[String: Any]] ?? []).map { line($0, $0["step"] as? String) }
+        let failed = (reply["results"] as? [[String: Any]] ?? []).filter { $0["paired"] as? Bool != true }
+            .map { line($0, $0["why"] as? String) }
+        if let total = reply["profiles"] as? Int, total == 0 { return noBrowserProfiles }
+        let lines = skipped + failed
+        return lines.isEmpty ? nil : lines.map { $0.hasSuffix(".") ? $0 : $0 + "." }.joined(separator: "\n")
     }
 
     // MARK: FERB's own account (APP-1)
