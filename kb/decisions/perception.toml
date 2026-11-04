@@ -136,3 +136,25 @@ rule = "The keyboard-activity tap starts only once Input Monitoring is granted, 
 why = "Past bugs on friends' first installs, 2026-10-26/27: a keystroke prompt on setup's first screen and macOS's Data Access Blocked alert."
 paths = ["ferb/sense/watchers/owner_input.py", "ferb/sense/watchers/notifications.py"]
 legacy = "test deletion review 2026-11-02 (kept guard)"
+
+[SENSE-406]
+title = "The owner-input tap starts once the grant is there; can't tell counts as the owner using the Mac"
+by = "agent"
+date = 2026-11-04
+status = "active"
+words_source = "Owner approved the audit fix batch 2026-11-04: \"i approve all fixes\" (findings D1, H6, W7)."
+rule = "Sense checks the owner-input tap at start and every 30 s (`tap_recheck_s`, as the notification watcher rechecks Full Disk Access) and starts it once Input Monitoring is granted; a tap whose grant went is stopped. Each change is journaled once (`owner_input.unavailable` with why, or `owner_input.started`) and shown by `sense.status`/`ferb doctor`. While the tap isn't running FERB counts the owner as using the Mac: `owner_active` true, `available` false, so no foreground input. A tab sound change recorded meanwhile carries `owner_input_monitored: false`."
+why = "Live 2026-11-01/02: four starts without Input Monitoring left the tap down until a restart; meanwhile foreground input never waited for the owner (owner_active read false), the idle and typed-text watchers saw nothing and HAND-213's exemption silently stopped applying."
+paths = ["ferb/sense/manager.py::Sense", "ferb/daemon/areas/desktop.py", "ferb/daemon/areas/sensing.py", "ferb/daemon/disturbance.py", "ferb/cli/setup.py"]
+live = ["LIVE-715"]
+
+[SENSE-407]
+title = "A daemon start compares the login session by a digest the journal keeps"
+by = "agent"
+date = 2026-11-04
+status = "active"
+words_source = "Owner approved the audit fix batch 2026-11-04: \"i approve all fixes\" (finding D5)."
+rule = "`daemon.started` keeps a 16-hex digest of the login session's id under `mac_login` (no secret: it only tells one session from another). A start is a new login session (SENSE-201's \"login\" return) when its stored digest differs from the previous start's as stored; a previous start without `mac_login` (an older build) or a session that can't be read is no return; the first start ever is one."
+why = "Live 2026-11-01..03: the digest was journaled under `session`, which the redactor hides as a cookie, so every start compared \"[redacted]\" with a fresh digest and counted as a login: 18 false returns fired held reminders and repeated paused-task notes."
+paths = ["ferb/daemon/areas/schedules.py", "ferb/daemon/main.py"]
+live = ["LIVE-716"]

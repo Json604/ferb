@@ -14,6 +14,9 @@ from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS, Exclusions
 from ferb.sense.manager import Sense
 from ferb.sense.trail import Trail
 
+OWNER_INPUT_UNKNOWN = ("FERB can't tell whether you're using the Mac, so it counts you as using it: no typing or "
+                       "clicking in front of you until it can")
+
 
 class Sensing:
     """A mixin of the Daemon (ferb/daemon/main.py): its methods use the daemon's state."""
@@ -74,12 +77,18 @@ class Sensing:
             watchers += self.perception.native_watchers()
         self.sense = Sense(self.home, self.trail, watchers, self.owner_input if self.watch_owner_input else None,
                            on_pause=self._on_pause, on_fail=self._watcher_failed,
-                           presence=self.presence if self.watch_owner_input else None)
+                           presence=self.presence if self.watch_owner_input else None, on_tap=self._tap_changed)
         await self.sense.start()
         if self.sense.paused:
             self._journal().append("sense.still_paused", {})
-        elif self.watch_owner_input and not self.owner_input.running:
-            self._journal().append("owner_input.unavailable", {"why": "no event tap (Accessibility / Input Monitoring)"})
+
+    def _tap_changed(self, why: str) -> None:
+        """SENSE-406: the owner-input tap went down (why) or came back up; while it's down FERB treats the owner as
+        using the Mac, so it makes no foreground input."""
+        if why:
+            self._journal().append("owner_input.unavailable", {"why": why, "effect": OWNER_INPUT_UNKNOWN})
+        else:
+            self._journal().append("owner_input.started", {})
 
     def _watcher_failed(self, source: str, why: str) -> None:
         self._journal().append("sense.watcher_failed", {"source": source, "error": why})
@@ -146,6 +155,8 @@ class Sensing:
         return {"paused": bool(s and s.paused), "watchers": s.running if s else [],
                 "failed": dict(s.failed) if s else {},
                 "owner_input": self.owner_input.running, "folder_problems": self.watch_problems,
+                # SENSE-406: why the owner-input tap is down ("" while it runs, or while sensing is paused)
+                "owner_input_why": s.tap_down if s and not s.paused and not self.owner_input.running else "",
                 "perception": self.perception.status() if self.perception is not None else {}}
 
     def _attention_effect(self, decision: str, effect: str) -> None:

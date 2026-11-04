@@ -421,6 +421,11 @@ class Rpc:
             from ferb.store.db import store_size
             out["database"] = {"bytes": await asyncio.to_thread(store_size, self.db.path),
                                "cleanup_pending": await asyncio.to_thread(cleanup.pending, self.db.path)}
+            # MEM-421: days whose learning pass failed and waits for the next hourly try, with why
+            out["learning"] = {"undistilled": [
+                {"day": r[0], "error": self._redact_text(str(r[1] or ""))[:300], "attempts": int(r[2])}
+                for r in self.db.conn.execute("SELECT day, detail, attempts FROM distill_runs WHERE status = 'failed' "
+                                              "ORDER BY day")]}
         out.update({"pid": os.getpid(), "executable": os.path.realpath(sys.executable),
                     "version": ferb.__version__, "code_hash": code_hash(Path(ferb.__file__).parent),
                     "home": str(self.home), "stopped": self.state.stopped})

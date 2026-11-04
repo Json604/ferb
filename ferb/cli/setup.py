@@ -912,6 +912,10 @@ def doctor(env: Env) -> int:
                           "open that profile; FERB reconnects within 30 s"))
         if report["stopped"]:
             add(Check("emergency stop", "warn", "engaged", "FERB.app's menu lifts it"))
+        for day in (report.get("learning") or {}).get("undistilled", []):      # MEM-421
+            add(Check(f"learning {day['day']}", "warn",
+                      f"not learned from yet ({day['attempts']} tries): {day['error']}",
+                      "FERB tries that day again every hour; sign in to its AI service if it says signed out"))
         try:
             c = env.connect()
             sense = c.call("sense.status")
@@ -924,6 +928,11 @@ def doctor(env: Env) -> int:
                           "FERB.app's menu resumes them"))
             else:
                 add(Check("watchers", "ok", ", ".join(sense["watchers"]) or "none running"))
+                if sense.get("owner_input_why"):          # SENSE-406
+                    add(Check("owner input", "warn", f"{sense['owner_input_why']}: FERB can't tell whether you're "
+                              "using the Mac, so it makes no typing or clicking in front of you",
+                              "turn FERB on in Settings → Privacy & Security → Input Monitoring; FERB starts "
+                              "watching by itself within a minute"))
             try:
                 c = env.connect()
                 jev = c.call("jev.stats")

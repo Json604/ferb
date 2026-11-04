@@ -572,3 +572,14 @@ status = "active"
 rule = "items.owner_clauses saves, from the owner's words, the clause(s) that hold the planner's content as whole words: from the clause mark before it to the one after it (, ; : ! ? or a line break; never a period, so \"prof.\" and \"Dr.\" don't cut a clause). A negation or condition in the same clause stays; one a mark sets apart stays only when the content holds it, as the planner's prompt says. Replaces the re-review R5 rule that saved the whole line."
 why = "MEM-419 asks for the span, not the message; extending the planner's span to its clause keeps the original guard (\"share my links publicly\" out of \"never share my links publicly, …\" saves the negation) without a word list."
 paths = ["ferb/memory/items.py::owner_clauses"]
+
+[MEM-421]
+title = "A day whose learning pass failed is tried again every hour until it is done"
+by = "agent"
+date = 2026-11-04
+status = "active"
+words_source = "Owner approved the audit fix batch 2026-11-04: \"i approve all fixes\" (findings M1, S2)."
+rule = "A day whose distillation failed stays in `pending_days`, so each hourly memory pass tries it again until it is distilled; no count limits the tries. Each failure is journaled `memory.distill_failed` with the day, the error and the attempts so far, and `doctor.check` lists the failed days (`learning.undistilled`), which `ferb doctor` shows. Replaces the old rule that parked a failed day until its summary changed or a `ferb memory distill DAY` that no longer exists."
+why = "Live 2026-11-01: one \"Codex isn't signed in\" parked the day for good with no journal row; the retry command the code named didn't exist."
+paths = ["ferb/memory/distill.py::Distiller", "ferb/daemon/areas/rpc.py", "ferb/cli/setup.py"]
+live = ["LIVE-716"]
