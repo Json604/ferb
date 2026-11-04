@@ -285,6 +285,35 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+### ds_store and mac_alias (the disk image's window, build time only)
+
+`scripts/build-dmg.sh` writes the disk image's Finder window (`.DS_Store`, with an alias and a bookmark to its
+background) with [ds_store](https://github.com/dmgbuild/ds_store) 1.3.3 and
+[mac_alias](https://github.com/dmgbuild/mac_alias) 2.2.3 under the MIT License, installed unmodified in the
+development environment (uv dev group). Neither ships in FERB.app or the disk image.
+
+Copyright (c) 2014 Alastair Houghton (ds_store, mac_alias)
+Copyright (c) 2022 Russell Keith-Magee (mac_alias)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
 ### Google Material Design sounds (FERB's first-launch and notification sounds)
 
 Two of FERB.app's sounds come from Google's Material Design sound resources, by Google, licensed under Creative Commons

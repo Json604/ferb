@@ -126,3 +126,43 @@ status = "active"
 words = "also note it down taht at eht end we have to add posthog in the site too"
 rule = "Integrate PostHog in the FERB website at the end of its design work, using the owner's project configuration."
 paths = ["site/"]
+
+[REL-408]
+title = "The disk image is a designed window in two variants, before and after the Developer ID"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "i dont want this shitty drag screen, lets rebuild again. also why is there the txt file there, nobody opens it. make two versions: 1. before apple id and 2. after apple dev id (the one that will stay forever). so in the background you can keep something that is on the logo and startup sound screen, that looks good. with a good typography text on this drag screen that says that to use the app you have to manually go in the apple settings -> security and then open anyways until i get the apple dev id."
+words_source = "relayed verbatim to the building agent by the coordinating agent, 2026-11-04"
+rule = "The disk image opens as a designed Finder window: fixed size, no toolbar or sidebar, large icons, FERB left and the Applications link right with an arrow between, over a still of FERB's startup field (Gravity — Dense) with words in the system font; no text file. Before the Developer ID it says \"Drag FERB to Applications\" and that macOS blocks FERB the first time (System Settings → Privacy & Security → Open Anyway); after it (Developer ID, notarized: the variant that stays) only the drag line. The signing identity picks the variant."
+paths = ["scripts/build-dmg.sh", "scripts/dmg_layout.py", "assets/dmg"]
+live = ["LIVE-745", "LIVE-746"]
+
+[REL-409]
+title = "The disk image's window shows everything without scrolling, with white names"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "its not visible fully, users have to scroll, it should just be there always / the FERB and Applications text is in black - not visible, make it white"
+words_source = "two remarks on the first previews, relayed verbatim by the coordinating agent on 2026-11-04 and joined by \" / \""
+rule = "The whole window (heading, both icons with their names, the first-open note) is visible at once with margins, Finder never scrolls it, and it fits a 1440 x 900 screen with the menu bar and the Dock. The names FERB and Applications read in white on the field."
+paths = ["scripts/dmg_layout.py", "scripts/dmg-background/main.swift", "assets/dmg"]
+live = ["LIVE-745"]
+
+[REL-410]
+title = "How the disk image's window is made: a rendered background and a written .DS_Store"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "scripts/dmg_layout.py is the one spec. make_dmg_background.py compiles dmg-background/main.swift with the app's StartupStudies.swift and GravityDenseStudy.swift and renders each variant at 1x and 2x into assets/dmg, committed like the logo files (REL-3). build-dmg.sh stages FERB.app, the Applications link, a 1x+2x TIFF background and the volume icon, then dmg_layout.py writes the .DS_Store on the mounted image with ds_store and mac_alias (MIT, pinned dev group), never driving Finder; its alias and bookmark name /Volumes/FERB. FERB_DMG_VARIANT overrides the variant for previews."
+paths = ["scripts/build-dmg.sh", "scripts/dmg_layout.py", "scripts/make_dmg_background.py", "scripts/dmg-background/main.swift", "assets/dmg", "pyproject.toml", "THIRD_PARTY_NOTICES.md"]
+live = ["LIVE-745"]
+
+[REL-411]
+title = "Finder's black labels hide on the field's black; the names are drawn white"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Finder draws icon labels black over a background picture in any appearance; no view option changes it (macOS 27.2: icvp textColor in any form is ignored). So the background draws the names in white, and Finder's labels, at its smallest size (10), fall on a soft pool of the stage's black under each icon, unseen. Labels to the right scroll the window sideways. WindowBounds is the whole window: the 680 x 440 content plus a 32-point title bar (macOS 26+); on a 28-point title bar the window is 4 points taller than the picture (macOS 15 not checked)."
+paths = ["scripts/dmg_layout.py", "scripts/dmg-background/main.swift"]
+live = ["LIVE-745"]
