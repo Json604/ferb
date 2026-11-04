@@ -139,7 +139,7 @@ def test_the_scans_facts_join_the_core_profile_at_once_and_other_guesses_still_w
         scan = [it for it in d.memory.items('active') if d.memory.from_mac_scan(it.id)]
         for _ in range(20):                                   # a notice would be posted by a spawned task
             await asyncio.sleep(0)
-        return habit, guess, scan, d.profile.ids(), d.profile.prompt_text()
+        return habit, guess, scan, d.profile.ids(), d.profile.prompt_text() + d.profile.pending_text()
     habit, guess, scan, ids, text = daemon.run(go())
     assert len(scan) == 2 and {it.id for it in scan} <= ids
     for it in scan:

@@ -874,6 +874,8 @@ class Supervisor(WorkerRuns):
         self.memory_candidates: Callable[[str, str], Any] | None = memory.memory_candidates
         self.memory_push: Callable[[str, str], Any] | None = memory.memory_push
         self.identity_context: Callable[[], str] = memory.identity_context
+        self.identity_pending: Callable[[], str] = memory.identity_pending
+        self.settle_identity: Callable[[str], None] = memory.settle_identity
         self.on_episode: Callable[[str], Any] = memory.on_episode
         self.skills_catalog: Callable[[], list[dict[str, str]]] = environment.skills_catalog
         self.abilities_catalog: Callable[[], list[dict[str, Any]]] = environment.abilities_catalog
@@ -953,6 +955,16 @@ class Supervisor(WorkerRuns):
             text += ('\nBuilt-in FERB abilities (abilities.list reports availability; read a relevant procedure with '
                      'abilities.read; unavailable abilities cannot execute):\n' + json.dumps(self.abilities_catalog()))
         return text
+
+    def _with_newly_always_on(self, ctx: list[ContextBlock]) -> list[ContextBlock]:
+        """MEM-429: Tier 1's entries newly always on since its block in the instructions settled, right after the
+        context's cached part (its leading `cache` blocks), so a join leaves the cached prefix as it was. Every role
+        whose instructions carry Tier 1 (`_system`) gets it."""
+        text = self.identity_pending()
+        if not text:
+            return ctx
+        at = next((i for i, block in enumerate(ctx) if block.text and not block.cache), len(ctx))
+        return [*ctx[:at], ContextBlock(text, "memory.read", protected=True), *ctx[at:]]
 
     def _default_availability(self) -> Availability:
         return build_availability(set().union(*(c.scopes for c in self.gateway.caps.values())), {})
@@ -2902,7 +2914,7 @@ class Supervisor(WorkerRuns):
         system = self._system("supervisor.md", live=False)
         clocked.mark("ferb_before")
         try:
-            final = await self._run(rt, chat_task, system, ctx, token, span.id,
+            final = await self._run(rt, chat_task, system, self._with_newly_always_on(ctx), token, span.id,
                                     None, "", on_usage=usage.update, images=images, notify=notify,
                                     on_delta=draft.feed if draft else None, on_tool=draft.restart if draft else None,
                                     on_timing=call.update)
@@ -3222,6 +3234,7 @@ class Supervisor(WorkerRuns):
             self.journal.append(SUMMARY_KIND, {"session_id": conversation, "text": text,
                                                "covered": [e.handle for e in folded], "source_refs": refs},
                                 origin=origins_.join(made))
+            self.settle_identity("a chat's running summary folded")    # MEM-429: this chat's prefix changes anyway
             self.spans.finish(span, output={"text": final, "folded": len(folded)})
             return len(folded)
         except Exception as exc:
@@ -4174,7 +4187,8 @@ class Supervisor(WorkerRuns):
                   for block, made in sourced]
         span = self.spans.start('attention.consider', input={'source_refs': source_refs})
         try:
-            final = await self._run(rt, task, self._system('attention.md'), blocks, '', span.id, None, '')
+            final = await self._run(rt, task, self._system('attention.md'), self._with_newly_always_on(blocks), '',
+                                    span.id, None, '')
             result = json.loads(final)
             refs = result.get('source_refs', [])
             if not isinstance(refs, list) or not refs or set(refs) - set(source_refs):
@@ -5359,7 +5373,8 @@ class Supervisor(WorkerRuns):
         self._tree_of[decision.id] = tree
         span = self.spans.start('model.question', task_id=task_id, input={'question': question})
         try:
-            final = await self._run(rt, decision, self._system('question.md'), ctx, '', span.id, tree, '')
+            final = await self._run(rt, decision, self._system('question.md'), self._with_newly_always_on(ctx), '',
+                                    span.id, tree, '')
             result = QuestionOutcome.model_validate_json(final).model_dump()
             self.spans.finish(span, output={'decision': final})
             return result

@@ -66,6 +66,7 @@ class MemoryGlue:
         # step 9a upgrade (STORE-403): memory cleaned once, then the core profile seeded from it, both journaled
         clean_before_tier1(self.memory, lambda kind, data: self._journal().append(kind, data))
         self.profile.seed()
+        self.profile.settle("start")                  # MEM-429: a start settles what joined Tier 1 before it
         # step 9b upgrade: the old fact-node copies close once (search reads memory_items itself)
         close_fact_nodes(self.db, self.clock.now().isoformat(), lambda kind, data: self._journal().append(kind, data))
         self._restore_memory_questions()
@@ -202,9 +203,19 @@ class MemoryGlue:
         return {"status": "done"}
 
     def _core_profile_text(self) -> str:
-        """Tier 1 for every role's instructions (planner and workers; kb area memory)."""
+        """Tier 1's settled block for every role's instructions (planner and workers; kb area memory)."""
         profile = getattr(self, "profile", None)
         return profile.prompt_text() if profile is not None and self.memory is not None else ""
+
+    def _core_profile_pending(self) -> str:
+        """MEM-429: Tier 1's entries newly always on since its block settled, for after each prompt's cached part."""
+        profile = getattr(self, "profile", None)
+        return profile.pending_text() if profile is not None and self.memory is not None else ""
+
+    def _settle_core_profile(self, why: str) -> None:
+        profile = getattr(self, "profile", None)
+        if profile is not None:
+            profile.settle(why)
 
     async def _reindex_search(self) -> None:
         """L36 §3: the search index by content (`search_text`), once per SEARCH_TEXT_VERSION, asked at every start (a

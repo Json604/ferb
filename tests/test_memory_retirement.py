@@ -28,10 +28,10 @@ def chain(d: Any) -> None:
 
 
 def recalled(d: Any, words: str) -> list[str]:
-    """What a planner turn is given for `words`: its retrieved memory, and the core profile (the owner's own words
-    about themselves join it at once, MEM-15, and then take no retrieved slot)."""
+    """What a planner turn is given for `words`: its retrieved memory, and the core profile, its settled block and what
+    joined since (the owner's own words about themselves join it at once, MEM-35, and then take no retrieved slot)."""
     return [c["text"] for c in d.run(d.daemon._learning_candidates(words))] + \
-        str(run(d, d.daemon._core_profile_text)).splitlines()
+        str(run(d, d.daemon._core_profile_text)).splitlines() + str(run(d, d.daemon._core_profile_pending)).splitlines()
 
 
 def pune(d: Any) -> list[str]:

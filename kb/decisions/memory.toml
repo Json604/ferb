@@ -651,3 +651,24 @@ rule = "The scan's joins post no \"Now always on\" notice each. A scan the setup
 why = "Coordinator's rulings 2026-11-04 on the questions MEM-423 left: the owner's proposal said they already see the scan's facts in setup; ten notices at setup would repeat it."
 paths = ["ferb/daemon/persona.py::PersonaReview", "ferb/daemon/areas/memory.py", "ferb/memory/profile.py::CoreProfile.holding_joins"]
 live = ["LIVE-736"]
+
+[MEM-428]
+title = "A newly always-on entry is added at the end, not into the cached profile"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "lets add a newly added always on at the end"
+words_source = "Verbatim (2026-11-04), relayed by the coordinating agent after the cache answer (a join rewrote every prompt's cached prefix); the mechanism is MEM-429."
+rule = "A fact that newly joins Tier 1 is added at the end of the prompt, after its cached part, instead of being inserted into the always-on profile in the instructions."
+paths = ["ferb/memory/profile.py::CoreProfile", "ferb/orchestrator/supervisor.py"]
+live = ["LIVE-738"]
+
+[MEM-429]
+title = "Tier 1's settled block and its newly always on section"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Every role's instructions carry Tier 1's settled block; entries joined since (code's join, the owner's pin) show at once in a \"Newly always on\" section right after the context's cached part (Supervisor._with_newly_always_on), labelled like Tier 1 entries, within the same budget. The block settles only when the prefix changes anyway: a daemon start, the weekly pass, an entry of the block removed or replaced, a chat's summary fold. A newly joined entry forgotten or corrected leaves at once without settling."
+why = "MEM-428. On a fake turn a join cost 1,845 of 8,759 cached-prefix tokens before (all the conversation after the change point; on Anthropic's breakpoints all of it) and 0 now (104 tokens lost were the new exchange)."
+paths = ["ferb/memory/profile.py::CoreProfile.settle", "ferb/orchestrator/supervisor.py", "ferb/orchestrator/worker.py", "ferb/orchestrator/ports.py", "ferb/daemon/areas/memory.py"]
+live = ["LIVE-738"]

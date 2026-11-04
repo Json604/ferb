@@ -133,7 +133,8 @@ class Compose:
                 memory_push=lambda words, focus: self._learning_candidates(words, memory_search.WORKER, focus=focus),
                 remember=self._remember, forget_request=self._chat_forget,
                 question_answered=self._question_answered, settle=self._settle_forgets,
-                identity_context=self._core_profile_text, on_episode=self._capture_learning_episode,
+                identity_context=self._core_profile_text, identity_pending=self._core_profile_pending,
+                settle_identity=self._settle_core_profile, on_episode=self._capture_learning_episode,
                 typed_behind_memory=self._typed_behind_memory),            # attended scopes too (final review I1)
             schedules=ports.SchedulePort(
                 timers=self.timers, on_schedule=self._schedule_create,

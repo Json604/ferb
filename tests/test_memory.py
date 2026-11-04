@@ -69,8 +69,8 @@ def test_chat_capture_needs_the_owners_own_words(daemon: RunningDaemon) -> None:
 # ---------- memory review I1 (MP2): only the owner's own words become owner_stated ----------
 
 def _identity(d: RunningDaemon) -> str:
-    """The core profile (Tier 1) every role's instructions carry."""
-    return str(run(d, d.daemon._core_profile_text))
+    """The core profile (Tier 1) every role's prompt carries: its settled block and what joined since (MEM-429)."""
+    return str(run(d, d.daemon._core_profile_text)) + str(run(d, d.daemon._core_profile_pending))
 
 
 # decision: MEM-12

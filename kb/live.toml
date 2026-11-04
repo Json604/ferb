@@ -2563,3 +2563,12 @@ request = "Tell FERB one fact about yourself (\"I prefer short replies\") and on
 pass = "The fact about you is in the core profile at once (your words); the other one is saved in memory but not in the core profile until a weekly pass places it, if it chooses to."
 decisions = ["MEM-35", "MEM-425"]
 sitting = "after this change is installed"
+
+[LIVE-738]
+title = "A newly always-on fact is used at once and the planner's cache holds"
+area = "memory"
+surface = "FERB.app with this build on the owner's Mac; a chat and `ferb trace`"
+request = "In one chat, send two plain messages, then tell FERB a fact about yourself (\"I never want emojis in replies\"), then send another plain message. Read the last two planner turns with `ferb trace TASK --json`."
+pass = "The reply after the fact already follows it. The last planner turn shows the fact under \"Newly always on\" after the conversation, and its cached-input tokens are about as high as the turn before (the instructions didn't change); after a restart the fact is in the core profile in the instructions."
+decisions = ["MEM-428", "MEM-429"]
+sitting = "after this change is installed"
