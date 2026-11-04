@@ -3,8 +3,17 @@ import CoreGraphics
 
 /// Screen coordinates: the camera housing and the reachable strip immediately below it.
 enum NotchDocking {
+    /// How far below the camera housing the hover target and the open surface's tear-out lip reach.
+    static let pullDepth: CGFloat = 12
+
     static func pullStrip(cutout: CGRect) -> CGRect {
-        CGRect(x: cutout.minX, y: cutout.minY - 12, width: cutout.width, height: 12)
+        CGRect(x: cutout.minX, y: cutout.minY - pullDepth, width: cutout.width, height: pullDepth)
+    }
+
+    /// The part of the closed, docked handle (whose bounds are `dragRegion`, in the handle's own unflipped
+    /// coordinates) that takes a press directly: the camera housing alone, never the strip of screen below it.
+    static func pressShape(in bounds: CGRect) -> CGRect {
+        CGRect(x: bounds.minX, y: bounds.minY + pullDepth, width: bounds.width, height: max(0, bounds.height - pullDepth))
     }
 
     static func dragRegion(cutout: CGRect) -> CGRect {
