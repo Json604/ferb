@@ -194,11 +194,22 @@ watching; the live checks are in `kb/live.toml`.
    `MIN_EXTENSION_VERSION` in `ferb/act/browser/ext_protocol.py` when FERB needs the new one), build the store zip with
    `uv run ferb browsers extension package --out build/store`, upload it with the listing text in
    `extensions/store/listing.md`, and wait until the store publishes it.
-2. Set the release version in `ferb/__init__.py` and `pyproject.toml` (no `.dev`; newer than the last release tag).
-3. `SIGN_IDENTITY=release scripts/build-dmg.sh`, then `scripts/release-appcast.sh vX.Y.Z build/FERB-<arch>.dmg <arch>`
-   for each architecture. It refuses a development or unbumped version, a tag that doesn't match, and a release whose
-   extension the Chrome Web Store doesn't serve yet (`scripts/release_checks.py`).
-4. Tag `vX.Y.Z`, publish the GitHub release with both DMGs, then the appcasts.
+2. Set the release version in `ferb/__init__.py`, `pyproject.toml` and the `ferb` entry of `uv.lock` (no `.dev`;
+   newer than the last release tag), with an owner decision for the release.
+3. `SIGN_IDENTITY=release scripts/build-app.sh --arch arm64 build/next`, then
+   `SIGN_IDENTITY=release scripts/build-dmg.sh build/next/FERB.app build/FERB-AppleSilicon.dmg` (the window picks the
+   before/after Developer ID text from the signature).
+4. `scripts/release-appcast.sh vX.Y.Z build/FERB-AppleSilicon.dmg arm64`. It first runs `tools/kb/run gate release`
+   over the whole tree: every live check touched since the last tag needs the owner's pass or waiver (`kb/live.toml`),
+   and every commit must have run the hooks (exceptions with a reason go in `kb/gate-allow.toml`). Then
+   `scripts/release_checks.py` refuses a development or unbumped version, a tag that doesn't match, and an extension
+   the Chrome Web Store doesn't serve yet. Signing the DMG with the Sparkle key makes macOS ask the owner for their
+   login password (Keychain); it writes `build/appcast-arm64.xml`.
+5. With the owner's go: `gh release create vX.Y.Z build/FERB-AppleSilicon.dmg build/appcast-arm64.xml --target <full
+   commit sha>`. Installed copies update from `releases/latest/download/appcast-arm64.xml`, and the site's download
+   is `releases/latest/download/FERB-AppleSilicon.dmg` (REL-414).
+6. The site (`site/`, Vercel project `ferb-site`, https://ferb.kartikey.xyz) deploys from that folder:
+   `cd site && npx vercel@<pinned version> deploy --prod`, on the owner's go.
 
 ## Where things are written down
 

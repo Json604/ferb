@@ -527,3 +527,25 @@ kind = "question"
 status = "open"
 why = "2026-11-04: setup fixes kept breaking earlier ones because no one ran the whole flow on a real Mac between changes; offline tests use stand-ins for TCC, launchd and Quit & Reopen."
 ask = "Should every build that changes setup go through one fresh-install run (on a second macOS user account you create once) before it ships, with setup changes made one at a time?"
+
+[T-1051]
+title = "Fit the phone companion plan (iPhone and Android) into FERB's kb and work list"
+area = "project"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-04: the plan is made and tested in ~/Desktop/FERB-mobile-research (START-HERE.txt, FERB-mobile-plan.html, implementation-plan.csv); the owner now has the Google Play developer account. Turn it into decisions and tasks here (PROJ-506)."
+decisions = ["PROJ-506"]
+
+[T-1052]
+title = "Review and close the setup tasks today's fixes may have covered"
+area = "project"
+kind = "chore"
+status = "open"
+why = "T-500 (intro permissions, reopen, quit), T-501 (intro look and feel) and T-508..T-510 (the old step-13 checklist) predate the 2026-11-04 fresh-install journey and v0.27.0; the owner reviews each before it is closed or rewritten."
+
+[T-1053]
+title = "Remove the leftover agent worktrees"
+area = "project"
+kind = "chore"
+status = "open"
+why = "About twenty merged agent worktrees remain in .claude/worktrees (and their worktree-agent-* branches) from 2026-11-03/04; delete them with the owner's go."
