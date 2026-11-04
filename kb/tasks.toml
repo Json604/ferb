@@ -575,3 +575,11 @@ status = "open"
 why = "Trace 2026-11-04 14:48: the planner's clarify was 325 chars (the question, then a restatement and \"I can't…\"), against interaction.md:9's \"no restating the request\"; 14:52's 54-char one was right. Goes into T-1040's wording, which the owner approves."
 decisions = ["PRM-312"]
 after = ["T-1040"]
+
+[T-1057]
+title = "The owner reviews the limits agents set or code holds without a decision"
+area = "project"
+kind = "question"
+status = "open"
+why = "2026-11-04 inventory of 163 limits: 46 owner, 46 agent rulings, 71 code-only (rule 18 says limits that change behaviour are the owner's). The full list with file:line and kb IDs is the 'FERB Limits' page the owner received."
+ask = "Go through the agent-set and code-only limits (highlighted rows in the FERB Limits page) and say, for each you care about, keep, change (to what) or remove; the rest stay as they are and get recorded as your decision."
