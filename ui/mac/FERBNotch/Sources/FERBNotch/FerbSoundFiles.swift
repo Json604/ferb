@@ -23,7 +23,6 @@ enum FerbSoundFiles {
         case .summon: return "summon"
         case .listeningStart: return "listen-start"
         case .listeningEnd: return "listen-end"
-        case .done: return "done"
         case .needsYou: return "needs-you"
         case .paused: return "paused"
         case .error: return "error"
@@ -31,6 +30,7 @@ enum FerbSoundFiles {
         case .orbDrip: return "orb-drip"
         case .orbHop: return "orb-hop"
         case .orbMelt: return "orb-melt"
+        case .allAllowed: return "done"           // the tour's success cue (APP-615) keeps the done render
         }
     }
 

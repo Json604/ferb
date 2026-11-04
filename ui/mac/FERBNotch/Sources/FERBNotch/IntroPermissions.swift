@@ -78,7 +78,7 @@ extension IntroController {
         if visit.guided { await orb.flyHome() }
         guard live else { return }
         say(IntroCopy.allAllowed)
-        sound.play(.done, at: nil)
+        sound.play(.allAllowed, at: nil)
         await dwell(Timing.line)
     }
 

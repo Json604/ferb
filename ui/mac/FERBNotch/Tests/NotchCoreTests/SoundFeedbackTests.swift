@@ -11,7 +11,7 @@ import XCTest
 final class SoundFeedbackTests: XCTestCase {
     // MARK: - Which sound each event plays
 
-    // decision: APP-526
+    // decision: APP-651
     func testAFailedTaskPlaysErrorNotNeedsYou() {
         let (model, sounds) = makeModel()
         let a = begin("Rename the example files", in: model)
@@ -28,10 +28,10 @@ final class SoundFeedbackTests: XCTestCase {
 
         let c = beginAnother("And tomorrow?", in: model)
         model.receiveChatEvent(["type": "reply", "request_id": "req-c", "text": "Sunny."], localID: c)
-        XCTAssertEqual(sounds.played, [.error, .error, .done])
+        XCTAssertEqual(sounds.played, [.error, .error])     // a finished answer plays no sound (APP-651)
     }
 
-    // decision: APP-526, APP-533
+    // decision: APP-651, APP-533
     func testAQuestionPlaysNeedsYou() {
         let (model, sounds) = makeModel()
         model.receiveBusEvent(["topic": "approval.requested", "data": [
@@ -55,27 +55,27 @@ final class SoundFeedbackTests: XCTestCase {
 
     // MARK: - Switches and defaults
 
-    // decision: APP-526
+    // decision: APP-651
     func testSummonAndPausedAreSilentByDefault() {
         let engine = makeEngine(defaults: scratchDefaults("SoundFeedbackTests"))
         XCTAssertNil(engine.decision(for: .summon))
         XCTAssertNil(engine.decision(for: .paused))
-        for sound: FerbSound in [.needsYou, .error, .done, .notification, .listeningStart, .listeningEnd,
+        for sound: FerbSound in [.needsYou, .error, .notification, .listeningStart, .listeningEnd,
                                  .firstLaunch, .intro, .orbDrip, .orbHop, .orbMelt] {
             XCTAssertEqual(engine.decision(for: sound), SoundDecision(subtle: false), "\(sound)")
         }
     }
 
-    // decision: APP-526
+    // decision: APP-651
     func testTurningASoundOffSilencesOnlyThatSound() {
         let defaults = scratchDefaults("SoundFeedbackTests")
         let feedback = SoundFeedback(defaults: defaults)
         let engine = makeEngine(defaults: defaults)
-        feedback.set(.done, on: false)
-        XCTAssertEqual(defaults.object(forKey: "feedback.sound.done") as? Bool, false)
-        XCTAssertFalse(feedback.isOn(.done))
-        XCTAssertNil(engine.decision(for: .done))
-        for sound: FerbSound in [.needsYou, .error, .notification, .listeningStart, .listeningEnd, .intro] {
+        feedback.set(.notification, on: false)
+        XCTAssertEqual(defaults.object(forKey: "feedback.sound.notification") as? Bool, false)
+        XCTAssertFalse(feedback.isOn(.notification))
+        XCTAssertNil(engine.decision(for: .notification))
+        for sound: FerbSound in [.needsYou, .error, .listeningStart, .listeningEnd, .intro] {
             XCTAssertNotNil(engine.decision(for: sound), "\(sound)")
         }
         feedback.set(.summon, on: true)                     // a sound off by default can be switched on
@@ -86,7 +86,7 @@ final class SoundFeedbackTests: XCTestCase {
         XCTAssertNil(engine.decision(for: .needsYou))
     }
 
-    // decision: APP-526, APP-527
+    // decision: APP-651, APP-527
     func testTheMasterSwitchAndVolumeAreKeptOnUpgradeAndTheMagneticSettingGoes() {
         let defaults = scratchDefaults("SoundFeedbackTests")
         defaults.set(false, forKey: "feedback.enabled")
@@ -107,7 +107,7 @@ final class SoundFeedbackTests: XCTestCase {
         var running: [pid_t] = [1]                          // another app (not FERB) runs microphone input
         let engine = makeEngine(defaults: defaults, input: { running })
         XCTAssertEqual(engine.decision(for: .needsYou), SoundDecision(subtle: true))
-        for sound: FerbSound in [.done, .error, .notification, .listeningStart, .listeningEnd, .intro, .orbHop] {
+        for sound: FerbSound in [.error, .notification, .listeningStart, .listeningEnd, .intro, .orbHop] {
             XCTAssertNil(engine.decision(for: sound), "\(sound)")
         }
         let feedback = SoundFeedback(defaults: defaults)
@@ -116,7 +116,7 @@ final class SoundFeedbackTests: XCTestCase {
 
         running = [getpid()]                                // FERB's own dictation is never a call
         XCTAssertEqual(engine.decision(for: .needsYou), SoundDecision(subtle: false))
-        XCTAssertEqual(engine.decision(for: .done), SoundDecision(subtle: false))
+        XCTAssertEqual(engine.decision(for: .error), SoundDecision(subtle: false))
         running = []
         XCTAssertEqual(engine.decision(for: .notification), SoundDecision(subtle: false))
     }

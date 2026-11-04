@@ -167,4 +167,23 @@ final class UpdateCoordinatorTests: XCTestCase {
         XCTAssertNil(SparkleUpdater(coordinator: updates, info: ["SUFeedURL": "https://example.org/appcast-arm64.xml",
                                                                   "SUPublicEDKey": "k"]))
     }
+
+    /// U5: a background check or download that fails leaves a line in Settings until the next result, kept across
+    /// launches; "no update found" and the owner's own cancel aren't failures.
+    // decision: APP-658
+    func testAFailedUpdateAttemptIsKeptUntilTheNextResult() {
+        let defaults = scratchDefaults("UpdateCoordinatorTests")
+        let updates = UpdateCoordinator(rpc: ScriptedRPC(), defaults: defaults)
+        updates.restartDaemon = {}
+        updates.aborted("The update feed couldn't be reached.")
+        XCTAssertEqual(updates.status, .quiet)                            // nothing was armed: only the record says so
+        XCTAssertEqual(updates.lastResult?.failed, true)
+        let relaunched = UpdateCoordinator(rpc: ScriptedRPC(), defaults: defaults)
+        XCTAssertEqual(relaunched.lastResult, updates.lastResult)
+        relaunched.notFound()
+        XCTAssertEqual(relaunched.lastResult?.failed, false)
+        XCTAssertFalse(UpdatePlan.abortIsFailure(domain: "SUSparkleErrorDomain", code: 1001))
+        XCTAssertFalse(UpdatePlan.abortIsFailure(domain: "SUSparkleErrorDomain", code: 4007))
+        XCTAssertTrue(UpdatePlan.abortIsFailure(domain: "SUSparkleErrorDomain", code: 3001))
+    }
 }

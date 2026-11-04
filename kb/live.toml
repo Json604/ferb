@@ -544,7 +544,7 @@ area = "app"
 surface = "FERB.app on the owner's Mac in daily use, and 2-3 beta friends' Macs"
 request = "Use FERB daily for about a week with the default sounds, including one call in another app; ask each friend to say what each sound means without looking at the screen."
 pass = "Each sound is matched to its meaning without looking, none annoys by the tenth hearing, summon and paused stay silent by default, and during the call only needs you plays, at Subtle."
-decisions = ["APP-641", "APP-526", "APP-528", "APP-531"]
+decisions = ["APP-653", "APP-651", "APP-528", "APP-531"]
 
 [LIVE-502]
 title = "\"Who's this actor?\" on a show's frame"
@@ -897,7 +897,7 @@ area = "app"
 surface = "FERB.app at the default volume"
 request = "Listen to the intro and everyday sounds at the default volume."
 pass = "They are as loud as the auditioned levels (gain = volume / 0.18), by the owner's ear."
-decisions = ["APP-641"]
+decisions = ["APP-653"]
 sitting = "step 13, sitting 1"
 
 [LIVE-545]
@@ -933,7 +933,7 @@ area = "app"
 surface = "The packaged FERB.app from scripts/build-app.sh"
 request = "Launch the packaged build."
 pass = "The resource bundle (ferb-mark, Sounds) is found in Contents/Resources."
-decisions = ["APP-641"]
+decisions = ["APP-653"]
 sitting = "step 13, sitting 1"
 
 [LIVE-549]
@@ -2328,10 +2328,10 @@ sitting = "step 13"
 [LIVE-705]
 title = "The everyday sounds are as long as the Apple Pay sound"
 area = "app"
-surface = "demo/sound-family/index.html (served with python3 -m http.server -d demo/sound-family after render.py), then a FERB.app build carrying APP-641 on the owner's Mac."
-request = "On the page, play each everyday sound with Length on Now and on Before, at Standard and Subtle; play the Mac's Apple Pay sound (payment_success.aif) beside them. In FERB.app, hear done, error, needs you and listening start and end in daily use."
-pass = "Each sound rings about as long as the Apple Pay sound and still sounds like itself: same notes, same strike, same loudness; paused and error still sound damped, never like done; Subtle stays shorter and quieter. Nothing is cut off or doubles up in the app."
-decisions = ["APP-641"]
+surface = "demo/sound-family/index.html (served with python3 -m http.server -d demo/sound-family after render.py), then a FERB.app build carrying APP-653 on the owner's Mac."
+request = "On the page, play each everyday sound with Length on Now and on Before, at Standard and Subtle; play the Mac's Apple Pay sound (payment_success.aif) beside them. In FERB.app, hear error, needs you and listening start and end in daily use, and the tour's success cue after permissions."
+pass = "Each sound rings about as long as the Apple Pay sound and still sounds like itself: same notes, same strike, same loudness; paused and error still sound damped, never like a success cue; Subtle stays shorter and quieter. Nothing is cut off or doubles up in the app."
+decisions = ["APP-653"]
 sitting = "step 13"
 
 [LIVE-706]
@@ -2368,4 +2368,49 @@ surface = "FERB.app with this build, the owner's chat"
 request = "Ask for a recurring reminder, then in a later message say \"set that reminder again\". Paste a reminder request copied from a terminal (it may carry \"[200~\"). Tell FERB a remembered fact is wrong in one long sentence (\"you saved it wrong, I did X, not Y, fix it\"). Ask it to set a reminder for something you never said."
 pass = "The reminder from the earlier message and the pasted one are set (no \"[200~\" in what is shown or stored), with no reply claiming anything that wasn't done. Memory shows only the corrected fact's words, not the whole sentence. The last one shows \"Blocked by a safety check: …\" saying which check, why and what to do, and FERB's reply doesn't claim it was set."
 decisions = ["ORCH-518", "ORCH-519", "ORCH-520", "MEM-419"]
+sitting = "after this change is installed"
+
+[LIVE-710]
+title = "Settings opens on this Space, the notch still opens, Command-W and Command-Q close only it"
+area = "app"
+surface = "FERB.app with this build on the owner's notched Mac, two or more desktops (Spaces)"
+request = "On a second desktop, open Settings from the menu-bar menu, then with ⌘, ; close it with Command-W; open it again and press Command-Q. Open it again, switch to another desktop and open Settings from there. With Settings in front, hover the notch."
+pass = "Settings always appears on the desktop you were on and the screen never moves to another desktop. Hovering the notch opens FERB with Settings open. Command-W closes Settings; Command-Q closes Settings and the notch keeps working; Quit FERB in the menu-bar menu still quits."
+decisions = ["APP-650", "APP-654", "APP-656"]
+sitting = "after this change is installed"
+
+[LIVE-711]
+title = "Settings → AI ticks the service FERB uses"
+area = "app"
+surface = "FERB.app with this build, Settings → AI"
+request = "With FERB on an API key, open Settings → AI; then press Use ChatGPT (or sign in) and look again; then switch back to the API key."
+pass = "The green tick is only on the service FERB uses: on the API key row under Other ways to connect (naming the provider) while on the key, on ChatGPT after switching, and it follows each change without reopening Settings."
+decisions = ["APP-655"]
+sitting = "after this change is installed"
+
+[LIVE-712]
+title = "A permission switched off after setup comes back at the next launch"
+area = "app"
+surface = "FERB.app with this build after setup is done; System Settings → Privacy & Security"
+request = "Switch one of FERB's permissions off (for example Accessibility for the FERB agent), quit FERB from its menu-bar menu and open it again. Then grant it from Settings → Permissions, quit and open FERB again."
+pass = "The first relaunch shows the permissions step of the tour with that row unticked, then Home. After granting it, the next launch opens nothing: no setup window."
+decisions = ["APP-657"]
+sitting = "after this change is installed"
+
+[LIVE-713]
+title = "Settings shows the last update check, a failed one included"
+area = "app"
+surface = "FERB.app with this build, Settings → General → Updates"
+request = "Press Check for Updates… with the network on, then with Wi-Fi off; reopen Settings → General."
+pass = "Updates shows \"Last update check, <time>: …\" with the result (up to date or found), and after the offline check a red line saying it failed and why; it stays after reopening FERB until the next check."
+decisions = ["APP-658"]
+sitting = "after this change is installed"
+
+[LIVE-714]
+title = "A finished task or answer plays no sound; the other sounds still play"
+area = "app"
+surface = "FERB.app with this build in daily use"
+request = "Ask FERB something that finishes, something that fails, and something that needs your answer; look at Settings → Sounds."
+pass = "The finished answer is silent; the failure plays error and the question plays needs you; Settings has no Done sound row and every other row is as before."
+decisions = ["APP-651"]
 sitting = "after this change is installed"

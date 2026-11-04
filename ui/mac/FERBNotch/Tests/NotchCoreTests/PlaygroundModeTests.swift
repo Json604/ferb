@@ -16,7 +16,7 @@ final class PlaygroundModeTests: XCTestCase {
         let sound = PlaygroundSound(state: state, defaults: defaults, preference: {
             $0 == "com.apple.sound.uiaudio.enabled" ? NSNumber(value: uiSounds) : nil
         })
-        let cues: [FerbSound] = [.firstLaunch, .intro, .orbDrip, .orbHop, .orbMelt, .done]
+        let cues: [FerbSound] = [.firstLaunch, .intro, .orbDrip, .orbHop, .orbMelt, .allAllowed]
         for cue in cues { XCTAssertTrue(sound.allows(cue), "\(cue)") }
         state.simulatesCall = true
         for cue in cues { XCTAssertFalse(sound.allows(cue), "\(cue)") }

@@ -159,25 +159,31 @@ struct AIStepView: View {
                         Text("Connect through your ChatGPT account").font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if model.ai?.usable("codex") == true {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    }
+                    if model.ai?.inUse("codex") == true { InUseTick() }
                 }
                 HStack {
                     Button(model.signingIn ? "Waiting for your browser…" : "Sign in with ChatGPT") { model.signInWithChatGPT() }
                         .disabled(model.signingIn)
                     if model.signingIn { Button("Cancel") { model.cancelSignIn() } }
+                    if model.ai?.usable("codex") == true && model.ai?.inUse("codex") != true && !model.signingIn {
+                        Text("Signed in").foregroundStyle(.secondary)
+                        Button("Use ChatGPT") { Task { await model.useChatGPT() } }
+                    }
                 }
             }
             .padding(18).frame(maxWidth: .infinity, alignment: .leading)
             .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
             VStack(alignment: .leading, spacing: 12) {
-                Text("Claude").font(.system(size: 16, weight: .semibold))
+                HStack {
+                    Text("Claude").font(.system(size: 16, weight: .semibold))
+                    Spacer()
+                    if model.ai?.inUse("claude") == true { InUseTick() }
+                }
                 ClaudeSignInRow(model: model)
             }
             .padding(18).frame(maxWidth: .infinity, alignment: .leading)
             .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
-            DisclosureGroup("Other ways to connect") {
+            DisclosureGroup {
                 VStack(alignment: .leading, spacing: 10) {
                     Picker("Provider", selection: $provider) {
                         ForEach(APIProvider.allCases) { Text($0.label).tag($0) }
@@ -187,8 +193,23 @@ struct AIStepView: View {
                         Button("Save", action: saveKey).disabled(key.isEmpty)
                     }
                 }.padding(.top, 10)
+            } label: {
+                HStack {
+                    Text("Other ways to connect")
+                    if let inUse = model.ai?.apiKeyInUse {
+                        Spacer()
+                        Text("Your \(inUse.label) API key").foregroundStyle(.secondary)
+                        InUseTick()
+                    }
+                }
             }.font(.system(size: 12)).tint(.white.opacity(0.6))
             if let line = model.aiMessage { Text(line).font(.callout) }
+        }
+        .onChange(of: model.ai?.apiKeyInUse) { _, inUse in if let inUse { provider = inUse } }
+        .onAppear { if let inUse = model.ai?.apiKeyInUse { provider = inUse } }
+        // A change made elsewhere (the notch's switch, the CLI) shows when the owner comes back to this window.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.refreshAI() }
         }
     }
 
@@ -197,6 +218,14 @@ struct AIStepView: View {
         let entered = key
         key = ""                                               // the field never keeps it
         Task { await model.saveAPIKey(provider, key: entered) }
+    }
+}
+
+/// The service FERB uses now (the daemon's roles), never merely one that is signed in (APP-655).
+private struct InUseTick: View {
+    var body: some View {
+        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            .help("FERB uses this now").accessibilityLabel("In use")
     }
 }
 
