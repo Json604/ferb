@@ -2607,3 +2607,21 @@ request = "Quit FERB, switch FERB off under Allow in the Background, open FERB, 
 pass = "No setup window appears. The notch shows the service step (Login Items guidance, or the failure's own reason with Try again); once FERB is on again it sets the service up and the tour continues at the beat it was on."
 decisions = ["APP-685", "APP-686"]
 sitting = "after this change is installed"
+
+[LIVE-745]
+title = "The disk image opens as the designed window (before the Developer ID)"
+area = "release"
+surface = "build/FERB-AppleSilicon.dmg (release-signed) on the owner's Mac, and a 13-inch MacBook Air screen if at hand"
+request = "Open the disk image; look at the window in dark and light appearance; drag FERB to Applications; open FERB from Applications and follow the window's first-open note (System Settings → Privacy & Security → Open Anyway)."
+pass = "The window shows the startup field, the heading, both icons with white names and the first-open note, all visible without scrolling; no text file and no Finder labels in black; the drag installs FERB; the note's path and button names match what macOS shows."
+decisions = ["REL-408", "REL-409", "REL-410", "REL-411"]
+sitting = "next release build"
+
+[LIVE-746]
+title = "The Developer ID disk image shows only the drag line"
+area = "release"
+surface = "The first Developer ID signed and notarized disk image (T-27)"
+request = "Open the disk image and install FERB from it."
+pass = "The same window says only \"Drag FERB to Applications\" (no Gatekeeper note) and FERB opens without Open Anyway."
+decisions = ["REL-408"]
+sitting = "after the Developer ID"

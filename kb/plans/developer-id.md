@@ -74,8 +74,9 @@ So:
   and verify every piece at `:231-240` against it in `devid` mode. Today that verification runs only for `release`.
 - `ferb_check_release_app` (`:99-110`): in `devid` mode, require the team DR on the app, `spctl -a -t exec -vv` saying
   `source=Notarized Developer ID`, and `xcrun stapler validate`. Today `:101` returns success unchecked.
-- `build-dmg.sh:60` signs the DMG with `$SIGN_IDENTITY`. Use `$FERB_SIGN_ID` so `devid` works. Leave out the
-  "First open … Open Anyway.txt" (`:17,40-43`) when notarized. After stapling, check the image with
+- `build-dmg.sh:60` signs the DMG with `$SIGN_IDENTITY`. Use `$FERB_SIGN_ID` so `devid` works. The text file is
+  gone (REL-408): the window's first-open note goes away by itself, since `dmg_variant` picks `after-devid` whenever
+  `ferb_developer_id` is true; keep that true in `devid` mode. After stapling, check the image with
   `spctl -a -t open --context context:primary-signature -vv`.
 - `build-app.sh:213-218`: unchanged in the switch build (§5 explains why the pinned helper stays for one release).
 - `release-appcast.sh`: before `sign_update`, refuse a DMG whose app isn't team-signed and stapled (one `spctl` line).

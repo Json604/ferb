@@ -232,14 +232,29 @@ exit 0
 STUB_HDIUTIL = r"""#!/bin/zsh
 print -r -- "hdiutil|${(j:|:)@}" >> "$STUB_LOG"
 if [[ "$1" == create ]]; then
-  for (( i = 1; i < $#; i++ )); do [[ "${@[i]}" == -srcfolder ]] && ls -lA "${@[i+1]}" >> "$STUB_DIR/staging.txt"; done
+  for (( i = 1; i < $#; i++ )); do
+    if [[ "${@[i]}" == -srcfolder ]]; then
+      ls -lA "${@[i+1]}" >> "$STUB_DIR/staging.txt"
+      (cd "${@[i+1]}" && find . -mindepth 1 -maxdepth 2 ! -path './FERB.app/*' | sort) > "$STUB_DIR/staged.txt"
+    fi
+  done
   print "fake dmg" > "${@[-1]}"
 fi
 for (( i = 1; i < $#; i++ )); do
   [[ "$1" == attach && "${@[i]}" == -mountpoint ]] && mkdir -p "${@[i+1]}"
   [[ "$1" == convert && "${@[i]}" == -o ]] && cp "$2" "${@[i+1]}"
 done
-if [[ "$1" == detach ]]; then xattr -px com.apple.FinderInfo "$2" | tr -d ' \n' >> "$STUB_DIR/volume-flags.txt"; rmdir "$2"; fi
+if [[ "$1" == detach ]]; then
+  xattr -px com.apple.FinderInfo "$2" | tr -d ' \n' >> "$STUB_DIR/volume-flags.txt"
+  ls -A "$2" > "$STUB_DIR/mounted.txt"
+  rm -rf "$2"
+fi
+exit 0
+"""
+# dmg_layout.py, run as `$FERB_DMG_PYTHON -I dmg_layout.py ds-store MOUNT`: logged, and a .DS_Store left on the mount
+STUB_LAYOUT_PYTHON = r"""#!/bin/zsh
+print -r -- "layout|${(j:|:)@}" >> "$STUB_LOG"
+if [[ "$3" == ds-store ]]; then : > "$4/.DS_Store"; fi
 exit 0
 """
 
@@ -248,11 +263,12 @@ def _stubs(tmp_path: Path) -> dict[str, str]:
     stubs = tmp_path / "stubs"
     stubs.mkdir()
     for name, body in (("codesign", STUB_CODESIGN), ("xcrun", STUB_XCRUN), ("hdiutil", STUB_HDIUTIL),
-                       ("security", STUB_SECURITY)):
+                       ("security", STUB_SECURITY), ("layout-python", STUB_LAYOUT_PYTHON)):
         (stubs / name).write_text(body)
         (stubs / name).chmod(0o755)
     return {"PATH": f"{stubs}:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(tmp_path / "home"),
-            "STUB_LOG": str(tmp_path / "calls.log"), "STUB_DIR": str(tmp_path), "FERB_DEV_DMG": "1"}
+            "STUB_LOG": str(tmp_path / "calls.log"), "STUB_DIR": str(tmp_path), "FERB_DEV_DMG": "1",
+            "FERB_DMG_PYTHON": str(stubs / "layout-python")}
 
 
 def _fake_app(root: Path) -> Path:
@@ -475,6 +491,7 @@ def test_dmg_holds_the_app_and_an_applications_link_and_is_notarized_only_with_a
     assert ".VolumeIcon.icns" in staging
     assert (tmp_path / "volume-flags.txt").read_text()[16:18] == "04"
     assert sorted(p.name for p in dmg.parent.iterdir()) == ["FERB.app", "FERB.dmg"]   # nothing left behind
+    assert "window: before-devid" in done.stdout                            # not notarized: the first-open note
 
     (tmp_path / "calls.log").unlink()
     (tmp_path / "staging.txt").unlink()
@@ -482,6 +499,7 @@ def test_dmg_holds_the_app_and_an_applications_link_and_is_notarized_only_with_a
     env.update(SIGN_IDENTITY=DEV_ID, NOTARY_KEYCHAIN_PROFILE="ferb-notary")
     done = subprocess.run([str(BUILD_DMG), str(app), str(dmg)], capture_output=True, text=True, env=env)
     assert done.returncode == 0, done.stderr + done.stdout
+    assert "window: after-devid" in done.stdout                             # notarized: only the drag line
     calls = (tmp_path / "calls.log").read_text().splitlines()
     assert f"codesign|--force|--sign|{DEV_ID}|--timestamp|{dmg}" in calls
     assert any(c.startswith(f"xcrun|notarytool|submit|{dmg}|") for c in calls)
@@ -491,10 +509,81 @@ def test_dmg_holds_the_app_and_an_applications_link_and_is_notarized_only_with_a
             assert b"ferb-notary" not in f.read_bytes(), f
 
 
-FIRST_OPEN = "First open — System Settings → Privacy & Security → Open Anyway.txt"
+# decision: REL-408, REL-409, REL-410, REL-411
+def test_dmg_window_lays_out_exactly_the_app_the_applications_link_and_the_background(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owner, 2026-11-04: a designed window, no text file. The image holds FERB.app, the Applications link and the
+    hidden background (plus the hidden volume icon and .DS_Store), and the .DS_Store places exactly those two items
+    over that background; the background's words follow the identity, and a preview may override them."""
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import dmg_layout
+    import mac_alias
+    from ds_store import DSStore
+
+    for variant in dmg_layout.VARIANTS:
+        spec = dmg_layout.spec(variant)
+        assert set(spec["icons"]) == {"FERB.app", "Applications"} and spec["background"] == ".background/FERB.tiff"
+        assert all(p.is_file() for p in dmg_layout.background_pngs(variant))
+    assert dmg_layout.spec("before-devid")["note"] and not dmg_layout.spec("after-devid")["note"]
+
+    app = _fake_app(tmp_path / "out")
+    env = _stubs(tmp_path)
+    dmg = tmp_path / "out" / "FERB.dmg"
+    done = subprocess.run([str(BUILD_DMG), str(app), str(dmg)], capture_output=True, text=True, env=env)
+    assert done.returncode == 0, done.stderr + done.stdout
+    staged = (tmp_path / "staged.txt").read_text().split()
+    assert staged == ["./.VolumeIcon.icns", "./.background", "./.background/FERB.tiff", "./Applications",
+                      "./FERB.app"]
+    mount = str(tmp_path / "out" / ".dmg-mount")
+    assert f"layout|-I|{ROOT / 'scripts' / 'dmg_layout.py'}|ds-store|{mount}" in (tmp_path / "calls.log").read_text()
+    assert (tmp_path / "mounted.txt").read_text().split() == [".DS_Store"]   # written before the image is sealed
+
+    # The .DS_Store itself, written onto a copy of the image's root (an HFS+ image's file ids fit a classic alias;
+    # a temp folder's APFS ids don't, so the alias is a stand-in here)
+    volume = tmp_path / "volume"
+    (volume / "FERB.app").mkdir(parents=True)
+    (volume / "Applications").symlink_to("/Applications")
+    (volume / ".background").mkdir()
+    (volume / ".background" / "FERB.tiff").write_bytes(b"tiff")
+    class StandIn:
+        def __init__(self, path: str) -> None:
+            self.path, self.volume = path, type("Volume", (), {"posix_path": "?"})()
+
+        def to_bytes(self) -> bytes:
+            return f"alias:{self.path} on {self.volume.posix_path}".encode()
+
+    monkeypatch.setattr(mac_alias.Alias, "for_file", classmethod(lambda cls, path: StandIn(path)))
+    dmg_layout.write_ds_store(volume)
+    records: dict[str, set[str]] = {}
+    with DSStore.open(str(volume / ".DS_Store"), "r") as store:
+        for entry in store:
+            records.setdefault(entry.filename, set()).add(entry.code.decode())
+            if entry.code == b"pBBk":                                       # the background inside the image
+                assert isinstance(entry.value, mac_alias.Bookmark)
+                assert entry.value.get(0x1004)[-3:] == ["volume", ".background", "FERB.tiff"]
+                assert entry.value.get(0x2002) == "/Volumes/FERB"                # never the build's own mount
+            if entry.code == b"Iloc":
+                assert tuple(entry.value) == dmg_layout.ICONS[entry.filename]
+            if entry.code == b"icvp":
+                assert entry.value["backgroundType"] == 2
+                assert entry.value["backgroundImageAlias"] == \
+                    f"alias:{volume}/.background/FERB.tiff on /Volumes/FERB".encode()
+            if entry.code == b"bwsp":
+                assert not entry.value["ShowToolbar"] and not entry.value["ShowSidebar"]
+    assert set(records) == {".", "FERB.app", "Applications"}
+    assert records["FERB.app"] == records["Applications"] == {"Iloc"}
+
+    dmg.unlink()
+    preview = subprocess.run([str(BUILD_DMG), str(app), str(dmg)], capture_output=True, text=True,
+                             env={**env, "FERB_DMG_VARIANT": "after-devid"})
+    assert preview.returncode == 0 and "window: after-devid" in preview.stdout, preview.stderr
+    dmg.unlink()
+    bad = subprocess.run([str(BUILD_DMG), str(app), str(dmg)], capture_output=True, text=True,
+                         env={**env, "FERB_DMG_VARIANT": "fancy"})
+    assert bad.returncode != 0 and not dmg.exists()
 
 
-def test_dmg_is_named_for_the_apps_architecture_and_says_how_to_open_it_the_first_time(tmp_path: Path) -> None:
+def test_dmg_is_named_for_the_apps_architecture(tmp_path: Path) -> None:
     env = {**_stubs(tmp_path), "FERB_DMG_DIR": str(tmp_path / "dist")}
     for arch, name in (("arm64", "FERB-AppleSilicon.dmg"), ("x86_64", "FERB-Intel.dmg")):
         app = _fake_app(tmp_path / arch)
@@ -503,7 +592,7 @@ def test_dmg_is_named_for_the_apps_architecture_and_says_how_to_open_it_the_firs
         assert done.returncode == 0, done.stderr + done.stdout
         assert (tmp_path / "dist" / name).is_file(), name
     staging = (tmp_path / "staging.txt").read_text()
-    assert FIRST_OPEN in staging and "Applications -> /Applications" in staging and "FERB.app" in staging
+    assert "Applications -> /Applications" in staging and "FERB.app" in staging and ".txt" not in staging
     universal = _fake_app(tmp_path / "fat")              # copies of /usr/bin/true: x86_64 and arm64e in one file
     done = subprocess.run([str(BUILD_DMG), str(universal)], capture_output=True, text=True, env=env)
     assert done.returncode != 0 and "one-architecture" in done.stderr
