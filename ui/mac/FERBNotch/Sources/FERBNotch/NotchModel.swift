@@ -89,7 +89,8 @@ final class NotchModel: ObservableObject {
     let taskRecordFiles = TaskRecordFiles()
     @Published var stoppingTaskIDs = Set<String>()
     @Published var focusRequest = UUID()
-    @Published var voiceStartedAt = Date()
+    /// The microphone's loudness while dictating (APP-674), observed by the meter alone.
+    let voiceMeter = VoiceMeter()
     @Published var voiceIsHeld = false
     @Published private(set) var completionTraceVisible = false
     @Published private(set) var completionStartedAt: Date?
@@ -614,7 +615,7 @@ final class NotchModel: ObservableObject {
             session = composer
         }
         session.beginVoicePreview()
-        voiceStartedAt = Date()
+        voiceMeter.reset()
         feedback.play(.listeningStart)
         if !held { onInteraction?() }
         onPresentationChange?(!held)
@@ -624,6 +625,8 @@ final class NotchModel: ObservableObject {
         promptError = nil
         microphone.start(update: { [weak self] text in
             self?.voiceTranscript = text
+        }, level: { [weak self] rms, duration in
+            self?.voiceMeter.add(rms, each: duration)
         }, completion: { [weak self] result in
             guard let self, self.session.phase == .listening else { return }
             self.voiceIsHeld = false

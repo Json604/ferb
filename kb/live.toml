@@ -2457,3 +2457,12 @@ request = "In Settings → Browsers press Pair all (or replay the intro to the P
 pass = "Only the profile with FERB on pairs. The message names each other profile by browser and name with its step (turn FERB on in the browser's extensions; restart the browser once, then turn FERB on), and the tour shows \"Not all of them paired.\" with Try again and Continue, not \"Paired.\". The journal has browsers.pair_all_skipped. No browser opened, restarted or quit by itself."
 decisions = ["HAND-411"]
 sitting = "after this change is installed"
+
+[LIVE-733]
+title = "Dictation keeps every word through pauses, and its waveform moves only with the voice"
+area = "app"
+surface = "FERB.app with this build, the notch's dictation (held Right Command + Option, and the Stop button), send on release off"
+request = "Hold Right Command + Option and stay silent for three seconds; say \"find my notes about the launch\", pause about five seconds, say \"and the budget sheet\", pause about ten seconds, say \"from last week\", then release. Repeat once with Reduce Motion on."
+pass = "The waveform is a still line while you're silent and moves as you speak. The draft holds all three phrases in order, none lost or cut off at a pause, and dictation stays open until you release. With Reduce Motion the bars stay still and only brighten with your voice."
+decisions = ["APP-673", "APP-674", "APP-675", "APP-568"]
+sitting = "after this change is installed"

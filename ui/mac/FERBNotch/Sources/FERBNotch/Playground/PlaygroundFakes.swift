@@ -117,17 +117,25 @@ final class PlaygroundMicrophone: VoiceCapturing {
     private var job: Task<Void, Never>?
     private let words = "Find three things on my Mac I could tidy up"
 
-    func start(update: @escaping (String) -> Void, completion: @escaping (Result<String, Error>) -> Void) {
+    func start(update: @escaping (String) -> Void, level: @escaping ([Double], TimeInterval) -> Void,
+               completion: @escaping (Result<String, Error>) -> Void) {
         cancel()
         self.completion = completion
         job = Task {
+            // The meter follows the fake voice: a spoken-level block run with each "heard" word, quiet between them.
+            let voice = [0.03, 0.06, 0.05, 0.04, 0.02], quiet = [Double](repeating: 0, count: 5)
             var heard: [Substring] = []
             for word in words.split(separator: " ") {
-                try? await Task.sleep(for: .milliseconds(220))
+                try? await Task.sleep(for: .milliseconds(120))
                 guard !Task.isCancelled else { return }
                 heard.append(word)
                 update(heard.joined(separator: " "))
+                level(voice, 0.02)
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
+                level(quiet, 0.02)
             }
+            level([Double](repeating: 0, count: 25), 0.02)
         }
     }
 

@@ -1701,3 +1701,33 @@ rule = "FERB.app keeps the last update result (FERBUpdateLastResult in its own d
 why = "Audit U5 (owner approved the fixes 2026-11-04): with automatic updates on, a failed check, download or signature left no trace and the owner kept an old build unknowingly."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/UpdateCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SparkleUpdater.swift", "ui/mac/FERBNotch/Sources/FERBNotch/UpdateNotes.swift", "ui/mac/FERBNotch/Sources/NotchCore/UpdatePlan.swift"]
 live = ["LIVE-713"]
+
+[APP-673]
+title = "Dictation keeps every word said until the owner ends it"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "One dictation's transcript keeps everything said until the owner ends it. Each recognition task has its own place in it; an utterance the recognizer ends (speechRecognitionMetadata, a final answer) is kept, later answers replace only the words still being heard, and an answer that drops the live words (it starts on audio after they ended, or is under half of them with a different first word) keeps them. When it can't be told whether an answer revises or starts over, the words are kept. The listening preview shows the newest words."
+why = "Owner on build 202611040231: dictation \"cuts message after a drop in speech, keep everything that is being said\" (fixes approved 2026-11-04). Each answer replaced the transcript with the latest bestTranscription, which after a pause can hold only the new words."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/Dictation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+live = ["LIVE-733"]
+
+[APP-675]
+title = "A recognition task ending mid-dictation is replaced; only the owner ends dictation"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Dictation ends only on the owner's release, Stop, Cancel, hiding or typing (APP-552, APP-568). A recognition task that ends while the owner is still dictating (a final answer, \"no speech detected\", an error after it heard words) is replaced by a new on-device task (APP-591) on the same running microphone, the tap feeding the new request from the next buffer, and its words stay. Only a fresh task that fails before hearing anything stops capture, keeping what was said; no retry count is needed."
+why = "Owner on build 202611040231 (fixes approved 2026-11-04): the final answer or error after a pause completed the dictation and stopped the microphone while the keys were still held (Microphone.swift:124-127 before this change)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Microphone.swift", "ui/mac/FERBNotch/Sources/NotchCore/Dictation.swift"]
+live = ["LIVE-733"]
+
+[APP-674]
+title = "The dictation meter moves only with the microphone's sound"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The listening waveform is drawn only from the microphone's loudness: RMS of 20 ms blocks from the audio tap, mapped from -50 dBFS (still) to -18 dBFS (full), smoothed with a 30 ms attack and a 300 ms release; the newest level sits in the centre and older ones move outward. In silence the bars are a still line; nothing animates on a clock. Reduce Motion keeps the bars still and shows loudness by brightness alone."
+why = "Owner on build 202611040231: \"its a constant moving animation it should move when voice comes\" (fixes approved 2026-11-04). VoiceLight drew sine waves from a clock, never the microphone. The dB range and time constants are display tuning set without a live microphone (APP-567)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/Dictation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/VisualComponents.swift"]
+live = ["LIVE-733"]
