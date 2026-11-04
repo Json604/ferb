@@ -575,6 +575,19 @@ def test_a_shell_call_takes_a_snapshot_first_and_trash_and_writes_take_none(daem
     assert span["error"] is None
 
 
+# decision: HAND-408
+def test_a_shell_result_names_its_snapshot_by_date_when_the_name_looks_like_a_card(daemon: RunningDaemon) -> None:
+    """The shell result's redaction masks a snapshot name whose date digits pass Luhn; its date still reaches the
+    worker, so it can tell the owner which snapshot to open."""
+    fake = _Snapshots()
+    service = _snaps(daemon, fake)
+    service.take = lambda: "com.apple.TimeMachine.2026-11-03-000612.local"   # its 14 date digits pass Luhn
+    shell = _Ordered("shell.fake", Kind.RUN_SHELL, fake.order)
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("tidy"), [shell])
+    out = gateway_tool_call(daemon, grant, "shell.fake", text="rm -r build")
+    assert out["content"]["recovery_snapshot"]["snapshot_date"] == "2026-11-03 00:06:12"
+
+
 def test_a_permanent_delete_takes_a_snapshot_first(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     ferb_yes.expect("floor:delete_permanent")   # FERB's own question(s) on the way (F5a floor)
     fake = _Snapshots()

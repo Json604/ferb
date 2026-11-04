@@ -214,11 +214,13 @@ class Destination(BaseModel):
 
 
 def snapshot_facts(out: dict[str, Any]) -> dict[str, Any]:
-    """What a call's result says about the S1 snapshot taken before it."""
+    """What a call's result says about the S1 snapshot taken before it: with its date (HAND-408), which the result's
+    redaction leaves readable where a card-like snapshot name is masked."""
     if "error" in out:
         return {"snapshot_error": out["error"]}
     return {"recovery_snapshot": {"snapshot": out.get("snapshot"), "record": out.get("record"),
-                                  "reused": bool(out.get("reused"))}}
+                                  "reused": bool(out.get("reused"))}
+            | ({"snapshot_date": out["snapshot_date"]} if out.get("snapshot_date") else {})}
 
 
 def lift_how(access: str) -> str:
