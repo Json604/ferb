@@ -2946,3 +2946,12 @@ pass = "Each answer says you can type or dictate and that FERB replies in text a
 decisions = ["VOICE-409", "VOICE-410"]
 sitting = "after this change is installed"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
+
+[LIVE-767]
+title = "On macOS 27, FERB drags out of the notch and stays where it is dropped"
+area = "app"
+surface = "A FERB.app build with APP-704 on a notched Mac running macOS 27, docked in the notch (nothing saved, or dragged back in)"
+request = "Hover the notch so the chat opens, press on the camera housing and drag down and to the right; drop it on the right edge. Wait for the resting line, hover it, drag it back into the notch. Switch apps a few times and swipe between desktops with FERB open, then drag again. Afterwards run: log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" AND category == \"notch\"' --info"
+pass = "The first press on the housing tears FERB out and it follows the pointer with its surface (the approved feel, APP-629); it stays on the edge where dropped and docks back into the notch; it still drags after app switches; during the desktop swipe it stays fixed to the notch (APP-562). The log shows \"attached to fixed overlay space\" and no \"attachment failed\"."
+decisions = ["APP-704", "APP-597", "APP-625", "APP-562"]
+sitting = "after this change is installed"
