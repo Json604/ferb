@@ -426,7 +426,8 @@ def test_a_browser_connecting_or_disconnecting_leaves_the_cached_prefix_alone(da
     def wire() -> None:
         d.pairings = SimpleNamespace(all=lambda: [binding], for_profile=lambda browser, folder: binding
                                      if (browser, folder) == ("chrome", "Profile 7") else None)
-        d.hub = SimpleNamespace(bridges={("chrome", "Profile 7"): bridge}, unpaired={}, refused={})
+        d.hub = SimpleNamespace(bridges={("chrome", "Profile 7"): bridge}, unpaired={}, refused={},
+                                problem=lambda binding: None)
         d._fresh_profiles = lambda: [SimpleNamespace(browser="chrome", folder="Profile 7", display_name="Work")]
         d.supervisor.availability = d._availability
     run(daemon, wire)
