@@ -443,3 +443,35 @@ def test_taking_the_held_tab_back_for_a_round_is_confirmed_or_retried_once(repli
     else:
         asyncio.run(r.rest("task-1", False))
     assert len(sent) == calls and all(a == {"tab_id": 11, "resting": False} for a in sent)
+
+
+# decision: HAND-419
+def test_a_tab_the_cleanup_couldnt_let_go_of_is_named_plainly_for_the_owner() -> None:
+    """HAND-419 (live 2026-11-04: "I couldn't tidy up everything after this task: DriverError: browser cleanup
+    incomplete: t5: release_tab: timeout; outcome unknown"): the owner's line names the tab by browser, profile and
+    title and says what to do; the raw error stays in the trace's record only."""
+    from ferb.act.browser.ext_bridge import OutcomeUnknown
+    from ferb.core.errors import DriverError
+    from ferb.orchestrator.leftovers import leftover_lines
+    r, br = router()
+    ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+    plain = br.call
+    async def times_out(op: str, args: dict[str, Any], **kwargs: Any) -> Any:
+        if op == "release_tab":
+            raise OutcomeUnknown("release_tab: timeout; outcome unknown")
+        return await plain(op, args, **kwargs)
+    br.call = times_out                                                     # type: ignore[method-assign]
+    with pytest.raises(DriverError) as failed:
+        asyncio.run(r.release("task-1"))
+    assert "release_tab: timeout" in str(failed.value)                      # the trace keeps the raw error
+    record = {"resource": "browser", "released": False, "error": f"DriverError: {failed.value}",
+              "tabs": failed.value.facts["tabs"]}
+    [line] = leftover_lines([record], [record["error"]])
+    assert "Brave “Work”, Lesson" in line and "still open" in line and ref.tab_id not in line
+    assert "DriverError" not in line and "timeout" not in line and "release_tab" not in line
+    opened = dict(record["tabs"][0], borrowed=False, title="History")      # a tab FERB opened itself
+    [line] = leftover_lines([dict(record, tabs=[opened])], [record["error"]])
+    assert line == "I couldn't close one tab I opened: Brave “Work”, History. Close it if it's still open."
+    # a cleanup that stopped before any record came back still gets a plain line, never the raw text
+    assert leftover_lines([], ["tree.worker: cleanup cancelled; resource outcome is unknown"]) == [
+        "I couldn't finish tidying up after this task. The details are in the task's record."]

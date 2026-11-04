@@ -708,3 +708,25 @@ words_source = "Answer to the proposal on 2026-11-04 to add the history permissi
 rule = "FERB's extension doesn't request Chrome's history permission. Browsing history from before FERB's own record (the browser_tabs trail since install) stays out of background reach; reading a browser's own History page needs foreground use, which asks the owner as always. Adding the permission later is a new owner decision."
 paths = ["extensions/chromium/manifest.json"]
 untestable = "A permission that is absent: the manifest is checked by review, and any change to its permissions is a store release the owner approves."
+
+[HAND-418]
+title = "Letting go of a tab never waits on its page"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "When the extension lets go of a tab (release_tab, close, a tab moved out of its group), it awaits only what the browser itself does: handing back or failing held responses (Fetch), the debugger's detach, the tab's removal. What only the page can answer (content.js's held saves, its disarm, the hook's removal, focus emulation off) is asked without waiting: detaching ends the session's hook and emulation anyway. So a frozen, discarded or loading page can't keep `release_tab` past its timeout. Extension 0.19.1; minimum stays 0.19.0."
+why = "Build 202611040627, task 59d60965: release_tab of t5 (the owner's tab, whose page the extension couldn't read) hit the extension's own 10 s timeout twice; three other tabs let go at once. Which await hung isn't recorded; only the page-side ones wait on the page."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["extensions/chromium/background.js"]
+live = ["LIVE-760"]
+
+[HAND-419]
+title = "A cleanup leftover is told in plain words; the raw error stays in the trace"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "One helper (leftover_lines) writes the answer's line for whatever a task's cleanup couldn't release: a tab by browser, profile and its last title (redacted): FERB's own \"I couldn't close one tab I opened: … Close it if it's still open.\", the owner's borrowed one still open as they left it (press Cancel if the browser says FERB is debugging it); terminal commands, apps, listening, recordings and a cleanup cut short each a short plain line. No raw error or tab id reaches the owner; the task.cleanup span keeps them."
+why = "Owner, 2026-11-04, on task 59d60965's last line \"I couldn't tidy up everything after this task: DriverError: browser cleanup incomplete: t5: release_tab: timeout; outcome unknown\": \"also what is this tidy up error???\""
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ferb/orchestrator/leftovers.py", "ferb/orchestrator/supervisor.py", "ferb/act/browser/ext_bridge.py", "ferb/daemon/areas/desktop.py"]
+live = ["LIVE-760"]

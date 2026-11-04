@@ -1959,3 +1959,25 @@ why = "APP-594 guarded the only lookup of a model-named app, which APP-693 remov
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 untestable = "The lookup is removed; nothing is left to exercise."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroAppTargets.swift"]
+
+[APP-700]
+title = "The sites row: one site, the rest under +N"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "we decided on one site plus rest under +x"
+rule = "Under an answer, the sites a task contacted show as one row: the first site, then \"+N\" for the rest, which opens the list of all of them. Link cards (one per site from the daemon) show this way in chat and in the notch, as the older \"Sites contacted\" text already did; never one chip per site."
+why = "Owner's run of build 202611040627 (task 59d60965): three link chips \"example.com\", \"github.com\", \"history\" under one answer. The one-site-plus-count control (VisitedSitesView) was used only for turns from before link cards."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift"]
+live = ["LIVE-759"]
+
+[APP-701]
+title = "A browser's own pages are not sites"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Only http(s) pages count as sites a task contacted: a page load in a task's tab whose address is a browser's own page (chrome://, brave://, edge://, about:, an extension's page) is left out of \"Sites contacted\" and its link cards. A trail row with no address keeps its recorded host as before."
+why = "Owner's run of build 202611040627 (task 59d60965): \"Sites contacted: example.com, github.com, history\"; \"history\" was the host of chrome://history/, which the extension reported as a page load in the tab FERB used. The scheme is a structural fact."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ferb/policy/sites.py"]
+live = ["LIVE-759"]

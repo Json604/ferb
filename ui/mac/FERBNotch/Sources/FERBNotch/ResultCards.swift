@@ -4,7 +4,7 @@ import NotchCore
 
 /// Typed cards (step 8e, owner 2026-10-31). The look follows Shapeshift's intent cards (MIT, Copyright (c) 2026
 /// Shapeshift contributors; ThirdPartyNotices.txt): a title in semibold, soft capsule chips for the filled fields, a
-/// hero number for amounts and countdowns, an initials avatar for a person and a monogram tile for a link. Rebuilt in
+/// hero number for amounts and countdowns, an initials avatar for a person; links show as the sites row (APP-700). Rebuilt in
 /// SwiftUI for the dark notch; Shapeshift's text classifier is not used: the daemon's `type` decides each card.
 /// Functional first; the owner polishes.
 
@@ -21,7 +21,7 @@ struct ResultCardsView: View {
                 ForEach(Array(below.enumerated()), id: \.offset) { _, card in
                     ResultCardView(card: card, turnID: turnID, model: model)
                 }
-                if !links.isEmpty { LinkCardsRow(cards: links) }
+                if !links.isEmpty { LinkCardsRow(cards: links, model: model) }
                 if !files.isEmpty {
                     FlowRow(spacing: 6) {
                         ForEach(Array(files.enumerated()), id: \.offset) { _, card in
@@ -432,29 +432,17 @@ struct ContactCard: View {
     }
 }
 
-/// The sites a task contacted (Shapeshift's LinkCard, compact): a monogram tile and the domain. Nothing is fetched.
+/// The sites a task contacted, one card each from the daemon: shown as the sites row (APP-700), the first site and
+/// "+N" opening the list of all, in chat and in the notch. Nothing is fetched.
 struct LinkCardsRow: View {
     let cards: [ResultCard]
+    @ObservedObject var model: NotchModel
+
+    static func sites(_ cards: [ResultCard]) -> VisitedSites { VisitedSites(hosts: CardLayout.links(cards).compactMap(\.host)) }
 
     var body: some View {
-        FlowRow(spacing: 6) {
-            ForEach(Array(cards.enumerated()), id: \.offset) { _, card in
-                HStack(spacing: 7) {
-                    Text(card.monogram).font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.85))
-                        .frame(width: 20, height: 20)
-                        .background(.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                    Text(verbatim: card.host ?? "").font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Palette.ink).lineLimit(1).truncationMode(.middle)
-                }
-                .padding(.leading, 4).padding(.trailing, 9).frame(height: 28)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .textSelection(.enabled)
-                .help("FERB contacted " + (card.host ?? ""))
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Sites contacted: " + cards.compactMap(\.host).joined(separator: ", "))
+        let sites = Self.sites(cards)
+        if !sites.all.isEmpty { VisitedSitesView(sites: sites, model: model, leading: 0) }
     }
 }
 

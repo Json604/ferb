@@ -77,6 +77,7 @@ from ferb.policy import blocked as blocked_
 from ferb.policy import confirm, provenance
 from ferb.policy.rules import ActionRequest
 from ferb.policy.sites import sites_contacted
+from ferb.orchestrator.leftovers import leftover_lines
 from ferb.policy.standing import SCHEDULE_GRANT, StandingPermissions
 from ferb.policy.targets import Request, Targets
 from ferb.sanitize.untrusted import (EARLIER_QUESTION, EARLIER_QUESTION_DATA, WRAPPED, as_data, mark, typed_lines_of,
@@ -5808,9 +5809,8 @@ class Supervisor(WorkerRuns):
         if sites:
             lines.append(SITES_LINE + ", ".join(sites))
         lines += self._secret_lines(tree.id) + self._apps_left_running(tree.id)
-        if tree.cleanup_errors:          # each without the task id `_release_task` names it by
-            said = [e.split(": ", 1)[1] if e.startswith(tree.id) and ": " in e else e for e in tree.cleanup_errors]
-            lines.append(CLEANUP_LEFT + "; ".join(dict.fromkeys(said)))
+        if tree.cleanup_errors:          # plain words for each leftover; the raw errors stay in the trace (HAND-419)
+            lines += leftover_lines(tree.resources, tree.cleanup_errors)
         return lines
 
 
@@ -5872,7 +5872,6 @@ def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -
 NOT_FINISHED = "I couldn't finish this task."
 COULDNT_DO = "Couldn't do:"                      # a part that couldn't be done, in its own row (ORCH-319)
 FOUND_UNCHECKED = "What I found (not checked):"
-CLEANUP_LEFT = "I couldn't tidy up everything after this task: "
 WATCH_TEXT = "whether it has happened"          # a watch's own condition, in the owner's terms
 NOTHING_TO_CHECK = "there was nothing to check it against"
 NOT_ACCEPTED = "the check didn't confirm the result"     # a failure no reason came with (never a done claim)

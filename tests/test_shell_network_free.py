@@ -253,6 +253,7 @@ def test_sites_contacted_lists_each_host_once_sorted_from_shell_records_and_brow
     assert daemon.run(none()) == []
 
 
+# decision: APP-701
 def test_pages_a_tasks_own_tabs_loaded_are_sites_it_contacted(daemon: RunningDaemon) -> None:
     """I6: "Research X" opened google.com and clicked three results; the answer said "Sites contacted: google.com".
     The extension reports every page load in a task's own tab (a click, a redirect's landing page, a popup the task
@@ -268,10 +269,13 @@ def test_pages_a_tasks_own_tabs_loaded_are_sites_it_contacted(daemon: RunningDae
                           (tree + ".worker", "https://en.wikipedia.org/wiki/X"),        # a clicked result
                           (tree + ".worker", "https://news.example/story"),            # where a redirect landed
                           ("another-tree.worker", "https://elsewhere.example/"),
-                          (None, "https://owners-own-tab.example/")):                  # the owner browsing
+                          (None, "https://owners-own-tab.example/"),                   # the owner browsing
+                          # APP-701 (live 2026-11-04, "Sites contacted: …, history"): a browser's own page is no site
+                          (tree + ".worker", "chrome://history/"), (tree + ".worker", "brave://settings/"),
+                          (tree + ".worker", "about:blank")):
             o = tab_observation("chrome", "Default", False, "updated", url, "t", False, task)
-            assert o is not None
-            d.trail.record(o)
+            if o is not None:
+                d.trail.record(o)
         # a task tab in FERB's own identity profile belongs to its task too
         o = tab_observation("chrome", "Profile 7", True, "updated", "https://mail.example/inbox", "t", False,
                             tree + ".worker")

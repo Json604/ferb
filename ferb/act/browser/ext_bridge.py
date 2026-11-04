@@ -927,6 +927,7 @@ class _Tab:
     # D31: the web terminal element FERB just typed approved text into, and that Yes: it covers one Return there
     armed: tuple[str, str] | None = None
     opener: str | None = None       # the task tab that opened this one (a link's new tab, an adopted popup)
+    title: str = ""                 # the page title it last showed FERB (redacted): names it in a cleanup leftover
 
 
 def _read_clipboard() -> tuple[int, str | None, bool]:
@@ -1498,6 +1499,7 @@ class _TabDriver:
         t.visual = None
         t.points.clear()
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
+        t.title = self.redact_text(title) if title else t.title
         t.frame_urls = {int(f["frame_id"]): str(f.get("url") or "") for f in v["frames"]}
         t.commerce = next((dict(f["commerce"]) for f in v["frames"] if int(f["frame_id"]) == 0
                            and isinstance(f.get("commerce"), dict)), {})
@@ -2315,7 +2317,7 @@ class _TabDriver:
         keep_all = self.task_root(owner) in self._keep_roots
         # bounded: tasks that ended are no longer anyone's to race with; trees with no tab left start their count over
         self._released = {o for o in self._released if self.task_running(o)} | {owner}
-        results, errors = [], []
+        results, errors, left = [], [], []
         for alias in [a for a, t in self._tabs.items() if t.owner == owner]:
             if keep_all and not self._tabs[alias].attached and not self._tabs[alias].closed:
                 self._tabs[alias].keep_open = True
@@ -2329,11 +2331,26 @@ class _TabDriver:
                     if attempt == 2:
                         self._tabs[alias].owner = None
                         errors.append(f"{alias}: {e}")
+                        left.append(self._leftover(self._tabs[alias], str(e)))
         live_roots = {self.task_root(t.owner) for t in self._tabs.values() if t.owner}
         self._keep_roots = {r for r in self._keep_roots if r in live_roots or self.task_running(r)}
-        if errors:
-            raise DriverError("browser cleanup incomplete: " + "; ".join(errors))
+        if errors:                      # the raw errors stay in the trace; `tabs` names each one for the owner (HAND-419)
+            raise DriverError("browser cleanup incomplete: " + "; ".join(errors), facts={"tabs": left})
         return results
+
+    def _leftover(self, t: _Tab, error: str) -> dict[str, Any]:
+        """A tab the task's cleanup couldn't close or let go of, as the owner knows it: the browser and profile by
+        name, the page title it last showed (redacted), whether it was the owner's own tab, and the raw error."""
+        try:
+            names = {(p.browser, p.folder): p.display_name for p in self.known()}
+        except Exception:                                # a name is a courtesy: the folder still says which profile
+            names = {}
+        browser = BROWSERS[t.ref.browser].label if t.ref.browser in BROWSERS else t.ref.browser.capitalize()
+        host = (urlsplit(t.url).hostname or "") if t.url.startswith(("http://", "https://")) else ""
+        return {"tab": t.ref.tab_id, "browser": browser,
+                "profile": names.get((t.ref.browser, t.ref.profile), t.ref.profile),
+                "title": t.title or self.redact_text(host), "borrowed": t.attached, "kept_open": t.keep_open,
+                "error": error}
 
     async def shutdown(self) -> None:
         for alias in list(self._tabs):
@@ -2474,6 +2491,7 @@ class Router(_TabDriver):
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._tabs[ref.tab_id] = _Tab(ref, br, cid, owner, str(tab.get("url") or ""), attached=True,
+                                      title=self.redact_text(str(tab.get("title") or "")),
                                       # stored redacted, so every later reader is safe (re-review 2, I4)
                                       taken_over_from={"url": self.redact_text(str(tab.get("url") or "")),
                                                        "title": self.redact_text(str(tab.get("title") or ""))})

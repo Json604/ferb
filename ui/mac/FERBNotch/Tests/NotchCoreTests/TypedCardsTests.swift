@@ -41,6 +41,22 @@ final class TypedCardsTests: XCTestCase {
         XCTAssertNil(ResultCard.list([["type": "hologram"]]))
     }
 
+    // decision: APP-700
+    /// Live 2026-11-04: three link chips ("example.com", "github.com", "history") under one answer. Link cards
+    /// show as the sites row: the first site, "+2", and the list of all of them behind it.
+    func testLinkCardsCollapseToOneSiteAndACountOfTheRest() throws {
+        let line = "Sites contacted: example.com, github.com, docs.python.org"
+        let cards = try XCTUnwrap(ResultCard.list(["example.com", "github.com", "docs.python.org"].map {
+            ["type": "link", "host": $0, "line": line] as [String: Any]
+        } + [["type": "file", "path": "/tmp/report.md"]]))
+        let sites = LinkCardsRow.sites(cards)
+        XCTAssertEqual(sites.inline, "example.com")
+        XCTAssertEqual(sites.remainingCount, 2)
+        XCTAssertEqual(sites.all, ["example.com", "github.com", "docs.python.org"])
+        XCTAssertEqual(LinkCardsRow.sites(Array(cards.prefix(1))).remainingCount, 0)      // one site: no "+0"
+        XCTAssertEqual(VisitedSites(hosts: ["a.example", "a.example", " "]).all, ["a.example"])
+    }
+
     // decision: ORCH-329
     func testACardStandsForExactlyItsLineAndNothingElseInTheTextIsRead() {
         let note = ResultCard(["type": "note", "item_id": "m", "text": "x", "line": "Remembered: my dentist is Dr. Rao"])!
