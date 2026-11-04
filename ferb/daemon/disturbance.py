@@ -256,6 +256,8 @@ class DisturbanceSentinel:
         is paused."""
         if not self.active or not change or self.paused() or self._owner_input_near():
             return
+        # SENSE-406: with the input tap down the owner's input can't be told apart (HAND-213); the record says so
+        unmonitored = {} if self._owner_input_monitored() else {"owner_input_monitored": False}
         now = time.monotonic()
         near = list(self._acting.values()) + [c for at, c in self._ended if now - at <= SOUND_NEAR_S]
         by_tree: dict[str, list[dict[str, Any]]] = {}
@@ -271,7 +273,14 @@ class DisturbanceSentinel:
                                             "changes": changes})
             self.record(tree, "disturbance.change", {"changes": changes, "actions": calls,
                                                      "permission_assessment": "not_inferred",
-                                                     "attribution": "temporal_correlation_only"})
+                                                     "attribution": "temporal_correlation_only"} | unmonitored)
+
+    def _owner_input_monitored(self) -> bool:
+        """Whether the owner-input tap is running (a reader that doesn't say counts as running)."""
+        try:
+            return bool(self.owner_input().get("monitored", True))
+        except Exception:
+            return False
 
     def _owner_input_near(self) -> bool:
         """The owner's own keyboard or mouse input is under way or ended within OWNER_NEAR_S (the input tap's timing,

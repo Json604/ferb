@@ -451,12 +451,10 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         await self.server.start()          # refuses to start if another daemon answers on the socket
         await self._prepare_codex()
         self.missing_dev_tools = await asyncio.to_thread(self.developer_tools)
-        session = self._login_session()
-        previous = self.journal.recent_values("daemon.started", "session", 1)
-        self.journal.append("daemon.started", {"pid": os.getpid()} | ({"session": session} if session else {}))
+        new_session = self._record_start()
         await self._restore_service_definition()
         await self._tell_set_aside()
-        self._mac_started(session is not None and previous != [session])
+        self._mac_started(new_session)
         if self.mac is not None:            # the first redaction after a start doesn't wait for Vision (DMN-519)
             from ferb.sanitize import images
             self._warm = asyncio.create_task(asyncio.to_thread(images.warm_recognition))

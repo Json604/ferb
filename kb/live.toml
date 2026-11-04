@@ -2369,3 +2369,21 @@ request = "Ask for a recurring reminder, then in a later message say \"set that 
 pass = "The reminder from the earlier message and the pasted one are set (no \"[200~\" in what is shown or stored), with no reply claiming anything that wasn't done. Memory shows only the corrected fact's words, not the whole sentence. The last one shows \"Blocked by a safety check: …\" saying which check, why and what to do, and FERB's reply doesn't claim it was set."
 decisions = ["ORCH-518", "ORCH-519", "ORCH-520", "MEM-419"]
 sitting = "after this change is installed"
+
+[LIVE-715]
+title = "FERB starts watching the keyboard and mouse once Input Monitoring is granted, without a restart"
+area = "perception"
+surface = "FERB.app with this build, System Settings → Privacy & Security → Input Monitoring"
+request = "Turn FERB off in Input Monitoring and restart FERB once (so it starts without it). Run `ferb doctor`. Ask FERB for a task that needs typing in an app in front of you and answer Yes. Then turn FERB back on in Input Monitoring, wait a minute without restarting, run `ferb doctor` again and repeat the task while you move the mouse during it."
+pass = "Without the grant: doctor shows \"owner input\" with why; the foreground task types nothing (the tool refuses foreground input). After the grant, with no restart: doctor no longer shows the line, the journal has owner_input.started, and the foreground input stops when you move the mouse."
+decisions = ["SENSE-406"]
+sitting = "after this change is installed"
+
+[LIVE-716]
+title = "An update restart is no return to the Mac, and 1 November's learning pass recovers by itself"
+area = "memory"
+surface = "FERB.app updated to this build on the owner's Mac (the database as it is now)"
+request = "Install this build while logged in, with a reminder set for \"when I'm back at my Mac\". After the update, wait an hour and a half without restarting the Mac. Then run `ferb doctor` and look at the Memory page."
+pass = "The reminder doesn't fire at the update (the journal has no mac.back_in_use \"login\" row at that time, and daemon.started rows show mac_login, not \"[redacted]\"). Within the hour distill_runs for 2026-11-01 is distilled (or each try is a memory.distill_failed row with its reason, and doctor lists the day); a day narrative for 2026-11-01 exists."
+decisions = ["SENSE-407", "MEM-421"]
+sitting = "after this change is installed"

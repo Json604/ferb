@@ -272,10 +272,13 @@ class Desktop:
         def owner_wait(holder: str, on: bool) -> None:          # the owner's time never counts as a stall
             if self.supervisor is not None:
                 self.supervisor.activity.waiting(holder, on)
-        def available() -> bool:                                  # paused: no owner-input tap, so no real input
-            return not (self.sense is not None and self.sense.paused)
+        # SENSE-406: with the owner-input tap down (paused, Input Monitoring missing, macOS refused the tap) FERB can't
+        # tell whether the owner is using the Mac, so it counts them as using it: no foreground input, and the
+        # "owner is using this app" checks hold
+        def available() -> bool:
+            return not (self.sense is not None and self.sense.paused) and self.owner_input.running
         def owner_active() -> bool:                    # foreground input always yields when the owner provides input
-            return self.owner_input.active()
+            return self.owner_input.active() or not self.owner_input.running
         self.mac = MacComputerDriver(device, RealInput(owner_active, self.gui, on_wait=owner_wait,
                                                        available=available),
                                      excluded=self.config.exclude_apps, web_secrets=self._web_secrets,

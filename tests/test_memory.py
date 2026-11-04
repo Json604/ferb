@@ -402,6 +402,27 @@ def test_distillation_proposals_are_checked_in_code(daemon: RunningDaemon) -> No
     assert "A day of code." in json.dumps([e.data for e in entries])
 
 
+# decision: MEM-421
+def test_a_day_whose_distill_failed_is_journaled_and_tried_again_until_it_is_distilled(daemon: RunningDaemon) -> None:
+    """Live 2026-11-01: one "Codex isn't signed in" parked the day for good with no journal row, and the retry command
+    the code named didn't exist."""
+    day = (daemon.daemon.clock.now().astimezone().date() - timedelta(days=1)).isoformat()
+    trail_row(daemon, day, hour=9)
+    dd, _ = distiller(daemon, RuntimeError("SignedOut: Codex isn't signed in for FERB"))
+    assert daemon.run(dd.catch_up())[0]["status"] == "failed"
+    failed = run(daemon, lambda: daemon.daemon._journal().of_kind("memory.distill_failed"))
+    assert [(e.data["day"], e.data["error"]) for e in failed] == [(day, "RuntimeError: SignedOut: Codex isn't signed "
+                                                                        "in for FERB")]
+    # as an older build left the row (parked on that day's summary id), so the installed day recovers after an update
+    run(daemon, lambda: daemon.daemon.db.conn.execute(
+        "UPDATE distill_runs SET inputs = (SELECT id FROM journal WHERE kind = ? ORDER BY seq DESC LIMIT 1) "
+        "WHERE day = ?", (summary.SUMMARY_KIND, day)))
+    assert run(daemon, dd.pending_days) == [day]                 # the next hourly pass tries it again
+    dd.make_runtime = lambda *a, **k: FakeDistillRuntime({"narrative": "A day of code.", "items": []})
+    assert daemon.run(dd.catch_up())[0]["status"] == "distilled"
+    assert run(daemon, dd.pending_days) == []
+
+
 # ---------- trail.query ----------
 
 def test_trail_query_is_owner_only_and_titles_expose_the_worker(daemon: RunningDaemon) -> None:
