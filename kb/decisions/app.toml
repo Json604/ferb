@@ -2017,3 +2017,14 @@ why = "Owner, fresh install of build 202611040627 (2026-11-04): before setup got
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/MenuBarState.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::settingUpService", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift::watchServiceSetup", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::serviceSettingUp", "ui/mac/FERBNotch/Sources/FERBNotch/ProfileMenuButton.swift"]
 live = ["LIVE-758"]
+
+[APP-704]
+title = "The notch windows are in the overlay space when the window server lists them there"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "APP-563's overlay space counts as attached when its level took (SLSSpaceSetAbsoluteLevel returns 0), the space lists every notch window as a member, and every one of them the window server listed on screen before the move is still listed on screen after the space is shown. The move and show calls' return codes are only logged, never read as success or failure; rejoining or including a window likewise checks the space's member list. Attaching, a failure with its reason, and a window that couldn't join go to the system log (subsystem com.ferb.FERB, category notch)."
+why = "Owner, v0.27.0 on macOS 27.2: \"the notch is not draggable\". macOS 27.2 returns 3 from the move and show calls even when they worked, so attach dropped the space at every launch: the notch windows stayed ordinary layer-25 windows behind macOS 27's MenuBarAgent menu-bar window at the camera."
+evidence = "Fix batch approved. Installed FERB's notch windows sat on every managed Space; the camera's clicks went to MenuBarAgent (SLSFindWindowAndOwner). Probes: attach statuses 0/3/3 with every window a member. Playground with this change: attached (move 3, show 3), its open panel took the camera's clicks."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift", "ui/mac/FERBNotch/Sources/NotchCore/OverlaySpaceCheck.swift"]
+live = ["LIVE-767"]
