@@ -108,11 +108,13 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
         case "setup.browsers_pair_all":
             await state.pause(2.5)
             if s.pairingFails {
-                return ["results": [["name": "Work", "paired": false, "why": "FERB isn't turned on in that profile"],
-                                    ["name": "Personal", "paired": true]]]
+                return ["profiles": 2, "results": [["name": "Personal", "label": "Google Chrome", "paired": true]],
+                        "skipped": [["name": "Work", "label": "Google Chrome", "reason": "off",
+                                     "step": "turn FERB on in Google Chrome's extensions"]]]
             }
             state.saved.browsersPaired = true
-            return ["results": [["name": "Personal", "paired": true], ["name": "Work", "paired": true]]]
+            return ["profiles": 2, "skipped": [[String: Any]](),
+                    "results": [["name": "Personal", "paired": true], ["name": "Work", "paired": true]]]
         case "setup.browser_pair":
             await state.pause(1.5)
             return ["paired": !s.pairingFails, "why": "FERB isn't turned on in that profile"]

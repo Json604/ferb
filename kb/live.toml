@@ -2448,3 +2448,12 @@ request = "Run tasks that take snapshots; after a day open `ferb restore` (or Se
 pass = "No snapshot row reads com.apple.TimeMachine.[redacted].local; FERB's old snapshots are deleted by retention, not only dropped from the list."
 decisions = ["HAND-408"]
 sitting = "after this change is installed"
+
+[LIVE-722]
+title = "Pair all says which profiles it didn't pair and why, never \"Paired.\" for them"
+area = "hands"
+surface = "FERB.app with this build; one browser profile with FERB's extension on, one where it's turned off, and one without it (a browser not restarted since FERB's install request)"
+request = "In Settings → Browsers press Pair all (or replay the intro to the Pair browsers beat and choose Pair all)."
+pass = "Only the profile with FERB on pairs. The message names each other profile by browser and name with its step (turn FERB on in the browser's extensions; restart the browser once, then turn FERB on), and the tour shows \"Not all of them paired.\" with Try again and Continue, not \"Paired.\". The journal has browsers.pair_all_skipped. No browser opened, restarted or quit by itself."
+decisions = ["HAND-411"]
+sitting = "after this change is installed"

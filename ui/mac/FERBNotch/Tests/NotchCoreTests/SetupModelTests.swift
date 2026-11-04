@@ -336,6 +336,28 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(p?["folder"] as? String, "Profile 1")
     }
 
+    /// Past bug (owner's question 2026-11-04): Pair all said nothing about profiles it passed over, so "Paired." showed
+    /// when no browser had FERB's extension yet. Only a reply with every profile paired leaves no message.
+    // decision: HAND-411
+    func testPairAllNamesTheProfilesItDidNotPair() async {
+        let rig = SetupRig()
+        let model = rig.model()
+        rig.rpc.replies["setup.browsers_pair_all"] = ["profiles": 2, "results": [[String: Any]](), "skipped": [
+            ["name": "Work", "label": "Google Chrome", "reason": "requested", "step": "restart Google Chrome once"],
+            ["name": "Home", "label": "Google Chrome", "reason": "off", "step": "turn FERB on"]]]
+        await model.pairAll()
+        XCTAssertNotNil(model.message)
+        XCTAssertEqual(model.message?.split(separator: "\n").count, 2)
+        rig.rpc.replies["setup.browsers_pair_all"] = ["profiles": 0, "results": [[String: Any]](),
+                                                      "skipped": [[String: Any]]()]
+        await model.pairAll()
+        XCTAssertEqual(model.message, SetupModel.noBrowserProfiles)
+        rig.rpc.replies["setup.browsers_pair_all"] = ["profiles": 1, "skipped": [[String: Any]](),
+                                                      "results": [["name": "Work", "paired": true]]]
+        await model.pairAll()
+        XCTAssertNil(model.message)
+    }
+
     // decision: DMN-508
     func testBrowsersSayWhatKeptFERBFromConnectingThem() async {
         let rig = SetupRig()
