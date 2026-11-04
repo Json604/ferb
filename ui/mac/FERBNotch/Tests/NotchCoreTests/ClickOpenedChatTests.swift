@@ -88,6 +88,22 @@ final class ClickOpenedChatTests: XCTestCase {
         }
     }
 
+    // decision: APP-709
+    func testAChatOpenedByTheDoubleTapStaysOpenOnHoverOut() async throws {
+        for hover in [false, true] {
+            let h = try harness(hover: hover)
+            defer { h.coordinator.tearDown() }
+            pointer = h.away
+            h.coordinator.modifierDoubleTapped()
+            XCTAssertTrue(h.model.bodyVisible, "hover \(hover): the double-tap didn't open FERB")
+            await move(h, to: h.housing)
+            await move(h, to: h.away)
+            XCTAssertTrue(h.model.bodyVisible, "hover \(hover): the double-tap-opened chat folded on hover-out")
+            h.coordinator.modifierDoubleTapped()
+            XCTAssertFalse(h.model.expanded, "hover \(hover): the double-tap didn't close it")
+        }
+    }
+
     // decision: APP-557, APP-707
     func testAHoverOpenedChatStillFoldsWhenThePointerLeaves() async throws {
         let h = try harness(hover: true)

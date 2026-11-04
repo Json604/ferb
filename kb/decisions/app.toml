@@ -2071,3 +2071,13 @@ rule = "APP-707 is one mark on NotchModel (openedByPress), set only when the han
 why = "One shared path: hover-out is the only automatic fold the owner's answer removes, so only that path reads the mark, and every explicit close goes on clearing it with the chat."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
 live = ["LIVE-769"]
+
+[APP-709]
+title = "A chat the double-tap opens also stays open on hover-out"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "yes it shoudl stay open"
+words_source = "Answer to: should a chat opened with double-tap right Option also stay open when the pointer passes over and leaves (as a press-opened one does, APP-707)?"
+rule = "Double-tap right Option opens the chat with APP-707's mark (NotchModel.toggle(byPress:)), so it stays open on hover-out until Escape, the double-tap/shortcut, Hide or a click elsewhere. Hover-opened chats still fold on hover-out (APP-557)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::modifierDoubleTapped"]

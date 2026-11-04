@@ -1559,11 +1559,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     @objc func showFromMenu() { beginInteraction(); model.expand() }
 
-    /// The modifier double-tap: opens or closes the notch; opening it plays summon.
+    /// The modifier double-tap: opens or closes the notch; opening it plays summon. A chat it opens stays open on
+    /// hover-out, like a press-opened one (APP-709).
     func modifierDoubleTapped() {
         if summonFromYield() { model.feedback.play(.summon) }
         else {
-            model.toggle()
+            model.toggle(byPress: true)
             if model.expanded { model.feedback.play(.summon) }
         }
         introControls.saw(.toggle)

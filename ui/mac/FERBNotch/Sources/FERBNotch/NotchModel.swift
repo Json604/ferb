@@ -567,7 +567,8 @@ final class NotchModel: ObservableObject {
         else { resumePendingPinnedFold(); onInteractionEnded?() }
     }
 
-    /// `byPress`: the owner pressed the closed notch or pill (APP-705); the chat it opens stays open on hover-out.
+    /// `byPress`: the owner pressed the closed notch or pill (APP-705) or double-tapped right Option (APP-709); the chat it
+    /// opens stays open on hover-out.
     func toggle(byPress: Bool = false) {
         // The interaction callback can consume a compact arrival by opening chat. Decide before that callback.
         let close = expanded && compactPlanText == nil
