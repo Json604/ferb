@@ -6,20 +6,20 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 152 | 8 | 71 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 59 | 5 | 19 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 35 | 5 | 57 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 69 | 2 | 44 |
-| memory | Memory and memory import | `ferb/memory` | 58 | 2 | 13 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 59 | 6 | 32 |
-| perception | Perception | `ferb/sense` | 15 | 2 | 6 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 152 | 8 | 8 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 59 | 5 | 5 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 35 | 5 | 45 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 69 | 2 | 10 |
+| memory | Memory and memory import | `ferb/memory` | 58 | 2 | 0 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 59 | 6 | 6 |
+| perception | Perception | `ferb/sense` | 15 | 2 | 0 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 7 | 1 | 0 |
-| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 17 | 1 | 32 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 16 | 2 | 6 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 23 | 1 | 9 |
-| storage | Storage | `ferb/store` | 25 | 6 | 6 |
+| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 17 | 1 | 10 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 16 | 2 | 2 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 23 | 1 | 0 |
+| storage | Storage | `ferb/store` | 25 | 6 | 3 |
 | tests | Tests | `tests` | 10 | 14 | 0 |
-| voice | Voice | `ferb/voice` | 3 | 0 | 4 |
+| voice | Voice | `ferb/voice` | 3 | 0 | 0 |
 
 ## Waiting on the owner
 

@@ -35,3 +35,15 @@ reason = "an invented token (ghp_ + the alphabet) the intro preview test proves 
 path = "tests/test_redaction_rebuild.py"
 pattern = "private key"
 reason = "PEM headers around an invented body: the redaction corpus checks private keys are hidden"
+
+[[audit]]
+commit = "967bc3c0f5"
+reason = "the memory agent rebased its branch onto ui/ux 5b113f30 (2026-11-04); each replayed commit passed kb check, and the merge 37a7d603 and every push since passed the full gate"
+
+[[audit]]
+commit = "bdb060317f"
+reason = "the memory agent rebased its branch onto ui/ux 5b113f30 (2026-11-04); each replayed commit passed kb check, and the merge 37a7d603 and every push since passed the full gate"
+
+[[audit]]
+commit = "a39be49bfc"
+reason = "the memory agent rebased its branch onto ui/ux 5b113f30 (2026-11-04); each replayed commit passed kb check, and the merge 37a7d603 and every push since passed the full gate"

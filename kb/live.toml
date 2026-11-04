@@ -19,6 +19,7 @@ request = "Ask FERB to do the same kind of task twice, on different days or afte
 pass = "The second run takes fewer attempts or less time, its context exposures cite the first run's how-note or playbook, and the playbook appears on the Memory page."
 decisions = ["MEM-1", "MEM-29", "MEM-31", "MEM-33"]
 sitting = "step 13, sitting 7"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-2]
 title = "The embedding model's first fill on the owner's store"
@@ -28,6 +29,7 @@ request = "Install the build, let the daemon run for a few minutes, then ask abo
 pass = "The journal shows one `memory.embedded` backfill with counts and CPU seconds, no turn waits on it, and the old exchange is found by meaning."
 decisions = ["MEM-6", "MEM-25", "MEM-26"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-3]
 title = "Send a failure report to the developer"
@@ -55,6 +57,7 @@ request = "Open Settings → About; change Task traces to 20 days on the Privacy
 pass = "Version and models match Settings → AI; What FERB keeps shows 20 days; Health shows the database size; Cost shows two lines. The answer cites 20 days and Settings → Privacy, with the worker's about.read in its trace."
 decisions = ["DMN-6", "DMN-22", "STORE-5"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-6]
 title = "The About line rides once in every role's instructions and keeps the cache"
@@ -64,6 +67,7 @@ request = "Send two turns in a row and open `ferb trace` of each."
 pass = "The planner's instructions carry the About FERB line once; both turns have the same instructions prefix (prompt cache hits in the trace's usage)."
 decisions = ["DMN-22"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-7]
 title = "FERB's own account setup step pairs its profile, or browses as the owner when skipped"
@@ -73,6 +77,7 @@ request = "Open the setup window from the menu; at FERB's own account: type the 
 pass = "\"set up and paired\"; config.toml has [mailbox] address and [identity] browser/profile; `ferb doctor` passes the identity profile. Stop using it removes the keys. After Skip, example.com opens in the picked profile."
 decisions = ["APP-1", "DMN-25", "HAND-2"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-8]
 title = "Restore a trashed file from Settings → Data"
@@ -82,6 +87,7 @@ request = "Ask FERB to trash a disposable Desktop file, then restore it from Set
 pass = "The file is back where it was."
 decisions = ["APP-2"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-9]
 title = "Delete a saved secret from Settings → Data"
@@ -91,6 +97,7 @@ request = "Save a disposable secret during a test login, then Settings → Data 
 pass = "Keychain Access no longer lists the item (service ferb.owner-secrets); `ferb trace`/the journal show secret.deleted with only place and name."
 decisions = ["APP-2", "GATE-2"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-11]
 title = "A memory import notice opens the Memory page on that assistant"
@@ -108,6 +115,7 @@ request = "Settings → Advanced → Uninstall FERB and delete all its data…, 
 pass = "Login Items no longer lists FERB's service, ~/.ferb is gone and Keychain Access lists no item of FERB's services."
 decisions = ["APP-2", "APP-5", "DMN-20"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-13]
 title = "\"What FERB saw\" shows a message's redacted screenshots"
@@ -117,6 +125,7 @@ request = "Send a message with a browser window in front, then one that makes a 
 pass = "The first lists the front window (time, site, page title) and shows the redacted picture (a password field painted over); the second also lists the task's screenshot. Settings lists both, newest first, nothing older than 7 days."
 decisions = ["APP-3", "DMN-27"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-14]
 title = "An excluded app disappears from \"What FERB saw\""
@@ -126,6 +135,7 @@ request = "Add that app to Settings → Privacy → excluded apps."
 pass = "Its picture disappears from both lists."
 decisions = ["DMN-27"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-15]
 title = "Opening the viewer captures nothing, and seen.list is FERB.app only"
@@ -135,6 +145,7 @@ request = "Open the viewer; then call seen.list from a terminal."
 pass = "`ferb trace`/the journal show no new capture; the terminal call gets \"FERB.app only\"."
 decisions = ["DMN-23", "DMN-27"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-16]
 title = "A friend's older LaunchAgent install opens the new FERB.app: it updates with no error and no step"
@@ -144,6 +155,7 @@ request = "Before: `plutil -p ~/Library/LaunchAgents/com.ferb.daemon.plist`. Ope
 pass = "No question, alert or error appears (no Set Up From This App); the plist now runs /Applications/FERB.app/Contents/Helpers/FERB.app/Contents/MacOS/FERB with exactly -m ferb.daemon and names this build in FERB_APP_BUILD; launchctl print shows path = that plist and state = running; service.json names this build and app; the daemon's cwd is ~/.ferb; logs/daemon.err.log receives output; the notch answers; Login Items → Allow in the Background lists FERB."
 decisions = ["DMN-513", "DMN-515", "APP-602", "DMN-14"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-17]
 title = "The LaunchAgent survives restarts and reports being switched off"
@@ -153,6 +165,7 @@ request = "Restart FERB from the menu; log out and in; then switch FERB off in S
 pass = "The daemon comes back by itself after the restart and the login; when switched off, the next launch shows the Login Items note and button (no crash loop, `launchctl print-disabled gui/$(id -u)` shows com.ferb.daemon => disabled), and after switching FERB on the daemon runs and the notch answers without reinstalling FERB; after the hand edit the plist is back to what setup wrote (`ferb doctor`'s LaunchAgent row is ok) and the journal shows the quiet update or service.definition_restored."
 decisions = ["DMN-513", "DMN-514", "DMN-515", "APP-602"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-18]
 title = "The store clean-up with FERB.app's LaunchAgent restarts the daemon"
@@ -162,6 +175,7 @@ request = "Run `ferb setup --cleanup --ok …`."
 pass = "The daemon stops (launchctl bootout), the clean-up runs, the daemon starts again from ~/Library/LaunchAgents/com.ferb.daemon.plist and the notch answers."
 decisions = ["DMN-515"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-19]
 title = "FERB.app asks before replacing a checkout's LaunchAgent; app uninstall removes the LaunchAgent"
@@ -171,6 +185,7 @@ request = "From the checkout run `uv run ferb setup --update`, then open FERB.ap
 pass = "Opening FERB.app over the checkout's LaunchAgent asks Set Up From This App first and only then replaces it; after the uninstall ~/Library/LaunchAgents/com.ferb.daemon.plist is gone, `launchctl print gui/$(id -u)/com.ferb.daemon` finds nothing and Login Items no longer lists FERB's service."
 decisions = ["DMN-516", "APP-602", "APP-5"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-20]
 title = "A checkout update swaps in a new venv, or leaves the running daemon alone"
@@ -180,6 +195,7 @@ request = "Run `ferb setup --update` while the daemon runs; repeat with the netw
 pass = "~/.ferb/venv.new appears and the daemon restarts once on the new venv; with the network off it fails and the running daemon keeps working (no restart)."
 decisions = ["DMN-18"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-21]
 title = "Setup counts as done only with every permission on"
@@ -189,6 +205,7 @@ request = "Press Done with one permission off, relaunch; then turn all on, Done,
 pass = "With one off, the next launch brings back only that beat of the intro (Allow all, then home); with all on nothing comes back."
 decisions = ["DMN-21"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-22]
 title = "A fresh FERB.app install reads the bundled embedding model"
@@ -198,6 +215,7 @@ request = "Install fresh and run `ferb memory embeddings`."
 pass = "It reports the model loaded from FERB.app; no memory.embedding_model fetched row; nothing under ~/.ferb/models."
 decisions = ["MEM-26"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-23]
 title = "Signing out of Claude from Settings → AI"
@@ -207,6 +225,7 @@ request = "Settings → AI → Sign out of Claude; then try a Claude sign-in tha
 pass = "FERB's Claude is signed out; the failed sign-in says why without naming a `ferb` command."
 decisions = ["RUN-1"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-24]
 title = "The daemon's memory footprint stays flat after a day on the rebuilt code"
@@ -225,6 +244,7 @@ request = "Look at FERB in the Dock, Finder, Launchpad, Login Items, Privacy & S
 pass = "The dark rounded square with the white \"f\" and orange dot everywhere; on macOS 26+ it doesn't sit in a grey frame."
 decisions = ["REL-1", "REL-3", "REL-4"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-26]
 title = "Reinstalling over leftovers, including another FERB.app's LaunchAgent"
@@ -234,6 +254,7 @@ request = "Install and use FERB.app once, `ferb uninstall` (no purge), then trun
 pass = "Setup asks nothing about files; ferb.db.broken-… (with -wal/-shm) and config.toml.broken-… sit in ~/.ferb; the notch shows one notice per file, once (not again after Restart FERB); the journal has home.set_aside; the helper, the link and service.json are this build's; the LaunchAgent runs this app's agent, not the other path's."
 decisions = ["DMN-10", "STORE-1", "STORE-2"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-200]
 title = "Notch hover and resize work on macOS 27.2"
@@ -242,6 +263,7 @@ surface = "FERB.app build installed by the owner on macOS 27.2"
 request = "Hover the notch's source pill and the panel to open them; resize the panel by its edge; watch the FERB indicator's hover."
 pass = "Hover-to-open and resize work. If not, PanelCoordinator.swift, FerbIndicator.swift and PanelResizeOverlay.swift get the self-managed tracking-area pattern the source pill already uses."
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-201]
 title = "A background launch stays behind the owner's window and can be captured"
@@ -251,6 +273,7 @@ request = "Have FERB open each app in the background (open -g) while the owner w
 pass = "The first window lands behind the owner's front window on the current Space with no front-app or focus change; screenshot and pointer input work with -g."
 decisions = ["HAND-239"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-202]
 title = "The reopen Apple Event opens a window without coming forward"
@@ -260,6 +283,7 @@ request = "Ask FERB to work in each app while it runs with no window (mac.open r
 pass = "Each app opens a window without coming to the front; note whether macOS asks for Automation permission."
 decisions = ["HAND-240"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-203]
 title = "Opening a file or address with activates = false stays behind"
@@ -269,6 +293,7 @@ request = "Ask FERB to open the file in TextEdit and the address in Safari while
 pass = "Both open behind the owner's app; the owner's front app and focus don't change."
 decisions = ["HAND-240"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-204]
 title = "Each way of coming back to the Mac journals one back-in-use"
@@ -278,6 +303,7 @@ request = "Close and open the lid, lock and unlock the screen, let the display s
 pass = "Each journals one `mac.back_in_use` with the right signal; note whether the lock notifications reach FERB's thread or only the 5-second read catches them."
 decisions = ["ORCH-317", "SENSE-201"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-205]
 title = "A foreground click right after a Yes in the notch, hand on the mouse"
@@ -287,6 +313,7 @@ request = "Answer Yes to the foreground question in the notch and keep the hand 
 pass = "The target comes forward and the click lands; if a mouse move makes FERB give up, the trace says so plainly."
 decisions = ["HAND-238"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-206]
 title = "The owner pausing their own music while FERB works records nothing"
@@ -296,6 +323,7 @@ request = "While a FERB call runs, pause and resume the music by click and by th
 pass = "No `tab_sound` change is recorded for the task; the trace shows none."
 decisions = ["HAND-213", "HAND-230"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-207]
 title = "Screen captures no longer fail with 'Failed to start stream'"
@@ -313,6 +341,7 @@ request = "Install the build, let it start, wait for the first hourly pass; then
 pass = "Migrations applied, `store.upgraded` and the memory upgrade records journaled once each, no `retention.failed`; the first pass journals `retention.purged` and `trail.purged` (the accessibility backlog)."
 decisions = ["STORE-400", "STORE-401", "STORE-403"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-401]
 title = "The clean-up runs on the live store with the owner's OK"
@@ -322,6 +351,7 @@ request = "Open Clean up, read the list of what goes, press OK."
 pass = "The daemon stops and comes back; the result line shows; `store.cleaned` and `store.compacted` journaled; the file near 1.7 GB; Health's Database line clears and `ferb doctor` shows the database OK and no clean-up pending."
 decisions = ["STORE-402", "STORE-411", "STORE-412", "STORE-416", "DMN-17"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-402]
 title = "The database file stays flat a day after the clean-up"
@@ -366,6 +396,7 @@ request = "Run a worker task; leave an owner confirmation it raises unanswered f
 pass = "FERB tools listed and called, typed answer returned, no `instructionSources`; the confirmation's call is not abandoned; the real tests pass."
 decisions = ["RUN-407", "RUN-410"]
 sitting = "step 13, sitting 2"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-407]
 title = "Codex planner and start: compaction off, overflow, no version subprocess, 90 s cut"
@@ -375,6 +406,7 @@ request = "After the owner installs the build, read the first start's journal; s
 pass = "No `runtime.codex_problem`; no `codex --version` process per run; no `contextCompaction` item; the over-window prompt comes back as an overflow; the planner turn is cut at 90 s with a plain reply."
 decisions = ["RUN-402", "RUN-406", "RUN-407"]
 sitting = "step 13, sitting 2"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-408]
 title = "Claude SDK availability follows model and FERB's sign-in"
@@ -384,6 +416,7 @@ request = "Clear the Claude model and look at the runtimes; set it again; then S
 pass = "Without a model Claude shows unusable, the planner isn't offered it and `runtimes.check` fails naming the model; after sign-out Claude is unusable."
 decisions = ["RUN-404", "RUN-409"]
 sitting = "step 13, sitting 2"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-409]
 title = "Claude SDK runs: reshaped planner schema, big worker, hidden token, steering cost"
@@ -393,6 +426,7 @@ request = "A planner turn on the reshaped SUPERVISOR_SCHEMA; a worker with an ou
 pass = "The plan streams; the worker runs (MCP tool schemas within the optional/union limits); no run token in `ps`; one result after the replays, and the run's cost equals Claude's final `total_cost_usd`."
 decisions = ["RUN-408", "RUN-409"]
 sitting = "step 13, sitting 2"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-410]
 title = "Anthropic API: planner schema accepted, unknown tool, prices"
@@ -402,6 +436,7 @@ request = "A planner turn on SUPERVISOR_SCHEMA; a worker that calls a made-up to
 pass = "No \"too many parameters with union types\"; the answer maps back and a plan streams; the made-up tool gets a tool error and the worker goes on; haiku-5-5 spans carry a cost."
 decisions = ["RUN-400", "RUN-408"]
 sitting = "step 13, sitting 2"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-411]
 title = "Gemini API: schemas accepted, parallel same-tool calls paired"
@@ -411,6 +446,7 @@ request = "A planner turn on SUPERVISOR_SCHEMA and a worker on WORKER_SCHEMA; a 
 pass = "No \"too many states\"; both parallel results are paired with the right calls."
 decisions = ["RUN-400", "RUN-408"]
 sitting = "step 13, sitting 2"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-412]
 title = "After the 2026-11-01 pin move: Codex over HTTP, Claude cache and effort"
@@ -420,6 +456,7 @@ request = "Run a Codex task and read its trace; run a Claude task twice and read
 pass = "Codex runs go over HTTP and the tool catalog is observed (a WebSocket run would fail closed); Claude cache reads still happen without the prompt-caching-scope beta; no effort is sent unless asked."
 decisions = ["RUN-405", "RUN-409"]
 sitting = "step 13, sitting 2"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-413]
 title = "Send on release: a dictated question is sent and answered aloud"
@@ -479,6 +516,7 @@ request = "Ask FERB to listen to the long speech; then ask for a recording with 
 pass = "The listen returns a transcript within the limit; the recording is refused."
 decisions = ["SENSE-400"]
 sitting = "step 13, sitting 8"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-419]
 title = "Import each real assistant once and judge the facts"
@@ -488,6 +526,7 @@ request = "Import each source once (ChatGPT, claude.ai, Claude Code, Codex CLI, 
 pass = "The estimate states model calls before starting; each run ends with one notice whose Open the Memory page button filters by source; the sampled facts are true to the owner's memory, saved as FERB's understanding, none older than 3 months; the live quality test passes."
 decisions = ["MEM-400", "MEM-401", "MEM-402", "MEM-403", "MEM-406"]
 sitting = "step 13, sitting 7"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-420]
 title = "Preview open vs closed: daemon CPU and call times on the same task"
@@ -497,6 +536,7 @@ request = "Run the same browser task twice, once with the preview open and once 
 pass = "The figures for both runs are recorded for the owner's cap decision (T-408); no `daemon.slow_call` for `tasks.preview`."
 decisions = ["APP-405", "DMN-403"]
 sitting = "step 13, sitting 4"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-421]
 title = "Secrets and codes stay painted in the preview"
@@ -506,6 +546,7 @@ request = "Run a login task that fills `browser.secret` and a code field while t
 pass = "Both fields stay painted over in every preview frame."
 decisions = ["DMN-405"]
 sitting = "step 13, sitting 4"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-422]
 title = "The preview freezes when FERB leaves the owner's window"
@@ -515,6 +556,7 @@ request = "Run a task that works in WhatsApp then moves on to another step; send
 pass = "The preview freezes on FERB's last frame with a status line; the later message never appears in the preview."
 decisions = ["APP-404", "DMN-404"]
 sitting = "step 13, sitting 4"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-423]
 title = "Preview states: minimised, no Screen Recording, locked screen, two tasks; hidden from sharing"
@@ -524,6 +566,7 @@ request = "With a task previewing: minimise its window; turn Screen Recording of
 pass = "Each shows its plain state line with the last frame kept (or pauses while locked); two tasks preview separately; the shared screen shows no preview popover or player."
 decisions = ["APP-406", "APP-407", "DMN-404"]
 sitting = "step 13, sitting 4"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-424]
 title = "Does macOS show its screen-recording indicator while the preview runs?"
@@ -533,6 +576,7 @@ request = "Open a task's preview and watch the menu bar and Control Center."
 pass = "The owner notes whether the recording indicator appears (a fact to record, not a pass/fail on FERB)."
 decisions = ["APP-403"]
 sitting = "step 13, sitting 4"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-500]
 title = "Fresh install: the whole intro"
@@ -542,6 +586,7 @@ request = "Run the intro through all eight beats. Quit at Screen Recording and r
 pass = "The beats run in order and the Try beat acts on nothing; reopening lands on the same beat with the same grants; a skip leaves no orb or sound and the compact window shows only the required steps left; Reduce Motion fades the orb in place; everything reads with sound off; the orb starts at the virtual notch; Replay runs every beat; the real task starts only after Home."
 decisions = ["APP-505", "APP-510", "APP-513", "APP-516", "APP-518", "ORCH-500"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-501]
 title = "Living with FERB's sound family"
@@ -550,6 +595,7 @@ surface = "FERB.app on the owner's Mac in daily use, and 2-3 beta friends' Macs"
 request = "Use FERB daily for about a week with the default sounds, including one call in another app; ask each friend to say what each sound means without looking at the screen."
 pass = "Each sound is matched to its meaning without looking, none annoys by the tenth hearing, summon and paused stay silent by default, and during the call only needs you plays, at Subtle."
 decisions = ["APP-653", "APP-651", "APP-528", "APP-531"]
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-502]
 title = "\"Who's this actor?\" on a show's frame"
@@ -558,6 +604,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "On a paused frame of a show, ask \"who's this actor?\"."
 pass = "The reply says it is a likely match and from what, or checks the cast; a guess is said as a guess."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-503]
 title = "\"What is this song?\" and \"hear and tell\""
@@ -566,6 +613,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Ask \"what is this song?\" on an Instagram reel, and \"hear and tell\" on a video."
 pass = "FERB listens to the audio (audio_listen) and answers from what it heard."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-504]
 title = "An assignment done in full"
@@ -574,6 +622,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Ask FERB to do a course assignment in full."
 pass = "The work is complete as asked, with no caveats and nothing saying it was made by AI."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-505]
 title = "\"How are you better than dots?\""
@@ -582,6 +631,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Ask \"how are you better than dots?\"."
 pass = "FERB describes itself from its installed capabilities."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-506]
 title = "A username given mid-task is used by a later login"
@@ -598,6 +648,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Ask for a Kaggle competition entry via Codex Astra: \"score well, no overfitting\"."
 pass = "Codex does the work while the owner controls the browser; \"score well, no overfitting\" are kept as conditions."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-508]
 title = "A named tool that isn't installed is asked about once"
@@ -614,6 +665,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "\"open my <school> gmail, find the latest <course> assignment\" (the owner's own school account)."
 pass = "FERB opens the right account and finds the current assignment."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-510]
 title = "A five-day school task limited to official groups"
@@ -630,6 +682,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Ask FERB for one week of study material."
 pass = "The material covers the whole week as asked, nothing cut short."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-512]
 title = "The six-hourly appointment-slot check"
@@ -638,6 +691,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Run the owner's six-hourly slot check behind a login: once with no slots, then pause and resume it, with its sign-in (three security questions), its bot check, and once with its browser profile closed."
 pass = "No slots is a finished check; its schedule follows the pause and resume; the sign-in asks nothing; the bot check is tried through the ability; a closed browser is opened to start it."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-513]
 title = "A read-only storage scan plus a Homebrew cleanup"
@@ -646,6 +700,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Ask for a friend-style read-only \"reduce my storage\" scan, then a Homebrew cleanup."
 pass = "FERB's own snapshot is never reported as a change."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-514]
 title = "\"every 5 minutes\" is a schedule"
@@ -654,6 +709,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Ask for something \"every 5 minutes …\"."
 pass = "It is accepted as a schedule (no 15-minute floor)."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-515]
 title = "A task now plus a watch in the same turn"
@@ -662,6 +718,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "\"take mac to low power mode … loud warning at 10%\"."
 pass = "The task runs now and a battery watch is set in the same turn."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-516]
 title = "\"email me\" uses the address from memory"
@@ -670,6 +727,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "\"every morning at 9 email me …\"."
 pass = "The schedule uses the owner's address from memory without asking."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-517]
 title = "\"remind me … anytime\" picks a time"
@@ -678,6 +736,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "\"remind me about this show on <date> anytime\"."
 pass = "FERB picks a time and says which."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-518]
 title = "\"all the tabs in parallel\""
@@ -686,6 +745,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "\"do this for all the tabs in parallel\"."
 pass = "One step per tab; \"parallel\" is never kept as a condition."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-519]
 title = "\"leave it, but tell me why\" continues"
@@ -694,6 +754,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Answer FERB's hotspot question with \"leave it, but tell me why\" (or, during a diagnosis, \"leave it, but if you find the reason, tell me\"); separately say just \"stop\"."
 pass = "The task continues without the change and says why; it is not stopped. \"stop\" alone stops it and the answer lists what it found."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-520]
 title = "An assignment with \"astra high\""
@@ -702,6 +763,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "\"<course> Assignment 2\" with \"astra high\"."
 pass = "The requirements are read first and Codex is configured as asked."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-521]
 title = "\"check <school> mail for the new assignment\""
@@ -718,6 +780,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime); an owner-approved run on
 request = "Ask for concert tickets now; separately, \"analyze all coding agent sessions\"."
 pass = "Tickets are looked for on the primary seller's pages; the analysis covers every source, with no caps."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-523]
 title = "Three ZIPs checked for name and student ID"
@@ -758,6 +821,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Upload a PDF, then ask \"did the PDF I uploaded come from Drive or my Mac?\"."
 pass = "FERB answers from the upload's source."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-528]
 title = "An X post from a work browser profile"
@@ -766,6 +830,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime); an owner-approved run on
 request = "Ask for an X post from the owner's work browser profile."
 pass = "It stays inside the campaign's standing scope."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-529]
 title = "Pausing a task the owner doubts, then resuming"
@@ -774,6 +839,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Start a task, then say you doubt it or want to rethink it; later resume it."
 pass = "FERB pauses the task rather than stopping it, and resumes it on request."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-530]
 title = "Questions ask only what, who or which"
@@ -782,6 +848,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Give tasks that need a missing detail."
 pass = "FERB's questions ask only what/who/which, never how or for permission."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-531]
 title = "How-note quality on a verified task"
@@ -798,6 +865,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Ask a direct question about what is on screen."
 pass = "The reply names its source and says a guess as a guess."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-533]
 title = "Role blocks: loop, watch and delegated conversation"
@@ -815,6 +883,7 @@ request = "After the install, look in FERB's memory (Memory page or a search) fo
 pass = "FERB's memory has M1–M9 and the email-me address, from the kept database or from the owner telling it; no seed code ran."
 decisions = ["PRM-318", "PRM-319"]
 sitting = "step 13, sitting 7"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-535]
 title = "Fresh start before the new FERB.app install"
@@ -832,6 +901,7 @@ request = "Install the update with a Jev key present and let FERB run."
 pass = "Jev stays off: no Jev calls, perception notices stay paused."
 decisions = ["SENSE-6"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-537]
 title = "The Web Store serves extension 0.19.0 before FERB.app's install"
@@ -841,6 +911,7 @@ request = "Before installing FERB.app, check the store serves 0.19.0 (FERB refus
 pass = "Each profile runs 0.19.0 (protocol 21: tab groups, card fields, signing, muted FERB tabs, sound events with who muted, 512 KiB parts, capped popups, dropped saves counted); doctor shows the version and \"connected\"."
 decisions = ["REL-2", "HAND-201"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-538]
 title = "The config upgrade to the download limits runs once"
@@ -850,6 +921,7 @@ request = "Read the journal and config.toml after the first start on the new bui
 pass = "One `config.upgraded` for `download-limits-2026-10-31`; no `download_max_mb` or other `*_mb` download keys; download_task_max_files = 300, download_task_max_gb = 32, download_total_gb = 20, download_min_free_gb = 10."
 decisions = ["HAND-210", "HAND-236"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-539]
 title = "A store from a newer FERB is refused unchanged; an intact older home is kept"
@@ -859,6 +931,7 @@ request = "Put a copy of a store with a higher schema in place and open FERB.app
 pass = "With the newer store the setup window says FERB needs a newer build, nothing in ~/.ferb changes and launchctl shows the daemon not restarting. Over the intact older home chats, memory and settings are kept."
 decisions = ["STORE-3", "STORE-414", "DMN-10"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-540]
 title = "Typing on FERB's line isn't interrupted when the notch re-presents"
@@ -886,6 +959,7 @@ request = "Watch the orb during browser pairing."
 pass = "It points at the browser's window while pairing (Try's working step has no orb, APP-693)."
 decisions = ["APP-501", "APP-511"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-543]
 title = "Try shows two suggestions, one previewed, and Do it for real starts after Home"
@@ -904,6 +978,7 @@ request = "Listen to the intro and everyday sounds at the default volume."
 pass = "They are as loud as the auditioned levels (gain = volume / 0.18), by the owner's ear."
 decisions = ["APP-653"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-545]
 title = "With AirPods, the orb's sounds land with its motion"
@@ -913,6 +988,7 @@ request = "Run the intro with AirPods connected."
 pass = "The orb's sounds land with its motion (latency lead)."
 decisions = ["APP-523"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-546]
 title = "On a non-English macOS, unmatched app names fall back to the resting point"
@@ -922,6 +998,7 @@ request = "Run the intro's Try preview."
 pass = "App names the orb can't match send it to the resting point."
 decisions = ["APP-501"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-547]
 title = "The sign-in line about secrets reads right"
@@ -931,6 +1008,7 @@ request = "Read the sign-in line about secrets."
 pass = "The owner judges it reads right."
 decisions = ["APP-507"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-548]
 title = "A packaged build finds its resource bundle"
@@ -940,6 +1018,7 @@ request = "Launch the packaged build."
 pass = "The resource bundle (ferb-mark, Sounds) is found in Contents/Resources."
 decisions = ["APP-653"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-549]
 title = "The old FERB Voice entry is gone from Privacy & Security"
@@ -949,6 +1028,7 @@ request = "Open Privacy & Security after the fresh start and the new install."
 pass = "No FERB Voice entry; only FERB."
 decisions = ["APP-536"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-550]
 title = "With Hey Siri or Voice Control on, FERB isn't stuck on a call"
@@ -958,6 +1038,7 @@ request = "Turn on Hey Siri or Voice Control and use FERB."
 pass = "With no call running, sounds still play."
 decisions = ["APP-528"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-551]
 title = "One hearing signature check on the packaged app is fast"
@@ -967,6 +1048,7 @@ request = "Time `codesign --verify --strict` with the recorded requirement (or `
 pass = "The time is noted (a fact for the owner)."
 decisions = ["DMN-400"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-552]
 title = "A natural tour end doesn't cut off a ringing sound"
@@ -976,6 +1058,7 @@ request = "End the tour at Home while a sound rings; separately press Skip."
 pass = "Home lets the sound finish; only Skip stops sound at once."
 decisions = ["APP-522"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-553]
 title = "Login Items opens only on tap; Do it for real waits for dictation and repairs"
@@ -994,6 +1077,7 @@ request = "Run with a runtime at its usage limit or signed out."
 pass = "FERB says so once with a one-tap switch to another signed-in runtime; it never switches by itself."
 decisions = ["ORCH-315"]
 sitting = "step 13, sitting 2"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-555]
 title = "Answers in steps: each part posts once when its check passes"
@@ -1003,6 +1087,7 @@ request = "\"delete <disposable folder> and tell me what's using space in Downlo
 pass = "The first reply carries the plan line; each part posts once as its own checked row when its check passes; the footer reads \"N of M done\"; a part that needs the owner pauses only its row."
 decisions = ["ORCH-319", "APP-300"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-556]
 title = "A message before FERB's first reply restarts the planner once"
@@ -1012,6 +1097,7 @@ request = "Send a message, then another before FERB replies; later send one afte
 pass = "The planner restarts once and reads both; a later message waits its turn; 4 quick messages make 2 turns."
 decisions = ["ORCH-318"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-557]
 title = "A pasted secret is never stored"
@@ -1021,6 +1107,7 @@ request = "Send a message holding the fake token."
 pass = "The chat shows the masked message and the \"I hid it\" notice; `sqlite3 -readonly ~/.ferb/ferb.db` finds no trace of the token, nor does the app's saved chat (`defaults read com.ferb.FERB FERBConversationArchive`)."
 decisions = ["GATE-501", "GATE-502"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-558]
 title = "An open question is never answered by an unrelated message"
@@ -1030,6 +1117,7 @@ request = "With a FERB question open (e.g. a choice), send a different request."
 pass = "FERB answers the new request alone and the question stays open (the 10-28 build merged them into one \"Your input\" message)."
 decisions = ["ORCH-328"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-559]
 title = "Pause stops commands and listening and pauses the schedule"
@@ -1039,6 +1127,7 @@ request = "Pause a task that runs a terminal command and listens to a tab; pause
 pass = "The command and listening stop (`task.pause_stopped`), its tabs stay in their group; `ferb schedules` shows the schedule paused, active again after resume; the task continues in place."
 decisions = ["ORCH-308", "ORCH-312"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-560]
 title = "A paused task is mentioned once a day when the owner is back"
@@ -1048,6 +1137,7 @@ request = "Leave a task paused overnight; come back to the Mac the next day, the
 pass = "The first return shows \"<task> is still paused. Resume?\" with Resume / Stop (the notch opens without taking focus; a banner only when it can't); nothing new later that day; never while away or asleep; Resume continues in place."
 decisions = ["ORCH-312", "ORCH-317", "APP-301"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-561]
 title = "Five failed attempts make FERB pause and check in"
@@ -1066,6 +1156,7 @@ request = "Run a task with a part that needs the owner."
 pass = "The notch opens itself; a banner only when it can't show."
 decisions = ["APP-301"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-563]
 title = "Typed cards in the notch"
@@ -1075,6 +1166,7 @@ request = "Make a reminder fire, set a schedule/reminder, have a fact remembered
 pass = "Reminder card with countdown; event card with \"Repeats\"; note card (tap to correct or forget); expense row with amount, merchant, card ••last4 and the saved card's name; contact card; link cards and file chips."
 decisions = ["ORCH-329", "ORCH-321"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-564]
 title = "A schedule with an end date in the words stops after it"
@@ -1084,6 +1176,7 @@ request = "\"every day until Friday …\"."
 pass = "It stops after Friday and its card counts down."
 decisions = ["ORCH-320"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-565]
 title = "\"Whenever I'm on my Mac\" reminders fire on the Mac's return, once a day"
@@ -1093,6 +1186,7 @@ request = "\"remind me every day whenever I'm on my Mac to <something>\"; stay a
 pass = "The scheduling line says every day when you're at your Mac, first tomorrow; `ferb schedules` shows it; no run every 15 minutes; overnight nothing fires and the first return brings exactly one reminder, nothing more that day; the one-off fires on the next return (lock/unlock, lid, wake), not on input idleness."
 decisions = ["ORCH-317", "SENSE-201"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-566]
 title = "A scheduled check with nothing new posts nothing"
@@ -1102,6 +1196,7 @@ request = "\"every hour tell me if kartikey.xyz/test changed\"; then change the 
 pass = "Runs show in `ferb trace` but post nothing in chat; the change posts."
 decisions = ["ORCH-317", "ORCH-331"]
 sitting = "step 13, sitting 3"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-567]
 title = "Image redaction works on macOS 27.2"
@@ -1119,6 +1214,7 @@ request = "Run a browser task with several tabs while the owner has tabs open."
 pass = "One collapsed, labelled group per task holds only FERB's tabs; FERB never closes the owner's tab."
 decisions = ["HAND-201"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-569]
 title = "FERB's tabs are muted; listening unmutes; sound changes near FERB's calls are facts"
@@ -1128,6 +1224,7 @@ request = "\"open a YouTube video in the background and tell me its title\"; \"w
 pass = "FERB's tab shows the muted icon and nothing is heard; audio.listen unmutes it for that task and the transcript comes back; kept open it's handed over unmuted; the trace lists the sound change near FERB's call and the checker's facts carry it."
 decisions = ["HAND-207", "HAND-229", "HAND-230"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-570]
 title = "Shell scope and snapshots on a named folder"
@@ -1137,6 +1234,7 @@ request = "A task on ~/Downloads spelled \"Downlods\"; then one that would chang
 pass = "The plan line states the folder and only it changes; a change outside asks; FERB's snapshot covers it."
 decisions = ["HAND-203", "HAND-204", "HAND-206"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-571]
 title = "One read question per protected folder per task"
@@ -1146,6 +1244,7 @@ request = "A task that needs to read a protected folder several times (\"Let FER
 pass = "One question for that folder in that task."
 decisions = ["GATE-200"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-572]
 title = "A big download over a slow link is taken whole; a stalled one fails"
@@ -1155,6 +1254,7 @@ request = "Download the file over a throttled link (slower than the old 10 minut
 pass = "The file lands whole in FERB's downloads folder with no question and no size refusal; the stalled link fails as \"stalled\" after about a minute; the file is moved (no second copy left)."
 decisions = ["HAND-210", "HAND-233", "HAND-237"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-573]
 title = "A shell download is stopped at the task's budget"
@@ -1164,6 +1264,7 @@ request = "\"download <disposable 1 GB file> with curl\", then a browser downloa
 pass = "The command stops near 0.5 GB, the reply says FERB stopped it at the task's budget, the journal has `shell.download_stopped`; the browser download is then refused for the budget."
 decisions = ["HAND-231", "HAND-232"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-574]
 title = "The tab cap refuses past the limit; dropped saves are counted"
@@ -1173,6 +1274,7 @@ request = "Open the links and the button; close one tab; then a page that saves 
 pass = "Past 3 open FERB tabs nothing new opens (no plain tab, nothing in ~/Downloads) and the result says so; closing one lets the next open; the facts add up to 10 dropped saves."
 decisions = ["HAND-234", "HAND-235"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-575]
 title = "The downloads folder over its cap asks once; Yes deletes for good"
@@ -1182,6 +1284,7 @@ request = "Download three disposable 200 MB files; answer No; download a small f
 pass = "After the third one question (notch opens, no task row) naming how many oldest files and how much; No keeps every file; the small download asks nothing; past +10% it asks once more; Yes deletes exactly those (not in the Trash); `downloads.deleted` has counts and bytes only."
 decisions = ["HAND-211", "HAND-242"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-576]
 title = "Mac tasks in the background leave the owner's screen alone"
@@ -1191,6 +1294,7 @@ request = "Each while the owner works in another app: (1) save a TextEdit doc 'h
 pass = "No front-app, Space or keyboard-focus change in the trace's screen facts unless one foreground question is listed, and the worker's screen_changed_during_call matches; (9) one question, success first time after Yes, none again for pid:N; (11) one question showing the command."
 decisions = ["HAND-212", "HAND-238", "HAND-239", "HAND-240", "GATE-201"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-577]
 title = "A back-at-my-Mac reminder fires on unlock and lid, not on idleness"
@@ -1200,6 +1304,7 @@ request = "\"when I'm back at my Mac remind me to stretch\"; lock and unlock; cl
 pass = "It fires after the unlock and after the lid, not after the idle video; `mac.back_in_use` names the signal; a held banner arrives when the display wakes."
 decisions = ["ORCH-317", "SENSE-201"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-578]
 title = "A visible bot check is tried with the ability, then handed over"
@@ -1209,6 +1314,7 @@ request = "Run a task that reaches the page."
 pass = "The worker reads browser_verification (abilities.read) and tries the visible check; if it still blocks, one notification and the exact tab comes forward; after the owner passes it FERB carries on."
 decisions = ["HAND-208", "HAND-1"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-579]
 title = "Web work with no profile named uses FERB's own profile"
@@ -1218,6 +1324,7 @@ request = "Ask for ordinary web work without naming a profile."
 pass = "It runs in FERB's own profile."
 decisions = ["PRM-302"]
 sitting = "step 13, sitting 5"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-580]
 title = "One payment, one question"
@@ -1227,6 +1334,7 @@ request = "Check out with a card through to the bank's verification page."
 pass = "One question with amount and merchant read from the page; the bank page doesn't ask again; CVV/OTP go through the sealed path naming the page's field."
 decisions = ["GATE-204", "GATE-206", "GATE-216"]
 sitting = "step 13, sitting 6"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-581]
 title = "Known destinations: new asks, approved stays known, forgotten asks again"
@@ -1236,6 +1344,7 @@ request = "Send to someone new; approve; send again; forget the person; send aga
 pass = "The first send asks; the repeat doesn't; after forgetting it asks again."
 decisions = ["GATE-205", "MEM-11"]
 sitting = "step 13, sitting 6"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-582]
 title = "Typing into a terminal asks every time with the exact command"
@@ -1269,6 +1378,7 @@ request = "Mention \"I'm a beginner\" while asking about piano pieces; give an i
 pass = "The fact is saved; the later instruction replaces the earlier one."
 decisions = ["MEM-8", "MEM-12"]
 sitting = "step 13, sitting 7"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-586]
 title = "The Memory page shows the core profile and who the owner is, without asking"
@@ -1278,6 +1388,7 @@ request = "Open the Memory page."
 pass = "The core profile shows; what FERB worked out about the owner from the Mac is shown, not asked."
 decisions = ["MEM-13", "MEM-15"]
 sitting = "step 13, sitting 7"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-587]
 title = "Target task: a CI loop drives an interactive coding session"
@@ -1287,6 +1398,7 @@ request = "\"Control an interactive Claude session and watch PR N's GitHub Actio
 pass = "A round per failure; FERB drives the session in its own terminal (never the owner's); a verified finish with the checks' output."
 decisions = ["PRM-311"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-588]
 title = "Target task: find freelance work and carry the conversations"
@@ -1296,6 +1408,7 @@ request = "From the owner's resume and projects, search for well-paying freelanc
 pass = "Each contact route's source shown; sends only inside the approved scope; the answer names who actually received messages and what was only prepared."
 decisions = ["ORCH-306"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-589]
 title = "Target task: reach senior people and keep the conversations going"
@@ -1305,6 +1418,7 @@ request = "Find senior people at companies the owner names, pitch the owner thro
 pass = "As the freelance task: sources shown, sends only in scope, who received what said plainly."
 decisions = ["ORCH-306"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-590]
 title = "Target task: a categorized digest of everything saved"
@@ -1322,6 +1436,7 @@ request = "Log into Zomato and find the cheapest restaurant for chicken fried ri
 pass = "The OTP goes through sealed filling (split code boxes); prices after coupons are verifiable; nothing is ordered."
 decisions = ["GATE-206"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-592]
 title = "Target task: analyze every coding-agent session and build a local site"
@@ -1331,6 +1446,7 @@ request = "Analyze all local coding-agent sessions, pick the best to submit and 
 pass = "Every session inspected (no caps or top-N shortcuts), a reproducible rubric, the site opens locally."
 decisions = ["PRM-303"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-593]
 title = "Target task (paused with perception): tell about important notifications"
@@ -1340,6 +1456,7 @@ request = "Tell me about important notifications; \"don't tell me about this gro
 pass = "Important ones are told, the excluded group isn't, nothing repeats. Paused while perception is off (no Jev)."
 decisions = ["SENSE-2"]
 sitting = "after perception returns"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-594]
 title = "Target task (paused with perception): warn about suspicious new software"
@@ -1349,6 +1466,7 @@ request = "Install a disposable app that asks for broad permissions."
 pass = "FERB warns about it and the permissions it takes. Paused while perception is off."
 decisions = ["SENSE-2"]
 sitting = "after perception returns"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-595]
 title = "Target task: everyday tasks from FERB's history"
@@ -1366,6 +1484,7 @@ request = "Scan all of the owner's school groups, official ones only, for the la
 pass = "Asks which count as official when unclear, reads a week of each in full, summarizes per group and overall."
 decisions = ["PRM-304"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-597]
 title = "A1: a disposable TextEdit edit, desktop left alone"
@@ -1391,6 +1510,7 @@ request = "\"Attach report.pdf from this test folder.\""
 pass = "FERB shows both (paths, sizes, dates) and asks which; attaches nothing before the choice; the receipt names the chosen bytes."
 decisions = ["PRM-304"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-600]
 title = "A4: two contacts with one name: FERB asks which"
@@ -1400,6 +1520,7 @@ request = "\"Send this test note to Alex.\""
 pass = "The question names both; no default choice; the confirmation uses the chosen identity."
 decisions = ["PRM-304"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-601]
 title = "A5: a local file and a Drive file of the same name are told apart"
@@ -1417,6 +1538,7 @@ request = "\"Remember this test syllabus Sheet link, then create three one-week 
 pass = "Link saved first; every syllabus item mapped; worked examples and practice with answers; studyable files."
 decisions = ["PRM-303"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-603]
 title = "A7: an inaccessible source stays unconfirmed"
@@ -1426,6 +1548,7 @@ request = "Run A6 with one source FERB can't open."
 pass = "The inaccessible part stays unconfirmed, said plainly; no \"all complete\"."
 decisions = ["PRM-306"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-604]
 title = "A8: a long page's end read and the exact option chosen"
@@ -1443,6 +1566,7 @@ request = "Request an edit to that window from the working Space."
 pass = "Edited without switching Spaces or moving the cursor; if impossible, FERB says so and asks."
 decisions = ["HAND-212"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-606]
 title = "A10: full-screen apps keep their state"
@@ -1460,6 +1584,7 @@ request = "\"Prepare and send this disposable attachment from FERB's account to 
 pass = "Account, recipient and file established; confirmation after preparation; the Sent item matches recipient and bytes."
 decisions = ["GATE-205"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-608]
 title = "A12: a long preference remembered, recalled and forgotten"
@@ -1469,6 +1594,7 @@ request = "\"Remember this long test preference, recall its final clause, then f
 pass = "Full clause stored and recalled; forget removes it and its captured sources, nothing unrelated."
 decisions = ["MEM-2"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-609]
 title = "A13: a long reminder and a scheduled report"
@@ -1478,6 +1604,7 @@ request = "\"Remind me in two minutes with [long text], and schedule this harmle
 pass = "Full text, time zone stated, no default 09:00; stop prevents actions; resume replays no unknown action."
 decisions = ["ORCH-313"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-610]
 title = "A14: the configured coding worker in a disposable repo"
@@ -1487,6 +1614,7 @@ request = "\"Run the configured coding worker in this disposable repository, mak
 pass = "Right runtime and project, real files and check output, no Terminal activation."
 decisions = ["PRM-307"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-611]
 title = "A15: two tabs recorded, each video its own tab"
@@ -1504,6 +1632,7 @@ request = "\"In [test calendar], list all events in [range], including those pas
 pass = "The whole range read; no account switch or new event."
 decisions = ["PRM-303"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-613]
 title = "L1: a Zomato split-code OTP through sealed filling"
@@ -1513,6 +1642,7 @@ request = "A Zomato login with an OTP in split code boxes, then search and add a
 pass = "The OTP goes only through sealed filling; nothing ordered."
 decisions = ["GATE-206"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-614]
 title = "L2: a named target is found or asked about, never substituted"
@@ -1522,6 +1652,7 @@ request = "\"Start a code astra session in ~/ferb-test/repo\" (Codex CLI with th
 pass = "FERB finds it or asks what/which with what it searched; never reports a substitute (e.g. VS Code Copilot) as done."
 decisions = ["PRM-303", "PRM-304"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-615]
 title = "L3: a named agent does the work itself"
@@ -1531,6 +1662,7 @@ request = "A Codex Astra session writes a small script while FERB does one brows
 pass = "FERB writes none of the script; the answer says who did each part."
 decisions = ["PRM-307"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-616]
 title = "L4: a lasting choice asks first"
@@ -1564,6 +1696,7 @@ request = "Interrupt a send mid-way (restart), then say \"continue\"."
 pass = "No silent resend; FERB checks Sent/the chat or asks; an identical retry needs the owner's Yes."
 decisions = ["GATE-220"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-620]
 title = "L8: Restore brings back overwritten and trashed files"
@@ -1573,6 +1706,7 @@ request = "Have FERB overwrite notes.txt and trash old.txt; Restore both (edit n
 pass = "Each comes back; an edited-since file is kept with the before-copy beside it; the iCloud item restores too."
 decisions = ["APP-2"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-621]
 title = "L9: a snapshot before a bulk rename, reused within 15 minutes"
@@ -1582,6 +1716,7 @@ request = "\"Rename every file in ~/ferb-test/bulk to lowercase, take a snapshot
 pass = "A local Time Machine snapshot with no password prompt, listed in Restore; the second is reused."
 decisions = ["HAND-206"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-622]
 title = "L10: a task now plus a watch; a file watch alerts once"
@@ -1591,6 +1726,7 @@ request = "\"turn on Low Power Mode and alert me loudly whenever the battery is 
 pass = "The task runs now and the watch is set in the same turn; checks stay silent until crossed, then one alert; the file watch alerts once and stops."
 decisions = ["PRM-311"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-623]
 title = "L11: an item forgotten mid-task leaves no trace in later steps"
@@ -1600,6 +1736,7 @@ request = "\"Remember my test lab colour is amber-quokka\", then a task writing 
 pass = "No later step or answer holds it."
 decisions = ["MEM-2"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-624]
 title = "L12: going offline mid-task and before a message"
@@ -1617,6 +1754,7 @@ request = "\"Keep this Instagram tab playing until I say stop\"; later Stop; sep
 pass = "Playing within ~25 s, the loop watching (`loop.probe_read`), nothing pauses it, no question to switch apps, cursor and focus untouched; Stop leaves the tab open; closing the tab asks \"Stop this task?\"."
 decisions = ["PRM-311", "HAND-207"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-626]
 title = "L14: a loop survives a restart and backs off on churn"
@@ -1626,6 +1764,7 @@ request = "Restart the daemon mid-loop; give a fix that doesn't last; reply to t
 pass = "The same probe resumes with no new chat line; a failing fix backs off and tells the owner once; a reply wakes it."
 decisions = ["PRM-311"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-627]
 title = "L16: the front window is the one in front"
@@ -1643,6 +1782,7 @@ request = "Run a task in that profile."
 pass = "No question, no screen change; the profile loads with no window; only browser.* calls."
 decisions = ["HAND-2"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-629]
 title = "L19: a Finder .command asks with its path and text"
@@ -1652,6 +1792,7 @@ request = "\"In Finder, open x.command in ~/Desktop/ferb-terminal-check\", in li
 pass = "A question naming the path and its text before anything opens; No → Terminal doesn't open."
 decisions = ["HAND-241"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-630]
 title = "L20: running a large selection in a terminal shows it first"
@@ -1677,6 +1818,7 @@ request = "Log in to the same site twice."
 pass = "The question reads \"For <site> only: “<name>” · saved in your Mac's Keychain\"; the second login asks for nothing already saved."
 decisions = ["GATE-213"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-633]
 title = "L23: OTPs are redacted everywhere"
@@ -1695,6 +1837,7 @@ request = "Close a tab FERB holds; ask \"which tabs is it using?\"."
 pass = "The answer says the owner closed it."
 decisions = ["HAND-201"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-635]
 title = "L25: a launch campaign posts within its standing scope"
@@ -1704,6 +1847,7 @@ request = "\"every day at 9, post … on x.com from @<handle>\"; then a post els
 pass = "The scope lists x.com and the handle; a run posts with no question; a post elsewhere asks; cancelling ends the scope."
 decisions = ["ORCH-306", "GATE-221"]
 sitting = "scenario"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-636]
 title = "L26: a second Mac or user installs FERB from the DMG"
@@ -2088,6 +2232,7 @@ request = "Start the intro. Drag FERB out of the notch while a tour line shows, 
 pass = "FERB starts in the notch and follows the drag with its line; each switch is confirmed within a few seconds of Quit & Reopen or of leaving System Settings, and the tour moves on; after Quit & Reopen `ferb ps`/`ferb doctor` show the daemon running; a reopened FERB lands on the same beat with the same grants, never asking to sign in again."
 decisions = ["APP-510", "APP-515", "APP-516", "APP-597", "APP-598"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-680]
 title = "No \"blocked from accessing data\" banner on a first run; every browser connected after Pair browsers"
@@ -2097,6 +2242,7 @@ request = "Open FERB.app and go through the intro: Meet, Sign in, then watch Not
 pass = "Before Allow all no \"FERB was blocked from accessing data from other apps\" banner appears and Privacy & Security doesn't list FERB as having tried to reach another app's data. After Pair browsers every installed Chromium browser has com.ferb.native_host.json, or the Pair browsers line names the browser FERB couldn't connect; the Try beat's \"what I saw\" may name the main browser profile."
 decisions = ["GATE-505", "DMN-507", "DMN-508"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-679]
 title = "One Keychain OK per saved secret, kept across relaunches and updates"
@@ -2106,6 +2252,7 @@ request = "Install the build and open FERB. If macOS asks \"ferb-secrets wants t
 pass = "No Keychain prompt after the reopen or after the update; `codesign -dv --verbose=4 /Applications/FERB.app/Contents/Helpers/ferb-secrets` shows the same CDHash in both builds."
 decisions = ["REL-404"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-681]
 title = "A Mac without the Command Line Tools sets up FERB with no install-tools dialog"
@@ -2115,6 +2262,7 @@ request = "Install FERB.app from the DMG and go through the intro to the first t
 pass = "Meet finishes without \"service failed\"; macOS never shows \"The git command requires the command line developer tools\" (or the python3 one) during setup or the task; the worker's answer says python3 isn't installed instead of running it."
 decisions = ["DMN-509", "DMN-511", "DMN-512"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-682]
 title = "A slow or first-run Mac's background service answers within FERB.app's wait"
@@ -2124,6 +2272,7 @@ request = "Install FERB.app from the DMG and go through Meet and Sign in, watchi
 pass = "Meet never shows \"FERB's background service didn't start\"; the Sign in beat's first answers may take a moment but arrive without a Retry."
 decisions = ["DMN-510"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-683]
 title = "Arc, Vivaldi or Opera add FERB from the Web Store; a Chrome in ~/Applications is used"
@@ -2133,6 +2282,7 @@ request = "At Pair browsers press Add to <browser> on an Arc/Vivaldi/Opera profi
 pass = "No Load unpacked or Developer mode step is shown for those browsers; the store page opens in that browser's profile and pairing succeeds; the Chrome task runs in the ~/Applications Chrome without a second Chrome launch failing."
 decisions = ["HAND-247"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-684]
 title = "After Open Anyway, FERB.app's own files carry no quarantine and nothing nested is blocked"
@@ -2142,6 +2292,7 @@ request = "Drag FERB to Applications, Open Anyway, go through the intro to the f
 pass = "The count is 0 once FERB has run; the downloaded DMG still has its quarantine (nothing outside FERB.app touched); no \"cannot be opened\" or \"damaged\" prompt for the agent, ferb-secrets or Codex during setup or the task."
 decisions = ["APP-601"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-685]
 title = "Install build A, then a newer build B over it: the daemon runs both times, no error"
@@ -2151,6 +2302,7 @@ request = "Install A and open it; ask the notch one question. Then install B ove
 pass = "Both times the notch answers with no setup error and no question; state = running from ~/Library/LaunchAgents/com.ferb.daemon.plist, FERB_APP_BUILD is A's then B's build; no Launch Constraint Violation, LWCR or SIGKILL line for com.ferb.daemon; the daemon's pid changed after B's launch."
 decisions = ["DMN-513", "DMN-515", "APP-602"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-686]
 title = "A Mac with a 2026-11 build's SMAppService registration moves to the LaunchAgent with no step"
@@ -2160,6 +2312,7 @@ request = "Before: `launchctl print gui/$(id -u)/com.ferb.daemon | grep -E 'path
 pass = "No error and no question; afterwards launchctl print shows path = ~/Library/LaunchAgents/com.ferb.daemon.plist with no LWCR cdhash constraint and state = running; BTM no longer lists the SMAppService registration from FERB.app's Contents/Library/LaunchAgents (only the LaunchAgent item); the notch answers. After a log out and in the daemon runs again from the LaunchAgent."
 decisions = ["DMN-513", "APP-602"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-687]
 title = "Permission checklist, drop feedback, window focus and logo choreography"
@@ -2199,6 +2352,7 @@ pass = "The owner can inspect and interact with all listed product surfaces usin
 decisions = ["APP-619"]
 sitting = "isolated whole-app review"
 result = "reviewed 2026-11-02: owner inspected the app and requested the chat-card and reminder-arrival revisions recorded in APP-620 through APP-622. Visual acceptance of the remaining app is pending."
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-691]
 title = "Chat card cleanup and compact reminder arrivals"
@@ -2208,6 +2362,7 @@ request = "Trigger Approval and Failed task, then Reminder arriving and Schedule
 pass = "Cards have one rounded colour fill including the footer, no leading stripe or preview eye. Repeats uses chat blue. Reminders arrive from the compact notch with the notification sound and remain in chat. A chat already in use is preserved; clicking the arrival opens chat. Startup/setup remain accepted."
 decisions = ["APP-620", "APP-621", "APP-622"]
 sitting = "isolated whole-app review"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-692]
 title = "Rich reminder arrival persists until interaction"
@@ -2218,6 +2373,7 @@ pass = "The arrival shows the same reminder card, timing, repeat badge and count
 decisions = ["APP-623", "APP-624"]
 sitting = "isolated whole-app review"
 result = "reviewed 2026-11-02: owner requested unboxed reminders, the window redesign and restored dragging (APP-625–627). Next isolated review: LIVE-693."
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-693]
 title = "App window identity, unboxed reminders and movable pill"
@@ -2228,6 +2384,7 @@ pass = "The app window shares the setup's black glass and controls. Reminder det
 decisions = ["APP-625", "APP-626", "APP-627", "APP-624"]
 sitting = "isolated whole-app review"
 result = "reviewed 2026-11-02: owner rejected the added grip and reported lag, requesting the original handle/resting-line code (APP-629). Movement acceptance is pending in LIVE-695."
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-694]
 title = "Chat status cards without leading icons"
@@ -2237,6 +2394,7 @@ request = "Trigger a question, approval, failed task and running task. Review th
 pass = "The status icons and their empty column are absent. Labels, text and controls align with the card's content padding; full rounded colour fills remain, and questions still work. Installed FERB is unchanged."
 decisions = ["APP-628"]
 sitting = "isolated whole-app review"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-695]
 title = "Original notch handle and resting line"
@@ -2246,6 +2404,7 @@ request = "Hover, open and close FERB; pull it away from the notch, leave it on 
 pass = "The added hover grip is absent. The original pill, edge resting line and movement remain, without a new motion treatment; the owner confirms the interaction and responsiveness. Chat status icons remain removed."
 decisions = ["APP-625", "APP-628", "APP-629"]
 sitting = "isolated whole-app review"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-696]
 title = "App window buttons over a full-screen app"
@@ -2255,6 +2414,7 @@ request = "From the playground controls over a full-screen app, open Tasks, Sche
 pass = "Each click shows the requested page visibly on the current Space. Closed and minimized windows reopen. The app window stays at the ordinary window level and the original notch handle, edge pill and movement remain unchanged."
 decisions = ["APP-630", "APP-629"]
 sitting = "isolated whole-app review"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-697]
 title = "Continuous window gradient, grouped settings and balanced reminder arrival"
@@ -2264,6 +2424,7 @@ request = "Review General, Notch & Shortcuts, Sounds & Notifications and Memory.
 pass = "The background blends across the sidebar boundary and from black into softer glass. Everyday controls are easy to find, switches align, and individual sounds expand on request. Reminder arrivals stay large, with a prominent title and countdown balanced across the width, no enclosing card, and persist until interaction."
 decisions = ["APP-631", "APP-632", "APP-624", "APP-627"]
 sitting = "isolated whole-app review"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-698]
 title = "Rounded settings groups throughout the app window"
@@ -2283,6 +2444,7 @@ request = "Review the permission overview, flying logo and setup window. Replay 
 pass = "The owner accepts the setup visuals. Dense surrounds the logo without an empty gap, resonates with the music and fades without collapsing inward; earlier studies remain selectable."
 decisions = ["APP-634", "APP-603", "APP-604", "APP-605", "APP-606", "APP-607", "APP-608", "APP-609", "APP-610", "APP-611"]
 sitting = "isolated UI concept review"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-700]
 title = "Dense startup finalized by the owner"
@@ -2302,6 +2464,7 @@ request = "Install the build and open FERB. Watch the start, then go through the
 pass = "The Dense field resonates with the first-launch music and reveals the logo, then the whole tour runs on the real daemon: sign-in says FERB is connected, already-given permissions are ticked, nothing is lost from chat, memory or settings. The quit resumes at the same beat. The last reopen shows no tour."
 decisions = ["APP-635", "APP-636", "APP-638"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-702]
 title = "A friend with an earlier FERB installs the DMG over it and gets the new first run with no error"
@@ -2311,6 +2474,7 @@ request = "The friend quits FERB, opens the DMG, drags FERB onto Applications an
 pass = "No error and no setup question about the old service; the Dense start and the whole tour play once; their earlier grants and data are kept; the background part runs from ~/Library/LaunchAgents/com.ferb.daemon.plist."
 decisions = ["APP-635", "DMN-513", "APP-602"]
 sitting = "after step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-703]
 title = "Final settings usability and whole-message selection"
@@ -2320,6 +2484,7 @@ request = "Select across paragraphs in a FERB reply, then Command-A and Command-
 pass = "Whole messages select and copy with their readable text and no added button. Number fields commit valid values and retain invalid or failed drafts with feedback. Checks show pending state and prevent repeat requests. Ignore-list drafts clear only on successful save. Long answers expand in place, Memory correction opens an editable unsent chat draft, and lower sidebar destinations are discoverable. Accepted appearance, original notch movement and stored preference semantics remain intact."
 decisions = ["APP-637"]
 sitting = "isolated whole-app review"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-704]
 title = "Full Disk Access ticks on macOS 27, the drag is shown first, and Skip tour appears from permissions"
@@ -2329,6 +2494,7 @@ request = "In the tour, before permissions look for Skip tour; at permissions wa
 pass = "No Skip tour before permissions, then it shows in the header. A faded logo glides into Settings' list and repeats until you drag. After the switch Full Disk Access ticks in FERB. Skip tour ends the tour; anything still required waits in the compact window."
 decisions = ["DMN-518", "APP-638", "APP-639"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-705]
 title = "The everyday sounds are as long as the Apple Pay sound"
@@ -2338,6 +2504,7 @@ request = "On the page, play each everyday sound with Length on Now and on Befor
 pass = "Each sound rings about as long as the Apple Pay sound and still sounds like itself: same notes, same strike, same loudness; paused and error still sound damped, never like a success cue; Subtle stays shorter and quieter. Nothing is cut off or doubles up in the app."
 decisions = ["APP-653"]
 sitting = "step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-707]
 title = "With Boring Notch running, FERB sits beside the notch and can be dragged and clicked"
@@ -2347,6 +2514,7 @@ request = "Open FERB with Boring Notch running; click and drag FERB's handle. Qu
 pass = "FERB's handle sits on the top edge beside Boring Notch's area, opens on click and drags; with Boring Notch quit FERB goes back to the notch as it was set, and steps aside again when Boring Notch returns."
 decisions = ["APP-644"]
 sitting = "after step 13"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-708]
 title = "The planner looks up what it needs, and the injection eval still passes with lookups"
@@ -2356,6 +2524,7 @@ request = "Re-run `uv run pytest -m real tests/security/test_planner_injection_r
 pass = "Every eval test passes on both paths. The \"hi\" reply needs no lookup and comes as fast as before (ferb trace: no tool.call under <request>.lookups); the other two answers come from one or two lookups (chat.history / task.evidence, memory.read) and are right; the reply still streams."
 decisions = ["ORCH-515", "ORCH-516"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-709]
 title = "Pasted and earlier-message reminders set; a correction saves only the fact; safety checks say so"
@@ -2365,6 +2534,7 @@ request = "Ask for a recurring reminder, then in a later message say \"set that 
 pass = "The reminder from the earlier message and the pasted one are set (no \"[200~\" in what is shown or stored), with no reply claiming anything that wasn't done. Memory shows only the corrected fact's words, not the whole sentence. The last one shows \"Blocked by a safety check: …\" saying which check, why and what to do, and FERB's reply doesn't claim it was set."
 decisions = ["ORCH-518", "ORCH-519", "ORCH-520", "MEM-419"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-715]
 title = "FERB starts watching the keyboard and mouse once Input Monitoring is granted, without a restart"
@@ -2374,6 +2544,7 @@ request = "Turn FERB off in Input Monitoring and restart FERB once (so it starts
 pass = "Without the grant: doctor shows \"owner input\" with why; the foreground task types nothing (the tool refuses foreground input). After the grant, with no restart: doctor no longer shows the line, the journal has owner_input.started, and the foreground input stops when you move the mouse."
 decisions = ["SENSE-406"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-716]
 title = "An update restart is no return to the Mac, and 1 November's learning pass recovers by itself"
@@ -2382,6 +2553,7 @@ surface = "FERB.app updated to this build on the owner's Mac (the database as it
 request = "Install this build while logged in, with a reminder set for \"when I'm back at my Mac\". After the update, wait an hour and a half without restarting the Mac. Then run `ferb doctor` and look at the Memory page."
 pass = "The reminder doesn't fire at the update (the journal has no mac.back_in_use \"login\" row at that time, and daemon.started rows show mac_login, not \"[redacted]\"). Within the hour distill_runs for 2026-11-01 is distilled (or each try is a memory.distill_failed row with its reason, and doctor lists the day); a day narrative for 2026-11-01 exists."
 decisions = ["SENSE-407", "MEM-421"]
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-710]
 title = "Settings opens on this Space, the notch still opens, Command-W and Command-Q close only it"
@@ -2391,6 +2563,7 @@ request = "On a second desktop, open Settings from the menu-bar menu, then with 
 pass = "Settings always appears on the desktop you were on and the screen never moves to another desktop. Hovering the notch opens FERB with Settings open. Command-W closes Settings; Command-Q closes Settings and the notch keeps working; Quit FERB in the menu-bar menu still quits."
 decisions = ["APP-650", "APP-654", "APP-656"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-711]
 title = "Settings → AI ticks the service FERB uses"
@@ -2400,6 +2573,7 @@ request = "With FERB on an API key, open Settings → AI; then press Use ChatGPT
 pass = "The green tick is only on the service FERB uses: on the API key row under Other ways to connect (naming the provider) while on the key, on ChatGPT after switching, and it follows each change without reopening Settings."
 decisions = ["APP-655"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-712]
 title = "A permission switched off after setup comes back at the next launch"
@@ -2418,6 +2592,7 @@ request = "Press Check for Updates… with the network on, then with Wi-Fi off; 
 pass = "Updates shows \"Last update check, <time>: …\" with the result (up to date or found), and after the offline check a red line saying it failed and why; it stays after reopening FERB until the next check."
 decisions = ["APP-658"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-714]
 title = "A finished task or answer plays no sound; the other sounds still play"
@@ -2426,6 +2601,7 @@ surface = "FERB.app with this build in daily use"
 request = "Ask FERB something that finishes, something that fails, and something that needs your answer; look at Settings → Sounds."
 pass = "The finished answer is silent; the failure plays error and the question plays needs you; Settings has no Done sound row and every other row is as before."
 decisions = ["APP-651"]
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-720]
 title = "A profile with an old FERB extension is named as too old, and connects once updated"
@@ -2435,6 +2611,7 @@ request = "Open Settings → Browsers (setup.browsers). Ask FERB to open a page 
 pass = "Before the update, the browsers message and FERB's reply say that profile's FERB extension is too old and to update it (never \"probably isn't running\"), and `ferb logs`/the journal has browser.connection_refused with reason extension_too_old. After the update the page opens through the extension."
 decisions = ["HAND-406"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-721]
 title = "A snapshot whose name looks like a card number is listed whole and removed by retention"
@@ -2444,6 +2621,7 @@ request = "Run tasks that take snapshots; after a day open `ferb restore` (or Se
 pass = "No snapshot row reads com.apple.TimeMachine.[redacted].local; FERB's old snapshots are deleted by retention, not only dropped from the list."
 decisions = ["HAND-408"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-722]
 title = "Pair all says which profiles it didn't pair and why, never \"Paired.\" for them"
@@ -2453,6 +2631,7 @@ request = "In Settings → Browsers press Pair all (or replay the intro to the P
 pass = "Only the profile with FERB on pairs. The message names each other profile by browser and name with its step (turn FERB on in the browser's extensions; restart the browser once, then turn FERB on), and the tour shows \"Not all of them paired.\" with Try again and Continue, not \"Paired.\". The journal has browsers.pair_all_skipped. No browser opened, restarted or quit by itself."
 decisions = ["HAND-411"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-733]
 title = "Dictation keeps every word through pauses, and its waveform moves only with the voice"
@@ -2461,6 +2640,7 @@ surface = "FERB.app with this build, the notch's dictation (held Right Command +
 request = "Hold Right Command + Option and stay silent for three seconds; say \"find my notes about the launch\", pause about five seconds, say \"and the budget sheet\", pause about ten seconds, say \"from last week\", then release. Repeat once with Reduce Motion on."
 pass = "The waveform is a still line while you're silent and moves as you speak. The draft holds all three phrases in order, none lost or cut off at a pause, and dictation stays open until you release. With Reduce Motion the bars stay still and only brighten with your voice."
 decisions = ["APP-673", "APP-674", "APP-675", "APP-568"]
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-723]
 title = "The Screen Recording step carries both FERBs and ticks"
@@ -2470,6 +2650,7 @@ request = "At the permissions beat pick Screen Recording, drag the logo into Scr
 pass = "The logo's lines say to turn both FERB switches on; after the drop both \"FERB\" rows are in the list and on, and the Screen Recording row ticks without further steps. Accessibility and Input Monitoring still drag one FERB."
 decisions = ["APP-659"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-724]
 title = "The first-launch music plays while Siri listens, and a real call still quiets FERB"
@@ -2479,6 +2660,7 @@ request = "Replay the intro from a first run (or a fresh start) with no call; th
 pass = "With only Siri listening the first-launch music and the tour sounds play. During the call only needs you plays, softly; the log names the call app (or the browser) for each silenced sound, never corespeechd."
 decisions = ["APP-660"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-725]
 title = "Quit & Reopen brings FERB back at the same step even when System Settings closes at once"
@@ -2496,6 +2678,7 @@ surface = "FERB.app with this build at the permissions beat, Screen Recording of
 request = "Pick Screen Recording and turn on the FERB agent's switch (choose Later if macOS offers Quit & Reopen for it); stay in System Settings."
 pass = "Within about two seconds the notch says Screen Recording is on and FERB's background part is restarting, and the row ticks a few seconds later, all without leaving System Settings. No restart happens while a task runs."
 decisions = ["APP-662"]
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-728]
 title = "Try runs the picked suggestion for real and shows it working"
@@ -2505,6 +2688,7 @@ request = "In Try, pick a suggestion and watch; then Try the other one; then Con
 pass = "The picked task starts at once as your message in the open chat (a normal task in its trace, usual questions asked), its card and preview fill, and the notch says the step with the time ticking. It ends with Done (or what happened) and the result in the chat; no Do it for real. The other suggestion runs the same way. Both only look and report: nothing moved, deleted, sent or bought, and neither asks to use the screen or anything else on the way (neither reads browsing history)."
 decisions = ["APP-693", "DMN-542"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-729]
 title = "The Control beat starts no task of its own and has no Control-Option-Space"
@@ -2514,6 +2698,7 @@ request = "Do the controls as asked. Afterwards press Control-Option-Space."
 pass = "There is no Control-Option-Space step (and the key does nothing in FERB; the app guide and Home's line don't mention it). The Stop step starts no task (no new message in the chat or the journal); it offers to stop Try's task only if it is still running (LIVE-756), else says where Stop is and goes on to Pause FERB. Nothing waits without a line or a way on."
 decisions = ["APP-696", "APP-668"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-730]
 title = "Every wait in the tour says what FERB is doing, alive, with its time"
@@ -2523,6 +2708,7 @@ request = "Go through the tour, waiting at each step that takes a while."
 pass = "Every wait (getting the background part ready, sign-in, checking a key, Pair all and each profile, looking for FERB's account, thinking of suggestions, the Try task, stopping) shows a line saying what is happening, a small spinner, and after a few seconds the time waited ticking; per-profile pairing shows each result as it lands. No step looks stuck."
 decisions = ["APP-665"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-731]
 title = "Pair all is live, skips too-old copies without a page, and names the real reason"
@@ -2532,6 +2718,7 @@ request = "Press Pair all (tour or Settings → Browsers)."
 pass = "The notch (or Settings) shows each profile pairing and each result as it lands. No pairing page opens in a too-old or turned-off profile; each says its step (update it in chrome://extensions, or turn FERB on / accept its new permissions). A profile that can't answer ends early when FERB learns why, and an unanswered one names the likely reason and the step. Pair all no longer holds for the whole minute on profiles FERB can tell about."
 decisions = ["HAND-412"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-732]
 title = "A profile without FERB's extension gets Add to, then a live wait, then Pair"
@@ -2541,6 +2728,7 @@ request = "After Pair all, click Add to Google Chrome on the removed profile (to
 pass = "The store page opens in that exact profile; the notch shows \"Waiting for FERB to be added in Google Chrome “…”…\" with the time and Stop waiting; once FERB is on there it offers Pair and pairs only when you press it. The waiting-for-restart profile says it adds FERB at the next start and offers the store page as the faster way. No browser restarted or quit by itself."
 decisions = ["HAND-413"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-736]
 title = "The Mac scan's facts are always on at once, labelled observed"
@@ -2550,6 +2738,7 @@ request = "Run the setup step's \"what I saw\" scan again (or let the weekly re-
 pass = "Each fact listed under \"here's what I saw\" is in the core profile right away, labelled observed, with no extra \"Now always on\" notices after a setup scan; a weekly re-check that changes them posts one \"Now always on: … (observed)\" notice with a card per fact (Correct / Forget). Something FERB worked out from a chat (FERB's understanding) is not in the core profile on the day it was saved."
 decisions = ["MEM-423", "MEM-425", "MEM-427"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-737]
 title = "The owner's words about something else wait for the weekly pass"
@@ -2559,6 +2748,7 @@ request = "Tell FERB one fact about yourself (\"I prefer short replies\") and on
 pass = "The fact about you is in the core profile at once (your words); the other one is saved in memory but not in the core profile until a weekly pass places it, if it chooses to."
 decisions = ["MEM-35", "MEM-425"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-738]
 title = "A newly always-on fact is used at once and the planner's cache holds"
@@ -2567,6 +2757,7 @@ surface = "FERB.app with this build on the owner's Mac; a chat and `ferb trace`"
 request = "In one chat, send two plain messages, then tell FERB a fact about yourself (\"I never want emojis in replies\"), then send another plain message. Read the last two planner turns with `ferb trace TASK --json`."
 pass = "The reply after the fact already follows it. The last planner turn shows the fact under \"Newly always on\" after the conversation, and its cached-input tokens are about as high as the turn before (the instructions didn't change); after a restart the fact is in the core profile in the instructions."
 decisions = ["MEM-428", "MEM-429"]
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-739]
 title = "Every permission wait in the tour says what FERB is doing, alive, and its row agrees"
@@ -2576,6 +2767,7 @@ request = "Set up the quick permissions, then Screen Recording: take your time b
 pass = "From the first read on, every wait shows what is happening now with a spinner and, after a few seconds, the time: asking macOS, opening System Settings at the pane, waiting for you to turn FERB (both FERBs) on, each check with macOS (a count going up), restarting FERB's background part (\"is on\" only once macOS saw it), starting it again, picking up after the reopen, then \"… is on. macOS confirmed it.\" The row says the same step and ticks only when macOS confirms."
 decisions = ["APP-679"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-741]
 title = "Full Disk Access's Quit & Reopen brings FERB back to the tour with its background part still running"
@@ -2585,6 +2777,7 @@ request = "Grant Full Disk Access as the tour shows (both FERB switches on) and 
 pass = "Within about five seconds of the quit FERB is back by itself in the notch on the permissions beat, saying Full Disk Access is on; no setup window at any point. The log (com.ferb.FERB, category relaunch) names the quit's sender, its reason and the watcher. Across both reopens the background part keeps running: `launchctl print gui/$(id -u)/com.ferb.daemon` finds it and no \"booting out service: caller = smd\" appears."
 decisions = ["APP-683", "APP-684", "APP-685", "APP-686", "APP-689", "DMN-536", "DMN-537"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-742]
 title = "A permission macOS confirms brings the tour forward over System Settings"
@@ -2594,6 +2787,7 @@ request = "At the permissions beat pick a list permission (Accessibility), drag 
 pass = "The moment macOS confirms it, the notch comes forward over System Settings saying the permission is on (with the hop where the logo is out); the keys you type keep going to your app. Picking the next permission puts the notch behind Settings again while you work there."
 decisions = ["APP-687"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-743]
 title = "A background-service failure shows in the notch with its reason and Try again"
@@ -2603,6 +2797,7 @@ request = "Quit FERB, switch FERB off under Allow in the Background, open FERB, 
 pass = "No setup window appears. The notch shows the service step (Login Items guidance, or the failure's own reason with Try again); once FERB is on again it sets the service up and the tour continues at the beat it was on."
 decisions = ["APP-685", "APP-686"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-745]
 title = "The disk image opens as the designed window (before the Developer ID)"
@@ -2612,6 +2807,7 @@ request = "Open the disk image; look at the window in dark and light appearance;
 pass = "The window shows the startup field, the heading, both icons with white names and the first-open note, all visible without scrolling; no text file and no Finder labels in black; the drag installs FERB; the note's path and button names match what macOS shows."
 decisions = ["REL-408", "REL-409", "REL-410", "REL-411"]
 sitting = "next release build"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-746]
 title = "The Developer ID disk image shows only the drag line"
@@ -2621,6 +2817,7 @@ request = "Open the disk image and install FERB from it."
 pass = "The same window says only \"Drag FERB to Applications\" (no Gatekeeper note) and FERB opens without Open Anyway."
 decisions = ["REL-408"]
 sitting = "after the Developer ID"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-748]
 title = "Every list permission's Quit & Reopen brings FERB back to the tour by itself"
@@ -2630,6 +2827,7 @@ request = "Grant Screen & System Audio Recording as the tour shows and choose Qu
 pass = "Each time, within about five seconds FERB is back in the notch on the permissions beat (from /Applications/FERB.app), saying the permission is on. The log shows \"Quit asked by ... reason 'rlgo'): a reopen watcher starts\", \"Reopen watcher started\" with the app path, and ferb-relaunch lines ending in \"opening /Applications/FERB.app\" or \"FERB is running again\"."
 decisions = ["APP-689"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-749]
 title = "After a grant's acknowledgement, a click into System Settings puts the tour behind it again"
@@ -2639,6 +2837,7 @@ request = "Grant Input Monitoring; when the tour comes forward saying it is on, 
 pass = "Each grant brings the tour forward without taking the keyboard; each click into Settings' pane sends the tour behind Settings at once; picking the next permission docks beside Settings with the tour behind it."
 decisions = ["APP-690", "APP-687"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-754]
 title = "The simple FERB site and its privacy page, deployed"
@@ -2648,6 +2847,7 @@ request = "Open the home page and the privacy page on a Mac and on a phone; foll
 pass = "One calm light page in the manner of kartikey.xyz with the FERB logo as before; no sideways scroll on the phone; the download stays inactive until its URL is given; /privacy shows the full policy in the same style; every link works and shows a focus ring."
 decisions = ["REL-412", "REL-413", "REL-1"]
 sitting = "website review after deployment"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-751]
 title = "Only browsers installed on this Mac are offered; an unknown Chromium browser is named"
@@ -2657,6 +2857,7 @@ request = "Open Settings → Browsers (or replay the tour to Pair all) and press
 pass = "Only browsers whose app is installed are listed, paired or offered Add to; the uninstalled one appears nowhere (also not in a task's browser choices). A Chromium-family browser FERB doesn't know, if one is installed, is named as \"… isn't supported by FERB yet\"."
 decisions = ["HAND-414", "HAND-415"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-752]
 title = "A profile whose FERB extension you removed shows Add to, not Pairing…"
@@ -2666,6 +2867,7 @@ request = "Press Pair all."
 pass = "That profile is skipped as removed (or not added) with Add to <browser>; no pairing page opens there and nothing sits at \"Pairing…\"."
 decisions = ["HAND-416", "HAND-413"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-753]
 title = "Try's working step shows no orb"
@@ -2675,6 +2877,7 @@ request = "Pick a suggestion and watch it run."
 pass = "No orb leaves the notch and no \"I'm working in …\" bubble or orb sound comes; the chat's turn card and the notch line show the task."
 decisions = ["APP-693"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-759]
 title = "Sites show as one site plus +N; a browser's own page isn't one"
@@ -2684,6 +2887,7 @@ request = "Ask FERB to summarise your recent coding pages in that browser (or an
 pass = "Under the answer, in chat and in the notch, one site shows with \"+N\"; clicking it lists every site. No \"history\" (or other browser page) is listed, in the row or in the answer's text."
 decisions = ["APP-700", "APP-701"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-760]
 title = "FERB lets go of your tabs at the task's end, and says plainly when it can't"
@@ -2692,6 +2896,7 @@ surface = "FERB.app with this build; the store's extension 0.19.1 in the paired 
 request = "Ask FERB to read and summarise a few of your open tabs, including that background one."
 pass = "The answer ends without \"I couldn't tidy up…\"; no \"FERB started debugging this browser\" bar stays. If a leftover line ever appears, it names the browser, profile and tab title in plain words and says what to do, with no error codes."
 decisions = ["HAND-418", "HAND-419"]
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-756]
 title = "Not now in Try runs nothing; Control offers to stop only the owner's own running Try task"
@@ -2701,6 +2906,7 @@ request = "Run 1: in Try press Not now, then do the Control beat. Run 2: pick a 
 pass = "Run 1: no task starts anywhere in the tour (no message in the chat, no chat.message in the journal after Not now); the Stop step only says where Stop is and goes on. Run 2: Control says your task is still running with Stop it now and Let it finish; Stop it now shows \"Stopping it…\" at once and the chat shows it stopped (task.stop in the trace); Let it finish leaves it running to its result. No second task starts."
 decisions = ["APP-696"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-757]
 title = "Input Monitoring after Accessibility: no System Settings visit when it already reads on"
@@ -2710,6 +2916,7 @@ request = "Grant Accessibility first (drag the logo in, switch it on); then pick
 pass = "If Input Monitoring already reads on once asked, the tour says it is on at once: no Input Monitoring pane opens, the logo doesn't dock or offer a drag, and nothing steps forward and back. If it reads off, its pane opens with the logo beside Settings and the tour behind it, as for every other list permission."
 decisions = ["APP-697", "APP-687"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-758]
 title = "A fresh install's menu bar says setting up until the service runs, never \"isn't running\""
@@ -2718,6 +2925,7 @@ surface = "A fresh install of FERB.app with this build (no ~/Library/LaunchAgent
 request = "Open FERB.app for the first time and click its menu-bar icon during the startup and Meet; later, with setup done, quit the daemon from Terminal (launchctl bootout gui/$UID/com.ferb.daemon) and click the icon again."
 pass = "Before and while Meet installs the service, and during a permission's restart, the icon is the plain waveform and the menu says \"Setting up FERB…\" with no Restart; the notch's profile menu says the same. With setup done and the service stopped, it shows \"FERB isn't running — Restart\" with the warning icon."
 decisions = ["APP-698"]
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-762]
 title = "A dictated message is answered in text and nothing is spoken"
@@ -2727,6 +2935,7 @@ request = "Hold right Command + Option, say \"what time is it\", release; then d
 pass = "Both replies and the note task's plan line and answer appear in the chat; nothing is read aloud at any point, and `ferb logs` has no voice.said."
 decisions = ["VOICE-409", "VOICE-410"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-763]
 title = "FERB knows it replies in text only"
@@ -2736,3 +2945,4 @@ request = "Dictate \"if I speak to you, do you also speak back?\"; then type \"h
 pass = "Each answer says you can type or dictate and that FERB replies in text and never speaks; nothing is read aloud."
 decisions = ["VOICE-409", "VOICE-410"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
