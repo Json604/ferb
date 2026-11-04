@@ -201,6 +201,10 @@ download_days = 3
 
 [feedback]
 address = "reports@example.org"
+
+[voice]
+tts = "macos"
+rate = 190
 """
 
 
@@ -234,11 +238,12 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     finally:
         d.stop()
     assert got["schema"] == NEWEST
-    first, second, third = got["upgraded"]          # 2026-10-09's limits, HAND-210, then the report relay
+    first, second, third, fourth = got["upgraded"]  # 2026-10-09's limits, HAND-210, the report relay, no voice
     assert {c["key"] for c in first["changes"]} >= {"browser.download_max_mb", "browser.task_max_tabs",
                                                      "retention.download_days"}
     assert {"key": "browser.download_max_mb", "from": 512, "to": None} in second["changes"]
     assert third["changes"] == [{"key": "feedback.address", "to": None}]       # the email address isn't journaled
+    assert fourth["changes"] == [{"key": "voice.tts", "to": None}, {"key": "voice.rate", "to": None}]   # VOICE-410
     assert got["memory"] == ["memory.cleanup", "memory.profile_seeded"]
     assert got["pending"]["summary"] == "Uses a browser and an editor."  # moved to persona.json when read
     config = Config(home)

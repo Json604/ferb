@@ -429,6 +429,7 @@ request = "Hold Right Command + Option, say \"what time is it\", release."
 pass = "The message sends and the reply is spoken in the Mac's voice; `voice.said` appears in `ferb logs`."
 decisions = ["VOICE-403", "VOICE-405", "APP-402"]
 sitting = "step 13, sitting 8"
+waiver = "obsolete 2026-11-04: VOICE-409 (owner) removed FERB's voice; a dictated message answered in text only is LIVE-762"
 
 [LIVE-414]
 title = "A dictated task speaks its plan line and answer, not code's lines"
@@ -438,6 +439,7 @@ request = "Dictate \"make a note called test with hi in it\"."
 pass = "The plan line is spoken as it starts and the answer when it ends; \"Sites contacted\"/\"Left open\" lines are not read out."
 decisions = ["VOICE-405"]
 sitting = "step 13, sitting 8"
+waiver = "obsolete 2026-11-04: VOICE-409 (owner) removed FERB's voice; a dictated message answered in text only is LIVE-762"
 
 [LIVE-415]
 title = "Stop and a new message cut speech off at once"
@@ -447,6 +449,7 @@ request = "Press the notch's stop; in another turn, type a new message while it 
 pass = "Speech stops at once each time."
 decisions = ["VOICE-404"]
 sitting = "step 13, sitting 8"
+waiver = "obsolete 2026-11-04: VOICE-409 (owner) removed FERB's voice; a dictated message answered in text only is LIVE-762"
 
 [LIVE-416]
 title = "Send on release off: dictation stays a draft and is still answered aloud"
@@ -456,6 +459,7 @@ request = "Dictate a message, send it with Return; then type and send a message.
 pass = "The dictation stays in the draft until Return and its reply is spoken; the typed message's reply is not."
 decisions = ["APP-402"]
 sitting = "step 13, sitting 8"
+waiver = "obsolete 2026-11-04: VOICE-409 (owner) removed FERB's voice; a dictated message answered in text only is LIVE-762"
 
 [LIVE-417]
 title = "Voice settings apply to the next reply; a bad provider speaks nothing"
@@ -465,6 +469,7 @@ request = "Set `voice = \"Daniel\"`, `rate = 220`, ask something by voice; then 
 pass = "The next reply uses Daniel at 220; with `nope` nothing is spoken and `voice.failed` names the value."
 decisions = ["VOICE-407", "VOICE-408"]
 sitting = "step 13, sitting 8"
+waiver = "obsolete 2026-11-04: VOICE-409 (owner) removed FERB's voice; a dictated message answered in text only is LIVE-762"
 
 [LIVE-418]
 title = "A long listen transcribes in time; an excluded site's sound isn't recorded"
@@ -2669,4 +2674,22 @@ surface = "FERB.app with this build, replaying the intro to Try"
 request = "Pick a suggestion and watch it run."
 pass = "No orb leaves the notch and no \"I'm working in …\" bubble or orb sound comes; the chat's turn card and the notch line show the task."
 decisions = ["APP-693"]
+sitting = "after this change is installed"
+
+[LIVE-762]
+title = "A dictated message is answered in text and nothing is spoken"
+area = "voice"
+surface = "FERB.app with this build, the notch's dictation, send on release on, then off"
+request = "Hold right Command + Option, say \"what time is it\", release; then dictate \"make a note called test with hi in it\" and send it with Return."
+pass = "Both replies and the note task's plan line and answer appear in the chat; nothing is read aloud at any point, and `ferb logs` has no voice.said."
+decisions = ["VOICE-409", "VOICE-410"]
+sitting = "after this change is installed"
+
+[LIVE-763]
+title = "FERB knows it replies in text only"
+area = "voice"
+surface = "FERB.app with this build"
+request = "Dictate \"if I speak to you, do you also speak back?\"; then type \"how do I talk to you?\"."
+pass = "Each answer says you can type or dictate and that FERB replies in text and never speaks; nothing is read aloud."
+decisions = ["VOICE-409", "VOICE-410"]
 sitting = "after this change is installed"

@@ -137,7 +137,7 @@ def test_ferb_app_transcribes_on_device_only_and_never_asks_for_permission_from_
     assert "on_device_unavailable" in body and "requestAuthorization" not in body
     # No request anywhere may fall back to the network (rule 15).
     assert "requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition" not in src
-    # hearing opens no microphone (push-to-talk is the app's own dictation, VOICE-403)
+    # hearing opens no microphone (push-to-talk is the app's own dictation, VOICE-409)
     assert "AVCaptureDevice" not in src and "AudioDeviceCreateIOProcID" not in src
 
 
@@ -238,7 +238,7 @@ def test_the_packaged_app_is_told_ferbs_home_not_its_own_folder(tmp_path: Path) 
     assert fake.argv[0][4:7] == ["--env", f"FERB_HOME={home}", str(app)]
 
 
-# decision: VOICE-403
+# decision: VOICE-409
 def test_hearing_launches_the_app_itself(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """After the merge there is no voice helper: the daemon opens FERB.app with the hearing mode as its arguments."""
     import ferb.device.install as install

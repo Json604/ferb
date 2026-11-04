@@ -53,7 +53,7 @@ purpose = "Watching what happens on the Mac (apps, notifications, clipboard, typ
 title = "Voice"
 prefix = "VOICE"
 paths = ["ferb/voice"]
-purpose = "Push-to-talk, hearing and speech on the daemon side."
+purpose = "Push-to-talk (the app's dictation) and hearing; FERB never speaks (VOICE-409). Most of its code is in the daemon, sense and app areas; its decisions name the files."
 
 [daemon]
 title = "Daemon, setup and plumbing"

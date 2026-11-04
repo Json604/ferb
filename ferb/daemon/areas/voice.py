@@ -1,8 +1,6 @@
-"""Own the daemon's voice: speaking a voice turn's replies (VOICE-401, 3) and hearing's FERB.app
-plumbing (where the app is, its recorded signature, its Speech Recognition probe, ending its hearing before an update).
-Must not listen: hearing only transcribes sound a task captured from an app (L26). Push-to-talk is the FERB app's own
-dictation; a turn it sends with `speak: true` is answered aloud from the turn's structured events, never from rendered
-text."""
+"""Own hearing's FERB.app plumbing (where the app is, its recorded signature, its Speech Recognition probe, ending its
+hearing before an update). Must not listen: hearing only transcribes sound a task captured from an app (L26).
+Push-to-talk is the FERB app's own dictation. Must not speak: FERB replies only in text (VOICE-409)."""
 
 import contextlib
 import os
@@ -11,37 +9,8 @@ from pathlib import Path
 from typing import Any
 
 
-def answer_words(event: dict[str, Any]) -> str:
-    """What a voice turn says for one of its events: a reply's text, a task's plan line as it starts, or its answer as
-    it ends, without code's own lines after them (sites contacted, schedules, apps left open: the app shows them; they
-    aren't read out). A resumed task's plan isn't said again; other events say nothing."""
-    kind = event.get("type")
-    if kind == "reply":
-        return str(event.get("text") or "")
-    if kind == "plan" and not event.get("resumed"):
-        answer = str(event.get("text") or "")
-    elif kind == "outcome":
-        answer = str(event.get("answer") or event.get("summary") or "")
-    else:
-        return ""
-    lines = event.get("lines") or (event.get("card") or {}).get("lines") or []
-    tail = "\n".join(str(line) for line in lines)
-    if tail and answer.endswith(tail):
-        answer = answer[: -len(tail)]
-    return answer.strip()
-
-
 class VoiceGlue:
     """A mixin of the Daemon (ferb/daemon/main.py): its methods use the daemon's state."""
-
-    def _speak_event(self, event: dict[str, Any]) -> None:
-        """A voice turn's event: its words go to the shared speech path (redacted there, spoken in order)."""
-        words = answer_words(event)
-        if words:
-            self.speech.say(words)
-
-    def _speech_failed(self, why: str) -> None:
-        self._journal().append("voice.failed", {"why": self._redact_text(why)})
 
     @property
     def voice_bundle(self) -> Path:

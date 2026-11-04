@@ -133,7 +133,7 @@ struct NotchSettingsPage: View {
                 LabeledContent("Dictation", value: AppGuide.keys("Dictation"))
                 LabeledContent("Submit / new line", value: AppGuide.keys("Submit / new line"))
                 Toggle("Send dictation when I let go of the keys", isOn: $sendOnRelease)
-                Text("A dictated message is answered aloud as well as in the chat.")
+                Text("FERB replies in the chat, in text. It never speaks.")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             WindowSettingsSection(title: "FERB’s pointer") {

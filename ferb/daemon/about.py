@@ -29,7 +29,9 @@ GUIDE_ITEMS, GUIDE_CHARS = 80, 400
 def summary(version: str, models: dict[str, str]) -> str:
     """The always-on lines: no live numbers (prompt cache). `models`: role -> "runtime model"."""
     shown = "; ".join(f"{role} {model}" for role, model in models.items())
-    return (f"- About FERB: version {version}; models: {shown}. FERB's settings (AI models, permissions, browsers, "
+    return (f"- About FERB: version {version}; models: {shown}. The owner types or dictates messages to FERB in "
+            "FERB.app (dictation turns their speech into text); FERB always replies in text in FERB.app and never "
+            "speaks aloud: it has no voice. FERB's settings (AI models, permissions, browsers, "
             "notifications, privacy and how long records are kept) are the owner's to change in FERB.app's Settings; "
             "FERB never changes them and tells the owner where they are. A worker reads FERB's full self-description "
             "(what it records about the owner, where and for how long, its permissions and settings, health, cost and "

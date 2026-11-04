@@ -294,15 +294,6 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
         self._input_monitoring_asked = False                  # asked with the owner's first request
         self.automation_check: Callable[[str], Awaitable[Any]] = (
             lambda bundle: _permissions.automation_async(bundle, ask=False))
-        # VOICE-401-3: a voice turn's replies, spoken by the configured provider through one shared
-        # path that redacts first; a new turn or a stop interrupts it. Tests replace `build_speaker` (nothing speaks).
-        from ferb.voice import speak
-        self.build_speaker: Callable[[], Any] = lambda: speak.build(self.config)
-        self.speech = speak.Speech(lambda: self.build_speaker(), self._redact_text,
-                                   said=lambda words: self._publish("voice.said", {"text": words}),
-                                   failed=self._speech_failed)
-        self.stop_control.register("speech", self.speech.interrupt)
-        self._voiced: set[str] = set()      # request ids whose turn also reads a spoken message merged into it
 
         def _clipboard_request() -> Any:          # one read, so macOS shows its paste alert (I3); nothing kept
             from ferb.sense.watchers.clipboard import request_access
@@ -533,7 +524,6 @@ class Daemon(Compose, Chat, MemoryGlue, MemoryImportGlue, Schedules, Notify, Bro
             await drain(set(self.gateway._background), "gateway background work")
         if self._proxy:
             self._proxy.close()
-        await self.speech.close()
         await self.hearing.shutdown()
         await self.recordings.shutdown()
         if self.identity_browser is not None:

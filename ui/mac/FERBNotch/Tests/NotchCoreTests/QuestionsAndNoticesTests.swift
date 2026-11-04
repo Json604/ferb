@@ -679,10 +679,10 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     private func makeModel(_ rpc: StatusRPC) -> NotchModel { makeModelWithSuite(rpc).0 }
 
-    // MARK: - Voice turns (VOICE-403)
+    // MARK: - Dictated messages (VOICE-409: FERB replies in text only)
 
-    // decision: APP-402
-    func testAHeldDictationSendsOnReleaseWhenChosenAndAsksForASpokenReply() async throws {
+    // decision: VOICE-410
+    func testAHeldDictationSendsOnReleaseWhenChosenAsAPlainTextMessage() async throws {
         let rpc = StatusRPC()
         let suite = Self.scratchSuiteName()
         suites.append(suite)
@@ -697,12 +697,12 @@ final class QuestionsAndNoticesTests: XCTestCase {
         await fulfillment(of: [sent], timeout: 2)
         let params = rpc.calls.first { $0.0 == "chat.send" }?.1
         XCTAssertEqual(params?["text"] as? String, "What's on my calendar today")
-        XCTAssertEqual(params?["speak"] as? Bool, true)
+        XCTAssertNil(params?["speak"])                         // FERB replies in text only (VOICE-409)
         model.disconnectDaemon()
     }
 
-    // decision: APP-402
-    func testWithoutSendOnReleaseDictationStaysInTheDraftAndATypedMessageIsNotSpoken() async throws {
+    // decision: VOICE-410
+    func testWithoutSendOnReleaseDictationStaysInTheDraftAndNoSendAsksForSpeech() async throws {
         let rpc = StatusRPC()
         let suite = Self.scratchSuiteName()
         suites.append(suite)
@@ -715,12 +715,12 @@ final class QuestionsAndNoticesTests: XCTestCase {
         let sent = expectation(description: "Sent")
         sent.expectedFulfillmentCount = 2
         rpc.onCall = { method, _ in if method == "chat.send" { sent.fulfill() } }
-        model.startWork()                                      // still the dictated words: a voice turn
+        model.startWork()                                      // still the dictated words
         model.session.draft = "And a typed one"
         model.startWork()
         await fulfillment(of: [sent], timeout: 2)
         let speaks = rpc.calls.filter { $0.0 == "chat.send" }.map { $0.1["speak"] as? Bool }
-        XCTAssertEqual(speaks, [true, nil])
+        XCTAssertEqual(speaks, [nil, nil])                     // dictated or typed: never a spoken reply
         model.disconnectDaemon()
     }
 
