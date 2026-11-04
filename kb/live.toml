@@ -2571,4 +2571,12 @@ surface = "FERB.app with this build on the owner's Mac; a chat and `ferb trace`"
 request = "In one chat, send two plain messages, then tell FERB a fact about yourself (\"I never want emojis in replies\"), then send another plain message. Read the last two planner turns with `ferb trace TASK --json`."
 pass = "The reply after the fact already follows it. The last planner turn shows the fact under \"Newly always on\" after the conversation, and its cached-input tokens are about as high as the turn before (the instructions didn't change); after a restart the fact is in the core profile in the instructions."
 decisions = ["MEM-428", "MEM-429"]
+
+[LIVE-739]
+title = "Every permission wait in the tour says what FERB is doing, alive, and its row agrees"
+area = "app"
+surface = "A fresh first-run tour on this build (or a replay with a permission switched off), System Settings beside it"
+request = "Set up the quick permissions, then Screen Recording: take your time before turning both FERB switches on, leave System Settings once with it still off, then turn it on; choose Quit & Reopen if macOS asks."
+pass = "From the first read on, every wait shows what is happening now with a spinner and, after a few seconds, the time: asking macOS, opening System Settings at the pane, waiting for you to turn FERB (both FERBs) on, each check with macOS (a count going up), restarting FERB's background part (\"is on\" only once macOS saw it), starting it again, picking up after the reopen, then \"… is on. macOS confirmed it.\" The row says the same step and ticks only when macOS confirms."
+decisions = ["APP-679"]
 sitting = "after this change is installed"

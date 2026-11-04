@@ -80,8 +80,19 @@ enum IntroCopy {
     static let dragBoth = IntroLine(text: "Drag me into this list", detail: "then turn both FERB switches on")
     static let allAllowed = IntroLine(text: "That's everything. Thank you.")
 
+    static let checkingPermissions = IntroLine(text: "Checking your permissions with macOS…")
+    static let resuming = IntroLine(text: "Picking up where we left off…",
+                                    detail: "Waiting for my background part to answer.")
+    static let startingService = IntroLine(
+        text: "Starting my background part again…",
+        detail: "It stopped answering (macOS's Quit & Reopen can end it). Your place is kept.")
+
+    /// The permission beat's line: what FERB is doing for the grant in flight (`wait`), live (APP-665, APP-679), or the
+    /// checklist at rest; `confirmed` names a grant macOS just confirmed; `bannerSince`: Notifications' banner is up.
+    /// A row ticks only when the system reports it on (APP-510), whatever the wait says.
     @MainActor static func permissionOverview(rows: [PermissionRow], selected: String?, requesting: Bool,
-                                   added: Bool, busy: Bool) -> IntroLine {
+                                              added: Bool, busy: Bool, wait: GrantWait? = nil,
+                                              confirmed: String? = nil, bannerSince: Date? = nil) -> IntroLine {
         let pending = SetupModel.allowAllOrder(rows)
         let quick = SetupModel.quickPermissionOrder(rows)
         let choices: [IntroChoice]
@@ -94,9 +105,21 @@ enum IntroCopy {
         } else if let next = pending.first {
             choices = [IntroChoice(IntroCopy.Pick.permissionsNext, "Set up \(PermissionCopy.label(next))")]
         } else { choices = [] }
-        var line = IntroLine(text: "A few permissions, one step at a time.",
-                             detail: "\(rows.filter { $0.status == .granted }.count) of \(rows.count) allowed. Pick any permission, or follow along below.",
-                             choices: choices)
+        let count = "\(rows.filter { $0.status == .granted }.count) of \(rows.count) allowed."
+        let waited = wait.flatMap { wait in rows.first { $0.id == wait.id && $0.status != .granted } }
+        var line: IntroLine
+        if let wait, let waited {
+            line = grantWaitLine(wait, row: waited, added: added)
+            line.choices = choices
+            line.since = wait.shownSince
+        } else if let confirmed, rows.contains(where: { $0.id == confirmed && $0.status == .granted }) {
+            line = IntroLine(text: "\(PermissionCopy.label(confirmed)) is on. macOS confirmed it.",
+                             detail: "\(count) Pick any permission, or follow along below.", choices: choices)
+        } else {
+            line = IntroLine(text: "A few permissions, one step at a time.",
+                             detail: "\(count) Pick any permission, or follow along below.", choices: choices)
+            line.since = bannerSince                                     // macOS's banner is up: alive while it is
+        }
         line.checklist = rows.map { row in
             let active = selected == row.id
             var detail = PermissionCopy.reason(row.id)
@@ -117,6 +140,7 @@ enum IntroCopy {
                     status = row.status == .denied ? "Not allowed yet" : "In System Settings"
                 }
             }
+            if let wait, wait.id == row.id { status = grantWaitStatus(wait, row: row, added: added) }
             if !row.blocked.isEmpty { detail = row.blocked; status = "Needs attention" }
             return IntroChecklistItem(id: row.id, title: PermissionCopy.label(row.id), detail: detail,
                                       complete: row.status == .granted,
@@ -125,6 +149,53 @@ enum IntroCopy {
                                       active: active, status: row.status == .granted ? "Allowed" : status)
         }
         return line
+    }
+
+    /// A permission's wait as it happens (APP-679): the headline says what FERB is doing now; while the owner's switch
+    /// is awaited it stays put and only the second line follows each check, so nothing jumps every poll.
+    @MainActor static func grantWaitLine(_ wait: GrantWait, row: PermissionRow, added: Bool) -> IntroLine {
+        let label = PermissionCopy.label(row.id)
+        switch wait.step {
+        case .asking:
+            return IntroLine(text: "Asking macOS for \(label)…",
+                             detail: "Answer macOS's question: Allow, or Open System Settings.")
+        case .opening:
+            return IntroLine(text: "Opening System Settings at \(label)…")
+        case .waitingForSwitch, .checking:
+            if row.id == "notifications" && row.status == .notDetermined {
+                return IntroLine(text: "Waiting for your answer in macOS's banner…",
+                                 detail: "Choose Allow at the top right of your screen.")
+            }
+            let who = IntroController.bothFERBLists.contains(row.id) ? "both FERB switches" : "FERB"
+            let then = row.restartToCheck ? "If macOS asks, choose Quit & Reopen: I'll pick up right here."
+                : "It ticks once macOS confirms it."
+            let check = wait.step == .checking ? "Checking with macOS…"
+                : wait.checks == 0 ? "" : "Still off in macOS (checked \(wait.checks)×)."
+            return IntroLine(text: (added ? "Added. " : "") + "Waiting for you to turn \(who) on in \(label)…",
+                             detail: check.isEmpty ? then : "\(then) \(check)")
+        case .restarting(let seenOn):
+            return seenOn
+                ? IntroLine(text: "\(label) is on. Restarting FERB's background part so it can use it…",
+                            detail: "A few seconds; then I check with macOS again.")
+                : IntroLine(text: "Restarting FERB's background part to check \(label)…",
+                            detail: "macOS shows this switch to it only after a restart.")
+        case .startingService:
+            return startingService
+        }
+    }
+
+    /// The waited-on row's status: the same step as the line, in a word or two.
+    static func grantWaitStatus(_ wait: GrantWait, row: PermissionRow, added: Bool) -> String {
+        switch wait.step {
+        case .asking: return "Waiting for macOS"
+        case .opening: return "Opening Settings…"
+        case .waitingForSwitch:
+            return row.id == "notifications" && row.status == .notDetermined ? "Answer the banner"
+                : added ? "Added · turn it on" : "Waiting for you"
+        case .checking: return "Checking with macOS…"
+        case .restarting: return "Restarting FERB…"
+        case .startingService: return "Starting FERB…"
+        }
     }
 
     // MARK: 4. Browsers

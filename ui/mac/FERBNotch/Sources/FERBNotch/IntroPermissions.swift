@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import NotchCore
 
@@ -11,19 +12,35 @@ private final class PermissionVisit {
     var queue: [String] = []
     var task: Task<Void, Never>?
     var guided = false
+    /// The grant macOS last confirmed, said until the next one starts.
+    var confirmed: String?
+    /// When macOS's notification banner came up (the line stays alive while it is up).
+    var bannerSince: Date?
 }
 
 extension IntroController {
+    /// Every wait here shows what FERB is doing now, alive, with its time (APP-665, APP-679): the first read, each
+    /// grant's steps as SetupModel.grantWait publishes them (macOS's question, Settings opening, the owner's switch,
+    /// each check, a restart, a silent service started again), and the grant macOS confirmed.
     func permissions() async {
+        let since = Date()
+        say(IntroCopy.checkingPermissions.waiting(since: since))
         await setup.refreshPermissions()
         while live && setup.permissions == nil {
-            say(IntroCopy.gettingReady)
+            say(IntroCopy.gettingReady.waiting(since: since))
             await dwell(Timing.poll)
             await setup.refreshPermissions()
         }
         guard live else { return }
         let visit = PermissionVisit()
+        // Each step of a grant's wait shows the moment it starts, not at the next poll (a check or a restart can be
+        // shorter than one).
+        let steps = setup.$grantWait.dropFirst().removeDuplicates().sink { [weak self] wait in
+            guard let self, self.live else { return }
+            self.say(self.permissionOverview(visit, wait: wait))
+        }
         defer {
+            steps.cancel()
             visit.task?.cancel()
             orb.onDropAccepted = nil
             sideChoices = [:]
@@ -91,6 +108,7 @@ extension IntroController {
         visit.added = false
         visit.requesting = true
         visit.result = nil
+        visit.confirmed = nil
         visit.task = Task { [weak self] in
             guard let self else { return }
             let banner = row.id == "notifications" && row.status == .notDetermined
@@ -104,6 +122,9 @@ extension IntroController {
             }
             visit.requesting = false
             visit.result = granted
+            guard self.live else { return }
+            if granted { visit.confirmed = row.id }                // the system confirmed it (APP-510): said at once
+            self.say(self.permissionOverview(visit))
         }
     }
 
@@ -138,12 +159,14 @@ extension IntroController {
     }
 
     private func permissionOverview(_ visit: PermissionVisit) -> IntroLine {
-        // A switch macOS has on that the background part uses only after a restart: it restarts now (APP-662)
-        if setup.restarting, let id = visit.active {
-            return IntroLine(text: "\(PermissionCopy.label(id)) is on",
-                             detail: "Restarting FERB's background part so it can use it. One moment.")
-        }
+        permissionOverview(visit, wait: setup.grantWait)
+    }
+
+    /// The beat's line with `wait` as the grant's current step (the publisher hands the new value before it is set).
+    private func permissionOverview(_ visit: PermissionVisit, wait: GrantWait?) -> IntroLine {
+        if setup.notificationHint { visit.bannerSince = visit.bannerSince ?? Date() } else { visit.bannerSince = nil }
         return IntroCopy.permissionOverview(rows: setup.setupRows, selected: visit.active, requesting: visit.requesting,
-                                     added: visit.added, busy: visit.task != nil)
+                                            added: visit.added, busy: visit.task != nil, wait: wait,
+                                            confirmed: visit.confirmed, bannerSince: visit.bannerSince)
     }
 }
