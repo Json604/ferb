@@ -66,7 +66,10 @@ final class SparkleUpdater: NSObject, UpdaterDriving, SPUUpdaterDelegate, SPUSta
     }
 
     nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
-        let message = error.localizedDescription
+        let failure = error as NSError
+        // "No update found" arrives here too (updaterDidNotFindUpdate records it), as does the owner's own cancel.
+        guard UpdatePlan.abortIsFailure(domain: failure.domain, code: failure.code) else { return }
+        let message = failure.localizedDescription
         MainActor.assumeIsolated { coordinator?.aborted(message) }
     }
 

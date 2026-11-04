@@ -25,6 +25,10 @@ struct UpdatesSection: View {
     var body: some View {
         Toggle("Install updates automatically", isOn: $updates.automatic)
         if let line = updates.status.line { Text(line).textSelection(.enabled) }
+        if let last = updates.lastResult {
+            Text("Last update check, \(last.at.formatted(date: .abbreviated, time: .shortened)): \(last.text)")
+                .font(.caption).foregroundStyle(last.failed ? .red : .secondary).textSelection(.enabled)
+        }
         if case .available = updates.status {
             Button("Install") { updates.checkNow() }
         } else {

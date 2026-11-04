@@ -176,12 +176,14 @@ final class SetupModel: ObservableObject {
     /// The step a Grant left when macOS may restart FERB (Screen Recording's "Quit & Reopen"): reopened at the next launch,
     /// cleared on leaving that step (owner 2026-10-26: setup didn't come back after the restart).
     static let resumeKey = "FERBSetupResumeStep"
+    /// Where the resume step is kept: FERB.app's defaults (AppSetupController passes its own).
+    var resumeDefaults: UserDefaults = .standard
     static func pendingResume(_ defaults: UserDefaults) -> SetupStep? {
         (defaults.object(forKey: resumeKey) as? Int).flatMap(SetupStep.init(rawValue:))
     }
 
     func go(_ next: SetupStep) {
-        if next != .permissions { UserDefaults.standard.removeObject(forKey: Self.resumeKey) }
+        if next != .permissions { resumeDefaults.removeObject(forKey: Self.resumeKey) }
         step = next
         message = nil
         Task { await self.enter(next) }
@@ -341,6 +343,7 @@ final class SetupModel: ObservableObject {
     func cancelSignIn() { runner.cancel() }
 
     func useClaude() async { await use("claude", check: true) }
+    func useChatGPT() async { await use("codex", check: true) }
 
     var claudeSignIn: SignInStatus? { ai?.signIn("claude") }
 
@@ -425,6 +428,11 @@ final class SetupModel: ObservableObject {
                           pane: permissions?.appPanes["notifications"], requestable: notifications == .notDetermined),
             PermissionRow(id: "microphone", status: microphone, process: "app", required: true,
                           pane: permissions?.appPanes[app.microphoneDeniedPane], requestable: microphone == .notDetermined)]
+        // A finished setup with every grant on has nothing to reopen: a Grant from Settings → Permissions that
+        // succeeded doesn't bring the setup window back at later launches (APP-657).
+        if answered, permissions?.setupDone == true, Self.allowAllOrder(setupRows).isEmpty {
+            resumeDefaults.removeObject(forKey: Self.resumeKey)
+        }
         return answered
     }
 
@@ -432,7 +440,7 @@ final class SetupModel: ObservableObject {
     /// for its own), then that pane; Full Disk Access also shows the agent app in Finder to drag into the list.
     func grant(_ row: PermissionRow) async {
         guard row.blocked.isEmpty else { return }
-        UserDefaults.standard.set(SetupStep.permissions.rawValue, forKey: Self.resumeKey)
+        resumeDefaults.set(SetupStep.permissions.rawValue, forKey: Self.resumeKey)
         switch row.id {
         case "notifications":
             if row.status == .notDetermined {

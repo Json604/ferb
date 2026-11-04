@@ -98,18 +98,20 @@ public enum AppSetupPlan {
         }
     }
 
-    /// After a quiet update: as at launch, except that on a finished setup a required grant missing brings back
-    /// Allow all and home, and nothing else (the old window reopened on Permissions there).
+    /// After a quiet update: as at launch, except that a first run plays the whole tour.
     public static func afterUpdate(_ needs: IntroNeeds, tour: [IntroBeat]? = nil,
                                    resume: SetupStep? = nil) -> SetupLaunch {
         if let tour, !tour.isEmpty { return .intro(tour) }
         if needs.firstRun { return .intro(IntroBeat.allCases) }
-        if needs.setupDone && !needs.missingPermissions.isEmpty { return .intro([.permissions, .home]) }
         return settled(needs, tour: nil, resume: resume)
     }
 
+    /// On a finished setup a required grant missing now (switched off since, by the owner or a macOS update) brings
+    /// back Allow all and home, and nothing else, at every launch as after an update (APP-657; the old window
+    /// reopened on Permissions there).
     private static func settled(_ needs: IntroNeeds, tour: [IntroBeat]?, resume: SetupStep?) -> SetupLaunch {
         if let tour, !tour.isEmpty { return .intro(tour) }
+        if needs.setupDone && !needs.firstRun && !needs.missingPermissions.isEmpty { return .intro([.permissions, .home]) }
         if let resume { return .window(resume) }
         let beats = IntroPlan.beats(needs, replay: false)
         return beats.isEmpty ? .nothing : .intro(beats)

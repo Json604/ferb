@@ -131,12 +131,13 @@ final class AppSetupTests: XCTestCase {
     }
 
     /// An existing install that has finished setup sees nothing new (Settings offers Replay intro), as before the
-    /// intro, even with a grant turned off since; a replaced build still updates quietly first.
-    // decision: APP-635
+    /// intro; a grant turned off since gets its beats plus Home (APP-657); a replaced build still updates quietly first.
+    // decision: APP-635, APP-657
     func testFinishedSetupLaunchesNothing() {
         XCTAssertFalse(AppSetupPlan.firstRun(.none, setupDone: true, introDone: false, resuming: false))
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true)), .nothing)
-        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true, missing: ["accessibility"])), .nothing)
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true, missing: ["accessibility"])),
+                       .intro([.permissions, .home]))
         XCTAssertEqual(AppSetupPlan.atLaunch(.update, needs: needs(done: true)), .quietUpdate)
         XCTAssertEqual(AppSetupPlan.afterUpdate(needs(done: true)), .nothing)
         XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: false)), .nothing)     // the tour seen, all set
@@ -280,5 +281,32 @@ final class AppSetupTests: XCTestCase {
         rig.app.microphoneStatus = .notDetermined                   // every permission is required, FERB.app's too
         await controller.model.refreshPermissions()
         XCTAssertEqual(controller.snapshotNeeds(setupDone: true, firstRun: false).missingPermissions, ["microphone"])
+    }
+
+    /// U3/D4: with setup recorded done, a grant switched off since brings back Allow all and home at the next launch
+    /// (a first run still gets the whole tour). U2: a Grant from Settings that succeeded leaves no setup window to
+    /// reopen; one in an unfinished setup still resumes (APP-595).
+    @MainActor
+    // decision: APP-657
+    func testALaunchNoticesAGrantSwitchedOffAndForgetsAGrantThatSucceeded() async {
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true, missing: ["accessibility"])),
+                       .intro([.permissions, .home]))
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true, missing: ["accessibility"]),
+                                             resume: .permissions), .intro([.permissions, .home]))
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, needs: needs(done: true, missing: ["accessibility"], firstRun: true)),
+                       .intro(IntroBeat.allCases))
+        let rig = SetupRig()
+        rig.app.notificationStatus = .granted
+        rig.app.microphoneStatus = .granted
+        let defaults = scratchDefaults("AppSetupTests")
+        let controller = AppSetupController(model: rig.model(), defaults: defaults)
+        defaults.set(SetupStep.permissions.rawValue, forKey: SetupModel.resumeKey)      // a Grant was pressed
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
+        await controller.model.refreshPermissions()
+        XCTAssertEqual(SetupModel.pendingResume(defaults), .permissions)                 // setup not done: it resumes
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted",
+                                                                        setupDone: true)
+        await controller.model.refreshPermissions()
+        XCTAssertNil(SetupModel.pendingResume(defaults))
     }
 }

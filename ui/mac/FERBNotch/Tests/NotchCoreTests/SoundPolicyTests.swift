@@ -19,10 +19,10 @@ final class SoundPolicyTests: XCTestCase {
         XCTAssertEqual(SoundPolicy.distanceGainDB(fromNotch: 450, screenHeight: 900), -1.5, accuracy: 1e-6)
     }
 
-    // decision: APP-641
+    // decision: APP-653
     func testNothingPlaysWhenSystemUISoundsAreOff() {
         func decide(ui: Bool, feedback: Bool) -> SoundDecision? {
-            SoundPolicy.decide(.done, uiSoundsEnabled: ui, feedbackEnabled: feedback, switchOn: true, subtle: false,
+            SoundPolicy.decide(.error, uiSoundsEnabled: ui, feedbackEnabled: feedback, switchOn: true, subtle: false,
                                onACall: { false })
         }
         XCTAssertNil(decide(ui: false, feedback: true))
@@ -36,9 +36,18 @@ final class SoundPolicyTests: XCTestCase {
     func testTheFirstLaunchMusicPlaysWithInterfaceSoundsOff() {
         XCTAssertNotNil(SoundPolicy.decide(.firstLaunch, uiSoundsEnabled: false, feedbackEnabled: true, switchOn: true,
                                            subtle: false, onACall: { false }))
-        XCTAssertNil(SoundPolicy.decide(.done, uiSoundsEnabled: false, feedbackEnabled: true, switchOn: true,
+        XCTAssertNil(SoundPolicy.decide(.error, uiSoundsEnabled: false, feedbackEnabled: true, switchOn: true,
                                         subtle: false, onACall: { false }))
         XCTAssertNil(SoundPolicy.decide(.firstLaunch, uiSoundsEnabled: false, feedbackEnabled: false, switchOn: true,
                                         subtle: false, onACall: { false }))
+    }
+
+    /// APP-651 (owner, 2026-11-04): a finished task or answer plays no sound; the rest of the outcomes keep theirs.
+    // decision: APP-651
+    func testAFinishedTaskPlaysNoSound() {
+        XCTAssertNil(SoundPolicy.outcomeSound("done"))
+        XCTAssertNil(SoundPolicy.outcomeSound("done_unverified"))
+        XCTAssertEqual(SoundPolicy.outcomeSound("needs_user"), .needsYou)
+        XCTAssertEqual(SoundPolicy.outcomeSound("failed"), .error)
     }
 }

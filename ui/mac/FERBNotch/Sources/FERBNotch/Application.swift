@@ -22,7 +22,7 @@ struct FERBNotchApp {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var coordinator: PanelCoordinator?
     private let appSetup = AppSetupController()
     private var ferbWindow: FERBWindowController?
@@ -45,7 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit \(AppName.current)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        // Command-Q closes the FERB window when it's in front (APP-654); Quit in the menu-bar menu always quits.
+        let quit = NSMenuItem(title: "Quit \(AppName.current)", action: #selector(quitKey(_:)), keyEquivalent: "q")
+        quit.target = self
+        appMenu.addItem(quit)
         appMenuItem.submenu = appMenu
         menu.addItem(appMenuItem)
         let editItem = NSMenuItem()
@@ -57,6 +60,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         editItem.submenu = edit
         menu.addItem(editItem)
+        // Command-W and Command-M act on the window in front (FERB's window, the setup window), as in any Mac app.
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowItem.submenu = windowMenu
+        menu.addItem(windowItem)
         NSApp.mainMenu = menu
         coordinator = PanelCoordinator()
         coordinator?.poster = poster
@@ -85,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 loginItems.applyDefaultAfterSetup()
                 coordinator?.model.noteUpdate()               // "Updated to <version>", once per new build
             }
-            let updates = UpdateCoordinator(rpc: coordinator.model.rpc)
+            let updates = UpdateCoordinator(rpc: coordinator.model.rpc, defaults: .standard)
             if appSetup.isPackaged, let sparkle = SparkleUpdater(coordinator: updates) {
                 updates.attach(sparkle)
                 sparkle.start()
@@ -119,6 +129,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appSetup.introControls = coordinator?.introControls
         coordinator?.start()
         appSetup.startAtLaunch()                 // packaged FERB.app only: the intro or a quiet update
+    }
+
+    @objc func quitKey(_ sender: Any?) {
+        if ferbWindow?.closeOnQuitKey(keyWindow: NSApp.keyWindow) == true { return }
+        NSApp.terminate(sender)
+    }
+
+    /// The app menu says what Command-Q does now.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(quitKey(_:)) {
+            let closes = ferbWindow?.window.map { $0 === NSApp.keyWindow && $0.isVisible } ?? false
+            menuItem.title = closes ? "Close \(AppName.current) Window" : "Quit \(AppName.current)"
+        }
+        return true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

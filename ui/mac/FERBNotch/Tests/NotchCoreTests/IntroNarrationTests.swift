@@ -118,8 +118,8 @@ final class IntroNarrationTests: XCTestCase {
         // Signature sounds never vary; the everyday ones pick among their variants.
         XCTAssertEqual(FerbSoundFiles.files(for: .intro, subtle: false).count, 1)
         XCTAssertEqual(FerbSoundFiles.files(for: .firstLaunch, subtle: true).count, 1)
-        XCTAssertEqual(FerbSoundFiles.files(for: .done, subtle: false).count, 3)
-        XCTAssertTrue(FerbSoundFiles.files(for: .done, subtle: true).allSatisfy { $0.lastPathComponent.contains("subtle") })
+        XCTAssertEqual(FerbSoundFiles.files(for: .summon, subtle: false).count, 3)
+        XCTAssertTrue(FerbSoundFiles.files(for: .summon, subtle: true).allSatisfy { $0.lastPathComponent.contains("subtle") })
     }
 }
 

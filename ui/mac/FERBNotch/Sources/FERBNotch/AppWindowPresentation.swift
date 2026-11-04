@@ -3,14 +3,24 @@ import Darwin
 
 /// A requested app window must appear where the owner is working, including over a full-screen app.
 /// AppKit can mark a regular window visible without assigning it a Space in that case (macOS 26).
+///
+/// The window is on the owner's Space before FERB activates (APP-650). Activating first let macOS switch to a Space
+/// that still held the window (owner, 2026-11-04: Settings switched the screen to the home Space) while the window was
+/// then moved to the Space the owner had been on, because the move read the active Space before the switch landed.
 @MainActor
 enum AppWindowPresentation {
     static func show(_ window: NSWindow) {
+        // Ordering it in or making it key brings the window to the owner's Space instead of switching Spaces.
+        window.collectionBehavior.insert(.moveToActiveSpace)
+        // While FERB is the active app, pointer moves go to FERB itself, which the notch's global monitor never sees:
+        // its local monitor sees them only through a key window that accepts them, so the notch still opens on hover
+        // with this window in front (APP-656).
+        window.acceptsMouseMovedEvents = true
         if window.isMiniaturized { window.deminiaturize(nil) }
+        window.orderFrontRegardless()
+        if !window.isOnActiveSpace, !window.styleMask.contains(.fullScreen) { moveToActiveSpace(window) }
+        // With one of its windows on this Space, activating FERB has no other Space to switch to.
         NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-        guard !window.isOnActiveSpace, !window.styleMask.contains(.fullScreen) else { return }
-        moveToActiveSpace(window)
         window.makeKeyAndOrderFront(nil)
     }
 

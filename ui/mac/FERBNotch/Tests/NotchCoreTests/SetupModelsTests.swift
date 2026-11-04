@@ -22,4 +22,17 @@ final class SetupModelsTests: XCTestCase {
             XCTAssertNil(APIKeyEntry.command(provider: .anthropic, key: bad), bad)
         }
     }
+
+    /// The tick is on the service FERB uses (the daemon's roles), not on every one signed in (owner, 2026-11-04:
+    /// ChatGPT was ticked while FERB ran on the Anthropic API key).
+    // decision: APP-655
+    func testTheServiceInUseIsTheOneTheRolesRunOn() throws {
+        let ai = try XCTUnwrap(AISnapshot(reply: [
+            "roles": ["orchestrator": "anthropic", "worker": "anthropic", "checker": "anthropic"],
+            "runtimes": [["name": "codex", "usable": true], ["name": "anthropic", "usable": true]]]))
+        XCTAssertTrue(ai.usable("codex"))
+        XCTAssertFalse(ai.inUse("codex"))
+        XCTAssertTrue(ai.inUse("anthropic"))
+        XCTAssertEqual(ai.apiKeyInUse, .anthropic)
+    }
 }

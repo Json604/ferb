@@ -72,10 +72,14 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     /// The first-launch entrance a first run's tour draws over the clip (APP-618); the playground picks its own.
     var makeArrival: () -> IntroArrivalShowing? = { StartupArrival() }
 
-    lazy var model = injectedModel ?? SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
-                                                 app: SystemAppPermissions(), system: SystemOpener(),
-                                                 keys: KeychainAPIKeyStore(), service: DaemonService(),
-                                                 background: isPackaged ? background : nil)
+    lazy var model: SetupModel = {
+        let model = injectedModel ?? SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
+                                                app: SystemAppPermissions(), system: SystemOpener(),
+                                                keys: KeychainAPIKeyStore(), service: DaemonService(),
+                                                background: isPackaged ? background : nil)
+        model.resumeDefaults = defaults
+        return model
+    }()
 
     var isPackaged: Bool {
         FileManager.default.isExecutableFile(atPath: launcher.path) && FileManager.default.fileExists(atPath: python.path)
@@ -192,16 +196,16 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     }
 
     /// What this install still needs, read from the daemon and the system: only what the decision depends on. A
-    /// quit tour or a first run needs nothing more; a finished setup needs nothing more at launch and only its grants
-    /// after an update. The launch's reads leave no "isn't answering" line behind on the shared model (the daemon
-    /// may only be slow to start; the setup window's own polling says so if it lasts).
+    /// quit tour or a first run needs nothing more; a finished setup needs only its grants, read at every launch so a
+    /// grant switched off since is noticed (APP-657). The launch's reads leave no "isn't answering" line behind on the
+    /// shared model (the daemon may only be slow to start; the setup window's own polling says so if it lasts).
     private func readNeeds(_ action: AppSetupAction) async -> IntroNeeds {
         let done = await model.setupDone()
         let progress = self.progress
         let firstRun = AppSetupPlan.firstRun(action, setupDone: done, introDone: progress.done,
                                              resuming: progress.resumeBeat != nil, tourSeen: progress.tourSeen)
         if progress.interrupted == nil && !firstRun {
-            if !done || action == .update { await model.refreshPermissions() }
+            await model.refreshPermissions()
             if !done {
                 await model.refreshAI()
                 await model.refreshBrowsers()
@@ -340,8 +344,8 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         }
         model.go(step)
         model.startPolling()
-        NSApp.activate(ignoringOtherApps: true)          // the owner opened FERB or chose Set Up FERB…
-        window?.makeKeyAndOrderFront(nil)
+        // The owner opened FERB or chose Set Up FERB…: on their Space, never switching Spaces (APP-650)
+        if let window { AppWindowPresentation.show(window) }
     }
 
     /// The compact setup window, when it exists (tests).

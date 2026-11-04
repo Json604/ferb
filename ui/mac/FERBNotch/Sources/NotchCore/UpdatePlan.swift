@@ -31,9 +31,39 @@ public enum UpdatePlan {
         "FERB \(version) installs when this finishes: " + work.joined(separator: "; ")
     }
 
+    /// Whether Sparkle's abort is a failure the owner should see: not "no update found" (SUNoUpdateError, reported as
+    /// an abort too) nor an install the owner cancelled (SUInstallationCancelledError).
+    public static func abortIsFailure(domain: String, code: Int) -> Bool {
+        !(domain == "SUSparkleErrorDomain" && (code == 1001 || code == 4007))
+    }
+
     /// The line the notch shows once after a launch on a new build; nil on a first launch or the same build.
     public static func updatedNote(previousBuild: String?, build: String, version: String) -> String? {
         guard let previousBuild, !previousBuild.isEmpty, previousBuild != build else { return nil }
         return "Updated to \(version)"
     }
+}
+
+/// The last update check, download or install Sparkle finished, kept in FERB.app's defaults (`FERBUpdateLastResult`)
+/// until the next one, so a failure is seen in Settings → General → Updates instead of leaving no trace (APP-658).
+public struct UpdateResult: Equatable {
+    public static let key = "FERBUpdateLastResult"
+    public let at: Date
+    public let failed: Bool
+    public let text: String
+
+    public init(at: Date, failed: Bool, text: String) {
+        self.at = at
+        self.failed = failed
+        self.text = text
+    }
+
+    public init?(_ value: Any?) {
+        guard let row = value as? [String: Any], let at = row["at"] as? Date, let text = row["text"] as? String else {
+            return nil
+        }
+        self.init(at: at, failed: row["failed"] as? Bool ?? false, text: text)
+    }
+
+    public var stored: [String: Any] { ["at": at, "failed": failed, "text": text] }
 }

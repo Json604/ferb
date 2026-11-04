@@ -458,7 +458,8 @@ legacy = "notes/sound.md owner decisions; notes/setup-intro.md Sound (Ownership)
 title = "The family replaces the system sounds; per-sound switches and defaults"
 by = "owner"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-651"
 supersedes = ["APP-565"]
 words_source = "notes/setup-intro.md Sound (Scope, defaults) and notes/sound.md owner decisions: paraphrase; no verbatim quote"
 rule = "The tour and every everyday event play FERB's family through one engine, replacing the macOS system sounds. Every sound has its own switch: on by default for needs you, error, done, notification, listening start and end, and the tour; off for summon and paused. Standard is the default intensity, Subtle the choice in Settings. The master volume stays at 0.18; the existing master switch and volume carry over on upgrade."
@@ -504,7 +505,8 @@ legacy = "notes/sound.md rounds 4, 6/7, 8"
 title = "Bright Crystal for good news, finger-damped Crystal for paused and error"
 by = "owner"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "APP-652"
 words = "all sound like a family of completion. they shouldn't, they should sound dull"
 rule = "Bright Crystal glass plays the sound logo (Open fifth, tour only), summon, listening start and end, and done. Paused (one damped tap) and error (a sinking \"uh-oh\" onto a hollow B minor) use the same glass finger-damped: duller, an octave lower, no strike, so they never sound like completion."
 why = "The owner's words were said of round 3's paused, error and needs you."
@@ -1543,7 +1545,8 @@ paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IndicatorPlacement.swift", "ui/mac/
 title = "The everyday sounds ring as long as the Apple Pay sound"
 by = "owner"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "APP-653"
 supersedes = ["APP-520"]
 words = "of all the feedback suinds we have i wanna increase their timign - if im saying it correctly. i want it of the length like the apple pay sound"
 rule = "FERB's everyday feedback sounds (summon, listening start and end, done, needs you, paused, error) ring about as long as macOS's Apple Pay success sound (1.41 s). As in APP-520: one original, recognisable family sharing one character, each sound meaning one thing and recognisable without looking; a sound logo (full, tour only) seeds the derived cues, quieter the more often they play; needs you is the loudest everyday cue. Every sound has a visual twin. FERB honours \"Play user interface sound effects\" and the alert volume, and never plays music under the tour."
@@ -1601,3 +1604,100 @@ words = "btu the onlt 2 step issue ive necountered wiht si of full disk access, 
 rule = "In the tour, the logo dragged into System Settings' Full Disk Access list carries both FERB.app and its agent app (the daemon's grant target), and its lines say to turn both FERB switches on. Every other privacy list keeps dragging the agent app alone. FERB keeps two apps (FERB.app and the agent); FERB's check still reads the agent's grant."
 why = "Full Disk Access listed two \"FERB\" rows and the owner switched on the wrong one; the merge into one identity was dropped after testing (owner: \"lets jsut ahve the two apps as it is\")."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/OrbParts.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift"]
+
+[APP-650]
+title = "FERB's windows open on the owner's Space without switching Spaces"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "FERB's own windows (Settings and the rest of the FERB window, the setup window) join the Space the owner is on (moveToActiveSpace) and are put there before FERB activates, so activating never switches Spaces; the APP-630 move onto a full-screen Space stays."
+why = "Owner, 2026-11-04: opening Settings switched the screen to the home Space while the window opened on the Space the owner was on. FERB activated first, so macOS switched to a Space holding the window, and the move read the active Space before the switch landed. Rule 10."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift"]
+live = ["LIVE-710"]
+
+[APP-651]
+title = "No completion sound; the other sounds and their switches stay"
+by = "owner"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-526"]
+words = "completely remove the task/message completion sound -rest leave as it is"
+rule = "A finished task or answer plays no sound; its switch is gone and an older build's stored setting is ignored. A finished task FERB didn't start still plays the notification sound; the tour's success cue (APP-615) stays a tour sound. As APP-526 otherwise: one engine plays FERB's family for the tour and everyday events, replacing system sounds; per-sound switches, on by default for needs you, error, notification, listening start and end, the tour; off for summon, paused. Standard, Subtle in Settings; volume 0.18; master switch and volume kept on upgrade."
+why = "The owner's decision of 2026-11-04 removes only the completion sound. The tour's success cue after permissions (APP-615, owner) plays the same render, so that render and its files stay for the tour, under the tour's switch."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SoundFeedback.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundFiles.swift"]
+live = ["LIVE-714", "LIVE-501"]
+
+[APP-652]
+title = "Bright Crystal for the cues, finger-damped Crystal for paused and error"
+by = "owner"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-530"]
+words = "completely remove the task/message completion sound -rest leave as it is"
+rule = "Bright Crystal glass plays the sound logo (Open fifth, tour only), summon, listening start and end, and the tour's success cue after permissions (APP-615, the former done render); no task or message completion sound plays. Paused (one damped tap) and error (a sinking \"uh-oh\" onto a hollow B minor) use the same glass finger-damped: duller, an octave lower, no strike, so they never sound like completion."
+why = "Restates APP-530 (owner, 2026-11-01: \"all sound like a family of completion. they shouldn't, they should sound dull\") without the completion sound the owner removed on 2026-11-04."
+rejected = ["The Tactile, Signal and Bloom directions (round 3)", "Bright paused and error cues (round 3)"]
+paths = ["demo/sound-family/render.py"]
+live = ["LIVE-501"]
+
+[APP-653]
+title = "The everyday sounds ring as long as the Apple Pay sound"
+by = "owner"
+date = 2026-11-04
+status = "active"
+supersedes = ["APP-641"]
+words = "completely remove the task/message completion sound -rest leave as it is"
+rule = "FERB's everyday feedback sounds (summon, listening start and end, needs you, paused, error) and the tour's success cue ring about as long as macOS's Apple Pay success sound (1.41 s); no completion sound plays. As in APP-520: one original family sharing one character, each sound meaning one thing; a sound logo (tour only) seeds the cues, quieter the more often they play; needs you is the loudest. Every sound has a visual twin. FERB honours \"Play user interface sound effects\" and the alert volume, and never plays music under the tour."
+why = "Restates APP-641 (owner, 2026-11-02, the Apple Pay length) without the completion sound the owner removed on 2026-11-04; render.py's lengths are unchanged."
+paths = ["demo/sound-family/render.py", "ui/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds", "ui/mac/FERBNotch/Sources/NotchCore/SoundPolicy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AudioOutputFacts.swift"]
+live = ["LIVE-705", "LIVE-501", "LIVE-544", "LIVE-548"]
+
+[APP-654]
+title = "Command-W closes FERB's window; Command-Q there closes it and FERB keeps running"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "FERB.app's menu has Window → Close (Command-W) and Minimize (Command-M) for the window in front. Command-Q while the FERB window (Settings, Tasks, Memory…) is in front closes that window and FERB keeps running; the app menu then reads Close FERB Window. With the setup window or nothing in front, Command-Q quits as before. Quit FERB in the menu-bar menu always quits."
+why = "Owner, 2026-11-04: Command-W didn't close Settings, and \"cmd+q works but it quits it from the notch too\". The setup window keeps quitting: no complaint about it, and quitting is a way out of a first run."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Application.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift"]
+live = ["LIVE-710"]
+
+[APP-655]
+title = "Settings → AI ticks the service FERB uses, from the daemon's roles"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Settings → AI and the setup's AI step tick the service FERB's roles run on now (runtimes.status roles: ChatGPT, Claude, or the API key under Other ways to connect, which names it), never one that is merely signed in; a signed-in service not in use offers Use. The page re-reads after any change it makes and when FERB comes back to the front."
+why = "Owner, 2026-11-04: ChatGPT was ticked while FERB ran on the Anthropic API key (roles all anthropic); the tick read Codex's sign-in, not the roles."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift"]
+live = ["LIVE-711"]
+
+[APP-656]
+title = "The notch still opens on hover while a FERB window is in front"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "A FERB window in front accepts pointer moves, so the notch's own monitor sees them while FERB is the active app (its global monitor sees only moves sent to other apps) and hover opens the notch as usual."
+why = "Owner, 2026-11-04: with Settings open the notch pill didn't appear. Inferred cause, not reproduced: with FERB active the global mouse monitor gets nothing and the local one gets moves only through a key window that accepts them; the Space switch fixed by APP-650 happened in the same steps."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-710"]
+
+[APP-657]
+title = "Every launch re-reads the grants; a finished setup missing one gets Allow all and Home"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Every launch that isn't a first run or a resumed tour reads the permission rows. With setup recorded done, a required grant now off (as in Allow all) brings back the permissions beat and Home, as after an update (APP-509). With setup done and every grant on, a Grant's saved setup step (APP-595) is cleared, so a Grant from Settings → Permissions doesn't reopen the setup window at later launches."
+why = "Audit U2, U3 and D4 (owner approved the fixes 2026-11-04): a grant switched off after setup was never noticed until an update, and a Grant in Settings reopened the compact setup window at every launch. APP-508: every permission is required."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift"]
+live = ["LIVE-712"]
+
+[APP-658]
+title = "Every update check, download and install leaves its result in Settings"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "FERB.app keeps the last update result (FERBUpdateLastResult in its own defaults, and the system log): found, up to date, downloaded and verified, or failed with Sparkle's reason, a scheduled background check's included; Settings → General → Updates shows it until the next result. No update found and the owner's own cancel aren't failures."
+why = "Audit U5 (owner approved the fixes 2026-11-04): with automatic updates on, a failed check, download or signature left no trace and the owner kept an old build unknowingly."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/UpdateCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SparkleUpdater.swift", "ui/mac/FERBNotch/Sources/FERBNotch/UpdateNotes.swift", "ui/mac/FERBNotch/Sources/NotchCore/UpdatePlan.swift"]
+live = ["LIVE-713"]

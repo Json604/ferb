@@ -179,7 +179,6 @@ extension SoundSwitch {
         switch self {
         case .needsYou: return "Needs you"
         case .error: return "Something went wrong"
-        case .done: return "Done"
         case .notification: return "Notification"
         case .listeningStart: return "Listening"
         case .listeningEnd: return "Done listening"
@@ -193,7 +192,6 @@ extension SoundSwitch {
         switch self {
         case .needsYou: return "A question or approval is waiting for you"
         case .error: return "A task couldn't finish"
-        case .done: return "A task or answer is ready"
         case .notification: return "Reminders, scheduled tasks and notices"
         case .listeningStart: return "Dictation starts"
         case .listeningEnd: return "Dictation stops"
