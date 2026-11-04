@@ -2545,3 +2545,12 @@ request = "After Pair all, click Add to Google Chrome on the removed profile (to
 pass = "The store page opens in that exact profile; the notch shows \"Waiting for FERB to be added in Google Chrome “…”…\" with the time and Stop waiting; once FERB is on there it offers Pair and pairs only when you press it. The waiting-for-restart profile says it adds FERB at the next start and offers the store page as the faster way. No browser restarted or quit by itself."
 decisions = ["HAND-413"]
 sitting = "after this change is installed"
+
+[LIVE-739]
+title = "Every permission wait in the tour says what FERB is doing, alive, and its row agrees"
+area = "app"
+surface = "A fresh first-run tour on this build (or a replay with a permission switched off), System Settings beside it"
+request = "Set up the quick permissions, then Screen Recording: take your time before turning both FERB switches on, leave System Settings once with it still off, then turn it on; choose Quit & Reopen if macOS asks."
+pass = "From the first read on, every wait shows what is happening now with a spinner and, after a few seconds, the time: asking macOS, opening System Settings at the pane, waiting for you to turn FERB (both FERBs) on, each check with macOS (a count going up), restarting FERB's background part (\"is on\" only once macOS saw it), starting it again, picking up after the reopen, then \"… is on. macOS confirmed it.\" The row says the same step and ticks only when macOS confirms."
+decisions = ["APP-679"]
+sitting = "after this change is installed"

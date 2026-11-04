@@ -59,6 +59,58 @@ public struct PermissionRow: Equatable, Identifiable {
     }
 }
 
+/// What one grant's wait (SetupModel.grantAndConfirm) is doing right now, so the tour's line and the permission's row
+/// say it while it happens (APP-665 in the permission beat, APP-679).
+public struct GrantWait: Equatable, Sendable {
+    public enum Step: Equatable, Sendable {
+        /// macOS's own question for this permission is up (a request-style permission).
+        case asking
+        /// System Settings is opening at the permission's pane.
+        case opening
+        /// Waiting for the owner to turn FERB on (both FERBs where both were dragged, APP-659).
+        case waitingForSwitch
+        /// A read of the row from macOS is under way (APP-510; a fresh process's reading, APP-662).
+        case checking
+        /// FERB's background part restarts so the switch reaches it: `seenOn` when a fresh reading saw the switch on
+        /// (APP-662), false for the restart on leaving System Settings that checks it (APP-598).
+        case restarting(seenOn: Bool)
+        /// FERB's background part stopped answering (macOS's Quit & Reopen can end it) and is being started (APP-598).
+        case startingService
+    }
+
+    public let id: String
+    public private(set) var step: Step
+    /// When the wait began.
+    public let since: Date
+    /// When the current step began.
+    public private(set) var stepSince: Date
+    /// Reads of the row from macOS so far.
+    public private(set) var checks = 0
+
+    public init(id: String, step: Step, at now: Date) {
+        self.id = id
+        self.step = step
+        self.since = now
+        self.stepSince = now
+    }
+
+    public mutating func move(to next: Step, at now: Date) {
+        guard next != step else { return }
+        step = next
+        stepSince = now
+        if next == .checking { checks += 1 }
+    }
+
+    /// The start of what the line shows as waited: the owner's part (the switch and each check of it) counts from the
+    /// wait's start, so the time never resets every poll; FERB's own steps (asking, opening, a restart) from their own.
+    public var shownSince: Date {
+        switch step {
+        case .waitingForSwitch, .checking: return since
+        default: return stepSince
+        }
+    }
+}
+
 public struct AutomationApp: Equatable, Identifiable {
     public var id: String { bundleID }
     public let name: String

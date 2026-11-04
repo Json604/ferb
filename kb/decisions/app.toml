@@ -1824,3 +1824,14 @@ words = "who added this??? remove this ctrloptionspace"
 rule = "FERB has no Control-Option-Space hot key: not registered, no Control step, not in the app guide, Settings, Home's line or the playground. The rest of APP-505 holds: 1 Meet (hello in one or two lines; the sound logo once); 2 Sign in; 3 Allow all, guided; 4 Pair all browsers; 5 FERB's own email, optional; 6 Try (APP-666); 7 Control, taught by doing (double-tap right Option, hold to talk, stopping a task, pausing FERB), each once; 8 Back to the notch with one line on how to bring FERB back. Replay intro is in Settings."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroControls.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppScreens.swift", "ui/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift"]
 live = ["LIVE-729"]
+
+[APP-679]
+title = "The permission beat shows each step of a grant's wait live, and each row says the same"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The permission beat uses APP-665's live line (IntroLine.since): the first read, then each step of a grant's wait as SetupModel.grantWait publishes it, shown when it changes: macOS's question, Settings opening at the pane, waiting for the owner's switch (both FERBs per APP-659; Quit & Reopen named where it applies), each check with macOS (APP-510/662) with a count, a restart (\"is on\" only when a fresh reading saw it, APP-662), the service started again (APP-598); then the system's confirmation. The waited row's status names the same step and ticks only on the system's word."
+why = "Owner, 2026-11-04: \"theres no feedback or whatsoever shown in notch what is happening, it seems stuck ... the non feedback thing is everywhere in setup tour.\" APP-665 left the permission beat out (T-1034); the old restart line said \"is on\" even for APP-598's restart."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroPermissions.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroController.swift"]
+live = ["LIVE-739"]

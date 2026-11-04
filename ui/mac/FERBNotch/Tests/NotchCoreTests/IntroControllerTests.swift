@@ -745,7 +745,7 @@ final class IntroControllerTests: XCTestCase {
         t.controller.start(beats: [.permissions, .home])
         await eventually { t.progress.done }
         XCTAssertGreaterThanOrEqual(t.rig.rpc.params(of: "setup.permissions").count, 4)
-        let ready = t.lines.all.firstIndex { $0 == IntroCopy.gettingReady }
+        let ready = t.lines.all.firstIndex { $0.text == IntroCopy.gettingReady.text && $0.since != nil }
         let everything = t.lines.all.firstIndex { $0 == IntroCopy.allAllowed }
         XCTAssertNotNil(ready)
         XCTAssertLessThan(ready ?? .max, everything ?? -1)                // never "everything" before it answered
@@ -778,7 +778,7 @@ final class IntroControllerTests: XCTestCase {
     }
 
     /// A tour quit at Allow all and reopened while the daemon is down (macOS's "Quit & Reopen" ended it, or it is still
-    /// starting): the tour waits on "Getting my background part ready…" and starts the service, instead of reading the
+    /// starting): the tour says it is picking up and waits, then starts the service, instead of reading the
     /// silence as signed out and asking for sign-in again (which also moved the resume point back to sign-in).
     // decision: APP-638, APP-598
     func testAResumedTourWaitsForTheServiceBeforeAnyBeat() async {
@@ -791,7 +791,9 @@ final class IntroControllerTests: XCTestCase {
         t.rig.service.onStart = { [rpc = t.rig.rpc] in rpc.failures = [:] }   // started, it answers
         t.controller.start(beats: IntroBeat.allCases)
         await eventually { t.controller.beat == .browsers }
-        XCTAssertTrue(t.lines.all.contains { $0.text == IntroCopy.gettingReady.text && $0.since != nil })
+        for wait in [IntroCopy.resuming.text, IntroCopy.startingService.text] {       // alive, saying which (APP-679)
+            XCTAssertTrue(t.lines.all.contains { $0.text == wait && $0.since != nil }, wait)
+        }
         XCTAssertFalse(t.lines.all.contains(IntroCopy.signIn))            // never asked to sign in again
         XCTAssertEqual(t.rig.service.starts, 1)
         XCTAssertTrue(t.rig.runner.runs.isEmpty)                          // Meet isn't run again
@@ -930,6 +932,70 @@ final class IntroControllerTests: XCTestCase {
             XCTAssertFalse(shown.isEmpty, wait)
             XCTAssertTrue(shown.allSatisfy { $0.since != nil }, wait)
         }
+    }
+
+    /// Owner, 2026-11-04: "theres no feedback or whatsoever shown in notch what is happening, it seems stuck". Every
+    /// step of a permission's wait shows in the notch as it happens, alive (a since), with its row saying the same:
+    /// macOS's question, Settings opening, the owner's switch, each check, the restart on leaving Settings (APP-598),
+    /// the silent service started again, the restart once a fresh reading sees the switch on (APP-662); the row ticks
+    /// only once the system reports it on (APP-510).
+    // decision: APP-679, APP-665, APP-510, APP-598, APP-662
+    func testEachStepOfAPermissionWaitShowsALiveLine() async {
+        let t = tour()
+        var front: String? = SettingsAnchor.bundleID
+        t.setup.frontmostApp = { front }
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", screen: "denied",
+                                                                          fda: "granted")
+        t.controller.start(beats: [.permissions, .home])
+        await t.pick("permissions.next")                                   // Screen Recording, the one left
+        await eventually { t.orb.docks.count == 1 }
+        var polls = t.rig.rpc.params(of: "setup.permissions").count
+        await eventually { t.rig.rpc.params(of: "setup.permissions").count >= polls + 2 }
+        front = "com.apple.finder"                                         // left Settings, the switch still off
+        await eventually { t.rig.service.restarts == 1 }
+        t.rig.service.onStart = { [rpc = t.rig.rpc] in rpc.failures = [:] }
+        t.rig.rpc.failures["setup.permissions"] = DaemonRPCError.invalidResponse   // the daemon is gone
+        await eventually { t.rig.service.starts == 1 }
+        polls = t.rig.rpc.params(of: "setup.permissions").count
+        await eventually { t.rig.rpc.params(of: "setup.permissions").count >= polls + 2 }
+        var onAt: Int?                                                     // lines shown before the system read it on
+        t.rig.service.onRestart = { [rpc = t.rig.rpc, lines = t.lines] in  // the restarted daemon reads it on
+            onAt = lines.all.count
+            rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
+        }
+        t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", screen: "denied",
+                                                                          fda: "granted", screenRestartNeeded: true)
+        await eventually { t.progress.done }
+
+        let first = t.lines.all.first
+        XCTAssertEqual(first?.text, IntroCopy.checkingPermissions.text)
+        XCTAssertNotNil(first?.since)
+        let row = PermissionRow(id: "screen_recording", status: .denied, process: "daemon", required: true, pane: nil,
+                                requestable: true, restartToCheck: true)
+        let steps: [GrantWait.Step] = [.asking, .opening, .waitingForSwitch, .checking, .restarting(seenOn: false),
+                                       .startingService, .restarting(seenOn: true)]
+        for step in steps {
+            let wait = GrantWait(id: row.id, step: step, at: Date())
+            let text = IntroCopy.grantWaitLine(wait, row: row, added: false).text
+            let status = IntroCopy.grantWaitStatus(wait, row: row, added: false)
+            let shown = t.lines.all.filter { line in
+                line.text == text && line.checklist.contains { $0.id == row.id && $0.status == status }
+            }
+            XCTAssertFalse(shown.isEmpty, "\(step)")
+            XCTAssertTrue(shown.allSatisfy { $0.since != nil }, "\(step)")
+        }
+        // The row ticks only from the system's answer: never on a line before the restarted daemon read it on, and the
+        // line then says macOS confirmed it.
+        XCTAssertNotNil(onAt)
+        XCTAssertFalse(t.lines.all.prefix(onAt ?? 0).contains { line in
+            line.checklist.contains { $0.id == row.id && $0.complete }
+        })
+        XCTAssertTrue(t.lines.all.dropFirst(onAt ?? 0).contains { line in
+            line.since == nil && line.text.hasPrefix(PermissionCopy.label(row.id))
+                && line.checklist.contains { $0.id == row.id && $0.complete }
+        })
+        XCTAssertEqual(t.rig.service.restarts, 2)
+        XCTAssertEqual(t.rig.service.starts, 1)
     }
 }
 

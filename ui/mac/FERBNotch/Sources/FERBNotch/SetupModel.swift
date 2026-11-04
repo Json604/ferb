@@ -30,6 +30,9 @@ final class SetupModel: ObservableObject {
     /// Grants whose switch applies only after a restart: the service restarts once when FERB comes back to the front.
     private var restartOnReturn: Set<String> = []
     @Published private(set) var restarting = false
+    /// The grant being waited on now and what that wait is doing (asking macOS, opening Settings, waiting for the
+    /// switch, checking, restarting): the tour shows it live (APP-665, APP-679). Nil when no grant is waited on.
+    @Published private(set) var grantWait: GrantWait?
     /// The rows a grant's wait reads through a fresh process too (`setup.permissions` `fresh`, APP-662): the running
     /// daemon sees these switches only after a restart.
     private var freshReads: Set<String> = []
@@ -118,11 +121,17 @@ final class SetupModel: ObservableObject {
     /// While it waits, the row is also read by a fresh process (APP-662): the moment that sees the switch on while the
     /// daemon still reads it off, the service restarts at once (once per wait, never while a task runs), so the row
     /// ticks within a poll and a restart instead of waiting for the owner to leave System Settings.
+    /// Each step of the wait is published in `grantWait` as it happens (APP-679), so nothing here runs unseen.
     func grantAndConfirm(_ row: PermissionRow, polls limit: Int? = nil, asked: (() -> Void)? = nil) async -> Bool {
         let undecided = row.status == .notDetermined
         if row.restartToCheck { freshReads.insert(row.id) }
-        defer { freshReads.remove(row.id) }
-        await grant(row)
+        grantWait = GrantWait(id: row.id, step: row.requestable ? .asking : .opening, at: Date())
+        defer {
+            freshReads.remove(row.id)
+            if grantWait?.id == row.id { grantWait = nil }
+        }
+        await grant(row) { [weak self] step in self?.moveGrant(step) }
+        moveGrant(.waitingForSwitch)
         asked?()
         var polls = 0
         var inSettings = false
@@ -138,22 +147,33 @@ final class SetupModel: ObservableObject {
             polls += 1
             let front = frontmostApp() == SettingsAnchor.bundleID
             if inSettings && !front, allRows.first(where: { $0.id == row.id })?.restartToCheck == true {
-                await restartUnlessWorking()
+                await restartUnlessWorking(seenOn: false)
             }
             inSettings = front
+            // A silence already being started again stays shown as that until FERB answers.
+            if grantWait?.step != .startingService { moveGrant(.checking) }
             if await refreshPermissions() {
                 unanswered = 0
                 if !restartedForSwitch, allRows.first(where: { $0.id == row.id })?.restartNeeded == true {
                     restartedForSwitch = true
-                    await restartUnlessWorking()
+                    await restartUnlessWorking(seenOn: true)
                 }
+                if allRows.first(where: { $0.id == row.id })?.status != .granted { moveGrant(.waitingForSwitch) }
             } else {
                 unanswered += 1
-                if unanswered == serviceStartAfter { _ = await service.start() }
+                if unanswered == serviceStartAfter {
+                    moveGrant(.startingService)
+                    _ = await service.start()
+                } else if grantWait?.step != .startingService {
+                    moveGrant(.waitingForSwitch)
+                }
             }
         }
         return false
     }
+
+    /// The waited-on grant moves to `step` (nothing waits: nothing to show).
+    private func moveGrant(_ step: GrantWait.Step) { grantWait?.move(to: step, at: Date()) }
 
     /// Reads without an answer before a grant's wait starts the background service (about 4.5 s at `grantPoll`): a
     /// daemon that is only slow is never killed, `start` leaves a running one alone.
@@ -452,7 +472,8 @@ final class SetupModel: ObservableObject {
 
     /// The owner's Grant on one row: macOS's own request when there is one (from the daemon for its grants, from FERB.app
     /// for its own), then that pane; Full Disk Access also shows the agent app in Finder to drag into the list.
-    func grant(_ row: PermissionRow) async {
+    /// `step` hears each part as it starts (macOS's question, Settings opening) for a grant's live line (APP-679).
+    func grant(_ row: PermissionRow, step: ((GrantWait.Step) -> Void)? = nil) async {
         guard row.blocked.isEmpty else { return }
         resumeDefaults.set(SetupStep.permissions.rawValue, forKey: Self.resumeKey)
         switch row.id {
@@ -467,13 +488,15 @@ final class SetupModel: ObservableObject {
                 return
             } else if let pane = row.pane { system.open(pane) }
         case "microphone":
-            if row.status == .notDetermined { _ = await app.requestMicrophone() }
-            else if let pane = row.pane { system.open(pane) }
+            if row.status == .notDetermined { step?(.asking); _ = await app.requestMicrophone() }
+            else if let pane = row.pane { step?(.opening); system.open(pane) }
         default:
             if row.requestable {
+                step?(.asking)
                 _ = try? await rpc.call("setup.permission_request", params: ["permission": row.id], wait: 120)
                 try? await Task.sleep(for: requestSettle)
             }
+            step?(.opening)
             if row.id == "full_disk_access", let target = permissions?.grantTarget, !target.isEmpty {
                 system.reveal(target)
             }
@@ -505,14 +528,16 @@ final class SetupModel: ObservableObject {
         let pending = restartOnReturn.filter { id in allRows.contains { $0.id == id && $0.status != .granted } }
         restartOnReturn.removeAll()
         guard !pending.isEmpty else { return }
-        await restartUnlessWorking()
+        await restartUnlessWorking(seenOn: false)
     }
 
-    /// The service restarted to read a switch again, never while a task runs or a restart is under way.
-    private func restartUnlessWorking() async {
+    /// The service restarted to read a switch again, never while a task runs or a restart is under way. `seenOn`: a
+    /// fresh reading saw the switch on (APP-662), shown as such while it restarts.
+    private func restartUnlessWorking(seenOn: Bool) async {
         guard !restarting else { return }
         if let status = try? await rpc.call("chat.status", params: ["peek": true]),
            let running = status["running"] as? [[String: Any]], !running.isEmpty { return }
+        moveGrant(.restarting(seenOn: seenOn))
         await restartService()
     }
 
@@ -528,6 +553,7 @@ final class SetupModel: ObservableObject {
         restarting = false
         message = ok ? nil : "FERB's background service couldn't be restarted."
         if ok { askedRestart.removeAll() }
+        moveGrant(.checking)
         await refreshPermissions()
     }
 

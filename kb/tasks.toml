@@ -452,11 +452,3 @@ kind = "build"
 status = "open"
 why = "APP-666 dropped Try's preview; FERB.app no longer calls intro.preview. Still in place: the intro.preview RPC, Supervisor.preview (_Turn.preview, PREVIEW_SESSION), its auth entry, Conversation's preview helpers, the transcript's preview label, the playground's preview picker, and their tests."
 decisions = ["APP-666"]
-
-[T-1034]
-title = "Give the permission beat's waits the tour's live line (APP-665)"
-area = "app"
-kind = "build"
-status = "open"
-why = "APP-665 covers every tour wait; the permission beat (each grant's check, Waiting for macOS, the restart on leaving Settings, Quit & Reopen) was another agent's area in the 2026-11-04 batch, so its lines don't set IntroLine.since yet."
-decisions = ["APP-665"]
