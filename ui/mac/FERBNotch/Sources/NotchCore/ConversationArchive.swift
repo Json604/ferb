@@ -272,6 +272,8 @@ public struct ConversationArchive: Codable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         turns = try container.decode([ConversationTurn].self, forKey: .turns)
+        // A message saved with the paste markers 0.27.1's ack echoed back reads as the owner wrote it (APP-712)
+        for index in turns.indices { turns[index].request = PasteMarkers.removed(from: turns[index].request) }
         // Archives saved before late replies and notices existed have none.
         replies = try container.decodeIfPresent([ConversationReply].self, forKey: .replies) ?? []
         notices = try container.decodeIfPresent([ConversationNotice].self, forKey: .notices) ?? []
@@ -459,7 +461,8 @@ public struct ConversationArchive: Codable, Equatable {
     public mutating func acknowledge(id: UUID, text: String, message: String? = nil, hidden: [String]? = nil) {
         guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
         if let message, !message.isEmpty {
-            turns[index].request = message
+            // As the daemon records it; paste markers an older daemon echoed back never show (APP-712)
+            turns[index].request = PasteMarkers.removed(from: message)
             turns[index].awaitingRedaction = false
         }
         if let hidden, !hidden.isEmpty { turns[index].hiddenKinds = hidden }
@@ -696,6 +699,9 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].verified = verified
         turns[index].statusInferred = inferred ? true : nil
         turns[index].liveLine = nil
+        // The final answer replaces the turn's streamed draft whichever channel it streamed on: a steer's reply
+        // streams as a plan line (plan_delta, plan_end) and ends as `reply`, with no plan event to clear it (APP-714)
+        turns[index].streamingPlan = nil
         // A card fills in place (ORCH-319): its rows and footer are the answer, never a reply further down.
         guard firstAnswer || afterQuestion, turns[index].card == nil, let newest = turns.last else { return }
         if firstAnswer && replies.contains(where: { $0.turnID == id }) { return }

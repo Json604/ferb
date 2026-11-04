@@ -3007,3 +3007,12 @@ request = "Ask FERB to open a page with ads or embedded frames (e.g. a news or c
 pass = "Each click lands. No browser.act step says background_input_unavailable with \"outcome unknown\"; if a click couldn't be prepared, its step is a plain failure (no \"outcome unknown\") and the worker tries it again or says why, instead of refusing to repeat it."
 decisions = ["HAND-422", "HAND-423"]
 sitting = "after this change is installed"
+
+[LIVE-772]
+title = "A pasted correction to a running task shows clean, and FERB's reply shows once"
+area = "app"
+surface = "FERB.app with this build, its daemon included; a disposable folder"
+request = "Ask FERB for a task that takes a minute or two in a disposable folder. While it runs, copy two lines that contain apostrophes (e.g. \"Don't overwrite the original\" / \"Keep a notes file of what you've done\") and paste them into the notch as one message, then send. Also paste a line copied out of Terminal with bracketed paste on. Afterwards quit and reopen FERB.app and look at today's chat."
+pass = "Your bubble shows exactly the words you pasted, with no \"[200~\" or \"[201~\", during the task and after the restart. FERB's reply to the correction appears once (one bubble, not two identical ones), and the task carries on with the correction."
+decisions = ["APP-712", "APP-713", "APP-714"]
+sitting = "after this change is installed"

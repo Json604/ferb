@@ -107,15 +107,48 @@ public struct PastedRequest {
         let draft = text as NSString
         var marked = "", position = 0
         for paste in current.pastes {
-            marked += draft.substring(with: NSRange(location: position, length: paste.location - position))
+            marked += PasteMarkers.removed(from: draft.substring(with: NSRange(location: position, length: paste.location - position)))
             marked += Self.wrap(draft.substring(with: paste))
             position = NSMaxRange(paste)
         }
-        markedText = marked + draft.substring(from: position)
+        markedText = marked + PasteMarkers.removed(from: draft.substring(from: position))
     }
 
     private static func wrap(_ text: String) -> String {
-        // A clipboard escape sequence cannot forge the end of the provenance envelope.
-        "\u{1b}[200~" + text.replacingOccurrences(of: "\u{1b}", with: "\\u001b") + "\u{1b}[201~"
+        // Markers that leaked into the text go first (APP-713); then a clipboard escape sequence cannot forge the end
+        // of the provenance envelope.
+        let clean = PasteMarkers.removed(from: text)
+        guard !clean.isEmpty else { return "" }
+        return "\u{1b}[200~" + clean.replacingOccurrences(of: "\u{1b}", with: "\\u001b") + "\u{1b}[201~"
+    }
+}
+
+/// Bracketed-paste markers in the owner's message: the composer's own (ESC[200~ … ESC[201~, `PastedRequest`) and
+/// ones that leaked in as text, typically copied out of a terminal, with or without the ESC byte. Removed by the
+/// daemon's rule (`untrusted.mark`, ORCH-520(3)): a leaked pair around text wherever it sits, a lone leaked marker at a
+/// line's start or end. Clean-up only: nothing in the words is read (APP-713).
+public enum PasteMarkers {
+    private static let composer = try! NSRegularExpression(pattern: "\\x{1b}\\[20[01]~")
+    private static let pair = try! NSRegularExpression(pattern: "\\[200~(.*?)\\[201~", options: [.dotMatchesLineSeparators])
+    private static let edge = try! NSRegularExpression(pattern: "^(?:[ \\t]*\\[20[01]~)+|(?:\\[20[01]~[ \\t]*)+$",
+                                                       options: [.anchorsMatchLines])
+
+    /// `text` without any bracketed-paste marker; text with none comes back unchanged.
+    public static func removed(from text: String) -> String {
+        guard text.contains("[20") else { return text }
+        // The composer's markers split the text into pieces, each cleaned of leaked ones, as the daemon does.
+        let whole = text as NSString
+        var pieces: [String] = [], start = 0
+        for match in composer.matches(in: text, range: NSRange(location: 0, length: whole.length)) {
+            pieces.append(whole.substring(with: NSRange(location: start, length: match.range.location - start)))
+            start = NSMaxRange(match.range)
+        }
+        pieces.append(whole.substring(from: start))
+        return pieces.map { piece in
+            let unpaired = pair.stringByReplacingMatches(in: piece, range: NSRange(location: 0, length: (piece as NSString).length),
+                                                         withTemplate: "$1")
+            return edge.stringByReplacingMatches(in: unpaired, range: NSRange(location: 0, length: (unpaired as NSString).length),
+                                                 withTemplate: "")
+        }.joined()
     }
 }

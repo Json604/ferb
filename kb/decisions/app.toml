@@ -2081,3 +2081,33 @@ words = "yes it shoudl stay open"
 words_source = "Answer to: should a chat opened with double-tap right Option also stay open when the pointer passes over and leaves (as a press-opened one does, APP-707)?"
 rule = "Double-tap right Option opens the chat with APP-707's mark (NotchModel.toggle(byPress:)), so it stays open on hover-out until Escape, the double-tap/shortcut, Hide or a click elsewhere. Hover-opened chats still fold on hover-out (APP-557)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::modifierDoubleTapped"]
+
+[APP-712]
+title = "The owner's bubble shows the message as the daemon recorded it, without paste markers"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The chat.send ack's `message` is the owner's message exactly as chat.message records it (untrusted.mark: redacted, the composer's bracketed-paste markers and leaked ones removed), so the bubble and the saved history never show \"[200~ … [201~\". The app also removes those markers from an ack message and from saved turns as it reads them (PasteMarkers, the daemon's rule), so a message an older daemon echoed or 0.27.1 saved reads as the owner wrote it. Clean-up only; APP-569 is unchanged."
+why = "Live 2026-11-04 (0.27.1): a pasted message showed \"[200~ … [201~\" in the owner's bubble. The ack carried the redacted raw text with the composer's brackets, while chat.message recorded it clean (ORCH-523), and the app shows the ack's message (APP-569, GATE-502)."
+paths = ["ferb/daemon/areas/chat.py", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift", "tests/test_chat_secret_notice.py", "ui/mac/FERBNotch/Tests/NotchCoreTests/ChatFlowTests.swift"]
+live = ["LIVE-772"]
+
+[APP-713]
+title = "The composer removes leaked paste markers before sending, and still marks pastes"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "Bracketed-paste markers that leaked into text (\"[200~\", \"[201~\", with or without the ESC byte, typically copied out of a terminal) are removed in the composer by the daemon's rule (ORCH-520(3)): from Command-V text before it enters the draft, from every piece PastedRequest sends (typed or pasted, before the paste is bracketed), and from the request the bubble shows until the ack. The composer's own brackets around each paste stay, so APP-596's local-command check is unchanged. Clean-up only: nothing in the words is read."
+why = "A leaked ESC marker inside a paste used to be escaped to the literal text \\u001b[200~, which no later clean-up recognises; the owner asked for the clean-up in the composer too."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/PastedRequest.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/PastedRequestTests.swift"]
+live = ["LIVE-772"]
+
+[APP-714]
+title = "A turn's final answer replaces its streamed draft, whichever channel it streamed on"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "ConversationArchive.finish, the one place a turn's answer lands (reply, clarify, error, outcome), clears the turn's streamed plan line (streamingPlan), so each daemon reply renders exactly once. A plan event still replaces the streamed plan line as before."
+why = "Live 2026-11-04: a correction to a running task streamed the planner's sentence as plan_delta/plan_end, then the steer's one `reply`; no plan event cleared the streamed line, so the reply showed twice. The request's final event supersedes its draft; no text is compared."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::finish", "ui/mac/FERBNotch/Tests/NotchCoreTests/ChatFlowTests.swift"]
+live = ["LIVE-772"]

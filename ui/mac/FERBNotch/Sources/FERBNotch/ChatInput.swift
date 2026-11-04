@@ -1,4 +1,5 @@
 import AppKit
+import NotchCore
 import SwiftUI
 
 /// Own Return handling so AppKit never treats submission as an unhandled command.
@@ -108,7 +109,10 @@ final class ChatTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
     override func paste(_ sender: Any?) {
-        guard isEditable, let text = pasteboard.string(forType: .string) else { return }
+        // Bracketed-paste markers copied out of a terminal never enter the draft (APP-713): clean-up only.
+        guard isEditable, let copied = pasteboard.string(forType: .string) else { return }
+        let text = PasteMarkers.removed(from: copied)
+        guard !text.isEmpty else { return }
         let selection = selectedRange()
         didPaste?(text, selection)
         isPasting = true

@@ -236,6 +236,51 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertFalse(restored.turns[0].isVerified)
     }
 
+    // decision: APP-714, APP-578
+    func testASteeringTurnsOneReplyShowsOnce() {
+        // Live 2026-11-04: a message that corrected a running task streamed the planner's sentence as a plan line
+        // (plan_delta, plan_end) and ended with the steer's single `reply`; the streamed draft stayed beside the answer.
+        let model = makeModel()
+        let task = begin("Improve my resume", in: model)
+        model.receiveChatEvent(Contract.plan("req-t", task: "task-r", text: "Improving your resume."), localID: task)
+        let steer = beginAnother("Save it as a new file", in: model)
+        model.receiveChatEvent(Contract.ack("req-s", "Starting on it."), localID: steer)
+        for text in ["I'll keep the original ", "and save a copy."] {
+            model.receiveChatEvent(["type": "plan_delta", "request_id": "req-s", "at": Contract.at, "text": text], localID: steer)
+        }
+        model.receiveChatEvent(["type": "plan_end", "request_id": "req-s", "at": Contract.at], localID: steer)
+        model.receiveChatEvent(["type": "reply", "request_id": "req-s", "at": Contract.at, "task_id": "task-r",
+                                "text": "I'll keep the original and save a copy."], localID: steer)
+        // The streamed draft is a bubble of its own while it is set (FirstReplyView); the answer is the one reply.
+        XCTAssertNil(turn(steer, in: model).streamingPlan)
+        XCTAssertEqual(layout(model), ["turn: Improve my resume",
+                                       "turn: Save it as a new file = I'll keep the original and save a copy."])
+    }
+
+    // decision: APP-712, APP-713, APP-569
+    func testAPastedDraftWithPasteMarkersShowsTheCleanTextInTheBubbleAndHistory() async throws {
+        // The ack as 0.27.1's daemon sent it: the composer's own brackets echoed back in `message`.
+        let echoed = "\u{1b}[200~Keep a notes file\u{1b}[201~"
+        let rpc = ScriptedChatRPC(events: [
+            ["type": "ack", "request_id": "req-p", "at": Contract.at, "text": "", "message": echoed],
+            Contract.reply("req-p", text: "Noted.")
+        ])
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
+        let copied = "[200~Keep a notes file[201~"                 // copied out of a terminal
+        model.pasteProvenance.paste(copied, over: NSRange(location: 0, length: 0), in: "")
+        model.session.draft = copied
+        model.startWork()
+        let id = try XCTUnwrap(model.conversation.turns.first?.id)
+        XCTAssertEqual(turn(id, in: model).request, "Keep a notes file")
+        await model.submissions[id]?.value
+        XCTAssertEqual(rpc.sent, [echoed])                          // still marked as pasted, nothing leaked inside
+        XCTAssertEqual(turn(id, in: model).request, "Keep a notes file")
+        let saved = String(decoding: try XCTUnwrap(model.preferences.data(forKey: "FERBConversationArchive")), as: UTF8.self)
+        XCTAssertTrue(saved.contains("Keep a notes file"))
+        XCTAssertFalse(saved.contains("[20"))
+        model.disconnectDaemon()
+    }
+
     // MARK: - Support
 
     private func makeModel() -> NotchModel {
@@ -327,6 +372,8 @@ private enum Contract {
 /// A daemon whose `chat.send` stream delivers a fixed list of events and then ends.
 private final class ScriptedChatRPC: DaemonRPCTransport {
     let events: [[String: Any]]
+    /// The text of each chat.send, as the daemon would receive it.
+    private(set) var sent: [String] = []
     init(events: [[String: Any]]) { self.events = events }
 
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
@@ -336,6 +383,7 @@ private final class ScriptedChatRPC: DaemonRPCTransport {
 
     func stream(_ method: String, params: [String: Any]) -> AsyncThrowingStream<[String: Any], Error> {
         let events = method == "chat.send" ? self.events : []
+        if method == "chat.send", let text = params["text"] as? String { sent.append(text) }
         return AsyncThrowingStream { continuation in
             for event in events { continuation.yield(event) }
             if method == "chat.send" { continuation.finish() }

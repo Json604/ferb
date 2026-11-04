@@ -108,4 +108,18 @@ final class PastedRequestTests: XCTestCase {
         XCTAssertFalse(provenance.isUnclear)
         XCTAssertEqual(PastedRequest(text: "What's the weather?", provenance: provenance).markedText, "What's the weather?")
     }
+
+    // decision: APP-713, ORCH-520
+    func testPasteMarkersThatLeakedInAreRemovedBeforeSendingAndPastesStayMarked() {
+        XCTAssertEqual(PasteMarkers.removed(from: "[200~remind me at 9[201~"), "remind me at 9")
+        XCTAssertEqual(PasteMarkers.removed(from: "\u{1b}[200~one\u{1b}[201~ two\n[201~"), "one two\n")
+        XCTAssertEqual(PasteMarkers.removed(from: "x[200~y"), "x[200~y")         // a lone one mid-line is text, as the daemon reads it
+        // Copied out of a terminal, with the ESC byte: sent clean, and still marked as pasted for local commands (APP-596).
+        let copied = "\u{1b}[200~Keep a notes file\u{1b}[201~"
+        var provenance = PasteProvenance()
+        provenance.edit(NSRange(location: 0, length: 0), with: "Also: ", in: "")
+        provenance.paste(copied, over: NSRange(location: 6, length: 0), in: "Also: ")
+        XCTAssertEqual(PastedRequest(text: "Also: " + copied, provenance: provenance).markedText,
+                       "Also: " + wrapped("Keep a notes file"))
+    }
 }
