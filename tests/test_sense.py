@@ -141,6 +141,9 @@ class FakeTap:
     def __init__(self) -> None:
         self.running = False
 
+    def allowed(self) -> bool:                       # Input Monitoring granted
+        return True
+
     def start(self) -> bool:
         self.running = True
         return True

@@ -46,3 +46,40 @@ def test_helper_with_mismatched_signature_never_executes(tmp_path, monkeypatch):
     with pytest.raises(Refused, match='signature does not match'):
         request({'operation': 'store', 'value': 'private canary'}, tmp_path)
     assert len(calls) == 1 and calls[0][0] == '/usr/bin/codesign'
+
+
+def _helper_home(tmp_path: Path) -> Path:
+    (tmp_path/'bin').mkdir()
+    (tmp_path/'bin/ferb-secrets').write_text('binary')
+    (tmp_path/'bin/ferb-secrets.requirement').write_text('identifier "com.ferb.secrets"')
+    return tmp_path
+
+
+# decision: HAND-410
+@pytest.mark.parametrize('replies, said', [
+    ([(1, b'{"error":"keychain","status":-25308,"message":"User interaction is not allowed."}')],
+     'the Keychain refused (status -25308: User interaction is not allowed.)'),
+    ([(1, b'{"error":"secret operation failed"}'), (0, b'{"present":true}')], "has this item but didn't hand it"),
+    ([(1, b'{"error":"secret operation failed"}'), (0, b'{"present":false}')], "didn't show this item"),
+])
+def test_a_helper_failure_says_why_without_the_value_or_account(tmp_path, monkeypatch, replies, said):
+    """Live 2026-10-31/11-01: ten browser.secret fills failed with only "the secret operation failed". The reason comes
+    through (the Keychain's status, or the helper's own present check) to the error and the journal hook."""
+    import ferb.identity.helper as helper
+    home, calls, told = _helper_home(tmp_path), [], []
+    queue = list(replies)
+
+    def run(argv, **kwargs):
+        calls.append(kwargs.get('input', b''))
+        if argv[0] == '/usr/bin/codesign':
+            return subprocess.CompletedProcess(argv, 0, b'', b'')
+        code, out = queue.pop(0)
+        return subprocess.CompletedProcess(argv, code, out, b'')
+    monkeypatch.setattr(subprocess, 'run', run)
+    monkeypatch.setattr(helper, 'on_failure', told.append)
+    account = 'https://login.example · password'
+    with pytest.raises(Refused) as caught:
+        request({'operation': 'lookup', 'service': 'ferb.owner-secrets', 'account': account}, home)
+    assert said in str(caught.value) and account not in str(caught.value)
+    assert told and told[0]['operation'] == 'lookup' and account not in str(told)
+    assert not queue and all(b'"value"' not in (c or b'') for c in calls)   # the check never stores or reads one

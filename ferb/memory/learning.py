@@ -802,13 +802,13 @@ class Learning:
         return {r[0]: digest([CARD_MAKER, r[1], r[2], r[3], r[4]])
                 for r in self.db.conn.execute(sql, (task_id,) if task_id else ())}
 
-    def cards_to_read(self, force: bool = False) -> list[str]:
+    def cards_to_read(self) -> list[str]:
         """The tasks whose card must be read (again), oldest first: no card yet, or a card read from other inputs (a
         new verdict, a rebuilt episode, an older composer). A failed read is tried once more on the next pass (a reader
-        may have crashed); failed twice on the same inputs, it waits for them to change, unless `force` (`ferb memory
-        consolidate`), or unless it was parked by the old redactor's idempotence refusal (`PARKED_BY_REDACTION`), which
-        the structural redaction no longer makes: those are read again once. A card built on forgotten content is
-        never read again."""
+        may have crashed); failed twice on the same inputs, it waits for them to change (each failure is journaled and
+        `stuck_cards` lists the parked ones, MEM-422), unless it was parked by the old redactor's idempotence refusal
+        (`PARKED_BY_REDACTION`), which the structural redaction no longer makes: those are read again once. A card
+        built on forgotten content is never read again."""
         current = self.card_inputs()
         recorded = {r[0]: (r[1], r[2], r[3] or '') for r in self.db.conn.execute(
             'SELECT task_id, inputs, status, error FROM learning_card_inputs')}
@@ -816,11 +816,16 @@ class Learning:
         order = [r[0] for r in self.db.conn.execute('SELECT task_id FROM episodes ORDER BY ended_at')]
         return [t for t in order if self.card_key(t) not in gone and (
             recorded.get(t, ('', '', ''))[0] != current.get(t) or recorded[t][1] == 'failed' or
-            (recorded[t][1] == 'parked' and (force or PARKED_BY_REDACTION in recorded[t][2])))]
+            (recorded[t][1] == 'parked' and PARKED_BY_REDACTION in recorded[t][2]))]
 
-    def card_read(self, task_id: str, inputs: str, error: str | None = None) -> None:
+    def stuck_cards(self) -> list[dict[str, str]]:
+        """MEM-422: the episode cards that failed twice on the same inputs and wait for them to change, with why."""
+        return [{"task_id": r[0], "error": r[1] or ""} for r in self.db.conn.execute(
+            "SELECT task_id, error FROM learning_card_inputs WHERE status = 'parked' ORDER BY task_id")]
+
+    def card_read(self, task_id: str, inputs: str, error: str | None = None) -> str:
         """Record the inputs a card was read from, or failed to be read from with the error: 'failed' the first time
-        (tried once more), 'parked' when it failed again on the same inputs."""
+        (tried once more), 'parked' when it failed again on the same inputs. Returns the status recorded."""
         status = 'read'
         if error:
             before = self.db.conn.execute('SELECT inputs, status FROM learning_card_inputs WHERE task_id=?',
@@ -829,6 +834,7 @@ class Learning:
         self.db.conn.execute('INSERT INTO learning_card_inputs VALUES (?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET '
                              'inputs=excluded.inputs, status=excluded.status, error=excluded.error',
                              (task_id, inputs, status, error))
+        return status
 
     def _action_sources(self, inp: dict[str, Any], result: Any) -> set[str]:
         """The sources of one recorded tool call's result (memory/lineage.py)."""

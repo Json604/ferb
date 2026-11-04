@@ -107,6 +107,14 @@ final class FERBWindowController: NSObject, NSWindowDelegate {
         }
         if let window { AppWindowPresentation.show(window) }
     }
+
+    /// Command-Q while this window is in front closes it and FERB keeps running (APP-654; owner, 2026-11-04: "cmd+q
+    /// works but it quits it from the notch too"). True when it closed the window; otherwise the quit goes on.
+    func closeOnQuitKey(keyWindow: NSWindow?) -> Bool {
+        guard let window, keyWindow === window, window.isVisible else { return false }
+        window.performClose(nil)
+        return true
+    }
 }
 
 struct FERBWindowView: View {

@@ -57,6 +57,13 @@ def test_file_chooser_event_reaches_real_bus_without_dropping_extension_connecti
         ext.kill()
 
 
+def _pairings(verdict: Any) -> Any:
+    """A pairing store that answers every message with `verdict` and knows no install."""
+    from types import SimpleNamespace
+    return SimpleNamespace(handle=lambda m: verdict, binding=lambda install_id: None,
+                           record_version=lambda install_id, version: None, version=lambda install_id: "")
+
+
 @pytest.mark.parametrize('pairing_error', [None, 'bad_mac', 'replay'])
 def test_refusal_metadata_distinguishes_protocol_failure_from_pairing_failure(pairing_error):
     import asyncio
@@ -65,9 +72,9 @@ def test_refusal_metadata_distinguishes_protocol_failure_from_pairing_failure(pa
     from ferb.act.browser.ext_bridge import Hub
     from ferb.act.browser.ext_protocol import ExtMessage, MIN_EXTENSION_VERSION, PROTOCOL_VERSION
     verdict = SimpleNamespace(accepted=pairing_error is None, reason=pairing_error, reply=None, binding=object())
-    hub = Hub(SimpleNamespace(handle=lambda m: verdict), None, lambda *a: None, lambda: 'test-device')
+    hub = Hub(_pairings(verdict), None, lambda *a: None, lambda: 'test-device')
     writes = []
-    conn = SimpleNamespace(writer=SimpleNamespace(write=writes.append, drain=AsyncMock()))
+    conn = SimpleNamespace(writer=SimpleNamespace(write=writes.append, drain=AsyncMock()), app=None)
     message = ExtMessage(install_id='test-install', type='hello', body_json=json.dumps({
         'version':MIN_EXTENSION_VERSION, 'protocol':PROTOCOL_VERSION - 1,
     }))
@@ -202,7 +209,7 @@ def test_protocol_mismatch_is_refused(bd: Any) -> None:
     old.install_id, old.key, old.seq = ext.install_id, ext.key, ext.seq
     old.connect()
     old.wait_for(lambda: old.refused is not None)
-    assert "reload the FERB extension" in (old.refused or "")
+    assert "too old" in (old.refused or "")
     from ferb.act.browser.ext_protocol import MIN_EXTENSION_VERSION, PROTOCOL_VERSION
     refusal = next(json.loads(msg) for msg in old.wire if json.loads(msg).get('type') == 'refused')
     assert refusal['required_protocol'] == PROTOCOL_VERSION
@@ -726,13 +733,13 @@ def test_an_extension_older_than_the_terminal_fact_is_refused_at_hello() -> None
     from ferb.act.browser.ext_bridge import Hub
     from ferb.act.browser.ext_protocol import MIN_EXTENSION_VERSION, PROTOCOL_VERSION, ExtMessage, version_ok
     verdict = SimpleNamespace(accepted=True, reason=None, reply=None, binding=object())
-    hub = Hub(SimpleNamespace(handle=lambda m: verdict), None, lambda *a: None, lambda: "test-device")
+    hub = Hub(_pairings(verdict), None, lambda *a: None, lambda: "test-device")
     writes: list[bytes] = []
-    conn = SimpleNamespace(writer=SimpleNamespace(write=writes.append, drain=AsyncMock()))
+    conn = SimpleNamespace(writer=SimpleNamespace(write=writes.append, drain=AsyncMock()), app=None)
     asyncio.run(hub._handle(conn, ExtMessage(install_id="test-install", type="hello", body_json=json.dumps(
         {"version": "0.15.10", "protocol": PROTOCOL_VERSION}))))
     reply = json.loads(writes[0])
-    assert reply["type"] == "refused" and "reload the FERB extension" in reply["reason"]
+    assert reply["type"] == "refused" and "too old" in reply["reason"]
     assert reply["minimum_version"] == MIN_EXTENSION_VERSION == "0.19.0"     # protocol 21 raised it past 0.15.11
     assert version_ok("0.19.0") and not version_ok("0.18.0") and not version_ok("0.15.10")
 
@@ -764,3 +771,113 @@ def test_a_reinstalled_unpaired_extension_says_pair_it_with_browser_pair(
     assert r["is_error"]
     err = r["content"]["error"]
     assert "not paired" in err and "browser_pair profile=chrome/Profile 1" in err and "Mac tools" in err
+
+
+async def _journal(d: RunningDaemon, kind: str) -> list[dict[str, Any]]:
+    return [e.data for e in d.daemon.journal.of_kind(kind)]
+
+
+def _on_loop(d: RunningDaemon, fn: Any, *args: Any) -> Any:
+    """`fn(*args)` on the daemon's loop thread (its database connection lives there)."""
+    async def go() -> Any:
+        return fn(*args)
+    return d.run(go())
+
+
+# decision: HAND-406
+def test_a_too_old_extension_is_journaled_and_named_even_after_a_restart(
+        bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 2026-11-01 to 11-04: every owner profile still ran extension 0.15.12-0.15.13 while FERB needed 0.19.0, no
+    refusal was recorded, and the planner was told the profiles probably weren't running. A refused hello is journaled
+    with its reason, and the version kept in the pairing record still names the cause after a restart, when the old
+    extension may never get as far as a hello again: in the planner's facts and in the browser tool's error."""
+    import ferb.act.browser.ext_bridge as eb
+    monkeypatch.setattr(eb, "WINDOWLESS_WAIT_S", 0.05)
+    monkeypatch.setattr(eb, "WINDOW_WAIT_S", 0.05)
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    ext.kill()
+    old = FakeExtension(d.daemon.home, protocol=17, version="0.15.13")
+    old.install_id, old.key, old.seq = ext.install_id, ext.key, ext.seq
+    old.connect()
+    try:
+        old.wait_for(lambda: old.refused is not None)
+    finally:
+        old.kill()
+    [row] = d.run(_journal(d, "browser.connection_refused"))
+    assert row["reason"] == "extension_too_old" and row["profile"] == "chrome/Profile 1"
+    assert row["version"] == "0.15.13" and "too old" in row["why"]
+
+    d.daemon.hub.refused.clear()                                                # a restart forgets this run's refusals
+    facts = _on_loop(d, d.daemon._live_facts)
+    assert "too old (version 0.15.13" in facts and "isn't running" not in facts
+    c = Client(d.sock, timeout=30)
+    try:
+        assert "too old (version 0.15.13" in c.call("setup.browsers")["problem"]      # the app's browsers message
+    finally:
+        c.close()
+    d.run(_start_wake(d))
+    d.daemon.router.launch = launched.append
+    r = call(d, task(d, "w", OWNER, "use my Work profile"), "browser.open", url="https://example.com/",
+             profile="Work")
+    assert r["is_error"] and "too old (version 0.15.13" in r["content"]["error"]
+    assert launched[-1][1:] == ["--profile-directory=Profile 1"]               # HAND-403's window step still ran
+
+
+# decision: HAND-406
+def test_a_native_host_the_daemon_refuses_is_journaled(bd: Any) -> None:
+    """Below the hello: the native host's auth.hello from an extension id FERB doesn't know only made the host exit."""
+    d, _ = bd
+    env = {"FERB_HOME": str(d.daemon.home), "PATH": "/usr/bin:/bin"}
+    origin = "chrome-extension://" + "a" * 32 + "/"
+    r = subprocess.run([sys.executable, "-m", "ferb.native_host.main", origin],
+                       input=b"", capture_output=True, env=env, timeout=20)
+    assert r.returncode == 2
+    [row] = d.run(_journal(d, "browser.connection_refused"))
+    assert row["reason"] == "host" and row["origin"] == origin
+
+
+# decision: HAND-407
+def test_without_full_disk_access_a_paired_profile_still_resolves_and_starts_from_ferbs_records(bd: Any) -> None:
+    """Live 2026-11-02/03: with the Full Disk Access gate closed, discovery returned nothing and every named browser
+    call failed with "no profile called 'brave/Default'; found: none", while the same profile was paired. A paired
+    profile resolves by its folder from FERB's own pairing record, a name discovery can't see says why, and the wake
+    starts that profile."""
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    ext.kill()
+    ext.wait_for(lambda: d.daemon.hub.bridges[('chrome', 'Profile 1')].conn is None)
+    d.daemon.data_access = lambda: False                                        # the gate is closed (DMN-507)
+    assert d.daemon._profiles() == []
+    resolver = d.daemon.router.resolver                                         # type: ignore[union-attr]
+    assert _on_loop(d, resolver.choose, "chrome/Profile 1").folder == "Profile 1"
+    with pytest.raises(NeedsOwner, match="Full Disk Access"):
+        _on_loop(d, resolver.choose, "Work")                                    # its name needs discovery
+    g = task(d, "w", OWNER, "use my Work profile")
+    listed = call(d, g, "browser.profiles")["content"]
+    assert [p["profile"] for p in listed["profiles"]] == ["chrome/Profile 1"] and "Full Disk Access" in listed["note"]
+    d.run(_start_wake(d))
+
+    def on_launch(args: list[str]) -> None:
+        launched.append(args)
+        ext.connect()
+    d.daemon.router.launch = on_launch                                          # type: ignore[union-attr]
+    try:
+        r = call(d, g, "browser.open", url="https://example.com/", profile="chrome/Profile 1")
+    finally:
+        ext.kill()
+    assert not r["is_error"], r
+    assert launched[-1][-2:] == ["--profile-directory=Profile 1", "--no-startup-window"]
+
+
+# decision: HAND-407
+def test_a_paired_folder_missing_from_its_browsers_discovery_is_never_started() -> None:
+    """HAND-407's limit: a browser whose profiles were read keeps only those, since starting a folder that's gone
+    would create it; a paired profile of a browser discovery found nothing in comes from FERB's records."""
+    O = Identity.OWNER
+    r = _resolver([Binding("i1", "chrome", "Profile 9", O), Binding("i2", "vivaldi", "Default", O)])
+    with pytest.raises(NeedsOwner, match="no profile called"):
+        r.choose("chrome/Profile 9")
+    assert r.choose("vivaldi/Default").browser == "vivaldi"

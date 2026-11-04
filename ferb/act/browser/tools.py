@@ -323,7 +323,11 @@ class BrowserProfiles(_Base):
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.READ)
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        return ToolResult({"profiles": self.driver.profile_candidates()})  # type: ignore[attr-defined]
+        out: dict[str, Any] = {"profiles": self.driver.profile_candidates()}  # type: ignore[attr-defined]
+        note = getattr(self.driver, "profiles_note", lambda: None)()
+        if note:                                       # HAND-407: why only paired profiles, by folder, are listed
+            out["note"] = note
+        return ToolResult(out)
 
 
 class BrowserHandoff(_Base):

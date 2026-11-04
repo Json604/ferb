@@ -35,6 +35,10 @@ final class UpdateCoordinator: ObservableObject {
     }
 
     @Published private(set) var status: Status = .quiet
+    /// The last check, download or install result (APP-658); kept in `defaults` when given (FERB.app's own).
+    @Published private(set) var lastResult: UpdateResult?
+    private let defaults: UserDefaults?
+    var now: () -> Date = Date.init
     /// Settings → General → Install updates automatically (Sparkle keeps it; default on from the build's Info.plist).
     @Published var automatic: Bool { didSet { driver?.automaticallyDownloadsUpdates = automatic } }
 
@@ -56,10 +60,20 @@ final class UpdateCoordinator: ObservableObject {
     private(set) var prepared = false
     private var installTask: Task<Void, Never>?
 
-    init(rpc: DaemonRPCTransport, driver: UpdaterDriving? = nil) {
+    init(rpc: DaemonRPCTransport, driver: UpdaterDriving? = nil, defaults: UserDefaults? = nil) {
         self.rpc = rpc
         self.driver = driver
+        self.defaults = defaults
         automatic = driver?.automaticallyDownloadsUpdates ?? true
+        lastResult = UpdateResult(defaults?.object(forKey: UpdateResult.key))
+    }
+
+    /// Kept until the next result replaces it, and written to the system log as well.
+    private func record(_ text: String, failed: Bool) {
+        let result = UpdateResult(at: now(), failed: failed, text: text)
+        lastResult = result
+        defaults?.set(result.stored, forKey: UpdateResult.key)
+        NSLog("FERB update: %@", text)
     }
 
     func attach(_ driver: UpdaterDriving) {
@@ -71,11 +85,13 @@ final class UpdateCoordinator: ObservableObject {
     var installArmed: Bool { pendingInstall != nil }
 
     func found(version: String) {
+        record("Found FERB \(version).", failed: false)
         guard pendingInstall == nil, !prepared else { return }
         status = automatic ? .quiet : .available(version)
     }
 
     func notFound() {
+        record("FERB was up to date.", failed: false)
         guard pendingInstall == nil, !prepared else { return }
         status = .upToDate
     }
@@ -86,6 +102,7 @@ final class UpdateCoordinator: ObservableObject {
     /// Sparkle is ready to install `version`; `install` replaces FERB.app and relaunches it.
     @discardableResult
     func readyToInstall(version: String, install: @escaping () -> Void) -> Task<Void, Never> {
+        record("FERB \(version) downloaded and verified.", failed: false)
         pendingVersion = version
         pendingInstall = install
         installTask?.cancel()
@@ -141,8 +158,11 @@ final class UpdateCoordinator: ObservableObject {
         }
     }
 
-    /// Sparkle gave up: a failed download, a refused signature or certificate, a failed install.
+    /// Sparkle gave up: an unreachable feed, a failed download, a refused signature or certificate, a failed install.
+    /// Always recorded, a scheduled background check's included (APP-658); the status line changes only for an
+    /// install FERB had armed or stopped for.
     func aborted(_ message: String) {
+        record("Failed: \(message)", failed: true)
         let stoppedFERB = prepared
         if stoppedFERB { restartDaemon() }               // stopped for nothing: start it again now
         if stoppedFERB || pendingInstall != nil { status = .failed(message) }

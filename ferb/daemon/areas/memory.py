@@ -159,7 +159,7 @@ class MemoryGlue:
         """The hourly pass's episode cards (L28): each card whose inputs changed (a new verdict, a rebuilt episode) or
         that was never captured is read again, one at a time and only while no task runs; then the day summaries are
         indexed for search (`index_summaries`, in a worker thread). New text is embedded by the background embedder
-        (`_embed_loop`). A card that can't be built waits for its inputs to change."""
+        (`_embed_loop`). A card that can't be built is tried once more, then waits for its inputs to change."""
         from ferb.memory.learning import LearningRefused, index_summaries
         l = self.learning
 
@@ -174,8 +174,12 @@ class MemoryGlue:
                 await self._capture_card(task_id, None)
                 if not l.db.conn.execute("SELECT 1 FROM learning_card_inputs WHERE task_id=?", (task_id,)).fetchone():
                     l.card_read(task_id, l.card_inputs(task_id).get(task_id, ""))   # nothing to write: read
-            except LearningRefused as e:
-                l.card_read(task_id, l.card_inputs(task_id).get(task_id, ""), l.redact(str(e)) or "refused")
+            except LearningRefused as e:                # MEM-422: each failure journaled, with why and what follows
+                why = l.redact(str(e)) or "refused"
+                status = l.card_read(task_id, l.card_inputs(task_id).get(task_id, ""), why)
+                self._journal().append("memory.cards_failed", {
+                    "task_id": task_id, "error": why,
+                    "next": "waits until its task changes" if status == "parked" else "tried once more next hour"})
             except Deferred:                         # FERB is stopping: the next start's pass reads the rest
                 return {"status": "stopping"}
             await asyncio.sleep(0)

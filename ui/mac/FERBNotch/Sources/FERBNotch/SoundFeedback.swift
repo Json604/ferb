@@ -6,7 +6,7 @@ import SwiftUI
 /// it plays through the app's one FerbSoundEngine (`player`, shared with the intro), which applies the system's UI
 /// sounds setting, the master switch, each sound's own switch, Standard/Subtle and the call rule to every sound.
 /// Settings → Sounds & Notifications binds the switches here. Every notification sounds once: an item shown both as a banner and in
-/// the notch is carried by the banner (NotificationPoster asks `bannerSounds`), keyed on its id. Needs you, done and
+/// the notch is carried by the banner (NotificationPoster asks `bannerSounds`), keyed on its id. Needs you and
 /// error always play in the app; their banners post silently.
 @MainActor
 final class SoundFeedback: ObservableObject {
@@ -63,7 +63,7 @@ final class SoundFeedback: ObservableObject {
     func preview(_ s: SoundSwitch) { play(s.preview) }
 
     /// A sound for an item a banner may also show (a task's end, a question, a handoff): it always plays, once per item
-    /// and sound, and that item's banner then posts silently. Needs you, done and error are never left to a banner.
+    /// and sound, and that item's banner then posts silently. Needs you and error are never left to a banner.
     func play(_ s: FerbSound, for keys: [String]) {
         forget()
         guard !keys.contains(where: { sounded[$0]?.by == .app(s) }) else { return }

@@ -12,6 +12,12 @@ from ferb.core.errors import FerbError, Refused
 from ferb.sense.watchers.owner_input import FERB_EVENT_MARK
 
 STEP_S = 0.02
+# Why foreground input isn't available (HAND-409): FERB is paused, or it can't tell whether the owner is using the Mac
+# because its owner-input watcher isn't running (it then counts the owner as using it, SENSE-406)
+PAUSED = "FERB is paused: no foreground input"
+UNMONITORED = ("FERB can't tell whether the owner is using the Mac (its owner-input watcher isn't running: the owner "
+               "allows Input Monitoring for FERB in System Settings → Privacy & Security → Input Monitoring), so it "
+               "sends no foreground input")
 
 
 class Yielded(FerbError):
@@ -35,15 +41,17 @@ class RealInput:
     def __init__(self, owner_active: Callable[[], bool], gui: GuiLock, yield_after_s: float = 30.0,
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, poll_s: float = 0.05,
                  on_wait: Callable[[str, bool], None] = lambda holder, on: None,
-                 available: Callable[[], bool] = lambda: True) -> None:
+                 available: Callable[[], bool] = lambda: True,
+                 why_unavailable: Callable[[], str] = lambda: PAUSED) -> None:
         self.owner_active, self.gui, self.yield_after_s = owner_active, gui, yield_after_s
         self.sleep, self.poll_s, self.on_wait = sleep, poll_s, on_wait     # on_wait: the owner's time isn't a stall
-        self.available = available                                         # False while FERB is paused
+        self.available = available               # False while FERB is paused or can't watch the owner's input
+        self.why_unavailable = why_unavailable   # which of those, in words (HAND-409)
 
     async def run(self, steps: list[Step], holder: str, what: str) -> int:
         """Explicit foreground input stops on owner activity; never suppresses or replays owner events."""
         if not self.available():
-            raise Refused("FERB is paused: no foreground input")
+            raise Refused(self.why_unavailable())
         async with self.gui.hold(holder):
             for i, step in enumerate(steps):
                 if self.owner_active():

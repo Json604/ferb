@@ -988,7 +988,7 @@ class MacComputerDriver:
                               "Space on this Mac. No foreground switch was made")
             front = self.apps.frontmost()
             if self.input.owner_active() and front and front.pid == a.pid:
-                raise Refused("the owner is using this app; pointer input stopped")
+                raise Refused("the owner is (or may be) using this app; pointer input stopped")
 
         def checked() -> ActionFacts:
             window_ok()
@@ -2395,7 +2395,8 @@ class MacComputerDriver:
         is in front first (FERB's notch too, right after the owner's Yes there) the target is brought forward, and each
         event is posted only while the target is the front app, so none reaches FERB's own app (M1)."""
         if not self.input.available():
-            return ActionResult(False, "FERB is paused: no foreground input", {"performed": False})
+            why = getattr(self.input, "why_unavailable", lambda: "FERB is paused: no foreground input")()
+            return ActionResult(False, why, {"performed": False})
         await self.input.quiet(holder, what)
         front = await asyncio.to_thread(self.apps.frontmost)
         if front is None or front.pid != a.pid:

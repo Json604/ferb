@@ -210,6 +210,10 @@ public struct AISnapshot: Equatable {
     }
 
     public func usable(_ name: String) -> Bool { runtimes.first { $0.name == name }?.usable ?? false }
+    /// Whether FERB uses this runtime now: a role runs on it (the daemon's `roles`), whatever else is signed in (APP-655).
+    public func inUse(_ name: String) -> Bool { roles.values.contains(name) }
+    /// The API key FERB uses now, when a role runs on one.
+    public var apiKeyInUse: APIProvider? { APIProvider.allCases.first { inUse($0.rawValue) } }
     public func signedIn(_ name: String) -> Bool { runtimes.first { $0.name == name }?.signedIn ?? false }
     public func signIn(_ name: String) -> SignInStatus? { runtimes.first { $0.name == name }?.signIn }
 

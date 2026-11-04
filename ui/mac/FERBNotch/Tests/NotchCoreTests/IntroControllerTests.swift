@@ -431,7 +431,7 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertFalse(t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_Accessibility") })
         t.orb.onDropAccepted?()
         XCTAssertFalse(t.notch.introLine?.checklist.first { $0.id == "full_disk_access" }?.complete ?? true)
-        XCTAssertFalse(t.sound.played.contains(.done))
+        XCTAssertFalse(t.sound.played.contains(.allAllowed))
         XCTAssertEqual(t.orb.flyHomes, 0)
         t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "denied", fda: "granted")
         await eventually { t.notch.introLine?.checklist.first { $0.id == "full_disk_access" }?.complete == true }
@@ -440,7 +440,7 @@ final class IntroControllerTests: XCTestCase {
         await eventually { t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_Accessibility") } }
         t.rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
         await eventually { t.progress.done }
-        XCTAssertEqual(t.sound.played.filter { $0 == .done }.count, 1)
+        XCTAssertEqual(t.sound.played.filter { $0 == .allAllowed }.count, 1)
         XCTAssertEqual(t.orb.flyHomes, 1)
     }
 
@@ -454,7 +454,7 @@ final class IntroControllerTests: XCTestCase {
         await eventually { t.rig.app.requests.contains("microphone") }
         await eventually { t.notch.introLine?.checklist.first { $0.id == "microphone" }?.complete == true }
         XCTAssertFalse(t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_AllFiles") })
-        XCTAssertFalse(t.sound.played.contains(.done))
+        XCTAssertFalse(t.sound.played.contains(.allAllowed))
         XCTAssertEqual(t.controller.beat, .permissions)
         await t.pick("permissions.next")
         await eventually { t.rig.opener.opened.contains { $0.absoluteString.hasSuffix("Privacy_AllFiles") } }

@@ -3,6 +3,7 @@ schedule's recorded scope."""
 
 import asyncio
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -39,10 +40,22 @@ class Schedules:
         self._timer_task = asyncio.get_running_loop().create_task(self.timers.run())
         self._held_task = asyncio.get_running_loop().create_task(self._supervise("held_banners", self._flush_held))
 
+    def _record_start(self) -> bool:
+        """Journal `daemon.started` and say whether this start is in a new login session (SENSE-201, SENSE-407). The
+        session's digest is kept under `mac_login`, compared as stored with the previous start's: the old key,
+        `session`, names a cookie to the redactor, so it was always "[redacted]" and every start counted as a login
+        (live 2026-11-01..03: 18 false returns firing held reminders). A previous start without the key (an older
+        build) can't be compared: no return; no start before at all: a return."""
+        login = self._login_session()
+        previous = self.journal.recent_values("daemon.started", "mac_login", 1)
+        entry = self.journal.append("daemon.started", {"pid": os.getpid()} | ({"mac_login": login} if login else {}))
+        stored = entry.data.get("mac_login")
+        return stored is not None and previous != [None] and previous != [stored]
+
     @staticmethod
     def _login_session() -> str | None:
         """A digest of this login session's unique id (CoreGraphics; a restart or a new login gives a new one), kept
-        in `daemon.started`; None when it can't be read."""
+        in `daemon.started`; None when it can't be read. Not a secret: it only tells one login session from another."""
         import hashlib
         from ferb.sense.watchers.presence import session
         ident = session().get("id")

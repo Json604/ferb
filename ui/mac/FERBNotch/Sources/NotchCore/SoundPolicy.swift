@@ -1,32 +1,33 @@
 import Foundation
 import CoreGraphics
 
-/// The decided sound family (kb area app): no flight or landing sound.
+/// The decided sound family (kb area app): no flight or landing sound, and no task or message completion sound
+/// (APP-651, owner). `allAllowed` is the tour's success cue once every permission is on (APP-615), a tour sound.
 public enum FerbSound: CaseIterable, Sendable {
-    case firstLaunch, intro, summon, listeningStart, listeningEnd, done, needsYou, paused, error, notification
-    case orbDrip, orbHop, orbMelt
+    case firstLaunch, intro, summon, listeningStart, listeningEnd, needsYou, paused, error, notification
+    case orbDrip, orbHop, orbMelt, allAllowed
 }
 
 /// The sounds the owner switches one by one in Settings (owner, 2026-11-01): stored as `feedback.sound.<name>`
 /// booleans, absent meaning the default. The tour's sounds (the first-launch clip, the logo, the orb) share one switch.
 public enum SoundSwitch: String, CaseIterable, Sendable {
-    case needsYou, error, done, notification, listeningStart, listeningEnd, tour, summon, paused
+    case needsYou, error, notification, listeningStart, listeningEnd, tour, summon, paused
 
     public var key: String { "feedback.sound." + rawValue }
-    /// On by default: needs you, error, done, notification, listening start and end, the tour. Off: summon, paused.
+    /// On by default: needs you, error, notification, listening start and end, the tour. Off: summon, paused. A
+    /// `feedback.sound.done` an older build stored names no switch any more and is never read.
     public var onByDefault: Bool { self != .summon && self != .paused }
 
     public init(_ s: FerbSound) {
         switch s {
         case .needsYou: self = .needsYou
         case .error: self = .error
-        case .done: self = .done
         case .notification: self = .notification
         case .listeningStart: self = .listeningStart
         case .listeningEnd: self = .listeningEnd
         case .summon: self = .summon
         case .paused: self = .paused
-        case .firstLaunch, .intro, .orbDrip, .orbHop, .orbMelt: self = .tour
+        case .firstLaunch, .intro, .orbDrip, .orbHop, .orbMelt, .allAllowed: self = .tour
         }
     }
 
@@ -35,7 +36,6 @@ public enum SoundSwitch: String, CaseIterable, Sendable {
         switch self {
         case .needsYou: return .needsYou
         case .error: return .error
-        case .done: return .done
         case .notification: return .notification
         case .listeningStart: return .listeningStart
         case .listeningEnd: return .listeningEnd
@@ -67,16 +67,20 @@ public enum SoundPolicy {
         return s == .needsYou ? SoundDecision(subtle: true) : nil
     }
 
-    /// The sound an ended task or reply plays, by its status: done (confirmed or not) → done; waiting on the owner →
-    /// needs you; the owner's own stop → none; anything else (failed, interrupted) → error.
+    /// The sound an ended task or reply plays, by its status: done (confirmed or not) → none (the owner removed the
+    /// completion sound, APP-651); waiting on the owner → needs you; the owner's own stop → none; anything else
+    /// (failed, interrupted) → error.
     public static func outcomeSound(_ status: String) -> FerbSound? {
         switch status {
-        case "done", "done_unverified": return .done
+        case "done", "done_unverified": return nil
         case "needs_user", "paused": return .needsYou
         case "cancelled": return nil
         default: return .error
         }
     }
+
+    /// A finished task's status, confirmed or not.
+    public static func isDone(_ status: String) -> Bool { status == "done" || status == "done_unverified" }
 
     /// Stereo position from the screen x: the screen's edges map to ±0.6, never fully hard-panned.
     public static func pan(x: CGFloat, screenWidth: CGFloat) -> Float {

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ferb.act.browser.pairing import Binding
-from ferb.act.browser.profiles import BrowserProfile, resolve
+from ferb.act.browser.profiles import BrowserProfile, resolve, with_paired
 from ferb.core.errors import Refused
 from ferb.core.types import Identity
 
@@ -30,6 +30,12 @@ class Resolver:
     # the owner's own pick (Settings, `browsing.owner_profile`) for browsing as them while FERB has no profile of its own
     # (APP-1): an explicit owner setting, never inferred
     owner_default: Callable[[], tuple[str, str] | None] = lambda: None
+    # why profile discovery can't see the owner's profiles now (daemon supplied: Full Disk Access is off), else None
+    unseen: Callable[[], str | None] = lambda: None
+
+    def known(self) -> list[BrowserProfile]:
+        """Discovered profiles, plus paired ones of a browser discovery found none in, by folder (HAND-407)."""
+        return with_paired(self.profiles(), [(b.browser, b.folder) for b in self.bindings()])
 
     def owner_paired(self) -> list[Binding]:
         ferb = self.identity_profile()
@@ -40,10 +46,11 @@ class Resolver:
         paired = {(b.browser, b.folder) for b in self.owner_paired()}
         ferb = self.identity_profile()
         if named:
-            pool = [p for p in self.profiles() if (p.browser, p.folder) != ferb]
+            pool = [p for p in self.known() if (p.browser, p.folder) != ferb]
             r = resolve(named, pool, self.aliases())
             if r.kind != "one":
-                raise NeedsOwner(r.message(named, pool))
+                why = self.unseen() if r.kind == "none" and not self.profiles() else None
+                raise NeedsOwner(r.message(named, pool) + (f" ({why})" if why else ""))
             p = r.candidates[0]
             if (p.browser, p.folder) not in paired:
                 raise NeedsOwner(f"{p.browser} profile '{p.display_name}' ({p.browser}/{p.folder}) isn't paired "
@@ -61,5 +68,5 @@ class Resolver:
                          ". Use ferb_browser for ordinary browsing in FERB's own profile.")
 
     def _name(self, browser: str, folder: str) -> str:
-        p = next((p for p in self.profiles() if (p.browser, p.folder) == (browser, folder)), None)
+        p = next((p for p in self.known() if (p.browser, p.folder) == (browser, folder)), None)
         return f"{browser}/{p.display_name if p else folder}"

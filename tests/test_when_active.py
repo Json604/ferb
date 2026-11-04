@@ -115,6 +115,20 @@ def test_the_daemon_starting_in_a_new_login_session_is_a_return(daemon: RunningD
         daemon.daemon.presence.stop()
 
 
+# decision: SENSE-407
+def test_a_restart_in_the_same_login_session_is_no_return(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """Live 2026-11-01..03: the session digest was journaled under a key the redactor hides, so the comparison never
+    matched and every daemon start counted as the owner logging back in (held reminders fired, paused-task notes
+    repeated)."""
+    d = daemon.daemon
+    login = ["4f1c9e0a7b3d2e65"]                              # a 16-hex digest, like a real one
+    monkeypatch.setattr(type(d), "_login_session", staticmethod(lambda: login[0]))
+    run(daemon, d._record_start)                              # the start before (whatever it recorded)
+    assert run(daemon, d._record_start) is False             # the same login session again: an update, a crash
+    login[0] = "0b2d4c6e8a1f3e57"
+    assert run(daemon, d._record_start) is True              # a new login session: a restart of the Mac or a login
+
+
 # decision: ORCH-317
 def test_a_reminder_for_when_the_owner_is_back_waits_for_their_next_return(daemon: RunningDaemon) -> None:
     words = "when I'm back at my mac remind me to call Mom"

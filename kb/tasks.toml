@@ -428,3 +428,12 @@ status = "open"
 why = "Audit G2 after GATE-506: the URL sink still asks when a year or short number in an address also appears in the owner's data FERB read first (the planner's context holds dates). Narrowing it needs a threshold, the owner's (rule 18); a one-time code is a short number too."
 decisions = ["GATE-506", "GATE-507"]
 ask = "When FERB opens a page whose address holds a year (like /2026/10/) or a short number that also appears in something private FERB read, it asks first. Should a bare year (four digits, 1900-2099) stop counting as your data? And numbers shorter than how many digits? A one-time code is often 4-6 digits, so a lower limit lets those through unasked."
+
+[T-1020]
+title = "Should the secret helper report the Keychain's status (it re-pins the helper)?"
+area = "gateway"
+kind = "question"
+status = "blocked"
+why = "G6/H7 (2026-11-04): HAND-410 gives what the pinned helper allows. The exact OSStatus needs a helper code change (ready outside the repo), which re-pins it (REL-404): every saved secret then asks for the login password once more on each Mac (T-502)."
+decisions = ["HAND-410", "REL-404"]
+ask = "To show the Keychain's exact reason when a saved secret can't be read (for example \"user interaction is not allowed\"), the small secrets helper has to be rebuilt. After that update, macOS asks once more for your login password for each saved secret on each Mac. Rebuild it now, or keep today's shorter reasons?"

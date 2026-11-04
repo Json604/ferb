@@ -578,9 +578,9 @@ extension NotchModel {
             knownCompletedTasks.insert(taskID)
             // A task this chat didn't start (a schedule's run, one from before a restart): done is a notification; a
             // failure or a wait on the owner sounds as itself (its banner then posts silently).
-            if announce && fresh, let sound = SoundPolicy.outcomeSound(status) {
-                if sound == .done { feedback.notification(for: [taskID], bannerMayFollow: true) }
-                else { feedback.play(sound, for: taskID) }
+            if announce && fresh {
+                if SoundPolicy.isDone(status) { feedback.notification(for: [taskID], bannerMayFollow: true) }
+                else if let sound = SoundPolicy.outcomeSound(status) { feedback.play(sound, for: taskID) }
             }
             if announce && fresh && Self.opensNotch(status) { presentResult(event) }
             runningTasks.removeValue(forKey: taskID)

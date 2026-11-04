@@ -28,6 +28,25 @@ final class WindowPresentationTests: XCTestCase {
         XCTAssertEqual(controller.selection.section, .schedules)
     }
 
+    /// Owner, 2026-11-04: Command-Q in Settings quit FERB, notch included. Command-Q closes FERB's window when it's in
+    /// front; with another window in front it quits as before. The window opens on the owner's Space without switching
+    /// Spaces, and pointer moves reach the notch while it is in front.
+    // decision: APP-654, APP-650, APP-656
+    func testQuitKeyClosesOnlyTheFERBWindowInFront() throws {
+        _ = NSApplication.shared
+        let controller = FERBWindowController(store: FERBWindowStore(rpc: ScriptedRPC()),
+            actions: FERBAppActions(feedback: SoundFeedback(), cursor: CursorController(makePanels: false)))
+        controller.show(.settings)
+        let window = try XCTUnwrap(controller.window)
+        defer { window.orderOut(nil) }
+        XCTAssertTrue(window.collectionBehavior.contains(.moveToActiveSpace))
+        XCTAssertTrue(window.acceptsMouseMovedEvents)
+        XCTAssertFalse(controller.closeOnQuitKey(keyWindow: nil))
+        XCTAssertTrue(window.isVisible)
+        XCTAssertTrue(controller.closeOnQuitKey(keyWindow: window))
+        XCTAssertFalse(window.isVisible)
+    }
+
     // decision: APP-630
     func testRequestedWindowRecoversAnOffscreenFrame() throws {
         _ = NSApplication.shared

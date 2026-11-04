@@ -20,6 +20,12 @@ from ferb.registry import add_identity_browser, add_owner_browsers
 # DMN-507: what a browser call says while FERB may not look at other apps' data yet
 WAITS_FOR_FULL_DISK_ACCESS = ("FERB can't look at your browsers until it has Full Disk Access (System Settings → "
                               "Privacy & Security → Full Disk Access → FERB)")
+# HAND-407: why browser tools see only the paired profiles, by folder, while that is so
+PROFILES_UNSEEN = ("FERB can't read browser profile names without Full Disk Access (System Settings → Privacy & "
+                   "Security → Full Disk Access → FERB), so only the profiles already paired with FERB are known, by "
+                   "their folder")
+REFUSED = "browser.connection_refused"      # HAND-406: a browser connection FERB didn't take, with its reason
+HELPER_FAILED = "secret.helper_failed"      # HAND-410: a secret-helper failure, with its status when known
 
 
 class Browsers:
@@ -163,8 +169,14 @@ class Browsers:
         assert self.db and self.ledger
         self.pairings = Pairings(self.db, self.clock)
         self.hub = Hub(self.pairings, self.ledger, self._publish, lambda: self.device_id)
+        # HAND-406: each refusal journaled, the first at once and then counted per reason and profile (`_Repeats`)
+        self.hub.record_refusal = lambda facts: self._repeats.record(
+            REFUSED, (REFUSED, str(facts.get("reason")), str(facts.get("profile") or facts.get("app") or "")), facts)
+        self.server.on_native_refused = lambda why, origin: self.hub.note_refusal(  # type: ignore[union-attr]
+            "host", why, origin=origin)
         resolver = Resolver(self._profiles, self.pairings.all, self._identity_profile,
-                            owner_default=self._owner_browsing_profile)
+                            owner_default=self._owner_browsing_profile,
+                            unseen=lambda: None if self._other_app_data() else PROFILES_UNSEEN)
         await self.wake.start()
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
         self.router.native_secrets = self._native_page_secrets      # B6: an unread tab's fields from Accessibility
@@ -192,7 +204,13 @@ class Browsers:
         except OSError as e:
             self._journal().append("browser.uploads_startup_failed", {"error": f"{type(e).__name__}: {e}",
                                                                       "left": list(getattr(e, "left", []))})
+        from ferb.identity import helper as secret_helper
         from ferb.identity.helper import seal as helper_seal
+        # HAND-410: each secret-helper failure journaled with what is known of why (the helper runs in worker threads)
+        loop = asyncio.get_running_loop()
+        secret_helper.on_failure = lambda facts: loop.call_soon_threadsafe(
+            self._repeats.record, HELPER_FAILED,
+            (HELPER_FAILED, str(facts.get("operation")), str(facts.get("status", facts.get("found")))), facts)
         self.router.seal_value = lambda key, value, command, origin: helper_seal(self.home, key, value, command, origin)
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
         self.router.ask_secret = lambda ctx, target, **kw: self.gateway.ask_secret(ctx, target, **kw)
@@ -384,15 +402,18 @@ class Browsers:
         ferb = self._identity_profile()
         paired = {(b.browser, b.folder): b for b in self.pairings.all()}
         out = []
-        for p in self._profiles():
+        for p in browser_profiles.with_paired(self._profiles(), list(paired)):      # HAND-407
             b = paired.get((p.browser, p.folder))
             br = self.hub.bridges.get((p.browser, p.folder))
+            connected = bool(br and br.conn)
             out.append({"browser": p.browser, "folder": p.folder, "name": p.display_name, "email": p.email,
                         "ferb_identity": (p.browser, p.folder) == ferb,
                         "paired": b is not None, "identity": b.identity.value if b else None,
-                        "connected": bool(br and br.conn), "version": br.version if br and br.conn else "",
-                        "last_version": br.version if br else "",
-                        "refused": self.hub.refused.get(b.install_id) if b else None})
+                        "connected": connected, "version": br.version if br and br.conn else "",
+                        "last_version": (br.version if br and br.version else "")
+                        or (self.pairings.version(b.install_id) if b else ""),
+                        # HAND-406: why it can't connect (this run's refusal, or a recorded version that's too old)
+                        "refused": self.hub.problem(b) if b and not connected else None})
         unpaired = list(self.hub.unpaired.values())
         return {"profiles": out, "extension_ids": sorted(self.server.extension_ids()),
                 "unpaired_connections": {browser: unpaired.count(browser) for browser in sorted(set(unpaired))}}
@@ -581,7 +602,23 @@ class Browsers:
                                          self.browser_data_dirs)
         connected = {key for key, br in self.hub.bridges.items() if br.conn} if self.hub is not None else set()
         rows = browser_rows(states, store, extension_path(self.home), self._identity_profile(), connected)
-        return rows | ({"problem": files["problem"]} if files.get("problem") else {})
+        problems = ([files["problem"]] if files.get("problem") else []) + await self._extension_problems()
+        return rows | ({"problem": " ".join(problems)} if problems else {})
+
+    async def _extension_problems(self) -> list[str]:
+        """HAND-406: each paired profile that isn't connected and that FERB knows why (refused in this run, or its
+        extension last reported a version FERB no longer takes), in the owner's words for setup's message."""
+        if self.pairings is None or self.hub is None:
+            return []
+        names = {(p.browser, p.folder): p.display_name for p in await asyncio.to_thread(self._profiles)}
+        out = []
+        for b in self.pairings.all():
+            br = self.hub.bridges.get((b.browser, b.folder))
+            if (br is None or br.conn is None) and (why := self.hub.problem(b)) is not None:
+                label = browser_profiles.BROWSERS[b.browser].label if b.browser in browser_profiles.BROWSERS \
+                    else b.browser
+                out.append(f"{label} “{names.get((b.browser, b.folder), b.folder)}”: {why}.")
+        return out
 
     async def _connect_browsers(self) -> dict[str, Any]:
         """DMN-507: FERB's native host and the Web Store install request in every installed browser, written by the

@@ -63,6 +63,17 @@ class Pairings:
         r = self.db.conn.execute("SELECT key FROM ext_installs WHERE install_id = ?", (install_id,)).fetchone()
         return bytes(r["key"]) if r else None
 
+    def version(self, install_id: str) -> str:
+        """The extension version this install last reported in an authenticated hello ("" before any)."""
+        r = self.db.conn.execute("SELECT ext_version FROM ext_installs WHERE install_id = ?", (install_id,)).fetchone()
+        return str(r["ext_version"] or "") if r else ""
+
+    def record_version(self, install_id: str, version: str) -> None:
+        """Kept from every authenticated hello, accepted or refused (HAND-406): a profile whose extension is too old
+        stays known as such after a restart, while the extension can't connect."""
+        self.db.conn.execute("UPDATE ext_installs SET ext_version = ? WHERE install_id = ?",
+                             (version[:32], install_id))
+
     def unpair(self, browser: str, folder: str) -> bool:
         """The owner unpaired the profile. (Automatic pairing is gone, so nothing records the unpairing any more; its
         old ext_autopair_off table is left for the storage step's cleanup.)"""
