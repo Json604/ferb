@@ -11,6 +11,7 @@ run. Keys come from the Keychain at start and never appear in errors."""
 import asyncio
 import json
 import secrets
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal, Protocol
 
@@ -18,6 +19,7 @@ import httpx
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import FerbError, Unsupported
+from ferb.core.timing import CallTimer
 from ferb.core.types import ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
 from ferb.runtimes.schema_shape import Shape, same
 from ferb.runtimes.usage import Usage
@@ -156,6 +158,7 @@ class _Run:
     updates: list[str] = field(default_factory=list)
     inflight: "asyncio.Future[Any] | None" = None
     deadline: float | None = None               # the call's one overall limit (loop time), None for none
+    timer: CallTimer | None = None              # each model call's timing on its usage report (RUN-419)
 
 
 class ApiRuntime:
@@ -163,8 +166,10 @@ class ApiRuntime:
                  tool_names: list[str] | None, output_schema: dict[str, Any] | None, bridge: Bridge | None,
                  key: Callable[[str], Awaitable[str | None]], transport: httpx.AsyncBaseTransport | None = None,
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, retries: int = 4, backoff_s: float = 1.0,
-                 timeout_s: float = 600.0, effort: str | None = None, limit_s: float | None = None) -> None:
+                 timeout_s: float = 600.0, effort: str | None = None, limit_s: float | None = None,
+                 monotonic: Callable[[], float] = time.monotonic) -> None:
         self.provider, self.name = provider, provider.name
+        self.monotonic = monotonic       # the clock each model call's timing reads (RUN-419); tests give a fake
         self.effort = effort             # L39: a worker run's effort when asked for ("high"); supervisor runs stay low
         self.mode, self.role, self.tool_names, self.output_schema = mode, role, list(tool_names or []), output_schema
         reshape = getattr(provider, "shape", None)
@@ -203,7 +208,8 @@ class ApiRuntime:
         client = httpx.AsyncClient(timeout=self.timeout_s, transport=self.transport)
         deadline = asyncio.get_running_loop().time() + self.limit_s if self.limit_s is not None else None
         return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,
-                         {"run": _Run(state, key, run_token, names, client, deadline=deadline)})
+                         {"run": _Run(state, key, run_token, names, client, deadline=deadline,
+                                      timer=CallTimer(self.monotonic))})
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         r: _Run = run.state["run"]
@@ -252,7 +258,8 @@ class ApiRuntime:
                                        ({"account": e.account} if e.account else {}) |
                                        ({"image": True} if e.image else {}))
                     return
-                yield RuntimeEvent("usage", asdict(turn.usage))
+                # RUN-419: the call's timing, from its request going out to its last streamed event
+                yield RuntimeEvent("usage", asdict(turn.usage) | ({"timing": r.timer.done()} if r.timer else {}))
                 if not turn.calls:
                     if r.updates:
                         continue  # The answer predates an accepted owner correction.
@@ -322,9 +329,14 @@ class ApiRuntime:
         url, headers, body = request(r.state)
         headers = {**headers, **self.provider.auth(r.key)}
         delay = self.backoff_s
+        timer = r.timer
+        if timer:
+            timer.begin()                    # this model call begins (RUN-421); a retry's wait counts before its send
         for attempt in range(self.retries + 1):
             emitted = False
             try:
+                if timer:
+                    timer.sent()
                 async with r.client.stream('POST', url, headers=headers, json=body) as resp:
                     if resp.status_code in RETRY_STATUS and attempt < self.retries:
                         await resp.aread()
@@ -341,6 +353,8 @@ class ApiRuntime:
                     if streaming and resp.headers.get('content-type', '').split(';', 1)[0].strip().lower() == 'text/event-stream':
                         parser = getattr(self.provider, 'stream_parser')()
                         async for event in _sse_events(resp):
+                            if timer:
+                                timer.output()       # each streamed event is the model's output arriving
                             try:
                                 text = parser.feed(event)
                             except (KeyError, TypeError, ValueError):
@@ -351,6 +365,8 @@ class ApiRuntime:
                         data = parser.finish()
                     else:
                         await resp.aread()
+                        if timer:
+                            timer.output()           # not streamed: the whole answer arrives at once
                         try:
                             data = resp.json()
                         except ValueError:

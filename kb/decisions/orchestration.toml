@@ -629,3 +629,30 @@ rule = "A planner call carrying the owner's screenshot is run once more without 
 why = "Audit R3 (owner 2026-11-04: \"i approve all fixes\"): all 5 live `screen.image_refused` rows (2026-10-28) were schema-union 400s or \"no model set\", each costing a second model call and a trace saying the image was refused."
 rejected = ["Matching the error's free text for the word image", "Keeping the broad retry and only rewording the journal row"]
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._supervise", "ferb/orchestrator/worker.py::ImageRefused"]
+
+[ORCH-525]
+title = "FERB's work before and after the planner's model call is timed"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "A chat turn's `planner.prepare` span (no task id, its request id) runs from its intake, after the chat.message rows, to its model.turn span, with steps_ms: messages, environment, front_window (the wait for the capture at send, DMN-520), runtime, conversation, live_facts, tasks, blocks; a repair or rerun call opens its own. Its first recorded reply writes a point span `planner.reply` with after_decision_ms since the decision returned. Injected clock, no content; the parts add up to total_ms."
+why = "Owner 2026-11-04 (\"i approve all fixes\"): a Codex planner reply took 10.7 s, two ~5 s model calls and 0.79 s before the first with no span covering it, and the trace couldn't say where the time went."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._intake", "ferb/orchestrator/supervisor.py::Supervisor._supervise", "ferb/orchestrator/supervisor.py::Supervisor._record_reply"]
+
+[ORCH-526]
+title = "Every model run's own time is split on its spans"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "The shared `_run_once` (every runtime and role) times prepare (the request built), start, stream (model calls and tools) and close, with model_calls and the runtime's start_steps_ms (RUN-420): the planner's model.turn output `timing` holds them as `call` beside ferb_before, model_call and ferb_after; a worker or checker span carries them as `timing`. A usage report with no timing of the runtime's own gets FERB's from the events' arrival (`by` arrival). Each set adds up to its total_ms."
+why = "Owner 2026-11-04 (\"i approve all fixes\"): a Codex planner reply took 10.7 s, two ~5 s model calls and 0.79 s before the first with no span covering it, and the trace couldn't say where the time went."
+paths = ["ferb/orchestrator/worker.py::WorkerRuns._run_once", "ferb/orchestrator/supervisor.py::Supervisor._supervise"]
+
+[ORCH-527]
+title = "ferb trace --full and --json show where each turn's time went"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "ferb/trace/timing.py builds from the recorded timing only, per planner turn: FERB before the model, the runtime's start, each model call split (with whose clock), the lookups' tool calls in the order they began, the stream's remainder, the close and FERB after; per worker or checker run the same without the planner's parts. `--json` adds it as `timing`, `--full` ends with it; a span from before timing shows none. Developer toolbox only (DMN-3); no RPC changes."
+why = "The owner reads traces to see where a reply's time goes."
+paths = ["ferb/trace/timing.py", "ferb/cli/admin.py::trace"]

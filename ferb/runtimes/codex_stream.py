@@ -15,12 +15,14 @@ import re
 import secrets
 import tempfile
 import uuid
+from collections import deque
 from contextlib import suppress
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
 from ferb.core.errors import RuntimeUnavailable, Unsupported
+from ferb.core.timing import CallTimer, Steps
 from ferb.core.types import ModelRequest, RunHandle, RuntimeEvent, Task
 from ferb.runtimes.tooltrace import tools_in
 from ferb.runtimes.usage import from_codex
@@ -245,7 +247,12 @@ def _command(runtime: CodexRuntime, catalog: Path | None, token_file: Path | Non
 
 
 async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_token: str = "") -> RunHandle:
+    """RUN-420: the start is timed step by step on the runtime's clock (`start_steps` in the run state: files, the
+    app-server's spawn, initialize, the account check, the thread's start or resume, the turn's start; CodexRuntime
+    adds its version check), and each model call after it by `CallTimer` from the arrival of Codex's output
+    (`_observe`)."""
     from ferb.runtimes.codex_exec import CODEX_USER, codex_home, locked_catalog
+    steps = Steps(runtime.monotonic)
     home = codex_home(runtime.ferb_home)
     if home is None:
         raise AccountError('auth_required')
@@ -268,6 +275,7 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
         'turn_completed': False, 'request_id': 0, 'auth_source': home / 'auth.json',
         'auth_copy': isolated / 'auth.json', 'auth_original': b'', 'cancelled': False, 'redact': runtime.redact,
         'lock': lock, 'violation_item': None,
+        'start_steps': steps.steps, 'timer': CallTimer(runtime.monotonic), 'timings': deque(),
         # the one overall limit on this call, start and answer together (runtime.timeout_s; None: no limit)
         'deadline': (asyncio.get_running_loop().time() + runtime.timeout_s
                      if runtime.timeout_s is not None else None)}
@@ -284,6 +292,7 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
             _private_write(state['auth_copy'], state['auth_original'])
             user_home = runtime.ferb_home / CODEX_USER
             user_home.mkdir(mode=0o700, parents=True, exist_ok=True)
+            steps.mark('files')
             env = {k: v for k, v in os.environ.items() if k not in {
                 'OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL', 'CODEX_ACCESS_TOKEN',
                 'CODEX_AUTHAPI_BASE_URL', 'CODEX_AGENT_IDENTITY_AUTHAPI_BASE_URL'}}
@@ -293,9 +302,11 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
                 env=env, cwd=str(workdir), limit=64 * 1024 * 1024)
             state['watcher'] = asyncio.create_task(_watch_catalog(runtime, run))
             state['reader'] = asyncio.create_task(_dispatch(run))
+            steps.mark('spawn')
             await _rpc(run, 'initialize', {'clientInfo': {'name': 'ferb', 'title': 'FERB', 'version': '0.27'},
                                          'capabilities': {'experimentalApi': True}})
             await _write(run, {'method': 'initialized'})
+            steps.mark('initialize')
             checking_account = True
             try:
                 account = await _rpc(run, 'account/read', {'refreshToken': False})
@@ -310,6 +321,7 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
             if not isinstance(details, dict) or details.get('type') != 'chatgpt':
                 raise AccountError('auth_required')
             _save_refresh(state)
+            steps.mark('account')
             resumed, developer = None, False
             if runtime.cache_role and runtime.mode == 'supervisor':
                 # RUN-416: every turn of the cached role resumes its fixed thread (one prompt_cache_key, so the
@@ -329,8 +341,12 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
                 state['thread_id'] = thread['thread']['id']
             else:
                 state['thread_id'] = resumed
+            steps.mark('thread_resume' if resumed is not None else 'thread_start')
+            # the first model call begins as the turn is asked for: its request can go out before the answer arrives
+            state['timer'].begin()
             turn = await _rpc(run, 'turn/start', _turn_params(runtime, request, state['thread_id'], developer))
             state['turn_id'] = turn['turn']['id']
+            steps.mark('turn_start')
         return run
     except TimeoutError:
         await cancel(run)
@@ -482,6 +498,7 @@ async def _dispatch(run: RunHandle) -> None:
                     for future in state['waiters'].values():
                         if not future.done():
                             future.set_exception(ProtocolError('Codex turn completed before RPC acknowledgement'))
+                _observe(state, obj)
                 state['notifications'].put_nowait(obj)
     except ProtocolError as exc:         # its own words (a disallowed client request, a malformed message)
         _close_transport(run, exc)
@@ -490,6 +507,25 @@ async def _dispatch(run: RunHandle) -> None:
     except asyncio.CancelledError:
         _close_transport(run, ProtocolError('Codex run closed'))
         raise
+
+
+def _observe(state: dict[str, Any], obj: dict[str, Any]) -> None:
+    """RUN-421: each model call's timing from the arrival of its notifications, as they are read (not when they are
+    consumed): an item's start, delta or completion is the model's output, a FERB tool call's completion hands its
+    result back (the next call begins), and a token-usage report ends the call; its timing waits in `timings` for the
+    usage event. Only the run's own thread counts (one turn per app-server). Nothing of the content is kept."""
+    params = obj.get('params') or {}
+    timer = state.get('timer')
+    if timer is None or not isinstance(params, dict) or params.get('threadId') != state.get('thread_id'):
+        return
+    method = str(obj.get('method') or '')
+    item = held if isinstance(held := params.get('item'), dict) else {}
+    if method == 'thread/tokenUsage/updated':
+        state['timings'].append(timer.done())
+    elif method == 'item/completed' and item.get('type') == 'mcpToolCall':
+        timer.handed_back()
+    elif method.startswith('item/') and item.get('type') != 'userMessage':
+        timer.output()
 
 
 async def _notification(run: RunHandle) -> dict[str, Any]:
@@ -570,6 +606,8 @@ async def _watch_catalog(runtime: CodexRuntime, run: RunHandle) -> None:
             if not isinstance(array, list):
                 continue
             seen = {n.removeprefix('functions.') for n in tools_in(text)}
+            if state.get('timer') is not None:
+                state['timer'].sent()            # Codex's request trace: the provider request goes out now (RUN-421)
             state['seen'] |= seen
             if not state.get('catalog_unreadable'):
                 state['catalog_observed'] = True
@@ -692,7 +730,9 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                         'cached_input_tokens': usage.get('cachedInputTokens', 0),
                         'output_tokens': usage.get('outputTokens', 0),
                         'reasoning_output_tokens': usage.get('reasoningOutputTokens', 0)}
-                    yield RuntimeEvent('usage', asdict(from_codex(runtime.model, mapped)))
+                    timings = state.get('timings')
+                    yield RuntimeEvent('usage', asdict(from_codex(runtime.model, mapped))
+                                       | ({'timing': timings.popleft()} if timings else {}))
                 elif method == 'error' and params.get('willRetry') is True:
                     # Codex retries it itself and "this will not interrupt a turn" (v2 ErrorNotification,
                     # app-server-protocol v2/notification.rs:62-69): reported, and the run goes on
