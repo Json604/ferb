@@ -3007,3 +3007,12 @@ request = "Ask FERB to open a page with ads or embedded frames (e.g. a news or c
 pass = "Each click lands. No browser.act step says background_input_unavailable with \"outcome unknown\"; if a click couldn't be prepared, its step is a plain failure (no \"outcome unknown\") and the worker tries it again or says why, instead of refusing to repeat it."
 decisions = ["HAND-422", "HAND-423"]
 sitting = "after this change is installed"
+
+[LIVE-771]
+title = "A press on the very top of the notch opens or drags FERB"
+area = "app"
+surface = "A FERB.app build with APP-710 on a notched Mac (macOS 27), docked in the notch; hover on, then off"
+request = "Push the pointer all the way up against the top screen edge over the camera housing (centre, then each far corner of the housing) and press there: once to click, once to drag down and to the right; drop it on the right edge, then drag it back into the notch. Repeat with the chat open. Then click the menu bar right beside the housing and the strip just below it."
+pass = "A press at the topmost edge anywhere across the housing, corners included, behaves exactly like one lower down: the click opens (or closes) FERB, the drag tears it out with the approved feel and it docks back; it works with the chat closed and open, hover on and off. Clicks beside the housing reach the menu bar, a click on the strip below reaches the app underneath, and nothing visible is added at the notch."
+decisions = ["APP-710", "APP-711", "APP-705", "APP-706", "APP-629"]
+sitting = "after this change is installed"

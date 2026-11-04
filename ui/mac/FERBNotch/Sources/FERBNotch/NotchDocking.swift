@@ -16,6 +16,18 @@ enum NotchDocking {
         CGRect(x: bounds.minX, y: bounds.minY + pullDepth, width: bounds.width, height: max(0, bounds.height - pullDepth))
     }
 
+    /// How far the edge row reaches above the screen's top edge, and below it.
+    static let edgeReach: CGFloat = 1
+
+    /// The window that takes a press on the camera housing's topmost point row (APP-710). The window server never
+    /// gives a window the press on its own topmost point row: the press goes to what lies under it, which at the
+    /// screen's top edge is the menu bar (macOS 27's MenuBarAgent strip), whatever FERB's layer. The handle and the
+    /// open surface both start exactly at the top edge, so that row needs a window reaching above the edge: this one,
+    /// as wide as the housing and no wider, one point above the edge and one below.
+    static func edgeRow(cutout: CGRect) -> CGRect {
+        CGRect(x: cutout.minX, y: cutout.maxY - edgeReach, width: cutout.width, height: 2 * edgeReach)
+    }
+
     static func dragRegion(cutout: CGRect) -> CGRect {
         cutout.union(pullStrip(cutout: cutout))
     }
