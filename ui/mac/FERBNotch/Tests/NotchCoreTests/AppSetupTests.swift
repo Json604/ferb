@@ -184,7 +184,7 @@ final class AppSetupTests: XCTestCase {
     }
 
     /// Replay intro (Settings → General, and the menu's Set Up FERB…): every beat, whatever is set up already.
-    // decision: APP-638, APP-505
+    // decision: APP-638, APP-668
     func testReplayFromSettingsRunsEveryBeat() {
         XCTAssertEqual(AppSetupPlan.replay(needs(done: true)), .intro(IntroBeat.allCases))
         XCTAssertEqual(AppSetupPlan.replay(needs(done: false, missing: ["accessibility"])), .intro(IntroBeat.allCases))

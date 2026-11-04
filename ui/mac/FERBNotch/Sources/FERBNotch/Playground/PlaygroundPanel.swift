@@ -10,7 +10,6 @@ struct PlaygroundActions {
     var jump: (IntroBeat, Bool) -> Void
     var restartService: () -> Void
     var control: (IntroControl) -> Void
-    var stopPreview: () -> Void
     var openNotch: () -> Void
     var closeNotch: () -> Void
     var place: (PlaygroundPlacement, CGDirectDisplayID?) -> Void
@@ -193,7 +192,7 @@ struct PlaygroundPanel: View {
 
     private var tryBeat: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Try (suggestions and the plan preview)").font(.headline)
+            Text("Try (suggestions and the simulated task)").font(.headline)
             Picker("Suggestions (intro.suggest)", selection: $state.saved.suggest) {
                 ForEach(PlaygroundState.Outcome.allCases) { Text($0.rawValue).tag($0) }
             }.pickerStyle(.segmented)
@@ -212,11 +211,9 @@ struct PlaygroundPanel: View {
             HStack {
                 Button("Double-tap ⌥") { actions.control(.toggle) }
                 Button("Hold ⌘⌥") { actions.control(.talk) }
-                Button("⌃⌥Space") { actions.control(.summon) }
             }
             HStack {
                 Button("Pause FERB") { actions.control(.pause) }
-                Button("Stop the preview") { actions.stopPreview() }
                 Button("Open notch") { actions.openNotch() }
                 Button("Close notch") { actions.closeNotch() }
             }

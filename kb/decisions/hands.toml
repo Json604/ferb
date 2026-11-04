@@ -642,3 +642,25 @@ rule = "Pair all still pairs only owner profiles whose FERB extension is on, on 
 why = "Owner's question 2026-11-04 (browsers that all, none or some already have FERB's extension): Pair all passed over every profile without the extension on in silence, so the tour said \"Paired.\" when no browser had it yet, when only some did, or when it was off, removed or too old."
 paths = ["ferb/daemon/areas/browsers.py", "ferb/device/extensions.py", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift"]
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+
+[HAND-412]
+title = "Pair all is live, opens no page a profile can't answer, and ends a pairing as soon as FERB knows"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "setup.browsers_pairing streams Pair all (a plan, a result per profile as it lands, then the reply); FERB.app shows it live. From each profile's files FERB reads the copy's version and Chromium's disable reasons: below MIN_EXTENSION_VERSION it is skipped as too_old with no pairing page; off for new permissions says so. A pairing ends early when the hello was refused or the files now say off, gone or too old, and an unanswered page names the likely reason and the step. Owner's click only; minimum unchanged; no extra browser opens."
+why = "Owner's tour 2026-11-04: Pair all was slow, silent; profiles said only \"didn't answer\", and one pairing page showed ERR_BLOCKED_BY_CLIENT. The link was right: Chrome blocks an extension's page while it isn't running enabled there. Profiles last reported 0.15.12-0.15.13 (minimum 0.19.0)."
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ferb/daemon/areas/browsers.py", "ferb/device/extensions.py", "ferb/act/browser/profiles.py", "ferb/act/browser/autoinstall.py", "ui/mac/FERBNotch/Sources/NotchCore/PairProgress.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift"]
+live = ["LIVE-731"]
+
+[HAND-413]
+title = "A profile without FERB's extension gets Add to in one click, then a live wait and Pair"
+by = "agent"
+date = 2026-11-04
+status = "active"
+rule = "A profile Pair all skips as removed, not added or waiting for a restart (`can_add`) offers Add to <browser> in the tour's result and Settings → Browsers: on the owner's click FERB's store page opens in that profile, FERB reads the browsers every 1.5 s with a live line and Stop waiting, and once FERB is on there offers Pair (the owner's click). Waiting for a restart says so, with the store page as the faster way. No policy files; FERB restarts or quits no browser."
+why = "Owner, 2026-11-04: \"it doesnt show it cause i removed the extension from chrome. but shouldnt it detect that and install the extension????\""
+evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
+paths = ["ferb/daemon/areas/browsers.py", "ferb/device/extensions.py", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift"]
+live = ["LIVE-732"]

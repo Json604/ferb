@@ -3,8 +3,9 @@ import Combine
 @testable import FERBNotch
 import NotchCore
 
-/// The first-run tour (kb area app): the beats in order, each grant confirmed by the system, a preview that
-/// never acts, the controls taught by doing, and a skip or quit that leaves nothing behind.
+/// The first-run tour (kb area app): the beats in order, each grant confirmed by the system, every wait shown alive,
+/// Try's task run for real through the normal chat path, the controls taught by doing, and a skip or quit that leaves
+/// nothing behind.
 @MainActor
 final class IntroControllerTests: XCTestCase {
     static let suggestions = ["Find three things on my Mac I could tidy up.", "Compare three kettles on the web."]
@@ -20,6 +21,24 @@ final class IntroControllerTests: XCTestCase {
         ["type": "part", "preview": true, "request_id": "p1", "part": "2", "step": "2", "kind": "do",
          "label": "Suggest what to tidy", "state": "preview"],
         ["type": "done", "preview": true, "request_id": "p1"]]
+    /// A real task's turn as `chat.send` streams it (fake daemon): the ack, the plan with its task, the outcome.
+    static func taskEvents(_ id: String, status: String = "done") -> [[String: Any]] {
+        [["type": "ack", "request_id": id, "text": "On it."],
+         ["type": "plan", "request_id": id, "task_id": "task-" + id, "text": "I'll look through your Downloads folder.",
+          "plan_line": "I'll look through your Downloads folder.", "goal": "tidy up", "total": 1]]
+            + (status.isEmpty ? [] : [outcome(id, status: status)])
+    }
+    static func outcome(_ id: String, status: String) -> [String: Any] {
+        ["type": "outcome", "request_id": id, "task_id": "task-" + id, "status": status, "answer": "Here's what I found."]
+    }
+    /// Pair all, live, for one profile that pairs.
+    static let pairing: [[String: Any]] = [
+        ["type": "plan", "profiles": 1, "skipped": [[String: Any]](),
+         "todo": [["browser": "chrome", "folder": "Default", "name": "Personal", "label": "Google Chrome"]]],
+        ["type": "result", "browser": "chrome", "folder": "Default", "name": "Personal", "label": "Google Chrome",
+         "paired": true],
+        ["type": "done", "profiles": 1, "skipped": [[String: Any]](), "paired": 1,
+         "results": [["browser": "chrome", "folder": "Default", "name": "Personal", "paired": true]]]]
 
     private var subscriptions: Set<AnyCancellable> = []
 
@@ -89,6 +108,8 @@ final class IntroControllerTests: XCTestCase {
         rig.rpc.replies["chat.attach"] = ["session_id": "chat-1"]
         rig.rpc.replies["intro.suggest"] = ["suggestions": Self.suggestions.map { ["request": $0] }, "fits": true]
         rig.rpc.events["intro.preview"] = Self.previewEvents
+        rig.rpc.events["chat.send"] = Self.taskEvents("r1")
+        rig.rpc.events["setup.browsers_pairing"] = Self.pairing
         rig.app.notificationStatus = .granted
         rig.app.microphoneStatus = .granted
         let setup = rig.model(action, background: background)
@@ -488,7 +509,7 @@ final class IntroControllerTests: XCTestCase {
         await t.pick("pairAll")
         await t.pick("identityLater")
         await eventually { t.progress.done }
-        XCTAssertEqual(t.rig.rpc.methods().filter { $0 == "setup.browsers_pair_all" }.count, 1)
+        XCTAssertEqual(t.rig.rpc.methods().filter { $0 == "setup.browsers_pairing" }.count, 1)
         XCTAssertFalse(t.rig.rpc.methods().contains { $0.hasPrefix("identity.") })
         // The tour ended: the engine is released (a ringing sound may finish: only a skip stops it), the orb gone,
         // the notch quiet.
@@ -502,7 +523,7 @@ final class IntroControllerTests: XCTestCase {
 
     // MARK: Try
 
-    // decision: APP-513
+    // decision: APP-666
     func testTheScanLineIsShownBeforeTheSuggestion() async {
         let t = tour()
         let summary = "You spend most days in a code editor and a design app."
@@ -517,69 +538,99 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertTrue(offered.contains(Self.suggestions[0]) && offered.contains(Self.suggestions[1]))
     }
 
-    // decision: APP-513
-    func testTryShowsThePreviewAndActsNever() async {
+    /// Owner decision 2026-11-04 (APP-666): the picked suggestion runs for real, through the same `chat.send` as a typed
+    /// message, in the open chat while the notch follows it; then the other one, or on. No plan-only preview.
+    // decision: APP-666
+    func testTryRunsThePickedTaskForRealThroughTheChat() async {
         let t = tour()
         t.controller.start(beats: [.tryIt, .home])
         await t.pick("suggestion.0")
-        await eventually { t.notch.conversation.turns.contains { $0.preview && $0.card?.rows.count == 2 } }
-        XCTAssertTrue(t.rig.rpc.methods().contains("intro.suggest"))
-        XCTAssertEqual(t.rig.rpc.params(of: "intro.preview").map { $0["request"] as? String },
-                       [Self.suggestions[0]])
-        let shown = t.notch.conversation.turns.first { $0.preview }
-        XCTAssertEqual(shown?.request, Self.suggestions[0])
-        XCTAssertEqual(shown?.card?.rows.map(\.state), ["preview", "preview"])   // each step marked a preview
+        await eventually { t.rig.rpc.params(of: "chat.send").count == 1 }
+        XCTAssertEqual(t.rig.rpc.params(of: "chat.send").first?["text"] as? String, Self.suggestions[0])
         XCTAssertTrue(t.notch.expanded)                                          // in the real chat
-        XCTAssertFalse(t.rig.rpc.methods().contains("chat.send"))
-        await t.pick("otherSuggestion")
-        await eventually { t.rig.rpc.params(of: "intro.preview").count == 2 }
-        XCTAssertEqual(t.rig.rpc.params(of: "intro.preview").last?["request"] as? String, Self.suggestions[1])
-        await t.pick("notNow")
+        await eventually { t.notch.conversation.turns.contains { $0.request == Self.suggestions[0] && $0.status == "done" } }
+        await t.pick("otherSuggestion")                                          // the result line offers the other one
+        await eventually { t.rig.rpc.params(of: "chat.send").count == 2 }
+        XCTAssertEqual(t.rig.rpc.params(of: "chat.send").last?["text"] as? String, Self.suggestions[1])
+        await t.pick("next")
         await eventually { t.progress.done }
-        XCTAssertFalse(t.rig.rpc.methods().contains("chat.send"))
-        XCTAssertFalse(t.notch.conversation.forStorage().turns.contains { $0.preview })   // never saved
+        XCTAssertFalse(t.rig.rpc.methods().contains("intro.preview"))
+        XCTAssertFalse(t.notch.conversation.turns.contains { $0.preview })
+        let starting = t.lines.all.filter { $0.text == IntroCopy.starting.text || $0.text == "On it…" }
+        XCTAssertFalse(starting.isEmpty)
+        XCTAssertTrue(starting.allSatisfy { $0.since != nil })                  // a live line while it runs
     }
 
-    // decision: APP-514
-    func testDoItForRealStartsTheTaskAfterHome() async {
+    /// A task that runs long never holds the tour: Continue the tour leaves it running, as any task.
+    // decision: APP-666
+    func testATryTaskThatRunsOnNeverHoldsTheTour() async {
         let t = tour()
-        t.sleeper.hold(IntroController.Timing.home)
+        t.rig.rpc.events["chat.send"] = Self.taskEvents("r1", status: "")
+        t.rig.rpc.heldStreams = ["chat.send"]
         t.controller.start(beats: [.tryIt, .home])
         await t.pick("suggestion.1")
-        await eventually { t.notch.conversation.turns.contains { $0.preview && $0.card != nil } }
-        await t.pick("doItForReal")
-        await eventually { t.controller.beat == .home && t.sleeper.isWaiting(IntroController.Timing.home) }
-        XCTAssertFalse(t.rig.rpc.methods().contains("chat.send"))        // nothing runs during the tour
-        t.sleeper.release(IntroController.Timing.home)
-        await eventually { t.rig.rpc.methods().contains("chat.send") }
-        XCTAssertTrue(t.progress.done)
-        XCTAssertEqual(t.rig.rpc.params(of: "chat.send").first?["text"] as? String, Self.suggestions[1])
+        await eventually { t.notch.introLine?.text == "On it…" }
+        await t.pick("goOn")
+        await t.pick("next")
+        await eventually { t.progress.done }
+        XCTAssertFalse(t.rig.rpc.methods().contains("task.stop"))               // it keeps running
+        t.rig.rpc.endStream("chat.send")
     }
 
     // MARK: Control
 
-    // decision: APP-505, APP-514
-    func testControlBeatWaitsForEachShortcut() async {
+    /// Stop is practised on a real task the tour starts (APP-667): Stop this task answers at once with the real
+    /// `task.stop` for that task, and the beat goes on once the chat shows it stopped. Past report (owner, 2026-11-04):
+    /// the old stop step seemed stuck.
+    // decision: APP-667, APP-668
+    func testControlBeatPractisesStopOnARealTask() async {
         let t = tour()
+        t.rig.rpc.events["chat.send"] = Self.taskEvents("r1", status: "")
+        t.rig.rpc.heldStreams = ["chat.send"]
         t.controller.start(beats: [.control, .home])
         await eventually { t.controls.onControl != nil }
         t.controls.send(.toggle)
         t.controls.send(.talk)
-        t.controls.send(.summon)
-        // Stopping is practised on the preview, replayed as running.
-        await eventually { t.notch.conversation.turns.contains { $0.preview && $0.status == "previewRunning" } }
-        XCTAssertEqual(t.controller.beat, .control)
-        t.notch.introAction(.stopPreview)
-        await eventually { !t.notch.conversation.turns.contains { $0.status == "previewRunning" } }
-        await eventually { t.notch.introLine == IntroCopy.control(.pause) }   // waiting on the last control
-        XCTAssertEqual(t.controller.beat, .control)                       // Pause FERB not seen yet
+        await eventually { t.rig.rpc.params(of: "chat.send").count == 1 }
+        await eventually { t.notch.conversation.turns.contains { $0.backendTaskID == "task-r1" } }
+        await t.pick("stopTask")
+        XCTAssertEqual(t.notch.introLine?.text, IntroCopy.stopping.text)        // at once, before the daemon answers
+        await eventually { t.rig.rpc.methods().contains("task.stop") }
+        XCTAssertEqual(t.rig.rpc.params(of: "task.stop").first?["task_ids"] as? [String], ["task-r1"])
+        t.rig.rpc.endStream("chat.send", with: [Self.outcome("r1", status: "stopped")])
+        await eventually { t.notch.introLine == IntroCopy.control(.pause) }    // waiting on the last control
         XCTAssertFalse(t.progress.done)
         t.notch.daemonPaused = true
         t.controls.send(.pause)
         await eventually { t.progress.done }
-        XCTAssertTrue(t.rig.rpc.methods().contains("sense.resume"))       // the pause is lifted at once
+        XCTAssertTrue(t.rig.rpc.methods().contains("sense.resume"))             // the pause is lifted at once
         XCTAssertFalse(t.notch.daemonPaused)
-        XCTAssertFalse(t.rig.rpc.methods().contains("chat.send"))
+    }
+
+    /// The stop practice never hangs: a task that ends before Stop is told and the beat goes on; Go on leaves a stop
+    /// the daemon hasn't confirmed.
+    // decision: APP-667
+    func testTheStopPracticeCannotHang() async {
+        let finished = tour()                                                   // ends before the owner stops it
+        finished.controller.start(beats: [.control, .home])
+        await eventually { finished.controls.onControl != nil }
+        finished.controls.send(.toggle)
+        finished.controls.send(.talk)
+        await eventually { finished.notch.introLine == IntroCopy.control(.pause) }
+        XCTAssertTrue(finished.lines.all.contains(IntroCopy.finishedBeforeStop))
+
+        let unconfirmed = tour()
+        unconfirmed.rig.rpc.events["chat.send"] = Self.taskEvents("r1", status: "")
+        unconfirmed.rig.rpc.heldStreams = ["chat.send"]
+        unconfirmed.controller.start(beats: [.control, .home])
+        await eventually { unconfirmed.controls.onControl != nil }
+        unconfirmed.controls.send(.toggle)
+        unconfirmed.controls.send(.talk)
+        await eventually { unconfirmed.notch.conversation.turns.contains { $0.backendTaskID == "task-r1" } }
+        await unconfirmed.pick("stopTask")
+        await unconfirmed.pick("goOn")                                          // the daemon never confirmed
+        await eventually { unconfirmed.notch.introLine == IntroCopy.control(.pause) }
+        unconfirmed.rig.rpc.endStream("chat.send")
     }
 
     // MARK: Skip, resume, the notch
@@ -662,13 +713,12 @@ final class IntroControllerTests: XCTestCase {
         t.notch.onInteraction = { interactions += 1 }
         t.controller.start(beats: [.tryIt, .control, .home])
         await t.pick("suggestion.0")
-        await eventually { t.notch.expanded && t.notch.conversation.turns.contains { $0.preview && $0.card != nil } }
-        await t.pick("notNow")
+        await eventually { t.notch.expanded && t.notch.conversation.turns.contains { $0.request == Self.suggestions[0] } }
+        await t.pick("next")
         await eventually { t.controls.onControl != nil }
         t.controls.send(.toggle)
         t.controls.send(.talk)
-        t.controls.send(.summon)
-        await eventually { t.notch.expanded && t.notch.conversation.turns.contains { $0.status == "previewRunning" } }
+        await eventually { t.notch.expanded && t.rig.rpc.params(of: "chat.send").count == 2 }
         XCTAssertEqual(focused, 0)                                        // no open the tour made asked for focus
         XCTAssertEqual(interactions, 0)
         XCTAssertGreaterThan(quiet, 0)
@@ -700,20 +750,6 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertNotNil(ready)
         XCTAssertLessThan(ready ?? .max, everything ?? -1)                // never "everything" before it answered
         XCTAssertEqual(t.lines.all.filter { $0 == IntroCopy.allAllowed }.count, 1)
-    }
-
-    // decision: APP-514
-    func testSkipStillStartsARealTaskTheOwnerTapped() async {
-        let t = tour()
-        t.sleeper.hold(IntroController.Timing.home)
-        t.controller.start(beats: [.tryIt, .control, .home])
-        await t.pick("suggestion.0")
-        await t.pick("doItForReal")
-        await eventually { t.controller.beat == .control }
-        XCTAssertFalse(t.rig.rpc.methods().contains("chat.send"))
-        t.controller.skip()
-        await eventually { t.rig.rpc.methods().contains("chat.send") }
-        XCTAssertEqual(t.rig.rpc.params(of: "chat.send").first?["text"] as? String, Self.suggestions[0])
     }
 
     // decision: APP-638
@@ -755,7 +791,7 @@ final class IntroControllerTests: XCTestCase {
         t.rig.service.onStart = { [rpc = t.rig.rpc] in rpc.failures = [:] }   // started, it answers
         t.controller.start(beats: IntroBeat.allCases)
         await eventually { t.controller.beat == .browsers }
-        XCTAssertTrue(t.lines.all.contains(IntroCopy.gettingReady))
+        XCTAssertTrue(t.lines.all.contains { $0.text == IntroCopy.gettingReady.text && $0.since != nil })
         XCTAssertFalse(t.lines.all.contains(IntroCopy.signIn))            // never asked to sign in again
         XCTAssertEqual(t.rig.service.starts, 1)
         XCTAssertTrue(t.rig.runner.runs.isEmpty)                          // Meet isn't run again
@@ -776,32 +812,23 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.rig.rpc.params(of: "setup.finish").count, 1)
     }
 
-    // decision: APP-513
-    func testTryPointsTheOrbAtTheAppThePreviewWouldUse() async {
+    // decision: APP-666
+    func testTryPointsTheOrbAtTheAppTheTaskWorksIn() async {
         let t = tour()
         t.rig.rpc.replies["intro.suggest"] = ["suggestions": [["request": Self.suggestions[0], "app": "Finder"],
                                                               ["request": Self.suggestions[1], "app": "Notes"]],
                                               "fits": true]
-        var shownWhenHome: [Bool] = []
-        t.orb.onFlyHome = { [notch = t.notch] in
-            shownWhenHome.append(notch.conversation.turns.contains { $0.preview && $0.card != nil })
-        }
         t.controller.start(beats: [.tryIt, .home])
         await t.pick("suggestion.0")
         await eventually { t.orb.launches.count == 1 }
         XCTAssertEqual(t.orb.launches.map(\.point), [Self.besideFinder])          // beside Finder's window
-        XCTAssertEqual(t.orb.launches.first?.instruction?.text, "I'd use Finder for this")
-        XCTAssertTrue(shownWhenHome.isEmpty)                                   // stays out while the owner compares
         await t.pick("otherSuggestion")
         await eventually { t.orb.launches.count == 2 }
         XCTAssertEqual(t.orb.launches.last?.point, Self.resting)                // Notes isn't running
-        XCTAssertEqual(t.orb.launches.last?.instruction?.text, "I'd use Notes for this")
         XCTAssertEqual(t.orb.launches.last?.instruction?.iconPath, "/System/Applications/Notes.app")
-        XCTAssertEqual(t.orb.launches.count, 2)
-        await t.pick("notNow")
+        await t.pick("next")
         await eventually { t.progress.done }
-        XCTAssertEqual(t.orb.flyHomes, 1)
-        XCTAssertEqual(shownWhenHome, [true])
+        XCTAssertEqual(t.orb.launches.count, 2)
     }
 
     // decision: APP-511
@@ -810,7 +837,7 @@ final class IntroControllerTests: XCTestCase {
         t.rig.rpc.replies["setup.browsers"] = ["browsers": [["browser": "example", "label": "Example Browser",
                                                               "profiles": [[String: Any]]()]]]
         var pairedWhenHome: [Bool] = []
-        t.orb.onFlyHome = { [rpc = t.rig.rpc] in pairedWhenHome.append(rpc.methods().contains("setup.browsers_pair_all")) }
+        t.orb.onFlyHome = { [rpc = t.rig.rpc] in pairedWhenHome.append(rpc.methods().contains("setup.browsers_pairing")) }
         t.controller.start(beats: [.browsers, .home])
         await t.pick("pairAll")
         await eventually { t.progress.done }
@@ -843,23 +870,66 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(skipped.sound.warm, [true, false])
     }
 
-    // decision: APP-514
-    func testDoItForRealWaitsForDictationToEndThenSends() async {
+    /// Pair all is shown live, a profile at a time (HAND-412), and a profile FERB's store page can fix offers Add to:
+    /// the page opens in that profile, the notch waits until the extension is on there, and pairing waits for the
+    /// owner's Pair (HAND-413).
+    // decision: HAND-412, HAND-413, APP-665
+    func testPairAllIsLiveAndAddToWaitsThenOffersToPair() async {
         let t = tour()
-        t.sleeper.hold(IntroController.Timing.home)
-        var ended = 0
-        t.controller.onFinished = { ended += 1 }
-        t.controller.start(beats: [.tryIt, .home])
-        await t.pick("suggestion.1")
-        await t.pick("doItForReal")
-        await eventually { t.controller.beat == .home && t.sleeper.isWaiting(IntroController.Timing.home) }
-        t.notch.session.beginVoicePreview()                               // the owner is dictating as the tour ends
-        t.sleeper.release(IntroController.Timing.home)
-        await eventually { ended == 1 }
-        XCTAssertFalse(t.notch.conversation.turns.contains { !$0.preview && $0.request == Self.suggestions[1] })
-        t.notch.session.finishVoicePreview()
-        await eventually { t.rig.rpc.methods().contains("chat.send") }
-        XCTAssertEqual(t.rig.rpc.params(of: "chat.send").map { $0["text"] as? String }, [Self.suggestions[1]])
+        t.rig.rpc.events["setup.browsers_pairing"] = [
+            ["type": "plan", "profiles": 2,
+             "todo": [["browser": "chrome", "folder": "Default", "name": "Personal", "label": "Google Chrome"]],
+             "skipped": [["browser": "chrome", "folder": "Profile 1", "name": "Work", "label": "Google Chrome",
+                          "reason": "removed", "step": "add FERB from its store page", "can_add": true]]],
+            ["type": "result", "browser": "chrome", "folder": "Default", "name": "Personal", "paired": true],
+            ["type": "done", "profiles": 2, "paired": 1,
+             "results": [["browser": "chrome", "folder": "Default", "name": "Personal", "paired": true]],
+             "skipped": [["browser": "chrome", "folder": "Profile 1", "name": "Work", "label": "Google Chrome",
+                          "reason": "removed", "step": "add FERB from its store page", "can_add": true]]]]
+        func browsers(_ state: String) -> [String: Any] {
+            ["browsers": [["browser": "chrome", "label": "Google Chrome",
+                           "profiles": [["folder": "Default", "name": "Personal", "state": "paired"],
+                                        ["folder": "Profile 1", "name": "Work", "state": state]]]]]
+        }
+        t.rig.rpc.replies["setup.browsers"] = browsers("removed")
+        t.controller.start(beats: [.browsers, .home])
+        await t.pick("pairAll")
+        await eventually { t.notch.introLine?.checklist.contains { $0.actionID == "add.chrome/Profile 1" } == true }
+        let live = t.lines.all.filter { !$0.checklist.isEmpty && $0.choices.isEmpty }
+        XCTAssertFalse(live.isEmpty)                                            // the live pairing line, with its rows
+        XCTAssertTrue(live.allSatisfy { $0.since != nil })
+        t.notch.introAction(.choose("add.chrome/Profile 1"))
+        await eventually { t.rig.rpc.methods().contains("setup.browser_open") }
+        XCTAssertEqual(t.rig.rpc.params(of: "setup.browser_open").first?["folder"] as? String, "Profile 1")
+        await eventually { t.notch.introLine?.choices.contains { $0.id == "stopWaiting" } == true }
+        XCTAssertNotNil(t.notch.introLine?.since)
+        XCTAssertFalse(t.rig.rpc.methods().contains("setup.browser_pair"))      // nothing pairs by itself
+        t.rig.rpc.replies["setup.browsers"] = browsers("on")
+        t.rig.rpc.replies["setup.browser_pair"] = ["paired": true]
+        await t.pick("pairOne")
+        await eventually { t.progress.done }
+        XCTAssertEqual(t.rig.rpc.params(of: "setup.browser_pair").first?["folder"] as? String, "Profile 1")
+    }
+
+    /// Every wait of the tour says what FERB is doing and stays alive (APP-665): the service install, the suggestion,
+    /// the pairing.
+    // decision: APP-665
+    func testEveryAwaitedStepShowsALiveLine() async {
+        let t = tour(.install)
+        t.controller.start(beats: [.meet, .browsers, .tryIt, .home])
+        await eventually { t.rig.runner.isRunning }
+        await eventually { t.notch.introLine?.text == IntroCopy.gettingReady.text }
+        XCTAssertNotNil(t.notch.introLine?.since)
+        t.rig.runner.finish(0)
+        await t.pick("pairAll")
+        await t.pick("suggestion.0")
+        await t.pick("next")
+        await eventually { t.progress.done }
+        for wait in [IntroCopy.lookingAtBrowsers.text, IntroCopy.thinking.text, IntroCopy.starting.text] {
+            let shown = t.lines.all.filter { $0.text == wait }
+            XCTAssertFalse(shown.isEmpty, wait)
+            XCTAssertTrue(shown.allSatisfy { $0.since != nil }, wait)
+        }
     }
 }
 

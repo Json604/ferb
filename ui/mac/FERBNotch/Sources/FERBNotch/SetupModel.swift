@@ -567,10 +567,58 @@ final class SetupModel: ObservableObject {
         } catch { message = Self.notAnswering }
     }
 
-    func addExtension(_ profile: BrowserProfileRow) async {
+    /// Add to <browser> on one profile (HAND-413): FERB's Web Store page opens in that profile (the owner adds it;
+    /// FERB never does), then `watchForExtension` waits for the extension to be there and on. False when the page
+    /// couldn't be opened (`message` says why).
+    @discardableResult
+    func addExtension(_ profile: BrowserProfileRow, watch: Bool = true) async -> Bool {
         do {
             _ = try await rpc.call("setup.browser_open", params: ["browser": profile.browser, "folder": profile.folder])
-        } catch { message = error.localizedDescription }
+        } catch {
+            message = error.localizedDescription
+            return false
+        }
+        if watch { watchForExtension(profile) }
+        return true
+    }
+
+    /// The profile FERB is waiting on after Add to (Settings → Browsers shows the wait, with Stop waiting).
+    @Published private(set) var addWait: BrowserProfileRow?
+    private var addWatch: Task<Void, Never>?
+
+    /// Reads the browsers every `grantPoll` until FERB's extension is on (or paired) in that profile, then says it can
+    /// be paired; the owner pairs it (rule 5). Ends on Stop waiting, or when another wait starts.
+    func watchForExtension(_ profile: BrowserProfileRow) {
+        addWatch?.cancel()
+        addWait = profile
+        message = nil
+        addWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let poll = self?.grantPoll else { return }
+                do { try await Task.sleep(for: poll) } catch { return }
+                guard let self, !Task.isCancelled else { return }
+                await self.refreshBrowsers()
+                guard let (browser, row) = self.browserProfile(profile.id), row.state == .on || row.state == .paired
+                else { continue }
+                self.addWait = nil
+                self.message = row.state == .paired ? nil : "FERB is on in \(browser.label) “\(row.name)”. Press Pair to pair it."
+                return
+            }
+        }
+    }
+
+    func stopWatchingForExtension() {
+        addWatch?.cancel()
+        addWatch = nil
+        addWait = nil
+    }
+
+    /// A profile in the last browsers snapshot, with its browser, by its id ("browser/folder").
+    func browserProfile(_ id: String) -> (BrowserRow, BrowserProfileRow)? {
+        for browser in browsers?.browsers ?? [] {
+            if let row = browser.profiles.first(where: { $0.id == id }) { return (browser, row) }
+        }
+        return nil
     }
 
     /// Pairing happens on the owner's click (owner 2026-10-27: "a pair all which opens all pairs instantly and closes all
@@ -589,19 +637,45 @@ final class SetupModel: ObservableObject {
         await refreshBrowsers()
     }
 
-    /// The tour and Settings both show this message; nil only when every owner profile is paired (HAND-411).
-    func pairAll() async {
+    /// Pair all as it happens (HAND-412): each profile's state as its result lands. The tour shows it in the notch
+    /// and Settings under Pair all.
+    @Published private(set) var pairProgress: PairProgress?
+
+    /// The tour and Settings both show this message; nil only when every owner profile is paired (HAND-411). Pair all
+    /// is followed live (`setup.browsers_pairing`); `progress` gets every change. A daemon without the live call gets
+    /// the one reply as before.
+    func pairAll(progress onChange: ((PairProgress) -> Void)? = nil) async {
         guard !pairing else { return }
         pairing = true
         defer { pairing = false }
+        var progress = PairProgress()
+        var received = 0
         var note: String?
         do {
-            note = Self.pairAllMessage(try await rpc.call("setup.browsers_pair_all", params: [:], wait: 90))
-        } catch { note = error.localizedDescription }
+            for try await event in rpc.stream("setup.browsers_pairing", params: [:]) {
+                received += 1
+                progress.apply(event)
+                pairProgress = progress
+                onChange?(progress)
+            }
+            if let reply = progress.reply { note = Self.pairAllMessage(reply) }
+            else if received == 0 { note = await pairAllOnce() }
+            else { note = Self.pairAllEnded }
+        } catch {
+            if received == 0 { note = await pairAllOnce() } else { note = error.localizedDescription }
+        }
         message = nil
         await refreshBrowsers()
         if let note { message = note }
     }
+
+    /// Pair all as one reply, for a daemon without the live call (it refused it, or streamed nothing).
+    private func pairAllOnce() async -> String? {
+        do { return Self.pairAllMessage(try await rpc.call("setup.browsers_pair_all", params: [:], wait: 90)) }
+        catch { return error.localizedDescription }
+    }
+
+    static let pairAllEnded = "Pair all ended before it said how it went. Try again."
 
     static let noBrowserProfiles = "FERB found no browser profiles on this Mac. Open your browser once, then try again."
 

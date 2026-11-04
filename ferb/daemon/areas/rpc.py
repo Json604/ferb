@@ -166,7 +166,8 @@ class Rpc:
         }
         streams: dict[str, Any] = {
             "notifications.subscribe": self._notifications_subscribe, "logs.subscribe": self._logs,
-            "chat.send": self._chat_send, "ps.attach": self._ps_attach, "intro.preview": self._intro_preview
+            "chat.send": self._chat_send, "ps.attach": self._ps_attach, "intro.preview": self._intro_preview,
+            "setup.browsers_pairing": self._setup_browsers_pairing
         }
         self.server.unary.update(unary)
         self.server.streams.update(streams)

@@ -3,9 +3,10 @@ import NotchCore
 
 private typealias Pick = IntroCopy.Pick
 
-/// The tour's demo beats (kb area app steps 6–7): Try looks and tells, it never acts (the daemon's
-/// `intro.preview` is a planner turn with no run token and no worker, every event marked preview); Control is taught by
-/// doing, with Stop practised on that preview replayed as running. Nothing here sends `chat.send`.
+/// The tour's demo beats (kb area app steps 6–7). Try runs the suggestion the owner picks for real, through the same
+/// path as a typed message (`chat.send`: the real daemon and gateway, their usual questions and confirmations; APP-666),
+/// in the open chat with its turn card and live preview, the orb at the app it works in, while the notch says where it
+/// stands. Control is taught by doing; Stop is practised on a real look-only task the tour starts (APP-667).
 /// A suggested first task (`intro.suggest`) and the one app it would use, as macOS names it ("" for the browser).
 struct IntroSuggestion: Equatable {
     var request: String
@@ -13,45 +14,40 @@ struct IntroSuggestion: Equatable {
 }
 
 extension IntroController {
+    enum DemoTiming {
+        /// How often a task the tour started is read for the line in the notch (its card in the chat updates live).
+        static let watch = Timing.poll
+    }
+
     // MARK: 6. Try
 
-    /// What the scan saw (when it saw something), two suggested first tasks, the picked one's plan shown in the real
-    /// chat as preview rows, "Show the other one", and "Do it for real", which is sent as the owner's message only
-    /// after Home.
+    /// What the scan saw (when it saw something), two suggested first tasks, and the picked one run for real while the
+    /// owner watches; then the other one, or on.
     func tryIt() async {
-        await setup.refreshPersona()
+        await working(IntroCopy.checking(nil)) { await setup.refreshPersona() }
         guard live else { return }
         if case .seen(let summary) = setup.persona, !summary.isEmpty {
             say(IntroCopy.saw(summary))
             await dwell(Timing.scan)
         }
-        guard live, let offered = await suggestions() else { return leaveChat() }
-        guard case .choice(let picked)? = await ask(IntroCopy.suggest(offered.map(\.request))),
-              var shown = offered.indices.first(where: { Pick.suggestion($0) == picked }) else { return leaveChat() }
-        var otherShown = false
-        var failure = await preview(offered[shown])
+        guard live, let suggestions = await suggestions() else { return leaveChat() }
+        offered = suggestions
+        guard case .choice(let picked)? = await ask(IntroCopy.suggest(suggestions.map(\.request))),
+              var index = suggestions.indices.first(where: { Pick.suggestion($0) == picked }) else { return leaveChat() }
         while live {
-            let line = failure.map(IntroCopy.previewFailed) ?? IntroCopy.previewed(otherShown: otherShown)
-            // The plan is shown: the orb comes back while the owner may already answer (a tap is never lost).
+            let outcome = await runForReal(suggestions[index])
+            guard live else { return }
+            let other = suggestions.indices.first { !ran.contains(suggestions[$0].request) }
+            // The orb comes back while the owner may already answer (a tap is never lost).
             let trip = orbTrip
             orbTrip = nil
             orbHoming = Task { [orb] in
                 await trip?.value
                 await orb.flyHome()
             }
-            switch await ask(line) {
-            case .choice(Pick.otherSuggestion)? where !otherShown:
-                shown = 1 - shown
-                otherShown = true
-                failure = await preview(offered[shown])
-            case .choice(Pick.doItForReal)? where failure == nil:
-                realTask = offered[shown].request    // the owner's tap: sent as their words once the tour ends
-                say(IntroCopy.willDoIt)
-                await dwell(Timing.line * 2)
-                return leaveChat()
-            default:
-                return leaveChat()
-            }
+            guard case .choice(Pick.otherSuggestion)? = await ask(IntroCopy.ran(outcome, otherLeft: other != nil)),
+                  let other else { return leaveChat() }
+            index = other
         }
     }
 
@@ -59,8 +55,10 @@ extension IntroController {
     /// it would use ("" for the default browser).
     func suggestions() async -> [IntroSuggestion]? {
         while live {
-            say(IntroCopy.thinking)
-            if let reply = try? await rpc.call("intro.suggest", params: [:], wait: 60) {
+            let reply = await working(IntroCopy.thinking) {
+                try? await rpc.call("intro.suggest", params: [:], wait: 60)
+            }
+            if let reply {
                 let offered = (reply["suggestions"] as? [[String: Any]] ?? []).compactMap { row -> IntroSuggestion? in
                     guard let request = row["request"] as? String, !request.isEmpty else { return nil }
                     return IntroSuggestion(request: request, app: row["app"] as? String ?? "")
@@ -72,48 +70,78 @@ extension IntroController {
         return nil
     }
 
-    /// The suggestion's plan, fetched from `intro.preview` and shown in the open chat as a preview turn, while the orb
-    /// points at the app it would use (it only points: the app is never opened or brought forward). Returns why it
-    /// couldn't be shown, or nil.
-    func preview(_ suggestion: IntroSuggestion) async -> String? {
-        say(IntroCopy.previewing)
+    /// The suggestion as the owner's message (APP-666), shown in the open chat, the orb at the app it works in; the
+    /// notch follows its turn (planning, the step it is on, a question for the owner) with the time it has run, until
+    /// it ends or the owner goes on without waiting (it keeps running as any task does).
+    func runForReal(_ suggestion: IntroSuggestion) async -> IntroCopy.Outcome {
+        ran.insert(suggestion.request)
         openChat()
         let target = apps.target(app: suggestion.app)
         let homing = orbHoming
         orbTrip = Task { [orb] in
             await homing?.value                      // the last trip home lands first
-            await orb.launch(to: target.point, instruction: IntroCopy.wouldUse(target, browser: suggestion.app.isEmpty))
+            await orb.launch(to: target.point, instruction: IntroCopy.workingIn(target, browser: suggestion.app.isEmpty))
         }
-        do {
-            let events = try await fetchPreview(suggestion.request)
-            guard live else { return nil }
-            lastPreview = (suggestion.request, events)
-            show(suggestion.request, events, running: false)
-            return nil
-        } catch {
-            return error.localizedDescription
+        let since = Date()
+        say(IntroCopy.starting.waiting(since: since))
+        guard let id = await startTask(suggestion.request) else { return .notStarted }
+        let answer = await whileRunning(id) { [weak self] in
+            IntroCopy.running(self?.taskState(id) ?? .starting).waiting(since: since)
+        }
+        guard answer == nil else { return .stillRunning }
+        return outcome(id)
+    }
+
+    /// Sends `request` as the owner's message through the normal path (NotchModel.send → `chat.send`); the composer
+    /// takes typed answers meanwhile (a question the task asks). Its turn's id, or nil when it couldn't start.
+    func startTask(_ request: String) async -> UUID? {
+        let turn: UUID?? = await suspend { [weak self] (resume: @escaping (UUID?) -> Void) in
+            guard let self else { return resume(nil) }
+            self.notch.send(request) { resume($0) }
+        }
+        return turn ?? nil
+    }
+
+    /// Shows `line()` and follows the turn until it is no longer working or waiting on the owner; the owner's answer
+    /// to the line (Continue the tour) ends the wait. The composer starts tasks meanwhile (the task's own questions may
+    /// need a typed answer).
+    func whileRunning(_ id: UUID, showing line: @escaping () -> IntroLine) async -> IntroAnswer? {
+        notch.introHoldsWork = false
+        defer { if running { notch.introHoldsWork = true } }
+        return await wait(showing: line, every: DemoTiming.watch) { [weak self] in self?.ended(id) ?? true }
+    }
+
+    func turn(_ id: UUID) -> ConversationTurn? { notch.conversation.turns.first { $0.id == id } }
+
+    /// The turn has ended: no longer working and not waiting on the owner (gone counts as ended).
+    func ended(_ id: UUID) -> Bool {
+        guard let turn = turn(id) else { return true }
+        return turn.status != "working" && turn.status != "needs_user"
+    }
+
+    /// Where the tour's task stands, from its turn and the open questions.
+    func taskState(_ id: UUID) -> IntroCopy.TaskState {
+        guard let turn = turn(id) else { return .starting }
+        if turn.status == "needs_user"
+            || notch.pendingApprovals.contains(where: { $0.taskID != nil && $0.taskID == turn.backendTaskID }) {
+            return .asking
+        }
+        if let card = turn.card, let index = card.rows.firstIndex(where: { $0.state == "working" }) {
+            return .step(index + 1, max(card.total, card.rows.count), card.rows[index].label)
+        }
+        if let plan = turn.planLine ?? turn.plan, !plan.isEmpty { return .planned(plan) }
+        return turn.backendTaskID == nil ? .starting : .working
+    }
+
+    func outcome(_ id: UUID) -> IntroCopy.Outcome {
+        switch turn(id)?.status {
+        case "done"?: return .done
+        case "stopped"?, "interrupted"?: return .stopped
+        default: return .failed
         }
     }
 
-    /// Only events marked preview are kept: anything else on the stream is never shown as part of the demo.
-    func fetchPreview(_ request: String) async throws -> [[String: Any]] {
-        var events: [[String: Any]] = []
-        for try await event in rpc.stream("intro.preview", params: ["request": request]) {
-            guard live else { break }
-            if event["preview"] as? Bool == true { events.append(event) }
-        }
-        return events
-    }
-
-    @discardableResult
-    func show(_ request: String, _ events: [[String: Any]], running: Bool) -> UUID {
-        let id = UUID()
-        notch.conversation.beginPreview(id: id, request: request, running: running)
-        for event in events { notch.conversation.applyPreview(id: id, event) }
-        return id
-    }
-
-    /// The real chat, on today, where the preview turn shows. FERB opens it, not the owner: no keyboard focus is taken
+    /// The real chat, on today, where the task's turn shows. FERB opens it, not the owner: no keyboard focus is taken
     /// (rule 10); the panel becomes key only on the owner's click or shortcut.
     func openChat() {
         if !notch.viewingToday { notch.selectDay(Date(), focus: false) }
@@ -126,18 +154,18 @@ extension IntroController {
 
     // MARK: 7. Control
 
-    /// Each control once, in any order: double-tap right ⌥, hold right ⌘+⌥, Control-Option-Space, Stop on the replayed
-    /// preview, Pause FERB from the menu (lifted at once). The beat goes on once each has been seen. A FERB the owner
-    /// had paused before the beat stays paused: the step is explained, not practised.
+    /// Each control once, in any order: double-tap right ⌥, hold right ⌘+⌥, Stop on a real task (APP-667), Pause FERB
+    /// from the menu (lifted at once). The beat goes on once each has been seen. A FERB the owner had paused before the
+    /// beat stays paused: the step is explained, not practised.
     func control() async {
         seenControls = []
-        replayID = nil
         let pausedByOwner = notch.daemonPaused
         controls.onControl = { [weak self] control in self?.saw(control) }
         var lifted = false
         while live, let next = IntroControl.allCases.first(where: { !seenControls.contains($0) }) {
-            if next == .stop && replayID == nil {
-                await replayForStop()
+            if next == .stop {
+                await practiseStop()
+                seenControls.insert(.stop)
                 continue
             }
             if next == .pause && pausedByOwner {
@@ -161,32 +189,57 @@ extension IntroController {
         await dwell(Timing.line)
     }
 
-    /// The owner used a control. Stop counts only on the replayed preview.
+    /// The owner used a control.
     func saw(_ control: IntroControl) {
         guard running, beat == .control else { return }
-        if control == .stop {
-            guard let id = replayID else { return }
-            notch.conversation.stopPreview(id: id)
-        }
         seenControls.insert(control)
         let waiting = controlWaiter
         controlWaiter = nil
         waiting?()
     }
 
-    /// Try's preview again, as if running, in the open chat. Without one (a resumed tour), a suggestion is previewed
-    /// first; if none can be, Stop isn't practised.
-    private func replayForStop() async {
-        if lastPreview == nil, let request = await suggestions()?.first?.request,
-           let events = try? await fetchPreview(request), live {
-            lastPreview = (request, events)
+    /// Stop, practised on a real task (APP-667): the suggestion Try didn't run (both are look-only by design,
+    /// DMN-533), started through the normal path in the open chat. Stop this task acts at once: the same `task.stop`
+    /// as the task list's Stop task, "Stopping it…" at once, and the step counts then; the line follows the turn until
+    /// it shows stopped, and Go on never leaves the owner waiting. A task that ends first, or can't start, is told and
+    /// the beat goes on: nothing here can hang.
+    func practiseStop() async {
+        guard let request = await stopPracticeRequest() else {
+            guard live else { return }
+            say(IntroCopy.stopUnavailable)
+            return await dwell(Timing.line * 2)
         }
         guard live else { return }
-        guard let last = lastPreview else {
-            seenControls.insert(.stop)
-            return
-        }
         openChat()
-        replayID = show(last.request, last.events, running: true)
+        let since = Date()
+        say(IntroCopy.startingStopTask.waiting(since: since))
+        guard let id = await startTask(request) else {
+            guard live else { return }
+            say(IntroCopy.stopUnavailable)
+            return await dwell(Timing.line * 2)
+        }
+        ran.insert(request)
+        var pressed: Date?
+        sideChoices[Pick.stopTask] = { [weak self] in
+            guard let self, self.live, pressed == nil else { return }
+            pressed = Date()
+            self.notch.stopTurn(id)
+            self.say(IntroCopy.stopping.waiting(since: pressed ?? Date()))
+        }
+        defer { sideChoices[Pick.stopTask] = nil }
+        _ = await whileRunning(id) {
+            if let pressed { return IntroCopy.stopping.waiting(since: pressed) }
+            return IntroCopy.stopNow(request).waiting(since: since)
+        }
+        guard live else { return }
+        say(pressed == nil ? IntroCopy.finishedBeforeStop : IntroCopy.stopped)
+        await dwell(Timing.line * 2)
+    }
+
+    /// A suggestion Try hasn't run, from Try's two or, after a resume or a skipped Try, from `intro.suggest`; nil when
+    /// none can be had.
+    private func stopPracticeRequest() async -> String? {
+        if offered.isEmpty, let fresh = await suggestions() { offered = fresh }
+        return offered.first { !ran.contains($0.request) }?.request ?? offered.first?.request
     }
 }

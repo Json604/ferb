@@ -262,6 +262,44 @@ def extension_enabled(entry: dict[str, Any]) -> bool:
     return entry.get("state", 1) != 0 and not entry.get("disable_reasons")
 
 
+def disable_reasons(entry: dict[str, Any]) -> frozenset[int]:
+    """Chromium's reasons an extension is off, as its reason codes (HAND-412): newer versions keep a list of codes,
+    older ones a bit mask; an old `state` 0 with no reason counts as turned off by the owner (1). Empty: not off."""
+    raw = entry.get("disable_reasons")
+    if isinstance(raw, list):
+        codes = frozenset(int(r) for r in raw if isinstance(r, int) and not isinstance(r, bool) and r > 0)
+    elif isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+        codes = frozenset(1 << bit for bit in range(raw.bit_length()) if raw >> bit & 1)
+    else:
+        codes = frozenset()
+    return codes or (frozenset({1}) if entry.get("state", 1) == 0 else frozenset())
+
+
+def extension_version(entry: dict[str, Any], folder: Path, extension_id: str) -> str:
+    """The FERB copy's installed version as the profile's own files say it (HAND-412): its settings' manifest, else
+    the version folder its `path` names ("<id>/<version>_0" for a store copy), else the newest version folder under
+    the profile's Extensions/<id>. "" when none says."""
+    manifest = entry.get("manifest")
+    if isinstance(manifest, dict) and isinstance(manifest.get("version"), str) and manifest["version"]:
+        return str(manifest["version"])[:32]
+    path = entry.get("path")
+    if isinstance(path, str) and path.startswith(extension_id + "/"):
+        version = path.rsplit("/", 1)[-1].rsplit("_", 1)[0]
+        if _version_like(version):
+            return version
+    try:
+        found = [d.name.rsplit("_", 1)[0] for d in (folder / "Extensions" / extension_id).iterdir() if d.is_dir()]
+    except OSError:
+        return ""
+    found = [v for v in found if _version_like(v)]
+    return max(found, key=lambda v: tuple(int(x) for x in v.split("."))) if found else ""
+
+
+def _version_like(value: str) -> bool:
+    parts = value.split(".")
+    return 0 < len(parts) <= 4 and all(x.isdigit() and len(x) <= 9 for x in parts)
+
+
 def extension_entry(p: BrowserProfile, extension_ids: tuple[str, ...] | frozenset[str],
                     data_dir: Path | None = None) -> tuple[str, dict[str, Any]] | None:
     """The FERB copy in this profile, with its settings from both files merged: the first of `extension_ids` that is

@@ -289,11 +289,11 @@ final class NotchModel: ObservableObject {
     /// The notch's single swell as it takes the orb back (`pulseIntro()`).
     @Published var introPulsing = false
     var introPulseTask: Task<Void, Never>?
-    /// What the owner did on an intro line (a choice, a typed entry, Skip, Stop on the replayed preview); set by the
+    /// What the owner did on an intro line (a choice, a typed entry, Skip); set by the
     /// intro controller while the tour runs. Set, the line also offers Skip.
     var onIntroAction: ((IntroAction) -> Void)?
-    /// While the tour runs, a request typed or spoken stays in the composer instead of starting a task: the tour runs
-    /// no real work (kb area app); it is sent after the tour.
+    /// While the tour runs, a request typed or spoken stays in the composer instead of starting a task, except while
+    /// the tour's own real task runs (APP-666: its questions may need a typed answer); it is sent after the tour.
     var introHoldsWork = false
     /// The running tour is at the permissions beat or later: its line offers Skip tour (APP-638).
     @Published var introSkippable = false
@@ -682,26 +682,31 @@ final class NotchModel: ObservableObject {
         begin(request: draft, outgoing: outgoing, sources: session.attachments, spoken: spoken, keepComposer: false)
     }
 
-    /// A message of the owner's that isn't the composer's (the intro's "Do it for real", which they tapped): sent the
-    /// same way, while whatever they typed stays in the composer. Opened without taking focus (rule 10). While
-    /// dictation holds the composer it waits, and is sent once the composer is free.
-    func send(_ text: String) {
-        guard !introHoldsWork, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    /// A message of the owner's that isn't the composer's (the suggestion they picked in the tour's Try beat): sent
+    /// the same way as a typed one, through `chat.send` (APP-666), while whatever they typed stays in the composer.
+    /// Opened without taking focus (rule 10). While dictation holds the composer it waits, and is sent once the
+    /// composer is free; `started` gets its turn's id then (nil when it couldn't start).
+    func send(_ text: String, started: ((UUID?) -> Void)? = nil) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { started?(nil); return }
         whenComposerFree { [weak self] in
-            guard let self, !self.introHoldsWork else { return }
-            self.begin(request: text, outgoing: text, sources: [], spoken: false, keepComposer: true)
+            guard let self else { started?(nil); return }
+            let id = self.begin(request: text, outgoing: text, sources: [], spoken: false, keepComposer: true)
+            started?(id)                // computed first: an optional call skips evaluating its argument
         }
     }
 
-    /// Text of the owner's for them to send themselves (the intro's "Do it for real" after a repair skip, while the
-    /// service is down): put in the composer, never over what they typed (it goes after it, on a new line).
-    func addToDraft(_ text: String) {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        whenComposerFree { [weak self] in
-            guard let self else { return }
-            let draft = self.session.draft
-            self.session.draft = draft.isEmpty ? text : draft + (draft.hasSuffix("\n") ? "" : "\n") + text
-            self.preservePasteProvenance()
+    /// Stop exactly this turn's task (the tour's Stop on the task it started), through the same `task.stop` as the
+    /// task list's Stop task; a turn whose task id hasn't come yet is stopped as soon as it does.
+    func stopTurn(_ id: UUID) {
+        guard let turn = conversation.turns.first(where: { $0.id == id }), turn.status == "working" else { return }
+        guard let backend = turn.backendTaskID, !backend.isEmpty else { pendingStops.insert(id); return }
+        guard !stoppingTaskIDs.contains(backend) else { return }
+        stoppingTaskIDs.insert(backend)
+        Task {
+            do { _ = try await rpc.call("task.stop", params: ["task_ids": [backend]]) }
+            catch { promptError = error.localizedDescription }
+            stoppingTaskIDs.remove(backend)
+            await refreshDaemonStatus()
         }
     }
 
@@ -736,7 +741,8 @@ final class NotchModel: ObservableObject {
         }
     }
 
-    private func begin(request: String, outgoing: String, sources: [URL], spoken: Bool, keepComposer: Bool) {
+    @discardableResult
+    private func begin(request: String, outgoing: String, sources: [URL], spoken: Bool, keepComposer: Bool) -> UUID? {
         localSettingReply = nil
         let held = (draft: session.draft, sources: session.attachments)
         if let active = session.activeTaskID { workSessions[active] = session }
@@ -745,7 +751,7 @@ final class NotchModel: ObservableObject {
         next.attach(sources)
         next.expand()
         session = next
-        guard let id = session.beginWork() else { return }
+        guard let id = session.beginWork() else { return nil }
         followsToday = true
         selectedDay = Calendar.current.startOfDay(for: Date())
         promptError = nil
@@ -772,6 +778,7 @@ final class NotchModel: ObservableObject {
             onPresentationChange?(true)
         }
         submitToDaemon(localID: id, text: outgoing, sources: sources, speak: spoken)
+        return id
     }
 
     func stopWork() { requestDaemonStop() }

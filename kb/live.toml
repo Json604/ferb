@@ -2500,4 +2500,48 @@ surface = "FERB.app with this build at the permissions beat, Screen Recording of
 request = "Pick Screen Recording and turn on the FERB agent's switch (choose Later if macOS offers Quit & Reopen for it); stay in System Settings."
 pass = "Within about two seconds the notch says Screen Recording is on and FERB's background part is restarting, and the row ticks a few seconds later, all without leaving System Settings. No restart happens while a task runs."
 decisions = ["APP-662"]
+
+[LIVE-728]
+title = "Try runs the picked suggestion for real and shows it working"
+area = "app"
+surface = "FERB.app with this build, replaying the intro to Try; signed in; the default suggestions or the scan's"
+request = "In Try, pick a suggestion and watch; then Try the other one; then Continue."
+pass = "The picked task starts at once as your message in the open chat (a normal task in its trace, usual questions asked), its card and preview fill, the orb flies to its app, and the notch says the step with the time ticking. It ends with Done (or what happened) and the result in the chat; no Do it for real. The other suggestion runs the same way. Both only look and report: nothing moved, deleted, sent or bought."
+decisions = ["APP-666", "DMN-533"]
+sitting = "after this change is installed"
+
+[LIVE-729]
+title = "The Control beat practises Stop on a real task, at once, and has no Control-Option-Space"
+area = "app"
+surface = "FERB.app with this build, replaying the intro to Control"
+request = "Do the controls as asked; at Stop, press Stop this task while it runs. Afterwards press Control-Option-Space."
+pass = "There is no Control-Option-Space step (and the key does nothing in FERB; the app guide and Home's line don't mention it). A real task starts; Stop this task shows \"Stopping it…\" at once, the chat shows the task stopped and the trace shows task.stop for it, then the beat goes on to Pause FERB. Nothing waits without a line or a way on."
+decisions = ["APP-667", "APP-668"]
+sitting = "after this change is installed"
+
+[LIVE-730]
+title = "Every wait in the tour says what FERB is doing, alive, with its time"
+area = "app"
+surface = "A fresh first-run tour on this build (or a replay): sign-in, Pair browsers, FERB's email, Try, Control"
+request = "Go through the tour, waiting at each step that takes a while."
+pass = "Every wait (getting the background part ready, sign-in, checking a key, Pair all and each profile, looking for FERB's account, thinking of suggestions, the Try task, stopping) shows a line saying what is happening, a small spinner, and after a few seconds the time waited ticking; per-profile pairing shows each result as it lands. No step looks stuck."
+decisions = ["APP-665"]
+sitting = "after this change is installed"
+
+[LIVE-731]
+title = "Pair all is live, skips too-old copies without a page, and names the real reason"
+area = "hands"
+surface = "FERB.app with this build; profiles with FERB's extension on and current, on but older than 0.19.0, turned off (or waiting for new permissions), and one whose page Chrome blocks"
+request = "Press Pair all (tour or Settings → Browsers)."
+pass = "The notch (or Settings) shows each profile pairing and each result as it lands. No pairing page opens in a too-old or turned-off profile; each says its step (update it in chrome://extensions, or turn FERB on / accept its new permissions). A profile that can't answer ends early when FERB learns why, and an unanswered one names the likely reason and the step. Pair all no longer holds for the whole minute on profiles FERB can tell about."
+decisions = ["HAND-412"]
+sitting = "after this change is installed"
+
+[LIVE-732]
+title = "A profile without FERB's extension gets Add to, then a live wait, then Pair"
+area = "hands"
+surface = "FERB.app with this build; a Chrome profile where you removed FERB's extension, and a browser that has FERB's install request but hasn't restarted"
+request = "After Pair all, click Add to Google Chrome on the removed profile (tour result, or Settings → Browsers), add FERB on the page that opens, turn it on, then press Pair."
+pass = "The store page opens in that exact profile; the notch shows \"Waiting for FERB to be added in Google Chrome “…”…\" with the time and Stop waiting; once FERB is on there it offers Pair and pairs only when you press it. The waiting-for-restart profile says it adds FERB at the next start and offers the store page as the faster way. No browser restarted or quit by itself."
+decisions = ["HAND-413"]
 sitting = "after this change is installed"

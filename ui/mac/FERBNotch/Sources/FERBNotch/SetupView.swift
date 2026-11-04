@@ -310,6 +310,20 @@ struct BrowsersStepView: View {
                         if model.pairing { ProgressView().controlSize(.small) }
                     }
                 }
+                if model.pairing, let progress = model.pairProgress, progress.tried > 0 {
+                    // HAND-412: each profile's pairing as it lands
+                    Text("Pairing: \(progress.landed) of \(progress.tried) done"
+                         + (progress.pairing.isEmpty ? "" : " · " + progress.pairing.map(\.title).joined(separator: ", ")))
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                if let waiting = model.addWait {
+                    // HAND-413: after Add to, until FERB is on there
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("Waiting for FERB to be added in “\(waiting.name)”…").font(.callout)
+                        Button("Stop waiting") { model.stopWatchingForExtension() }
+                    }
+                }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(snapshot.browsers) { browser in

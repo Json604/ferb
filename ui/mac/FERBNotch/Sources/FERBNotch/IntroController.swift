@@ -12,10 +12,11 @@ enum IntroAnswer: Equatable {
 
 /// FERB.app's first-run tour (kb area app): Meet → Sign in → Permissions → Pair browsers → FERB's email →
 /// Try → Control → Home. FERB speaks in text lines in the notch, the orb points at places on screen, every grant counts
-/// only when the system confirms it, the demo looks and tells but never acts, and nothing the tour runs is real work:
-/// "Do it for real" is sent as the owner's message after Home. Skippable at any point (everything it drew or said is
-/// torn down at once), resumable at the beat it was on (`IntroProgress`). SetupModel is the service layer; the beats
-/// are in IntroSetupBeats.swift and IntroDemoBeats.swift, the words in IntroCopy.swift.
+/// only when the system confirms it, and every wait shows what FERB is doing, alive, with its elapsed time (APP-665).
+/// Try runs the task the owner picks for real, through the normal chat path (APP-666), and Control practises Stop on a
+/// real look-only task (APP-667). Skippable from the permissions beat (everything it drew or said is torn down at
+/// once), resumable at the beat it was on (`IntroProgress`). SetupModel is the service layer; the beats are in
+/// IntroSetupBeats.swift and IntroDemoBeats.swift, the words in IntroCopy.swift.
 @MainActor
 final class IntroController {
     enum Timing {
@@ -55,16 +56,14 @@ final class IntroController {
     private var answer: ((IntroAnswer) -> Void)?
     /// Choices that act at once while the tour waits on the system (Show FERB in Finder, Restart FERB to check).
     var sideChoices: [String: () -> Void] = [:]
-    /// The previewed request the owner chose "Do it for real" on: sent as their message once the tour has ended.
-    var realTask: String?
-    /// The last preview shown, replayed as running for practising Stop.
-    var lastPreview: (request: String, events: [[String: Any]])?
-    var replayID: UUID?
+    /// Try's two suggestions and the ones that ran, so the stop practice runs one that hasn't (APP-667).
+    var offered: [IntroSuggestion] = []
+    var ran: Set<String> = []
     var seenControls: Set<IntroControl> = []
     var controlWaiter: (() -> Void)?
-    /// The orb on its way to an app (Try's preview): the flight home waits for it to have arrived.
+    /// The orb on its way to an app (Try's task): the flight home waits for it to have arrived.
     var orbTrip: Task<Void, Never>?
-    /// The orb on its way home after a preview: the next trip out leaves once it has landed.
+    /// The orb on its way home after a task: the next trip out leaves once it has landed.
     var orbHoming: Task<Void, Never>?
 
     var rpc: DaemonRPCTransport { setup.rpc }
@@ -133,21 +132,15 @@ final class IntroController {
         run = Task { [weak self] in await self?.perform(plan, ifNeeded: ifNeeded, resuming: resume != nil) }
     }
 
-    /// Internal interruption for repair or teardown; there is no user-facing Skip control. Everything the tour drew,
-    /// played or said is gone at once; then what's still required is
-    /// read again from the system and the daemon (`remainingRequired`) and `onFinished` runs.
-    /// A "Do it for real" the owner already tapped still starts, as a normal task, right after; `forRepair` (the
-    /// service is down, AppSetupController.repair): it goes into the composer for them to send instead. With nothing
-    /// required left, setup is recorded as done, as at Home.
-    func skip(forRepair: Bool = false) {
+    /// Skip tour (APP-638) and the internal interruption for repair or teardown. Everything the tour drew, played or
+    /// said is gone at once; then what's still required is read again from the system and the daemon
+    /// (`remainingRequired`) and `onFinished` runs. A task the tour started keeps running as any task does. With
+    /// nothing required left, setup is recorded as done, as at Home.
+    func skip() {
         guard running else { return }
         progress.done = true
         progress.resumeBeat = nil
         end(stoppingSound: true)
-        if forRepair, let request = realTask {
-            realTask = nil
-            notch.addToDraft(request)
-        }
         Task { [weak self] in
             guard let self else { return }
             await self.setup.refreshPermissions()
@@ -155,7 +148,6 @@ final class IntroController {
             self.remainingRequired = self.remaining()
             if self.remainingRequired.isEmpty { await self.setup.recordFinished() }
             self.onFinished?()
-            self.startRealTask()
         }
     }
 
@@ -195,8 +187,9 @@ final class IntroController {
     /// doesn't restart); a running one is left alone.
     private func waitForService() async {
         var unanswered = 0
+        let since = Date()
         while live, !(await setup.serviceAnswers()) {
-            say(IntroCopy.gettingReady)
+            say(IntroCopy.gettingReady.waiting(since: since))
             unanswered += 1
             if unanswered == setup.serviceStartAfter { _ = await setup.service.start() }
             await dwell(Timing.poll)
@@ -222,15 +215,6 @@ final class IntroController {
         progress.resumeBeat = nil
         end(stoppingSound: false)
         onFinished?()
-        startRealTask()
-    }
-
-    /// The owner's own pick from the demo, as their message, now that the tour runs nothing any more; whatever they
-    /// typed meanwhile stays in the composer.
-    private func startRealTask() {
-        guard let request = realTask else { return }
-        realTask = nil
-        notch.send(request)
     }
 
     /// Every way the tour ends: the orb, the lines and the previews go; the app may terminate again. The engine stops
@@ -259,7 +243,6 @@ final class IntroController {
         notch.introLine = nil
         notch.introHoldsWork = false
         if notch.promptError == NotchModel.introHeldWork { notch.promptError = nil }
-        notch.conversation.removePreviews()
         ProcessInfo.processInfo.enableAutomaticTermination(Self.terminationReason)
     }
 
@@ -287,6 +270,12 @@ final class IntroController {
 
     func say(_ line: IntroLine) { notch.introLine = line }
 
+    /// Runs `work` while `line` shows as a live wait (APP-665): a spinner and, past a few seconds, the time it has run.
+    func working<T>(_ line: IntroLine, _ work: () async -> T) async -> T {
+        say(line.waiting(since: Date()))
+        return await work()
+    }
+
     func dwell(_ seconds: Double) async { await sleeper.sleep(seconds: seconds) }
 
     /// Shows `line` and waits for the owner's answer; nil when the tour ended.
@@ -295,8 +284,10 @@ final class IntroController {
         return await suspend { [weak self] resume in self?.answer = { resume($0) } }
     }
 
-    /// Shows `line()` and checks `done` every poll until it holds (nil), or the owner answers (that answer).
-    func wait(showing line: @escaping () -> IntroLine, until done: @escaping () async -> Bool) async -> IntroAnswer? {
+    /// Shows `line()` and checks `done` every poll (`every` seconds) until it holds (nil), or the owner answers (that
+    /// answer).
+    func wait(showing line: @escaping () -> IntroLine, every: Double = Timing.poll,
+              until done: @escaping () async -> Bool) async -> IntroAnswer? {
         var picked: IntroAnswer?
         answer = { picked = $0 }
         defer { answer = nil }
@@ -304,7 +295,7 @@ final class IntroController {
             say(line())
             if await done() { return nil }
             if let picked { return picked }
-            await dwell(Timing.poll)
+            await dwell(every)
             if let picked { return picked }
         }
         return nil
@@ -329,8 +320,6 @@ final class IntroController {
 
     private func handle(_ action: IntroAction) {
         switch action {
-        case .stopPreview:
-            saw(.stop)
         case .skipTour:
             guard beat.map({ $0.rawValue >= IntroBeat.permissions.rawValue }) == true else { return }
             skip()
@@ -369,14 +358,14 @@ final class IntroController {
         sound.play(.intro, at: nil)
         await dwell(Timing.hello)
         guard live else { return }
-        if setup.serviceRunning { say(IntroCopy.gettingReady) }
+        say(IntroCopy.gettingReady.waiting(since: Date()))      // APP-665: the install may still be running
         var ready = await install.value
         while live && !ready {
             if setup.serviceNeedsApproval {
                 ready = await approveInLoginItems()
             } else {
                 guard await ask(IntroCopy.serviceFailed(setup.serviceError)) != nil else { return }
-                ready = await installService()
+                ready = await working(IntroCopy.gettingReady) { await installService() }
             }
         }
     }
@@ -404,7 +393,7 @@ final class IntroController {
             }
         }]
         defer { sideChoices = [:] }
-        say(IntroCopy.loginItems)
+        say(IntroCopy.loginItems.waiting(since: Date()))         // waits on the owner's switch: alive meanwhile
         while live, let background = setup.background, await background.switchedOff() { await dwell(Timing.poll) }
         guard live else { return false }
         if docked {
@@ -412,8 +401,7 @@ final class IntroController {
             await orb.flyHome()
         }
         guard live else { return false }
-        say(IntroCopy.gettingReady)
-        return await installService()                 // switched on: the setup command loads the LaunchAgent now
+        return await working(IntroCopy.gettingReady) { await installService() }   // switched on: loads it now
     }
 
     // MARK: 8. Home

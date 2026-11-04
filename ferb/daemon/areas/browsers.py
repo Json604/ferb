@@ -3,7 +3,7 @@ browser RPCs. Must not choose a profile for a task: agents do."""
 
 import asyncio
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from ferb.act.browser import downloads, profiles as browser_profiles, uploads
 from ferb.act.browser.autoinstall import accepted_extension_ids
@@ -26,6 +26,14 @@ PROFILES_UNSEEN = ("FERB can't read browser profile names without Full Disk Acce
                    "their folder")
 REFUSED = "browser.connection_refused"      # HAND-406: a browser connection FERB didn't take, with its reason
 HELPER_FAILED = "secret.helper_failed"      # HAND-410: a secret-helper failure, with its status when known
+# item 7 / HAND-413: Pair all's skip reasons FERB's Web Store page fixes in one click (Add to <browser>)
+ADDABLE = frozenset({"removed", "not_added", "requested"})
+# HAND-412: a pairing page nobody answered while the profile's files say FERB is on and new enough. Chrome shows the
+# page as blocked (ERR_BLOCKED_BY_CLIENT) when the extension isn't running in that profile right then: turned off since
+# the files were written, updating, or waiting for the owner to accept new permissions
+PAIR_UNANSWERED = ("FERB's pairing page got no answer there: {label} may have FERB turned off, updating or waiting "
+                   "for you to accept new permissions in that profile. Open chrome://extensions in that profile, make "
+                   "sure FERB is on and up to date, then try again")
 
 
 class Browsers:
@@ -467,21 +475,67 @@ class Browsers:
             return base | {"paired": False, "needs_enable": True,
                            "why": "FERB's extension is in that profile but turned off: the owner turns it on there "
                                   "(Chrome shows “Action Required”, or the switch on its extensions page), then pair"}
+        if (stands := await asyncio.to_thread(self._extension_stands, p)) is not None:
+            return base | {"paired": False, "reason": stands[0], "why": stands[1]}   # HAND-412: no page it can't answer
         token = self.pairings.issue_token(p.browser, p.folder)
-        wake = await self._open_pairing(p.browser, p.folder, token)
-        end = self.clock.monotonic() + timeout_s
-        while self.clock.monotonic() < end:
-            br = self.hub.bridges.get((p.browser, p.folder)) if self.hub else None
-            if token in self.pairings.paired and br is not None and br.conn:
-                await self._close_wake(br, wake)
-                self._journal().append("browsers.paired", {"browser": p.browser, "folder": p.folder})
-                return base | {"paired": True}
-            await asyncio.sleep(0.2)
+        try:
+            wake = await self._open_pairing(p.browser, p.folder, token)
+            end = self.clock.monotonic() + timeout_s
+            recheck = self.clock.monotonic() + self.pair_load_wait_s
+            while self.clock.monotonic() < end:
+                br = self.hub.bridges.get((p.browser, p.folder)) if self.hub else None
+                if token in self.pairings.paired and br is not None and br.conn:
+                    await self._close_wake(br, wake)
+                    self._journal().append("browsers.paired", {"browser": p.browser, "folder": p.folder})
+                    return base | {"paired": True}
+                # HAND-412: what FERB learns meanwhile ends the wait at once: the page was answered but the extension's
+                # hello was refused (too old, newer than FERB, no signing nonce), or the profile's own files now say
+                # FERB's copy is off, gone or too old (read again each time the page has had its load time again)
+                why = self._answered_but_refused(p, token)
+                if why is None and self.clock.monotonic() >= recheck:
+                    recheck = self.clock.monotonic() + self.pair_load_wait_s
+                    why = await asyncio.to_thread(self._extension_stands, p)
+                if why is not None:
+                    self.pairings.revoke(token)              # a page answered late can't pair it after this
+                    self._journal().append("browsers.pair_failed", {"browser": p.browser, "folder": p.folder,
+                                                                     "reason": why[0]})
+                    return base | {"paired": False, "reason": why[0], "why": why[1]}
+                await asyncio.sleep(0.2)
+        except asyncio.CancelledError:
+            self.pairings.revoke(token)                      # Pair all's caller left: the key can't pair later
+            raise
         self.pairings.revoke(token)                          # its page went unanswered: the key can't pair later
+        stands = await asyncio.to_thread(self._extension_stands, p)
         self._journal().append("browsers.pair_failed", {"browser": p.browser, "folder": p.folder,
-                                                         "why": "the pairing page wasn't answered"})
-        return base | {"paired": False, "hint": "is the FERB extension loaded and enabled in that profile?",
-                       "why": "FERB's extension didn't answer in that profile; check it is turned on there"}
+                                                         "why": "the pairing page wasn't answered",
+                                                         **({"reason": stands[0]} if stands else {})})
+        if stands is not None:
+            return base | {"paired": False, "reason": stands[0], "why": stands[1]}
+        label = browser_profiles.BROWSERS[p.browser].label if p.browser in browser_profiles.BROWSERS else p.browser
+        return base | {"paired": False, "reason": "no_answer",
+                       "hint": "is the FERB extension loaded and enabled in that profile?",
+                       "why": PAIR_UNANSWERED.format(label=label)}
+
+    def _answered_but_refused(self, p: Any, token: str) -> tuple[str, str] | None:
+        """HAND-412: the pairing page was answered (its key used) and FERB then refused that profile's hello."""
+        if self.pairings is None or self.hub is None or token not in self.pairings.paired:
+            return None
+        b = self.pairings.for_profile(p.browser, p.folder)
+        problem = self.hub.problem(b) if b is not None else None
+        return ("problem", problem) if problem is not None else None
+
+    def _extension_stands(self, p: Any) -> tuple[str, str] | None:
+        """HAND-412: why this profile's FERB copy can't answer a pairing page, from its files now (off, with
+        Chromium's reason; not there; installed version below the minimum), as Pair all's skip says it; None: on and
+        new enough as far as its files say. Blocking (file reads)."""
+        from ferb.act.browser import autoinstall
+        from ferb.device.extensions import extension_path, not_paired_step, store_page
+        data = (self.browser_data_dirs or {}).get(p.browser) \
+            or browser_profiles.data_dir(p.browser, self.browser_support)
+        store = autoinstall.store_extension_id(self.config)
+        st = autoinstall.profile_status(p, autoinstall.accepted_extension_ids(self.config), data, None, store)
+        label = browser_profiles.BROWSERS[p.browser].label if p.browser in browser_profiles.BROWSERS else p.browser
+        return not_paired_step(st, label, False, store_page(store), extension_path(self.home))
 
     async def _pair_for_task(self, browser: str, folder: str) -> dict[str, Any]:
         """A task's browser_pair, after the owner's Yes (the gateway asked): that exact profile."""
@@ -560,12 +614,27 @@ class Browsers:
         return await self._pair_one(p, float(params.get("timeout_s", 60)))
 
     async def _setup_browsers_pair_all(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Pair all as one reply: the last event of `_pair_all_events` (the stream FERB.app follows live)."""
+        reply: dict[str, Any] = {}
+        async for event in self._pair_all_events(params):
+            reply = event
+        return {k: v for k, v in reply.items() if k != "type"}
+
+    async def _setup_browsers_pairing(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        """Pair all, live (HAND-412): `setup.browsers_pairing` streams `_pair_all_events`, so FERB.app shows each
+        profile's pairing as it opens and each result as it lands, and ends with the same reply as Pair all's."""
+        async for event in self._pair_all_events(params):
+            yield event
+
+    async def _pair_all_events(self, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
         """Pair all (owner 2026-10-27: "a pair all which opens all pairs instantly and closes all too. SO THERES NO
         MANUAL STEP LATER"): every profile whose FERB extension is in and not yet paired, all at once.
         HAND-411: every other owner profile is listed in `skipped` with its structural reason and the owner's step
         (`not_paired_step`; a paired profile that can't connect gives `hub.problem`'s words), so nothing is passed
         over in silence; `profiles` counts the owner's profiles (FERB's own is left out). Nothing opens or restarts a
-        browser here."""
+        browser here. HAND-412: events, in order: `plan` (the profiles it pairs, `todo`, and every one it skips, each
+        skipped one that FERB's store page could add marked `can_add`), a `result` per profile as it lands, then
+        `done` with the whole reply. Leaving the stream stops the pairings still waiting (their keys revoked)."""
         from ferb.act.browser import autoinstall
         from ferb.device.extensions import extension_path, not_paired_step, store_page
         store = autoinstall.store_extension_id(self.config)
@@ -594,16 +663,30 @@ class Browsers:
                         continue                            # paired already, nothing known against it
                 if why is not None:
                     skipped.append({"browser": st.browser, "label": label, "folder": st.folder, "name": st.name,
-                                    "reason": why[0], "step": why[1]})
+                                    "reason": why[0], "step": why[1],
+                                    "can_add": bool(url) and why[0] in ADDABLE})
                 elif (p := known.get((st.browser, st.folder))) is not None:
                     todo.append(p)
         if skipped:
             self._journal().append("browsers.pair_all_skipped", {"skipped": [
                 {k: s[k] for k in ("browser", "folder", "reason")} for s in skipped]})
-        results = await asyncio.gather(*(self._pair_one(p, float(params.get("timeout_s", 60))) for p in todo))
-        return {"profiles": owner, "skipped": skipped, "store_url": url or None,
-                "results": [r | {"label": labels.get((r["browser"], r["folder"]), r["browser"])} for r in results],
-                "paired": sum(1 for r in results if r.get("paired"))}
+        yield {"type": "plan", "profiles": owner, "skipped": skipped, "store_url": url or None,
+               "todo": [{"browser": p.browser, "folder": p.folder, "name": p.display_name,
+                         "label": labels.get((p.browser, p.folder), p.browser)} for p in todo]}
+        timeout = float(params.get("timeout_s", 60))
+        jobs = [asyncio.ensure_future(self._pair_one(p, timeout)) for p in todo]
+        results: list[dict[str, Any]] = []
+        try:
+            for finished in asyncio.as_completed(jobs):
+                r = await finished
+                r = r | {"label": labels.get((r["browser"], r["folder"]), r["browser"])}
+                results.append(r)
+                yield {"type": "result"} | r
+        finally:
+            for job in jobs:                                 # the caller left: nothing keeps waiting for it
+                job.cancel()
+        yield {"type": "done", "profiles": owner, "skipped": skipped, "store_url": url or None,
+               "results": results, "paired": sum(1 for r in results if r.get("paired"))}
 
     def _paired_problem(self, browser: str, folder: str) -> tuple[str, str] | None:
         """A paired profile whose extension isn't connected and that FERB knows why (HAND-406: refused in this run,

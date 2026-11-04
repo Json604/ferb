@@ -109,7 +109,6 @@ extension NotchModel {
 enum IntroAction: Equatable {
     case choose(String)
     case enter(String)
-    case stopPreview
     case skipTour
 }
 
@@ -148,6 +147,7 @@ struct IntroNarrationView: View {
                 Text("MAKE YOURSELF AT HOME")
                     .font(.system(size: 9, weight: .semibold)).tracking(1.8)
                     .foregroundStyle(Palette.secondary)
+                if let since = line.since { IntroWaitIndicator(since: since) }      // APP-665: a wait stays alive
                 if canSkip, let act {
                     Spacer(minLength: 8)
                     Button("Skip tour") { act(.skipTour) }
@@ -212,6 +212,7 @@ struct IntroNarrationView: View {
     private var checklistDescription: String {
         line.checklist.first(where: { $0.id == hoveredPermission })?.detail
             ?? line.checklist.first(where: \.active)?.detail
+            ?? line.checklistHint
             ?? "Hover over a permission to see why it's needed. Permissions that don't need a restart can be set up together."
     }
 
@@ -256,6 +257,26 @@ struct IntroNarrationView: View {
         typed.wrappedValue = ""
         guard !text.isEmpty else { return }
         act(.enter(text))
+    }
+}
+
+/// A line that waits on something (APP-665): a small spinner, and past a few seconds the time it has waited, ticking
+/// once a second, so a long wait never looks stuck. Nothing here moves the line or changes its height.
+struct IntroWaitIndicator: View {
+    let since: Date
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.mini).scaleEffect(0.8)
+            TimelineView(.periodic(from: since, by: 1)) { context in
+                if let elapsed = IntroLine.elapsed(since: since, now: context.date) {
+                    Text(elapsed).font(.system(size: 10, weight: .medium).monospacedDigit())
+                        .foregroundStyle(Palette.secondary)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Working")
     }
 }
 

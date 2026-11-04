@@ -683,7 +683,7 @@ class KB:
                 body.append(f"- **{i}** ({d.get('by')}): {d.get('rule', '')}")
             text = "\n".join(body).rstrip("\n") + "\n"
             if len(text) > 38000:
-                text = text[:37000] + "\n\n(truncated: run `tools/kb/run kb area " + k + "`)\n"
+                text = text[:37000].rstrip() + "\n\n(truncated: run `tools/kb/run kb area " + k + "`)\n"
             out[f"kb-{k}.md"] = text
         return out
 
