@@ -697,3 +697,14 @@ why = "Owner's run of build 202611040536: five profiles whose extension the owne
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 paths = ["ferb/act/browser/profiles.py::installed_entry", "ferb/act/browser/autoinstall.py::_removed"]
 live = ["LIVE-752"]
+
+[HAND-421]
+title = "The extension doesn't get Chrome's history permission"
+by = "owner"
+date = 2026-11-04
+status = "active"
+words = "nah its ok, i didnt knew it culdn see tha twith the extension"
+words_source = "Answer to the proposal on 2026-11-04 to add the history permission so FERB can read browsing history in the background (a Web Store update that makes Chrome ask every user to approve it)."
+rule = "FERB's extension doesn't request Chrome's history permission. Browsing history from before FERB's own record (the browser_tabs trail since install) stays out of background reach; reading a browser's own History page needs foreground use, which asks the owner as always. Adding the permission later is a new owner decision."
+paths = ["extensions/chromium/manifest.json"]
+untestable = "A permission that is absent: the manifest is checked by review, and any change to its permissions is a store release the owner approves."
