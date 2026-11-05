@@ -393,7 +393,8 @@ legacy = "notes/setup-intro.md Left to the builder (Task 4); notes/setup-intro-p
 title = "Answers show their full text; no short summary above a Details disclosure"
 by = "owner"
 date = 2026-10-24
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-533"
 words = "the details response is better. remove the summarised short response as of now"
 rule = "The planner, workers and the orchestrator's recovery write no separate short version: a direct reply streams its full text, and a task's answer is the full answer with the side lines FERB adds. Question cards keep their own display text."
 rejected = ["Short by default (P30) and a concise display_text above Details (0.27.0.dev1)"]
@@ -711,3 +712,13 @@ status = "active"
 rule = "A row whose step can never run (a dependency ended unfinished) is settled at once as couldn't-do, not at the plan's end. The card payload (plan event, chat.status, task.resumed_event, outcome) carries `steps`: each step's live state, else what plan_steps recorded. States and times live in memory only (no migration): after a restart a step derives its state from plan_steps and one that runs again starts afresh. A worker's live progress line carries its step's task id (`step_task_id`)."
 why = "Times matter only while a step runs and history never shows live states, so no columns. Progress named only the root task, so parallel rows couldn't show their own line; a failed prerequisite left its dependents 'working' until the plan ended."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._step_payload", "ferb/orchestrator/supervisor.py::Supervisor._never_ran", "ferb/orchestrator/worker.py::WorkerRuns.tool_progress"]
+
+[ORCH-533]
+title = "Answers keep their full text; the chat shows a long one's first lines with Show all"
+by = "owner"
+date = 2026-11-05
+status = "active"
+supersedes = ["ORCH-501"]
+words_source = "Owner, 2026-11-05, item 2 (approved for display): long answers show their first lines with the rest on \"Show all\" — same text, no second version (recommendation D8)."
+rule = "The planner, workers and the orchestrator's recovery write no separate short version: a direct reply streams its full text, and a task's answer is the full answer with the side lines FERB adds. The chat shows a long answer's first ~6 lines with the rest on Show all: the same text, no second version (APP-719). Question cards keep their own display text."
+paths = ["ferb/orchestrator/schemas.py", "ferb/orchestrator/prompts", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::AnswerView"]

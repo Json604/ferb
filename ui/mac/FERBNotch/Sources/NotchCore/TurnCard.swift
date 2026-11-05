@@ -128,8 +128,12 @@ public struct TurnCard: Codable, Equatable {
     public var line: String?
     public var lines: [String]
     public var headline: String?
+    /// Each plan step's state, by step id (ORCH-531): live state only, never saved (history shows no live states).
+    public var steps: [String: StepState] = [:]
 
     public var finished: Bool { line != nil }
+
+    private enum CodingKeys: String, CodingKey { case taskID, requestID, rows, done, total, line, lines, headline }
 
     public init?(_ payload: Any?, taskID: String) {
         guard let payload = payload as? [String: Any], let rows = payload["rows"] as? [[String: Any]] else { return nil }
@@ -141,6 +145,18 @@ public struct TurnCard: Codable, Equatable {
         line = (payload["line"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         lines = payload["lines"] as? [String] ?? []
         headline = (payload["headline"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        for (key, value) in payload["steps"] as? [String: Any] ?? [:] {
+            if let state = StepState(value) { steps[key] = state }
+        }
+    }
+
+    /// Applies a `step` event (ORCH-531) when it is newer than the step's state shown. Returns whether it applied.
+    @discardableResult
+    public mutating func apply(step event: [String: Any]) -> Bool {
+        guard let key = event["step"] as? String, !key.isEmpty, let state = StepState(event),
+              StepState.replaces(state, steps[key]), steps[key] != state else { return false }
+        steps[key] = state
+        return true
     }
 
     public func row(_ part: String) -> CardRow? { rows.first { $0.part == part } }
@@ -191,6 +207,7 @@ public struct TurnCard: Codable, Equatable {
         }
         merged += rows.filter { shown in !snapshot.rows.contains { $0.part == shown.part } }
         rows = merged
+        for (key, state) in snapshot.steps where StepState.replaces(state, steps[key]) { steps[key] = state }
         done = snapshot.done
         total = max(snapshot.total, rows.count)
         if snapshot.line != nil {

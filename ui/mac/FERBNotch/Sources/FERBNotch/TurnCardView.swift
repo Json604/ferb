@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NotchCore
 
@@ -86,8 +87,8 @@ struct MergedLabel: View {
     }
 }
 
-/// The turn card: a row per ask in the owner's order (the asks answered in the first reply aren't rows), then the
-/// footer code wrote once the task ended.
+/// The turn card: a row per ask in the owner's order (the asks answered in the first reply aren't rows), a status line
+/// while it runs (APP-718), then the footer code wrote once the task ended.
 struct TurnCardView: View {
     let card: TurnCard
     let turn: ConversationTurn
@@ -99,12 +100,19 @@ struct TurnCardView: View {
         let running = model.runningTasks[card.taskID] != nil
         // A row still working in a turn that ended without its footer (interrupted, or read from history) isn't moving.
         let live = running || ["working", "needs_user", "previewRunning"].contains(turn.status)
+        let displays = rows.map { display($0, rows: rows, live: live, questions: questions) }
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 if index > 0 { Rectangle().fill(.white.opacity(0.07)).frame(height: 1) }
-                CardRowView(row: row, questions: questions[row.part] ?? [], live: live, model: model)
+                CardRowView(row: row, display: displays[index], questions: questions[row.part] ?? [], turnID: turn.id,
+                            model: model)
+                    .transcriptAnchor(TranscriptTarget.row(turn: turn.id, part: row.part))
             }
-            if card.finished { footer }
+            if card.finished {
+                footer.transcriptAnchor(TranscriptTarget.footer(turn: turn.id))
+            } else if live && running && !rows.isEmpty && !turn.preview {
+                statusLine(displays)
+            }
         }
         .padding(.vertical, 4)
         .background {
@@ -115,6 +123,16 @@ struct TurnCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private func display(_ row: CardRow, rows: [CardRow], live: Bool, questions: [String: [DaemonApproval]]) -> RowDisplay {
+        let step = row.step.flatMap { card.steps[$0] }
+        let loop: LoopRound? = step?.loop == true ? model.standingWork[card.taskID].map { work in
+            LoopRound(rounds: work.rounds, nextCheck: work.lastRoundEnd.map { $0.addingTimeInterval(work.gapSeconds) })
+        } : nil
+        return RowDisplay.make(row: row, steps: card.steps, rows: rows, live: live,
+                               hasQuestion: !(questions[row.part] ?? []).isEmpty,
+                               liveLine: row.stepTaskID.flatMap { model.stepLive[$0] }, loop: loop)
+    }
+
     // One colour belongs to the complete card, including its footer; the row's words carry its state.
     private var surfaceTint: Color {
         let states = Set(card.rows.filter { !$0.direct }.map(\.state))
@@ -122,6 +140,19 @@ struct TurnCardView: View {
         if states.contains("failed") { return Palette.red }
         if !states.isDisjoint(with: ["paused", "updated"]) { return Palette.chatBlue }
         return .clear
+    }
+
+    /// "1 of 4 done · 2 running · 1 waiting · 12:03" while the task runs; its clock pauses while the body is hidden.
+    private func statusLine(_ displays: [RowDisplay]) -> some View {
+        TimelineView(.animation(minimumInterval: 1, paused: !model.bodyVisible)) { context in
+            Text(CardStatusLine.text(card: card, displays: displays, since: model.runningSince[card.taskID],
+                                     at: context.date))
+                .font(.system(size: 10.5)).foregroundStyle(Palette.secondary)
+                .lineLimit(1).truncationMode(.tail)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 11).padding(.top, 7).padding(.bottom, 5)
+        .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.07)).frame(height: 1) }
     }
 
     /// "2 of 3 done" and code's lines ("Sites contacted: …"); a stop's headline above them. A line a typed card stands
@@ -141,27 +172,21 @@ struct TurnCardView: View {
     }
 }
 
-/// One ask: its label and what it says now. A question about it (FERB's own, or a confirmation
-/// the gateway asks for its step) is answered here, with its buttons.
+/// One ask: its label and what it says now (RowDisplay, APP-718). A question about it (FERB's own, or a confirmation
+/// the gateway asks for its step) is answered here, with its buttons. A done or failed row shows its first lines with
+/// the rest on Show more (APP-719).
 struct CardRowView: View {
     let row: CardRow
+    let display: RowDisplay
     let questions: [DaemonApproval]
-    /// Its turn is still under way; otherwise a working row stopped where it was.
-    let live: Bool
+    let turnID: UUID
     @ObservedObject var model: NotchModel
-
-    /// An open confirmation for its step shows the row as asking; a working row of a turn that ended, as stopped.
-    private var state: String {
-        if !questions.isEmpty && row.state != "asks" && row.state != "paused" { return "asks" }
-        if row.state == "preview" { return live ? "previewRunning" : "preview" }    // the intro's demo: nothing done
-        return row.state == "working" && !live ? "stopped" : row.state
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Text(row.label).font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.secondary)
-                if state == "updated" { UpdatedTag() }
+                if display.kind == .updated { UpdatedTag() }
                 Spacer(minLength: 0)
             }
             content.padding(.top, 2)
@@ -169,25 +194,33 @@ struct CardRowView: View {
         .padding(.horizontal, 11).padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(row.label + ", " + Self.stateName(state))
+        .accessibilityLabel(row.label + ", " + Self.stateName(display.kind))
     }
 
     @ViewBuilder private var content: some View {
         VStack(alignment: .leading, spacing: 4) {
-            switch state {
-            case "working":
-                Text("working…").font(.system(size: 12)).foregroundStyle(.tertiary)
-            case "stopped":
-                Text("Not finished").font(.system(size: 12)).foregroundStyle(.tertiary)
-            case "preview":
+            switch display.kind {
+            case .preview:
                 Text("Preview: I'd do this step").font(.system(size: 12)).foregroundStyle(.tertiary)
-            case "previewRunning":
+            case .previewRunning:
                 Text("Preview: as if working…").font(.system(size: 12)).foregroundStyle(.tertiary)
-            case "failed":
-                Text(verbatim: row.text ?? "Couldn't do it.").font(.system(size: 12)).foregroundStyle(Palette.redSoft)
+            case .failed:
+                collapsible {
+                    Text(verbatim: row.text ?? "Couldn't do it.").font(.system(size: 12)).foregroundStyle(Palette.redSoft)
+                        .textSelection(.enabled)
+                }
+            case .wontRun:
+                Text(display.words ?? "").font(.system(size: 12)).foregroundStyle(Palette.redSoft)
                     .textSelection(.enabled)
-            default:
+            case .done, .updated:
+                if let text = row.text { collapsible { MarkdownContent(text).equatable() } }
+            case .needsYou, .paused:
                 if let text = row.text { MarkdownContent(text).equatable() }
+                else if let words = display.words, questions.isEmpty, row.question == nil {
+                    Text(words).font(.system(size: 12)).foregroundStyle(Palette.amber)
+                }
+            default:
+                RowStateLine(display: display, visible: model.bodyVisible)
             }
             if let note = row.note {
                 (Text("Couldn't confirm: ").fontWeight(.semibold).foregroundStyle(Palette.amber)
@@ -197,7 +230,7 @@ struct CardRowView: View {
                 (Text("Correction: ").fontWeight(.semibold).foregroundStyle(Palette.ink)
                     + Text(correction).foregroundStyle(Palette.secondary)).font(.system(size: 11.5))
             }
-            if let why = row.why, state == "updated" {
+            if let why = row.why, display.kind == .updated {
                 Text(why.hasPrefix("Updated") ? why : "Updated: " + why)
                     .font(.system(size: 11.5)).foregroundStyle(Palette.chatBlue)
             }
@@ -215,13 +248,113 @@ struct CardRowView: View {
         }
     }
 
-    static func stateName(_ state: String) -> String {
-        ["working": "working", "done": "done", "updated": "updated", "asks": "asks you", "failed": "couldn't do",
-         "paused": "paused", "stopped": "not finished", "preview": "preview, nothing done",
-         "previewRunning": "preview, nothing done"][state] ?? state
+    private func collapsible<Content: View>(@ViewBuilder _ content: @escaping () -> Content) -> some View {
+        CollapsibleText(key: ExpansionState.key(turn: turnID, item: row.part), lines: CollapsePolicy.rowLines,
+                        target: TranscriptTarget.row(turn: turnID, part: row.part), more: "Show more", model: model,
+                        content: content)
     }
 
+    static func stateName(_ kind: RowDisplay.Kind) -> String {
+        [.waiting: "waiting", .starting: "starting", .running: "working", .checking: "checking the result",
+         .retrying: "trying again", .needsYou: "asks you", .paused: "paused", .done: "done", .updated: "updated",
+         .failed: "couldn't do", .wontRun: "won't run", .notFinished: "not finished", .loop: "watching",
+         .working: "working", .preview: "preview, nothing done", .previewRunning: "preview, nothing done"][kind]
+            ?? kind.rawValue
+    }
+}
 
+/// A row's state words, then a small spinner while its step works (a still dot under Reduce Motion), then how long the
+/// step has worked. No leading icon (APP-628, refined by APP-718). The clock pauses while the notch body is hidden.
+struct RowStateLine: View {
+    let display: RowDisplay
+    let visible: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1, paused: !visible || display.since == nil)) { context in
+            HStack(spacing: 6) {
+                Text(display.text(at: context.date) ?? "")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .lineLimit(2).truncationMode(.tail)
+                if display.spinner { RowSpinner(paused: !visible) }
+            }
+        }
+    }
+}
+
+/// The small inline spinner after a running row's words: an arc turning, or a still dot under Reduce Motion.
+struct RowSpinner: View {
+    let paused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if reduceMotion {
+            Circle().fill(Palette.secondary).frame(width: 5, height: 5).accessibilityHidden(true)
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: paused)) { context in
+                let turn = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.9) / 0.9
+                Circle().trim(from: 0, to: 0.7)
+                    .stroke(Palette.secondary, style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
+                    .frame(width: 9, height: 9)
+                    .rotationEffect(.degrees(turn * 360))
+            }
+            .accessibilityHidden(true)
+        }
+    }
+}
+
+/// A text shown to its first `lines` lines with a fade and Show more / Show less (APP-719), when it is taller than
+/// that; the same text either way. The control is explicit (selection on the text keeps working, APP-637). Collapsing
+/// keeps the item's top in view.
+struct CollapsibleText<Content: View>: View {
+    let key: String
+    let lines: Int
+    let target: String
+    let more: String
+    @ObservedObject var model: NotchModel
+    /// Shown under the fade only while collapsed: lines that must stay visible but sit at the text's end.
+    var whenCollapsed: AnyView? = nil
+    @ViewBuilder let content: () -> Content
+    @State private var natural: CGFloat = 0
+
+    private static var lineHeight: CGFloat { ceil(NSLayoutManager().defaultLineHeight(for: .systemFont(ofSize: 12))) }
+
+    var body: some View {
+        let lineHeight = Self.lineHeight
+        let clamp = CollapsePolicy.clampHeight(lines: lines, lineHeight: lineHeight)
+        let collapsible = CollapsePolicy.needsControl(natural: natural, clamp: clamp, lineHeight: lineHeight)
+        let collapsed = collapsible && !model.expandedText.isOpen(key)
+        VStack(alignment: .leading, spacing: 3) {
+            content()
+                .fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { proxy in
+                    Color.clear.preference(key: NaturalTextHeight.self, value: proxy.size.height)
+                })
+                .onPreferenceChange(NaturalTextHeight.self) { height in
+                    if abs(height - natural) > 0.5 { natural = height }
+                }
+                .frame(height: collapsed ? clamp : nil, alignment: .top)
+                .clipped()
+                .mask {
+                    LinearGradient(stops: [.init(color: .black, location: 0),
+                                           .init(color: .black, location: collapsed ? 0.62 : 1),
+                                           .init(color: collapsed ? .clear : .black, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+            if collapsed, let whenCollapsed { whenCollapsed }
+            if collapsible {
+                Button(collapsed ? more : "Show less") { model.toggleExpanded(key, target: target) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Palette.chatBlue)
+                    .accessibilityHint(collapsed ? "Shows the whole text" : "Shows the first lines")
+            }
+        }
+    }
+}
+
+private struct NaturalTextHeight: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 private struct UpdatedTag: View {

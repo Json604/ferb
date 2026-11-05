@@ -1425,7 +1425,8 @@ live = ["LIVE-693"]
 title = "Status cards use colour and words without leading state icons"
 by = "owner"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "APP-718"
 supersedes = ["APP-621"]
 words = "remove these icons. the color conveys the message clearly/"
 rule = "Remove the leading state icons from chat turn-card rows, including questions, failures, checks, pauses, previews and working spinners. Remove the empty icon gutter; keep labels, status text, accessible state names and interactive controls. Preserve APP-621's full rounded colour fill including the footer, no coloured leading stripe or rectangular inset, chat blue in place of cyan/violet, amber for questions and red for failures. This refines APP-300's initial icon styling."
@@ -2166,3 +2167,61 @@ rule = "NotchPanel.performKeyEquivalent sends Command-C, X, A, V, Z and Shift-Co
 why = "Owner, approved 2026-11-05: \"no pasting in ferb question input boxes -fix\". An inactive app's panel never gets the Edit menu's shortcuts; only C, X and A were routed. The panel's own chain replaces NSApp.sendAction(to: nil), which looks in whichever window is key."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::NotchPanel"]
 live = ["LIVE-774"]
+
+[APP-718]
+title = "Card rows say what their step is doing, with a small spinner after the words"
+by = "owner"
+date = 2026-11-05
+status = "active"
+supersedes = ["APP-628"]
+words = "see the frellnace task: the response boxes are a good ui BUT, they shoudl still show less adn seeable as first and rest on clcik to see, theres many parts in thsi, the agnet didnt work in prallele at all cause it needed some prev steps, thats correct BUT the wording shoudl be better and there shoudl be a loader when that step srtarts,. it always ssays 'working' ... its not an issue with me. im fine with your state update changes, btu i dont think so other more structural shcnges are required"
+rule = "Turn-card rows have no leading state icons and no icon gutter; labels, status text, accessible state names, controls and APP-621's full rounded fills stay (amber questions, red failures, chat blue). Each row says its step's state: waiting (naming the row it waits for), starting, running with what it is doing (built by code from its tool calls) and the time, checking, trying again, needs you, done, couldn't do, won't run, not finished, a loop's round. A small spinner sits after the words while the step works (a still dot under Reduce Motion). No list of background steps."
+why = "The freelance task's rows all said 'working…' from the start although its steps waited on each other. Approved recommendations D1 (spinner after the words, refining APP-628's removal of working spinners), D2 (running row's line from its tool calls) and the state wording."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::RowDisplay", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
+live = ["LIVE-775", "LIVE-776"]
+
+[APP-719]
+title = "Done rows and long answers show their first lines; the rest is one click away"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "see the frellnace task: the response boxes are a good ui BUT, they shoudl still show less adn seeable as first and rest on clcik to see, theres many parts in thsi, the agnet didnt work in prallele at all cause it needed some prev steps, thats correct BUT the wording shoudl be better and there shoudl be a loader when that step srtarts,. it always ssays 'working' ... its not an issue with me. im fine with your state update changes, btu i dont think so other more structural shcnges are required"
+rule = "A done or failed card row shows about its first 3 lines with Show more; a row that needs the owner starts open. A long answer in chat shows about its first 6 lines with Show all. The same text either way, never a second version. A row's \"Couldn't confirm\", correction and \"Updated\" lines stay visible."
+why = "Approved recommendations D3 (rows) and D8 (answers; supersedes ORCH-501's full-text display only, ORCH-533)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::CollapsibleText", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::AnswerView", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::CollapsePolicy"]
+live = ["LIVE-777"]
+
+[APP-720]
+title = "What needs the owner comes forward by itself: the notch opens and scrolls to it"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "the answer box doesnt auto come forawrd - i have to scroll. so fix. ... im okm with youtr recommended but why no animation, isnt animation good? also i want the nothc to open itslef adn scroll to it - if thats somethign you didnt get"
+rule = "A question (in a row or at the end), a task's end or a final or late answer opens the notch as APP-301/571 do and scrolls, animated, so the item's top is in view, unless the owner scrolled within the last 10 s: then a pill names it. A card that fills after later messages stays where it is and FERB scrolls or shows a pill to it; APP-580 still moves a plain answer to the bottom. A row that fills quietly never moves the view; out of sight, a pill names it."
+why = "Approved recommendations D11 (a card stays in place; plain answers keep APP-580) and D12 (scroll unless the owner scrolled in the last 10 s, then a pill), with the owner's ask for animation and for the notch to open itself and scroll."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/TranscriptFollow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::ConversationTranscript", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
+live = ["LIVE-778", "LIVE-779"]
+
+[APP-721]
+title = "How collapsed text and its expansion behave"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "One CollapsibleText clamps the same NativeMessageText to a height of N lines with a fade; the Show more/Show all control shows only when the text is taller than that by half a line, and it is an explicit button (selection keeps working, APP-637). Expansion is kept per (turn, part or answer) in memory: it survives the card's updates and resets on relaunch. Collapsing asks the transcript to keep the item's top in view. A collapsed answer's own lines show under the fade."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::CollapsibleText", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::ExpansionState"]
+
+[APP-722]
+title = "The transcript tells the owner's scrolling from growth and applies scroll requests once"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "NotchModel.requestScroll records (target id, reason, label, generation, revealing = the body was hidden); the transcript applies each once, after layout. TranscriptFollow: offset unchanged with taller content is growth (pinned while following); an offset change without growth is the owner scrolling; FERB's own scrolls never count. Revealing lands without animation; Reduce Motion never animates. Several questions count in one pill aimed at the oldest. Another day shown: requests wait for today. Restored results ask for nothing (APP-571)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/TranscriptFollow.swift::TranscriptFollow", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.requestScroll"]
+
+[APP-723]
+title = "A card shows one status line while it runs; its clocks pause while hidden"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "While its task runs, a card shows one line under its rows: done of total, how many run, wait and need the owner, and the task's time. A running row's line comes from its own step's progress (step_task_id), never the root task's, and goes when the step stops running; the work row stays as decided. History and dead tasks never show live states. Row and status-line clocks pause while the notch body is hidden (APP-407's spirit)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::TurnCardView", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::CardStatusLine"]

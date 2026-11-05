@@ -339,11 +339,19 @@ extension NotchModel {
             if event["connection"] != nil {
                 conversation.showProgress(id: localID, text: event["text"] as? String ?? "",
                     startedAt: LiveProgress.time(event["started_at"]) ?? LiveProgress.time(event["at"]) ?? Date())
+            } else if let step = event["step_task_id"] as? String, !step.isEmpty,
+                      conversation.turns.contains(where: { $0.card?.rows.contains { $0.stepTaskID == step } == true }) {
+                // A card row's own live line (APP-718): what that step is doing now, shown in its row only.
+                stepLive[step] = LiveProgress(text: event["text"] as? String ?? "",
+                    startedAt: LiveProgress.time(event["started_at"]) ?? Date())
             }
+        case "step":
+            receiveStep(event)
         case "reply_delta":
             guard session.backendTaskID == nil else { return false }
             let delta = event["text"] as? String ?? ""
             if !delta.isEmpty, conversation.turns.first(where: { $0.id == localID })?.answer.isEmpty ?? true {
+                requestScroll(TranscriptTarget.answer(turn: localID), .answer)
                 presentIncomingAnswer()
             }
             conversation.append(id: localID, delta: delta)
@@ -359,6 +367,7 @@ extension NotchModel {
             if status == "done" { showCompletionTrace() }
             // FERB's question (clarify) sounds as its follow-up's needs you (receiveChatEvent), never as a completion.
             if event["type"] as? String == "reply", let sound = SoundPolicy.outcomeSound(status) { feedback.play(sound) }
+            requestScroll(TranscriptTarget.answer(turn: localID), event["type"] as? String == "clarify" ? .needsYou : .answer)
             presentResult(event)
             recordAnswer(announce: true, displayText: event["display_text"] as? String)
             // A planner turn that ended on a usage limit or a sign-in problem offers another AI service (ORCH-315).
@@ -378,6 +387,7 @@ extension NotchModel {
             conversation.finish(id: localID, answer: message, status: "failed", artifacts: [])
             saveConversation()
             session.requireAttention(message)
+            requestScroll(TranscriptTarget.answer(turn: localID), .answer)
             presentTerminalAnswer()
             promptError = message
             feedback.play(.error)
@@ -489,6 +499,8 @@ extension NotchModel {
             }
         case "task.part":
             receivePart(data)
+        case "task.step":
+            receiveStep(data)
         case "task.resumed_event":
             if taskID == session.backendTaskID, data["type"] as? String == "reply" {
                 session.noteBackendActivity(data["text"] as? String ?? "Task resumed")
@@ -517,9 +529,33 @@ extension NotchModel {
     /// A row's change (ORCH-319), from the turn's stream or the bus: applied once, by its seq, to the card that
     /// shows it. Rows fill quietly: the notch opens only for a question or the task's end (APP-301).
     func receivePart(_ event: [String: Any]) {
-        guard conversation.applyPart(event) != nil else { return }
+        guard let turnID = conversation.applyPart(event) else { return }
         saveConversation()
         onBackgroundChange?(true)
+        // A filled row never moves the view: a pill names it when it is out of sight (APP-720).
+        if let part = event["part"] as? String, ["done", "updated", "failed"].contains(event["state"] as? String ?? "") {
+            let label = conversation.turns.first { $0.id == turnID }?.card?.row(part)?.label ?? ""
+            requestScroll(TranscriptTarget.row(turn: turnID, part: part), .quietFill, label: label)
+        }
+    }
+
+    /// A plan step's state (ORCH-531): its row's words and spinner. A step no longer running drops its live line.
+    func receiveStep(_ event: [String: Any]) {
+        guard conversation.applyStep(event) != nil else { return }
+        if let step = event["step_task_id"] as? String, event["status"] as? String != "running" {
+            stepLive.removeValue(forKey: step)
+        }
+    }
+
+    /// A task's end brings its card's footer, or its answer, forward (APP-720); a question it ended on, as a question.
+    func requestOutcomeScroll(taskID: String, requestID: String?, status: String) {
+        guard let turn = conversation.turns.last(where: { requestID != nil && $0.requestID == requestID })
+                ?? conversation.turns.last(where: { $0.backendTaskID == taskID }) else { return }
+        if turn.card != nil {
+            requestScroll(TranscriptTarget.footer(turn: turn.id), status == "needs_user" ? .needsYou : .taskDone)
+        } else {
+            requestScroll(TranscriptTarget.answer(turn: turn.id), status == "needs_user" ? .needsYou : .answer)
+        }
     }
 
     /// The runtime switch offered with a failed answer (ORCH-315): the role that failed uses `runtime` from
@@ -546,8 +582,9 @@ extension NotchModel {
         defer {
             if conversation.applyOutcome(event) || placed { saveConversation() }
         }
-        // The task ended, so its loops did too (L31).
+        // The task ended, so its loops did too (L31), and its rows' live lines.
         standingWork.removeValue(forKey: taskID)
+        stepLive = stepLive.filter { !$0.key.hasPrefix(taskID + ".") }
         if session.backendTaskID == taskID, session.activeTaskID != nil {
             handleOutcome(event, announce: announce)
             taskActivities.removeValue(forKey: taskID)
@@ -581,7 +618,10 @@ extension NotchModel {
                 if SoundPolicy.isDone(status) { feedback.notification(for: [taskID], bannerMayFollow: true) }
                 else if let sound = SoundPolicy.outcomeSound(status) { feedback.play(sound, for: taskID) }
             }
-            if announce && fresh && Self.opensNotch(status) { presentResult(event) }
+            if announce && fresh && Self.opensNotch(status) {
+                requestOutcomeScroll(taskID: taskID, requestID: event["request_id"] as? String, status: status)
+                presentResult(event)
+            }
             runningTasks.removeValue(forKey: taskID)
             taskActivities.removeValue(forKey: taskID)
             saveConversation()
@@ -763,7 +803,10 @@ extension NotchModel {
         stoppingTaskIDs.remove(id)
         if announce && !alreadyAnnounced, let sound = SoundPolicy.outcomeSound(status) { feedback.play(sound, for: id) }
         if announce && !alreadyAnnounced && status == "done" { showCompletionTrace() }
-        if announce && !alreadyAnnounced && Self.opensNotch(status) { presentResult(event) }
+        if announce && !alreadyAnnounced && Self.opensNotch(status) {
+            requestOutcomeScroll(taskID: id, requestID: event["request_id"] as? String, status: status)
+            presentResult(event)
+        }
         let verified = event["verified"] as? Bool ?? false
         recordAnswer(announce: announce, displayText: event["display_text"] as? String, verified: verified)
         for turn in conversation.turns where turn.backendTaskID == id && ["working", "interrupted", "needs_user"].contains(turn.status) {

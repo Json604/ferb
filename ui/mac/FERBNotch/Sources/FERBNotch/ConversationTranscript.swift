@@ -6,9 +6,34 @@ private struct TranscriptHeight: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-private struct TranscriptContentBottom: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+private struct TranscriptContentFrame: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
+
+/// Where the items a scroll request can name are, in the transcript's visible coordinates (APP-720).
+struct TranscriptAnchors: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+extension View {
+    /// An item a scroll request can bring forward: its id for the scroll view and its place for the follow rules.
+    func transcriptAnchor(_ id: String) -> some View {
+        self.id(id).background(GeometryReader { proxy in
+            Color.clear.preference(key: TranscriptAnchors.self,
+                                   value: [id: proxy.frame(in: .named("ferb-transcript-scroll"))])
+        })
+    }
+}
+
+/// The transcript's measurements and follow state. A reference, so scrolling never re-renders the transcript.
+@MainActor
+private final class TranscriptPlace {
+    var follow = TranscriptFollow()
+    var anchors: [String: CGRect] = [:]
 }
 
 struct ConversationTranscript: View {
@@ -17,8 +42,9 @@ struct ConversationTranscript: View {
     var questions: [DaemonApproval] = []
     @ObservedObject var model: NotchModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var followsLatest = true
+    @State private var place = TranscriptPlace()
     @State private var hasUnreadBelow = false
+    @State private var pill: TranscriptPill?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -34,7 +60,7 @@ struct ConversationTranscript: View {
                         }.id(entry.id)
                     }
                     ForEach(questions) { question in
-                        ApprovalView(model: model, approval: question).id("question-" + question.id)
+                        ApprovalView(model: model, approval: question).transcriptAnchor(TranscriptTarget.question(question.id))
                     }
                     Color.clear.frame(height: 1).id("transcript-bottom")
                 }
@@ -45,8 +71,7 @@ struct ConversationTranscript: View {
                 .background(GeometryReader { proxy in
                     Color.clear
                         .preference(key: TranscriptHeight.self, value: proxy.size.height)
-                        .preference(key: TranscriptContentBottom.self,
-                                    value: proxy.frame(in: .named("ferb-transcript-scroll")).maxY)
+                        .preference(key: TranscriptContentFrame.self, value: proxy.frame(in: .named("ferb-transcript-scroll")))
                 })
             }
             .coordinateSpace(name: "ferb-transcript-scroll")
@@ -72,57 +97,111 @@ struct ConversationTranscript: View {
                 model.measuredTranscriptHeight = height
                 model.onBackgroundChange?(true)
             }
-            .onPreferenceChange(TranscriptContentBottom.self) { bottom in
-                let atBottom = bottom <= model.chatTranscriptHeight + 28
-                followsLatest = atBottom
-                if atBottom { hasUnreadBelow = false }
+            .onPreferenceChange(TranscriptContentFrame.self) { frame in
+                // Growth while following stays pinned to the bottom; the owner's own scrolling is remembered (APP-720).
+                let viewport = model.chatTranscriptHeight
+                if place.follow.observe(offset: -frame.minY, contentHeight: frame.height, viewport: viewport, at: Date()) {
+                    toBottom(proxy, animated: false)
+                }
+                if frame.maxY <= viewport + TranscriptFollow.bottomSlack, hasUnreadBelow { hasUnreadBelow = false }
+            }
+            .onPreferenceChange(TranscriptAnchors.self) { anchors in
+                place.anchors = anchors
+                // A pill goes once its item is in view.
+                if let shown = pill, let frame = anchors[shown.target],
+                   frame.minY >= -1, frame.minY < model.chatTranscriptHeight - 8 { pill = nil }
             }
             .overlay(alignment: .bottomTrailing) {
-                if hasUnreadBelow {
-                    Button {
-                        hasUnreadBelow = false
-                        followsLatest = true
-                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
-                            proxy.scrollTo("transcript-bottom", anchor: .bottom)
-                        }
-                    } label: {
-                        Label("New message", systemImage: "arrow.down")
-                            .font(.system(size: 10, weight: .medium))
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(.regularMaterial, in: Capsule())
+                if let pill {
+                    jump(pill.text, systemImage: pill.up ? "arrow.up" : "arrow.down") {
+                        self.pill = nil
+                        bring(pill.target, proxy, animated: !reduceMotion)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 9).padding(.bottom, 7)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                } else if hasUnreadBelow {
+                    jump("New message", systemImage: "arrow.down") {
+                        hasUnreadBelow = false
+                        place.follow.follow()
+                        toBottom(proxy, animated: !reduceMotion)
+                    }
                 }
             }
             // A question the owner chose to answer is brought into view with its field.
             .onChange(of: model.questionFocus) { _, request in
                 guard let request else { return }
-                followsLatest = false
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo("question-" + request.id, anchor: .bottom) }
+                bring(TranscriptTarget.question(request.id), proxy, animated: !reduceMotion, anchor: .bottom)
             }
-            .onChange(of: entries) { _, _ in
-                if followsLatest {
-                    proxy.scrollTo("transcript-bottom", anchor: .bottom)
-                    hasUnreadBelow = false
-                } else {
-                    hasUnreadBelow = true
-                }
-            }
-            .onChange(of: questions) { _, _ in
-                if followsLatest {
-                    proxy.scrollTo("transcript-bottom", anchor: .bottom)
-                    hasUnreadBelow = false
-                } else {
-                    hasUnreadBelow = true
-                }
-            }
+            .onChange(of: model.scrollRequests) { _, _ in consume(proxy) }
+            .onChange(of: model.viewingToday) { _, today in if today { consume(proxy) } }
+            .onChange(of: entries) { _, _ in followNewest(proxy) }
+            .onChange(of: questions) { _, _ in followNewest(proxy) }
             .onAppear {
-                if let request = model.questionFocus { proxy.scrollTo("question-" + request.id, anchor: .bottom) }
+                if let request = model.questionFocus { proxy.scrollTo(TranscriptTarget.question(request.id), anchor: .bottom) }
                 else { proxy.scrollTo("transcript-bottom", anchor: .bottom) }
+                consume(proxy)
             }
         }
+    }
+
+    private func jump(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 10, weight: .medium))
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(.regularMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, 9).padding(.bottom, 7)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    /// New entries: pinned to the bottom while following, else the "New message" control.
+    private func followNewest(_ proxy: ScrollViewProxy) {
+        if place.follow.following {
+            toBottom(proxy, animated: false)
+            hasUnreadBelow = false
+        } else if pill == nil {
+            hasUnreadBelow = true
+        }
+    }
+
+    /// The model's scroll requests not applied yet, once each (APP-720): the most urgent one that scrolls brings its
+    /// item's top into view; the others become one pill or nothing. Requests wait while another day is shown
+    /// (history), then apply to today's chat.
+    private func consume(_ proxy: ScrollViewProxy) {
+        let pending = model.scrollRequests.filter { $0.generation > model.scrollHandled }
+        guard let newest = pending.last, model.viewingToday else { return }
+        model.scrollHandled = newest.generation
+        // After this update's layout, so a new item has its place.
+        DispatchQueue.main.async {
+            var scroll: (TranscriptScrollRequest.Reason, String, Bool)?
+            for request in pending {
+                let frame = place.anchors[request.target]
+                switch place.follow.decide(request, target: frame.map { $0.minY...max($0.minY, $0.maxY) },
+                                           viewport: model.chatTranscriptHeight, reduceMotion: reduceMotion, at: Date()) {
+                case .none:
+                    break
+                case let .scroll(target, animated):
+                    if scroll.map({ request.reason >= $0.0 }) ?? true { scroll = (request.reason, target, animated) }
+                case let .pill(shown):
+                    pill = TranscriptPill.merged(pill, shown)
+                    hasUnreadBelow = false
+                }
+            }
+            if let (_, target, animated) = scroll {
+                if pill?.target == target { pill = nil }
+                bring(target, proxy, animated: animated)
+            }
+        }
+    }
+
+    private func bring(_ target: String, _ proxy: ScrollViewProxy, animated: Bool, anchor: UnitPoint = .top) {
+        place.follow.scrolledByFERB(at: Date(), settle: animated ? 0.6 : 0.15)
+        withAnimation(animated ? .spring(duration: 0.4, bounce: 0) : nil) { proxy.scrollTo(target, anchor: anchor) }
+    }
+
+    private func toBottom(_ proxy: ScrollViewProxy, animated: Bool) {
+        place.follow.scrolledByFERB(at: Date(), settle: animated ? 0.3 : 0.1)
+        withAnimation(animated ? .easeOut(duration: 0.18) : nil) { proxy.scrollTo("transcript-bottom", anchor: .bottom) }
     }
 }
 
@@ -394,6 +473,15 @@ private struct AnswerView: View {
     private var fullParts: SitesContactedParts { SitesContactedParts(turn.answer) }
     private var displayedSites: String { codeSites ?? (visibleParts.sites.isEmpty ? fullParts.sites : visibleParts.sites) }
 
+    private var codeLines: [String] {
+        CardLayout.remaining(split.lines.filter { !$0.hasPrefix("Sites contacted:") }, cards)
+    }
+    /// A collapsed answer's own lines ("Couldn't confirm", the correction, code's lines) stay in view under the fade.
+    private var collapsedLines: AnyView? {
+        guard split.note != nil || split.correction != nil || !codeLines.isEmpty else { return nil }
+        return AnyView(AnswerLinesView(note: split.note, correction: split.correction, lines: codeLines))
+    }
+
     /// Typed cards (step 8e): each drawn in place of the line it stands for; a turn saved before cards has none.
     private var cards: [ResultCard] { turn.cards ?? [] }
     private var cardFiles: Set<String> { Set(CardLayout.files(cards).compactMap(\.path)) }
@@ -407,9 +495,14 @@ private struct AnswerView: View {
                 }
                 FerbBubble {
                     VStack(alignment: .leading, spacing: 6) {
-                        MarkdownContent(CardLayout.strip(visibleParts.answer, cards),
-                                        note: split.note, correction: split.correction,
-                                        lines: CardLayout.remaining(split.lines.filter { !$0.hasPrefix("Sites contacted:") }, cards)).equatable()
+                        // A long answer shows its first lines, the rest on Show all: the same text (APP-719).
+                        CollapsibleText(key: ExpansionState.key(turn: turn.id, item: "answer"),
+                                        lines: CollapsePolicy.answerLines, target: TranscriptTarget.answer(turn: turn.id),
+                                        more: "Show all", model: model, whenCollapsed: collapsedLines) {
+                            MarkdownContent(CardLayout.strip(visibleParts.answer, cards),
+                                            note: split.note, correction: split.correction,
+                                            lines: codeLines).equatable()
+                        }
                         if turn.displayText != nil && turn.visibleAnswer != turn.answer {
                             DisclosureGroup("Details") {
                                 MarkdownContent(fullParts.answer).equatable()
@@ -423,6 +516,7 @@ private struct AnswerView: View {
                     VisitedSitesView(sites: VisitedSites(displayedSites), model: model)
                 }
             }
+            .transcriptAnchor(TranscriptTarget.answer(turn: turn.id))
         }
         if turn.isProvisional {
             Text("Draft · still responding")

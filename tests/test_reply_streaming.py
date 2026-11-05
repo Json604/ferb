@@ -103,7 +103,7 @@ def test_final_disagreement_aborts_provisional_text():
     assert events[-1]['type'] == 'reply_abort'
 
 
-# decision: ORCH-501
+# decision: ORCH-533
 @pytest.mark.parametrize('ending', ['final', 'error', 'violation'])
 def test_daemon_delivers_redacted_words_before_runtime_finishes(daemon, ending):
     from ferb.cli.client import Client

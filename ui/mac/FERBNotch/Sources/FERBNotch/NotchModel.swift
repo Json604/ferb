@@ -202,6 +202,33 @@ final class NotchModel: ObservableObject {
     @Published var reports: [UUID: ReportState] = [:]
     /// A runtime switch the owner chose on a failed answer (ORCH-315), by turn: what it says now. Live state only.
     @Published var runtimeChoices: [UUID: String] = [:]
+    /// Each card row's live line (APP-718), by its step's task id: what that step is doing now. Live state only.
+    @Published var stepLive: [String: LiveProgress] = [:]
+    /// The collapsed texts the owner opened (APP-719), by (turn, part or answer). Kept until FERB.app quits.
+    @Published var expandedText = ExpansionState()
+    /// The latest item FERB asks the transcript to bring forward (APP-720); the transcript decides scroll or pill.
+    /// The newest requests (several may arrive in one update; the transcript reads every one it hasn't applied).
+    @Published private(set) var scrollRequests: [TranscriptScrollRequest] = []
+    var scrollRequest: TranscriptScrollRequest? { scrollRequests.last }
+    private var scrollGeneration = 0
+    /// The newest request the transcript applied (a transcript shown again never applies an old one twice).
+    var scrollHandled = 0
+
+    /// Asks the transcript to bring an item forward. Called before FERB opens the notch for it, so a hidden body lands
+    /// on the item without animating (`revealing`).
+    func requestScroll(_ target: String, _ reason: TranscriptScrollRequest.Reason, label: String = "") {
+        scrollGeneration += 1
+        scrollRequests = (scrollRequests + [TranscriptScrollRequest(target: target, reason: reason, label: label,
+                                                                     generation: scrollGeneration,
+                                                                     revealing: !bodyVisible)]).suffix(8)
+    }
+
+    /// Show more / Show less on a collapsed text; collapsing keeps the item's top in view.
+    func toggleExpanded(_ key: String, target: String) {
+        let opening = !expandedText.isOpen(key)
+        expandedText.toggle(key)
+        if !opening { requestScroll(target, .collapse) }
+    }
     /// Opens a report file the owner asked to view; tests replace it.
     var openReportFile: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
@@ -998,6 +1025,10 @@ final class NotchModel: ObservableObject {
         // Questions are shown inline in today's chat; arriving never moves keyboard focus.
         followsToday = true
         selectedDay = Calendar.current.startOfDay(for: Date())
+        // The question comes forward: its row when it belongs to one, else its card at the end (APP-720).
+        let target = conversation.rowPlacements([approval])[approval.id]
+            .map { TranscriptTarget.row(turn: $0.turnID, part: $0.part) } ?? TranscriptTarget.question(approval.id)
+        requestScroll(target, .needsYou)
         announceAttention(key, item: approval.id)
     }
 

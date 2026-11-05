@@ -534,6 +534,18 @@ public struct ConversationArchive: Codable, Equatable {
         return turns[index].id
     }
 
+    /// A step's state (`step`, on the turn's stream and on the bus as `task.step`, ORCH-531), applied to the card of its
+    /// task and turn, else the task's newest card. Live state: nothing to save. Returns the turn that changed.
+    @discardableResult
+    public mutating func applyStep(_ event: [String: Any]) -> UUID? {
+        guard let taskID = event["task_id"] as? String else { return nil }
+        let request = event["request_id"] as? String
+        guard let index = turns.lastIndex(where: { $0.card?.taskID == taskID && $0.card?.requestID == request })
+                ?? turns.lastIndex(where: { $0.card?.taskID == taskID }),
+              turns[index].card?.apply(step: event) == true else { return nil }
+        return turns[index].id
+    }
+
     /// A card the daemon reports for a running or resumed task (`chat.status`, a resumed task's plan): merged into the
     /// turn showing it, else given to the turn of its request or to the task's newest turn without one; a task this
     /// chat has no turn for gets one, described by its goal. Returns whether anything changed.
