@@ -3024,3 +3024,21 @@ request = "Ask FERB for a task that takes a minute or two in a disposable folder
 pass = "Your bubble shows exactly the words you pasted, with no \"[200~\" or \"[201~\", during the task and after the restart. FERB's reply to the correction appears once (one bubble, not two identical ones), and the task carries on with the correction."
 decisions = ["APP-712", "APP-713", "APP-714"]
 sitting = "after this change is installed"
+
+[LIVE-773]
+title = "File cards and links: nothing on hover, a click reveals or opens, names copy"
+area = "app"
+surface = "FERB.app with this build; a disposable file FERB wrote in a task, a file attached to the composer, a reply with two or more sites"
+request = "Ask FERB for a small task that writes a file in a disposable folder and visits two sites. Hover slowly over the reply's file, a composer attachment, the site and \"+N\". Click each; click a site in the +N list. Drag across a file name, press Command-C and paste elsewhere. Right-click a file (Copy path) and a site (Copy link). Delete the file in Finder and click its card. Press Space with the result selected; drag the file to the Desktop."
+pass = "Hovering opens nothing and FERB never quits. A click on a file or attachment shows it selected in Finder; a site opens in your default browser; \"+N\" opens the list and each site in it opens on click. Dragging across a name selects it and Command-C copies it, without revealing the file. Copy path and Copy link copy them. A deleted file's card says \"This file is no longer available.\" Space shows Quick Look's own window and the drag-out copies the file."
+decisions = ["APP-715", "APP-716", "APP-573", "APP-700"]
+sitting = "after this change is installed"
+
+[LIVE-774]
+title = "Paste, undo and redo work in FERB's question boxes"
+area = "app"
+surface = "FERB.app with this build; a task that asks a question with a text box (e.g. ask FERB to make a file and let it ask what to call it); text copied from another app"
+request = "With another app in front, copy some text there. When FERB's question card shows a text box, click into it and press Command-V, then Command-Z and Shift-Command-Z. Do the same in the composer. If a secret field is offered, paste a disposable value into it."
+pass = "Command-V pastes into the question box once; Command-Z removes it and Shift-Command-Z puts it back. The composer still pastes once, with no \"[200~\" markers. The secret field takes the paste and shows dots only."
+decisions = ["APP-717", "APP-596", "APP-713"]
+sitting = "after this change is installed"

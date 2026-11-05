@@ -480,15 +480,6 @@ why = "RUN-417 now says plainly when the ChatGPT plan lacks the model; ORCH-315 
 decisions = ["RUN-417", "ORCH-315"]
 ask = "When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?"
 
-[T-1046]
-title = "Should the sites list behind +N open each site when clicked?"
-area = "app"
-kind = "question"
-status = "open"
-why = "APP-700's popover lists every site as selectable text; the old chips weren't clickable either."
-decisions = ["APP-700"]
-ask = "In a reply's sites row (one site + \"+N\"), should clicking a site in the list open it in your browser, or stay as plain text?"
-
 [T-1047]
 title = "A permission switched on while a task runs waits silently for its restart"
 area = "app"

@@ -2133,3 +2133,36 @@ rule = "ConversationArchive.finish, the one place a turn's answer lands (reply, 
 why = "Live 2026-11-04: a correction to a running task streamed the planner's sentence as plan_delta/plan_end, then the steer's one `reply`; no plan event cleared the streamed line, so the reply showed twice. The request's final event supersedes its draft; no text is compared."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::finish", "ui/mac/FERBNotch/Tests/NotchCoreTests/ChatFlowTests.swift"]
 live = ["LIVE-772"]
+
+[APP-715]
+title = "File cards and links act on click, never on hover; their names can be copied"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "yeah fix this fully. this error shoudlnt be even there. / also its text is not copyable, make it coyable too. on click on them they shodl open them selves in finder so taht user cna copy, delete or whatever they wanna do / remove hover from links too, they shodl open on clcik. rest remains same."
+words_source = "Owner, 2026-11-05, on FERBNotch 0.27.1 aborting when a hovered file card's Quick Look popover closed, and on how the chat's file cards and links behave."
+rule = "Nothing opens on hover over a chat file card (reply file, file chip, composer attachment) or link (the sites row and its +N list). A click on a file card shows it selected in Finder, or says \"This file is no longer available.\" on the card; a click on a site opens its https page in the default browser (APP-589); +N opens its list on click or key. Names and link text can be selected and copied. FERB's views hold no in-view Quick Look. APP-573's menu, Space, Return, Command-R and drag-out stay; menus add Copy path and Copy link."
+why = "Crash FERBNotch-2026-11-05-101843.ips: the hover popover closed about 0.8 s after opening, before its QLPreviewView activated; dismantling called close(), -[QLPreviewView deactivate] asserted and aborted the app. Refines APP-573 and APP-700 (look unchanged); task-preview circles unchanged."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::FileChip", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::revealFile"]
+live = ["LIVE-773"]
+
+[APP-716]
+title = "A card's name is a one-line text view: a drag selects, a plain click acts"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "APP-715's file names and site text are one non-editable, selectable, middle-truncated NSTextView line (SelectableNameView) inside the card's button. AppKit's selection tracking runs on mouse-down; after it, a single click that selected nothing runs the card's click, while a drag or double-click only selects (Command-C copies via NotchPanel). Its right-click menu is the card's actions, Copy first when text is selected. The rest of the card stays the button, drag-out source and SwiftUI menu. The popovers' hover tracking and pointing-hand cursor are removed."
+why = "A Button label can't be selected and the notch is never active, so SwiftUI text selection isn't reliable there; the chat's selectable text is already NSTextView (MessageTextView). One click target per card; drag-out stays on the icon and padding."
+rejected = ["A separate copy button: one more control on every card", "Only the icon acts: the owner asked that a click on the card reveals it"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::SelectableNameView"]
+live = ["LIVE-773"]
+
+[APP-717]
+title = "The notch panel routes paste, undo and redo to the focused field itself"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "NotchPanel.performKeyEquivalent sends Command-C, X, A, V, Z and Shift-Command-Z as copy:, cut:, selectAll:, paste:, undo:, redo: up its own first responder's chain (tryToPerform) before the views' key equivalents, so every notch field takes them although FERB never activates. A hidden responder gets nothing (APP-558); undo/redo only when there is something to undo/redo. The composer's paste: is ChatTextView's own, so provenance (APP-596) and marker clean-up (APP-713) run once; a secure field's paste is AppKit's, never read, logged or cleaned by FERB."
+why = "Owner, approved 2026-11-05: \"no pasting in ferb question input boxes -fix\". An inactive app's panel never gets the Edit menu's shortcuts; only C, X and A were routed. The panel's own chain replaces NSApp.sendAction(to: nil), which looks in whichever window is key."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::NotchPanel"]
+live = ["LIVE-774"]

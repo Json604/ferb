@@ -15,18 +15,40 @@ final class NotchPanel: NSPanel {
         super.keyDown(with: event)
     }
     /// The Edit menu's shortcuts don't reach this panel while FERB isn't the active app (it never activates), so
-    /// Command-C, X and A go to the focused view directly: text selected in the chat can be copied (owner,
-    /// 2026-10-24: "i cant copy by dragging"). The composer handles Command-V itself (ChatTextView).
+    /// Command-C, X, A, V, Z and Shift-Command-Z go to the focused view's responder chain directly: text selected in
+    /// the chat can be copied (owner, 2026-10-24: "i cant copy by dragging") and every field takes paste, undo and redo
+    /// (owner, 2026-11-05: "no pasting in ferb question input boxes -fix"; APP-717). The composer's own paste (paste
+    /// provenance, marker clean-up) is what `paste:` runs there, once. A hidden view gets nothing (APP-558).
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let action = Self.editAction(for: event), let responder = firstResponder,
+           (responder as? NSView)?.isHiddenOrHasHiddenAncestor != true,
+           Self.canPerform(action, undo: responder.undoManager),
+           responder.tryToPerform(action, with: self) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// Undo and redo run only with something to undo or redo; the window's undo manager is never asked otherwise.
+    static func canPerform(_ action: Selector, undo manager: UndoManager?) -> Bool {
+        switch action {
+        case Selector(("undo:")): manager?.canUndo == true
+        case Selector(("redo:")): manager?.canRedo == true
+        default: true
+        }
+    }
+
+    static func editAction(for event: NSEvent) -> Selector? {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad])
-        let action: Selector? = switch (flags == .command ? event.charactersIgnoringModifiers?.lowercased() : nil) {
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if flags == [.command, .shift] { return key == "z" ? Selector(("redo:")) : nil }
+        guard flags == .command else { return nil }
+        return switch key {
         case "c": #selector(NSText.copy(_:))
         case "x": #selector(NSText.cut(_:))
         case "a": #selector(NSResponder.selectAll(_:))
+        case "v": #selector(NSText.paste(_:))
+        case "z": Selector(("undo:"))
         default: nil
         }
-        if let action, NSApp.sendAction(action, to: nil, from: self) { return true }
-        return super.performKeyEquivalent(with: event)
     }
 }
 
@@ -364,11 +386,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         // The physical camera has no visible app surface. Watch its screen coordinates
         // as well as the panel so hovering the real notch can open FERB.
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] _ in
-            PreviewHoverRouter.shared.routeCurrentPointer()
             self?.updatePointer(revealPinnedHeader: true)
         }) { eventMonitors.append(monitor) }
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] event in
-            PreviewHoverRouter.shared.routeCurrentPointer()
             self?.updatePointer(revealPinnedHeader: true)
             return event
         }) { eventMonitors.append(monitor) }

@@ -257,6 +257,11 @@ final class NotchModel: ObservableObject {
     var onAttentionArrival: (() -> Void)?
     var onOpenDocument: ((URL) -> Void)?
     var onQuickLook: ((URL) -> Void)?
+    /// Where a file card's click and a link's click go (APP-715); tests record them instead.
+    var revealInFinder: ([URL]) -> Void = { NSWorkspace.shared.activateFileViewerSelecting($0) }
+    var openURL: (URL) -> Void = { _ = NSWorkspace.shared.open($0) }
+    /// Copy path / Copy link write here; tests use a private pasteboard.
+    var pasteboard: NSPasteboard = .general
     var onSettings: (() -> Void)?
     var onOpenWindow: (() -> Void)?
     var onStatusChange: (() -> Void)?
@@ -954,7 +959,28 @@ final class NotchModel: ObservableObject {
     }
 
     func revealDocument() {
-        withDocument { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
+        withDocument { revealInFinder([$0]) }
+    }
+
+    /// A file card's click: the file shown in Finder, selected. False when it is gone (the card says so).
+    @discardableResult
+    func revealFile(_ url: URL) -> Bool {
+        guard url.isFileURL, FileManager.default.fileExists(atPath: url.path) else { return false }
+        revealInFinder([url])
+        return true
+    }
+
+    /// A site's click: its https page in the default browser, only for a plain host (VisitedSites.link).
+    @discardableResult
+    func openSite(_ host: String) -> Bool {
+        guard let link = VisitedSites.link(host) else { return false }
+        openURL(link)
+        return true
+    }
+
+    func copyText(_ text: String) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     private func withDocument(_ action: (URL) -> Void) {

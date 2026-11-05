@@ -446,29 +446,33 @@ struct LinkCardsRow: View {
     }
 }
 
-/// A file the task made: its icon and name; tap shows it in Finder. The context menu and hover preview are the reply
-/// files' own (ArtifactPreviewPresentation).
+/// A file the task made: its icon and name; a click shows it in Finder, selected. The name is selectable, and the
+/// context menu and drag-out are every file card's own (FileCardMenu, APP-715).
 struct FileChip: View {
     let url: URL
     @ObservedObject var model: NotchModel
+    @StateObject private var card = FileCardState()
+    func reveal() { card.reveal(url, with: model) }
 
     var body: some View {
-        Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
-            HStack(spacing: 6) {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().scaledToFit()
-                    .frame(width: 16, height: 16)
-                Text(verbatim: url.lastPathComponent).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                    .truncationMode(.middle)
+        VStack(alignment: .leading, spacing: 2) {
+            Button(action: reveal) {
+                HStack(spacing: 6) {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().scaledToFit()
+                        .frame(width: 16, height: 16)
+                    SelectableName(text: url.lastPathComponent, size: 11, weight: .medium, click: reveal,
+                                   actions: CardAction.file(url, model: model, card: card))
+                }
+                .foregroundStyle(Palette.ink)
+                .padding(.horizontal, 9).frame(height: 28)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 9))
             }
-            .foregroundStyle(Palette.ink)
-            .padding(.horizontal, 9).frame(height: 28)
-            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .buttonStyle(.plain)
+            .accessibilityLabel("Show \(url.lastPathComponent) in Finder")
+            .modifier(FileCardMenu(url: url, model: model, card: card))
+            if card.unavailable { FileUnavailableLine() }
         }
-        .buttonStyle(.plain)
-        .help("Show in Finder")
-        .accessibilityLabel("Show \(url.lastPathComponent) in Finder")
-        .modifier(ArtifactPreviewPresentation(url: url, model: model))
     }
 }
 

@@ -6,19 +6,6 @@ import SwiftUI
 
 @MainActor
 final class ChatDetailsTests: XCTestCase {
-    // decision: APP-573
-    func testArtifactPrimaryActionUsesQuickLookNotDefaultApp() {
-        let model = NotchModel(preferences: scratchDefaults())
-        let url = URL(fileURLWithPath: "/tmp/report.md")
-        var previewed: URL?
-        var opened = false
-        model.onQuickLook = { previewed = $0 }
-        model.onOpenDocument = { _ in opened = true }
-        ArtifactRow(url: url, model: model).openPreview()
-        XCTAssertEqual(previewed, url)
-        XCTAssertFalse(opened)
-    }
-
     // decision: APP-571
     func testFreshRepliesAndErrorsRevealWithoutFocusAndDuplicatesStayClosed() {
         for type in ["reply", "error"] {

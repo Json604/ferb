@@ -6,7 +6,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 163 | 10 | 13 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 166 | 9 | 15 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 59 | 5 | 5 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 35 | 6 | 45 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 71 | 2 | 11 |
@@ -28,7 +28,6 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1025 (gateway): When FERB opens a page whose address holds a year (like /2026/10/) or a short number that also appears in something private FERB read, it asks first. Should a bare year (four digits, 1900-2099) stop counting as your data? And numbers shorter than how many digits? A one-time code is often 4-6 digits, so a lower limit lets those through unasked.
 - T-1044 (memory): When a day's learning pass keeps failing, FERB now retries it every hour forever (one AI call an hour). Episode cards stop after 2 failures. Do you want a limit, e.g. stop after N tries or retry daily instead of hourly, and the same for cards?
 - T-1045 (orchestration): When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?
-- T-1046 (app): In a reply's sites row (one site + "+N"), should clicking a site in the list open it in your browser, or stay as plain text?
 - T-1050 (project): Should every build that changes setup go through one fresh-install run (on a second macOS user account you create once) before it ships, with setup changes made one at a time?
 - T-1057 (project): Go through the agent-set and code-only limits (highlighted rows in the FERB Limits page) and say, for each you care about, keep, change (to what) or remove; the rest stay as they are and get recorded as your decision.
 
