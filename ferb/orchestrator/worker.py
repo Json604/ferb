@@ -671,6 +671,10 @@ class WorkerRuns:
                         self._retrying[worker_id] = (rt.name, message)
                     if notice is not None:               # the owner hears at once, once per outage (fix wave 7)
                         notice.retrying(message)
+                elif ev.kind == "compacted":             # the runtime compressed the run's memory (RUN-425)
+                    s = self.spans.start("model.compacted", task_id=task.id if task.id != task.request_id else None,
+                                         parent_id=parent_span, input={"runtime": rt.name})
+                    self.spans.finish(s, output={k: v for k, v in ev.data.items() if v is not None})
                 elif ev.kind == "violation":
                     self.on_violation(rt.name, str(ev.data))
                     raise RuntimeViolation(f"{rt.name}: {ev.data}", rt.name, dict(ev.data))

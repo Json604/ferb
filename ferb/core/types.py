@@ -260,9 +260,11 @@ class RuntimeEvent:
     # a failed call); data["message"] says where. retrying: the runtime hit an error it retries itself (Codex
     # willRetry); the run goes on; data["message"] is the runtime's redacted error. progress: the runtime showed the
     # model working with nothing to hand over (a reasoning or commentary delta, a stream event, a tool's result going
-    # back); data is empty. It is only a sign of life for the silence guard (ORCH-528)
+    # back); data is empty. It is only a sign of life for the silence guard (ORCH-528). compacted: the runtime
+    # compressed the run's conversation to fit its window (Codex's contextCompaction, RUN-425); data holds the context
+    # size the last model call reported before it (context_tokens_before) and the window, when known. Trace only
     kind: Literal["message", "text_delta", "tool_call", "usage", "final", "error", "violation", "invalid_answer",
-                  "retrying", "progress"]
+                  "retrying", "progress", "compacted"]
     data: dict[str, Any]
 
 

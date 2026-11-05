@@ -107,6 +107,50 @@ def test_stop_mid_task_ends_every_row_as_stopped(daemon: RunningDaemon) -> None:
     assert run(daemon, lambda: daemon.daemon.supervisor.plans.steps(tree))["worker"]["status"] == "cancelled"
 
 
+# decision: RUN-425
+def test_a_runtimes_memory_compression_is_a_span_under_its_call_and_shows_in_the_full_trace(
+        daemon: RunningDaemon) -> None:
+    """Owner, 2026-11-05: "write a line in the trace when Codex compresses a task's memory". A `compacted` event from
+    the worker's runtime becomes one model.compacted span under that call's span, with what the runtime said, and
+    `ferb trace --full` shows it; the task finishes as it would have."""
+    from ferb.cli.admin import render_trace
+    from ferb.cli.client import Client
+    from ferb.core.types import RuntimeEvent
+    script = install(daemon, [sup("task", "On it.", task("Tidy the notes"))], {"worker": done("Tidied the notes.")})
+    plain = daemon.daemon.supervisor.make_runtime
+
+    def compacting(role: str, **kw: Any) -> Any:
+        rt = plain(role, **kw)
+        if kw.get("mode") != "worker":
+            return rt
+        events = rt.events
+
+        async def with_compaction(handle: Any) -> Any:
+            if handle.state["key"] == "worker":
+                yield RuntimeEvent("compacted", {"context_tokens_before": 241000, "context_window": 272000})
+            async for event in events(handle):
+                yield event
+        rt.events = with_compaction
+        return rt
+    daemon.daemon.supervisor.make_runtime = compacting
+    result = outcome(chat(daemon, "tidy the notes"))
+    assert result["status"] == "done" and script.calls("worker") == ["worker"]
+    client = Client(daemon.sock)
+    try:
+        trace = client.call("trace.get", {"task_id": result["task_id"]})
+    finally:
+        client.close()
+
+    def spans(nodes: list[dict[str, Any]], parent: str = "") -> list[tuple[str, dict[str, Any]]]:
+        return [pair for n in nodes for pair in [(parent, n)] + spans(n.get("children") or [], n["kind"])]
+    compacted = [(parent, n) for parent, n in spans(trace["spans"]) if n["kind"] == "model.compacted"]
+    assert len(compacted) == 1
+    _, span = compacted[0]
+    assert span["output"] == {"context_tokens_before": 241000, "context_window": 272000}
+    assert any(n["id"] == span["parent_id"] for _, n in spans(trace["spans"]))
+    assert "model.compacted" in "\n".join(render_trace(trace, full=True))
+
+
 # decision: ORCH-530
 def test_a_stopped_task_shows_only_a_reports_answer_as_found(daemon: RunningDaemon) -> None:
     """Task 8bf4e2e7 (2026-11-05): the stopped attempt's reason is "stopped by you", and the answer read

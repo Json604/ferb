@@ -260,3 +260,12 @@ why = "Owner 2026-11-04: \"does it run for API and claude too??? fix this for th
 rejected = ["A shorter or longer expiry (any expiry probes again on some turn)"]
 paths = ["ferb/daemon/areas/runtimes.py::Runtimes._runtime_available", "ferb/daemon/areas/runtimes.py::Runtimes._runtime_signed_out", "ferb/daemon/areas/runtimes.py::Runtimes._runtimes_status", "ferb/orchestrator/worker.py::WorkerRuns._run_once"]
 live = ["LIVE-766"]
+
+[RUN-425]
+title = "A Codex memory compression is recorded as a span"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "When Codex compresses a run's conversation (a completed contextCompaction item, RUN-414), the adapter reports one `compacted` event with the context size the last usage report gave (context_tokens_before) and the model's window, when known; the shared run loop records it as a `model.compacted` span under that call's span, which `ferb trace --full` shows. Trace only: nothing else changes (no checker fact, no behaviour)."
+why = "Owner, 2026-11-05, asking whether a long task can be cut off mid-way; agreed fix: \"write a line in the trace when Codex compresses a task's memory\". The item carries only its id, so the size is the latest usage report's."
+paths = ["ferb/runtimes/codex_stream.py", "ferb/orchestrator/worker.py", "ferb/core/types.py::RuntimeEvent"]

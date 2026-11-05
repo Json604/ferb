@@ -624,3 +624,22 @@ async def test_a_tool_call_codex_gave_up_is_reported_so_the_daemon_releases_it(t
     got = [event async for event in rt.events(run)]
     assert got[-1].kind == 'final'
     assert told == abandoned
+
+
+# decision: RUN-425, RUN-414
+@pytest.mark.anyio
+async def test_a_worker_compaction_is_reported_with_the_context_size_before_it(tmp_path, monkeypatch):
+    """Codex's contextCompaction item carries only its id (pinned app-server's ThreadItemPayload::ContextCompaction,
+    one element): the adapter reports it once, with the context size the last usage report gave and the window, and
+    the run goes on to its answer."""
+    proc = SteeringProcess()
+    rt, run, _ = await begin_worker(tmp_path, monkeypatch, proc)
+    proc.notify('thread/tokenUsage/updated', {'tokenUsage': {'last': {'inputTokens': 241000, 'cachedInputTokens': 0,
+                'outputTokens': 900, 'reasoningOutputTokens': 0}, 'modelContextWindow': 272000}})
+    proc.notify('item/started', {'item': {'id': 'c1', 'type': 'contextCompaction'}})
+    proc.notify('item/completed', {'item': {'id': 'c1', 'type': 'contextCompaction'}})
+    proc.complete()
+    got = [event async for event in rt.events(run)]
+    compacted = [event for event in got if event.kind == 'compacted']
+    assert [event.data for event in compacted] == [{'context_tokens_before': 241000, 'context_window': 272000}]
+    assert got[-1].kind == 'final' and not any(event.kind in ('error', 'violation') for event in got)

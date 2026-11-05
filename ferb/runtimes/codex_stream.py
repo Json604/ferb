@@ -723,6 +723,12 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                         yield RuntimeEvent('tool_call', {'tool': item.get('tool'), 'status': item.get('status'),
                                                        'arguments': item.get('arguments')})
                         progress = False
+                    if kind == 'contextCompaction' and method == 'item/completed':
+                        # Codex compressed the conversation (RUN-414): recorded for the trace (RUN-425). The item
+                        # carries only its id, so the size is the last model call's context, as its usage said
+                        yield RuntimeEvent('compacted', {'context_tokens_before': state.get('context_tokens'),
+                                                         'context_window': state.get('context_window')})
+                        progress = False
                     if kind == 'agentMessage':
                         # Codex 0.166.0's MessagePhase: commentary, partial_answer ("stable answer text that may be
                         # followed by more assistant output or tools") or final_answer; None from models that send no
@@ -739,6 +745,8 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                         pending_text.append(params['delta'])
                 elif method == 'thread/tokenUsage/updated':
                     usage = params.get('tokenUsage', {}).get('last', {})
+                    state['context_tokens'] = usage.get('inputTokens')
+                    state['context_window'] = params.get('tokenUsage', {}).get('modelContextWindow')
                     mapped = {'input_tokens': usage.get('inputTokens', 0),
                         'cached_input_tokens': usage.get('cachedInputTokens', 0),
                         'output_tokens': usage.get('outputTokens', 0),
