@@ -3049,7 +3049,7 @@ area = "app"
 surface = "FERB.app with this build, its daemon included; a disposable folder with two small text files"
 request = "In one message ask FERB for three things where one needs another, e.g. \"read the two notes in <folder>, then write a one-line summary of them into summary.txt, and separately tell me today's date in Tokyo\". Watch the card from the first reply to the end."
 pass = "From the first reply the summary row says it is waiting for the notes row (not \"working…\"); the rows that run show their words, a small spinner after them and a running time; the line under the rows counts done / running / waiting with the task's time. When the notes row finishes the summary row starts. No list of background steps appears. After the task ends no spinner or clock remains."
-decisions = ["APP-718", "APP-723", "ORCH-531", "ORCH-532"]
+decisions = ["APP-718", "APP-723", "ORCH-531", "ORCH-532", "APP-724"]
 sitting = "after this change is installed"
 
 [LIVE-776]

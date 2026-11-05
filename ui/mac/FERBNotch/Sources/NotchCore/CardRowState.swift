@@ -112,8 +112,10 @@ public struct RowDisplay: Equatable {
         case "running":
             return RowDisplay(kind: .running, words: liveLine.map { Self.sentence($0.text) } ?? "Working", spinner: true,
                               since: step.startedAt)
-        case "retrying":
-            return RowDisplay(kind: .retrying, words: "Trying again (attempt \(max(2, step.attempt)))", spinner: true)
+        case "retrying":     // APP-724: the attempt, then its live line and time, like a running row
+            let attempt = "Trying again (attempt \(max(2, step.attempt)))"
+            return RowDisplay(kind: .retrying, words: liveLine.map { attempt + " · " + $0.text } ?? attempt,
+                              spinner: true, since: step.startedAt)
         case "needs_you": return RowDisplay(kind: .needsYou, words: "Needs you")
         case "not_finished": return RowDisplay(kind: .notFinished, words: "Not finished")
         case "wont_run": return RowDisplay(kind: .wontRun, words: "Won't run: an earlier step couldn't be done")

@@ -2225,3 +2225,13 @@ date = 2026-11-05
 status = "active"
 rule = "While its task runs, a card shows one line under its rows: done of total, how many run, wait and need the owner, and the task's time. A running row's line comes from its own step's progress (step_task_id), never the root task's, and goes when the step stops running; the work row stays as decided. History and dead tasks never show live states. Row and status-line clocks pause while the notch body is hidden (APP-407's spirit)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::TurnCardView", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::CardStatusLine"]
+
+[APP-724]
+title = "A retrying row shows its attempt and its step's live line with the time"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Refines APP-718: while a step is trying again, its row shows one line: \"Trying again (attempt N)\", then the step's live line (built by code from its tool calls) and the elapsed time from the step's start, with the spinner after the words, like a running row. The line truncates in the middle so the attempt and the time stay."
+why = "Owner, 2026-11-05: \"yeha show the live line\" (a retrying row showed only \"Trying again (attempt N)\", no live line or time)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::RowDisplay", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
+live = ["LIVE-775"]

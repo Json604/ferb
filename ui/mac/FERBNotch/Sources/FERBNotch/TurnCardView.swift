@@ -274,7 +274,9 @@ struct RowStateLine: View {
             HStack(spacing: 6) {
                 Text(display.text(at: context.date) ?? "")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
-                    .lineLimit(2).truncationMode(.tail)
+                    // a retrying row is one line (APP-724); its middle gives way so the attempt and the time stay
+                    .lineLimit(display.kind == .retrying ? 1 : 2)
+                    .truncationMode(display.kind == .retrying ? .middle : .tail)
                 if display.spinner { RowSpinner(paused: !visible) }
             }
         }

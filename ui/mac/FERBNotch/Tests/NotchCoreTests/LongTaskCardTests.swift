@@ -21,7 +21,7 @@ final class LongTaskCardTests: XCTestCase {
                    "started_at": "2026-11-05T10:00:00+00:00"])!
     }
 
-    // decision: APP-718
+    // decision: APP-718, APP-724
     func testEachStepStateShowsItsOwnRowState() {
         let mail = row("mail"), leads = row("leads"), rows = [mail, leads]
         func kind(_ status: String, waitsOn: [String] = [], attempt: Int = 1) -> RowDisplay {
@@ -45,6 +45,13 @@ final class LongTaskCardTests: XCTestCase {
         XCTAssertNotNil(kind("checking").since)
         XCTAssertEqual(kind("retrying", attempt: 2).kind, .retrying)
         XCTAssertTrue(kind("retrying", attempt: 2).words?.contains("2") == true)
+        // APP-724: a retrying row shows its attempt and its step's live line with the time, on one line
+        let retrying = RowDisplay.make(row: leads, steps: ["leads": step("retrying", attempt: 2)], rows: rows, live: true,
+                                       liveLine: LiveProgress(text: "reading mail.example.com", startedAt: t0))
+        XCTAssertTrue(retrying.spinner)
+        XCTAssertNotNil(retrying.since)
+        XCTAssertTrue(retrying.words?.contains("2") == true && retrying.words?.contains("mail.example.com") == true)
+        XCTAssertFalse(retrying.text(at: t0)?.contains("\n") ?? true)
         XCTAssertEqual(kind("needs_you").kind, .needsYou)
         XCTAssertEqual(kind("not_finished").kind, .notFinished)
         XCTAssertEqual(kind("wont_run").kind, .wontRun)
