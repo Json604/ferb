@@ -8,6 +8,7 @@ import json
 from datetime import timedelta
 from typing import Any
 
+from ferb.act.browser.profiles import BrowserProfile
 from ferb.memory.learning import how_note, search_text, shown_text
 from ferb.memory.profile import CoreProfile
 from ferb.orchestrator import episodes
@@ -431,7 +432,7 @@ def test_a_browser_connecting_or_disconnecting_leaves_the_cached_prefix_alone(da
                                      if (browser, folder) == ("chrome", "Profile 7") else None)
         d.hub = SimpleNamespace(bridges={("chrome", "Profile 7"): bridge}, unpaired={}, refused={},
                                 problem=lambda binding: None)
-        d._fresh_profiles = lambda: [SimpleNamespace(browser="chrome", folder="Profile 7", display_name="Work")]
+        d._fresh_profiles = lambda: [BrowserProfile("chrome", "Profile 7", "Work", "")]
         d.supervisor.availability = d._availability
     run(daemon, wire)
     script = install(daemon, [sup("reply", "Ok.")] * 3)

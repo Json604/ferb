@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from ferb.act.browser.profiles import BrowserProfile
 from ferb.act.mac.apps import RunningApp, shell_role
 from ferb.act.mac.tools import MacAct, MacMenu, MacSnapshot
 from ferb.core.errors import Refused
@@ -1221,7 +1222,7 @@ def _web(clipboard: tuple[int, str | None, bool] = (5, "rm -rf ~", False)) -> tu
             return {"ok": True, "detail": op}
     br = Bridge()
     r = Router(SimpleNamespace(bridges={("brave", "Default"): br}, bridge=lambda b, f: br), resolver=SimpleNamespace(),
-               profiles=lambda: [SimpleNamespace(browser="brave", folder="Default", display_name="Work")])
+               profiles=lambda: [BrowserProfile("brave", "Default", "Work", "")])
     ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
     t = r._tabs[ref.tab_id]
     t.snap_gen, t.snap_nav = 3, 0

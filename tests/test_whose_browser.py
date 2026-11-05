@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from ferb.act.browser.profiles import BrowserProfile
 from ferb.act.browser.ext_bridge import Hub, Router
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import Identity, Task
@@ -37,8 +38,7 @@ class FakeBridge:
 def router() -> tuple[Router, FakeBridge]:
     br = FakeBridge()
     hub = SimpleNamespace(bridges={("brave", "Default"): br}, bridge=lambda b, f: br, publish=lambda *a: None)
-    r = Router(hub, resolver=SimpleNamespace(), profiles=lambda: [SimpleNamespace(browser="brave", folder="Default",
-                                                                                  display_name="Work")])  # type: ignore
+    r = Router(hub, resolver=SimpleNamespace(), profiles=lambda: [BrowserProfile("brave", "Default", "Work", "")])  # type: ignore
     return r, br
 
 
