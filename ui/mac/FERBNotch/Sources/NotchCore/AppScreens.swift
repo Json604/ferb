@@ -45,7 +45,8 @@ public enum AppGuide {
     public static let openAction = "Open / close FERB"
 
     /// How the owner opens FERB from the keyboard now (AppSettings.doubleTap, AppSettings.openShortcut): double-tap
-    /// right Option, their own combination, both, or neither (a click on the notch or pill).
+    /// right Option, their own combination, both, or neither (a click on the notch or pill; with the pill hidden in
+    /// window mode, the menu bar icon).
     public static func openKeys(_ defaults: UserDefaults) -> String {
         let doubleTap = AppSettings.doubleTap.read(defaults) == "on"
         let combo = KeyCombo.saved(in: defaults)?.display
@@ -53,7 +54,9 @@ public enum AppGuide {
         case (true, nil): return "Double-tap right Option"
         case (true, let combo?): return "Double-tap right Option, or \(combo)"
         case (false, let combo?): return combo
-        case (false, nil): return "No keyboard shortcut: click the notch or pill"
+        case (false, nil):
+            return ChatHost.hidesPill(defaults) ? "No keyboard shortcut: FERB's menu bar icon → Open FERB"
+                : "No keyboard shortcut: click the notch or pill"
         }
     }
 
@@ -68,6 +71,8 @@ public enum AppGuide {
     public static let howtos: [HowTo] = [
         HowTo(title: "Talk to FERB",
               steps: "Type in the notch, or hold right Command + Option to dictate. FERB always replies in text in the chat; it never speaks aloud"),
+        HowTo(title: "Open FERB in a window instead of the notch",
+              steps: "Settings → Notch & Shortcuts → Where FERB opens → Window (Keep on top and Hide the pill are there too)"),
         HowTo(title: "Stop everything FERB is doing", steps: "FERB window → Tasks → Stop everything (Resume FERB undoes it)"),
         HowTo(title: "Stop one task", steps: "FERB window → Tasks → the task → Stop"),
         HowTo(title: "See or change what FERB remembers", steps: "FERB window → Memory: Always on, Not right, Forget…"),

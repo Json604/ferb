@@ -299,12 +299,13 @@ extension NotchModel {
         if applied {
             switch event["type"] as? String {
             case "plan_delta":
-                if expanded { acknowledgement.suppress(turn: localID) }
+                // The sticky window shows the plan line in the chat; the notch shows no compact preview then (APP-745).
+                if expanded || chatInWindow { acknowledgement.suppress(turn: localID) }
                 else { acknowledgement.append(event["text"] as? String ?? "", turn: localID) }
             case "plan_abort": acknowledgement.abort(turn: localID)
             case "plan_end": acknowledgement.complete(turn: localID)
             case "plan":
-                if expanded { acknowledgement.suppress(turn: localID) }
+                if expanded || chatInWindow { acknowledgement.suppress(turn: localID) }
                 else if let text = event["text"] as? String, text != previousPlan {
                     acknowledgement.finish(text, turn: localID)
                 }

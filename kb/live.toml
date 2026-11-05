@@ -3222,3 +3222,57 @@ request = "Open the chat by hover, press and double-tap. Look at the header. Hov
 pass = "The header has the title and the profile button only. Hover-opened chats fold on hover-out; press- and shortcut-opened ones stay until Escape, a click elsewhere or the shortcut; nothing ever stays as a header-only strip. Menus and the file picker keep the chat open until they close. Space switches leave the chat as it was."
 decisions = ["APP-743", "APP-744"]
 sitting = "after this change is installed"
+
+[LIVE-795]
+title = "The sticky window opens every way, stays until closed and shows on every Space"
+area = "app"
+surface = "FERB.app with this build; Settings → Notch & Shortcuts → Where FERB opens: Window; a full-screen app; several Spaces"
+request = "Open FERB by double-tap, your shortcut, the menu bar's Open FERB, opening FERB.app again, a press on the notch, and by dropping a disposable file on the window and on the notch. Type, send, attach. Click other apps, switch Spaces (Control-arrow, swipes), open Mission Control, go to a full-screen app's Space. Close it with its ×, ⌘W and Esc. Turn Keep on top off and on. ⌘Q once."
+pass = "Each way opens the window focused for typing (the drop puts the file in the message box, unsent). It stays open and in place on every Space, never flashes or slides on a switch, isn't in the Dock or ⌘-Tab, floats over other windows only with Keep on top on. ×, ⌘W and Esc hide it; ⌘Q quits FERB."
+decisions = ["APP-745", "APP-746", "APP-748"]
+sitting = "after this change is installed"
+
+[LIVE-796]
+title = "Hide the pill: no handle or pill, the menu bar icon shows the status and brings FERB back"
+area = "app"
+surface = "FERB.app with this build; Where FERB opens: Window; Hide the pill on"
+request = "Look at the notch and screen edges, hover and click the notch. Start a task and wait for a question and the answer with the window closed, watching the menu bar icon. Reopen FERB from the icon, your shortcut and by opening FERB.app. Switch back to Notch."
+pass = "No handle, pill or edge line shows and the notch does nothing. The icon turns amber while working, red when FERB needs you, green when done. Each way brings the window back. In Notch mode the handle is back and Hide the pill isn't offered."
+decisions = ["APP-747"]
+sitting = "after this change is installed"
+
+[LIVE-797]
+title = "The window keeps its place on each display and survives an unplugged one"
+area = "app"
+surface = "FERB.app with this build in window mode; a second display"
+request = "Open the window on each display, move and resize it differently on each, close and reopen it on each. Leave it open on the second display and unplug it. Change that display's resolution once."
+pass = "Each display reopens the window where you left it there; after the unplug the window is fully on the remaining screen; a resolution change keeps it reachable."
+decisions = ["APP-745", "APP-746"]
+sitting = "after this change is installed"
+
+[LIVE-798]
+title = "Questions, answers and reminders bring the window forward while you type elsewhere"
+area = "app"
+surface = "FERB.app with this build in window mode, the window closed; a text editor you are typing in"
+request = "Start a task that will ask you something, then a reminder due in a minute, and keep typing in the editor until each arrives. Repeat with the window open behind the editor, Keep on top off."
+pass = "Each arrival shows the window (in front of the editor) with the question, answer or reminder, while your typing keeps going into the editor; sounds as before."
+decisions = ["APP-745"]
+sitting = "after this change is installed"
+
+[LIVE-799]
+title = "The tour runs in the notch in window mode, and window mode returns after it"
+area = "app"
+surface = "FERB.app with this build in window mode, the window open"
+request = "Settings → General → Replay intro and go through it (Skip tour once too). Then open FERB by your shortcut."
+pass = "The window hides for the tour; every tour line is in the notch, and the shortcut works the notch there. After the tour (or Skip) the shortcut opens the window again."
+decisions = ["APP-745"]
+sitting = "after this change is installed"
+
+[LIVE-800]
+title = "Stage Manager leaves the sticky window alone"
+area = "app"
+surface = "FERB.app with this build in window mode; Stage Manager on"
+request = "With the window open, switch between Stage Manager's app groups, click the desktop, and open FERB from the shortcut with another group in front. Repeat with Keep on top off."
+pass = "The window stays visible beside every group and is never swallowed into the strip or hidden by a group switch; the shortcut always brings it forward."
+decisions = ["APP-745", "APP-748"]
+sitting = "after this change is installed"

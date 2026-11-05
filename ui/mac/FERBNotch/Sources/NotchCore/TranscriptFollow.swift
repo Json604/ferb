@@ -12,6 +12,26 @@ public enum TranscriptTarget {
     public static func footer(turn: UUID) -> String { "footer-\(turn.uuidString)" }
     public static func answer(turn: UUID) -> String { "answer-\(turn.uuidString)" }
     public static func question(_ id: String) -> String { "question-\(id)" }
+    public static func entry(_ id: UUID) -> String { "entry-\(id.uuidString)" }
+    public static func isEntry(_ target: String) -> Bool { target.hasPrefix("entry-") }
+}
+
+/// Where the transcript was when its host let go of it (the chat moving between the notch and the window, APP-745):
+/// following the newest, or the entry at the top of the view.
+public struct TranscriptResume: Equatable, Sendable {
+    public let following: Bool
+    public let topEntry: String?
+    public init(following: Bool, topEntry: String?) {
+        self.following = following
+        self.topEntry = topEntry
+    }
+
+    /// From the visible anchors (transcript coordinates): the first entry whose bottom is still in view.
+    public static func at(_ anchors: [String: CGRect], following: Bool) -> TranscriptResume {
+        let top = anchors.filter { TranscriptTarget.isEntry($0.key) && $0.value.maxY > 1 }
+            .min { $0.value.minY < $1.value.minY }?.key
+        return TranscriptResume(following: following, topEntry: following ? nil : top)
+    }
 }
 
 /// One request to bring an item forward. `revealing`: the notch body was hidden when it arrived (FERB opens it to show
@@ -131,6 +151,9 @@ public struct TranscriptFollow: Equatable {
 
     /// The owner tapped the jump control or a pill: from here the view follows again.
     public mutating func follow() { following = true }
+
+    /// A transcript shown again where the owner had left it (TranscriptResume): it follows the newest only if it did.
+    public mutating func resume(following: Bool) { self.following = following }
 
     public func ownerScrolledRecently(at now: Date) -> Bool {
         guard let ownerScrolledAt else { return false }

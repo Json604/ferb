@@ -2457,3 +2457,46 @@ rule = "Implements APP-743 within APP-559 and APP-642. The yield to an app the o
 why = "The pinned-chat yield path stayed live only through the tour's line; renaming it says what it does. The header-only presentation was reachable only through the pin."
 evidence = "Before this change NotchModel.beginYield allowed the reason for (isPinned && expanded) || introLine != nil, and isHeaderOnly was set true only by foldPinnedBody, which required isPinned; togglePin had no caller since ca630ae3."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchYieldController.swift", "ui/mac/FERBNotch/Sources/NotchCore/NotchYield.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchPresentation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/LiveDragLayout.swift"]
+
+[APP-745]
+title = "Where FERB opens: Notch | Window; the sticky window"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "Sticky window, like ChatGPT old app / do this BUT dont break any other capcab9lity / D19 Yes. D20 Yes. D22 Yes. D23 Yes."
+words_source = "Owner, 2026-11-05: 0.27.1 list item 8, the batch rule for the notch work, and \"Yes\" to the plan's D19, D20, D22 and D23 (section 8, A sticky window)"
+rule = "Refines APP-550 and APP-552. Settings → Notch & Shortcuts → Where FERB opens: Notch (default) | Window. The window is black glass, resizable, keeps its place per display, shows the same chat (one conversation), stays open until closed (close button, ⌘W, Esc), shows on every Space incl. full-screen ones, floats on top by default with a Keep on top toggle, stays out of the Dock and ⌘-Tab, and opens by the shortcuts, Open FERB, a file drop or reopening FERB.app. Questions, answers and reminders bring it forward without keyboard focus. The tour always runs in the notch."
+why = "The owner wants FERB to stay open beside their work like the old ChatGPT app, without losing anything the notch does."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/NotchCore/ChatWindowPlacement.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppSettings.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+live = ["LIVE-795", "LIVE-797", "LIVE-798", "LIVE-799", "LIVE-800"]
+
+[APP-746]
+title = "Window mode's opening rules"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-745. The shortcuts (toggleByShortcut) hide the window only while it has keyboard focus; otherwise they open it or bring it forward focused. A press on the notch or pill (while shown) toggles the window; hover never opens it. It opens on the pointer's display at its saved place there (the standard top-right place on a display without one). Keep on top is the window's own control, named so it isn't taken for the removed notch pin (APP-743)."
+why = "A window that stays open is usually open behind the owner's work; a shortcut that closed it then would hide what they reached for. Hover-opening a window that never folds would surprise."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift"]
+live = ["LIVE-795"]
+
+[APP-747]
+title = "Hide the pill, in window mode only; the menu bar icon shows FERB's status"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "Window mode only."
+words_source = "Owner, 2026-11-05, to the plan's D21: \"Hiding the pill or notch handle is offered only in window mode; the menu bar icon shows FERB's status then.\""
+rule = "In window mode only, Settings offers Hide the pill (off by default, an agent ruling). On, the notch handle, its edge row and the pill never show and hover or press there does nothing; the menu bar icon carries the pill's status colour (amber working, red needs you, green done). The menu bar icon, the shortcut and reopening FERB.app always bring FERB back."
+why = "With the window as FERB's home the notch handle is clutter for some owners; the menu bar icon keeps the status visible and a way back."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/NotchCore/ChatWindowPlacement.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+live = ["LIVE-796"]
+
+[APP-748]
+title = "One chat body, two hosts; the window is an ordinary non-activating panel"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-745. ChatBodyView is the one chat body; only the host holding the chat (NotchModel.chatInWindow) mounts it, so draft, attachments and the transcript's place (TranscriptResume) move with it. The window is a titled, transparent-titlebar NSPanel (.nonactivatingPanel; .canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle; .floating or .normal), created only when window mode first shows it. The notch's yield code never acts on it; FERB's file picker drops it to .normal. Esc (not during IME composition) and ⌘W hide it; other ⌘ keys reach FERB's menu (⌘Q quits)."
+why = "Two copies of the conversation would drift; a mounted hidden transcript would consume the other's scroll requests. Joining Spaces through AppKit (not the SkyLight overlay space) lets drags reach it."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/NotchCore/TranscriptFollow.swift"]

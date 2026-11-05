@@ -47,6 +47,27 @@ public enum AppSettings {
     static let notch = "Settings → Notch & Shortcuts"
     static let sounds = "Settings → Sounds & Notifications → Sounds"
 
+    /// D19 (APP-745): the notch by default, or the sticky window.
+    public static let whereFERBOpens = AppSetting(
+        keys: [ChatHost.defaultsKey], name: "Where FERB opens", place: notch + " → Where FERB opens",
+        effect: "Notch: FERB opens in the notch. Window: FERB opens in a window that stays open until closed (close "
+            + "button, ⌘W or Esc) and shows on every Space; the shortcut, the menu bar's Open FERB, a file drop or "
+            + "opening FERB.app again opens it") { defaults in
+        ChatHost.setting(defaults) == .window ? "Window" : "Notch"
+    }
+    public static let keepOnTop = AppSetting.toggle(
+        ChatHost.keepOnTopKey, "Keep on top", place: notch + " → Where FERB opens (window only)",
+        effect: "In window mode FERB's window floats above other apps' windows; off, it stays among them")
+    public static let hidePill = AppSetting.toggle(
+        ChatHost.hidePillKey, "Hide the pill", place: notch + " → Where FERB opens (window only)",
+        effect: "In window mode the notch handle and pill disappear and the menu bar icon shows FERB's status; the "
+            + "menu bar icon, the shortcut and opening FERB.app again still bring FERB back", on: false)
+    public static let windowPlace = AppSetting(
+        keys: [ChatWindowFrames.defaultsKey], name: "Where the window sits", place: "Drag or resize FERB's window",
+        effect: "FERB's window remembers its place and size on each display") { defaults in
+        let count = ChatWindowFrames.count(in: defaults)
+        return count == 0 ? "the default (top right)" : "saved on \(count) display\(count == 1 ? "" : "s")"
+    }
     public static let hover = AppSetting.toggle(
         "notch.hoverEnabled", "Open when I hover over FERB", place: notch + " → Notch & pill",
         effect: "Hovering over the notch or pill opens FERB; off, only the shortcut or a click opens it")
@@ -112,7 +133,8 @@ public enum AppSettings {
     /// Every owner-facing app preference, in Settings' order. A new preference is added here (the test enumerates the
     /// keys FERB.app writes and fails on one that is neither declared nor in `internalKeys`).
     public static var all: [AppSetting] {
-        [hover, openShortcut, doubleTap, sendOnRelease, pointer, placement, chatHeight, chatWidth, soundsOn, volume, intensity] + soundSwitches
+        [whereFERBOpens, keepOnTop, hidePill, windowPlace, hover, openShortcut, doubleTap, sendOnRelease, pointer, placement,
+         chatHeight, chatWidth, soundsOn, volume, intensity] + soundSwitches
     }
 
     /// UserDefaults keys FERB.app writes that are no owner preference, each with why.

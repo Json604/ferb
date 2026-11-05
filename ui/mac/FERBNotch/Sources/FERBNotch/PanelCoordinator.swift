@@ -139,7 +139,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private let panel: NotchPanel
     private let tracerPanel = NotchLightPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                                               backing: .buffered, defer: false)
-    private let indicatorPanel = FerbIndicatorPanel(contentRect: CGRect(x: 0, y: 0, width: 58, height: 30),
+    let indicatorPanel = FerbIndicatorPanel(contentRect: CGRect(x: 0, y: 0, width: 58, height: 30),
                                                     styleMask: [.borderless, .nonactivatingPanel],
                                                     backing: .buffered, defer: false)
     /// The camera housing's topmost point row while docked, reaching above the screen's top edge (APP-710).
@@ -243,6 +243,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     var onOpenSettings: (() -> Void)?            // the FERB window at Settings (L34 Phase E): ⌘, and Settings…
     var service: DaemonServicing = DaemonService()
     private var statusRefresh: AnyCancellable?
+    /// The sticky window (APP-745), created the first time window mode shows the chat; never in notch mode.
+    private(set) var chatWindow: ChatWindowController?
+    /// A question, an answer or a reminder just arrived: the window comes in front of other windows (D22).
+    private var arrivalPending = false
+    /// Hide the pill as last applied (D21): the handle, edge row and pill windows stay out.
+    private(set) var pillHidden = false
+    private var defaultsObserver: NSObjectProtocol?
     private var statusRefreshQueued = false
     private var isStarted = false
 
@@ -276,7 +283,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         configurePanel()
         configureIndicator()
         model.onPresentationChange = { [weak self] animate in self?.present(animate: animate, caller: "model") }
-        model.onAttentionArrival = { [weak self] in self?.hoverTask?.cancel() }
+        model.onAttentionArrival = { [weak self] in
+            self?.hoverTask?.cancel()
+            self?.arrivalPending = true
+        }
+        model.onTourChange = { [weak self] in self?.applyChatHost() }
         model.onBackgroundChange = { [weak self] animate in
             self?.present(animate: animate, requestFocus: false, caller: "background")
         }
@@ -330,6 +341,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.model.collapse()
         }
         model.onYieldChange = { [weak self] yielded in self?.applyYield(yielded) }
+        // Where FERB opens, Keep on top and Hide the pill take effect as Settings changes them (APP-745).
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
+                                                                  object: defaults, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyChatHost() }
+        }
+        applyChatHost()
         model.onOpenDocument = { [weak self] url in
             if NSWorkspace.shared.open(url) { self?.model.dismissAutomatically() }
             else {
@@ -376,21 +393,23 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
         shortcuts.start()
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            guard let self, self.model.bodyVisible, event.window === self.panel, self.panel.isKeyWindow else { return event }
+            // The notch's panel or the sticky window, whichever holds the chat and has keyboard focus.
+            guard let self, self.model.bodyVisible, let window = event.window, window.isKeyWindow,
+                  window === (self.model.chatInWindow ? self.chatWindow?.panel : self.panel) else { return event }
             if self.model.session.phase == .result, !self.model.showingHistory, !self.model.showingSources,
-               !self.model.showingActivity, !(self.panel.firstResponder is NSTextView) {
+               !self.model.showingActivity, !(window.firstResponder is NSTextView) {
                 if event.keyCode == 49 { self.model.quickLook(); return nil }
                 if event.keyCode == 36 || event.keyCode == 76 { self.model.openDocument(); return nil }
                 if event.keyCode == 15 && event.modifierFlags.contains(.command) { self.model.revealDocument(); return nil }
             }
-            if self.panel.firstResponder is ChatTextView { return event }
+            if window.firstResponder is ChatTextView { return event }
             // Return in a field on FERB's intro line submits that field (its own onSubmit), never the composer.
-            if self.model.introLine?.entry != nil, (self.panel.firstResponder as? NSTextView)?.isFieldEditor == true {
+            if self.model.introLine?.entry != nil, (window.firstResponder as? NSTextView)?.isFieldEditor == true {
                 return event
             }
             guard self.model.canCompose,
                   event.keyCode == 36 || event.keyCode == 76,
-                  let editor = self.panel.firstResponder as? NSTextView,
+                  let editor = window.firstResponder as? NSTextView,
                   !editor.hasMarkedText() else { return event }
             if event.modifierFlags.contains(.shift) {
                 editor.insertNewlineIgnoringFieldEditor(nil)
@@ -472,6 +491,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     /// Orders one of FERB's windows in and keeps it in the overlay space, on no ordinary Space (APP-729).
     private func orderInOverlay(_ window: NSWindow) {
+        // Hidden pill (D21): the handle, edge row and pill never show, whatever asks for them.
+        if pillHidden, window === indicatorPanel || window === edgeRowPanel {
+            window.orderOut(nil)
+            return
+        }
         window.orderFrontRegardless()
         overlaySpace.ensure(window)
     }
@@ -1091,6 +1115,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             \(self.stateLine, privacy: .public)
             """)
         guard changed else { return }
+        chatWindow?.screensChanged()
         cancelMagneticInteraction()
         if isStarted { updateScreen() }
     }
@@ -1190,7 +1215,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             Displays woke: layout \(changed ? "changed" : "unchanged", privacy: .public); \(self.stateLine, privacy: .public)
             """)
         if changed { updateScreen() }
-        if model.surfaceVisible { windowYield.showPanel() }
+        if notchSurfaceVisible { windowYield.showPanel() }
         if indicatorControl?.isAttached != true { orderInOverlay(indicatorPanel) }
         placeEdgeRow()
         overlaySpace.ensureAll(except: model.isYielded ? [panel] : [])
@@ -1243,12 +1268,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         yieldController.spaceChanged()
         if overlaySpace.isAttached {
             overlaySpace.ensureAll(except: model.isYielded ? [panel] : [])
-        } else if model.surfaceVisible {
+        } else if notchSurfaceVisible {
             windowYield.showPanel()
             updateTracerVisibility()
         }
         // On a full-screen app's Space the closed edge pill is its resting line (D14).
-        if !model.surfaceVisible, !pointerIsOverSurface, onFullScreenSpace, !pillResting {
+        if !notchSurfaceVisible, !pointerIsOverSurface, onFullScreenSpace, !pillResting {
             indicatorRestTask?.cancel()
             indicatorRestTask = nil
             setIndicatorResting(true)
@@ -1261,9 +1286,108 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         return fullScreenSpace(id)
     }
 
+    // MARK: - Where FERB opens (D19–D23, APP-745)
+
+    /// The notch shows FERB's surface: the chat while the notch holds it, a tour line, a plan preview or a reminder
+    /// arrival. While the sticky window holds the chat the notch shows none of it.
+    private var notchSurfaceVisible: Bool { !model.chatInWindow && model.surfaceVisible }
+    private var notchBodyVisible: Bool { !model.chatInWindow && model.bodyVisible }
+
+    /// The chat opens in the sticky window: Where FERB opens is Window and no tour runs (the tour always runs in the
+    /// notch; window mode returns after it).
+    private var wantsChatInWindow: Bool { ChatHost.setting(defaults) == .window && !model.tourRunning }
+
+    /// Applies Where FERB opens, Keep on top and Hide the pill as they are now. Switching while the chat is open moves
+    /// it: the same NotchModel, draft, attachments and transcript place, now shown by the other host, without taking
+    /// keyboard focus. Runs at launch, on every defaults change and when the tour starts or ends.
+    func applyChatHost() {
+        let inWindow = wantsChatInWindow
+        let hidden = inWindow && ChatHost.hidesPill(defaults)
+        let moved = model.chatInWindow != inWindow
+        chatWindow?.settingsChanged()
+        if moved {
+            Self.spacesLog.notice("The chat moves to the \(inWindow ? "window" : "notch", privacy: .public): \(self.stateLine, privacy: .public)")
+            hoverTask?.cancel()
+            model.chatInWindow = inWindow
+            if !inWindow { chatWindow?.hide() }
+            if !model.isYielded, windowYield.isYielded { windowYield.comeBack(refocus: false) }
+        }
+        if hidden != pillHidden {
+            pillHidden = hidden
+            Self.spacesLog.notice("The pill is \(hidden ? "hidden" : "shown", privacy: .public) (Hide the pill)")
+            if hidden {
+                indicatorPanel.orderOut(nil)
+                edgeRowPanel.orderOut(nil)
+                indicatorRestTask?.cancel()
+                indicatorRestTask = nil
+            } else if geometry != nil {
+                if indicatorControl?.isAttached != true { orderInOverlay(indicatorPanel) }
+                placeEdgeRow()
+            }
+            updateStatusItem()
+        }
+        if moved { present(animate: false, requestFocus: false, caller: "chat host") }
+    }
+
+    /// The sticky window follows the chat: shown while it is open, hidden when it closes. Opening shows it on the
+    /// pointer's display; the owner's own open makes it key (APP-553), FERB's arrivals bring it in front without
+    /// keyboard focus (D22), and other updates leave its place in the window stack alone.
+    private func presentWindow(requestFocus: Bool) {
+        defer { arrivalPending = false }
+        guard model.chatInWindow, model.expanded else {
+            chatWindow?.hide()
+            return
+        }
+        let window = ensureChatWindow()
+        let opening = !window.isShown
+        let focus = requestFocus && !model.voiceIsHeld && (opening || window.panel.isKeyWindow)
+        if opening || arrivalPending || focus {
+            Self.spacesLog.notice("""
+                Window \(opening ? "opens" : "comes forward", privacy: .public) (focus \(focus, privacy: .public), \
+                arrival \(self.arrivalPending, privacy: .public))
+                """)
+            window.show(focus: focus)
+        }
+        if opening {
+            model.noteTextPresentation(expanded: true)
+            model.completeTextReveal()
+        }
+        if focus {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.model.chatInWindow, self.model.bodyVisible else { return }
+                self.model.focusRequest = UUID()
+            }
+        }
+    }
+
+    private func ensureChatWindow() -> ChatWindowController {
+        if let chatWindow { return chatWindow }
+        let window = ChatWindowController(model: model, defaults: defaults)
+        window.onClose = { [weak self] in
+            guard let self, self.model.expanded else { return }
+            self.model.collapse(keyboard: true)
+        }
+        chatWindow = window
+        return window
+    }
+
+    /// The owner opened FERB in window mode (shortcut, menu, reopening FERB.app): the window opens, or comes forward,
+    /// with focused typing; a chat a shortcut opened stays like a press-opened one.
+    private func openWindowByOwner() {
+        if model.expanded {
+            beginInteraction()
+            presentWindow(requestFocus: true)
+            if chatWindow?.panel.isKeyWindow != true { chatWindow?.show(focus: true) }
+            model.focusRequest = UUID()
+        } else {
+            model.toggle(byPress: true)
+        }
+    }
+
     private func present(animate: Bool, requestFocus: Bool = true, caller: String) {
+        if model.chatInWindow || chatWindow?.isShown == true { presentWindow(requestFocus: requestFocus) }
         // Explicit close must win even while a pointer/fusion owns geometry.
-        if requestFocus && !model.surfaceVisible && hasMagneticInteraction {
+        if requestFocus && !notchSurfaceVisible && hasMagneticInteraction {
             cancelMagneticInteraction()
         }
         guard geometry != nil, indicatorDragPointer == nil, dockingRevision == nil else { return }
@@ -1271,9 +1395,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         // Background updates (task progress) present often; they're kept in the log only when they open or close the
         // surface, so a Space change's absence of presents stays easy to read.
         let line = """
-            Present (\(caller), animate \(animate), focus \(requestFocus)) surface \(model.surfaceVisible): \(stateLine)
+            Present (\(caller), animate \(animate), focus \(requestFocus)) surface \(notchSurfaceVisible): \(stateLine)
             """
-        if caller != "background" || model.surfaceVisible != presentedExpanded {
+        if caller != "background" || notchSurfaceVisible != presentedExpanded {
             Self.spacesLog.notice("\(line, privacy: .public)")
         } else {
             Self.spacesLog.debug("\(line, privacy: .public)")
@@ -1281,13 +1405,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         presentation.compactSize = isDocked ? cutoutFrame.size : CGSize(width: 58, height: 30)
         model.noteTextPresentation(expanded: model.surfaceVisible)
         let wasExpanded = presentedExpanded
-        presentedExpanded = model.surfaceVisible
-        let isOpening = model.bodyVisible && !presentedBodyVisible
-        presentedBodyVisible = model.bodyVisible
+        presentedExpanded = notchSurfaceVisible
+        let isOpening = notchBodyVisible && !presentedBodyVisible
+        presentedBodyVisible = notchBodyVisible
         // The owner opened or revealed FERB (background updates don't request focus): stay over the windows
         // already there rather than stepping aside right after taking focus.
         if isOpening && requestFocus { yieldController.ownerOpened() }
-        guard model.surfaceVisible else {
+        guard notchSurfaceVisible else {
             presentedBodyVisible = false
             updateTracerVisibility()
             updateYieldWatch()
@@ -1349,7 +1473,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                                             y: isDocked ? 0 : (indicatorEdge == .top ? 28 : (indicatorEdge == .bottom ? 12 : 0)))
         let anchor = CGPoint(x: indicatorFrame.midX - panel.frame.minX,
                              y: isDocked ? cutoutFrame.height / 2 : panel.frame.maxY - indicatorFrame.midY)
-        presentation.present(size: targetSize, expanded: model.surfaceVisible,
+        presentation.present(size: targetSize, expanded: notchSurfaceVisible,
                              anchor: wasExpanded ? nil : anchor,
                              animate: shouldAnimate && !reduceMotion) { [weak self] in
             guard let self, self.presentationRevision == revision else { return }
@@ -1362,7 +1486,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         panel.resetCursorRects()
         updateTracerVisibility()
         updateYieldWatch()
-        if !model.bodyVisible {
+        if !notchBodyVisible {
             panel.makeFirstResponder(nil)
             panel.resignKey()
         } else if requestFocus && !model.voiceIsHeld && !model.isYielded && (isOpening || panel.isKeyWindow) {
@@ -1374,14 +1498,14 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             overlaySpace.ensure(panel)
             panel.contentView?.layoutSubtreeIfNeeded()
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.model.bodyVisible, self.presentationRevision == revision else { return }
+                guard let self, self.notchBodyVisible, self.presentationRevision == revision else { return }
                 self.model.focusRequest = UUID()
             }
         }
     }
 
     private func frame(for size: CGSize) -> CGRect {
-        if model.surfaceVisible, let screen = indicatorScreen {
+        if notchSurfaceVisible, let screen = indicatorScreen {
             return PanelLayout.frame(size: size, screen: screen.frame, indicator: indicatorFrame,
                                      edge: indicatorEdge, docked: isDocked, cutout: cutoutFrame)
         }
@@ -1429,7 +1553,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     /// On a full-screen app's Space a running task doesn't hold the pill up (D14).
     private func scheduleIndicatorRest() {
-        guard !isDocked, indicatorRestTask == nil, !model.surfaceVisible,
+        guard !isDocked, indicatorRestTask == nil, !notchSurfaceVisible,
               onFullScreenSpace || !model.taskItems.contains(where: \.isRunning) else { return }
         indicatorRestTask = Task { [weak self, restWait] in
             do { try await restWait(.seconds(3)) } catch { return }
@@ -1454,6 +1578,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// panel only if its body shows, it was key when the yield began, and the owner hasn't clicked or switched to
     /// another app meanwhile.
     private func applyYield(_ yielded: Bool) {
+        // The sticky window is an ordinary floating panel: only FERB's own file picker needs it to step down (to the
+        // normal level) so the picker shows above it; the notch's yield machinery never acts on it (APP-745).
+        if model.chatInWindow {
+            chatWindow?.filePicker(open: model.yielding.reasons.contains(.filePicker))
+            if !yielded, windowYield.isYielded { windowYield.comeBack(refocus: false) }
+            return
+        }
         Self.spacesLog.notice("""
             Yield \(yielded ? "starts" : "ends", privacy: .public) (\(self.model.yielding.reasons.map { "\($0)" }, privacy: .public)): \
             \(self.stateLine, privacy: .public)
@@ -1469,7 +1600,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 NSLog("FERB Notch: the stepped-back panel isn't on the current Space.")
             }
         } else {
-            windowYield.comeBack(refocus: model.bodyVisible && !model.voiceIsHeld)
+            windowYield.comeBack(refocus: notchBodyVisible && !model.voiceIsHeld)
             overlaySpace.ensure(panel)
         }
         updateTracerVisibility()
@@ -1490,7 +1621,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         var occupied: [CGRect] = []
         // Closed, nothing of the panel shows: the handle (in the camera housing, or the edge pill on its own window) is
         // never ordered out for another app, so a closed FERB never yields (APP-729).
-        if model.surfaceVisible { occupied.append(frame(for: model.surfaceSize)) }
+        if notchSurfaceVisible { occupied.append(frame(for: model.surfaceSize)) }
         if model.showsTraceGlow { occupied.append(tracerPanel.frame) }
         let menuBar = CGRect(x: screenFrame.minX, y: screenFrame.maxY - menuBarHeight,
                              width: screenFrame.width, height: menuBarHeight)
@@ -1556,7 +1687,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     /// Hover, a click on the notch and the shortcut focus the visible text input; never while FERB still yields.
     private func focusVisibleInput() {
-        if windowYield.focusInput(bodyVisible: model.bodyVisible) {
+        if windowYield.focusInput(bodyVisible: notchBodyVisible) {
             overlaySpace.ensure(panel)
             model.focusRequest = UUID()
         }
@@ -1574,7 +1705,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         indicatorRestTask?.cancel()
         indicatorRestTask = nil
         setIndicatorResting(false)
-        if model.bodyVisible, !model.isYielded {
+        if model.chatInWindow {
+            if model.bodyVisible, let window = chatWindow, window.isShown, !window.panel.isKeyWindow {
+                window.show(focus: true)
+            }
+        } else if model.bodyVisible, !model.isYielded {
             panel.makeKey()
             overlaySpace.ensure(panel)
         }
@@ -1591,7 +1726,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             return true
         }
         let indicatorHitFrame = isDocked ? cutoutFrame.union(indicatorFrame) : indicatorFrame.insetBy(dx: 0, dy: -2)
-        guard model.surfaceVisible else { return indicatorHitFrame.contains(point) || indicatorPanel.frame.contains(point) }
+        guard notchSurfaceVisible else { return indicatorHitFrame.contains(point) || indicatorPanel.frame.contains(point) }
         let panelFrame = panel.frame.insetBy(dx: 0, dy: -2)
         if panelFrame.contains(point) { return true }
         // Keep the hover trigger hot as the compact indicator is handed off to the
@@ -1640,7 +1775,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             model.openReminderChat()
             return
         }
-        guard model.hoverOpensChat,
+        // In window mode hover never opens the window; a press on the notch or pill does (APP-746).
+        guard model.hoverOpensChat, !model.chatInWindow,
               !model.expanded else { return }
         hoverTask = Task { [weak self, hoverWait] in
             do { try await hoverWait(.milliseconds(100)) } catch { return }
@@ -1692,6 +1828,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     func open(_ target: NotificationTarget) {
         beginInteraction()
         model.open(target)
+        if model.chatInWindow, model.expanded { chatWindow?.show(focus: true) }
     }
 
     private func queueStatusRefresh() {
@@ -1709,7 +1846,17 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         let state = model.menuBarState
         statusItem?.button?.image = NSImage(systemSymbolName: state.symbol, accessibilityDescription: state.statusLine)
         statusItem?.button?.toolTip = state.statusLine
+        statusItem?.button?.contentTintColor = statusTint.map { tint in
+            switch tint {
+            case .amber: NSColor.systemYellow
+            case .red: NSColor.systemRed
+            case .green: NSColor.systemGreen
+            }
+        }
     }
+
+    /// With the pill hidden the menu bar icon carries the pill's status colour (D21), from the same phase.
+    var statusTint: StatusTint? { StatusTint.of(model.indicatorPhase, pillHidden: pillHidden) }
 
     func menuNeedsUpdate(_ menu: NSMenu) { rebuildMenu(menu) }
 
@@ -1798,7 +1945,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
     }
 
-    @objc func showFromMenu() { beginInteraction(); model.expand() }
+    /// The menu bar's Open FERB and opening FERB.app again (applicationShouldHandleReopen): the notch, or the window
+    /// in window mode, opened by the owner with focused typing.
+    @objc func showFromMenu() {
+        if model.chatInWindow { openWindowByOwner(); return }
+        beginInteraction()
+        model.expand()
+    }
 
     /// The drag pasteboard (tests stand in their own) and the change count FERB last read from it.
     var dragPasteboard: () -> NSPasteboard = { NSPasteboard(name: .drag) }
@@ -1875,6 +2028,18 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// the notch; opening it plays summon; from a yield it brings FERB back. A chat it opens stays open on hover-out,
     /// like a press-opened one (APP-709). The one place a shortcut opens FERB.
     func toggleByShortcut() {
+        if model.chatInWindow {
+            // Window mode (APP-746): the shortcut hides the window when it has keyboard focus, and otherwise opens it or
+            // brings it forward with focused typing.
+            if model.expanded, chatWindow?.isShown == true, chatWindow?.panel.isKeyWindow == true {
+                model.collapse(keyboard: true)
+            } else {
+                openWindowByOwner()
+                model.feedback.play(.summon)
+            }
+            introControls.saw(.toggle)
+            return
+        }
         if summonFromYield() { model.feedback.play(.summon) }
         else {
             model.toggle(byPress: true)
@@ -1884,7 +2049,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     @objc private func showSettings() {
-        model.collapse()
+        if !model.chatInWindow { model.collapse() }        // the window stays until the owner closes it (D23)
         onOpenSettings?()
     }
 
@@ -1893,8 +2058,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         beginInteraction()
         guard let preview = QLPreviewPanel.shared() else { return }
         preview.updateController()
+        if let window = chatWindow?.panel, model.chatInWindow, preview.level.rawValue <= window.level.rawValue {
+            preview.level = NSWindow.Level(rawValue: window.level.rawValue + 1)
+        }
         preview.makeKeyAndOrderFront(nil)
-        model.collapse()
+        if !model.chatInWindow { model.collapse() }
         if preview.currentController as AnyObject? === self { preview.reloadData() }
     }
 
@@ -1928,6 +2096,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         shortcuts.stop()
         hotKeys.stop()
         fileDragWatch?.cancel()
+        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        chatWindow?.hide()
         presentation.stop()
         panel.orderOut(nil)
         tracerPanel.orderOut(nil)

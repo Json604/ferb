@@ -42,6 +42,8 @@ struct ConversationTranscript: View {
     var questions: [DaemonApproval] = []
     @ObservedObject var model: NotchModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Shown by the sticky window rather than the notch (ChatWindowView sets it).
+    @Environment(\.chatInWindowHost) private var inWindow
     @State private var place = TranscriptPlace()
     @State private var hasUnreadBelow = false
     @State private var pill: TranscriptPill?
@@ -57,7 +59,7 @@ struct ConversationTranscript: View {
                             case let .reply(reply, turn): LateReplyView(reply: reply, turn: turn, model: model)
                             case let .notice(notice): NoticeView(notice: notice, model: model)
                             }
-                        }.id(entry.id)
+                        }.transcriptAnchor(TranscriptTarget.entry(entry.id))
                     }
                     ForEach(questions) { question in
                         ApprovalView(model: model, approval: question).transcriptAnchor(TranscriptTarget.question(question.id))
@@ -135,9 +137,21 @@ struct ConversationTranscript: View {
             .onChange(of: entries) { _, _ in followNewest(proxy) }
             .onChange(of: questions) { _, _ in followNewest(proxy) }
             .onAppear {
+                // The chat moved to the other host (APP-745): back where the owner left it.
+                let resume = model.transcriptResume
+                model.transcriptResume = nil
                 if let request = model.questionFocus { proxy.scrollTo(TranscriptTarget.question(request.id), anchor: .bottom) }
-                else { proxy.scrollTo("transcript-bottom", anchor: .bottom) }
+                else if let resume, !resume.following, let top = resume.topEntry {
+                    place.follow.resume(following: false)
+                    place.follow.scrolledByFERB(at: Date(), settle: 0.3)
+                    proxy.scrollTo(top, anchor: .top)
+                } else { proxy.scrollTo("transcript-bottom", anchor: .bottom) }
                 consume(proxy)
+            }
+            .onDisappear {
+                // Only when the chat moved to the other host; a day, Tasks or history switch keeps today's behaviour.
+                guard model.chatInWindow != inWindow else { return }
+                model.transcriptResume = TranscriptResume.at(place.anchors, following: place.follow.following)
             }
         }
     }

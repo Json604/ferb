@@ -65,6 +65,14 @@ final class NotchModel: ObservableObject {
     @Published var preferredTranscriptHeight: CGFloat = 300
     @Published var localSettingReply: String?
     @Published var indicatorEdge = "top"
+    /// The sticky window holds the chat (Where FERB opens: Window, outside the tour; APP-745): `expanded` then means the
+    /// window shows, the notch mounts no chat body and nothing dismisses it automatically. Set by PanelCoordinator.
+    @Published var chatInWindow = false
+    /// The chat body's size in the window (its width, and its height below the window's header): the transcript and
+    /// composer measure against it while the window holds the chat.
+    @Published var windowChatSize: CGSize?
+    /// Where the transcript was when its host let go of it, for the host that shows it next (APP-745).
+    var transcriptResume: TranscriptResume?
     @Published var isNotchDocked = false
     var workSessions: [UUID: NotchSession] = [:] { didSet { taskListCache.invalidate() } }
     var taskListCache = TaskListCache()
@@ -349,7 +357,13 @@ final class NotchModel: ObservableObject {
     var introPulseTask: Task<Void, Never>?
     /// What the owner did on an intro line (a choice, a typed entry, Skip); set by the
     /// intro controller while the tour runs. Set, the line also offers Skip.
-    var onIntroAction: ((IntroAction) -> Void)?
+    var onIntroAction: ((IntroAction) -> Void)? {
+        didSet { if (oldValue == nil) != (onIntroAction == nil) { onTourChange?() } }
+    }
+    /// The tour (or its service step) started or ended: the coordinator moves the chat to the notch for it (APP-745).
+    var onTourChange: (() -> Void)?
+    /// The tour or its service step runs (its controller sets `onIntroAction` while it does).
+    var tourRunning: Bool { onIntroAction != nil }
     /// While the tour runs, a request typed or spoken stays in the composer instead of starting a task, except while
     /// the tour's own real task runs (APP-666: its questions may need a typed answer); it is sent after the tour.
     var introHoldsWork = false
@@ -392,7 +406,10 @@ final class NotchModel: ObservableObject {
     var bodyVisible: Bool { expanded }
     var isYielded: Bool { self.yielding.isActive }
     @Published var availableSurfaceSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-    var bodyWidth: CGFloat { min(availableSurfaceSize.width, max(360, preferredPanelWidth)) }
+    var bodyWidth: CGFloat {
+        if chatInWindow, let size = windowChatSize { return size.width }
+        return min(availableSurfaceSize.width, max(360, preferredPanelWidth))
+    }
     var hoverEnabled: Bool { preferences.object(forKey: "notch.hoverEnabled") as? Bool ?? true }
     /// Hovering opens the chat, except over an intro line: the owner is reading it (or reaching for its choices).
     var hoverOpensChat: Bool { hoverEnabled && introLine == nil }
@@ -423,7 +440,9 @@ final class NotchModel: ObservableObject {
             + (promptError == nil ? 0 : 48) + attachmentStripHeight + (introLine.map { introContentHeight($0, width: bodyWidth - 50, inset: IntroNarrationView.chatInset) + 9 } ?? 0)
     }
     var chatTranscriptHeight: CGFloat {
-        min(max(260, preferredTranscriptHeight), max(0, availableSurfaceSize.height - cutoutHeight - conversationChromeHeight))
+        // The window's transcript fills what its body leaves after the chat's own rows (APP-745).
+        if chatInWindow, let size = windowChatSize { return max(120, size.height - conversationChromeHeight) }
+        return min(max(260, preferredTranscriptHeight), max(0, availableSurfaceSize.height - cutoutHeight - conversationChromeHeight))
     }
 
     func resizePanel(width: CGFloat, transcriptHeight: CGFloat, persist: Bool = false) {
@@ -547,7 +566,7 @@ final class NotchModel: ObservableObject {
     // A preview is a hover surface, not a modal interaction. The coordinator checks
     // its actual window bounds; merely being presented must never hold the chat open.
     var blocksAutomaticDismissal: Bool {
-        profileMenuOpen || filePickerOpen || session.phase == .listening || introLine != nil
+        chatInWindow || profileMenuOpen || filePickerOpen || session.phase == .listening || introLine != nil
     }
 
     func dismissAutomatically() {
@@ -1043,6 +1062,19 @@ final class NotchModel: ObservableObject {
 
     /// Typed reminder arrivals share the existing compact surface and spring. The full chat stays as the owner left it.
     func presentReminder(card: ResultCard, text: String) {
+        // In window mode a reminder brings the window forward at today's chat, without taking focus (D22).
+        if chatInWindow, introLine == nil {
+            onAttentionArrival?()
+            followsToday = true
+            selectedDay = Date()
+            showingTasks = false
+            showingSources = false
+            showingHistory = false
+            showingActivity = false
+            session.expand()
+            onBackgroundChange?(true)
+            return
+        }
         guard !bodyVisible, introLine == nil else { return }
         onAttentionArrival?()
         acknowledgement.show(text, reminder: card)

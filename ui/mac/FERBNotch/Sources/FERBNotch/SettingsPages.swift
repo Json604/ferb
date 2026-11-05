@@ -123,9 +123,28 @@ struct NotchSettingsPage: View {
     @AppStorage(AppSettings.hover.key) private var hoverEnabled = true
     @AppStorage(AppSettings.sendOnRelease.key) private var sendOnRelease = false
     @AppStorage(AppSettings.doubleTap.key) private var doubleTap = true
+    @AppStorage(AppSettings.whereFERBOpens.key) private var opensIn = ChatHost.notch.rawValue
+    @AppStorage(AppSettings.keepOnTop.key) private var keepOnTop = true
+    @AppStorage(AppSettings.hidePill.key) private var hidePill = false
 
     var body: some View {
         WindowPage {
+            // D19–D21 (APP-745): the notch by default, or the sticky window with its two window-only choices.
+            WindowSettingsSection(title: AppSettings.whereFERBOpens.name) {
+                Picker(AppSettings.whereFERBOpens.name, selection: $opensIn) {
+                    Text("Notch").tag(ChatHost.notch.rawValue)
+                    Text("Window").tag(ChatHost.window.rawValue)
+                }
+                .pickerStyle(.segmented)
+                if opensIn == ChatHost.window.rawValue {
+                    Toggle(AppSettings.keepOnTop.name, isOn: $keepOnTop)
+                    Toggle(AppSettings.hidePill.name, isOn: $hidePill)
+                    Text("The window stays open until you close it (its close button, ⌘W or Esc) and shows on every "
+                         + "Space. With the pill hidden, FERB's menu bar icon shows its status; the menu bar icon, your "
+                         + "shortcut and opening FERB.app again always bring FERB back.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+            }
             WindowSettingsSection(title: "Notch & pill") {
                 Toggle(AppSettings.hover.name, isOn: $hoverEnabled)
                     .onChange(of: hoverEnabled) { _, enabled in onHoverEnabledChange?(enabled) }
