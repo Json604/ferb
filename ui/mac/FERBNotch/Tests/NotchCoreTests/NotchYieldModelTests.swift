@@ -24,40 +24,37 @@ final class NotchYieldModelTests: XCTestCase {
         XCTAssertFalse(model.isYielded)
     }
 
-    // decision: APP-559
-    func testYieldingToAnAppNeedsAPinnedChatAndEndsWithThePinOrTheChat() {
+    // decision: APP-559, APP-642, APP-743, APP-744
+    func testYieldingToAnAppNeedsTheToursLineAndEndsWithTheLineOrTheChat() {
         let model = makeModel()
         model.expand()
-        model.beginYield(.activeAppUnderPinnedChat)
-        XCTAssertFalse(model.isYielded)
-        model.togglePin()
-        model.beginYield(.activeAppUnderPinnedChat)
+        model.beginYield(.activeAppUnderTourLine)
+        XCTAssertFalse(model.isYielded, "an open chat never steps behind an app (no pin since APP-743)")
+        model.introLine = IntroLine(text: "Turn FERB on in this list.")
+        model.beginYield(.activeAppUnderTourLine)
         XCTAssertTrue(model.isYielded)
-        model.togglePin()
+        model.introLine = nil
         XCTAssertFalse(model.isYielded)
-        model.togglePin()
-        model.beginYield(.activeAppUnderPinnedChat)
+        model.introLine = IntroLine(text: "Turn FERB on in this list.")
+        model.beginYield(.activeAppUnderTourLine)
         model.collapse()
         XCTAssertFalse(model.isYielded)
     }
 
     // decision: APP-559
-    func testYieldingLeavesDraftAttachmentsPinAndFoldUnchanged() {
+    func testYieldingLeavesDraftAndAttachmentsUnchanged() {
         let model = makeModel()
         let file = URL(fileURLWithPath: "/tmp/brief.txt")
         model.expand()
         model.session.draft = "Keep my draft"
         model.session.attach([file])
-        model.togglePin()
-        model.revealPinnedBody()
-        model.beginYield(.activeAppUnderPinnedChat)
+        model.beginYield(.filePicker)
         model.beginYield(.foreignOverlay)
         model.endYield(.foreignOverlay)
-        model.endYield(.activeAppUnderPinnedChat)
+        model.endYield(.filePicker)
         XCTAssertFalse(model.isYielded)
         XCTAssertEqual(model.session.draft, "Keep my draft")
         XCTAssertEqual(model.session.attachments, [file])
-        XCTAssertTrue(model.isPinned)
         XCTAssertTrue(model.bodyVisible)
     }
 
@@ -65,17 +62,17 @@ final class NotchYieldModelTests: XCTestCase {
     func testDictationBringsFERBBackAndKeepsOtherAppsFromHidingIt() {
         let model = makeModel(microphone: SilentMicrophone())
         model.expand()
-        model.togglePin()
+        model.introLine = IntroLine(text: "Turn FERB on in this list.")
         var changes: [Bool] = []
         model.onYieldChange = { changes.append($0) }
         model.beginYield(.foreignOverlay)
-        model.beginYield(.activeAppUnderPinnedChat)
+        model.beginYield(.activeAppUnderTourLine)
         model.beginHeldVoice()
         XCTAssertEqual(model.session.phase, .listening)
         XCTAssertFalse(model.isYielded)
         XCTAssertEqual(changes, [true, false])
         model.beginYield(.foreignOverlay)
-        model.beginYield(.activeAppUnderPinnedChat)
+        model.beginYield(.activeAppUnderTourLine)
         XCTAssertFalse(model.isYielded)
     }
 
@@ -83,8 +80,7 @@ final class NotchYieldModelTests: XCTestCase {
     func testAQuestionThatArrivesWhileYieldedKeepsItsLightButACompletionDoesNot() {
         let model = makeModel()
         model.expand()
-        model.togglePin()
-        model.beginYield(.activeAppUnderPinnedChat)
+        model.beginYield(.foreignOverlay)
         model.showCompletionTrace()
         XCTAssertTrue(model.showsTraceGlow)
         XCTAssertFalse(model.tracerLightShows)
@@ -94,7 +90,7 @@ final class NotchYieldModelTests: XCTestCase {
         XCTAssertTrue(model.tracerLightShows)
         // The question is already shown in the chat body for when FERB comes back.
         XCTAssertTrue(model.bodyVisible)
-        model.endYield(.activeAppUnderPinnedChat)
+        model.endYield(.foreignOverlay)
         XCTAssertTrue(model.tracerLightShows)
     }
 }

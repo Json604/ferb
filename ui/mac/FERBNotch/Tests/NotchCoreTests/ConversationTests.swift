@@ -23,20 +23,18 @@ final class ConversationTests: XCTestCase {
     }
 
     // decision: APP-571, APP-301
-    @MainActor func testTaskCompletionRevealsTuckedHeaderWithoutRequestingKeyboardFocus() {
+    @MainActor func testTaskCompletionOpensTheClosedChatWithoutRequestingKeyboardFocus() {
         let model = NotchModel(preferences: scratchDefaults())
         model.session.draft = "Find notes"
         let id = model.session.beginWork()!
         model.conversation.begin(id: id, request: "Find notes", sources: [])
         model.session.bindBackendTask("task-1", localID: id)
-        model.expand()
-        model.togglePin()
-        XCTAssertTrue(model.isHeaderOnly)
+        model.collapse()
+        XCTAssertFalse(model.bodyVisible)
         var foregroundRequests = 0
         model.onPresentationChange = { _ in foregroundRequests += 1 }
         model.receiveOutcome(["task_id": "task-1", "status": "done", "answer": "Found them"])
         XCTAssertTrue(model.bodyVisible)
-        XCTAssertTrue(model.isPinned)
         XCTAssertEqual(foregroundRequests, 0)
     }
 

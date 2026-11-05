@@ -22,7 +22,6 @@ final class NotchPresentation: NSObject, ObservableObject {
         CGPoint(x: surfaceOrigin.x - (canvasSize.width - size.width) / 2, y: surfaceOrigin.y)
     }
     var expansion: CGFloat { min(1, max(0, geometry.second.first)) }
-    var bodyExpansion: CGFloat { min(1, max(0, geometry.second.second)) }
 
     private var displayLink: CADisplayLink?
     private var origin = Vector.zero
@@ -37,13 +36,13 @@ final class NotchPresentation: NSObject, ObservableObject {
     private var publishedOrigin: CGPoint?
     private var publishedCanvas: CGSize?
 
-    func present(size: CGSize, expanded: Bool, bodyVisible: Bool, anchor: CGPoint? = nil, animate: Bool,
+    func present(size: CGSize, expanded: Bool, anchor: CGPoint? = nil, animate: Bool,
                  completion: @escaping () -> Void) {
         let wasAnimating = displayLink != nil
         displayLink?.invalidate()
         displayLink = nil
         self.completion = nil
-        target = Vector(AnimatablePair(size.width, size.height), AnimatablePair(expanded ? 1 : 0, bodyVisible ? 1 : 0))
+        target = Vector(AnimatablePair(size.width, size.height), AnimatablePair(expanded ? 1 : 0, 1))
         if !expanded, let anchor {
             originTarget = CGPoint(x: anchor.x - compactSize.width / 2, y: anchor.y - compactSize.height / 2)
         } else {
@@ -58,9 +57,7 @@ final class NotchPresentation: NSObject, ObservableObject {
         }
         if expanded, let anchor, !wasAnimating {
             // The surface reveals stationary content, as the original notch did.
-            // Body translation belongs only to an explicit header/body fold.
-            origin = Vector(AnimatablePair(compactSize.width, compactSize.height),
-                            AnimatablePair(0, bodyVisible ? 1 : 0))
+            origin = Vector(AnimatablePair(compactSize.width, compactSize.height), AnimatablePair(0, 1))
             originStart = CGPoint(x: anchor.x - compactSize.width / 2, y: anchor.y - compactSize.height / 2)
             surfaceOrigin = originStart
         } else {
@@ -126,7 +123,7 @@ final class NotchPresentation: NSObject, ObservableObject {
         }
     }
 
-    func placeDuringDrag(size: CGSize, origin: CGPoint, bodyVisible: Bool) {
+    func placeDuringDrag(size: CGSize, origin: CGPoint) {
         stop()
         // SwiftUI snaps native scroll-view edges independently at fractional
         // display coordinates. Translating an unchanged card can therefore
@@ -136,7 +133,7 @@ final class NotchPresentation: NSObject, ObservableObject {
         surfaceOrigin = CGPoint(x: (origin.x * scale).rounded() / scale,
                                 y: (origin.y * scale).rounded() / scale)
         destination = surfaceOrigin
-        apply(Vector(AnimatablePair(size.width, size.height), AnimatablePair(1, bodyVisible ? 1 : 0)))
+        apply(Vector(AnimatablePair(size.width, size.height), AnimatablePair(1, 1)))
     }
 
     func stop() {

@@ -232,7 +232,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// How often the window list is read while FERB is on screen. A menu that opens over the notch is uncovered
     /// within about a fifth of a second, before the pointer can reach its first item, and one window-list query
     /// five times a second costs far below a percent of one core. A responsiveness detail, not a behaviour cap.
-    /// A pinned FERB is always on screen, so it polls continuously while the displays are awake.
     private static let yieldPollInterval: Duration = .milliseconds(200)
     var onSetUp: (() -> Void)?                   // set by the packaged FERB.app: Set Up FERB… replays the intro
     var onRepair: (() -> Void)?                  // set by the packaged FERB.app: the service set up again, no tour
@@ -347,13 +346,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self?.updateTracerVisibility()
             self?.updateYieldWatch()
         }
-        model.onPinChange = { [weak self] pinned in
-            guard let self else { return }
-            self.hoverTask?.cancel()
-            if !pinned {
-                if !self.pointerIsInside { self.pointerExited() }
-            }
-        }
     }
 
     func start() {
@@ -428,11 +420,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         // as well as the panel so hovering the real notch can open FERB.
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] event in
             if event.type == .leftMouseDragged { self?.noticeFileDrag() }
-            self?.updatePointer(revealPinnedHeader: true)
+            self?.updatePointer()
         }) { eventMonitors.append(monitor) }
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] event in
             if event.type == .leftMouseDragged { self?.noticeFileDrag() }
-            self?.updatePointer(revealPinnedHeader: true)
+            self?.updatePointer()
             return event
         }) { eventMonitors.append(monitor) }
         dragPasteboardCount = dragPasteboard().changeCount
@@ -508,13 +500,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     /// One line of FERB's state for the `spaces` log (no text from the chat).
     private var stateLine: String {
-        "expanded \(model.expanded) body \(model.bodyVisible) pinned \(model.isPinned) byPress \(model.staysOpenOnHoverOut) "
+        "expanded \(model.expanded) body \(model.bodyVisible) byPress \(model.staysOpenOnHoverOut) "
             + "yielded \(model.isYielded) \(model.yielding.reasons.map { "\($0)" }) panel \(panel.frame) visible \(panel.isVisible) "
             + "key \(panel.isKeyWindow) docked \(isDocked) resting \(pillResting) pointerInside \(pointerIsInside)"
     }
 
-    /// A click that went to another app or the desktop (the global monitor). It closes an unpinned chat, a
-    /// press-opened one included (APP-707).
+    /// A click that went to another app or the desktop (the global monitor). It closes the chat, a press-opened one
+    /// included (APP-707).
     func ownerClickedInAnotherApp() {
         let location = pointerLocation()
         let cameBack = yieldController.ownerClicked(at: windowServerPoint(location))
@@ -724,7 +716,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 panel.setFrame(CGRect(x: old.minX, y: origin.y + 15 - old.height - 28,
                                       width: old.width, height: old.height + 28), display: true)
                 presentation.destination = CGPoint(x: 8, y: 28)
-                presentation.present(size: model.surfaceSize, expanded: true, bodyVisible: !model.isHeaderOnly,
+                presentation.present(size: model.surfaceSize, expanded: true,
                                      anchor: nil, animate: false, completion: {})
                 indicatorFrame = CGRect(x: origin.x - 29, y: origin.y - 15, width: 58, height: 30)
                 indicatorDragFrame = indicatorFrame
@@ -793,7 +785,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         dragCanvasActive = true
         presentation.backdrop.performUpdates {
             DragSurfaceCanvas.place(window: panel, presentation: presentation, control: control,
-                pill: indicatorFrame, card: card, canvas: screen.frame, bodyVisible: !model.isHeaderOnly)
+                pill: indicatorFrame, card: card, canvas: screen.frame)
             attachIndicator()
             // Follow the currently drawn boundary through a reversal rather than
             // switching the concave shoulder to the eventual side ahead of the card.
@@ -812,7 +804,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 y: panel.frame.maxY - presentation.surfaceOrigin.y - presentation.size.height,
                 width: presentation.size.width, height: presentation.size.height)
             DragSurfaceCanvas.place(window: panel, presentation: presentation, control: control,
-                pill: indicatorFrame, card: card, canvas: card.union(indicatorFrame), bodyVisible: !model.isHeaderOnly)
+                pill: indicatorFrame, card: card, canvas: card.union(indicatorFrame))
             attachIndicator()
         }
         dragCard = nil
@@ -974,7 +966,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             let card = magneticSample.fusionRect(from: start, to: target)
             presentation.backdrop.performUpdates {
                 DragSurfaceCanvas.place(window: panel, presentation: presentation, control: control,
-                    pill: indicatorFrame, card: card, canvas: fusionCanvas, bodyVisible: !model.isHeaderOnly)
+                    pill: indicatorFrame, card: card, canvas: fusionCanvas)
                 attachIndicator()
             }
         } else { indicatorPanel.setFrame(indicatorFrame, display: true) }
@@ -1313,7 +1305,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 presentationRevision = revision
                 presentation.animates = true
                 presentation.present(size: isDocked ? cutoutFrame.size : CGSize(width: 58, height: 30), expanded: false,
-                                     bodyVisible: !model.isHeaderOnly, anchor: anchor, animate: true) { [weak self] in
+                                     anchor: anchor, animate: true) { [weak self] in
                     guard let self, self.presentationRevision == revision else { return }
                     self.detachIndicator()
                     self.panel.setFrame(self.isDocked ? NotchDocking.dragRegion(cutout: self.cutoutFrame) : self.indicatorFrame(on: screen), display: true)
@@ -1358,7 +1350,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         let anchor = CGPoint(x: indicatorFrame.midX - panel.frame.minX,
                              y: isDocked ? cutoutFrame.height / 2 : panel.frame.maxY - indicatorFrame.midY)
         presentation.present(size: targetSize, expanded: model.surfaceVisible,
-                             bodyVisible: !model.isHeaderOnly,
                              anchor: wasExpanded ? nil : anchor,
                              animate: shouldAnimate && !reduceMotion) { [weak self] in
             guard let self, self.presentationRevision == revision else { return }
@@ -1459,7 +1450,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// The notch windows sit in an unmanaged overlay space above every ordinary window and other apps' menus, so
     /// no window level lets another surface win there. While FERB yields, the panel steps one layer back and stays
     /// on screen: just behind the app window it yields to, or under the menu (see NotchWindowYield; mouse-event
-    /// transparency is never touched); content, draft, attachments and pin are untouched. Coming back re-keys the
+    /// transparency is never touched); content, draft and attachments are untouched. Coming back re-keys the
     /// panel only if its body shows, it was key when the yield began, and the owner hasn't clicked or switched to
     /// another app meanwhile.
     private func applyYield(_ yielded: Bool) {
@@ -1504,8 +1495,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         let menuBar = CGRect(x: screenFrame.minX, y: screenFrame.maxY - menuBarHeight,
                              width: screenFrame.width, height: menuBarHeight)
         return .init(occupied: occupied.map(server),
-                     pinnedChat: (model.isPinned && model.expanded) || model.introLine != nil
-                        ? server(frame(for: model.surfaceSize)) : nil,
+                     tourLine: model.introLine != nil ? server(frame(for: model.surfaceSize)) : nil,
                      // The cutout up to the physical top edge, not the band below it where menus begin.
                      notch: server(CGRect(x: cutoutFrame.minX, y: cutoutFrame.minY, width: cutoutFrame.width,
                                           height: cutoutFrame.height + 2)),
@@ -1560,8 +1550,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         guard model.yielding.reasons.contains(where: { $0 != .filePicker }) else { return false }
         beginInteraction()
         guard model.expanded else { return false }
-        if model.isHeaderOnly { model.revealPinnedBody() }
-        else { focusVisibleInput() }
+        focusVisibleInput()
         return true
     }
 
@@ -1578,7 +1567,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             if model.compactReminderCard != nil { model.openReminderChat() }
             else { model.expand() }
         }
-        // The owner reached for FERB (shortcut, menu or a control): stop yielding to an app under the pinned chat
+        // The owner reached for FERB (shortcut, menu or a control): stop yielding to an app under the tour's line
         // and show FERB over the windows now over it.
         yieldController.summon()
         hoverTask?.cancel()
@@ -1611,7 +1600,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         return indicatorHitFrame.contains(point)
     }
 
-    func updatePointer(revealPinnedHeader: Bool = false) {
+    func updatePointer() {
         guard indicatorDragPointer == nil, dockingRevision == nil else { return }
         // After a Space change nothing happens until the pointer really moves: tracking areas and windows coming back
         // on the new Space report a pointer that never moved (APP-729).
@@ -1631,11 +1620,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
         defer { if broughtBack { focusVisibleInput() } }
         let inside = pointerIsOverSurface
-        if inside && revealPinnedHeader && model.isPinned {
-            // Only real pointer motion reveals the tucked body. Tracking-area
-            // changes during the shrink must not immediately open it again.
-            model.revealPinnedBody()
-        }
         guard inside != pointerIsInside else { return }
         pointerIsInside = inside
         inside ? pointerEntered() : pointerExited()
@@ -1656,10 +1640,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             model.openReminderChat()
             return
         }
-        if model.isPinned {
-            model.revealPinnedBody()
-            return
-        }
         guard model.hoverOpensChat,
               !model.expanded else { return }
         hoverTask = Task { [weak self, hoverWait] in
@@ -1673,10 +1653,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private func pointerExited() {
         guard indicatorDragPointer == nil, dockingRevision == nil else { return }
         hoverTask?.cancel()
-        if model.isPinned {
-            model.foldPinnedBody()
-            return
-        }
         // A chat the owner opened with a press stays until Escape, the shortcut, Hide or a click outside (APP-707).
         guard !model.blocksAutomaticDismissal, !model.staysOpenOnHoverOut, model.expanded else {
             scheduleIndicatorRest()
@@ -1908,7 +1884,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     @objc private func showSettings() {
-        if !model.isPinned { model.collapse() }
+        model.collapse()
         onOpenSettings?()
     }
 
@@ -1918,7 +1894,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         guard let preview = QLPreviewPanel.shared() else { return }
         preview.updateController()
         preview.makeKeyAndOrderFront(nil)
-        if !model.isPinned { model.collapse() }
+        model.collapse()
         if preview.currentController as AnyObject? === self { preview.reloadData() }
     }
 
@@ -1952,7 +1928,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         shortcuts.stop()
         hotKeys.stop()
         fileDragWatch?.cancel()
-        model.cancelPinnedFold()
         presentation.stop()
         panel.orderOut(nil)
         tracerPanel.orderOut(nil)

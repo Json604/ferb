@@ -26,20 +26,4 @@ final class CompletionGlowTests: XCTestCase {
         XCTAssertEqual(CompletionGlow.opacity(at: CompletionGlow.duration, reduceMotion: true), 0)
     }
 
-    @MainActor
-    // decision: APP-558
-    func testPinBlocksAutomaticDismissalButExplicitCloseStillWorks() {
-        let model = NotchModel()
-        model.expand()
-        model.togglePin()
-        model.dismissAutomatically()
-        XCTAssertTrue(model.expanded)
-        XCTAssertTrue(model.isPinned)
-        model.collapse()
-        XCTAssertFalse(model.expanded)
-        XCTAssertFalse(model.isPinned)
-        model.expand()
-        model.dismissAutomatically()
-        XCTAssertFalse(model.expanded)
-    }
 }

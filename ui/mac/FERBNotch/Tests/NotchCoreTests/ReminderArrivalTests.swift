@@ -128,24 +128,6 @@ final class ReminderArrivalTests: XCTestCase {
     }
 
     // decision: APP-622
-    func testPinnedHeaderCanShowReminderWithoutUnpinningOrOpeningChat() {
-        let (model, _) = make()
-        model.expand(focus: false)
-        model.togglePin()
-        model.foldPinnedBody()
-        XCTAssertTrue(model.isHeaderOnly)
-        model.receiveOutcome(scheduled)
-        XCTAssertTrue(model.isPinned)
-        XCTAssertFalse(model.bodyVisible)
-        XCTAssertEqual(model.compactContent, .reminder(card: ResultCard(["type": "reminder", "title": "Morning brief", "schedule_id": "morning"])!, text: "Your brief is ready."))
-        XCTAssertEqual(model.surfaceSize.height, model.compactPlanHeight)
-        model.acknowledgement.dismiss()
-        model.finishCompactPreviewDismissal()
-        XCTAssertTrue(model.isHeaderOnly)
-        XCTAssertNil(model.compactContent)
-    }
-
-    // decision: APP-622
     func testTypedReminderNoticeKeepsItsCardAndGenericNoticesStayQuiet() {
         let (model, _) = make()
         model.receiveNotices([["id": "quiet", "text": "A background update."]])

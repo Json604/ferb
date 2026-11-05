@@ -3213,3 +3213,12 @@ request = "Record ⌃⌥F. From another app press it (open), again (close); in a
 pass = "⌃⌥F opens and closes FERB everywhere, focused for typing, and the chat stays when the pointer leaves. ⌥F and ⌘Q are refused with a reason; a macOS shortcut that records shows a warning. After Reset no shortcut works but double-tap. With double-tap off it does nothing while hold-to-talk still dictates. FERB names the shortcut as set."
 decisions = ["APP-740", "APP-741"]
 sitting = "after this change is installed"
+
+[LIVE-794]
+title = "The notch has no pin, and nothing pinned is left behind"
+area = "app"
+surface = "FERB.app with this build, Where FERB opens: Notch"
+request = "Open the chat by hover, press and double-tap. Look at the header. Hover away, click another app, switch Spaces, open Settings and Quick Look. Open the profile menu and the file picker, then hover away while each is open."
+pass = "The header has the title and the profile button only. Hover-opened chats fold on hover-out; press- and shortcut-opened ones stay until Escape, a click elsewhere or the shortcut; nothing ever stays as a header-only strip. Menus and the file picker keep the chat open until they close. Space switches leave the chat as it was."
+decisions = ["APP-743", "APP-744"]
+sitting = "after this change is installed"

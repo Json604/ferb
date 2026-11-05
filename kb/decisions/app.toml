@@ -2435,3 +2435,25 @@ why = "Live on the installed build (macOS 27.2) the closed notch and edge row to
 evidence = "scratchpad drag/droprouting.swift: panel at alpha 0.01, level 25: dropped; in an overlay space: operation 0 at alpha 0.01 and 1; left the space mid-drag: dropped; ordered in from the space and then left: on no Space, operation 0, until added to the active one."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift"]
 live = ["LIVE-792"]
+
+[APP-743]
+title = "The notch has no pin"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "yes remove pin"
+words_source = "Owner, 2026-11-05, to \"Did you mean to remove pin? If yes, I'll record that and remove the leftover code … The sticky window (item 8) covers the \"stays open\" need either way.\""
+rule = "Supersedes the pin parts of APP-556 (the header pin's glyph and target) and APP-558 (pin keeps the header attached; pinning tucks the body; Escape, Hide or double-tap clears the pin; Unpin). FERB.app has no pin and no pinned or header-only state; APP-558's other rules stand. Clauses naming the pin apply to no state: APP-552's \"or pinned header\", APP-553's \"only the explicit pin button\", APP-555's \"a pin toggle\", APP-559's \"(pinned chat only)\", APP-571's \"pinned header\", APP-729's \"pinned or not\"."
+why = "The owner's finalized playground UI (ca630ae3) already dropped the pin button; the code behind it had no caller. The sticky window (item 8) covers the need to keep FERB open."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchYieldController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchPresentation.swift", "ui/mac/FERBNotch/Sources/NotchCore/NotchYield.swift"]
+live = ["LIVE-794"]
+
+[APP-744]
+title = "Without the pin, only the tour's line steps behind an app under it"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-743 within APP-559 and APP-642. The yield to an app the owner brings forward or clicks into under FERB's surface applies only while the tour's line shows (NotchYieldReason.activeAppUnderTourLine; NotchYieldController.Layout.tourLine), which is how the tour steps behind System Settings. The open chat never steps behind an app (it still yields to menus, popovers, floating windows and FERB's file picker). NotchPresentation and the drag canvas have no header-only fold: the body always shows with the surface."
+why = "The pinned-chat yield path stayed live only through the tour's line; renaming it says what it does. The header-only presentation was reachable only through the pin."
+evidence = "Before this change NotchModel.beginYield allowed the reason for (isPinned && expanded) || introLine != nil, and isHeaderOnly was set true only by foldPinnedBody, which required isPinned; togglePin had no caller since ca630ae3."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchYieldController.swift", "ui/mac/FERBNotch/Sources/NotchCore/NotchYield.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchPresentation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/LiveDragLayout.swift"]

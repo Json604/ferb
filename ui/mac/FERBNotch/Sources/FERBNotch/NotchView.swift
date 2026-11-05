@@ -116,8 +116,6 @@ struct NotchView: View {
             .animation(presentation.animates ? .easeOut(duration: 0.16) : nil, value: contentID)
             .scaleEffect(reduceMotion ? 1 : 0.975 + 0.025 * presentation.expansion, anchor: .top)
             .blur(radius: reduceMotion ? 0 : 2 * (1 - presentation.expansion))
-            .offset(y: reduceMotion ? 0 : -model.bodyHeight * (1 - presentation.bodyExpansion))
-            .opacity(presentation.bodyExpansion)
             .frame(height: model.bodyHeight, alignment: .top)
             .clipped()
             .allowsHitTesting(model.bodyVisible)

@@ -26,18 +26,19 @@ final class NotchYieldControllerTests: XCTestCase {
     }
 
     /// The same frames PanelCoordinator derives from the model: FERB's drawn surface while expanded (nothing while
-    /// collapsed on a notched display), which is also the pinned chat.
+    /// collapsed on a notched display); while the tour's line shows, that is also the surface an app can be under.
     private func layout() -> NotchYieldController.Layout {
         let surface = model.bodyVisible || model.introLine != nil ? F.openSurface : F.headerSurface
         return .init(occupied: model.expanded || model.introLine != nil ? [surface] : [],
-                     pinnedChat: (model.isPinned && model.expanded) || model.introLine != nil ? surface : nil,
+                     tourLine: model.introLine != nil ? surface : nil,
                      notch: F.notch, menuBar: F.menuBar, display: F.display)
     }
 
-    private func pinOpenChat() {
+    /// The tour's line in the open chat (APP-642): the one surface an app the owner brings forward steps in front of
+    /// (no pinned chat since APP-743).
+    private func showTourLine() {
         model.expand()
-        model.togglePin()
-        model.revealPinnedBody()
+        model.introLine = IntroLine(text: "Turn FERB on in this list.")
     }
 
     private let notchPoint = CGPoint(x: 735, y: 10)
@@ -96,11 +97,11 @@ final class NotchYieldControllerTests: XCTestCase {
     }
 
     // decision: APP-559
-    func testPinnedChatYieldsToAnActivatedAppUnderItAndHoveringTheNotchBringsItBack() {
-        pinOpenChat()
+    func testTheToursLineYieldsToAnActivatedAppUnderItAndHoveringTheNotchBringsItBack() {
+        showTourLine()
         windows = [F.maximizedBrowser]
         controller.appActivated(F.browser)
-        XCTAssertEqual(model.yielding.reasons, [.activeAppUnderPinnedChat])
+        XCTAssertEqual(model.yielding.reasons, [.activeAppUnderTourLine])
         XCTAssertEqual(controller.coveredApp, F.browser)
         // Moving over the stepped-back chat or the browser keeps FERB out of the way.
         XCTAssertEqual(controller.pointerMoved(to: CGPoint(x: 735, y: 200)), .hidden)
@@ -108,14 +109,14 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertEqual(controller.pointerMoved(to: notchPoint), .broughtBack)
         XCTAssertFalse(model.isYielded)
         XCTAssertNil(controller.coveredApp)
-        XCTAssertTrue(model.isPinned)
+        XCTAssertNotNil(model.introLine)
     }
 
     /// The panel steps back just behind the covered app's frontmost window under the chat (owner, 2026-10-24),
     /// so that window is known when the yield applies; a menu over FERB has no window to sit behind.
     // decision: APP-559
     func testTheWindowToStepBehindIsKnownWhenTheYieldApplies() {
-        pinOpenChat()
+        showTourLine()
         let front = F.window(F.browser, layer: 0, 100, 40, 1000, 800, id: 11)
         let back = F.window(F.browser, layer: 0, 0, 33, 1470, 923, id: 12)
         windows = [front, back]
@@ -135,17 +136,17 @@ final class NotchYieldControllerTests: XCTestCase {
     }
 
     /// Owner, 2026-11-05: "IT SHOULD STICK". macOS activates the new Space's front app as the owner switches Spaces;
-    /// that app wasn't brought forward over FERB, so a pinned chat stays in front of its window. The same app brought
-    /// forward afterwards still makes the chat step back (APP-559).
+    /// that app wasn't brought forward over FERB, so the tour's line stays in front of its window. The same app brought
+    /// forward afterwards still makes it step back (APP-559, APP-642).
     // decision: APP-729, APP-732, APP-559
-    func testTheNewSpacesFrontAppDoesNotMakeThePinnedChatStepBack() {
-        pinOpenChat()
+    func testTheNewSpacesFrontAppDoesNotMakeTheToursLineStepBack() {
+        showTourLine()
         windows = [F.maximizedBrowser]
         XCTAssertFalse(controller.appActivated(F.browser, bySpaceChange: true))
         XCTAssertFalse(model.isYielded)
         XCTAssertNil(controller.coveredApp)
         controller.appActivated(F.browser)
-        XCTAssertEqual(model.yielding.reasons, [.activeAppUnderPinnedChat])
+        XCTAssertEqual(model.yielding.reasons, [.activeAppUnderTourLine])
     }
 
     /// After a Space change the floating windows already over FERB on the new Space don't make it step aside (as when
@@ -200,22 +201,12 @@ final class NotchYieldControllerTests: XCTestCase {
     }
 
     // decision: APP-559
-    func testTheFoldedPinnedHeaderSitsInTheMenuBarAndDoesNotYield() {
-        model.expand()
-        model.togglePin()
-        XCTAssertFalse(model.bodyVisible)
-        windows = [F.maximizedBrowser]
-        controller.appActivated(F.browser)
-        XCTAssertFalse(model.isYielded)
-    }
-
-    // decision: APP-559
-    func testAnAppWithNothingUnderTheChatOrAnUnpinnedChatDoesNotYield() {
-        pinOpenChat()
+    func testAnAppWithNothingUnderTheLineOrAChatWithoutTheLineDoesNotYield() {
+        showTourLine()
         windows = [F.window(F.finder, layer: 0, 0, 500, 400, 300)]
         controller.appActivated(F.finder)
         XCTAssertFalse(model.isYielded)
-        model.togglePin()
+        model.introLine = nil
         windows = [F.maximizedBrowser]
         controller.appActivated(F.browser)
         XCTAssertFalse(model.isYielded)
@@ -223,7 +214,7 @@ final class NotchYieldControllerTests: XCTestCase {
 
     // decision: APP-559
     func testFERBComesBackWhenTheAppsWindowsUnderTheChatGoAway() {
-        pinOpenChat()
+        showTourLine()
         windows = [F.maximizedBrowser]
         controller.appActivated(F.browser)
         XCTAssertFalse(controller.evaluate())
@@ -235,7 +226,7 @@ final class NotchYieldControllerTests: XCTestCase {
 
     // decision: APP-559
     func testFERBComingForwardItsShortcutOrAnotherAppNotUnderTheChatBringsItBack() {
-        pinOpenChat()
+        showTourLine()
         windows = [F.maximizedBrowser, F.window(F.finder, layer: 0, 0, 500, 400, 300)]
         controller.appActivated(F.browser)
         XCTAssertTrue(controller.appActivated(F.ferb))
@@ -248,8 +239,8 @@ final class NotchYieldControllerTests: XCTestCase {
 
     // decision: APP-559
     func testAClickIntoTheFrontmostAppUnderTheChatYieldsAndAClickOnTheNotchBringsFERBBack() {
-        // An answer opened the pinned chat over the browser the owner is using: no app activation happens.
-        pinOpenChat()
+        // The tour's line shows over the browser the owner is using: no app activation happens.
+        showTourLine()
         windows = [F.maximizedBrowser]
         XCTAssertFalse(controller.ownerClicked(at: browserPoint))
         XCTAssertTrue(model.isYielded)
@@ -261,7 +252,7 @@ final class NotchYieldControllerTests: XCTestCase {
 
     // decision: APP-559
     func testAClickOnAWindowThatIsNotUnderTheChatDoesNotYield() {
-        pinOpenChat()
+        showTourLine()
         let finderWindow = F.window(F.finder, layer: 0, 0, 500, 400, 300)
         windows = [finderWindow, F.maximizedBrowser]
         controller.ownerClicked(at: browserPoint)
@@ -332,29 +323,16 @@ final class NotchYieldControllerTests: XCTestCase {
     }
 
     // decision: APP-559
-    func testRevealingThePinnedChatOverAWindowKeepsItShown() {
-        model.expand()
-        model.togglePin()
-        windows = [F.shareBar]
-        controller.evaluate()
-        XCTAssertFalse(model.isYielded)
-        // Hovering the folded header reveals the body over the bar.
-        controller.ownerOpened()
-        model.revealPinnedBody()
-        XCTAssertFalse(controller.evaluate())
-        XCTAssertFalse(model.isYielded)
-    }
-
-    // decision: APP-559
     func testAnOverrideLastsWhileTheWindowIsOnScreenEvenWhenItNoLongerOverlapsFERB() {
-        pinOpenChat()
+        showTourLine()
         windows = [F.maximizedBrowser, F.shareBar]
         controller.evaluate()
         XCTAssertTrue(model.isYielded)
         _ = controller.pointerMoved(to: notchPoint)
         XCTAssertFalse(model.isYielded)
-        // The body folds away from the bar, then comes back over it (an arriving question, not a reach).
-        model.foldPinnedBody()
+        // The chat closes away from the bar, then comes back over it (an arriving question, not a reach).
+        model.introLine = nil
+        model.collapse()
         controller.evaluate()
         model.announceAttention("test:override-survives-fold")
         controller.evaluate()
@@ -454,7 +432,7 @@ final class NotchYieldControllerTests: XCTestCase {
     }
 
     // decision: APP-559
-    func testANormalWindowUnderTheUnpinnedChatNeverYields() {
+    func testANormalWindowUnderTheOpenChatNeverYields() {
         model.expand()
         windows = [F.maximizedBrowser]
         controller.evaluate()
@@ -485,7 +463,7 @@ final class NotchYieldControllerTests: XCTestCase {
 
     // decision: APP-559
     func testAWindowThatAppearsJustAfterActivationStillYields() async throws {
-        pinOpenChat()
+        showTourLine()
         controller.activationRecheckDelay = .milliseconds(10)
         controller.appActivated(F.browser)
         XCTAssertFalse(model.isYielded)

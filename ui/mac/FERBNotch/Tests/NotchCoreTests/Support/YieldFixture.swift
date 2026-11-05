@@ -8,10 +8,10 @@ enum YieldFixture {
     static let menuBar = CGRect(x: 0, y: 0, width: 1470, height: 33)
     /// The camera cutout up to (and past) the physical top edge, not the band below it where menus begin.
     static let notch = CGRect(x: 646, y: -2, width: 179, height: 34)
-    /// The panel window (surface plus its transparent margin) for a folded pinned header and for the open chat.
+    /// The panel window (surface plus its transparent margin) for a header-high surface and for the open chat.
     static let headerPanel = CGRect(x: 547, y: 0, width: 376, height: 44)
     static let openPanel = CGRect(x: 547, y: 0, width: 376, height: 432)
-    /// The drawn surfaces: the folded header stays inside the menu bar; the open chat reaches down over windows.
+    /// The drawn surfaces: a header-high one stays inside the menu bar; the open chat reaches down over windows.
     static let headerSurface = CGRect(x: 555, y: 0, width: 360, height: 32)
     static let openSurface = CGRect(x: 555, y: 0, width: 360, height: 420)
     static let ferb: Int32 = 76216

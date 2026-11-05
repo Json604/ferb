@@ -3,7 +3,7 @@ import AppKit
 /// What yielding may do to a notch window: order it out, in and relative to another window, set its level, and
 /// give it keyboard focus. Deliberately nothing about mouse events. Once `ignoresMouseEvents` has been set on a
 /// window, even back to false, AppKit stops letting clicks through its transparent areas, so the panel's
-/// transparent margins (the strip under the folded pinned header, the side and bottom margins) would start
+/// transparent margins (the side and bottom margins around the drawn surface) would start
 /// swallowing clicks meant for apps underneath.
 @MainActor
 protocol NotchYieldWindow: AnyObject {
@@ -47,7 +47,7 @@ final class NotchWindowYield {
         self.leaveOverlay = leaveOverlay
     }
 
-    /// Steps the panel one layer back, just behind window `behind` (another app's window under the pinned chat), or
+    /// Steps the panel one layer back, just behind window `behind` (another app's window under the tour's line), or
     /// in front of ordinary windows when nil (a menu, popover or floating window over FERB, or FERB's file picker).
     /// A panel that is out (FERB closed, nothing of its surface showing) stays out: it is only marked as yielding,
     /// so it can't appear as an empty black window (APP-729).

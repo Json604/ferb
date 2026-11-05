@@ -57,7 +57,7 @@ extension NotchModel {
 
     func introLineChanged(from old: IntroLine?) {
         guard introLine != old else { return }
-        if introLine == nil { endYield(.introCompanion); endYield(.activeAppUnderPinnedChat) }
+        if introLine == nil { endYield(.introCompanion); endYield(.activeAppUnderTourLine) }
         if let introLine { introDisplayLine = introLine }
         // In the open chat the line is a strip above the composer: the body's height follows it.
         if expanded { onBackgroundChange?(true); return }

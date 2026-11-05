@@ -13,8 +13,8 @@ public enum NotchYieldReason: Hashable, Sendable, CaseIterable {
     case introCompanion
     /// Another process's menu, popover or floating window overlaps where FERB is drawn.
     case foreignOverlay
-    /// The owner is working in another app and one of its windows lies under the pinned chat.
-    case activeAppUnderPinnedChat
+    /// The owner is working in another app and one of its windows lies under the tour's line (APP-642).
+    case activeAppUnderTourLine
 }
 
 /// The set of reasons FERB is currently yielding. Visibility changes only when the set goes from empty to
@@ -50,7 +50,7 @@ public struct NotchYield: Equatable, Sendable {
         let wasActive = isActive
         reasons.remove(.introCompanion)
         reasons.remove(.foreignOverlay)
-        reasons.remove(.activeAppUnderPinnedChat)
+        reasons.remove(.activeAppUnderTourLine)
         return wasActive != isActive
     }
 }
@@ -145,7 +145,7 @@ public enum NotchOverlap {
         !foreignOverlays(in: windows, ferbFrames: ferbFrames, ownPIDs: ownPIDs, menuBar: menuBar, display: display).isEmpty
     }
 
-    /// Whether the app has a visible window on the normal layer under the pinned chat's visible surface.
+    /// Whether the app has a visible window on the normal layer under FERB's visible surface (the tour's line).
     public static func appWindowUnderChat(in windows: [ScreenWindow], appPID: Int32, chat: CGRect) -> Bool {
         frontWindowUnderChat(in: windows, appPID: appPID, chat: chat) != nil
     }

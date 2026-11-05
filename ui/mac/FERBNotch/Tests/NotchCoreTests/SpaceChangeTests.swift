@@ -84,12 +84,12 @@ final class SpaceChangeTests: XCTestCase {
     }
 
     private struct Snapshot: Equatable {
-        let expanded: Bool, body: Bool, pinned: Bool, byPress: Bool, yielded: Bool, frame: CGRect, visible: Bool
+        let expanded: Bool, body: Bool, byPress: Bool, yielded: Bool, frame: CGRect, visible: Bool
         let key: Bool, presents: Int, hoverTask: Task<Void, Never>?, plan: String?, scroll: Int?
     }
 
     private func snapshot(_ h: Harness) -> Snapshot {
-        Snapshot(expanded: h.model.expanded, body: h.model.bodyVisible, pinned: h.model.isPinned,
+        Snapshot(expanded: h.model.expanded, body: h.model.bodyVisible,
                  byPress: h.model.staysOpenOnHoverOut, yielded: h.model.isYielded, frame: h.panel.frame,
                  visible: h.panel.isVisible, key: h.panel.isKeyWindow, presents: h.coordinator.presentCount,
                  hoverTask: h.coordinator.hoverTask, plan: h.model.acknowledgement.text,
@@ -99,9 +99,9 @@ final class SpaceChangeTests: XCTestCase {
     /// An open chat, however it was opened, stays exactly as it is through repeated Space switches: open, in place,
     /// no new presentation, the same key state, no yield and the same pending hover; its windows stay on no ordinary
     /// Space, so they never ride the swipe.
-    // decision: APP-729, APP-731, APP-733, APP-562, APP-558
+    // decision: APP-729, APP-731, APP-733, APP-562
     func testAnOpenChatStaysExactlyAsItIsThroughSpaceSwitches() async throws {
-        for opening in ["hover", "press", "double-tap", "pinned"] {
+        for opening in ["hover", "press", "double-tap", "arrival"] {
             for overlay in [true, false] {
                 let h = try harness(hover: opening == "hover", overlay: overlay)
                 defer { h.coordinator.tearDown() }
@@ -109,10 +109,8 @@ final class SpaceChangeTests: XCTestCase {
                 case "hover": await move(h, to: h.housing)
                 case "press": try press(h)
                 case "double-tap": h.coordinator.modifierDoubleTapped()
-                default:
-                    h.model.expand(focus: false)
-                    h.model.togglePin()
-                    h.model.revealPinnedBody()
+                default:                                        // an answer or question opened it
+                    h.model.presentTerminalAnswer()
                 }
                 XCTAssertTrue(h.model.expanded, "\(opening): didn't open")
                 h.model.requestScroll("turn", .answer)

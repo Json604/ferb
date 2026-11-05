@@ -149,7 +149,7 @@ final class NotchYieldTests: XCTestCase {
     func testOtherAppsWindowsNeverHideFERBDuringDictation() {
         var yield = NotchYield()
         XCTAssertFalse(yield.begin(.foreignOverlay, listening: true))
-        XCTAssertFalse(yield.begin(.activeAppUnderPinnedChat, listening: true))
+        XCTAssertFalse(yield.begin(.activeAppUnderTourLine, listening: true))
         XCTAssertFalse(yield.isActive)
         XCTAssertTrue(yield.begin(.filePicker, listening: true))
     }
@@ -158,7 +158,7 @@ final class NotchYieldTests: XCTestCase {
     func testStartingDictationDropsOnlyTheWindowReasons() {
         var yield = NotchYield()
         yield.begin(.foreignOverlay)
-        yield.begin(.activeAppUnderPinnedChat)
+        yield.begin(.activeAppUnderTourLine)
         XCTAssertTrue(yield.endWindowReasons())
         XCTAssertFalse(yield.isActive)
         yield.begin(.filePicker)

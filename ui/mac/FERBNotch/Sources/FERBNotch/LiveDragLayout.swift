@@ -62,10 +62,10 @@ enum LiveDragLayout {
 @MainActor
 enum DragSurfaceCanvas {
     static func place(window: NSWindow, presentation: NotchPresentation, control: NSView,
-                      pill: CGRect, card: CGRect, canvas: CGRect, bodyVisible: Bool) {
+                      pill: CGRect, card: CGRect, canvas: CGRect) {
         if window.frame != canvas { window.setFrame(canvas, display: true) }
         presentation.placeDuringDrag(size: card.size,
-            origin: CGPoint(x: card.minX-canvas.minX, y: canvas.maxY-card.maxY), bodyVisible: bodyVisible)
+            origin: CGPoint(x: card.minX-canvas.minX, y: canvas.maxY-card.maxY))
         control.frame = CGRect(x: pill.minX-canvas.minX, y: canvas.maxY-pill.maxY,
                                width: pill.width, height: pill.height)
     }

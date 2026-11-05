@@ -22,8 +22,8 @@ final class NotchYieldController {
         /// The frames another app's menu could sit on: the panel while expanded, the tab on a display without a
         /// camera housing, and the camera-edge light while it glows. Empty when nothing of FERB is visible.
         var occupied: [CGRect]
-        /// The pinned chat's drawn surface (header, plus the body when shown); nil unless the chat is pinned.
-        var pinnedChat: CGRect?
+        /// The tour line's drawn surface (APP-642: the notch steps behind System Settings under it); nil without one.
+        var tourLine: CGRect?
         /// The camera cutout, up to the physical top edge but not the band below it where menus begin. Entering or
         /// clicking it brings FERB back.
         var notch: CGRect
@@ -55,7 +55,7 @@ final class NotchYieldController {
         guard !spaces.isEmpty, let active = WindowServerSpaces.activeSpace() else { return false }
         return !spaces.contains(active)
     }
-    /// The app FERB is yielding to because one of its windows lies under the pinned chat.
+    /// The app FERB is yielding to because one of its windows lies under the tour's line.
     private(set) var coveredApp: Int32?
     private var companionWindow: Int?
     /// Other apps' windows the owner chose to show FERB above: those over it when they opened or revealed FERB
@@ -85,7 +85,7 @@ final class NotchYieldController {
         self.layout = layout
     }
 
-    private var yieldsToCoveredApp: Bool { model.yielding.reasons.contains(.activeAppUnderPinnedChat) }
+    private var yieldsToCoveredApp: Bool { model.yielding.reasons.contains(.activeAppUnderTourLine) }
     /// Yielding to another app (not to FERB's own file picker), which the owner can override.
     private var yieldsToAnotherApp: Bool { model.yielding.reasons.contains { $0 != .filePicker } }
 
@@ -102,7 +102,7 @@ final class NotchYieldController {
     }
 
     /// One poll while FERB is on screen: yield while another process's menu, popover or floating window the owner
-    /// hasn't overridden is over FERB; come back from the app under the pinned chat once none of its windows is
+    /// hasn't overridden is over FERB; come back from the app under the tour's line once none of its windows is
     /// there. Returns whether FERB just came back.
     @discardableResult
     func evaluate() -> Bool {
@@ -140,14 +140,14 @@ final class NotchYieldController {
         }
         if yieldsToCoveredApp {
             let stillCovered = coveredApp.flatMap { app in
-                layout.pinnedChat.map { NotchOverlap.appWindowUnderChat(in: rows, appPID: app, chat: $0) }
+                layout.tourLine.map { NotchOverlap.appWindowUnderChat(in: rows, appPID: app, chat: $0) }
             } ?? false
             if !stillCovered { endCoveredApp() }
         }
         return wasYielded && !model.isYielded
     }
 
-    /// An app came forward. Yield when one of its windows lies under the pinned chat. FERB itself coming forward,
+    /// An app came forward. Yield when one of its windows lies under the tour's line. FERB itself coming forward,
     /// or an app with nothing under the chat, brings FERB back. An app that became active because the owner switched
     /// Spaces (the new Space's own front app) wasn't brought forward over FERB: nothing changes (APP-729, refining
     /// APP-559). Returns whether FERB just came back.
@@ -173,14 +173,14 @@ final class NotchYieldController {
     }
 
     /// The owner clicked in another app. A click on the notch (not on another app's menu reaching under it) brings
-    /// FERB back. A click into an app whose window lies under the pinned chat yields to it even when that app was
+    /// FERB back. A click into an app whose window lies under the tour's line yields to it even when that app was
     /// already frontmost: a question that opens the chat over the app the owner is using causes no activation.
     /// Returns whether FERB just came back.
     @discardableResult
     func ownerClicked(at point: CGPoint) -> Bool {
         guard let layout = layout() else { return false }
         if yieldsToAnotherApp, isOnNotch(point, layout) { return summon() }
-        guard !yieldsToCoveredApp, layout.pinnedChat != nil else { return false }
+        guard !yieldsToCoveredApp, layout.tourLine != nil else { return false }
         let rows = windows()
         // A click into System Settings' pane lands on its extension's window: it counts for Settings (APP-690).
         if let app = NotchOverlap.clickedApp(at: point, in: rows, ownPIDs: ownPIDs, canBeActive: canBeActive,
@@ -202,7 +202,7 @@ final class NotchYieldController {
     }
 
     /// The owner opened or revealed FERB (a presentation that opens the body and asks for focus: shortcut, menu,
-    /// click, hover-open, pinned reveal). FERB stays over the windows found over it at the next check; the pointer
+    /// click, hover-open). FERB stays over the windows found over it at the next check; the pointer
     /// that opened it counts as entering the notch.
     func ownerOpened() {
         overrideAtNextCheck = true
@@ -216,7 +216,7 @@ final class NotchYieldController {
     }
 
     /// The owner reached for FERB (the notch, its shortcut, menu or a control, or FERB coming forward): stop
-    /// yielding to the app under the pinned chat, and show FERB over the windows now over it until a new one
+    /// yielding to the app under the tour's line, and show FERB over the windows now over it until a new one
     /// appears. Returns whether FERB just came back.
     @discardableResult
     func summon() -> Bool {
@@ -254,17 +254,17 @@ final class NotchYieldController {
 
     private func endCoveredApp() {
         coveredApp = nil
-        model.endYield(.activeAppUnderPinnedChat)
+        model.endYield(.activeAppUnderTourLine)
     }
 
     @discardableResult
     private func yieldIfUnderChat(_ pid: Int32, rows: [ScreenWindow]? = nil) -> Bool {
-        guard !ownPIDs.contains(pid), let chat = layout()?.pinnedChat,
+        guard !ownPIDs.contains(pid), let chat = layout()?.tourLine,
               NotchOverlap.appWindowUnderChat(in: rows ?? windows(), appPID: pid, chat: chat) else { return false }
         // Known before the yield applies, so the panel steps back just behind this app's window.
         let previous = coveredApp
         coveredApp = pid
-        model.beginYield(.activeAppUnderPinnedChat)
+        model.beginYield(.activeAppUnderTourLine)
         guard yieldsToCoveredApp else {
             coveredApp = previous
             return false
@@ -272,12 +272,12 @@ final class NotchYieldController {
         return true
     }
 
-    /// The window FERB's panel sits just behind while it yields: the covered app's frontmost window under the pinned
-    /// chat. Nil while FERB yields only to menus, popovers, floating windows or its file picker (all of which are
+    /// The window FERB's panel sits just behind while it yields: the covered app's frontmost window under the tour's
+    /// line. Nil while FERB yields only to menus, popovers, floating windows or its file picker (all of which are
     /// above ordinary windows), or doesn't yield.
     func coveringWindow() -> Int? {
         if model.yielding.reasons.contains(.introCompanion) { return companionWindow }
-        guard yieldsToCoveredApp, let app = coveredApp, let chat = layout()?.pinnedChat else { return nil }
+        guard yieldsToCoveredApp, let app = coveredApp, let chat = layout()?.tourLine else { return nil }
         return NotchOverlap.frontWindowUnderChat(in: windows(), appPID: app, chat: chat).map { Int($0.windowID) }
     }
 }

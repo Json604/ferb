@@ -103,8 +103,6 @@ final class NotchModel: ObservableObject {
     @Published var acknowledgedIndicatorSignal: String?
     var taskStateRevision = 0
     var reconciledMissingTasks = Set<String>()
-    @Published private(set) var isPinned = false
-    @Published private(set) var isHeaderOnly = false
     /// The owner opened this chat with a press on the closed notch or pill (APP-705). Kept until the chat closes.
     private(set) var openedByPress = false
     /// A chat the owner opened with a press stays open when the pointer leaves it, whatever the hover setting, until
@@ -310,21 +308,19 @@ final class NotchModel: ObservableObject {
     var onStatusChange: (() -> Void)?
     var onInteractionEnded: (() -> Void)?
     var onInteraction: (() -> Void)?
-    var onPinChange: ((Bool) -> Void)?
     var onDetachTaskActivity: ((String) -> Void)?
     private var completionTask: Task<Void, Never>?
     private var attentionTask: Task<Void, Never>?
-    private var pendingPinnedFold = false
     private var profileMenuOpen = false
     private(set) var filePickerOpen = false
     /// Why FERB's windows are currently stepping aside for another surface (its own file picker, another app's
-    /// menu over the notch, an app the owner is working in under the pinned chat). They live in an overlay space
+    /// menu over the notch, an app the owner works in under the tour's line). They live in an overlay space
     /// above every ordinary window, so nothing can be raised over them by window level.
     private(set) var yielding = NotchYield()
     /// Called when FERB starts (true) or stops (false) yielding; the coordinator makes its windows invisible and
-    /// click-through for that duration. Draft, attachments, pin and conversation are untouched.
+    /// click-through for that duration. Draft, attachments and conversation are untouched.
     var onYieldChange: ((Bool) -> Void)?
-    private var heldVoiceSnapshot: (session: NotchSession, sources: Bool, history: Bool, activity: Bool, headerOnly: Bool)?
+    private var heldVoiceSnapshot: (session: NotchSession, sources: Bool, history: Bool, activity: Bool)?
 
     @Published private(set) var compactPlanText: String?
     /// Retain the compact content while the same native surface closes; never expose transcript mid-collapse.
@@ -393,7 +389,7 @@ final class NotchModel: ObservableObject {
         return min(availableSurfaceSize.height, ceil(text.height) + 34 + cameraSpace)
     }
     var expanded: Bool { session.isExpanded }
-    var bodyVisible: Bool { expanded && !isHeaderOnly }
+    var bodyVisible: Bool { expanded }
     var isYielded: Bool { self.yielding.isActive }
     @Published var availableSurfaceSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
     var bodyWidth: CGFloat { min(availableSurfaceSize.width, max(360, preferredPanelWidth)) }
@@ -509,8 +505,6 @@ final class NotchModel: ObservableObject {
     /// (rule 10); the panel becomes key only on the owner's click or shortcut.
     func expand(keyboard: Bool = false, focus: Bool = true) {
         if !expanded { openedByPress = false }
-        cancelPinnedFold()
-        isHeaderOnly = false
         session.expand()
         acknowledgement.dismiss()
         if focus { onPresentationChange?(!keyboard) } else { onBackgroundChange?(true) }
@@ -519,9 +513,6 @@ final class NotchModel: ObservableObject {
     func collapse(keyboard: Bool = false) {
         acknowledgement.dismiss()
         dismissPreviewPopovers()
-        cancelPinnedFold()
-        isPinned = false
-        isHeaderOnly = false
         openedByPress = false
         heldVoiceSnapshot = nil
         drops.reset()
@@ -538,7 +529,7 @@ final class NotchModel: ObservableObject {
         showingActivity = false
         showingTasks = false
         onPresentationChange?(!keyboard)
-        endYield(.activeAppUnderPinnedChat)
+        endYield(.activeAppUnderTourLine)
     }
 
     var onPreviewWindowChange: ((UUID, NSWindow, Bool) -> Void)?
@@ -554,9 +545,9 @@ final class NotchModel: ObservableObject {
     func dismissPreviewPopovers() { previewDismissalRevision &+= 1 }
 
     // A preview is a hover surface, not a modal interaction. The coordinator checks
-    // its actual window bounds; merely being presented must never pin chat open.
+    // its actual window bounds; merely being presented must never hold the chat open.
     var blocksAutomaticDismissal: Bool {
-        isPinned || profileMenuOpen || filePickerOpen || session.phase == .listening || introLine != nil
+        profileMenuOpen || filePickerOpen || session.phase == .listening || introLine != nil
     }
 
     func dismissAutomatically() {
@@ -564,18 +555,10 @@ final class NotchModel: ObservableObject {
         collapse()
     }
 
-    func togglePin() {
-        isPinned.toggle()
-        if isPinned { foldPinnedBody() }
-        else { revealPinnedBody() }
-        onPinChange?(isPinned)
-        if !isPinned { endYield(.activeAppUnderPinnedChat) }
-    }
-
-    /// Starts yielding for a reason. Yielding to an app under the chat applies only to a pinned chat, and
-    /// another app's windows never hide FERB while the owner is dictating.
+    /// Starts yielding for a reason. Yielding to an app under FERB's surface applies only while the tour's line shows
+    /// (APP-642), and another app's windows never hide FERB while the owner is dictating.
     func beginYield(_ reason: NotchYieldReason) {
-        if reason == .activeAppUnderPinnedChat && !(isPinned && expanded) && introLine == nil { return }
+        if reason == .activeAppUnderTourLine && introLine == nil { return }
         if yielding.begin(reason, listening: session.phase == .listening) { onYieldChange?(true) }
     }
 
@@ -583,37 +566,10 @@ final class NotchModel: ObservableObject {
         if yielding.end(reason) { onYieldChange?(false) }
     }
 
-    func cancelPinnedFold() {
-        pendingPinnedFold = false
-    }
-
-    func foldPinnedBody() {
-        guard isPinned, bodyVisible else { return }
-        // Start immediately unless an active interaction needs the body. Hover
-        // can cancel this request before the menu, picker or voice mode finishes.
-        pendingPinnedFold = true
-        guard !profileMenuOpen, !filePickerOpen, session.phase != .listening else { return }
-        cancelPinnedFold()
-        isHeaderOnly = true
-        onPresentationChange?(true)
-    }
-
-    private func resumePendingPinnedFold() {
-        if pendingPinnedFold { foldPinnedBody() }
-    }
-
-    func revealPinnedBody() {
-        cancelPinnedFold()
-        guard isHeaderOnly else { return }
-        isHeaderOnly = false
-        acknowledgement.dismiss()
-        onPresentationChange?(true)
-    }
-
     func setProfileMenuOpen(_ open: Bool) {
         profileMenuOpen = open
         if open { onInteraction?() }
-        else { resumePendingPinnedFold(); onInteractionEnded?() }
+        else { onInteractionEnded?() }
     }
 
     /// `byPress`: the owner pressed the closed notch or pill (APP-705) or double-tapped right Option (APP-709); the chat it
@@ -633,7 +589,6 @@ final class NotchModel: ObservableObject {
         voiceIsHeld = false
         heldVoiceSnapshot = nil
         session.edit()
-        isHeaderOnly = false
         showingSources = false
         showingHistory = false
         showingActivity = false
@@ -646,7 +601,7 @@ final class NotchModel: ObservableObject {
 
     func beginHeldVoice() {
         guard canCompose else { return }
-        heldVoiceSnapshot = (session, showingSources, showingHistory, showingActivity, isHeaderOnly)
+        heldVoiceSnapshot = (session, showingSources, showingHistory, showingActivity)
         beginVoice(held: true)
     }
 
@@ -664,15 +619,11 @@ final class NotchModel: ObservableObject {
         showingSources = snapshot.sources
         showingHistory = snapshot.history
         showingActivity = snapshot.activity
-        isHeaderOnly = snapshot.headerOnly
         onPresentationChange?(false)
-        resumePendingPinnedFold()
     }
 
     private func beginVoice(held: Bool) {
         guard canCompose else { expand(keyboard: held); return }
-        cancelPinnedFold()
-        isHeaderOnly = false
         showingSources = false
         showingHistory = false
         showingActivity = false
@@ -717,7 +668,6 @@ final class NotchModel: ObservableObject {
             }
             self.onPresentationChange?(true)
             self.focusRequest = UUID()
-            self.resumePendingPinnedFold()
             if send { self.startWork() }
         })
     }
@@ -871,7 +821,6 @@ final class NotchModel: ObservableObject {
         guard canCompose else { return }
         session.attach(urls)
         session.edit()
-        isHeaderOnly = false
         showingSources = false
         showingHistory = false
         showingActivity = false
@@ -888,7 +837,6 @@ final class NotchModel: ObservableObject {
     func chooseFiles() {
         guard !filePickerOpen else { return }        // the panel stays clickable behind its picker: one picker
         setFilePickerOpen(true)
-        cancelPinnedFold()
         let picker = NSOpenPanel()
         picker.allowsMultipleSelection = true
         picker.canChooseDirectories = true
@@ -900,7 +848,6 @@ final class NotchModel: ObservableObject {
                 guard let self else { return }
                 self.setFilePickerOpen(false)
                 if response == .OK { self.attach(picker.urls) }
-                self.resumePendingPinnedFold()
                 self.onInteractionEnded?()
             }
         }
@@ -925,7 +872,6 @@ final class NotchModel: ObservableObject {
         let files = urls.filter(\.isFileURL)
         guard acceptsDroppedFiles, !files.isEmpty else { return false }
         onInteraction?()                  // the press path: stops a yield, un-rests the pill, makes the open panel key
-        cancelPinnedFold()
         acknowledgement.dismiss()
         if !viewingToday {                // the composer is today's
             followsToday = true
@@ -934,7 +880,6 @@ final class NotchModel: ObservableObject {
         session.attach(files)
         session.edit()
         session.expand()
-        isHeaderOnly = false
         showingSources = false
         showingHistory = false
         showingActivity = false
@@ -952,7 +897,6 @@ final class NotchModel: ObservableObject {
     }
 
     func history() {
-        isHeaderOnly = false
         showingActivity = false
         showingHistory = true
         showingSources = false
@@ -970,7 +914,6 @@ final class NotchModel: ObservableObject {
     }
 
     func recall(_ receipt: WorkReceipt) {
-        isHeaderOnly = false
         session.recall(receipt)
         showingHistory = false
         showingActivity = false
@@ -1078,8 +1021,6 @@ final class NotchModel: ObservableObject {
     func announceAttention(_ identity: String, item: String? = nil) {
         guard announcedAttentionIDs.insert(identity).inserted else { return }
         preferences.set(Array(announcedAttentionIDs), forKey: "FERBAnnouncedAttentionIDs")
-        cancelPinnedFold()
-        isHeaderOnly = false
         showingTasks = false
         showingSources = false
         showingHistory = false
@@ -1129,8 +1070,6 @@ final class NotchModel: ObservableObject {
 
     /// Fresh terminal results reveal the chat independently of the temporary glow, without taking focus.
     func presentTerminalAnswer() {
-        cancelPinnedFold()
-        isHeaderOnly = false
         showingTasks = false
         showingSources = false
         showingHistory = false
@@ -1147,8 +1086,6 @@ final class NotchModel: ObservableObject {
 
     /// The first streamed answer chunk is visible attention, but keeps the owner's active app and keyboard focus.
     func presentIncomingAnswer() {
-        cancelPinnedFold()
-        isHeaderOnly = false
         showingTasks = false
         showingSources = false
         showingHistory = false
