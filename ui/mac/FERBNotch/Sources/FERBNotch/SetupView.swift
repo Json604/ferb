@@ -220,14 +220,15 @@ struct BrowsersStepView: View {
                 if model.pairing, let progress = model.pairProgress, progress.tried > 0 {
                     // HAND-412: each profile's pairing as it lands
                     Text("Pairing: \(progress.landed) of \(progress.tried) done"
-                         + (progress.pairing.isEmpty ? "" : " · " + progress.pairing.map(\.title).joined(separator: ", ")))
+                         + (progress.pairing.isEmpty ? "" : " — " + progress.pairing.map(\.text).joined(separator: ", ")))
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 if let waiting = model.addWait {
                     // HAND-413: after Add to, until FERB is on there
                     HStack {
                         ProgressView().controlSize(.small)
-                        Text("Waiting for FERB to be added in “\(waiting.name)”…").font(.callout)
+                        Text("Waiting for FERB to be added in \(ProfileName(name: waiting.name, email: waiting.email).quoted)…")
+                            .font(.callout)
                         Button("Stop waiting") { model.stopWatchingForExtension() }
                     }
                 }
@@ -237,7 +238,8 @@ struct BrowsersStepView: View {
                             Text(browser.label).bold()
                             ForEach(browser.profiles) { profile in
                                 HStack {
-                                    Text(profile.name + (profile.ferbIdentity ? " (FERB's own)" : ""))
+                                    ProfileNameText(name: profile.name + (profile.ferbIdentity ? " (FERB's own)" : ""),
+                                                    email: profile.email)
                                     Spacer()
                                     Text(profile.state.text).foregroundStyle(.secondary)
                                     if profile.state.canAdd {
@@ -279,7 +281,8 @@ struct IdentityStepView: View {
             }
             if let state = model.identity, state.isSetUp {
                 LabeledContent("FERB's account", value: state.address)
-                LabeledContent("Its profile", value: "\(state.browser) / \(state.profile)" + (state.paired ? " · paired" : " · not paired"))
+                LabeledContent("Its profile", value: "\(state.browser) / \(state.profileShown.quoted)"
+                               + (state.paired ? " — paired" : " — not paired"))
                 HStack {
                     if !state.paired { Button("Pair it") { Task { await model.pairIdentity() } } }
                     Button("Stop using it") { Task { await model.removeIdentity() } }
@@ -291,7 +294,7 @@ struct IdentityStepView: View {
                 }
                 ForEach(model.identity?.candidates ?? []) { candidate in
                     HStack {
-                        Text("\(candidate.browserName): \(candidate.name)")
+                        ProfileNameText(name: "\(candidate.browserName): \(candidate.name)", email: candidate.email)
                         Spacer()
                         if candidate.only {
                             Button("Use this profile") { Task { await model.useIdentity(candidate) } }.disabled(model.identityBusy)
@@ -311,6 +314,22 @@ struct IdentityStepView: View {
     }
 }
 
+/// A browser profile's name and the account it is signed in to (HAND-424) as two texts: only the account shortens, in
+/// the middle so its domain stays, and shows whole on hover. No account: the name alone.
+struct ProfileNameText: View {
+    let name: String
+    let email: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(name).lineLimit(1).layoutPriority(1)
+            if !email.isEmpty {
+                Text(email).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(email)
+            }
+        }
+    }
+}
+
 /// Without an account of its own, FERB browses as the owner in the paired profile they pick here.
 struct OwnerProfilePicker: View {
     @ObservedObject var model: SetupModel
@@ -324,7 +343,9 @@ struct OwnerProfilePicker: View {
             Picker("Profile", selection: Binding(get: { model.identity?.ownerProfile ?? "" },
                                                  set: { value in Task { await model.browseAsOwner(in: value) } })) {
                 Text("A profile I name in each request").tag("")
-                ForEach(paired, id: \.1.id) { label, profile in Text("\(label): \(profile.name)").tag(profile.id) }
+                ForEach(paired, id: \.1.id) { label, profile in
+                    Text(ProfileName.join("\(label): \(profile.name)", profile.email)).tag(profile.id)
+                }
             }
             .labelsHidden()
         }

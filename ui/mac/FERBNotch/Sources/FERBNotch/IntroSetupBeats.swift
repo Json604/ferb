@@ -139,8 +139,8 @@ extension IntroController {
     /// (the owner adds it there), the notch shows the wait live until the extension is there and on, then offers to
     /// pair it; pairing happens only on the owner's Pair (rule 5). Stop waiting or Not now goes back to the result.
     private func addAndPair(_ row: PairProgress.Row, into progress: inout PairProgress) async {
-        let profile = BrowserProfileRow(browser: row.browser, folder: row.folder, name: row.name, state: .notInstalled,
-                                        ferbIdentity: false, connected: false)
+        let profile = BrowserProfileRow(browser: row.browser, folder: row.folder, name: row.name, email: row.email,
+                                        state: .notInstalled, ferbIdentity: false, connected: false)
         let opened = await working(IntroCopy.openingStore(row)) { await setup.addExtension(profile, watch: false) }
         guard live, opened else { return }
         let since = Date()
@@ -162,8 +162,8 @@ extension IntroController {
             progress.set(row.id, state: .skipped, why: "FERB is on there: pair it with Try again.")
             return
         }
-        let on = BrowserProfileRow(browser: row.browser, folder: row.folder, name: row.name, state: .on,
-                                   ferbIdentity: false, connected: false)
+        let on = BrowserProfileRow(browser: row.browser, folder: row.folder, name: row.name, email: row.email,
+                                   state: .on, ferbIdentity: false, connected: false)
         await working(IntroCopy.pairingOne(row)) { await setup.pairProfile(on) }
         guard live else { return }
         if let why = setup.message, !why.isEmpty { progress.set(row.id, state: .failed, why: why) }

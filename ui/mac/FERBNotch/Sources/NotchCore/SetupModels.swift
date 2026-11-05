@@ -170,14 +170,17 @@ public struct BrowserProfileRow: Equatable, Identifiable {
     public let browser: String
     public let folder: String
     public let name: String
+    /// The account the profile is signed in to its browser with (HAND-424); "" when none or unreadable.
+    public let email: String
     public let state: ProfileSetupState
     public let ferbIdentity: Bool
     public let connected: Bool
-    public init(browser: String, folder: String, name: String, state: ProfileSetupState, ferbIdentity: Bool,
-                connected: Bool) {
+    public init(browser: String, folder: String, name: String, email: String = "", state: ProfileSetupState,
+                ferbIdentity: Bool, connected: Bool) {
         self.browser = browser
         self.folder = folder
         self.name = name
+        self.email = email
         self.state = state
         self.ferbIdentity = ferbIdentity
         self.connected = connected
@@ -228,7 +231,7 @@ public struct BrowserSnapshot: Equatable {
                 guard let folder = p["folder"] as? String, !folder.isEmpty,
                       let state = ProfileSetupState(rawValue: p["state"] as? String ?? "") else { return nil }
                 return BrowserProfileRow(browser: name, folder: folder, name: p["name"] as? String ?? folder,
-                                         state: state, ferbIdentity: p["ferb_identity"] as? Bool ?? false,
+                                         email: p["email"] as? String ?? "", state: state, ferbIdentity: p["ferb_identity"] as? Bool ?? false,
                                          connected: p["connected"] as? Bool ?? false)
             }
             return BrowserRow(browser: name, label: browser["label"] as? String ?? name,

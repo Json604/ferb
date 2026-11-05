@@ -11,12 +11,18 @@ public struct PairProgress: Equatable {
         public let label: String
         public let folder: String
         public let name: String
+        /// The account the profile is signed in to its browser with (HAND-424); "" when none.
+        public let email: String
         public var state: State
         /// Why it didn't pair and the owner's step (the daemon's words); "" while pairing or once paired.
         public var why: String
         /// FERB's Web Store page adds the extension here in one click (removed, not added, or waiting for a restart).
         public var canAdd: Bool
-        public var title: String { "\(label) “\(name)”" }
+        public var shown: ProfileName { ProfileName(label: label, name: name, email: email) }
+        /// The browser and the name, for a list row (its email drawn beside it).
+        public var title: String { shown.title }
+        /// The whole name with its account, for a sentence.
+        public var text: String { shown.text }
     }
 
     public private(set) var rows: [Row] = []
@@ -71,7 +77,7 @@ public struct PairProgress: Equatable {
               !browser.isEmpty, !folder.isEmpty else { return nil }
         let why = state == .skipped ? value["step"] as? String : value["why"] as? String
         return Row(browser: browser, label: value["label"] as? String ?? browser, folder: folder,
-                   name: value["name"] as? String ?? folder, state: state,
+                   name: value["name"] as? String ?? folder, email: value["email"] as? String ?? "", state: state,
                    why: state == .paired || state == .pairing ? "" : (why ?? ""),
                    canAdd: value["can_add"] as? Bool ?? false)
     }

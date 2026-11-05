@@ -3193,5 +3193,5 @@ area = "hands"
 surface = "FERB.app with this build; at least one Chrome profile signed in to Chrome and one that isn't"
 request = "Open Settings → Browsers and look at every row and the owner-profile picker; Replay intro and press Pair all (watch the live rows and any Add to line); in chat ask FERB to \"check my <your work account> inbox\" with a profile that isn't paired yet, so it asks to pair; then turn Full Disk Access off for FERB, reopen Settings → Browsers, and turn it back on."
 pass = "Each signed-in profile shows its Chrome account after its name (a long one shortened in the middle, keeping the domain; the full one on hover); an unsigned profile shows only its name; FERB's own row shows FERB's address; the pair question names the profile with its account; FERB picks the profile signed in to the account you named. With Full Disk Access off no account shows anywhere."
-decisions = ["HAND-424", "DMN-546", "GATE-511"]
+decisions = ["HAND-424", "DMN-546", "GATE-511", "APP-736"]
 sitting = "after this change is installed"

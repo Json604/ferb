@@ -67,14 +67,17 @@ public struct IntroEntry: Equatable, Sendable {
 public struct IntroChecklistItem: Equatable, Sendable, Identifiable {
     public let id: String
     public let title: String
+    /// Drawn after the title in quieter type, shortened in the middle first and whole on hover: a browser profile's
+    /// signed-in account (HAND-424); "" for none.
+    public let secondary: String
     public let detail: String
     public let complete: Bool
     public var actionID: String?
     public var active: Bool
     public var status: String?
-    public init(id: String, title: String, detail: String, complete: Bool,
+    public init(id: String, title: String, secondary: String = "", detail: String, complete: Bool,
                 actionID: String? = nil, active: Bool = false, status: String? = nil) {
-        self.id = id; self.title = title; self.detail = detail; self.complete = complete
+        self.id = id; self.title = title; self.secondary = secondary; self.detail = detail; self.complete = complete
         self.actionID = actionID; self.active = active; self.status = status
     }
 }

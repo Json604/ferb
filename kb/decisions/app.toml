@@ -2359,3 +2359,13 @@ rule = "Implements APP-729 and APP-730. On a full-screen Space (type 4) the clos
 why = "D14 and D31 as built; the log lets a friend's notchless M1 report what moved."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchDocking.swift"]
 live = ["LIVE-790"]
+
+[APP-736]
+title = "FERB.app names a profile with its account; only the account shortens"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "NotchCore's ProfileName is the one format: `Google Chrome “Work” · work@example.com`, the name alone when there is no account. Sentences (Pair all's live line, Add to and pairing lines, pairAllMessage, the add-wait and ready lines, the identity step, the owner-profile picker) use the joined text; list rows (the tour's Pair all checklist, Settings → Browsers, identity candidates) draw name and account as two texts so only the account shortens, in the middle, with the whole one on hover. About names FERB's profile by name. Playground fakes: invented accounts (ordinary, long, none, FERB's own)."
+why = "HAND-424 (owner, 2026-11-05)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ProfileName.swift", "ui/mac/FERBNotch/Sources/NotchCore/PairProgress.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundDaemon.swift"]
+live = ["LIVE-791"]

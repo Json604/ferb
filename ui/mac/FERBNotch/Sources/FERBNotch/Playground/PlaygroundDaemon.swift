@@ -111,13 +111,15 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
         case "setup.browsers_pair_all":
             await state.pause(2.5)
             if s.pairingFails {
-                return ["profiles": 2, "results": [["name": "Personal", "label": "Google Chrome", "paired": true]],
-                        "skipped": [["name": "Work", "label": "Google Chrome", "reason": "off",
+                return ["profiles": 2, "results": [["name": "Personal", "label": "Google Chrome",
+                                                    "email": Self.personalEmail, "paired": true]],
+                        "skipped": [["name": "Work", "label": "Google Chrome", "email": Self.workEmail, "reason": "off",
                                      "step": "turn FERB on in Google Chrome's extensions"]]]
             }
             state.saved.browsersPaired = true
             return ["profiles": 2, "skipped": [[String: Any]](),
-                    "results": [["name": "Personal", "paired": true], ["name": "Work", "paired": true]]]
+                    "results": [["name": "Personal", "email": Self.personalEmail, "paired": true],
+                                ["name": "Work", "email": Self.workEmail, "paired": true]]]
         case "task.stop":
             stopped.formUnion(params["task_ids"] as? [String] ?? [])
             return ["stopped": params["task_ids"] ?? []]
@@ -222,13 +224,16 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
         case "setup.browsers_pairing":
             let fails = state.saved.pairingFails
             let todo: [[String: Any]] = [["browser": "chrome", "folder": "Default", "name": "Personal",
-                                          "label": "Google Chrome"],
+                                          "email": Self.personalEmail, "label": "Google Chrome"],
                                          ["browser": "chrome", "folder": "Profile 1", "name": "Work",
+                                          "email": Self.workEmail, "label": "Google Chrome"],
+                                         ["browser": "chrome", "folder": "Profile 3", "name": "Family", "email": "",
                                           "label": "Google Chrome"]]
             let skipped: [[String: Any]] = fails ? [["browser": "brave", "folder": "Default", "name": "Personal",
+                                                     "email": Self.personalEmail,
                                                      "label": "Brave", "reason": "removed", "can_add": true,
                                                      "step": "FERB's extension was removed there, so Brave won't add it again: add FERB from its Chrome Web Store page in Brave"]] : []
-            yield(["type": "plan", "profiles": 2 + skipped.count, "todo": todo, "skipped": skipped])
+            yield(["type": "plan", "profiles": todo.count + skipped.count, "todo": todo, "skipped": skipped])
             var results: [[String: Any]] = []
             for (index, row) in todo.enumerated() {
                 await state.pause(1.5)
@@ -239,7 +244,7 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
                 yield(result.merging(["type": "result"]) { $1 })
             }
             if !fails { state.saved.browsersPaired = true }
-            yield(["type": "done", "profiles": 2 + skipped.count, "skipped": skipped, "results": results,
+            yield(["type": "done", "profiles": todo.count + skipped.count, "skipped": skipped, "results": results,
                    "paired": results.filter { $0["paired"] as? Bool == true }.count])
         default:
             // logs.subscribe, notifications.subscribe: open and quiet until the app leaves
@@ -352,17 +357,29 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
         return ["state": state.saved.persona]
     }
 
+    // Invented accounts (HAND-424): an ordinary one, a long one that shows the middle shortening, a profile that isn't
+    // signed in (Family) and FERB's own.
+    static let personalEmail = "sam.rivera@example.com"
+    static let workEmail = "samantha.rivera-longname.operations@studio-production.example.com"
+    static let ferbEmail = "ferb.assistant@example.com"
+
     @MainActor
     private func browsers() -> [String: Any] {
         let paired = state.saved.browsersPaired
-        func profile(_ folder: String, _ name: String, _ before: String) -> [String: Any] {
-            ["folder": folder, "name": name, "state": paired ? "paired" : before, "ferb_identity": false,
+        func profile(_ folder: String, _ name: String, _ email: String, _ before: String) -> [String: Any] {
+            ["folder": folder, "name": name, "email": email, "state": paired ? "paired" : before, "ferb_identity": false,
              "connected": paired]
+        }
+        var profiles = [profile("Default", "Personal", Self.personalEmail, "on"),
+                        profile("Profile 1", "Work", Self.workEmail, "installed"),
+                        profile("Profile 3", "Family", "", "on")]
+        if state.saved.identityPaired {
+            profiles.append(["folder": "Profile 2", "name": "FERB", "email": Self.ferbEmail, "state": "paired",
+                             "ferb_identity": true, "connected": true])
         }
         return ["store_url": "https://chromewebstore.google.com/", "extension_dir": "",
                 "browsers": [["browser": "chrome", "label": "Google Chrome", "requested": true, "manual": false,
-                              "unconfirmed": "", "profiles": [profile("Default", "Personal", "on"),
-                                                              profile("Profile 1", "Work", "installed")]]]]
+                              "unconfirmed": "", "profiles": profiles]]]
     }
 
     @MainActor
@@ -370,11 +387,13 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
         let s = state.saved
         var reply: [String: Any] = ["current": ["address": s.identityAddress, "browser": s.identityAddress.isEmpty ? "" : "chrome",
                                                 "profile": s.identityAddress.isEmpty ? "" : "Profile 2",
+                                                "profile_name": s.identityAddress.isEmpty ? "" : "FERB",
+                                                "profile_email": s.identityAddress.isEmpty ? "" : Self.ferbEmail,
                                                 "paired": s.identityPaired, "owner_profile": ""]]
         if let address, !address.isEmpty {
             reply["candidates"] = address.contains("@")
                 ? [["browser": "chrome", "browser_name": "Google Chrome", "folder": "Profile 2", "name": "FERB",
-                    "only": true, "other_accounts": 0]]
+                    "email": address.lowercased(), "only": true, "other_accounts": 0]]
                 : [[String: Any]]()
         }
         return reply

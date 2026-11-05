@@ -142,7 +142,9 @@ public struct AboutDocument: Equatable {
         let email = text(account["email"])
         self.account = email.isEmpty ? [Line(name: "FERB's own account", value: "not set up", note: text(account["note"]))]
             : [Line(name: "FERB's own account", value: email,
-                    note: [text(account["browser"]), text(account["profile"])].filter { !$0.isEmpty }.joined(separator: " / ")
+                    // its profile by name when the daemon read it (HAND-424); the account is the value beside it
+                    note: [text(account["browser"]), text(account["profile_name"]).isEmpty ? text(account["profile"])
+                           : "“\(text(account["profile_name"]))”"].filter { !$0.isEmpty }.joined(separator: " / ")
                         + (flag(account["paired"]) ? " · paired" : " · not paired"))]
         permissions = (reply["permissions"] as? [[String: Any]] ?? []).map {
             Line(name: text($0["id"]).replacingOccurrences(of: "_", with: " "), value: text($0["status"]), note: "")
@@ -444,6 +446,8 @@ public struct IdentityCandidate: Identifiable, Equatable {
     public let browserName: String
     public let folder: String
     public let name: String
+    /// The account the profile is signed in to its browser with (HAND-424); "" when none.
+    public let email: String
     /// It holds only FERB's account, as FERB's profile must.
     public let only: Bool
     public let otherAccounts: Int
@@ -456,6 +460,7 @@ public struct IdentityCandidate: Identifiable, Equatable {
         self.folder = folder
         browserName = text(row["browser_name"]).isEmpty ? browser : text(row["browser_name"])
         name = text(row["name"]).isEmpty ? folder : text(row["name"])
+        email = text(row["email"])
         only = flag(row["only"])
         otherAccounts = number(row["other_accounts"])
     }
@@ -466,9 +471,14 @@ public struct IdentityState: Equatable {
     public let address: String
     public let browser: String
     public let profile: String
+    /// FERB's profile's name and the account it is signed in to (HAND-424); "" when FERB can't read them.
+    public let profileName: String
+    public let profileEmail: String
     public let paired: Bool
     /// `browsing.owner_profile`: the owner's profile FERB browses in while it has none of its own.
     public let ownerProfile: String
+    public let ownerProfileName: String
+    public let ownerProfileEmail: String
     public let candidates: [IdentityCandidate]
 
     public init(_ reply: [String: Any]) {
@@ -476,12 +486,18 @@ public struct IdentityState: Equatable {
         address = text(current["address"])
         browser = text(current["browser"])
         profile = text(current["profile"])
+        profileName = text(current["profile_name"])
+        profileEmail = text(current["profile_email"])
         paired = flag(current["paired"])
         ownerProfile = text(current["owner_profile"])
+        ownerProfileName = text(current["owner_profile_name"])
+        ownerProfileEmail = text(current["owner_profile_email"])
         candidates = (reply["candidates"] as? [[String: Any]] ?? []).compactMap(IdentityCandidate.init)
     }
 
     public var isSetUp: Bool { !address.isEmpty && !profile.isEmpty }
+    /// FERB's profile as shown: its name (its folder when unread) and its account.
+    public var profileShown: ProfileName { ProfileName(name: profileName.isEmpty ? profile : profileName, email: profileEmail) }
     /// The one profile that holds only FERB's account, when exactly one does.
     public var usable: [IdentityCandidate] { candidates.filter(\.only) }
 }

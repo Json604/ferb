@@ -577,7 +577,8 @@ final class SetupModel: ObservableObject {
                 guard let (browser, row) = self.browserProfile(profile.id), row.state == .on || row.state == .paired
                 else { continue }
                 self.addWait = nil
-                self.message = row.state == .paired ? nil : "FERB is on in \(browser.label) “\(row.name)”. Press Pair to pair it."
+                self.message = row.state == .paired ? nil
+                    : "FERB is on in \(ProfileName(label: browser.label, name: row.name, email: row.email).text). Press Pair to pair it."
                 return
             }
         }
@@ -660,9 +661,10 @@ final class SetupModel: ObservableObject {
     /// paired; none found says so. A reply without `profiles` (an older daemon) names only the failed pairings.
     static func pairAllMessage(_ reply: [String: Any]) -> String? {
         func line(_ row: [String: Any], _ text: String?) -> String {
-            let name = row["name"] as? String ?? row["folder"] as? String ?? "a profile"
-            let label = row["label"] as? String
-            return (label.map { "\($0) “\(name)”" } ?? "“\(name)”") + ": " + (text ?? "it didn't pair")
+            let name = ProfileName(label: row["label"] as? String ?? "",
+                                   name: row["name"] as? String ?? row["folder"] as? String ?? "a profile",
+                                   email: row["email"] as? String ?? "")
+            return name.text + ": " + (text ?? "it didn't pair")
         }
         let skipped = (reply["skipped"] as? [[String: Any]] ?? []).map { line($0, $0["step"] as? String) }
         let failed = (reply["results"] as? [[String: Any]] ?? []).filter { $0["paired"] as? Bool != true }
@@ -695,7 +697,7 @@ final class SetupModel: ObservableObject {
         do {
             _ = try await rpc.call("identity.choose", params: ["address": address, "browser": candidate.browser,
                                                                "folder": candidate.folder])
-            identityLine = "Pairing “\(candidate.name)”: turn FERB's extension on there if the browser asks…"
+            identityLine = "Pairing \(ProfileName(name: candidate.name, email: candidate.email).quoted): turn FERB's extension on there if the browser asks…"
             await pairIdentity(confirm: identity?.paired == true)
         } catch { identityLine = error.localizedDescription }
         await refreshIdentity()

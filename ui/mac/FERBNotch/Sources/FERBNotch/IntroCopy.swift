@@ -218,7 +218,7 @@ enum IntroCopy {
     /// Pair all while it runs (HAND-412): which profiles are pairing, each result as it lands, the skipped ones.
     static func pairing(_ progress: PairProgress) -> IntroLine {
         let open = progress.pairing
-        let text = open.count == 1 ? "Pairing \(progress.landed + 1) of \(progress.tried): \(open[0].title)…"
+        let text = open.count == 1 ? "Pairing \(progress.landed + 1) of \(progress.tried): \(open[0].text)…"
             : open.count > 1 ? "Pairing \(progress.tried) profiles…" : "Pairing your browsers…"
         var line = IntroLine(text: text, detail: progress.tried == 0 ? nil
                              : "\(progress.landed) of \(progress.tried) done. If a browser asks, turn FERB on there.")
@@ -252,7 +252,7 @@ enum IntroCopy {
             case .failed: status = row.canAdd ? "Add to \(row.label)" : "Didn't pair"
             case .skipped: status = row.canAdd ? "Add to \(row.label)" : "Needs a step"
             }
-            return IntroChecklistItem(id: row.id, title: row.title,
+            return IntroChecklistItem(id: row.id, title: row.title, secondary: row.email,
                                       detail: row.why.isEmpty ? status : row.why, complete: row.state == .paired,
                                       actionID: row.canAdd && row.state != .paired ? Pick.add(row.id) : nil,
                                       active: row.state == .pairing, status: status)
@@ -264,21 +264,21 @@ enum IntroCopy {
                   choices: [IntroChoice(Pick.pairAll, "Try again"), IntroChoice(Pick.next, "Continue")])
     }
     static func openingStore(_ row: PairProgress.Row) -> IntroLine {
-        IntroLine(text: "Opening FERB's store page in \(row.title)…")
+        IntroLine(text: "Opening FERB's store page in \(row.text)…")
     }
     /// Waiting for the extension to appear in that profile after Add to (HAND-413).
     static func waitingForAdd(_ row: PairProgress.Row, added: Bool) -> IntroLine {
-        IntroLine(text: added ? "FERB is in \(row.title). Turn it on there."
-                              : "Waiting for FERB to be added in \(row.title)…",
+        IntroLine(text: added ? "FERB is in \(row.text). Turn it on there."
+                              : "Waiting for FERB to be added in \(row.text)…",
                   detail: added ? "\(row.label) may show “Action required”, or a switch on its extensions page."
                                 : "Click Add to \(row.label) on the page that opened.",
                   choices: [IntroChoice(Pick.stopWaiting, "Stop waiting")])
     }
     static func readyToPair(_ row: PairProgress.Row) -> IntroLine {
-        IntroLine(text: "FERB is on in \(row.title).", detail: "Pair it now?",
+        IntroLine(text: "FERB is on in \(row.text).", detail: "Pair it now?",
                   choices: [IntroChoice(Pick.pairOne, "Pair"), IntroChoice(Pick.notNow, "Not now")])
     }
-    static func pairingOne(_ row: PairProgress.Row) -> IntroLine { IntroLine(text: "Pairing \(row.title)…") }
+    static func pairingOne(_ row: PairProgress.Row) -> IntroLine { IntroLine(text: "Pairing \(row.text)…") }
 
     // MARK: 5. FERB's own email
 
@@ -296,8 +296,9 @@ enum IntroCopy {
                                                       IntroChoice(Pick.identityLater, "Later")])
     static func identityProfiles(_ candidates: [IdentityCandidate]) -> IntroLine {
         IntroLine(text: "Which profile is mine?",
-                  choices: candidates.enumerated().map { IntroChoice(Pick.profile($0.offset),
-                                                                     "\($0.element.name) in \($0.element.browserName)") }
+                  choices: candidates.enumerated().map { IntroChoice(Pick.profile($0.offset), ProfileName.join(
+                                                                         "\($0.element.name) in \($0.element.browserName)",
+                                                                         $0.element.email)) }
                       + [IntroChoice(Pick.identityLater, "Later")])
     }
     static let identityLooking = IntroLine(text: "Looking for that account in your browsers…")

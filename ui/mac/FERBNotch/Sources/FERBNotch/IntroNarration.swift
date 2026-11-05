@@ -174,6 +174,13 @@ struct IntroNarrationView: View {
                                 Image(systemName: item.complete ? "checkmark.circle.fill" : item.active ? "circle.inset.filled" : "circle")
                                     .foregroundStyle(item.complete ? Color.green : item.active ? Color.orange : Color.white.opacity(0.35))
                                 Text(item.title).font(.system(size: 12, weight: .medium))
+                                    .lineLimit(1).layoutPriority(1)
+                                if !item.secondary.isEmpty {        // HAND-424: only the account shortens
+                                    Text(item.secondary).font(.system(size: 11))
+                                        .foregroundStyle(Palette.secondary)
+                                        .lineLimit(1).truncationMode(.middle)
+                                        .help(item.secondary)
+                                }
                                 Spacer(minLength: 8)
                                 Text(item.status ?? (item.complete ? "Allowed" : "Required"))
                                     .font(.system(size: 10)).foregroundStyle(Palette.secondary)
