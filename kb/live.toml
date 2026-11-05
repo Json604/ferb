@@ -3228,7 +3228,7 @@ title = "The sticky window opens every way, stays until closed and shows on ever
 area = "app"
 surface = "FERB.app with this build; Settings → Notch & Shortcuts → Where FERB opens: Window; a full-screen app; several Spaces"
 request = "Open FERB by double-tap, your shortcut, the menu bar's Open FERB, opening FERB.app again, a press on the notch, and by dropping a disposable file on the window and on the notch. Type, send, attach. Click other apps, switch Spaces (Control-arrow, swipes), open Mission Control, go to a full-screen app's Space. Close it with its ×, ⌘W and Esc. Turn Keep on top off and on. ⌘Q once."
-pass = "Each way opens the window focused for typing (the drop puts the file in the message box, unsent). It stays open and in place on every Space, never flashes or slides on a switch, isn't in the Dock or ⌘-Tab, floats over other windows only with Keep on top on. ×, ⌘W and Esc hide it; ⌘Q quits FERB."
+pass = "Each way opens the window focused for typing (the drop puts the file in the message box, unsent). It stays open on every Space in the same place (it moves with the desktop swipe like any window on all desktops; say if that bothers you), isn't in the Dock or ⌘-Tab, floats over other windows only with Keep on top on. ×, ⌘W and Esc hide it; ⌘Q quits FERB."
 decisions = ["APP-745", "APP-746", "APP-748"]
 sitting = "after this change is installed"
 

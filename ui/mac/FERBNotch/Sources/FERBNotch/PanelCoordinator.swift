@@ -1387,7 +1387,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private func present(animate: Bool, requestFocus: Bool = true, caller: String) {
         if model.chatInWindow || chatWindow?.isShown == true { presentWindow(requestFocus: requestFocus) }
         // Explicit close must win even while a pointer/fusion owns geometry.
-        if requestFocus && !notchSurfaceVisible && hasMagneticInteraction {
+        if requestFocus && !model.chatInWindow && !model.surfaceVisible && hasMagneticInteraction {
             cancelMagneticInteraction()
         }
         guard geometry != nil, indicatorDragPointer == nil, dockingRevision == nil else { return }
