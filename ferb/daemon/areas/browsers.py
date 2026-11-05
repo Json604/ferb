@@ -441,7 +441,7 @@ class Browsers:
         assert self.pairings
         p = self._exact_profile(params) or self._named_profile(params)
         if (p.browser, p.folder) == self._identity_profile():
-            raise FerbError(f"{p.display_name} is FERB's own profile; it's paired as FERB, not as yours")
+            raise FerbError(f"{browser_profiles.shown(p)} is FERB's own profile; it's paired as FERB, not as yours")
         if self._profile_state(p) == "missing":                 # the extension first (owner's report 2026-10-01)
             from ferb.device.extensions import extension_path
             browser_profiles.open_known_profile(p.browser, p.folder, "chrome://extensions", self._profiles(),

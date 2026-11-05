@@ -215,7 +215,7 @@ def test_a_sibling_task_never_takes_another_tasks_question(daemon: RunningDaemon
     async def reword(task_id: str, question: str, options: list[str]) -> dict[str, Any]:
         routed.append((task_id, question))
         ctx = {"task-1": "Send the invoice email to bob@example.com now", "task-2": "Delete the 40 old files"}[task_id]
-        return {"ask_owner": True, "question": f"{ctx}?", "answer": "", "display_text": ""}
+        return {"ask_owner": True, "question": f"{ctx}?", "answer": ""}
     daemon.daemon.gateway.route_question = reword
     a, client = _ask_args(daemon, token_a, {"question": "Should I go ahead?", "options": ["Yes", "No"]})
     [q] = _until(lambda: [x for x in _owner_questions(daemon) if x.state == "pending"], "no first question")

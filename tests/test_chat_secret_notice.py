@@ -180,7 +180,7 @@ def test_a_code_reply_to_an_open_question_names_nothing(daemon: RunningDaemon) -
     async def ask() -> None:
         action = ActionRequest("owner.ask", "owner_question", Identity.FERB, frozenset(), "other.worker",
                                "other.worker", "req-other", frozenset())
-        daemon.daemon.state.approvals.question(action, "Question from the task: what's the 6-digit login code?", [])
+        daemon.daemon.state.approvals.question(action, "What's the 6-digit login code?", []).from_task = True
     daemon.run(ask())
     install(daemon, [sup("reply", "Thanks.")])
     events = _send(daemon, "482913")

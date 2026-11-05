@@ -63,7 +63,9 @@ def _task_question(d: RunningDaemon, question: str, options: tuple[str, ...] = (
     async def make() -> Any:
         action = ActionRequest("owner.ask", "owner_question", Identity.FERB, frozenset(), "other.worker",
                                "other.worker", "req-other", frozenset())
-        return d.daemon.state.approvals.question(action, "Question from the task: " + question, list(options))
+        ap = d.daemon.state.approvals.question(action, question, list(options))
+        ap.from_task = True                      # a worker's question carries the tag, not a text prefix (GATE-225)
+        return ap
     return d.run(make())
 
 
@@ -314,10 +316,9 @@ def test_the_install_question_is_asked_once_and_carried_across_retries(daemon: R
         assert script is not None
         context = next(c for _, k, c, _ in reversed(script.contexts) if k == "worker.question")
         if "Mole isn't installed" in context.split("Worker question (data)", 1)[0]:
-            return json.dumps({"ask_owner": False, "answer": "You already said yes: install it.", "question": "",
-                               "display_text": ""})
+            return json.dumps({"ask_owner": False, "answer": "You already said yes: install it.", "question": ""})
         asked_owner.append(ask)
-        return json.dumps({"ask_owner": True, "answer": "", "question": ask, "display_text": ""})
+        return json.dumps({"ask_owner": True, "answer": "", "question": ask})
 
     def worker(token: str) -> str:
         first = tool(daemon.sock, token, "owner.ask", question=ask, options=["Yes", "No"])

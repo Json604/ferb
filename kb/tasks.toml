@@ -536,21 +536,11 @@ why = "Owner 2026-11-04: \"add instructions in prompts to do what user says, har
 decisions = ["PRM-303"]
 after = ["T-1040"]
 
-[T-1059]
-title = "Leftover sweep after batches 1-7: old connections still assuming the previous behaviour"
-area = "project"
-kind = "chore"
-status = "open"
-why = "Owner 2026-11-05: after batch 7, before T-1058, an independent agent checks batches 1-7 for stale prompts, fallbacks, readers of removed fields (display_text, details, correction, hover), fakes, decoders, tests, kb and live checks; file:line each, fix it. Cf. task 794e3bd8."
-decisions = ["ORCH-540", "ORCH-541"]
-ask = "Owner's words: \"also have to chekc after all the batches a=taht wha twe chagned had its old connection somewhere tha tmight cause this unexpected behaviour or not. if yes then fix\""
-
 [T-1058]
 title = "End-of-release security run: card-less payments, free-text approvals, a race, a redaction"
 area = "gateway"
 kind = "chore"
 status = "open"
-after = ["T-1059"]
 why = "Owner 2026-11-05: security run at the end. Check: payments with no card field ask only on the pay declaration (signals: PaymentRequest, amount fields, provider frames); free-text answers approve their addresses for good; the superseded-before-correction race; a password question hides a whole reply."
 decisions = ["GATE-202", "GATE-205", "GATE-214", "GATE-217"]
 ask = "gateway.py _ask_owner destinations.from_words (GATE-205); steering.py ~253-273 vs the gateway's answer poll; chat.py ~241 with labels.py ~585-593. Owner's words: \"no not now, we'll do a security run at hte end and see is this is an issue or if we can find and cover other issues tha tmight trigger on a edgec case or are somple wrong\""
