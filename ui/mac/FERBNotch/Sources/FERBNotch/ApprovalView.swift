@@ -30,24 +30,31 @@ struct ApprovalView: View {
                         .help("Task " + (approval.taskID ?? ""))
                 }
             }
+            if approval.fromTask {                   // D33, GATE-225: a task's question, tagged by structure
+                Text("from the task").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 1.5)
+                    .background(.white.opacity(0.07), in: Capsule())
+                    .accessibilityLabel("Question from the task")
+            }
             if approval.plainText {                  // FERB's own question: verbatim, monospaced, no Markdown (D31)
-                Text(verbatim: approval.visibleReason).font(.system(size: 12, design: .monospaced))
-                    .textSelection(.enabled)
+                // One question, no Details (GATE-225): a long one (an exact command, rule 6) stays fully shown in a
+                // capped-height block that scrolls, never behind a click.
+                if approval.visibleReason.count > ApprovalLayout.longQuestionChars {
+                    ScrollView(.vertical) {
+                        Text(verbatim: approval.visibleReason).font(.system(size: 12, design: .monospaced))
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: ApprovalLayout.longQuestionHeight)
+                } else {
+                    Text(verbatim: approval.visibleReason).font(.system(size: 12, design: .monospaced))
+                        .textSelection(.enabled)
+                }
             } else {
                 MarkdownContent(approval.visibleReason).equatable().font(.system(size: 12, weight: inRow ? .medium : .regular))
             }
             if let why = approval.why {                // the task's reason, its own words, smaller (2026-10-27)
                 Text(verbatim: why).font(.system(size: 11)).foregroundStyle(Palette.secondary)
                     .textSelection(.enabled)
-            }
-            if let details = approval.details {
-                DisclosureGroup("Details") {
-                    if approval.plainText {
-                        Text(verbatim: details).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                    } else {
-                        MarkdownContent(details, size: 11).equatable().font(.system(size: 11))
-                    }
-                }.font(.system(size: 11))
             }
             if !approval.evidence.isEmpty {
                 DisclosureGroup("App-use evidence") {
@@ -159,4 +166,10 @@ private struct QuestionChrome: ViewModifier {
                 .padding(.trailing, 28)
         }
     }
+}
+
+/// Display only: when FERB's own question scrolls inside its card instead of growing it.
+enum ApprovalLayout {
+    static let longQuestionChars = 360
+    static let longQuestionHeight: CGFloat = 150
 }

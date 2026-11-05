@@ -544,6 +544,15 @@ status = "open"
 why = "Owner 2026-11-04: long text in chat and the schedule box \"doesnt look smart at all\". Trace: sc-7884cee123 shows its 392-char run instruction; the task card its 474-char goal. Planner writes a short name; cards, Tasks and Schedules show it (+ repeat); full text under Details."
 decisions = ["ORCH-329", "APP-300"]
 
+[T-1058]
+title = "End-of-release security run: card-less payments, free-text approvals, a race, a redaction"
+area = "gateway"
+kind = "chore"
+status = "open"
+why = "Owner 2026-11-05: security run at the end. Check: payments with no card field ask only on the pay declaration (signals: PaymentRequest, amount fields, provider frames); free-text answers approve their addresses for good; the superseded-before-correction race; a password question hides a whole reply."
+decisions = ["GATE-202", "GATE-205", "GATE-214", "GATE-217"]
+ask = "gateway.py _ask_owner destinations.from_words (GATE-205); steering.py ~253-273 vs the gateway's answer poll; chat.py ~241 with labels.py ~585-593. Owner's words: \"no not now, we'll do a security run at hte end and see is this is an issue or if we can find and cover other issues tha tmight trigger on a edgec case or are somple wrong\""
+
 [T-1057]
 title = "The owner reviews the limits agents set or code holds without a decision"
 area = "project"

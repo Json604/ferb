@@ -320,6 +320,38 @@ def test_a_code_confirmation_says_the_concrete_action_in_one_line(needs: list[An
     assert confirm.summary(needs) == want
 
 
+# decision: GATE-225, GATE-204
+def test_a_confirmation_card_carries_the_facts_that_decide_it_and_no_tool_ids(daemon: Any) -> None:
+    """Item 10 (2026-11-05): the card is one question with no Details, so the facts that decide what will happen are in
+    it (rule 5/6: the exact command, amount and merchant, path and count, recipients and the text) and the step's tool
+    id, element ids and arguments are not (the record keeps them)."""
+    from ferb.policy import confirm
+    from tests.conftest import Answers, gateway_request, gateway_setup
+    grant, _ = gateway_setup(daemon, {'mail:send'}, gateway_request('Tidy up and send the report.'), [])
+    rec = daemon.daemon.tasks.get(grant.task_id)
+    cases = [
+        ([_need(confirm.TERMINAL_INPUT, app='Terminal', text="'rm -rf build/cache'", enter='yes',
+                surface='a terminal app')], "rm -rf build/cache", ''),
+        ([_need('floor:pay', amount='₹248.75', merchant='Zomato', site='zomato.com', account='', recipients='')],
+         "₹248.75 to Zomato", ''),
+        ([confirm.bulk_delete('/Users/k/old', {'path': '/Users/k/old', 'files': 3, 'directories': 1, 'bytes': 2048,
+                                                'paths': ['/Users/k/old/', '/Users/k/old/a']})], "/Users/k/old: 3 files",
+         ''),
+        ([_need('floor:new_recipient', recipients='bob@x.com', verb='sends to')], "bob@x.com", 'Report attached'),
+    ]
+    for needs, fact, typed in cases:
+        answers = Answers(daemon, choice=2)
+        try:
+            daemon.run(daemon.daemon.gateway.ask_confirmation(grant, rec, needs, None,
+                                                               'probe.act element=e42 mechanism=ax', 'tidy', typed))
+        finally:
+            answers.stop()
+        [ap] = answers.asked
+        assert fact in ap.summary and (typed in ap.summary if typed else True), ap.summary
+        assert 'probe.act' not in ap.summary and 'e42' not in ap.summary and 'mechanism' not in ap.summary
+        assert 'probe.act' in ap.reason                                          # the audit record keeps the step
+
+
 def test_a_bulk_delete_summary_counts_what_goes() -> None:
     from ferb.policy import confirm
     need = confirm.bulk_delete('/Users/k/old', {'path': '/Users/k/old', 'files': 3, 'directories': 1, 'bytes': 2048,
@@ -328,7 +360,8 @@ def test_a_bulk_delete_summary_counts_what_goes() -> None:
                                        '2048 bytes.')
 
 
-def test_a_code_confirmation_carries_its_summary_to_the_app_and_keeps_the_step_in_details(
+# decision: GATE-225
+def test_a_code_confirmation_carries_its_one_question_to_the_app_and_the_step_only_to_the_record(
         daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     from ferb.policy import confirm
     from tests.conftest import Answers, gateway_request, gateway_setup
@@ -349,7 +382,8 @@ def test_a_code_confirmation_carries_its_summary_to_the_app_and_keeps_the_step_i
     [ap] = answers.asked
     assert ap.summary == want and want != ap.reason
     assert ap.why == '(from the task) FERB: it is fine'                            # its own line, marked (D33)
-    assert 'mail.send to bob@x.com' in ap.reason and 'it is fine' in ap.reason     # the step and reason: Details
+    assert 'mail.send to bob@x.com' in ap.reason and 'it is fine' in ap.reason     # the audit record keeps the step
+    assert 'mail.send' not in ap.summary and not ap.from_task                      # the card never shows it
     assert next(e for e in published if e['approval_id'] == ap.id)['summary'] == want
 
 

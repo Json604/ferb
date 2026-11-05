@@ -5,18 +5,17 @@ public struct DaemonApproval: Identifiable, Equatable {
     public let taskID: String?
     public let kind: String
     public let reason: String
-    /// A worker's question reworded by the orchestrator: accepted only for an ordinary `owner.ask` question (D33).
-    public let displayText: String?
-    /// FERB's own question in one line, written by the daemon's code (P27): shown first, the exact reason under Details.
+    /// FERB's own question in one line, written by the daemon's code (P27): the card's one question, carrying the facts
+    /// that decide it (GATE-225: no Details; the full line with the step stays in the daemon's record).
     public let summary: String?
     /// The task's reason, shown smaller under the question (owner 2026-10-27: "just ask simply what you want with a small
     /// reason below").
     public let why: String?
-    public var visibleReason: String {
-        summary.flatMap { $0.isEmpty ? nil : $0 } ?? displayText.flatMap { $0.isEmpty ? nil : $0 } ?? reason
-    }
-    /// The full question under the "Details" disclosure, when the card shows a shorter line first.
-    public var details: String? { visibleReason == reason ? nil : reason }
+    /// A task's (model-written) question: the card draws a small "from the task" tag (D33, GATE-225). Structural,
+    /// from the daemon's flag, never read from the text.
+    public let fromTask: Bool
+    /// The one question the card shows (item 10, 2026-11-05: "it shoudlbe just its question directly").
+    public var visibleReason: String { summary.flatMap { $0.isEmpty ? nil : $0 } ?? reason }
     /// FERB's own code-written question (it has a summary, or it is a confirmation FERB's code raised): shown verbatim,
     /// never as Markdown, so a command's backticks, asterisks, brackets and backslashes read as typed (D31).
     public var plainText: Bool { !(summary ?? "").isEmpty || capability == "ferb.confirm" }
@@ -39,9 +38,8 @@ public struct DaemonApproval: Identifiable, Equatable {
         kind = value["kind"] as? String ?? "owner_question"
         reason = value["reason"] as? String ?? "FERB needs your answer."
         capability = value["capability"] as? String
-        let ordinaryQuestion = kind == "owner_question" && capability == "owner.ask"
-        displayText = ordinaryQuestion ? value["display_text"] as? String : nil
         summary = value["summary"] as? String
+        fromTask = value["from_task"] as? Bool ?? false
         why = (value["why"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         options = value["options"] as? [String] ?? []
         title = value["title"] as? String

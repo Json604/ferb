@@ -88,23 +88,28 @@ final class TaskPresentationTests: XCTestCase {
         XCTAssertEqual(rpc.calls.filter { $0.0 == "task.stop" }.count, 1)
     }
 
-    func testCodeQuestionShowsItsSummaryFirstAndTheExactQuestionUnderDetails() {
+    // decision: GATE-225
+    func testEveryQuestionCardShowsOneQuestion() {
         let reason = "Destination: https://appauth.b2clogin.com. Type the password or secret for it here (hidden; Enter cancels)."
         let summary = "appauth.b2clogin.com needs your password or another private answer. FERB fills it only there and doesn't save it."
         let secret = DaemonApproval(["approval_id": "s", "kind": "owner_secret", "capability": "secret.fill",
                                      "reason": reason, "summary": summary, "display_text": "Model words"])!
         XCTAssertEqual(secret.visibleReason, summary)
-        XCTAssertEqual(secret.details, reason)
+        XCTAssertFalse(secret.fromTask)
         let confirm: [String: Any] = ["approval_id": "c", "kind": "owner_question", "capability": "ferb.confirm",
                                       "reason": "FERB: this sends to bob@x.com, whom you didn't name in this request. Go ahead?",
                                       "options": ["Yes", "No"], "display_text": "Model short"]
         XCTAssertEqual(DaemonApproval(confirm)?.visibleReason, confirm["reason"] as? String)   // D33: model text never
-        XCTAssertNil(DaemonApproval(confirm)?.details)
         var withSummary = confirm
         withSummary["summary"] = "FERB wants to send to bob@x.com, whom you didn't name."
         XCTAssertEqual(DaemonApproval(withSummary)?.visibleReason, "FERB wants to send to bob@x.com, whom you didn't name.")
-        XCTAssertEqual(DaemonApproval(withSummary)?.details, confirm["reason"] as? String)
-        XCTAssertNil(DaemonApproval(["approval_id": "plain", "reason": "Which file?"])?.details)
+        // a task's question: its one question, an older daemon's display line ignored, tagged by the daemon's flag
+        let task = DaemonApproval(["approval_id": "q", "kind": "owner_question", "capability": "owner.ask",
+                                   "reason": "Which folder: Work (named in your mail) or Home?",
+                                   "display_text": "Which folder?", "from_task": true])!
+        XCTAssertEqual(task.visibleReason, "Which folder: Work (named in your mail) or Home?")
+        XCTAssertTrue(task.fromTask)
+        XCTAssertFalse(DaemonApproval(["approval_id": "plain", "reason": "Which file?"])!.fromTask)
     }
 
     func testFERBsOwnQuestionsShowTheirTextVerbatimNeverAsMarkdown() {

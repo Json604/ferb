@@ -109,7 +109,8 @@ legacy = "notes/gateway.md decision 7"
 title = "Questions read plainly"
 by = "owner"
 date = 2026-10-26
-status = "active"
+status = "superseded"
+superseded_by = "GATE-225"
 words = "just ask simply what you want with a small reason below"
 words_source = "The owner, 2026-10-24 and 2026-10-26; the rule's details are an agent's paraphrase"
 rule = "Every question is one plain line of what FERB wants plus a small reason line built from page facts (the field's label, the currency, the merchant rather than a bank's verification domain); the step and the raw call go under Details."
@@ -368,3 +369,16 @@ rule = "The browser and Mac typing tools record a typed email address or phone n
 why = "Audit G4: 5 of 13 typed-value questions were URLs (LinkedIn profiles, a visa site, chrome://extensions, which the browser-page question covers on its own). Moving the email/phone check to send time was weighed and rejected: it would depend on the worker's declaration and so weaken rule 9."
 rejected = ["Asking only at the send for typed emails and phones (declaration-dependent for browser sends)", "Exempting fields whose autocomplete says email or tel (an injected recovery address would go unasked)"]
 paths = ["ferb/policy/provenance.py::typed_destination"]
+
+[GATE-225]
+title = "One direct question per card: no Details; a task's question carries a tag"
+by = "owner"
+date = 2026-11-05
+status = "active"
+supersedes = ["GATE-208"]
+words = "why is there a details adn noralml text version in ferb question box??? it shoudlbe just its question directly - this also shuodl adhere to point number 2"
+words_source = "Item 10 of the owner's 0.27.1 list (2026-11-05), with approved recommendations D25 (one question, no Details) and D26 (reason line kept; a tag)"
+rule = "Every question card shows one question. A confirmation's is built by code from its needs with the facts that decide it (the app and how long the Yes lasts, the exact command, amount and merchant, path and count, recipients and text, the profile, a value and its source), plus the task's reason as one small line; the step and raw call stay only in the record. A retry asks in plain words. A task's question carries a structural \"from the task\" tag instead of a text prefix."
+why = "Cards showed a summary plus the raw call under Details, router questions a display line plus the full question, retries the raw call and its JSON error."
+paths = ["ferb/policy/confirm.py::summary", "ferb/policy/confirm.py::task_question", "ferb/daemon/gateway.py::retry_question", "ferb/daemon/gateway.py::Gateway.ask_confirmation", "ui/mac/FERBNotch/Sources/NotchCore/DaemonApproval.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift"]
+live = ["LIVE-782"]

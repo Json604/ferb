@@ -108,7 +108,6 @@ SHOWN = 3                                 # display only: items one question nam
 QUOTED_CHARS = 200                        # display only: a page or item quoted in FERB's question is clipped to
                                           # this, like the task's reason; it decides nothing
 FROM_TASK = "(from the task) "            # a task's text that reads like FERB's own (D33)
-TASK_QUESTION = "Question from the task: "
 _BUNDLE_LIKE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+){2,}", re.I)   # an app's id (com.apple.MobileSMS): internal
 Known = Callable[[str, str], bool]
 
@@ -266,9 +265,10 @@ def from_task(text: str) -> str:
 
 
 def task_question(text: str) -> str:
-    """A task's question as the owner sees it: always labelled, one paragraph, so no line of it can pass for FERB's
-    own check (a newline or a homoglyph doesn't help)."""
-    return TASK_QUESTION + " ".join(text.split())
+    """A task's question as the owner sees it (D33, GATE-225): one paragraph, so no line of it can pass for FERB's own
+    check (a newline or a homoglyph doesn't help), marked when it starts like FERB's own words. The app draws the
+    question's "from the task" tag from the approval's structural `from_task` flag, never from this text."""
+    return from_task(" ".join(text.split()))
 
 
 def from_task_lines(text: str) -> str:
@@ -890,17 +890,20 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
     return v.get("text", n.rule)                # a rule another part of FERB asks about in its own words
 
 
-def summary(needs: list[Need]) -> str:
-    """FERB's question in one line (P27; owner 2026-10-24: "we should have the short version and in details see if
-    you want the raw things"; 2026-10-27: "just ask simply what you want with a small reason below"): what FERB wants
-    to do, from the needs' facts. The task's reason goes on its own smaller line (`reason_line`); the full question
-    (`line`) stays the approval's reason, under Details. Display only: it decides nothing."""
+def summary(needs: list[Need], typed: str = "") -> str:
+    """FERB's question, the one line its card shows (P27; owner 2026-10-27: "just ask simply what you want with a small
+    reason below"; GATE-225: one direct question, no Details): what FERB wants to do, from the needs' facts, carrying
+    what decides what will happen (the app and how long the Yes lasts, the exact command, amount and merchant, path and
+    count, recipients and the text last typed where it sends (`typed`, quoted and clipped by the caller), the profile,
+    a value and its source). The task's reason goes on its own smaller line (`reason_line`); the full question with the
+    step (`line`) stays the approval's reason and the owner.ask span's record, never on the card. Display only: it
+    decides nothing."""
     said = {n.values.get("covers") for n in needs if n.rule == BULK}
     rules = frozenset(n.rule for n in needs)
     if rules == {TLS_OFF}:                      # L39: the question as the owner reads it, already a question
         return "; ".join(_tls(n.values) for n in needs) + "."
     parts = [p for n in needs if n.rule not in said and (p := _short(n, rules))]
-    return "FERB wants to " + "; ".join(parts) + "."
+    return "FERB wants to " + "; ".join(parts) + "." + (f' Text last typed there: "{typed}".' if typed else "")
 
 
 def reason_line(why: str) -> str:

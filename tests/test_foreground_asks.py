@@ -43,7 +43,7 @@ def test_a_browser_addressed_by_pid_still_asks(monkeypatch) -> None:
     assert confirm.foreground_need("mac.click", {"app": "pid:999", "mechanism": "pointer"}) is None
 
 
-# decision: GATE-208
+# decision: GATE-225
 def test_the_short_question_says_the_tasks_reason() -> None:
     """Live 2026-10-26 (task 7c1eca3a): the owner said Yes to "read Chrome's files", "bring Chrome to the front" and
     "type chrome://extensions/…" without seeing that they served turning off their permit-slots extension. Owner

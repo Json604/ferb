@@ -3105,3 +3105,12 @@ request = "Ask for three things at once that give long answers and visit several
 pass = "The card's rows hold each full answer. The Tasks page / history answer lists each part with its outcome line, where the note is, \"3 of 3 done\" and \"Sites contacted: N sites\" with the sites as link cards. The follow-up answer knows every part's outcome without starting a task."
 decisions = ["ORCH-534"]
 sitting = "after this change is installed"
+
+[LIVE-782]
+title = "Every question card is one direct question"
+area = "gateway"
+surface = "FERB.app with this build; FERB's Gmail; a disposable folder"
+request = "Ask FERB to email a short note to an address you haven't used with FERB, then to permanently delete a disposable file, then to run `echo hello` by typing it into Terminal; separately ask something that needs a which (\"send the notes to Sam\" with two Sams in memory)."
+pass = "Each card shows one question and no Details: the send names the recipient and the text, the delete names the path, the Terminal one shows the exact command (a long one scrolls in its block), each with the task's reason as a small line. No tool names, element ids or raw errors appear. The Sam question is one question naming each Sam with its evidence and a small \"from the task\" tag, with no \"Question from the task:\" prefix."
+decisions = ["GATE-225", "PRM-324"]
+sitting = "after this change is installed"

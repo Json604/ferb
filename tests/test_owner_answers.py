@@ -288,7 +288,7 @@ def test_a_plans_ask_step_is_labelled_and_a_stop_closes_it_as_superseded(daemon:
     turn.start()
     _until(lambda: bool(_pending(daemon, "plan.ask")))
     question = _pending(daemon, "plan.ask")[0]
-    assert question.reason.startswith("Question from the task: ")       # D33: a task's question never reads as FERB's
+    assert question.from_task and question.reason.startswith("(from the task) ")   # D33: tagged, never FERB's own
     trees = [t for t in daemon.daemon.supervisor._tree_of.values()]
     daemon.daemon.supervisor.stop_tree(trees[0].id)
     turn.join(10)

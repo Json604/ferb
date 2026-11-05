@@ -281,6 +281,27 @@ def retry_line(latest: LedgerRow, attempts: list[LedgerRow], call: str, tool: st
             (f" The call with the unknown outcome: {call}." if call else "") + " Try it again?")
 
 
+def _app_name(app: str) -> str:
+    """A Mac app by the name the Mac knows it by (the running app a bundle id, name or `pid:N` names), never an id: a
+    retry question's action names it. "an app" when none matches."""
+    from ferb.act.mac import apps
+    from ferb.orchestrator.progress import AN_APP
+    try:
+        found = apps.find(app.strip()) if app.strip() else None
+    except Exception:                                    # the running-app list can't be read
+        found = None
+    return found.name if found is not None and found.name else AN_APP
+
+
+def retry_question(action: str, attempts: list[LedgerRow]) -> str:
+    """A retry question as its card shows it (P19, GATE-225): the action in plain words (`action`, built by code from the
+    tool and its target) and what a Yes risks: the attempts that may have happened or did, plus this one. The full
+    retry_line (the attempts, the call and its unknown-outcome error) stays the approval's reason and the span's."""
+    times = sum(a.intent.state in ("unknown", "done") for a in attempts) + 1
+    return (f"Try {action} again? The last try may already have gone through, so it could happen "
+            f"{'twice' if times == 2 else f'up to {times} times'}.")
+
+
 def hashed_args(cap: Any, args: Any) -> dict[str, Any]:
     """The call's validated arguments as P19's hash binds them, so another click point, menu item or element is
     another action. Left out: argument keys a normalized Target field already binds (a capability's `target_args`:
@@ -1857,8 +1878,10 @@ class Gateway:
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=text, effect="navigate")
         ap, new = self._question(ask, text, options, key=text)
-        if new:
-            ap.summary = self._one_line(confirm.summary(needs), any(n.rule == confirm.TERMINAL_INPUT for n in needs))
+        if new:     # the card's one question (GATE-225): the facts that decide it, never the step or the raw call
+            shown_typed = quoted(self.redact({"t": typed})["t"]) if typed.strip() else ""
+            ap.summary = self._one_line(confirm.summary(needs, shown_typed),
+                                        any(n.rule == confirm.TERMINAL_INPUT for n in needs))
             ap.why = self._one_line(confirm.reason_line(quoted(self.redact({"w": why})["w"]) if why.strip() else ""))
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": options,
@@ -2206,8 +2229,9 @@ class Gateway:
             row, attempts = found
             retry = row.intent.id                    # the latest unknown attempt: the one the approval goes on
             asked_about = [a.intent.id for a in attempts]
-            tool, call = self._earlier_call(row)
+            tool, call, action = self._earlier_call(row)
             ferb_line = printable(self.redact({"q": retry_line(row, attempts, call, tool)})["q"])
+            retry_said = self._one_line(retry_question(action, attempts))
             # one quoted paragraph, no terminal control characters: the task's text can't open a paragraph of its own,
             # or rewrite a line on the owner's terminal, that looks like FERB's
             question = f'{ferb_line}\n\nWhat the task found: "{quoted(self.redact({"q": question})["q"])}".'
@@ -2227,7 +2251,8 @@ class Gateway:
                 return {'answer': decision['answer'], 'answered_by': 'orchestrator'}
             question = decision['question'] or question
         given_options = worker_options if reused is not None else options
-        if not retry and reused is None:             # D33: only FERB's own checks read as FERB's; a task's is labelled
+        from_task = not retry and (reused is None or reused.from_task)
+        if not retry and reused is None:             # D33: only FERB's own checks read as FERB's; a task's is tagged
             question = confirm.task_question(printable(question))
             options = [confirm.from_task(" ".join(printable(o).split())) for o in options]
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
@@ -2251,9 +2276,13 @@ class Gateway:
                 ap.about = tuple(asked_about)
             asked_about = list(ap.about)
         if new:
+            # GATE-225: a retry's card shows its plain question (the attempts and the call stay in `reason` and the
+            # span); a task's question carries the structural tag the app draws ("from the task", D33)
+            ap.summary, ap.from_task = (retry_said if retry else ""), from_task
             self.publish("approval.requested", {"approval_id": ap.id, "capability": capability,
                                                 "kind": "owner_question", "reason": question, "options": options,
-                                                "task_id": grant.task_id})
+                                                "task_id": grant.task_id}
+                         | ({"summary": ap.summary} if ap.summary else {}) | ({"from_task": True} if from_task else {}))
         self.observer.tool_call(grant, done=False)
         try:
             answer = await self._wait_answer(grant, ap.id)
@@ -2299,15 +2328,23 @@ class Gateway:
             return "the owner already approved one more attempt at this action; it can run now"
         return latest, attempts
 
-    def _earlier_call(self, row: LedgerRow) -> tuple[str, str]:
-        """The tool the attempt really called and what its call did, from its tool.call span (the ledger keeps the span
-        id as evidence); ("", "") when that span is gone."""
+    def _earlier_call(self, row: LedgerRow) -> tuple[str, str, str]:
+        """The tool the attempt really called, what its call did, and the action in a few plain words built by code from
+        the tool and its target (`progress.describe`: never the worker's words), from its tool.call span (the ledger
+        keeps the span id as evidence); ("", "", the action from the ledger's own target) when that span is gone."""
+        from ferb.orchestrator import progress
+        target = row.intent.target or {}
+        site = str(target.get("site") or "") or None
         for ref in row.evidence:
             found = self.spans.tool_call(row.intent.task_id, ref)
             tool = str(found["input"].get("tool") or "") if found is not None else ""
             if found is not None and getattr(self.caps.get(tool), "ledger_key", tool) == row.intent.capability:
-                return tool, call_excerpt(found)
-        return "", ""
+                args = found["input"].get("args") if isinstance(found["input"].get("args"), dict) else {}
+                said = progress.describe(tool, args, kind=str(found["input"].get("kind") or ""), site=site,
+                                         app=_app_name(site or str(args.get("app") or "")) if tool.startswith("mac.")
+                                         else None)
+                return tool, call_excerpt(found), said
+        return "", "", progress.describe(row.intent.capability, {"path": target.get("path") or ""}, site=site)
 
     def _settle_retry(self, ref: str, ask_span: str, asked_about: list[str]) -> dict[str, Any]:
         """The owner chose Yes: one more attempt at the same action may run (P19). The earlier attempt stays unknown;

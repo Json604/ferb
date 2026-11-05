@@ -1581,8 +1581,11 @@ class Supervisor(WorkerRuns):
         question = wait.question
         loop = wait.capability == LOOP_ASK
         if question:
-            # a model-written question is labelled as the task's (D33); FERB's own (a check-in, a closed tab) isn't
-            if wait.origin != origins_.FERB and not question.startswith(confirm.TASK_QUESTION):
+            # a model-written question is tagged as the task's (D33, GATE-225); FERB's own (a check-in, a closed tab)
+            # isn't. The app draws the tag from `from_task`; the text is only kept one paragraph and marked when it
+            # starts like FERB's own words
+            from_task = wait.origin != origins_.FERB
+            if from_task:
                 question = confirm.task_question(printable(question))
             options = [confirm.from_task(" ".join(printable(o).split())) for o in wait.options]
             action = ActionRequest(wait.capability, 'owner_question', task.identity, frozenset(), task.id, task.id,
@@ -1592,6 +1595,7 @@ class Supervisor(WorkerRuns):
             # kept on the question, so `chat.status` lists it with its row and its offer after an app restart (8e)
             ap.part = row[1].id if row is not None else ""
             ap.runtime_switch = wait.extra.get("runtime_switch")
+            ap.from_task = from_task
             self._questions[tree.id] = question
             self.journal.append('loop.question' if loop else 'plan.question',
                                 {'task_id': tree.id, 'step': step_id, 'approval_id': ap.id, 'question': question,
@@ -1599,7 +1603,8 @@ class Supervisor(WorkerRuns):
             self.publish('approval.requested', {'approval_id': ap.id, 'capability': wait.capability,
                                                 'kind': 'owner_question', 'reason': question, 'options': options,
                                                 'task_id': task.id, 'request_id': task.request_id}
-                         | ({'part': row[1].id} if row is not None else {}) | wait.extra)
+                         | ({'part': row[1].id} if row is not None else {}) | ({'from_task': True} if from_task else {})
+                         | wait.extra)
             if row is not None:      # ORCH-319: the question sits in its part's row; the other rows keep going
                 check_in = wait.extra.get('question_kind') == 'check_in'
                 row[0].show(row[1], 'paused' if check_in else 'asks',

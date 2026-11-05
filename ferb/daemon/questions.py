@@ -23,7 +23,8 @@ class Approval:
     options: tuple[str, ...] = ()
     choice: str | None = None
     answer: str | None = None
-    summary: str = ""                         # FERB's own question in one line, written by code (P27, D33)
+    summary: str = ""                         # FERB's own question in one line, written by code (P27, D33, GATE-225)
+    from_task: bool = False                   # a task's (model-written) question: the app tags it (D33, GATE-225)
     why: str = ""                             # the task's reason, shown smaller under the question (2026-10-27)
     taken: bool = False                       # its answer reached the call that waited for it
     key: str = ""                             # what a retry of the same call matches (the asker's own words)

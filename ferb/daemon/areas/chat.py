@@ -74,6 +74,7 @@ class Chat:
                         if len(request_trees.get(ap.request_id, ())) == 1 else None,
                     "options": list(ap.options),
                     **({"summary": ap.summary} if ap.summary else {}),
+                    **({"from_task": True} if ap.from_task else {}),
                     **({"why": ap.why} if getattr(ap, "why", "") else {}),
                     **({"source_task_id": ap.task_id} if ap.task_id else {}),
                     **({"part": ap.part} if ap.part else {}),
