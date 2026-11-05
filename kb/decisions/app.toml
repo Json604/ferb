@@ -2519,3 +2519,12 @@ status = "active"
 rule = "FERB.app records the version it last launched (FERBLastLaunchedVersion) beside the build and says \"Updated to <version>\" only when the version changed; a relaunch, reinstall or rebuild of the same version (a new CFBundleVersion each build) says nothing. Upgrading from a FERB that recorded only its build, the line shows once unless the chat already has that version's line. The notice id is update-<version>."
 why = "Leftover sweep T-1059: each reinstall of 0.27.1 added the line again, since it was keyed by build."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/UpdatePlan.swift", "ui/mac/FERBNotch/Sources/FERBNotch/UpdateNotes.swift"]
+
+[APP-751]
+title = "The undeclared-preference test reads a list the build makes, never the repository"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-728's test within TEST-508. A SwiftPM build-tool plugin (Plugins/SettingsKeysPlugin) runs Tools/SettingsKeyScan when the test target builds: it scans the FERBNotch and NotchCore sources for every UserDefaults key (calls, @AppStorage, key constants) and writes them into a generated Swift file of the test target (SourceSettingsKeys). The test fails on a key neither declared nor internal, reading only its own module."
+why = "Leftover sweep T-1059: batch 3c's test read the checked-in Swift sources at test time, which TEST-508 (owner) forbids; the build reading its own sources is not a test."
+paths = ["ui/mac/FERBNotch/Package.swift", "ui/mac/FERBNotch/Plugins/SettingsKeysPlugin/plugin.swift", "ui/mac/FERBNotch/Tools/SettingsKeyScan/main.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/AppScreensTests.swift"]

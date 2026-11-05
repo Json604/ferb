@@ -18,8 +18,14 @@ let package = Package(
                           // The intro playground (Sources/FERBNotch/Playground, PLAYGROUND.md) is compiled into debug
                           // builds only: FERB.app is built release (scripts/build-app.sh) and carries none of it.
                           swiftSettings: [.define("FERB_PLAYGROUND", .when(configuration: .debug))]),
+        // APP-728 with TEST-508: the undeclared-preference test reads a list the build made from the sources, never
+        // the repository itself (Tools/SettingsKeyScan, Plugins/SettingsKeysPlugin)
+        .executableTarget(name: "SettingsKeyScan", path: "Tools/SettingsKeyScan"),
+        .plugin(name: "SettingsKeysPlugin", capability: .buildTool(), dependencies: ["SettingsKeyScan"],
+                path: "Plugins/SettingsKeysPlugin"),
         .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore", "FERBNotch", "AudioCapture"],
-                    swiftSettings: [.define("FERB_PLAYGROUND", .when(configuration: .debug))])
+                    swiftSettings: [.define("FERB_PLAYGROUND", .when(configuration: .debug))],
+                    plugins: ["SettingsKeysPlugin"])
     ],
     swiftLanguageModes: [.v5]
 )

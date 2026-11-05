@@ -150,6 +150,7 @@ public enum AppSettings {
         "FERBIntroPlan": "the intro plan in progress (state)",
         "FERBIntroTour": "the tour version last played (APP-635, bookkeeping)",
         "FERBLastLaunchedBuild": "the build that last launched, for update notes (bookkeeping)",
+        "FERBLastLaunchedVersion": "the version that last launched, for update notes (APP-750, bookkeeping)",
         "FERBUpdateLastResult": "the last update's result (bookkeeping)",
         "loginItem.defaultApplied": "whether open-at-login's default was applied once (bookkeeping)",
         "loginItem.refusal": "macOS refused open at login (state; the setting itself lives in macOS's Login Items)",

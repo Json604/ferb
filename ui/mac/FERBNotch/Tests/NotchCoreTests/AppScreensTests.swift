@@ -37,28 +37,14 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual((payload["shortcuts"] as? [[String: String]])?.count, AppGuide.shortcuts.count)
     }
 
-    // decision: APP-728
+    // decision: APP-728, APP-751, TEST-508
     func testEveryPreferenceFERBAppSavesIsDeclaredForTheGuide() throws {
         // Owner 2026-11-05: a saved app preference with no guide entry fails here. Every UserDefaults key the app's
         // sources write or read (literal keys and key constants), plus the sound switches' keys, must be declared in
         // AppSettings or listed in AppSettings.internalKeys with why.
-        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources")
-        let call = try NSRegularExpression(pattern: #"\.(set|object|bool|string|double|integer|float|data|array|dictionary|removeObject|url|stringArray)\((?:[^()]|\([^()]*\))*?forKey:\s*"([^"]+)""#)
-        let storage = try NSRegularExpression(pattern: #"AppStorage\("([^"]+)""#)
-        let constant = try NSRegularExpression(pattern: #"static let \w*[Kk]ey\w*\s*=\s*"([^"]+)""#)
-        var found: [String: String] = [:]
-        let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)!
-        for case let file as URL in files where file.pathExtension == "swift" {
-            let text = try String(contentsOf: file, encoding: .utf8)
-            let range = NSRange(text.startIndex..., in: text)
-            for regex in [call, storage, constant] {
-                for match in regex.matches(in: text, range: range) {
-                    let key = String(text[Range(match.range(at: match.numberOfRanges - 1), in: text)!])
-                    found[key] = file.lastPathComponent
-                }
-            }
-        }
+        // The keys come from the build (SettingsKeysPlugin scans the sources), so the test reads only its own module
+        // (TEST-508).
+        var found = SourceSettingsKeys.found
         for sound in SoundSwitch.allCases { found[sound.key] = "SoundPolicy.swift" }
         XCTAssertGreaterThan(found.count, 20)                  // the scan found the app's keys at all
         let accounted = AppSettings.declaredKeys.union(AppSettings.internalKeys.keys)
