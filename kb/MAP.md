@@ -6,10 +6,10 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 197 | 9 | 34 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 197 | 10 | 34 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 63 | 5 | 5 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 38 | 7 | 48 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 72 | 2 | 12 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 38 | 9 | 48 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 72 | 3 | 12 |
 | memory | Memory and memory import | `ferb/memory` | 58 | 3 | 0 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 68 | 7 | 11 |
 | perception | Perception | `ferb/sense` | 15 | 2 | 0 |
@@ -30,6 +30,11 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1045 (orchestration): When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?
 - T-1050 (project): Should every build that changes setup go through one fresh-install run (on a second macOS user account you create once) before it ships, with setup changes made one at a time?
 - T-1057 (project): Go through the agent-set and code-only limits (highlighted rows in the FERB Limits page) and say, for each you care about, keep, change (to what) or remove; the rest stay as they are and get recorded as your decision.
+- T-1060 (gateway): Should a card field filled anywhere in the tab (a payment provider's card frame too), an amount field (autocomplete transaction-amount) in a submitted form, and input on a known payment provider's frame or page each count as a payment that asks you? Cost: an extra question when FERB saves a card in a site's settings or opens a PayPal or Google Pay frame without paying.
+- T-1061 (gateway): When you type or paste an address in an answer (rather than pick it from FERB's options), should it count like an address in your request (used freely, but FERB asks once before sending your private data there after reading outside content) instead of approved for good?
+- T-1062 (gateway): When a task's question mentions a password and offers buttons, should words you type in its box be hidden from the AI only when they look like a password (one word), so a sentence like "yes but use the work email" reaches the task? Today the whole sentence is hidden.
+- T-1063 (hands): A tab FERB couldn't close is recorded with the browser account it was signed in to (your email), in the task's record as well as in its answer line. Keep it, or record only the profile and show the account in the line alone?
+- T-1064 (app): While you're typing into a password field somewhere, should hovering over FERB open it without moving your typing into FERB (you'd click its box to type)?
 
 ## Terms
 

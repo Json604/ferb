@@ -536,15 +536,6 @@ why = "Owner 2026-11-04: \"add instructions in prompts to do what user says, har
 decisions = ["PRM-303"]
 after = ["T-1040"]
 
-[T-1058]
-title = "End-of-release security run: card-less payments, free-text approvals, a race, a redaction"
-area = "gateway"
-kind = "chore"
-status = "open"
-why = "Owner 2026-11-05: security run at the end. Check: payments with no card field ask only on the pay declaration (signals: PaymentRequest, amount fields, provider frames); free-text answers approve their addresses for good; the superseded-before-correction race; a password question hides a whole reply."
-decisions = ["GATE-202", "GATE-205", "GATE-214", "GATE-217"]
-ask = "gateway.py _ask_owner destinations.from_words (GATE-205); steering.py ~253-273 vs the gateway's answer poll; chat.py ~241 with labels.py ~585-593. Owner's words: \"no not now, we'll do a security run at hte end and see is this is an issue or if we can find and cover other issues tha tmight trigger on a edgec case or are somple wrong\""
-
 [T-1057]
 title = "The owner reviews the limits agents set or code holds without a decision"
 area = "project"
@@ -552,3 +543,48 @@ kind = "question"
 status = "open"
 why = "2026-11-04 inventory of 163 limits: 46 owner, 46 agent rulings, 71 code-only (rule 18 says limits that change behaviour are the owner's). The full list with file:line and kb IDs is the 'FERB Limits' page the owner received."
 ask = "Go through the agent-set and code-only limits (highlighted rows in the FERB Limits page) and say, for each you care about, keep, change (to what) or remove; the rest stay as they are and get recorded as your decision."
+
+[T-1060]
+title = "Payments with no card field in the submitted form ask only on the worker's pay declaration"
+area = "gateway"
+kind = "question"
+status = "open"
+why = "Security run T-1058: GATE-214 needs cc-* fields in the submitted form itself (Gateway._fact_targets, content.js submitInfo). A card frame from another origin, a saved-card Buy now, an amount-only donation form and a wallet button raise no payment fact. Signals and costs: the T-1058 report."
+decisions = ["GATE-202", "GATE-204", "GATE-214", "GATE-216", "GATE-217"]
+ask = "Should a card field filled anywhere in the tab (a payment provider's card frame too), an amount field (autocomplete transaction-amount) in a submitted form, and input on a known payment provider's frame or page each count as a payment that asks you? Cost: an extra question when FERB saves a card in a site's settings or opens a PayPal or Google Pay frame without paying."
+
+[T-1061]
+title = "A typed answer approves every address in it for good, pasted text included"
+area = "gateway"
+kind = "question"
+status = "open"
+why = "Security run T-1058: Gateway._ask_owner records every email, URL host and 6+ digit run in a typed or pasted answer as `answered` (approved for good, GATE-218); a correction records the same words only as `named`. Batch 3b's boxes and routed chat words land there. Evidence: the T-1058 report."
+decisions = ["GATE-205", "GATE-218", "ORCH-518"]
+ask = "When you type or paste an address in an answer (rather than pick it from FERB's options), should it count like an address in your request (used freely, but FERB asks once before sending your private data there after reading outside content) instead of approved for good?"
+
+[T-1062]
+title = "Words typed in a task question's box are hidden whole when the question mentions a password"
+area = "gateway"
+kind = "question"
+status = "open"
+why = "Security run T-1058: chat.answer hides the whole typed answer when the question has a password word (labels.hidden_answer, reply=False). Since ORCH-536 every option question has a box, so a sentence reaches the worker as \"[redacted]\" with no FERB note. The safety check's box uses the one-word rule."
+decisions = ["GATE-501", "GATE-502", "ORCH-536"]
+ask = "When a task's question mentions a password and offers buttons, should words you type in its box be hidden from the AI only when they look like a password (one word), so a sentence like \"yes but use the work email\" reaches the task? Today the whole sentence is hidden."
+
+[T-1063]
+title = "The leftover-tab record stores the profile's signed-in account"
+area = "hands"
+kind = "question"
+status = "open"
+why = "Security run T-1058: ext_bridge _TabDriver._leftover puts `account` in the record kept in the task.cleanup span, tasks.outcome_json resources, the outcome event and chat.status. HAND-424 says read fresh, never stored or journaled; the answer line shows it by design."
+decisions = ["HAND-424", "HAND-419", "DMN-546"]
+ask = "A tab FERB couldn't close is recorded with the browser account it was signed in to (your email), in the task's record as well as in its answer line. Keep it, or record only the profile and show the account in the line alone?"
+
+[T-1064]
+title = "Hover can give FERB keyboard focus while the owner types a password elsewhere"
+area = "app"
+kind = "question"
+status = "open"
+why = "Security run T-1058: hover (on by default) opens FERB and makes its panel key (PanelCoordinator.focusVisibleInput); nothing in ui/ checks IsSecureEventInputEnabled, so the rest of a password being typed elsewhere can land in FERB's composer. Window mode and the shortcut are unaffected."
+decisions = ["APP-745", "APP-740"]
+ask = "While you're typing into a password field somewhere, should hovering over FERB open it without moving your typing into FERB (you'd click its box to type)?"
