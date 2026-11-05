@@ -3195,3 +3195,12 @@ request = "Open Settings → Browsers and look at every row and the owner-profil
 pass = "Each signed-in profile shows its Chrome account after its name (a long one shortened in the middle, keeping the domain; the full one on hover); an unsigned profile shows only its name; FERB's own row shows FERB's address; the pair question names the profile with its account; FERB picks the profile signed in to the account you named. With Full Disk Access off no account shows anywhere."
 decisions = ["HAND-424", "DMN-546", "GATE-511", "APP-736"]
 sitting = "after this change is installed"
+
+[LIVE-792]
+title = "Files and folders dropped on the notch, the pill or the chat open FERB and wait in the composer"
+area = "app"
+surface = "FERB.app with this build; Finder with your own disposable files and a folder; Mail with a message that has an attachment"
+request = "Hover off, FERB closed: drag a file onto the notch, hold a moment, drop. Drop several files straight on it, then a folder. Hover on: repeat once. Drag a file over the notch until the chat opens, then away, and let go elsewhere. Drop into the open chat and onto its message box, and once while a task runs. On the top-edge pill and its resting line too. Then a Mail attachment and selected text."
+pass = "Each drop opens the chat with the files under the focused message box; nothing is sent until you send, with or without words (files alone arrive as yours). The chat stays open when the pointer leaves; a repeat file isn't added twice; a folder stays a folder. The drag that left with nothing dropped closes what it opened. The Mail attachment and the text slide back."
+decisions = ["APP-737", "APP-738", "APP-739"]
+sitting = "after this change is installed"

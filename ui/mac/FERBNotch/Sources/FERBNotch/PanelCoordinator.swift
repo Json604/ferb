@@ -311,6 +311,20 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.updatePointer()
         }
         model.onDetachTaskActivity = { [weak self] taskID in self?.showTaskActivity(taskID) }
+        // A file drag over the handle or pill (D17): the pill un-rests at once; held there, the chat opens by the
+        // press path whatever the hover setting; a chat it opened folds when the drag leaves with nothing dropped.
+        model.drops.onReach = { [weak self] in
+            guard let self else { return }
+            self.indicatorRestTask?.cancel()
+            self.indicatorRestTask = nil
+            self.setIndicatorResting(false, cause: "file drag")
+        }
+        model.drops.onSpring = { [weak self] in self?.openForFileDrag() }
+        model.drops.onFold = { [weak self] in
+            guard let self, self.model.expanded else { return }
+            Self.spacesLog.notice("A file drag left FERB with nothing dropped: the chat it opened folds")
+            self.model.collapse()
+        }
         model.onYieldChange = { [weak self] yielded in self?.applyYield(yielded) }
         model.onOpenDocument = { [weak self] url in
             if NSWorkspace.shared.open(url) { self?.model.dismissAutomatically() }
@@ -1796,6 +1810,16 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     @objc func showFromMenu() { beginInteraction(); model.expand() }
+
+    /// A file drag held over the handle or pill (D17): opens the chat as a press does (APP-705/707), bringing FERB
+    /// back from a yield, whatever the hover setting.
+    func openForFileDrag() {
+        cancelMagneticInteraction()
+        if summonFromYield() { return }
+        guard !model.bodyVisible else { return }
+        Self.spacesLog.notice("A file drag held over FERB opens the chat: \(self.stateLine, privacy: .public)")
+        model.toggle(byPress: true)
+    }
 
     /// The modifier double-tap: opens or closes the notch; opening it plays summon. A chat it opens stays open on
     /// hover-out, like a press-opened one (APP-709).

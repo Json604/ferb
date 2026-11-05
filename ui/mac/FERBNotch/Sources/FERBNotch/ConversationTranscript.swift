@@ -268,7 +268,7 @@ private struct RequestView: View {
             HStack {
                 Spacer(minLength: 28)
                 VStack(alignment: .leading, spacing: 5) {
-                    NativeMessageText(turn.request)
+                    if !turn.request.isEmpty { NativeMessageText(turn.request) }     // files sent without words
                     ForEach(turn.sources, id: \.self) { url in
                         Label(url.lastPathComponent, systemImage: "paperclip").font(.system(size: 10))
                     }

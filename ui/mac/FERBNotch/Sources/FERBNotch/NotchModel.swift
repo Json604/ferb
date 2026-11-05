@@ -77,6 +77,8 @@ final class NotchModel: ObservableObject {
     @Published var cutoutHeight: CGFloat = 40
     @Published var hasHardwareNotch = true
     @Published var isDropTarget = false
+    /// Files and folders dragged onto FERB: every drop target reports here (NotchFileDrop.swift).
+    let drops = FileDropSession()
     @Published var showingSources = false
     @Published var showingHistory = false
     @Published var showingActivity = false
@@ -268,6 +270,10 @@ final class NotchModel: ObservableObject {
             MainActor.assumeIsolated { self?.appSettingsChanged() }
         }
         announcedAttentionIDs = Set(preferences.stringArray(forKey: "FERBAnnouncedAttentionIDs") ?? [])
+        drops.accepts = { [weak self] in self?.acceptsDroppedFiles ?? false }
+        drops.isOpen = { [weak self] in self?.bodyVisible ?? false }
+        drops.onDrop = { [weak self] urls in self?.dropFiles(urls) ?? false }
+        drops.onTargeted = { [weak self] targeted in self?.isDropTarget = targeted }
         acknowledgement.changed = { [weak self] text in
             guard let self else { return }
             let wasVisible = self.surfaceVisible
@@ -518,6 +524,7 @@ final class NotchModel: ObservableObject {
         isHeaderOnly = false
         openedByPress = false
         heldVoiceSnapshot = nil
+        drops.reset()
         microphone.cancel()
         // Hiding cancels microphone capture; committed work keeps running.
         if session.phase == .listening {
@@ -738,7 +745,7 @@ final class NotchModel: ObservableObject {
             onBackgroundChange?(true)
             return
         }
-        guard !session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard canSend else { return }
         if handleLocalNotchCommand(session.draft) { return }
         let outgoing = PastedRequest(text: session.draft, provenance: pasteProvenance).markedText
         // The bubble shows the words without leaked paste markers until the ack brings the daemon's text (APP-713)
@@ -899,17 +906,41 @@ final class NotchModel: ObservableObject {
         }
     }
 
-    func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard canCompose else { return false }
-        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { [weak self] item, _ in
-                let url: URL?
-                if let data = item as? Data { url = URL(dataRepresentation: data, relativeTo: nil) }
-                else { url = item as? URL }
-                guard let url, url.isFileURL else { return }
-                Task { @MainActor in self?.attach([url]) }
-            }
+    /// FERB takes dropped files now: not during the tour (D18; its controller sets `onIntroAction` while it runs) or
+    /// while dictation holds the composer.
+    var acceptsDroppedFiles: Bool { canCompose && onIntroAction == nil }
+
+    /// The composer has something to send: words, or attached files alone (owner, 2026-11-05: files wait "until i send
+    /// them manully or attach a message in text and send").
+    var canSend: Bool {
+        !session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !session.attachments.isEmpty
+    }
+
+    /// Files and folders dropped on FERB (D17): all of them join the composer at once (deduplicated, folders kept) and
+    /// the chat opens as a press opens it (APP-705/707: back from a yield, kept open on hover-out) with the composer
+    /// focused. Nothing is sent: they wait until the owner sends, with or without words, whether or not a task runs
+    /// (APP-577). One presentation change.
+    @discardableResult
+    func dropFiles(_ urls: [URL]) -> Bool {
+        let files = urls.filter(\.isFileURL)
+        guard acceptsDroppedFiles, !files.isEmpty else { return false }
+        onInteraction?()                  // the press path: stops a yield, un-rests the pill, makes the open panel key
+        cancelPinnedFold()
+        acknowledgement.dismiss()
+        if !viewingToday {                // the composer is today's
+            followsToday = true
+            selectedDay = Calendar.current.startOfDay(for: Date())
         }
+        session.attach(files)
+        session.edit()
+        session.expand()
+        isHeaderOnly = false
+        showingSources = false
+        showingHistory = false
+        showingActivity = false
+        showingTasks = false
+        openedByPress = true
+        onPresentationChange?(true)
         return true
     }
 

@@ -81,8 +81,7 @@ struct NotchView: View {
         .foregroundStyle(Palette.ink)
         .preferredColorScheme(.dark)
         .ignoresSafeArea()
-        .onDrop(of: [UTType.fileURL], isTargeted: $model.isDropTarget, perform: model.acceptDrop)
-        .onChange(of: model.isDropTarget) { _, targeted in if targeted { model.expand() } }
+        .onDrop(of: [UTType.fileURL], delegate: ChatFileDrop(session: model.drops))
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             if model.followsToday {
                 model.selectedDay = Calendar.current.startOfDay(for: Date())
@@ -300,7 +299,7 @@ struct NotchView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Dictate · hold right ⌘ + ⌥").accessibilityLabel("Start dictation")
-                    if !model.session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if model.canSend {
                         Button(action: model.startWork) {
                             Image(systemName: "arrow.up.circle.fill").font(.system(size: 22)).frame(width: 28, height: 30)
                         }

@@ -34,6 +34,7 @@ struct ChatInput: NSViewRepresentable {
         view.autoresizingMask = [.width]
         view.delegate = coordinator
         view.submit = { [weak model] in model?.startWork() }
+        view.drops = model.drops
         // Where pasted text sits is recorded before it is inserted, independent of the edit report below.
         view.didPaste = { [weak model, weak view] text, selection in
             guard let model, let view else { return }
@@ -118,6 +119,39 @@ final class ChatTextView: NSTextView {
         isPasting = true
         defer { isPasting = false }
         insertText(text, replacementRange: selection)
+    }
+    // A file drag over the composer attaches like a drop anywhere on FERB (FileDropSession), never as path text;
+    // dragged text still goes into the field as AppKit inserts it.
+    weak var drops: FileDropSession?
+    private func fileDrag(_ sender: NSDraggingInfo) -> FileDropSession? {
+        sender.draggingPasteboard.types?.contains(.fileURL) == true ? drops : nil
+    }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if let drops = fileDrag(sender) { return drops.entered(.composer, sender.draggingPasteboard) }
+        return super.draggingEntered(sender)
+    }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if let drops = fileDrag(sender) { return drops.updated(.composer, sender.draggingPasteboard) }
+        return super.draggingUpdated(sender)
+    }
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        drops?.exited(.composer)
+        super.draggingExited(sender)
+    }
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        drops?.exited(.composer)
+        super.draggingEnded(sender)
+    }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        fileDrag(sender) != nil ? true : super.prepareForDragOperation(sender)
+    }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if let drops = fileDrag(sender) { return drops.drop(sender.draggingPasteboard) }
+        return super.performDragOperation(sender)
+    }
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        if let sender, fileDrag(sender) != nil { return }
+        super.concludeDragOperation(sender)
     }
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         isReadingPasteboard = true

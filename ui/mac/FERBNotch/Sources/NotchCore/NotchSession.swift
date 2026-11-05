@@ -82,7 +82,9 @@ public struct NotchSession {
 
     @discardableResult
     public mutating func beginWork() -> UUID? {
-        guard phase != .working, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        // Words, or attached files alone (they are sent with or without words).
+        guard phase != .working,
+              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return nil }
         let id = UUID()
         activeTaskID = id
         backendTaskID = nil

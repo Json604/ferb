@@ -53,8 +53,21 @@ final class NotchEdgeRowView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityElement(false)
+        registerForDraggedTypes([.fileURL])
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    // A file drag over the top row is a drag over the handle (FileDropSession).
+    private var drops: FileDropSession? { handle?.drops }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        drops?.entered(.edgeRow, sender.draggingPasteboard) ?? []
+    }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        drops?.updated(.edgeRow, sender.draggingPasteboard) ?? []
+    }
+    override func draggingExited(_ sender: NSDraggingInfo?) { drops?.exited(.edgeRow) }
+    override func draggingEnded(_ sender: NSDraggingInfo) { drops?.exited(.edgeRow) }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { drops?.drop(sender.draggingPasteboard) ?? false }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.withAlphaComponent(HandlePressShape.alpha).setFill()
@@ -131,7 +144,22 @@ final class FerbIndicatorControl: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel("Open FERB")
         setAccessibilityHelp("Drag FERB to another edge of the screen")
+        registerForDraggedTypes([.fileURL])
     }
+
+    // Files and folders dragged onto the handle or pill (owner, 2026-11-05, D17/D18): FileDropSession decides, springs
+    // the chat open and attaches. The window server routes the drag here through the same per-pixel hit test as a
+    // press: the housing's alpha-0.01 fill when docked, the pill or its resting line otherwise.
+    var drops: FileDropSession { model.drops }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        drops.entered(.handle, sender.draggingPasteboard)
+    }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        drops.updated(.handle, sender.draggingPasteboard)
+    }
+    override func draggingExited(_ sender: NSDraggingInfo?) { drops.exited(.handle) }
+    override func draggingEnded(_ sender: NSDraggingInfo) { drops.exited(.handle) }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { drops.drop(sender.draggingPasteboard) }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 

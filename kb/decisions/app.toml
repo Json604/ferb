@@ -2369,3 +2369,35 @@ rule = "NotchCore's ProfileName is the one format: `Google Chrome “Work” · 
 why = "HAND-424 (owner, 2026-11-05)."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ProfileName.swift", "ui/mac/FERBNotch/Sources/NotchCore/PairProgress.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundDaemon.swift"]
 live = ["LIVE-791"]
+
+[APP-737]
+title = "Dropping files or folders on FERB opens the chat with them in the composer"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "When doing drag n drop file/folder, FERB chat should open up / ok, BUT why this: \"While a task runs: the files wait in the message box for your next message.\" ??? we do allow message at any time, you know that right??? chekc the code / yeah jsut kee in chat until i send them manully or attach a message in text and send"
+words_source = "Owner, 2026-11-05 (0.27.1 item 7, three messages), approving the plan's D17 and D18"
+rule = "Dragging files or folders onto the closed notch, the edge pill (its resting line too) or the open chat opens the chat, even with hover off (D17); a chat a drop opened stays open like a press-opened one (APP-705, APP-707). The files join the composer and stay until the owner sends them, alone or with typed words; the drop sends nothing, task running or not (APP-577). Only files and folders: selected text, web links and promised files (Mail, Photos) are refused for now, and so is a drop during the tour (D18)."
+why = "Only the open chat took a drop; the closed notch, pill and edge row had no drag types, so with hover off a file couldn't reach FERB at all."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift", "ui/mac/FERBNotch/Sources/NotchCore/FileDrop.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-792"]
+
+[APP-738]
+title = "One drop session behind every drop target"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-737. The handle and the edge row register for file URLs as AppKit drag destinations, reached by the per-pixel hit test like a press (APP-706, APP-710, APP-730); the open chat uses a SwiftUI DropDelegate; the composer hands a file drag to the same FileDropSession instead of inserting path text. A drag is taken only when every pasteboard item carries public.file-url and none a file-promise type (FileDrop), and only while NotchModel.acceptsDroppedFiles (not dictating, no tour: onIntroAction unset); otherwise no operation and the system slides it back."
+why = "One shared path for every target. SwiftUI's DropInfo carries no pasteboard, so the chat reads NSPasteboard(name: .drag), the pasteboard AppKit's NSDraggingInfo reads."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift", "ui/mac/FERBNotch/Sources/NotchCore/FileDrop.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+live = ["LIVE-792"]
+
+[APP-739]
+title = "A held drag opens the chat; a drop attaches once; files send without words"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-737. A file drag entering the handle or pill un-rests the pill; 300 ms over it opens the chat by the press path (openForFileDrag: back from a yield, toggle(byPress:)); a chat so opened with nothing dropped folds 250 ms after the drag has left every target. A drop reads every file URL at once and calls NotchModel.dropFiles once: attach (deduplicated, folders kept), today's composer, APP-708's press mark, one presentation with focus. NotchModel.canSend: words or attachments; files sent alone show as the owner's bubble with no text."
+why = "D17 asks for spring-loading as Finder does it; one attach keeps one presentation change and one focus request for a multi-file drop."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/NotchCore/NotchSession.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift"]
+live = ["LIVE-792"]
