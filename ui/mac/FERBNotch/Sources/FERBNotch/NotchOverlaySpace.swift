@@ -35,6 +35,8 @@ final class NotchOverlaySpace {
     private var destroy: Destroy?
     private var moveWindows: MoveWindows?
     private var copyWindows: CopyWindows?
+    /// SLSAddWindowsToSpaces (optional): puts a held-out window on the Space showing (`holdOut`).
+    private var addWindows: RemoveWindows?
     /// False only in tests that exercise the AppKit fallback (APP-563): attaching then fails as if SkyLight were absent.
     private let available: Bool
 
@@ -127,6 +129,7 @@ final class NotchOverlaySpace {
         self.destroy = destroy
         self.moveWindows = move
         self.copyWindows = copyWindows
+        self.addWindows = symbol("SLSAddWindowsToSpaces", as: RemoveWindows.self)
         Self.log.info("""
             Notch windows \(numbers, privacy: .public) attached to fixed overlay space \(space, privacy: .public) \
             (move \(moveStatus, privacy: .public), show \(showStatus, privacy: .public)).
@@ -177,6 +180,12 @@ final class NotchOverlaySpace {
     /// ordinary Space, with the same call `attach` uses; returns whether it moved.
     @discardableResult
     func ensure(_ window: NSWindow) -> Bool {
+        if heldOut.contains(where: { $0 === window }) {
+            // Held out for a file drag. A window that was ordered out when the drag began leaves now, once it shows:
+            // leaving while ordered out put it on no Space when it came back in (live, macOS 27.2: no drag reached it).
+            if window.isVisible, membership(of: window)?.member == true { leaveForDrag(window) }
+            return false
+        }
         guard let place = membership(of: window), !place.member || !place.ordinary.isEmpty else { return false }
         let joined = moveIn(window)
         let after = WindowServerSpaces.spaces(ofWindow: window.windowNumber)
@@ -233,7 +242,41 @@ final class NotchOverlaySpace {
         window.collectionBehavior = behavior
     }
 
+    /// Windows out of the space while a file drag is under way (`holdOut`): `ensure` leaves them where they are.
+    private(set) var heldOut: [NSWindow] = []
+
+    /// A file drag is under way (APP-742): the window server never routes a drag to a window in this space (probed on
+    /// macOS 27.2: no draggingEntered at any alpha or level), so these windows leave it, as `leave` does, and become
+    /// drop targets until `endHoldOut`. Nothing puts them back in the meantime.
+    func holdOut(_ windows: [NSWindow]) {
+        guard space != 0 else { return }
+        for window in windows where !heldOut.contains(where: { $0 === window }) {
+            heldOut.append(window)
+            if window.isVisible { leaveForDrag(window) }        // the others leave when they show (`ensure`)
+        }
+        Self.spacesLog.notice("A file drag: \(windows.map(\.windowNumber), privacy: .public) leave the overlay space")
+    }
+
+    /// Out of the space and on the ordinary Spaces, where drags reach it. A window ordered in while in the space and
+    /// then left is on no Space at all (probed on macOS 27.2: no drag reaches it; one visible when it left is on all
+    /// of them), so it is put on the Space showing.
+    private func leaveForDrag(_ window: NSWindow) {
+        leave(window)
+        guard WindowServerSpaces.spaces(ofWindow: window.windowNumber).isEmpty, let addWindows,
+              let active = WindowServerSpaces.activeSpace() else { return }
+        addWindows(connection, [NSNumber(value: window.windowNumber)] as CFArray, [NSNumber(value: active)] as CFArray)
+    }
+
+    /// The drag ended: the held windows go back into the space (except those `keepOut` names, such as the panel
+    /// while FERB yields, which its yield brings back).
+    func endHoldOut(keepOut: [NSWindow] = []) {
+        let held = heldOut
+        heldOut = []
+        for window in held where !keepOut.contains(where: { $0 === window }) { ensure(window) }
+    }
+
     func stop() {
+        heldOut = []
         guard space != 0 else { return }
         // Remove only our windows and destroy only the space we created.
         removeWindows?(connection, windows.map { NSNumber(value: $0.windowNumber) } as CFArray,

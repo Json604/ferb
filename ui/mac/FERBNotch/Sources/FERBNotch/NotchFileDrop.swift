@@ -2,6 +2,7 @@ import AppKit
 import NotchCore
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 /// Files and folders dragged onto FERB (owner, 2026-11-05: "When doing drag n drop file/folder, FERB chat should open
 /// up"; D17, D18). Every drop target (the docked handle and its edge row, the edge pill and its resting line, the open
@@ -18,6 +19,8 @@ import UniformTypeIdentifiers
 final class FileDropSession {
     enum Target: Hashable { case handle, edgeRow, chat, composer }
 
+    /// Each target's enter, exit and drop with the operation given (structure only: no names or paths).
+    static let log = Logger(subsystem: "com.ferb.FERB", category: "drops")
     static let springDelay: Duration = .milliseconds(300)
     static let leaveGrace: Duration = .milliseconds(250)
 
@@ -31,6 +34,9 @@ final class FileDropSession {
     var onSpring: () -> Void = {}
     /// Fold the chat the spring opened (the coordinator).
     var onFold: () -> Void = {}
+    /// The pointer is over FERB's surface (the coordinator): a target can go quiet while the chat opens under a still
+    /// pointer (the handle moves into the opening chat), so the fold waits until the pointer is really away.
+    var pointerOver: () -> Bool = { false }
     /// Attach dropped files (NotchModel.dropFiles); false when nothing was taken.
     var onDrop: ([URL]) -> Bool = { _ in false }
     /// How the spring delay and the leave grace pass (tests end them at once).
@@ -74,6 +80,9 @@ final class FileDropSession {
 
     func entered(_ target: Target, _ pasteboard: NSPasteboard) -> NSDragOperation {
         let operation = operation(pasteboard)
+        if !over.contains(target) {
+            Self.log.info("Drag entered \(String(describing: target), privacy: .public): operation \(operation.rawValue, privacy: .public)")
+        }
         guard !operation.isEmpty else { return operation }
         over.insert(target)
         leaveTask?.cancel()
@@ -100,6 +109,7 @@ final class FileDropSession {
 
     func exited(_ target: Target) {
         guard over.remove(target) != nil else { return }
+        Self.log.info("Drag left \(String(describing: target), privacy: .public); still over \(self.over.count, privacy: .public)")
         if !overHandle {
             springTask?.cancel()
             springTask = nil
@@ -107,23 +117,38 @@ final class FileDropSession {
         guard over.isEmpty, springOpened else { return }
         leaveTask?.cancel()
         leaveTask = Task { [weak self, wait] in
-            do { try await wait(Self.leaveGrace) } catch { return }
-            guard let self, !Task.isCancelled, self.over.isEmpty, self.springOpened else { return }
-            self.leaveTask = nil
-            self.springOpened = false
-            self.onFold()
+            while true {
+                do { try await wait(Self.leaveGrace) } catch { return }
+                guard let self, !Task.isCancelled, self.over.isEmpty, self.springOpened else { return }
+                if self.pointerOver() { continue }
+                self.leaveTask = nil
+                self.springOpened = false
+                self.onFold()
+                return
+            }
         }
     }
 
     /// A drop on any target: every file at once.
     func drop(_ pasteboard: NSPasteboard) -> Bool {
         let urls = accepts() ? Self.files(on: pasteboard) : nil
+        Self.log.info("Drop: \(urls?.count ?? 0, privacy: .public) files taken")
         reset()
         guard let urls else { return false }
         return onDrop(urls)
     }
 
-    /// The chat closed (or a drag ended without one): forget this drag.
+    /// The mouse button came up: every target counts as left, and a chat the spring opened with nothing dropped folds.
+    func dragEnded() {
+        for target in over { exited(target) }
+        guard springOpened else { return }       // the drag is over and nothing was dropped
+        leaveTask?.cancel()
+        leaveTask = nil
+        springOpened = false
+        onFold()
+    }
+
+    /// The chat closed: forget this drag.
     func reset() {
         springTask?.cancel()
         springTask = nil

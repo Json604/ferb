@@ -2387,7 +2387,7 @@ title = "One drop session behind every drop target"
 by = "agent"
 date = 2026-11-05
 status = "active"
-rule = "Implements APP-737. The handle and the edge row register for file URLs as AppKit drag destinations, reached by the per-pixel hit test like a press (APP-706, APP-710, APP-730); the open chat uses a SwiftUI DropDelegate; the composer hands a file drag to the same FileDropSession instead of inserting path text. A drag is taken only when every pasteboard item carries public.file-url and none a file-promise type (FileDrop), and only while NotchModel.acceptsDroppedFiles (not dictating, no tour: onIntroAction unset); otherwise no operation and the system slides it back."
+rule = "Implements APP-737. The handle and the edge row register for file URLs as AppKit drag destinations, reached through their alpha-0.01 fills (APP-706, APP-710, APP-730), once out of the overlay space (APP-742), the chat uses a SwiftUI DropDelegate; the composer hands a file drag to the same FileDropSession instead of inserting path text. A drag is taken only when every pasteboard item carries public.file-url and none a file-promise type (FileDrop), and only while NotchModel.acceptsDroppedFiles (not dictating, no tour: onIntroAction unset); otherwise no operation and the system slides it back."
 why = "One shared path for every target. SwiftUI's DropInfo carries no pasteboard, so the chat reads NSPasteboard(name: .drag), the pasteboard AppKit's NSDraggingInfo reads."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift", "ui/mac/FERBNotch/Sources/NotchCore/FileDrop.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
 live = ["LIVE-792"]
@@ -2424,3 +2424,14 @@ why = "Carbon hot keys need no permission and arrive under secure input; one tog
 evidence = "macOS 27.2 probe (scratchpad hk/): an exclusive registration of a combination another process holds exclusively returns -9878 (eventHotKeyExistsErr); a non-exclusive holder doesn't block it; ⌥F alone registers with noErr (D24 refuses it anyway)."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/KeyCombo.swift", "ui/mac/FERBNotch/Sources/FERBNotch/HotKeyCenter.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchShortcutMonitor.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift"]
 live = ["LIVE-793"]
+
+[APP-742]
+title = "During a file drag FERB's drop windows leave the overlay space"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-737 within APP-563 and APP-731. The window server never routes a drag into FERB's SkyLight overlay space. When a drag moves (leftMouseDragged monitors, read at most every 100 ms) and the drag pasteboard is new with file URLs, the handle, edge row and chat panel leave the space (holdOut: a visible one at once, the others when they show, each put on the Space showing if it lands on none), ensure leaves them alone and the yield poll pauses; 400 ms after the button is up they rejoin (the panel stays out while yielding)."
+why = "Live on the installed build (macOS 27.2) the closed notch and edge row took no drop; a probe with this process's own windows showed a panel in a SkyLight space gets no draggingEntered at alpha 0.01 or 1, at level 3 or 25, and does once it leaves the space, even mid-drag."
+evidence = "scratchpad drag/droprouting.swift: panel at alpha 0.01, level 25: dropped; in an overlay space: operation 0 at alpha 0.01 and 1; left the space mid-drag: dropped; ordered in from the space and then left: on no Space, operation 0, until added to the active one."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift"]
+live = ["LIVE-792"]

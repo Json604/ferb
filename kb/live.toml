@@ -3202,7 +3202,7 @@ area = "app"
 surface = "FERB.app with this build; Finder with your own disposable files and a folder; Mail with a message that has an attachment"
 request = "Hover off, FERB closed: drag a file onto the notch, hold a moment, drop. Drop several files straight on it, then a folder. Hover on: repeat once. Drag a file over the notch until the chat opens, then away, and let go elsewhere. Drop into the open chat and onto its message box, and once while a task runs. On the top-edge pill and its resting line too. Then a Mail attachment and selected text."
 pass = "Each drop opens the chat with the files under the focused message box; nothing is sent until you send, with or without words (files alone arrive as yours). The chat stays open when the pointer leaves; a repeat file isn't added twice; a folder stays a folder. The drag that left with nothing dropped closes what it opened. The Mail attachment and the text slide back."
-decisions = ["APP-737", "APP-738", "APP-739"]
+decisions = ["APP-737", "APP-738", "APP-739", "APP-742"]
 sitting = "after this change is installed"
 
 [LIVE-793]

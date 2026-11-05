@@ -117,6 +117,35 @@ final class FileDropTests: XCTestCase {
         XCTAssertTrue(model.session.attachments.isEmpty)
     }
 
+    // decision: APP-739
+    func testTheSpringOpenedChatWaitsForThePointerToLeaveAndFoldsWhenTheDragEnds() async throws {
+        let session = FileDropSession()
+        var open = false, folds = 0, waits = 0
+        session.accepts = { true }
+        session.isOpen = { open }
+        session.onSpring = { open = true }
+        session.onFold = { open = false; folds += 1 }
+        session.wait = { _ in waits += 1 }
+        session.pointerOver = { waits < 4 }          // still over FERB for the first few looks (the chat opening)
+        let urls = try scratchFiles(["a.txt"])
+        _ = session.entered(.handle, files(urls))
+        await session.springTask?.value
+        XCTAssertTrue(open)
+        session.exited(.handle)                       // the handle moved into the opening chat
+        await session.leaveTask?.value
+        XCTAssertEqual(folds, 1)
+        XCTAssertGreaterThanOrEqual(waits, 4, "it folded while the pointer was still over FERB")
+
+        // The button comes up over FERB with nothing dropped: the drag is over, the chat it opened folds.
+        session.pointerOver = { true }
+        _ = session.entered(.edgeRow, files(urls))
+        await session.springTask?.value
+        XCTAssertTrue(open)
+        session.dragEnded()
+        XCTAssertFalse(open)
+        XCTAssertEqual(folds, 2)
+    }
+
     // MARK: Through the coordinator
 
     private struct Harness {
@@ -191,6 +220,86 @@ final class FileDropTests: XCTestCase {
         XCTAssertTrue(h.model.drops.drop(files(urls)))
         XCTAssertFalse(h.model.isYielded, "the drop didn't bring FERB back")
         XCTAssertTrue(h.model.bodyVisible)
+    }
+}
+
+@MainActor
+final class FileDragRoutingTests: XCTestCase {
+    /// macOS 27.2 never routes a drag to a window in FERB's overlay space (probed: no draggingEntered at any alpha or
+    /// level), so during a file drag the drop windows leave it and nothing puts them back until the drag ends.
+    // decision: APP-742, APP-731
+    func testHeldOutWindowsStayOutOfTheOverlaySpaceUntilTheDragEnds() throws {
+        _ = NSApplication.shared
+        guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
+        let window = NotchPanel(contentRect: CGRect(x: 0, y: 0, width: 2, height: 2),
+                                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        window.orderFrontRegardless()
+        let space = NotchOverlaySpace()
+        defer {
+            space.stop()
+            window.orderOut(nil)
+        }
+        space.attach([window])
+        guard space.isAttached else { throw XCTSkip("No SkyLight overlay spaces here: FERB keeps ordinary windows (APP-563)") }
+        space.holdOut([window])
+        XCTAssertEqual(space.membership(of: window)?.member, false)
+        window.orderOut(nil)                    // the closed chat or a folding handle, ordered in again mid-drag
+        // (whether it lands on the ordinary Spaces needs a running app's window server placement: a live check)
+        window.orderFrontRegardless()
+        XCTAssertFalse(space.ensure(window), "a held-out window was put back during the drag")
+        XCTAssertEqual(space.membership(of: window)?.member, false)
+        space.endHoldOut()
+        XCTAssertEqual(space.membership(of: window)?.member, true)
+    }
+
+    // decision: APP-742, APP-739
+    func testANewFileDragOnTheDragPasteboardStartsDragModeUntilTheButtonIsUp() async throws {
+        _ = NSApplication.shared
+        guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
+        let defaults = scratchDefaults()
+        NotchDocking.save(true, in: defaults)
+        let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
+        model.setHoverEnabled(false)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        defer { coordinator.tearDown() }
+        coordinator.updateScreen()
+        let board = NSPasteboard(name: NSPasteboard.Name("ferb-drag-test-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        coordinator.dragPasteboard = { board }
+        var buttonDown = true
+        coordinator.leftButtonDown = { buttonDown }
+        coordinator.fileDragWait = { _ in await Task.yield() }
+        let away = CGPoint(x: NSScreen.screens[0].frame.midX, y: NSScreen.screens[0].frame.minY + 20)
+        coordinator.pointerLocation = { away }
+        model.drops.wait = { _ in }
+
+        board.clearContents()
+        board.setString("text", forType: .string)
+        coordinator.noticeDragPasteboard()
+        XCTAssertFalse(coordinator.fileDragActive, "a text drag isn't a file drag")
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ferb-drag-\(UUID().uuidString).txt")
+        try Data("x".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        board.clearContents()
+        board.writeObjects([url as NSURL])
+        coordinator.noticeDragPasteboard()
+        XCTAssertTrue(coordinator.fileDragActive)
+
+        // Held over the handle, the chat springs open; the button comes up with no target told: the chat folds.
+        _ = model.drops.entered(.handle, board)
+        await model.drops.springTask?.value
+        XCTAssertTrue(model.bodyVisible)
+        buttonDown = false
+        await coordinator.fileDragWatch?.value
+        XCTAssertFalse(coordinator.fileDragActive)
+        await model.drops.leaveTask?.value
+        XCTAssertFalse(model.expanded, "the spring-opened chat stayed after the drag ended")
+
+        coordinator.noticeDragPasteboard()
+        XCTAssertFalse(coordinator.fileDragActive, "the same drag pasteboard is no new drag")
     }
 }
 

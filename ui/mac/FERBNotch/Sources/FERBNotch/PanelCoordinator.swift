@@ -324,6 +324,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.setIndicatorResting(false, cause: "file drag")
         }
         model.drops.onSpring = { [weak self] in self?.openForFileDrag() }
+        model.drops.pointerOver = { [weak self] in self?.pointerIsOverSurface ?? false }
         model.drops.onFold = { [weak self] in
             guard let self, self.model.expanded else { return }
             Self.spacesLog.notice("A file drag left FERB with nothing dropped: the chat it opened folds")
@@ -425,13 +426,16 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }) { eventMonitors.append(monitor) }
         // The physical camera has no visible app surface. Watch its screen coordinates
         // as well as the panel so hovering the real notch can open FERB.
-        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] _ in
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] event in
+            if event.type == .leftMouseDragged { self?.noticeFileDrag() }
             self?.updatePointer(revealPinnedHeader: true)
         }) { eventMonitors.append(monitor) }
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] event in
+            if event.type == .leftMouseDragged { self?.noticeFileDrag() }
             self?.updatePointer(revealPinnedHeader: true)
             return event
         }) { eventMonitors.append(monitor) }
+        dragPasteboardCount = dragPasteboard().changeCount
     }
 
     /// FERB's notch windows join the fixed overlay space (APP-563), with AppKit's all-Spaces windows as the fallback.
@@ -1536,6 +1540,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func evaluateYield() {
+        // During a file drag the drag image passes over FERB: it is not a window FERB steps behind (APP-742).
+        guard !fileDragActive else { return }
         // Coming back after another app's menu or window went away re-evaluates hover, like closing a menu.
         if yieldController.evaluate() { updatePointer() }
         restackYield()
@@ -1818,6 +1824,64 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     @objc func showFromMenu() { beginInteraction(); model.expand() }
 
+    /// The drag pasteboard (tests stand in their own) and the change count FERB last read from it.
+    var dragPasteboard: () -> NSPasteboard = { NSPasteboard(name: .drag) }
+    private var dragPasteboardCount = 0
+    private var dragCheckedAt: TimeInterval = 0
+    /// Whether the left mouse button is still down (tests end a drag without one).
+    var leftButtonDown: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+    /// How the drag watch's polls and the wait after the drop pass (tests end them at once).
+    var fileDragWait: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// A file drag is under way and FERB's drop windows are out of the overlay space (APP-742).
+    private(set) var fileDragActive = false
+    private(set) var fileDragWatch: Task<Void, Never>?
+
+    /// A drag moved somewhere (any app, or FERB's own window): when a new drag session put file URLs on the drag
+    /// pasteboard, FERB's handle, edge row and chat leave the overlay space so the window server routes the drag to
+    /// them (it never routes one into that space, APP-742), until the button is up. Read at most every 100 ms.
+    func noticeFileDrag() {
+        guard !fileDragActive else { return }
+        let now = CACurrentMediaTime()
+        guard now - dragCheckedAt >= 0.1 else { return }
+        dragCheckedAt = now
+        noticeDragPasteboard()
+    }
+
+    /// The drag pasteboard changed to file URLs: a file drag began.
+    func noticeDragPasteboard() {
+        let board = dragPasteboard()
+        guard board.changeCount != dragPasteboardCount else { return }
+        dragPasteboardCount = board.changeCount
+        guard board.types?.contains(.fileURL) == true else { return }
+        beginFileDrag()
+    }
+
+    private var dropWindows: [NSWindow] { [indicatorPanel, edgeRowPanel, panel] }
+
+    func beginFileDrag() {
+        guard !fileDragActive else { return }
+        fileDragActive = true
+        overlaySpace.holdOut(dropWindows)
+        fileDragWatch = Task { [weak self, fileDragWait] in
+            while let self, !Task.isCancelled, self.leftButtonDown() {
+                do { try await fileDragWait(.milliseconds(200)) } catch { return }
+            }
+            // The drop is delivered as the button comes up; the windows go back after it.
+            do { try await fileDragWait(.milliseconds(400)) } catch { return }
+            self?.endFileDrag()
+        }
+    }
+
+    func endFileDrag() {
+        guard fileDragActive else { return }
+        fileDragActive = false
+        fileDragWatch?.cancel()
+        fileDragWatch = nil
+        // The panel while FERB yields is out on purpose; its yield brings it back.
+        overlaySpace.endHoldOut(keepOut: model.isYielded ? [panel] : [])
+        model.drops.dragEnded()
+    }
+
     /// A file drag held over the handle or pill (D17): opens the chat as a press does (APP-705/707), bringing FERB
     /// back from a yield, whatever the hover setting.
     func openForFileDrag() {
@@ -1887,6 +1951,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         model.disconnectDaemon()
         shortcuts.stop()
         hotKeys.stop()
+        fileDragWatch?.cancel()
         model.cancelPinnedFold()
         presentation.stop()
         panel.orderOut(nil)
