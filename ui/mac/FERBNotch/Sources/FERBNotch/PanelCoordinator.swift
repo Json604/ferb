@@ -164,7 +164,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     var fullScreenSpace: (UInt32) -> Bool = { WindowServerSpaces.isFullScreen(display: $0) }
     /// The Space showing now, as the window server says (an activation that comes with a Space change).
     var activeSpace: () -> UInt64? = { WindowServerSpaces.activeSpace() }
-    /// Mission Control (or App Exposé) shows: the pointer crossing FERB on its way to the Spaces bar opens nothing.
+    /// Mission Control (or App Exposé) shows on a display (window-server coordinates): the pointer crossing FERB on its
+    /// way to the Spaces bar opens nothing.
     var missionControlShowing: (CGRect) -> Bool = { display in
         SpaceFacts.missionControlShowing(in: ScreenWindow.onScreen(), display: display) { pid in
             NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.WindowManager"
@@ -1250,10 +1251,16 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
         guard geometry != nil, indicatorDragPointer == nil, dockingRevision == nil else { return }
         presentCount += 1
-        Self.spacesLog.notice("""
-            Present (\(caller, privacy: .public), animate \(animate, privacy: .public), focus \(requestFocus, privacy: .public)) \
-            surface \(self.model.surfaceVisible, privacy: .public): \(self.stateLine, privacy: .public)
-            """)
+        // Background updates (task progress) present often; they're kept in the log only when they open or close the
+        // surface, so a Space change's absence of presents stays easy to read.
+        let line = """
+            Present (\(caller), animate \(animate), focus \(requestFocus)) surface \(model.surfaceVisible): \(stateLine)
+            """
+        if caller != "background" || model.surfaceVisible != presentedExpanded {
+            Self.spacesLog.notice("\(line, privacy: .public)")
+        } else {
+            Self.spacesLog.debug("\(line, privacy: .public)")
+        }
         presentation.compactSize = isDocked ? cutoutFrame.size : CGSize(width: 58, height: 30)
         model.noteTextPresentation(expanded: model.surfaceVisible)
         let wasExpanded = presentedExpanded
@@ -1610,7 +1617,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private func pointerEntered() {
         // On its way to Mission Control's Spaces bar the pointer crosses the top edge: that isn't reaching for FERB,
         // so nothing opens, reveals or un-rests (it counts as inside, so only leaving and coming back opens).
-        if missionControlShowing(screenFrame) {
+        if missionControlShowing(NotchOverlap.windowServerRect(screenFrame, primaryDisplayHeight: primaryDisplayHeight)) {
             Self.spacesLog.notice("Pointer entered FERB while Mission Control shows: nothing opens or un-rests")
             return
         }

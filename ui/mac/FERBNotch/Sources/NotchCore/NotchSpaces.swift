@@ -51,13 +51,15 @@ public enum SpaceFacts {
     public static let fullScreenType: Int32 = 4
 
     /// Mission Control (or App Exposé) is showing: the window manager process draws a window above the normal layer
-    /// that covers the whole display (window-server coordinates). Stage Manager's strip and the Dock (its own
+    /// across the display's whole width (window-server coordinates): the Spaces bar, which comes first as Mission
+    /// Control opens, or the whole-display backdrop. Stage Manager's strip at the side and the Dock (its own
     /// full-display window sits on the Dock layer, always) don't.
     public static func missionControlShowing(in rows: [ScreenWindow], display: CGRect,
                                              isWindowManager: (Int32) -> Bool) -> Bool {
         rows.contains { row in
             row.layer > 0 && row.layer != NotchOverlap.dockLayer && row.alpha >= NotchOverlap.minimumVisibleAlpha
-                && row.bounds.insetBy(dx: -1, dy: -1).contains(display) && isWindowManager(row.ownerPID)
+                && row.bounds.minX <= display.minX + 1 && row.bounds.maxX >= display.maxX - 1
+                && row.bounds.intersects(display) && isWindowManager(row.ownerPID)
         }
     }
 }

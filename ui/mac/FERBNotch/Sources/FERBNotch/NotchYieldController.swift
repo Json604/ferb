@@ -66,6 +66,9 @@ final class NotchYieldController {
     /// The owner just opened or revealed FERB: the windows found over it at the next check are overridden.
     private var overrideAtNextCheck = false
     private var systemInputPIDs: [Int32: Bool] = [:]
+    /// Whether a process is the window manager that draws Mission Control and App Exposé (com.apple.WindowManager).
+    var isWindowManager: (Int32) -> Bool = { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier == "com.apple.WindowManager" }
+    private var windowManagerPIDs: [Int32: Bool] = [:]
     /// The other apps' windows over FERB at the last poll.
     private var currentOverlays: [ScreenWindow] = []
     /// Whether the pointer was on the notch at the last look. Only entering the notch brings FERB back, so a pointer
@@ -112,8 +115,17 @@ final class NotchYieldController {
             return wasYielded && !model.isYielded
         }
         let rows = windows()
-        currentOverlays = NotchOverlap.foreignOverlays(in: rows, ferbFrames: layout.occupied, ownPIDs: ownPIDs,
-                                                       menuBar: layout.menuBar, display: layout.display)
+        // Mission Control and App Exposé lay out ordinary windows as thumbnails: a FERB that stepped back would become
+        // one. While they show, nothing counts as over FERB (APP-729).
+        let missionControl = SpaceFacts.missionControlShowing(in: rows, display: layout.display) { [unowned self] pid in
+            if let known = windowManagerPIDs[pid] { return known }
+            let manager = isWindowManager(pid)
+            windowManagerPIDs[pid] = manager
+            return manager
+        }
+        currentOverlays = missionControl ? [] : NotchOverlap.foreignOverlays(in: rows, ferbFrames: layout.occupied,
+                                                                             ownPIDs: ownPIDs, menuBar: layout.menuBar,
+                                                                             display: layout.display)
             .filter { !isSystemInput($0.ownerPID) && !onAnotherSpace($0.windowID) }
         let overlays = Set(currentOverlays.map(\.windowID))
         // An override is forgotten only when its window leaves the screen, not when FERB folds away from it.

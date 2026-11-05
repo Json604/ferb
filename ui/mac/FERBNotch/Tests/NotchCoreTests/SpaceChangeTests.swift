@@ -253,7 +253,11 @@ final class SpaceChangeTests: XCTestCase {
         func showing(_ rows: [ScreenWindow]) -> Bool {
             SpaceFacts.missionControlShowing(in: rows, display: display) { $0 == manager }
         }
-        XCTAssertFalse(showing([dock, wallpaper, spacesBar]))
+        let stageStrip = ScreenWindow(windowID: 900, ownerPID: manager, layer: 3,
+                                      bounds: CGRect(x: 0, y: 100, width: 180, height: 700), alpha: 1)
+        XCTAssertFalse(showing([dock, wallpaper, stageStrip]))
+        // Opening from a full-screen Space the Spaces bar comes first (live 2026-11-05), then the backdrop.
+        XCTAssertTrue(showing([dock, wallpaper, spacesBar]))
         XCTAssertTrue(showing([dock, wallpaper, mission, spacesBar]))
         XCTAssertFalse(SpaceFacts.missionControlShowing(in: [mission], display: display) { _ in false })
     }

@@ -2344,9 +2344,9 @@ title = "Hover after a Space change and during Mission Control"
 by = "agent"
 date = 2026-11-05
 status = "active"
-rule = "Implements APP-729. After a Space change pointer updates do nothing until the pointer really moves. While Mission Control or App Exposé shows (a com.apple.WindowManager window above the normal layer, not the Dock layer, covering the whole display) the pointer entering FERB opens, reveals and un-rests nothing, and only leaving and coming back opens it afterwards."
+rule = "Implements APP-729. After a Space change pointer updates do nothing until the pointer really moves. While Mission Control or App Exposé shows (a com.apple.WindowManager window above the normal layer, not the Dock layer, across the display's whole width: its Spaces bar or backdrop) the pointer entering FERB opens, reveals and un-rests nothing (only leaving and coming back opens it afterwards), and no window counts as over FERB, so it never steps back into a thumbnail."
 why = "The pointer crossing the top edge to Mission Control's Spaces bar opened the chat (hover on) or popped up the pill (hover off)."
-evidence = "scratchpad b4/in-mc.txt, desk-mc.txt: WindowManager L19 (0,0 1470x956) and its L14 Spaces bar only while Mission Control shows; the Dock's L20 whole-display window is always on a desktop."
+evidence = "scratchpad b4 in-mc.txt, live-f-walk.txt: WindowManager's L14 Spaces bar (0,0 1470x220) shows first, then its L19 backdrop, only while Mission Control shows; the Dock's L20 whole-display window is always on a desktop."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
 live = ["LIVE-789", "LIVE-790"]
 

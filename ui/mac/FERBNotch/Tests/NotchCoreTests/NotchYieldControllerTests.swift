@@ -18,6 +18,7 @@ final class NotchYieldControllerTests: XCTestCase {
         controller.canBeActive = { _ in true }                  // the fixture's processes are ordinary apps
         controller.frontmostApp = { nil }
         controller.onAnotherSpace = { _ in false }              // fixture windows are on the Space showing
+        controller.isWindowManager = { _ in false }
     }
 
     override func tearDown() async throws {
@@ -176,6 +177,24 @@ final class NotchYieldControllerTests: XCTestCase {
         controller.evaluate()
         XCTAssertFalse(model.isYielded)
         controller.onAnotherSpace = { _ in false }              // the same window on the Space showing
+        controller.evaluate()
+        XCTAssertTrue(model.isYielded)
+    }
+
+    /// Live 2026-11-05: with the chat open, Mission Control's Spaces bar (the window manager's layer-14 strip over the
+    /// top of the display) counted as over FERB; the stepped-back panel became one of Mission Control's thumbnails.
+    /// While Mission Control shows nothing counts; afterwards a menu over FERB still does.
+    // decision: APP-729, APP-734
+    func testNothingCountsAsOverFERBWhileMissionControlShows() {
+        let manager: Int32 = 990
+        controller.isWindowManager = { $0 == manager }
+        model.expand()
+        let spacesBar = F.window(manager, layer: 14, 0, 0, 1470, 128)
+        let mission = F.window(manager, layer: 19, 0, 0, 1470, 956)
+        windows = [mission, spacesBar, F.clipboardMenu]
+        controller.evaluate()
+        XCTAssertFalse(model.isYielded)
+        windows = [F.clipboardMenu]
         controller.evaluate()
         XCTAssertTrue(model.isYielded)
     }
