@@ -195,6 +195,23 @@ class BrowserProfile:
     email: str           # "" when not signed in
 
 
+def shown(p: BrowserProfile, label: str | None = None) -> str:
+    """How FERB's own text names a profile (owner 2026-11-05, HAND-424): its browser, its name in quotes and, when the
+    profile is signed in to the browser, that account in brackets — `Google Chrome “Work” (work@example.com)`; nothing
+    after the name when it isn't. `label` replaces the browser's name ("" leaves it out). The account is read fresh
+    from Local State each time (`discover`), never stored."""
+    browser = label if label is not None else (BROWSERS[p.browser].label if p.browser in BROWSERS else p.browser)
+    name = f"“{p.display_name or p.folder}”"
+    return (f"{browser} {name}" if browser else name) + (f" ({p.email})" if p.email else "")
+
+
+def named(found: list[BrowserProfile], browser: str, folder: str) -> BrowserProfile:
+    """The discovered profile in that folder, else one named by its folder with no account (Full Disk Access off, its
+    Local State unreadable: HAND-407 never guesses a name or an account)."""
+    return next((p for p in found if (p.browser, p.folder) == (browser, folder)),
+                BrowserProfile(browser, folder, folder, ""))
+
+
 def discover(browser: str, data_dir: Path | None = None) -> list[BrowserProfile]:
     local_state = (data_dir or SUPPORT / BROWSERS[browser].data) / "Local State"
     try:
@@ -251,7 +268,7 @@ class Resolution:
             return f"'{spoken}' matches several profiles: " + ", ".join(
                 f"{p.browser}/{p.folder} (name={p.display_name!r}, account={p.email or 'unknown'})" for p in self.candidates)
         return f"no profile called '{spoken}'; found: " + (", ".join(
-            f"{p.browser}/{p.display_name}" for p in available) or "none")
+            f"{p.browser}/{p.display_name}" + (f" ({p.email})" if p.email else "") for p in available) or "none")
 
 
 def _norm(text: str) -> str:

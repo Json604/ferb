@@ -178,6 +178,7 @@ class ProfileStatus:
     paired: bool | None      # None: not checked (FERB's daemon didn't answer)
     version: str = ""        # the installed copy's version from the profile's files (HAND-412); "" when unknown
     disabled_for: frozenset[int] = frozenset()   # Chromium's reason codes for a copy that is off (HAND-412)
+    email: str = ""          # the account the profile is signed in to the browser with, read fresh (HAND-424); ""
 
 
 @dataclass(frozen=True)
@@ -210,7 +211,7 @@ def profile_status(p: profiles.BrowserProfile, ids: tuple[str, ...], data_dir: P
                          bool(found and profiles.extension_enabled(found[1])), removed,
                          None if paired is None else (p.browser, p.folder) in paired,
                          profiles.extension_version(found[1], data_dir / p.folder, found[0]) if found else "",
-                         profiles.disable_reasons(found[1]) if found else frozenset())
+                         profiles.disable_reasons(found[1]) if found else frozenset(), p.email)
 
 
 def prepare(support: Path, store_id: str, ids: tuple[str, ...], paired: set[tuple[str, str]] | None,
@@ -245,7 +246,8 @@ def _profile_line(p: ProfileStatus, store_id: str) -> str:
         if p.enabled:
             state += (", pairing not checked (FERB isn't running)" if p.paired is None else ", paired" if p.paired
                       else ", not paired")
-    return f"    “{p.name}” ({p.folder}): {state}"
+    where = f"{p.email}, {p.folder}" if p.email else p.folder
+    return f"    “{p.name}” ({where}): {state}"
 
 
 def read_states(support: Path, store_id: str, ids: tuple[str, ...], paired: set[tuple[str, str]] | None,

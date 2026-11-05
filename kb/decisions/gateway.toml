@@ -394,3 +394,13 @@ rule = "A task's safety check (confirmation, retry, conversation scope) shows it
 why = "Review §0.3 and §0.9: typed words on a safety check reached the worker as \"the owner didn't answer\" without the words, and the card's redaction hid a whole reply when the question mentioned a password."
 paths = ["ferb/daemon/areas/chat.py::Chat._chat_correct", "ferb/orchestrator/supervisor.py::Supervisor.correct_from_question", "ferb/orchestrator/steering.py::OPTION_ONLY", "ferb/orchestrator/steering.py::TASK_CHECKS"]
 live = ["LIVE-785", "LIVE-786"]
+
+[GATE-511]
+title = "The pair question shows the profile's account; provenance stays on its name"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "confirm.pair_need takes the profile's signed-in account (GatewayDeps.profile_account, read fresh) into its values, and the question and its short form say it in brackets after the profile's name. The owner-named check (provenance) still compares only the profile's name, so \"pair my Work profile\" skips the question as before, and the need's key stays (browser, folder)."
+why = "HAND-424 (owner, 2026-11-05): the pair question is a place the profile is shown."
+paths = ["ferb/policy/confirm.py::pair_need", "ferb/daemon/gateway.py::Gateway._pair_need"]
+live = ["LIVE-791"]

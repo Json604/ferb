@@ -752,3 +752,15 @@ why = "Same trace as HAND-422: a frame session's setup error (\"Session with giv
 evidence = "Owner, 2026-11-04: \"update the extension and give me the zip to upload\""
 paths = ["extensions/chromium/background.js"]
 live = ["LIVE-770"]
+
+[HAND-424]
+title = "Every browser profile shows the account it is signed in to beside its name"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "attach browser email alongside profile name in demo adn in normal settings and eveyrhwhere where it is shown"
+words_source = "Owner, 2026-11-05, item 6; approved: \"7. \"6. Your browser email beside each profile name\" - aproved\", with D16 (the rule's limits)"
+rule = "Wherever FERB shows a browser profile (tour and playground, Settings → Browsers, pairing lines, owner-profile picker, identity step, About, the pair question, a leftover tab's line, the AI's facts and tool results), the account it is signed in to its browser with (Local State `user_name`) shows beside its name: only that account, nothing after the name when it isn't signed in, no badge. Read fresh each time, never stored or journaled by FERB. Without Full Disk Access none shows (HAND-407). No prompt rule makes FERB's own sentences repeat emails."
+why = "Two profiles can share a name (live 2026-10-27: two \"Work\" profiles); the account tells them apart and says which inbox a profile reaches."
+paths = ["ferb/act/browser/profiles.py::shown", "ferb/act/browser/profiles.py::named", "ferb/daemon/areas/environment.py::Environment._availability", "ferb/daemon/areas/environment.py::Environment._live_facts"]
+live = ["LIVE-791"]

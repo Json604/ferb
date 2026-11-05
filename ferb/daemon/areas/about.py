@@ -46,17 +46,24 @@ class About:
         rows = permissions.rows(grants, self._setup_containment())
         values = settings.read(self.config)
         address = str(self.config.get("mailbox", "address", "") or "")
-        prof = self._identity_profile()
-        owner_profile = str(self.config.get("browsing", "owner_profile", "") or "")
+        from ferb.act.browser.profiles import named, shown
+        prof, owner = self._identity_profile(), self._owner_browsing_profile()
+        # HAND-424: profiles by name with the account each is signed in to, read fresh (folders without Full Disk Access)
+        found = await asyncio.to_thread(self._profiles) if prof or owner else []
+        mine = named(found, *prof) if prof else None
+        theirs = named(found, *owner) if owner else None
         doc: dict[str, Any] = {
             "version": {"ferb": ferb.__version__},
             "models": self._models(),
             "account": ({"email": address, "browser": prof[0] if prof else "", "profile": prof[1] if prof else "",
-                         "paired": self._identity_paired()} if address else
+                         "profile_name": mine.display_name if mine else "", "paired": self._identity_paired()}
+                        if address else
                         {"email": "", "note": "FERB has no Google account of its own; features that need its own inbox "
                                               "(one-time codes for its own sign-ups, sending from its address) aren't "
-                                              "set up" + (f"; it browses as the owner in {owner_profile}"
-                                                          if owner_profile else "")}),
+                                              "set up" + (f"; it browses as the owner in {shown(theirs)}"
+                                                          if theirs else "")}
+                        | ({"owner_profile": {"browser": theirs.browser, "folder": theirs.folder,
+                                              "name": theirs.display_name, "email": theirs.email}} if theirs else {})),
             "permissions": [{"id": r["id"], "status": r["status"]} for r in rows],
             "settings": [{"key": k, "value": v, "where": places.get(k, "FERB.app → Settings")}
                          for k, v in values.items()],

@@ -116,6 +116,7 @@ class Compose:
                                    app_window=self._app_window,
                                    journal_problem=lambda kind, data: self._journal().append(kind, data),   # R4
                                    profile_name=self._profile_display_name,   # browser_pair's question names it
+                                   profile_account=self._profile_account,     # and its signed-in account
                                    disturbance=self.disturbance, username_sources=self._username_sources,
                                    on_path=self.attribution.ferb_touched, route_question=questions,
                                    shadow_action=self._destructive_shadow, test_send_allowlist=allowlist,

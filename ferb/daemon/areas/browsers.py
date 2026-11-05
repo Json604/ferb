@@ -331,12 +331,13 @@ class Browsers:
                 found = seed.profiles(data)
             except seed.SeedError:
                 continue
+            signed = {p.folder: p.email for p in browser_profiles.discover(browser, data)}     # HAND-424
             for p in found:
                 if address in p.accounts:
                     out.append({"browser": browser, "browser_name": browser_profiles.BROWSERS[browser].label
                                 if browser in browser_profiles.BROWSERS else browser,
-                                "folder": p.folder, "name": p.name, "only": p.accounts == (address,),
-                                "other_accounts": len(p.accounts) - 1})
+                                "folder": p.folder, "name": p.name, "email": signed.get(p.folder, ""),
+                                "only": p.accounts == (address,), "other_accounts": len(p.accounts) - 1})
         return out
 
     async def _identity_find(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -344,11 +345,19 @@ class Browsers:
         and whether its profile is paired, and, for `address` (the account the owner made), each profile signed into
         it. The owner made the account and signed it in; FERB only looks."""
         address = str(params.get("address") or self.config.get("mailbox", "address", "") or "").strip().lower()
-        prof = self._identity_profile()
+        prof, owner = self._identity_profile(), self._owner_browsing_profile()
+        found = await asyncio.to_thread(self._profiles) if prof or owner else []
+        mine = browser_profiles.named(found, *prof) if prof else None
+        theirs = browser_profiles.named(found, *owner) if owner else None
+        # HAND-424: each profile's name and the account it is signed in to, read fresh (folder names and no account
+        # without Full Disk Access)
         current = {"address": str(self.config.get("mailbox", "address", "") or ""),
                    "browser": prof[0] if prof else "", "profile": prof[1] if prof else "",
+                   "profile_name": mine.display_name if mine else "", "profile_email": mine.email if mine else "",
                    "paired": self._identity_paired(),
-                   "owner_profile": str(self.config.get("browsing", "owner_profile", "") or "")}
+                   "owner_profile": str(self.config.get("browsing", "owner_profile", "") or ""),
+                   "owner_profile_name": theirs.display_name if theirs else "",
+                   "owner_profile_email": theirs.email if theirs else ""}
         candidates = await asyncio.to_thread(self._identity_candidates, address) if address else []
         return {"current": current, "address": address, "candidates": candidates}
 
@@ -438,7 +447,7 @@ class Browsers:
             browser_profiles.open_known_profile(p.browser, p.folder, "chrome://extensions", self._profiles(),
                                                 background=False)   # the owner does the clicks: they must see it
             return {"paired": False, "needs_install": True, "browser": p.browser, "folder": p.folder,
-                    "name": p.display_name, "extension_dir": str(extension_path(self.home))}
+                    "name": p.display_name, "email": p.email, "extension_dir": str(extension_path(self.home))}
         return await self._pair_one(p, float(params.get("timeout_s", 60)))
 
     def _named_profile(self, params: dict[str, Any]) -> Any:
@@ -465,7 +474,9 @@ class Browsers:
         (Pair, Pair all) or Yes (a task's browser_pair) is what authorizes it (owner 2026-10-27, replacing automatic
         pairing). A page left unanswered revokes its token."""
         assert self.pairings
-        base = {"browser": p.browser, "folder": p.folder, "name": p.display_name}
+        # the account it is signed in to the browser with, read fresh, for the owner's view (HAND-424); the journal
+        # entries below name only the browser and folder
+        base = {"browser": p.browser, "folder": p.folder, "name": p.display_name, "email": p.email}
         if (p.browser, p.folder) == self._identity_profile():
             return base | {"paired": False, "why": "FERB's own profile is paired as FERB"}
         state = self._profile_state(p)
@@ -544,6 +555,12 @@ class Browsers:
     def _profile_display_name(self, browser: str, folder: str) -> str:
         p = next((p for p in self._profiles() if (p.browser, p.folder) == (browser, folder)), None)
         return p.display_name if p is not None else folder
+
+    def _profile_account(self, browser: str, folder: str) -> str:
+        """The account that profile is signed in to its browser with, read fresh (HAND-424); "" when it isn't signed in
+        or FERB can't read it (Full Disk Access off)."""
+        p = next((p for p in self._profiles() if (p.browser, p.folder) == (browser, folder)), None)
+        return p.email if p is not None else ""
 
     async def _handoff(self, ref: Any, message: str, ctx: Any) -> dict[str, Any]:
         """A human check handed to the owner (owner 2026-10-27: one notification opens the exact tab, and FERB carries
@@ -663,7 +680,7 @@ class Browsers:
                         continue                            # paired already, nothing known against it
                 if why is not None:
                     skipped.append({"browser": st.browser, "label": label, "folder": st.folder, "name": st.name,
-                                    "reason": why[0], "step": why[1],
+                                    "email": st.email, "reason": why[0], "step": why[1],
                                     "can_add": bool(url) and why[0] in ADDABLE})
                 elif (p := known.get((st.browser, st.folder))) is not None:
                     todo.append(p)
@@ -671,7 +688,7 @@ class Browsers:
             self._journal().append("browsers.pair_all_skipped", {"skipped": [
                 {k: s[k] for k in ("browser", "folder", "reason")} for s in skipped]})
         yield {"type": "plan", "profiles": owner, "skipped": skipped, "store_url": url or None,
-               "todo": [{"browser": p.browser, "folder": p.folder, "name": p.display_name,
+               "todo": [{"browser": p.browser, "folder": p.folder, "name": p.display_name, "email": p.email,
                          "label": labels.get((p.browser, p.folder), p.browser)} for p in todo]}
         timeout = float(params.get("timeout_s", 60))
         jobs = [asyncio.ensure_future(self._pair_one(p, timeout)) for p in todo]
@@ -744,14 +761,12 @@ class Browsers:
         extension last reported a version FERB no longer takes), in the owner's words for setup's message."""
         if self.pairings is None or self.hub is None:
             return []
-        names = {(p.browser, p.folder): p.display_name for p in await asyncio.to_thread(self._profiles)}
+        found = await asyncio.to_thread(self._profiles)
         out = []
         for b in self.pairings.all():
             br = self.hub.bridges.get((b.browser, b.folder))
             if (br is None or br.conn is None) and (why := self.hub.problem(b)) is not None:
-                label = browser_profiles.BROWSERS[b.browser].label if b.browser in browser_profiles.BROWSERS \
-                    else b.browser
-                out.append(f"{label} “{names.get((b.browser, b.folder), b.folder)}”: {why}.")
+                out.append(f"{browser_profiles.shown(browser_profiles.named(found, b.browser, b.folder))}: {why}.")
         return out
 
     async def _connect_browsers(self) -> dict[str, Any]:

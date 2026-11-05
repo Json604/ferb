@@ -3186,3 +3186,12 @@ request = "With FERB closed, switch Spaces several times (Control-arrow and swip
 pass = "Nothing appears or pops up: no black panel, the resting line stays a line (on the full-screen Space it is the line too), and Mission Control opens nothing. The top-row click opens FERB. If anything appears, send `log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" && category == \"spaces\"'`."
 decisions = ["APP-729", "APP-730", "APP-733", "APP-734", "APP-735"]
 sitting = "after this change is installed"
+
+[LIVE-791]
+title = "The browser account shows beside every profile name"
+area = "hands"
+surface = "FERB.app with this build; at least one Chrome profile signed in to Chrome and one that isn't"
+request = "Open Settings → Browsers and look at every row and the owner-profile picker; Replay intro and press Pair all (watch the live rows and any Add to line); in chat ask FERB to \"check my <your work account> inbox\" with a profile that isn't paired yet, so it asks to pair; then turn Full Disk Access off for FERB, reopen Settings → Browsers, and turn it back on."
+pass = "Each signed-in profile shows its Chrome account after its name (a long one shortened in the middle, keeping the domain; the full one on hover); an unsigned profile shows only its name; FERB's own row shows FERB's address; the pair question names the profile with its account; FERB picks the profile signed in to the account you named. With Full Disk Access off no account shows anywhere."
+decisions = ["HAND-424", "DMN-546", "GATE-511"]
+sitting = "after this change is installed"

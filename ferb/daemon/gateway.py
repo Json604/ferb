@@ -414,6 +414,7 @@ class GatewayDeps:
     app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None
     journal_problem: Callable[[str, dict[str, Any]], None]   # where a fault the gateway survives is journaled
     profile_name: Callable[[str, str], str]             # browser_pair's question names the profile
+    profile_account: Callable[[str, str], str]          # ... with the account it is signed in to, "" none (HAND-424)
     disturbance: Any                                    # the desktop sentinel (P26)
     username_sources: Callable[[], Container[str] | None]   # L36 §6: where a login record's username may come from
     on_path: Callable[[str, str], None]                 # trail attribution of a path FERB touched
@@ -554,6 +555,7 @@ class Gateway:
         # where a fault the gateway survives is journaled (the daemon's journal): kind, redacted data
         self.journal_problem: Callable[[str, dict[str, Any]], None] = deps.journal_problem
         self.profile_name: Callable[[str, str], str] = deps.profile_name
+        self.profile_account: Callable[[str, str], str] = deps.profile_account
         self.shadow_action: Callable[[dict[str, Any], str], Awaitable[None]] | None = deps.shadow_action
         self._background: set[asyncio.Task[Any]] = set()    # fire-and-forget work (shadow advice), kept and reported
         self._outside: dict[str, OutsideTexts] = {}       # by root task, until the task is forgotten
@@ -1372,7 +1374,9 @@ class Gateway:
         request = self.state.requests.get(c.rec.task.request_id)
         said = provenance.sources(shown, request.words if request is not None else "", [],
                                   answer_text="\n".join(self.spans.owner_answers(c.root)))
-        return None if confirm.owner_named(said) else confirm.pair_need(shown, browser, folder)
+        # provenance stays on the name: the account is shown beside it in the question, never matched (HAND-424)
+        return None if confirm.owner_named(said) else confirm.pair_need(shown, browser, folder,
+                                                                        self.profile_account(browser, folder))
 
     def _escape_need(self, c: "Call") -> confirm.Need:
         """D31: a read escape is one Yes per protected folder per task tree, shared with the file tools' reads of it

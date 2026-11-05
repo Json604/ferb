@@ -53,7 +53,8 @@ class Resolver:
                 raise NeedsOwner(r.message(named, pool) + (f" ({why})" if why else ""))
             p = r.candidates[0]
             if (p.browser, p.folder) not in paired:
-                raise NeedsOwner(f"{p.browser} profile '{p.display_name}' ({p.browser}/{p.folder}) isn't paired "
+                account = f", signed in as {p.email}" if p.email else ""
+                raise NeedsOwner(f"{p.browser} profile '{p.display_name}' ({p.browser}/{p.folder}{account}) isn't paired "
                                  f"with FERB yet: pair it with browser_pair profile={p.browser}/{p.folder} (FERB asks "
                                  "the owner once)")
             return Choice(p.browser, p.folder, f"named: {named}")
@@ -69,4 +70,4 @@ class Resolver:
 
     def _name(self, browser: str, folder: str) -> str:
         p = next((p for p in self.known() if (p.browser, p.folder) == (browser, folder)), None)
-        return f"{browser}/{p.display_name if p else folder}"
+        return f"{browser}/{p.display_name if p else folder}" + (f" ({p.email})" if p and p.email else "")

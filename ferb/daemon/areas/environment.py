@@ -27,9 +27,9 @@ class Environment:
         alignment = self.journal.of_running_tasks("security.alignment") if self.journal is not None else []
         found, apps, running, macos, extension = await asyncio.to_thread(
             self._environment_files, {(b.browser, b.folder) for b in bindings})
-        names = {(p.browser, p.folder): p.display_name for p in found} if self.pairings else {}
-        paired = [(b.browser, b.folder, names.get((b.browser, b.folder), b.folder)) for b in bindings
-                  if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
+        from ferb.act.browser.profiles import named
+        paired = [(b.browser, b.folder, (p := named(found, b.browser, b.folder)).display_name, p.email)
+                  for b in bindings if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
         stable, live = svc.summary(svc.Environment(apps, paired), macos, running)
         profiles = [{'browser': p.browser, 'profile': p.folder, 'name': p.display_name, 'account_hint': p.email,
                      'identity': 'ferb' if (p.browser, p.folder) == ferb else 'owner'} for p in found]
@@ -160,12 +160,13 @@ class Environment:
             ferb = self._identity_profile()
             owner = [b for b in (self.pairings.all() if self.pairings else [])
                      if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
-            names = {(p.browser, p.folder): p.display_name for p in self._fresh_profiles()} if owner else {}
+            from ferb.act.browser.profiles import named, shown
+            found = self._fresh_profiles() if owner else []
             if not owner:
                 problems["owner_browsers"] = ("none of the owner's browser profiles is paired — browser_pair pairs "
                                               "one (FERB asks the owner once)")
-            profiles = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
-                                 for b in owner)
+            # HAND-424: each with the account it is signed in to its browser with (cached prefix: it changes rarely)
+            profiles = ", ".join(shown(named(found, b.browser, b.folder), b.browser.capitalize()) for b in owner)
             if profiles:
                 profiles = f"paired: {profiles} (whether each is connected now: the live facts)"
         prof = self._identity_profile()
@@ -227,11 +228,13 @@ class Environment:
         if address:
             lines.append(f"- FERB's own email (its identity, never the owner's): {address}")
         else:                                       # APP-1: the owner skipped FERB's own account
+            from ferb.act.browser.profiles import named, shown
             browser, _, folder = str(self.config.get("browsing", "owner_profile", "") or "").partition("/")
+            chosen = shown(named(self._fresh_profiles(), browser, folder), "") if browser and folder else ""
             lines.append("- FERB has no Google account or browser profile of its own (the owner can add one in "
                          "FERB.app → Settings → Browsers): what needs FERB's own inbox (one-time codes for FERB's own "
                          "sign-ups, sending from FERB's address) isn't set up; web work uses identity \"owner\" "
-                         + (f"in the owner's {browser} profile folder “{folder}”, which they chose for it."
+                         + (f"in the owner's {browser} profile {chosen} (folder “{folder}”), which they chose for it."
                             if browser and folder else "in a profile the owner names (none chosen for it)."))
         lines += [f"- FERB secret {s.ref.key}: {s.account_hint}, usable on {', '.join(s.allowed_origins)}"
                   for s in self.secrets.specs()]
@@ -260,15 +263,16 @@ class Environment:
                          f"{t.fire_at.astimezone():%a %d %b %Y %H:%M}")
         if self.pairings is not None and self.hub is not None:           # the owner's browsers, as FERB can use them
             ferb = self._identity_profile()
-            names: dict[tuple[str, str], str] | None = None
+            from ferb.act.browser.profiles import named, shown
+            found: list[Any] | None = None
             for b in self.pairings.all():
                 if (b.browser, b.folder) == ferb or b.identity is not Identity.OWNER:
                     continue
                 br = self.hub.bridges.get((b.browser, b.folder))
-                if names is None:            # one profile discovery per call, kept fresh off the loop (`_fresh`)
-                    names = {(p.browser, p.folder): p.display_name for p in self._fresh_profiles()}
-                name = names.get((b.browser, b.folder), b.folder)
-                lines.append(f"- The owner's {b.browser} profile “{name}”: paired{self._paired_state(b, br)}")
+                if found is None:            # one profile discovery per call, kept fresh off the loop (`_fresh`)
+                    found = self._fresh_profiles()
+                name = shown(named(found, b.browser, b.folder), "")        # with its signed-in account (HAND-424)
+                lines.append(f"- The owner's {b.browser} profile {name}: paired{self._paired_state(b, br)}")
             for browser in sorted(set(self.hub.unpaired.values())):
                 note = self._unpaired_note(browser)
                 if note:

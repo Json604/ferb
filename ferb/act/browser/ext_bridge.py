@@ -31,8 +31,8 @@ from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSI
 from ferb.act.browser.downloads import Downloads, TaskTab
 from ferb.act.browser.uploads import StagingFailed, Uploads, source_path, tab_key
 from ferb.act.browser.pairing import Binding, Pairings
-from ferb.act.browser.profiles import (BROWSERS, BrowserProfile, open_known_profile, running as browser_running,
-                                      with_paired)
+from ferb.act.browser.profiles import (BROWSERS, BrowserProfile, named as named_profile, open_known_profile,
+                                      running as browser_running, shown as profile_shown, with_paired)
 from ferb.act.browser.resolver import Resolver
 from ferb.act.browser.snapshot import FIELD_KINDS, element as page_element
 from ferb.act.browser.tools import Secrets
@@ -2342,13 +2342,14 @@ class _TabDriver:
         """A tab the task's cleanup couldn't close or let go of, as the owner knows it: the browser and profile by
         name, the page title it last showed (redacted), whether it was the owner's own tab, and the raw error."""
         try:
-            names = {(p.browser, p.folder): p.display_name for p in self.known()}
+            known = self.known()
         except Exception:                                # a name is a courtesy: the folder still says which profile
-            names = {}
+            known = []
+        p = named_profile(known, t.ref.browser, t.ref.profile)
         browser = BROWSERS[t.ref.browser].label if t.ref.browser in BROWSERS else t.ref.browser.capitalize()
         host = (urlsplit(t.url).hostname or "") if t.url.startswith(("http://", "https://")) else ""
         return {"tab": t.ref.tab_id, "browser": browser,
-                "profile": names.get((t.ref.browser, t.ref.profile), t.ref.profile),
+                "profile": p.display_name, "account": p.email,        # its signed-in account, read now (HAND-424)
                 "title": t.title or self.redact_text(host), "borrowed": t.attached, "kept_open": t.keep_open,
                 "error": error}
 
@@ -2425,7 +2426,7 @@ class Router(_TabDriver):
     async def open_tabs(self, profile: str | None = None, task: str | None = None) -> list[dict[str, Any]]:
         """The owner's open tabs in their connected profiles: a reference, the site and whether it's the active one.
         A tab this task already took over is listed with its tab id; FERB's own tabs and other tasks' aren't."""
-        names = {(p.browser, p.folder): p.display_name for p in self.known()}
+        known = self.known()
         out = []
         selected = self._owner_bridges(profile, connected_only=False)
         if profile and self.wake is not None:
@@ -2453,8 +2454,9 @@ class Router(_TabDriver):
                 if mine is None and self.owner_of(br, int(t["tab_id"])) is not None:
                     continue                                  # FERB's own tabs, or another task's
                 entry = {"tab_ref": f"{br.binding.browser}:{br.binding.folder}:{t['tab_id']}",
-                            "profile": f"{br.binding.browser.capitalize()} “"
-                                       f"{names.get((br.binding.browser, br.binding.folder), br.binding.folder)}”",
+                            # with the account it is signed in to (HAND-424)
+                            "profile": profile_shown(named_profile(known, br.binding.browser, br.binding.folder),
+                                                     br.binding.browser.capitalize()),
                             "profile_id": f"{br.binding.browser}/{br.binding.folder}",
                             "url":str(t.get("url") or ""), "title":str(t.get("title") or ""),
                             "site": str(t.get("host") or ""), "active": bool(t.get("active")),

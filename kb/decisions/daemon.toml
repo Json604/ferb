@@ -686,3 +686,13 @@ rule = "about.guide (APP_ONLY) also takes `app_settings` [{key, name, where, wha
 why = "APP-728 (owner, 2026-11-05); AGENTS.md: an RPC change for the UI is a daemon change recorded in kb."
 paths = ["ferb/daemon/about.py::clean_guide", "ferb/daemon/areas/about.py::About._about_document", "ferb/daemon/areas/about.py::About._about_guide"]
 live = ["LIVE-788"]
+
+[DMN-546]
+title = "Profile replies carry each profile's signed-in account"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "setup.browsers profile rows (ProfileStatus.email), Pair all's plan (todo, skipped), result and done rows, browsers.pair's needs_install, identity.find (current profile_name/profile_email, owner_profile_name/owner_profile_email, candidates' email) and about.get (account profile_name; owner_profile {browser, folder, name, email}) carry the profile's signed-in account, \"\" when none or before Full Disk Access (browsers.list already did). Journal entries keep only browser and folder. No new RPC or role."
+why = "HAND-424 (owner, 2026-11-05); AGENTS.md: a UI change that needs changed RPC replies is a daemon change recorded in kb."
+paths = ["ferb/act/browser/autoinstall.py::ProfileStatus", "ferb/device/extensions.py::browser_rows", "ferb/daemon/areas/browsers.py::Browsers._pair_all_events", "ferb/daemon/areas/browsers.py::Browsers._pair_one", "ferb/daemon/areas/browsers.py::Browsers._identity_find", "ferb/daemon/areas/about.py::About._about_document"]
+live = ["LIVE-791"]

@@ -46,5 +46,7 @@ def leftover_lines(resources: list[dict[str, Any]], errors: list[str]) -> list[s
 def _tab_line(tab: dict[str, Any]) -> str:
     browser = str(tab.get("browser") or "the browser")
     profile, title = str(tab.get("profile") or ""), str(tab.get("title") or "")
-    where = browser + (f" “{profile}”" if profile else "") + (f", {title}" if title else "")
+    account = str(tab.get("account") or "")                       # the profile's signed-in account (HAND-424)
+    where = browser + (f" “{profile}”" if profile else "") + (f" ({account})" if profile and account else "") \
+        + (f", {title}" if title else "")
     return (OWNERS_TAB if tab.get("borrowed") else OPENED_TAB).format(where=where, browser=browser)
