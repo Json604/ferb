@@ -807,3 +807,15 @@ status = "active"
 rule = "When the checker finds FERB's report condition false and no edit removed or marked anything (the answer is unchanged after its edits), the attempt is a retry told the checker's evidence (journaled: task.report_condition_unmet, retry: true); with a removal or mark applied it is accepted (ORCH-540). The retry counts toward ORCH-307's check-in; when attempts run out on it (nobody attends, or the owner's No), the latest answer stands done_unverified with code's own \"Couldn't confirm\" line, never the checker's evidence."
 why = "ORCH-540 kept the checker's evidence out of the answer, which left a detail the records contradict standing unmarked when no edit applied, against ORCH-309 (owner): \"FERB never states unseen things as fact\". The owner accepted retries for the report condition with P4."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._report_unconfirmed"]
+
+[ORCH-542]
+title = "Reminders, schedules, timers and tasks show a short name"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "also if it is not adde din teh plan is this humoungous reminder text headings, they shoidl just be relvant what they are, not the logs of ferb."
+words_source = "Owner, 2026-11-05: \"12. \"11. Reminders, schedules and tasks show a short name\" - approved\", with D32 (full instruction only in the opened item, never under Details)"
+rule = "The planner writes a short name (2-5 words of what it is) for every task, schedule, reminder and timer it creates; plan steps get none. Every heading shows it: reminder cards and their arrival, banners, task cards, the Tasks page, Settings → Schedules & Reminders. The full instruction shows only where the owner opens that item in the app window. A row without a name shows its instruction's first clause cut at ~40 characters (code, no model, no renaming). A reminder phrased short keeps the owner's words; a change keeps a schedule's name unless it writes one. A timer's card says it is a timer."
+why = "Schedule sc-7884cee123's card was its 392-character run instruction; a 1-minute timer's card said \"Reminder\" over \"Your 1-minute timer is up.\" (tm-c2f6c263). Supersedes T-1055's \"full text under Details\"."
+paths = ["ferb/orchestrator/names.py::shown_name", "ferb/orchestrator/schedules.py::Schedule.label", "ferb/clock/timers.py::Timer.label", "ferb/daemon/areas/schedules.py::Schedules._run_card", "ferb/daemon/areas/schedules.py::Schedules._timer_fired"]
+live = ["LIVE-787"]

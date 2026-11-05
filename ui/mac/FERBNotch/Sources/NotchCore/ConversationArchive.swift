@@ -38,6 +38,9 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     /// The daemon's goal for a task this chat didn't send (reconnected, recovered or started elsewhere); empty when
     /// unknown. Such a turn has no owner message: the goal is FERB's description, never words the owner typed.
     public var taskGoal: String?
+    /// The task's short name (T-1055: the plan event's `name`), its heading in the task list; nil for a turn with no
+    /// task or saved before names.
+    public var taskName: String?
     /// The plan line on its own and code's lines under it ("I'll work in …"), from the plan event's fields; nil for a
     /// turn saved before they existed (its `plan` text is shown).
     public var planLine: String?
@@ -98,7 +101,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
-        case requestID, ack, plan, parts, verified, question, taskGoal, statusInferred
+        case requestID, ack, plan, parts, verified, question, taskGoal, taskName, statusInferred
         case planLine, planLines, direct, receipts, card, note, correction, codeLines, runtimeSwitch, mergedInto
         case cards, receiptCards, hiddenKinds
     }
@@ -478,6 +481,10 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].streamingPlan = nil
         turns[index].awaitingReply = false
         if !text.isEmpty { turns[index].plan = text }
+        if details["name"] != nil || details["goal"] != nil {
+            let name = ShortName.of(details, fallback: "goal")
+            if !name.isEmpty { turns[index].taskName = name }
+        }
         if let line = details["plan_line"] as? String {
             turns[index].planLine = line
             turns[index].planLines = (details["lines"] as? [String] ?? []).filter { !$0.isEmpty }

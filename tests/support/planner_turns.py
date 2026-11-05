@@ -23,7 +23,7 @@ def planner_task(goal: str, recipients: list[str] | None = None) -> dict[str, An
     return {"goal": goal, "identity": "owner", "worker_type": "default",
             "targets": {"apps": [], "sites": [], "paths": [], "recipients": recipients or []},
             "success_conditions": [{"text": goal, "owner_text": "", "layer": "outcome", "check": check}],
-            "plan": None, "folders": [], "keep_tabs_open": False, "parts": []}
+            "plan": None, "folders": [], "keep_tabs_open": False, "parts": [], "name": ""}
 
 
 class PlannerRoute:

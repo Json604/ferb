@@ -69,6 +69,8 @@ public struct BannerItem: Equatable {
     public let body: String
     public let target: NotificationTarget
     public let whenHidden: Bool
+    /// A reminder's or timer's typed card from its row (T-1055: its short name and kind); nil for other banners.
+    public let card: ResultCard?
 
     public init?(_ event: [String: Any]) {
         guard let id = event["id"] as? String, !id.isEmpty, let title = event["title"] as? String,
@@ -79,6 +81,7 @@ public struct BannerItem: Equatable {
         self.body = body
         target = NotificationTarget(event["target"] as? [String: Any] ?? [:])
         whenHidden = event["when_hidden"] as? Bool ?? false
+        card = ResultCard(event["card"])
     }
 
     /// The item this banner shows, as the notch knows it: the id after its kind (`loop:<notice id>`, `task:<task id>`,

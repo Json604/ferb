@@ -61,7 +61,7 @@ def test_19_a_claim_left_by_a_crash_is_delivered_exactly_once(daemon: RunningDae
     run(daemon, crash_states)
     assert daemon.run(t.tick()) == 2                                     # both handed over again...
     assert [x["timer_id"] for x in deliveries(daemon)] == [a.id]        # ...a delivered once, b not again
-    assert notes.shown == [("FERB reminder", "a")]
+    assert notes.shown == [("a", "a")]          # its heading is its name (T-1055), else its words
     assert daemon.run(t.tick()) == 0
     assert {run(daemon, lambda: t.get(x)).state for x in (a.id, b.id)} == {"delivered"}
 

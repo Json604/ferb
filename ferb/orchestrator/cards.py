@@ -6,10 +6,12 @@ The text stays as it was (history, voice, older apps). Each card that stands for
 line (`line`, exactly as the text carries it), so an app that draws the card leaves the line out; nothing is parsed.
 
 Card types and their fields (every field but `type` may be absent when FERB has no record of it):
-- reminder: a schedule's run came due. `title` (the schedule's recorded request), `due` (when the run was due),
-  `repeat` (FERB's words for the rule), `next_run` (the next run's time), `until` (its recorded end, ORCH-320: the
-  countdown is to it when present, else to `next_run`), `schedule_id`.
-- event: a reminder or schedule just set. `kind` (reminder | schedule), `id`, `what`, `when` (its first time),
+- reminder: a schedule's run or a reminder or timer came due. `title` (its short name, T-1055: never the
+  instruction), `kind` (schedule | reminder | timer, from its row), `due` (when it was due), `repeat` (FERB's words for
+  the rule), `next_run` (the next run's time), `until` (its recorded end, ORCH-320: the countdown is to it when present,
+  else to `next_run`), `schedule_id` or `timer_id`.
+- event: a reminder, timer or schedule just set. `kind` (reminder | timer | schedule), `id`, `what` (its short name),
+  `when` (its first time),
   `repeat`, `watch` (FERB's words for a watch), `until` (a schedule's recorded end: a countdown), `line`.
 - note: a remembered item. `item_id`, `text`, `state` (saved | proposed), `line`.
 - payment: a payment-class call that ran under the owner's Yes to a payment. `amount` and `merchant` (as code read them

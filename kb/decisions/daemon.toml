@@ -666,3 +666,13 @@ status = "active"
 rule = "chat.correct {approval_id, text} is on the cli role beside chat.answer (the worker's sandbox denies the socket). It answers with the approval's state, the task, the owner's message as recorded and FERB's reply; the correction is journaled in that task's chat as chat.message (correction_of: the approval) and chat.reply, plus approval.corrected. chat.status and approval.requested carry options_only and corrects from the approval (questions.card_flags)."
 why = "GATE-510 needs an RPC that never resolves an approval as an answer; AGENTS.md: a UI change that needs an RPC is a daemon change recorded in kb."
 paths = ["ferb/daemon/auth.py::METHODS", "ferb/daemon/areas/chat.py::Chat._chat_correct", "ferb/daemon/questions.py::card_flags"]
+
+[DMN-544]
+title = "Short names in the RPCs and events the app reads"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Migration 0060 adds schedule_names, timer_names and task_result_names; a task's name lives in its spec (task_context). `name` (the stored name, else names.shown_name's cut) rides in schedules.list, reminders.list, tasks.list, chat.status running and results, the plan, task.created, task.steered and outcome events, a scheduled run's result and timer.fired. A reminder's or timer's banner has its name as title and a `card` {type reminder, title, kind, timer_id, due}; a task's banner has its name as title. The planner's facts list each schedule and reminder with its name beside its full text."
+why = "ORCH-542 (owner, 2026-11-05); AGENTS.md: an RPC the UI needs is a daemon change recorded in kb."
+paths = ["ferb/daemon/areas/schedules.py::Schedules._schedules_list", "ferb/daemon/areas/rpc.py::Rpc._tasks_list", "ferb/daemon/areas/chat.py::Chat._chat_status", "ferb/daemon/areas/notify.py::Notify._deliver", "ferb/store/task_results.py::TaskResults.record"]
+live = ["LIVE-787"]

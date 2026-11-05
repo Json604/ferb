@@ -254,9 +254,10 @@ class Environment:
         lines: list[str] = []
         for sc in (self._listed_schedules() if self.schedules is not None and owner_state else []):
             state = "done; its last run is under way" if sc.state == "done" else sc.state
-            lines.append(f"- Schedule {sc.id} ({state}): {sc.request} — {sc.describe()}")
+            lines.append(f"- Schedule {sc.id} ({state}) “{sc.label}”: {sc.request} — {sc.describe()}")
         for t in (self.timers.pending(("reminder", "timer")) if self.timers is not None and owner_state else []):
-            lines.append(f"- {t.kind.capitalize()} {t.id}: {t.message} — {t.fire_at.astimezone():%a %d %b %Y %H:%M}")
+            lines.append(f"- {t.kind.capitalize()} {t.id} “{t.label}”: {t.message} — "
+                         f"{t.fire_at.astimezone():%a %d %b %Y %H:%M}")
         if self.pairings is not None and self.hub is not None:           # the owner's browsers, as FERB can use them
             ferb = self._identity_profile()
             names: dict[tuple[str, str], str] | None = None

@@ -129,11 +129,15 @@ struct ReminderCard: View {
         }
     }
 
+    /// What kind of card this is: a timer says it's a timer (its row's kind, T-1055); a schedule's run or a reminder
+    /// says Reminder. The title is the short name, never the instruction.
+    private var meta: (icon: String, text: String) { card.isTimer ? ("timer", "Timer") : ("bell.fill", "Reminder") }
+
     /// The arrival fills the notch with two readable anchors: what arrived and when it is next due.
     private var arrivalDetails: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                CardMeta(icon: "bell.fill", text: "Reminder")
+                CardMeta(icon: meta.icon, text: meta.text)
                 Spacer()
                 if card.repeatRule != nil { RepeatsBadge(rule: card.repeatRule) }
             }
@@ -158,7 +162,7 @@ struct ReminderCard: View {
 
     private var details: some View {
             VStack(alignment: .leading, spacing: 7) {
-                CardMeta(icon: "bell.fill", text: "Reminder")
+                CardMeta(icon: meta.icon, text: meta.text)
                 CardTitle(text: card.title ?? "Scheduled reminder")
                 HStack(spacing: 5) {
                     if let due = card.dueDate {
@@ -233,8 +237,8 @@ struct EventCard: View {
     var body: some View {
         CardSurface {
             VStack(alignment: .leading, spacing: 7) {
-                CardMeta(icon: card.kind == "reminder" ? "alarm" : "calendar",
-                         text: card.kind == "reminder" ? "Reminder set" : "Scheduled")
+                CardMeta(icon: card.isTimer ? "timer" : card.kind == "reminder" ? "alarm" : "calendar",
+                         text: card.isTimer ? "Timer set" : card.kind == "reminder" ? "Reminder set" : "Scheduled")
                 CardTitle(text: card.what ?? "")
                 HStack(spacing: 5) {
                     if let when = card.whenDate {

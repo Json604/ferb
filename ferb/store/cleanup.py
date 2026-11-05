@@ -58,8 +58,8 @@ TRIMMED = frozenset({"decisions", "perception_receipts"})
 # Never written by a run (the test asserts it): what STORE-402 protects and what FERB keeps forever
 PROTECTED = ("memory_items", "memory_sources", "memory_profile", "memory_context", "memory_set_aside",
              "memory_import_runs", "memory_import_done", "memory_import_items", "memory_forgotten", "forgotten_refs",
-             "episodes", "episode_how", "journal", "tasks", "task_results", "task_result_cards", "task_context",
-             "schedules", "schedule_ends", "timers", "conversations", "owner_verdicts", "spans", "trail",
+             "episodes", "episode_how", "journal", "tasks", "task_results", "task_result_cards", "task_result_names", "task_context",
+             "schedules", "schedule_ends", "schedule_names", "timers", "timer_names", "conversations", "owner_verdicts", "spans", "trail",
              "known_destinations", "standing_permissions", "recall_vectors", "chat_fts", "learning_nodes")
 # The protected rows of a table a run also removes from: every learned node (episode cards, playbooks, how-notes) but
 # the old rollups

@@ -33,14 +33,18 @@ struct TasksPage: View {
 struct TaskHistoryRowView: View {
     let row: TaskHistoryRow
     @ObservedObject var store: FERBWindowStore
+    @State private var open = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(row.goal.isEmpty ? row.id : row.goal).bold().lineLimit(2)
+                // T-1055: the heading is the task's short name; opening the row shows the full instruction
+                OpenableHeading(text: row.name.isEmpty ? row.id : row.name, open: $open,
+                                canOpen: !row.goal.isEmpty && row.goal != row.name) { $0.bold().lineLimit(2) }
                 Spacer()
                 Text(words(row.status)).foregroundStyle(.secondary)
             }
+            if open { FullInstruction(text: row.goal) }
             Text(when(row.createdAt)).font(.caption).foregroundStyle(.secondary)
             if !row.answer.isEmpty { ExpandableAnswer(text: row.answer, lines: 4).id(row.answer) }
             HStack {
@@ -68,34 +72,91 @@ struct SchedulesPage: View {
                 WindowCard { Text("Ask FERB to do something regularly, like a morning brief every weekday.").foregroundStyle(.secondary) }
             }
             ForEach(store.schedules) { schedule in
-                WindowCard { scheduleDetails(schedule) }
+                WindowCard { ScheduleCardView(schedule: schedule, store: store) }
             }
             WindowSectionLabel(title: "Reminders", count: store.reminders.count).padding(.top, 14)
             if store.reminders.isEmpty { Text("No reminders waiting.").foregroundStyle(.secondary) }
             ForEach(store.reminders) { reminder in
-                WindowCard {
-                    HStack(alignment: .center, spacing: 18) {
-                        Image(systemName: "bell").font(.system(size: 17)).foregroundStyle(.white.opacity(0.4))
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(reminder.message).font(.system(size: 14, weight: .medium)).fixedSize(horizontal: false, vertical: true)
-                            if let date = reminder.at {
-                                Label(when(date), systemImage: "clock").font(.system(size: 12)).foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer(minLength: 0)
-                        Button("Cancel") { Task { await store.cancel(reminder) } }
-                    }
-                }
+                WindowCard { ReminderRowView(reminder: reminder, store: store) }
             }
         }
     }
+}
 
-    private func scheduleDetails(_ schedule: ScheduleRow) -> some View {
+/// A heading the owner can open (T-1055): tapping it shows the item's full instruction below; nothing else does.
+private struct OpenableHeading<Styled: View>: View {
+    let text: String
+    @Binding var open: Bool
+    var canOpen = true
+    let style: (Text) -> Styled
+
+    var body: some View {
+        if canOpen {
+            Button { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    style(Text(text)).multilineTextAlignment(.leading)
+                    Image(systemName: open ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(open ? "Hides the full instruction" : "Shows the full instruction")
+        } else {
+            style(Text(text))
+        }
+    }
+}
+
+/// The item's full instruction, shown only while the owner has it open (T-1055).
+private struct FullInstruction: View {
+    let text: String
+    var body: some View {
+        Text(text).font(.system(size: 12)).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+    }
+}
+
+/// A waiting reminder or timer: its short name, when, and (opened) what FERB will tell the owner.
+private struct ReminderRowView: View {
+    let reminder: ReminderRow
+    @ObservedObject var store: FERBWindowStore
+    @State private var open = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 18) {
+            Image(systemName: reminder.isTimer ? "timer" : "bell").font(.system(size: 17)).foregroundStyle(.white.opacity(0.4))
+            VStack(alignment: .leading, spacing: 7) {
+                OpenableHeading(text: reminder.name, open: $open, canOpen: reminder.hasDetail) {
+                    $0.font(.system(size: 14, weight: .medium))
+                }
+                if open { FullInstruction(text: reminder.message) }
+                if let date = reminder.at {
+                    Label((reminder.isTimer ? "Timer · " : "") + when(date), systemImage: "clock")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+            Button("Cancel") { Task { await store.cancel(reminder) } }
+        }
+    }
+}
+
+/// A schedule: its short name and rule; opening it shows its full run instruction (T-1055).
+private struct ScheduleCardView: View {
+    let schedule: ScheduleRow
+    @ObservedObject var store: FERBWindowStore
+    @State private var open = false
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(schedule.request).font(.system(size: 16, weight: .semibold)).tracking(-0.2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    OpenableHeading(text: schedule.name, open: $open,
+                                    canOpen: !schedule.request.isEmpty && schedule.request != schedule.name) {
+                        $0.font(.system(size: 16, weight: .semibold)).tracking(-0.2)
+                    }
+                    if open { FullInstruction(text: schedule.request) }
                     Label(schedule.rule, systemImage: "repeat")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }

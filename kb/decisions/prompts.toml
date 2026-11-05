@@ -318,3 +318,13 @@ rule = "FERB's report condition (REPORT_CONDITION and verifier.md) reads: the an
 why = "Live task 794e3bd8: the stale \"says who did each part\" made the checker fail an answer for not saying FERB did the research. Part of the owner-approved P3/P4 refinement (PRM-322, PRM-323)."
 paths = ["ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/supervisor.py::REPORT_CONDITION", "ferb/orchestrator/prompts/interaction.md"]
 untestable = "Prompt text: TEST-500 keeps no wording tests; the owner's live check of a researched answer shows it."
+
+[PRM-328]
+title = "The planner names what it makes; a timer is a timer"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "The planner's schema has `name` (a plain string, \"\" unset, ORCH-330) on a task, a schedule, a timer and a schedule change, and `kind` (reminder | timer) on a timer. supervisor.md says: name is 2-5 words of what it is, never the instruction; a reminder phrased short keeps the owner's words; plan steps get none; a schedule change writes a name only when the owner renames it; a timer they asked for has kind \"timer\"."
+why = "ORCH-542 (owner, 2026-11-05): headings show a short name and a timer says it is one."
+paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/schemas.py::NAME_SCHEMA", "ferb/orchestrator/schemas.py::TIMER_SCHEMA"]
+untestable = "Prompt text: TEST-500 keeps no wording tests; the owner's live check LIVE-787 shows the names."

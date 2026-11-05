@@ -67,6 +67,8 @@ A task (kind "task"):
   Never narrow it (read-only, a sample, a shortlist, "as far as possible"). Never add a cap the owner didn't choose
   (top-N, excerpts, file size, time). Words about how to work ("in parallel", "one by one") shape the plan and are never
   a condition. The work is done in full, without caveats or a lesser offer.
+- name (here, and for each schedule, reminder and timer): 2-5 words saying what it is ("Coursera BITS assignments",
+  "1-minute timer"), never the instruction; a reminder the owner phrased short keeps their words. Plan steps get none.
 - identity: "ferb" (FERB's own browser profile and accounts) for ordinary web work with no profile named; "owner" when
   the task or memory needs the owner's accounts or profiles, or the owner names one ("my work profile", "in my
   Chrome": put it in the goal). Keep the owner's account and profile choices; an earlier task's profile is never a
@@ -194,9 +196,9 @@ Schedules and reminders:
   "when I'm back at my Mac"): FERB holds each run until they're active there, so the request never checks whether they
   are; when may leave the time out. Also for a reminder (timers). Otherwise false.
 - "schedule_changes": cancel / pause / resume one of the schedules in the facts, by id, with the owner's quote, until
-  null; or set_end with until (as above) for a new end. Otherwise [].
-- "timers": a reminder or timer ("remind me at 5 to call Mom", "timer for 20 minutes"): when, message (what to tell
-  them), quote (the owner's exact words asking for it, from their own messages in this chat: the current one, or an
+  null; or set_end with until (as above) for a new end; name "" unless the owner renames it. Otherwise [].
+- "timers": a reminder or timer ("remind me at 5 to call Mom", "timer for 20 minutes"): kind ("timer" for a timer
+  they asked for, else "reminder"), when, message (what to tell them), name, quote (the owner's exact words asking for it, from their own messages in this chat: the current one, or an
   earlier one whose reminder was never set; when they completed it over several messages, each of them, separated by a
   blank line). A reminder only reminds; it never runs a task. Otherwise [].
 - "reminder_cancels": a reminder from the facts to cancel, by id, with the owner's quote. When the owner corrects a time

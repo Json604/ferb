@@ -33,6 +33,10 @@ def _obj(props: dict[str, Any]) -> dict[str, Any]:
     return {"type": "object", "additionalProperties": False, "required": list(props), "properties": props}
 
 
+# T-1055 (owner D32): a short name, 2-5 words of what it is ("Coursera BITS assignments", "1-minute timer"): every
+# heading shows it; the full instruction shows only where the owner opens it in the app. A plain string, "" when
+# unset (ORCH-330): code then shows the instruction's first clause, cut (`names.shown_name`)
+NAME_SCHEMA = {"type": "string"}
 TARGETS_SCHEMA = _obj({"apps": _strings(), "sites": _strings(), "paths": _strings(), "recipients": _strings()})
 CONDITION_SCHEMA = _obj({
     "text": {"type": "string"},
@@ -80,6 +84,7 @@ PART_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}, "labe
                     "conditions": {"type": "array", "items": {"type": "integer"}}})
 TASK_SCHEMA: dict[str, Any] = _obj({
     "goal": {"type": "string"},
+    "name": NAME_SCHEMA,
     "identity": {"type": "string", "enum": ["owner", "ferb"]},
     "worker_type": {"type": "string"},
     "targets": TARGETS_SCHEMA,
@@ -124,9 +129,11 @@ WHEN_ACTIVE_SCHEMA = {"type": "boolean", "description": (
     "Mac\"): it comes due as `when` and `repeat` say and FERB holds it until they're active at the Mac. `when` may then "
     "leave the time out (all null: from today; a day alone: from that day). false otherwise.")}
 TIMER_SCHEMA = _obj({"when": WHEN_SCHEMA, "message": {"type": "string"}, "quote": {"type": "string"},
-                     "when_active": WHEN_ACTIVE_SCHEMA})
+                     "when_active": WHEN_ACTIVE_SCHEMA, "name": NAME_SCHEMA,
+                     # a countdown the owner asked for ("a 5-minute timer") is a timer; anything else a reminder
+                     "kind": {"type": "string", "enum": ["reminder", "timer"]}})
 SCHEDULE_SCHEMA = _obj({
-    "request": {"type": "string"}, "when": WHEN_SCHEMA,
+    "request": {"type": "string"}, "name": NAME_SCHEMA, "when": WHEN_SCHEMA,
     "repeat": {"type": "string", "enum": ["none", "daily", "weekdays", "weekly", "every"]},
     "weekday": _nullable("string"), "every_minutes": _nullable("integer"), "quote": {"type": "string"},
     "targets": TARGETS_SCHEMA,
@@ -146,7 +153,9 @@ SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
                                "action": {"type": "string", "enum": ["cancel", "pause", "resume", "set_end"]},
                                "quote": {"type": "string"},
                                # set_end only: the new end, in the owner's words (else null)
-                               "until": {"anyOf": [{"type": "null"}, SCHEDULE_UNTIL_SCHEMA]}})
+                               "until": {"anyOf": [{"type": "null"}, SCHEDULE_UNTIL_SCHEMA]},
+                               # a new short name for it, written only when this change renames it; "" keeps its name
+                               "name": NAME_SCHEMA})
 REMINDER_CHANGE_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}})
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "task"]},
@@ -295,6 +304,7 @@ class Condition(BaseModel):
 
 class TaskSpec(BaseModel):
     goal: str
+    name: str = ""                   # its short name (T-1055); a spec saved before has none
     identity: Literal["owner", "ferb"]
     worker_type: str = 'default'
     targets: TargetsSpec = TargetsSpec()
@@ -398,6 +408,7 @@ class SupervisorOutcome(BaseModel):
 class ScheduleRequest(BaseModel):
     """A task to run later or repeatedly: in the owner's words, with the targets recorded now."""
     request: str
+    name: str = ""               # its short name (T-1055); "" shows the request's first clause, cut
     when: When                   # the first run, as the owner said it; code computes the time
     repeat: Literal["none", "daily", "weekdays", "weekly", "every"]
     weekday: str | None = None
@@ -428,6 +439,7 @@ class ScheduleChange(BaseModel):
     action: Literal["cancel", "pause", "resume", "set_end"]
     quote: str
     until: ScheduleUntil | None = None     # set_end: the new end in the owner's words
+    name: str = ""                         # a new short name this change gives it; "" keeps its name (T-1055)
 
 
 class ReminderCancel(BaseModel):
@@ -443,6 +455,8 @@ class TimerRequest(BaseModel):
     message: str
     quote: str
     when_active: bool = False    # ORCH-317: it fires when the owner is at the Mac
+    name: str = ""               # its short name (T-1055); "" shows the message's first clause, cut
+    kind: Literal["reminder", "timer"] = "reminder"   # a timer the owner asked for is stored as one (its card says so)
 
 
 class ConversationChange(BaseModel):

@@ -64,9 +64,10 @@ extension PlaygroundWorkspace {
         case .reminder:
             let id = "sample-reminder-" + UUID().uuidString
             let at = PlaygroundSamples.time(1200)
-            reminders.append(["id": id, "kind": "reminder", "at": at, "message": "Take a break and get some water"])
+            reminders.append(["id": id, "kind": "reminder", "at": at, "message": "Take a break and get some water",
+                              "name": "Water break"])
             text = "I'll remind you in 20 minutes."
-            cards = [["type": "event", "kind": "reminder", "id": id, "what": "Take a break", "when": at]]
+            cards = [["type": "event", "kind": "reminder", "id": id, "what": "Water break", "when": at]]
         case .schedule:
             text = "Your morning brief is ready: two updates need a decision, and your afternoon has room for focused work."
             cards = [["type": "reminder", "title": "Morning brief", "due": PlaygroundSamples.time(),
@@ -99,13 +100,14 @@ extension PlaygroundWorkspace {
 
     func deliverReminder() {
         let id = "sample-reminder-" + UUID().uuidString
-        onNotification?(["id": "reminder:" + id, "category": "reminder", "title": "FERB reminder",
+        onNotification?(["id": "reminder:" + id, "category": "reminder", "title": "Water break",
                          "body": "Time to take a break and get some water.",
-                         "target": ["kind": "reminder", "timer_id": id], "when_hidden": false])
+                         "target": ["kind": "reminder", "timer_id": id], "when_hidden": false,
+                         "card": ["type": "reminder", "title": "Water break", "kind": "reminder", "timer_id": id]])
     }
 
     func deliverScheduledResult() {
-        let result: [String: Any] = ["task_id": "sample-scheduled-" + UUID().uuidString, "goal": "Morning brief", "status": "done",
+        let result: [String: Any] = ["task_id": "sample-scheduled-" + UUID().uuidString, "goal": "Bring me a short morning brief", "name": "Morning brief", "status": "done",
             "answer": "Your morning brief is ready: two updates need a decision, and your afternoon has room for focused work.",
             "at": PlaygroundSamples.time(), "shown": false,
             "cards": [["type": "reminder", "title": "Morning brief", "due": PlaygroundSamples.time(),

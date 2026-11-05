@@ -34,19 +34,19 @@ enum PlaygroundSamples {
          "created_at": time(-86400), "answer": "Grouped the notes into decisions, questions and next steps.", "verdict": "pass"]
     ] }
     static var schedules: [[String: Any]] { [
-        ["id": "sample-morning", "request": "Bring me a short morning brief", "rule": "Every weekday at 9:00 AM",
+        ["id": "sample-morning", "request": "Bring me a short morning brief", "name": "Morning brief", "rule": "Every weekday at 9:00 AM",
          "state": "active", "next_run": next(hour: 9, weekdaysOnly: true), "failures": 0,
          "last_result": ["at": time(-10800), "status": "done", "answer": "Three updates and one decision for today."]],
-        ["id": "sample-weekly", "request": "Summarize the week and prepare Monday's priorities", "rule": "Fridays at 5:00 PM",
+        ["id": "sample-weekly", "request": "Summarize the week and prepare Monday's priorities", "name": "Weekly review", "rule": "Fridays at 5:00 PM",
          "state": "paused", "next_run": next(hour: 17, weekday: 6), "failures": 0],
-        ["id": "sample-invoices", "request": "Collect the studio's monthly invoices", "rule": "First day of each month at 10:00 AM",
+        ["id": "sample-invoices", "request": "Collect the studio's monthly invoices", "name": "Monthly invoices", "rule": "First day of each month at 10:00 AM",
          "state": "active", "next_run": next(hour: 10, day: 1), "failures": 1,
          "last_result": ["at": time(-86400), "status": "failed", "answer": "The sample account needs to be reconnected."]]
     ] }
     static var reminders: [[String: Any]] { [
-        ["id": "sample-water", "kind": "reminder", "message": "Take a break and get some water", "at": time(1200)],
-        ["id": "sample-review", "kind": "reminder", "message": "Review the launch mockups with Alex", "at": time(7200)],
-        ["id": "sample-timer", "kind": "timer", "message": "Focus session finished", "at": time(1500)]
+        ["id": "sample-water", "kind": "reminder", "message": "Take a break and get some water", "name": "Water break", "at": time(1200)],
+        ["id": "sample-review", "kind": "reminder", "message": "Review the launch mockups with Alex", "name": "Mockup review", "at": time(7200)],
+        ["id": "sample-timer", "kind": "timer", "message": "Focus session finished", "name": "25-minute focus timer", "at": time(1500)]
     ] }
     static var notices: [[String: Any]] { [
         ["id": "sample-notice", "text": "The launch notes have changed since your last review.", "at": time(-1800), "shown": true],

@@ -2259,3 +2259,13 @@ rule = "DaemonApproval.answerBox decides from the daemon's flags only: a secret 
 why = "ORCH-536 and GATE-510 (owner, 2026-11-05)."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/DaemonApproval.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
 live = ["LIVE-783", "LIVE-784", "LIVE-785"]
+
+[APP-727]
+title = "Headings show the short name; opening a row shows the full instruction"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "FERB.app reads `name` beside goal, request and message (ShortName.of: the daemon's name, else the first clause cut at 40 characters). The reminder card and its compact arrival, the event card, the notch's task rows (a task's plan name before the owner's message), recovered tasks, the Tasks page and Settings → Schedules & Reminders all head with it. On the Tasks page and in Schedules & Reminders, tapping the heading opens the row and shows the full goal, request or message; nothing else shows it. A card whose kind is timer says Timer (Timer set)."
+why = "ORCH-542 (owner, 2026-11-05)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ShortName.swift", "ui/mac/FERBNotch/Sources/NotchCore/WindowRows.swift", "ui/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift"]
+live = ["LIVE-787"]

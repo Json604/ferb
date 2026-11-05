@@ -162,6 +162,13 @@ class Schedule:
     watch: str = "none"              # WATCHES
     last_reported_met: bool | None = None   # a watch: what its latest finished check that reported it found
     until: datetime | None = None    # ORCH-320: no run after it; None runs until stopped
+    name: str = ""                   # T-1055: its short name (`schedule_names`, migration 0060); "" for one made before
+
+    @property
+    def label(self) -> str:
+        """Its heading (T-1055): its short name, else its request's first clause, cut (`names.shown_name`)."""
+        from ferb.orchestrator.names import shown_name
+        return shown_name(self.name, self.request)
 
     @property
     def run_scope(self) -> dict[str, Any] | None:
@@ -196,10 +203,10 @@ class Schedules:
                         datetime.fromisoformat(r["next_run"]) if r["next_run"] else None, r["timer_id"], r["state"],
                         int(r["failures"]), first, r["watch"],
                         None if r["last_reported_met"] is None else bool(r["last_reported_met"]),
-                        datetime.fromisoformat(r["ends_at"]) if r["ends_at"] else None)
+                        datetime.fromisoformat(r["ends_at"]) if r["ends_at"] else None, r["name"] or "")
 
     def add(self, request: str, own_words: str, targets: dict[str, Any], rule: Rule, first: datetime,
-            watch: str = "none", until: datetime | None = None) -> Schedule:
+            watch: str = "none", until: datetime | None = None, name: str = "") -> Schedule:
         if first <= self.clock.now():
             raise ScheduleError("the first run must be in the future")
         if watch not in WATCHES:
@@ -215,6 +222,8 @@ class Schedules:
              first.astimezone(timezone.utc).isoformat(), self.clock.now().isoformat(), watch))
         if until is not None:
             self.set_until(sid, until)
+        if name.strip():
+            self.set_name(sid, name)
         s = self.get(sid)
         assert s is not None
         return s
@@ -225,7 +234,13 @@ class Schedules:
                              "DO UPDATE SET ends_at = excluded.ends_at",
                              (sid, until.astimezone(timezone.utc).isoformat()))
 
-    _SELECT = "SELECT s.*, e.ends_at FROM schedules s LEFT JOIN schedule_ends e ON e.schedule_id = s.id"
+    def set_name(self, sid: str, name: str) -> None:
+        """Its short name (T-1055), replacing any earlier one: only a change the planner wrote a new name in."""
+        self.db.conn.execute("INSERT INTO schedule_names (schedule_id, name) VALUES (?, ?) ON CONFLICT(schedule_id) "
+                             "DO UPDATE SET name = excluded.name", (sid, " ".join(name.split())))
+
+    _SELECT = ("SELECT s.*, e.ends_at, n.name FROM schedules s LEFT JOIN schedule_ends e ON e.schedule_id = s.id "
+               "LEFT JOIN schedule_names n ON n.schedule_id = s.id")
 
     def get(self, sid: str) -> Schedule | None:
         r = self.db.conn.execute(f"{self._SELECT} WHERE s.id = ?", (sid,)).fetchone()

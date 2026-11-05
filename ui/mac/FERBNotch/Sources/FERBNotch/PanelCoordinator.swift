@@ -304,7 +304,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         model.connectDaemon()
         configureMenu()
         poster?.onReminder = { [weak self] item in
-            if case .reminder(let id) = item.target { self?.model.receiveReminder(id: id, text: item.body) }
+            if case .reminder(let id) = item.target { self?.model.receiveReminder(id: id, text: item.body, card: item.card) }
         }
         poster?.start(rpc: model.rpc, notchShowing: { [weak self] in self?.notchShowing ?? false },
                       open: { [weak self] target in self?.open(target) })

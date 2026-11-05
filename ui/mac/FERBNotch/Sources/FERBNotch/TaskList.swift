@@ -169,8 +169,10 @@ extension NotchModel {
         return parts.joined(separator: " · ")
     }
 
-    /// The owner's message, or for a task this chat didn't send, the daemon's goal.
+    /// The task's short name (T-1055), else the owner's message, or for a task this chat didn't send, the daemon's
+    /// goal (already its heading).
     static func title(of turn: ConversationTurn) -> String {
+        if let name = turn.taskName, !name.isEmpty { return name }
         if !turn.request.isEmpty { return turn.request }
         if let goal = turn.taskGoal, !goal.isEmpty { return goal }
         return turn.plan ?? turn.ack ?? unknownTaskTitle

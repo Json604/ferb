@@ -22,7 +22,10 @@ private func flag(_ value: Any?) -> Bool { (value as? NSNumber)?.boolValue ?? fa
 /// A root task (`tasks.list`).
 public struct TaskHistoryRow: Identifiable, Equatable {
     public let id: String
+    /// The full instruction: shown only when the owner opens the row (T-1055).
     public let goal: String
+    /// The heading (T-1055): the daemon's short name, else the goal's first clause, cut.
+    public let name: String
     public let status: String
     public let createdAt: Date?
     /// The daemon's own `created_at`, sent back as `before` for the next page.
@@ -34,6 +37,7 @@ public struct TaskHistoryRow: Identifiable, Equatable {
         guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
         self.id = id
         goal = text(row["goal"])
+        name = ShortName.of(row, fallback: "goal")
         status = text(row["status"])
         createdAtText = text(row["created_at"])
         createdAt = WindowTime.parse(row["created_at"])
@@ -54,7 +58,10 @@ public struct ScheduleRow: Identifiable, Equatable {
     }
 
     public let id: String
+    /// The full run instruction: shown only when the owner opens the schedule (T-1055).
     public let request: String
+    /// The heading (T-1055): the daemon's short name, else the request's first clause, cut.
+    public let name: String
     public let rule: String
     public let state: String
     public let nextRun: Date?
@@ -67,6 +74,7 @@ public struct ScheduleRow: Identifiable, Equatable {
         guard let id = row["id"] as? String, !id.isEmpty else { return nil }
         self.id = id
         request = text(row["request"])
+        name = ShortName.of(row, fallback: "request")
         rule = text(row["rule"])
         state = text(row["state"])
         nextRun = WindowTime.parse(row["next_run"])
@@ -95,7 +103,10 @@ public struct ReminderRow: Identifiable, Equatable {
     public let id: String
     public let kind: String
     public let at: Date?
+    /// What FERB will tell the owner: shown only when the owner opens the row (T-1055).
     public let message: String
+    /// The heading (T-1055): the daemon's short name, else the message's first clause, cut.
+    public let name: String
 
     public init?(_ row: [String: Any]) {
         guard let id = row["id"] as? String, !id.isEmpty else { return nil }
@@ -103,7 +114,14 @@ public struct ReminderRow: Identifiable, Equatable {
         kind = text(row["kind"])
         at = WindowTime.parse(row["at"])
         message = text(row["message"])
+        name = ShortName.of(row, fallback: "message")
     }
+
+    /// A timer says it is one (its kind), anything else is a reminder.
+    public var isTimer: Bool { kind == "timer" }
+
+    /// Opening the row shows more only when its message says more than its heading.
+    public var hasDetail: Bool { !message.isEmpty && message != name }
 }
 
 /// Something FERB noticed (`notices.list`); its quotes are outside text, shown as quotes (MP2).

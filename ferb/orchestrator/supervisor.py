@@ -62,6 +62,7 @@ from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.orchestrator.evidence import PAGE_CHARS, how_facts, recorded_calls
 from ferb.orchestrator.guards import STALL_S, Activity
+from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line,
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
@@ -289,12 +290,13 @@ def _stopped_reminders(stopped: list[tuple[str, str]], why: Callable[[str], str]
 def _reminder_line(timer: Any, present: bool = False, now: datetime | None = None) -> str:
     """A reminder just set, in plain words (L11); one held until the owner is at the Mac (ORCH-317) says so."""
     local = timer.fire_at.astimezone()
+    what = "Timer" if timer.kind == "timer" else "Reminder"          # T-1055: a timer says it's one (its kind)
     if not present:
-        return f"⏰ Reminder set for {local:%a %d %b %H:%M}: {timer.message}"
+        return f"⏰ {what} set for {local:%a %d %b %H:%M}: {timer.message}"
     if now is not None and timer.fire_at <= now + timedelta(seconds=1):
-        return f"⏰ Reminder set for the next time you're back at your Mac: {timer.message}"
+        return f"⏰ {what} set for the next time you're back at your Mac: {timer.message}"
     at = f"{local:%a %d %b}" if (local.hour, local.minute) == (0, 0) else f"{local:%a %d %b %H:%M}"
-    return f"⏰ Reminder set for {at}, when you're at your Mac: {timer.message}"
+    return f"⏰ {what} set for {at}, when you're at your Mac: {timer.message}"
 
 
 def _already_set(timer: Any) -> str:
@@ -1058,8 +1060,10 @@ class Supervisor(WorkerRuns):
                     continue
                 if late is not None:                   # a new reminder that can't be set: refused as before
                     raise late
-                t = self.timers.add("reminder", at, it.message, request_id=source, when_active=present,
-                                    return_after=back)
+                # T-1055: a timer the owner asked for is stored as one (its card and banner say so), with its name
+                t = self.timers.add("timer" if getattr(it, "kind", "reminder") == "timer" else "reminder", at,
+                                    it.message, request_id=source, when_active=present, return_after=back,
+                                    name=str(getattr(it, "name", "") or ""))
                 self.journal.append("timer.set", {"timer_id": t.id, "request_id": source, "quote": quote,
                                                   "set_in": request_id, "resolved_from": now.isoformat()}
                                     | ({"when_active": True} if present else {}))
@@ -1078,8 +1082,8 @@ class Supervisor(WorkerRuns):
         10 minutes" asked again later is still the reminder set from those words). One recorded without its words
         counts for any words, and one recorded without that moment (before FERB recorded it) for any time."""
         recorded = {e.data.get("timer_id"): e.data for e in self.journal.of_kind("timer.set", "request_id", source)}
-        rows = self.timers.db.conn.execute("SELECT id FROM timers WHERE kind = 'reminder' AND request_id = ? "
-                                           "ORDER BY created_at", (source,))
+        rows = self.timers.db.conn.execute("SELECT id FROM timers WHERE kind IN ('reminder', 'timer') AND "
+                                           "request_id = ? ORDER BY created_at", (source,))
         for row in rows:
             data = recorded.get(row["id"])
             earlier = None if data is None else str(data.get("quote") or "")
@@ -1354,21 +1358,22 @@ class Supervisor(WorkerRuns):
                                                     "detail": str(e)})
                 answer = self.gateway.redact(couldnt("start this scheduled run", e, self.gateway.redact))
                 return {"task_id": request_id, "request_id": request_id, "status": "failed", "answer": answer,
-                        "goal": sched.request}
+                        "goal": sched.request, "name": sched.label}
             if out.kind != "task" or out.task is None:
                 status = "done" if out.kind == "reply" else "needs_user"
                 # in the schedule's conversation, so the next run (and its chat.history) has this answer
                 self._record_reply(turn, "clarify" if out.kind == "clarify" else "reply", self.gateway.redact(out.text),
                                    {origins_.INFERRED} | turn.turn_origins)
                 return {"task_id": request_id, "request_id": request_id, "status": status, "answer": out.text,
-                        "goal": sched.request}
+                        "goal": sched.request, "name": sched.label}
             if sched.run_scope is not None:
                 self._apply_run_scope(sched, out.task)
+            out.task.name = sched.label     # T-1055: a scheduled run is headed by its schedule's name
             recorded = Targets.from_json(sched.targets)
             self.state.requests.record(Request(request_id, sched.own_words, recorded, payload=sched.request))
             self.state.approvals.unattended.add(request_id)
             final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": NO_OUTCOME,
-                                     "goal": sched.request}
+                                     "goal": sched.request, "name": sched.label}
             if self._suspending:            # FERB is shutting down: the run starts after the restart's resume, if at all
                 return final | {"suspended": True}
             async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
@@ -1896,6 +1901,11 @@ class Supervisor(WorkerRuns):
         daemon publishes (fix wave 6c, review I3)."""
         return [(key, tree.spec.goal) for key, tree in self._tree_of.items() if key == tree.id
                 and (watches or not tree.watch)]
+
+    def tree_name(self, key: str) -> str:
+        """A running tree's heading (T-1055): its spec's short name, else its goal's first clause, cut."""
+        tree = self._tree_of.get(key)
+        return shown_name(tree.spec.name, tree.spec.goal) if tree is not None else ""
 
     def hold_new_work(self) -> None:
         """L34 Phase G: FERB stops for an update now. Nothing new starts: run_tree and a loop's round wait."""
@@ -2835,7 +2845,9 @@ class Supervisor(WorkerRuns):
         for t in set_timers:              # plain words (the notch shows them); the id is a field of its own
             line = _reminder_line(t, self.timers.when_active(t.id), self.clock.now())
             events.append({"type": "timer", "text": line, "timer_id": t.id})
-            cards.append(cards_.event("reminder", t.id, t.message, t.fire_at.isoformat(), line))
+            # T-1055: the card's heading is its short name; its kind says timer or reminder
+            cards.append(cards_.event("timer" if t.kind == "timer" else "reminder", t.id, t.label,
+                                      t.fire_at.isoformat(), line))
         # L11: what happened to each side output is said by code, never by the planner (which wrote its reply before
         # code set or refused anything, after a repair naming each quote the check would refuse, ORCH-520): a refusal
         # never replaces the reply. A reply or question gets the lines (so they reach the conversation's history too); a
@@ -3510,7 +3522,8 @@ class Supervisor(WorkerRuns):
         if spec.keep_tabs_open:                      # HAND-201: the owner asked to keep its tabs open
             self.keep_tabs_open(tree_id)
         if not watch:
-            self.publish("task.created", {"task_id": tree_id, "goal": spec.goal})
+            self.publish("task.created", {"task_id": tree_id, "goal": spec.goal,
+                                          "name": shown_name(spec.name, spec.goal)})
         runner: asyncio.Task[None] | None = None
         try:
             if start_grant is not None and start_grant[0]:   # D30: scopes recorded with the owner earlier (a schedule's)
@@ -3591,6 +3604,7 @@ class Supervisor(WorkerRuns):
         lines = [line for line in stated.split("\n") if line.strip()]
         event: dict[str, Any] = {
             "type": "plan", "text": confirm.from_task_lines(text + stated), "task_id": tree.id, "goal": spec.goal,
+            "name": shown_name(spec.name, spec.goal),
             "identity": spec.identity, "plan_line": plan_line, "lines": [confirm.from_task_lines(l) for l in lines],
             "subtasks": [{"id": WORKER, "task_id": tree.worker.id, "role": "worker", "goal": spec.goal,
                           "depends_on": []}]}
@@ -3788,6 +3802,7 @@ class Supervisor(WorkerRuns):
         if not suspended:                           # a correction can state a scope for any running tree
             self.standing.revoke(tree_id)
         final["goal"] = spec.goal
+        final["name"] = shown_name(spec.name, spec.goal)
         if suspended:
             self.spans.finish(root_span, output={"status": "suspended", "summary": SHUT_DOWN}, error=SHUT_DOWN)
             # never left 'running': start-up would offer to pick it up again, though it resumes by itself

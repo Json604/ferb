@@ -43,17 +43,18 @@ class Notify:
         assert self.task_results is not None
         cards = [c for c in ev.get("cards") or [] if isinstance(c, dict)]
         self.task_results.record(ev["task_id"], at, ev.get("status", ""), str(ev.get("goal", "")), answer, shown,
-                                 cards)
+                                 cards, str(ev.get("name") or ""))
         if not publish:
             return
         task = {"kind": "task", "task_id": str(ev["task_id"])}
+        name = str(ev.get("name") or "").strip()           # T-1055: the banner's heading is the task's short name
         if alert:
-            await self._notify("FERB alert", answer, urgent=True, category="alert", target=task)
+            await self._notify(name or "FERB alert", answer, urgent=True, category="alert", target=task)
         elif ev.get("status") != "cancelled" and (self.posters.connected or (
                 not shown and not self._client_shows("task.result"))):
             # L34 D: with FERB.app as the poster it decides by the notch: a banner while the notch isn't showing the
             # answer, whichever chat showed it; without it, as before (L9)
-            await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", answer,
+            await self._notify(name or ("FERB finished" if ev.get("status") == "done" else "FERB"), answer,
                                category="task_finished", target=task, when_hidden=self.posters.connected,
                                ident=f"task:{ev['task_id']}")
         if "request_id" not in ev:                  # a resumed plan or scheduled run: the request its task ran for
@@ -99,12 +100,13 @@ class Notify:
         return self.presence.away()
 
     async def _notify(self, title: str, text: str, urgent: bool = False, *, category: str = "",
-                      target: dict[str, str] | None = None, when_hidden: bool = False, ident: str = "") -> None:
+                      target: dict[str, str] | None = None, when_hidden: bool = False, ident: str = "",
+                      card: dict[str, Any] | None = None) -> None:
         """Time awareness in code (13): while the Mac is out of use, non-urgent banners wait until it's back. A category
         the owner switched off in Settings posts nothing (L34 D); chat, logs and the journal still have it."""
         if not banners.enabled(self.config.get, category):
             return
-        banner = Banner(title, text, category, dict(target or {}), when_hidden, ident)
+        banner = Banner(title, text, category, dict(target or {}), when_hidden, ident, dict(card or {}))
         if not urgent and self.owner_idle():
             self._held.append(banner)
             return
@@ -125,7 +127,8 @@ class Notify:
         if self.posters.connected and self.posters.deliver({
                 "id": banner.ident or f"banner:{uuid.uuid4().hex[:12]}", "category": banner.category,
                 "title": self._redact_text(banner.title), "body": self._redact_text(banner.text),
-                "target": dict(banner.target), "when_hidden": banner.when_hidden}):
+                "target": dict(banner.target), "when_hidden": banner.when_hidden}
+                | ({"card": self.redact(banner.card)} if banner.card else {})):
             return
         await self._notify_safely(banner.title, banner.text)
 

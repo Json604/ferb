@@ -66,14 +66,16 @@ final class ReminderArrivalTests: XCTestCase {
         poster.sounds = model.feedback
         poster.configure(notchShowing: { model.surfaceVisible }, open: { model.open($0) })
         poster.onReminder = { item in
-            if case .reminder(let id) = item.target { model.receiveReminder(id: id, text: item.body) }
+            if case .reminder(let id) = item.target { model.receiveReminder(id: id, text: item.body, card: item.card) }
         }
-        let event: [String: Any] = ["id": "reminder:water", "category": "reminder", "title": "FERB reminder",
-            "body": "Get some water.", "target": ["kind": "reminder", "timer_id": "water"], "when_hidden": false]
+        let event: [String: Any] = ["id": "reminder:water", "category": "reminder", "title": "Water break",
+            "body": "Get some water.", "target": ["kind": "reminder", "timer_id": "water"], "when_hidden": false,
+            "card": ["type": "reminder", "title": "Water break", "kind": "reminder", "timer_id": "water"]]
         poster.receive(event)
         poster.receive(event)
         XCTAssertFalse(model.expanded)
-        XCTAssertEqual(model.compactContent, .reminder(card: ResultCard(["type": "reminder", "title": "Get some water."])!, text: "Get some water."))
+        XCTAssertEqual(model.compactContent, .reminder(card: ResultCard(["type": "reminder", "title": "Water break",
+                                                                          "kind": "reminder"])!, text: "Get some water."))
         XCTAssertEqual(model.conversation.notices.count, 1)
         XCTAssertEqual(model.conversation.notices.first?.cards?.first?.type, "reminder")
         XCTAssertTrue(center.posted.isEmpty)
@@ -82,6 +84,32 @@ final class ReminderArrivalTests: XCTestCase {
         XCTAssertTrue(model.bodyVisible)
         XCTAssertNil(model.compactPlanText)
         XCTAssertTrue(model.viewingToday)
+    }
+
+    // decision: APP-622, APP-727
+    func testATimersArrivalIsHeadedByItsNameAndSaysTimer() {
+        // T-1055: the daemon's card names it ("1-minute timer") and its kind says timer; the message is the text.
+        let (model, _) = make()
+        let poster = NotificationPoster(center: FakeNotificationCenter(), settle: .zero)
+        model.feedback.postingBanners = true
+        poster.configure(notchShowing: { model.surfaceVisible }, open: { model.open($0) })
+        poster.onReminder = { item in
+            if case .reminder(let id) = item.target { model.receiveReminder(id: id, text: item.body, card: item.card) }
+        }
+        poster.receive(["id": "reminder:t1", "category": "reminder", "title": "1-minute timer",
+                        "body": "Your 1-minute timer is up.", "target": ["kind": "reminder", "timer_id": "t1"],
+                        "card": ["type": "reminder", "title": "1-minute timer", "kind": "timer", "timer_id": "t1"]])
+        guard case .reminder(let card, let text)? = model.compactContent else { return XCTFail("no reminder arrival") }
+        XCTAssertEqual(card.title, "1-minute timer")
+        XCTAssertTrue(card.isTimer)
+        XCTAssertEqual(text, "Your 1-minute timer is up.")
+        // An older daemon's banner (no card) is headed by its message's first clause, cut, and says Reminder.
+        let long = "Check Coursera in my Chrome scaler profile for new BITS assignments and keep a note of each one."
+        model.receiveReminder(id: "old", text: long)
+        let saved = model.conversation.notices.last?.cards?.first
+        XCTAssertEqual(saved?.title, ShortName.clause(long))
+        XCTAssertLessThanOrEqual(saved?.title?.count ?? 99, ShortName.cut)
+        XCTAssertFalse(saved?.isTimer ?? true)
     }
 
     // decision: APP-622

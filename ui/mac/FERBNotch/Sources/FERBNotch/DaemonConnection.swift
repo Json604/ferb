@@ -88,7 +88,7 @@ extension NotchModel {
             let running = status["running"] as? [[String: Any]] ?? []
             runningTasks = Dictionary(running.compactMap { row in
                 guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
-                return (id, row["goal"] as? String ?? "Running task")
+                return (id, Self.heading(row))
             }, uniquingKeysWith: { _, last in last })
             for row in running {
                 if let id = row["task_id"] as? String, runningTasks[id] != nil,
@@ -99,7 +99,7 @@ extension NotchModel {
             var cardsChanged = false
             for row in running {
                 guard let id = row["task_id"] as? String, let card = TurnCard(row["card"], taskID: id) else { continue }
-                if conversation.showCard(card, goal: row["goal"] as? String ?? "") { cardsChanged = true }
+                if conversation.showCard(card, goal: Self.heading(row, empty: "")) { cardsChanged = true }
             }
             if cardsChanged { saveConversation() }
             // Standing work only for a task still running (L31).
@@ -162,7 +162,7 @@ extension NotchModel {
     /// The daemon's goal is shown as FERB's description of the task, never as the owner's message; empty when unknown.
     private func restoreResult(_ result: [String: Any]) {
         guard let id = result["task_id"] as? String, !knownCompletedTasks.contains(id) else { return }
-        session.resumeBackendTask(id, goal: result["goal"] as? String ?? "")
+        session.resumeBackendTask(id, goal: Self.heading(result, empty: ""))
         receiveOutcome(result, announce: false, recordEvent: false)
     }
 
@@ -327,7 +327,7 @@ extension NotchModel {
             conversation.showPlan(id: localID, text: event["text"] as? String ?? "", details: event)
             saveConversation()
             preferences.set(id, forKey: "FERBActiveTaskID")
-            runningTasks[id] = event["goal"] as? String ?? session.draft
+            runningTasks[id] = Self.heading(event, empty: session.draft)
             if pendingStops.remove(localID) != nil { requestDaemonStop() }
         case "part":
             // A row of the card changed (ORCH-319). It fills quietly: no opening, no banner (APP-301).
@@ -456,17 +456,18 @@ extension NotchModel {
             promptError = nil
             onBackgroundChange?(true)
         case "task.steered":
-            if let taskID, let goal = data["goal"] as? String { runningTasks[taskID] = goal }
+            if let taskID, data["goal"] is String || data["name"] is String { runningTasks[taskID] = Self.heading(data) }
         case "task.created":
             if let taskID {
-                runningTasks[taskID] = data["goal"] as? String ?? "Running task"
+                runningTasks[taskID] = Self.heading(data)
                 taskActivities[taskID] = []
                 knownCompletedTasks.remove(taskID)
                 reconciledMissingTasks.remove(taskID)
             }
         case "task.result":
             var result = data
-            if let taskID, let goal = runningTasks.removeValue(forKey: taskID), result["goal"] == nil { result["goal"] = goal }
+            if let taskID, let name = runningTasks.removeValue(forKey: taskID), result["goal"] == nil,
+               result["name"] == nil { result["name"] = name }
             if let taskID { taskActivities.removeValue(forKey: taskID) }
             if result["at"] == nil { result["at"] = event["at"] }
             receiveOutcome(result)
@@ -507,7 +508,8 @@ extension NotchModel {
             }
             // A multi-part task resumed after a restart: its card from the record (its rows' changes come as task.part).
             if data["type"] as? String == "plan", let taskID, let card = TurnCard(data["card"], taskID: taskID),
-               conversation.showCard(card, goal: data["goal"] as? String ?? runningTasks[taskID] ?? "") {
+               conversation.showCard(card, goal: data["goal"] != nil || data["name"] != nil
+                                     ? Self.heading(data, empty: "") : runningTasks[taskID] ?? "") {
                 saveConversation()
                 onBackgroundChange?(true)
             }
@@ -606,7 +608,7 @@ extension NotchModel {
             } else {
                 // A task this chat has no turn for (started elsewhere, or before a restart): FERB's message,
                 // described by the daemon's goal and filed when its result arrived.
-                conversation.recordRecovered(taskID: taskID, goal: event["goal"] as? String ?? "",
+                conversation.recordRecovered(taskID: taskID, goal: Self.heading(event, empty: ""),
                     answer: event["answer"] as? String ?? event["summary"] as? String ?? "", status: status,
                     artifacts: artifacts, displayText: event["display_text"] as? String,
                     verified: event["verified"] as? Bool ?? false, at: LiveProgress.time(event["at"]) ?? Date())
@@ -638,11 +640,22 @@ extension NotchModel {
         Task { _ = try? await rpc.call("results.ack", params: ["task_ids": placed]) }
     }
 
-    /// Reminder notifications retain their timer identity in chat, so redelivery cannot repeat the arrival.
-    func receiveReminder(id: String, text: String, at: Any? = nil) {
+    /// A task's heading (T-1055): the daemon's short name, else its goal's first clause, cut; `empty` when it has
+    /// neither. The full goal shows only where the owner opens the task in the FERB window.
+    static func heading(_ row: [String: Any], empty: String = "Running task") -> String {
+        let name = ShortName.of(row, fallback: "goal")
+        return name.isEmpty ? empty : name
+    }
+
+    /// Reminder notifications retain their timer identity in chat, so redelivery cannot repeat the arrival. The card's
+    /// heading is the reminder's short name and says timer or reminder from its row's kind (`card`, T-1055).
+    func receiveReminder(id: String, text: String, card: ResultCard? = nil, at: Any? = nil) {
         guard !id.isEmpty, !text.isEmpty else { return }
+        var shown: [String: Any] = ["type": "reminder", "title": card?.title ?? ShortName.clause(text),
+                                    "kind": card?.kind ?? "reminder"]
+        if let due = card?.due { shown["due"] = due }
         receiveNotices([["id": "reminder:" + id, "text": text, "at": at ?? ISO8601DateFormatter().string(from: Date()),
-                         "banner": true, "cards": [["type": "reminder", "title": text]]]], soundIDs: [id])
+                         "banner": true, "cards": [shown]]], soundIDs: [id])
     }
 
     /// Notices go into the chat (L9) and are saved before they are acknowledged, so a shown notice is never lost. Every

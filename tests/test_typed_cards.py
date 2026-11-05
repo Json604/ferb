@@ -14,6 +14,7 @@ from ferb.cli.client import Client, RpcError
 from ferb.core.types import ActionFacts, ActionSpec, RuntimeEvent, Target, ToolResult
 from ferb.daemon.gateway import CONFIRM_ASK
 from ferb.daemon.server import APP_ONLY_REFUSED
+from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.plans import Step
 from ferb.orchestrator.supervisor import RUNTIME_ASK
 from ferb.policy.rules import Kind
@@ -125,9 +126,10 @@ YC = ("While YC Winter 2027 applications remain open, remind me that I want to a
       "Nov 3, 9:30 AM IST.")
 
 
-# decision: ORCH-329
+# decision: ORCH-329, ORCH-542
 def test_a_repeating_schedules_run_is_a_reminder_card_counting_down_to_its_next_run(daemon: RunningDaemon) -> None:
-    """The countdown is to the next run FERB recorded; the deadline in the request's words is not read."""
+    """The countdown is to the next run FERB recorded; the deadline in the request's words is not read. A schedule
+    made without a name is headed by its request's first clause, cut (T-1055), never the whole request."""
     now = daemon.daemon.clock.now()
     s = make_schedule(daemon, YC, YC, Targets.of(), now + timedelta(minutes=1), repeat="every", every=180)
     install(daemon, [sup("reply", "Reminder: you wanted to apply to YC Winter 2027.")])
@@ -135,9 +137,10 @@ def test_a_repeating_schedules_run_is_a_reminder_card_counting_down_to_its_next_
     [result] = results(daemon)
     [card] = _cards(result, "reminder")
     after = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
-    assert card["title"] == YC and card["schedule_id"] == s.id and card["repeat"] == "every 180 minutes"
+    assert card["title"] == shown_name("", YC) and card["title"] != YC and card["kind"] == "schedule"
+    assert card["schedule_id"] == s.id and card["repeat"] == "every 180 minutes"
     assert card["next_run"] == after.next_run.isoformat() and card["due"] == s.first_run.isoformat()
-    assert set(card) == {"type", "title", "schedule_id", "due", "repeat", "next_run"}     # no deadline from the words
+    assert set(card) == {"type", "title", "kind", "schedule_id", "due", "repeat", "next_run"}   # no deadline from words
     assert result["answer"].startswith("Reminder: you wanted to apply")                    # FERB's text under it
 
 

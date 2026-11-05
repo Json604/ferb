@@ -536,14 +536,6 @@ why = "Owner 2026-11-04: \"add instructions in prompts to do what user says, har
 decisions = ["PRM-303"]
 after = ["T-1040"]
 
-[T-1055]
-title = "Tasks and schedules show a short name, not the planner's full instruction"
-area = "orchestration"
-kind = "build"
-status = "open"
-why = "Owner 2026-11-04: long text in chat and the schedule box \"doesnt look smart at all\". Trace: sc-7884cee123 shows its 392-char run instruction; the task card its 474-char goal. Planner writes a short name; cards, Tasks and Schedules show it (+ repeat); full text under Details."
-decisions = ["ORCH-329", "APP-300"]
-
 [T-1058]
 title = "End-of-release security run: card-less payments, free-text approvals, a race, a redaction"
 area = "gateway"

@@ -26,6 +26,7 @@ class Banner:
     target: dict[str, str] = field(default_factory=dict)    # what a click opens: {"kind": "question"|"task"|"reminder", …}
     when_hidden: bool = False                               # FERB.app posts it only while the notch isn't showing it
     ident: str = ""                                         # the notification's id: a repost replaces it; "" for a new one
+    card: dict[str, Any] = field(default_factory=dict)      # a reminder's typed card from its row (T-1055); {} for none
 
 
 def enabled(get: Callable[..., Any], category: str) -> bool:

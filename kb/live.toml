@@ -3150,3 +3150,12 @@ request = "As LIVE-785, but type \"yes but send it to <your other test address> 
 pass = "FERB treats it as a correction of that task (not a Yes): the first card is set aside, nothing is sent to the first address, and a new card asks with the new address. A plain \"yes\" in chat on a later card still answers it."
 decisions = ["PRM-325", "ORCH-538", "GATE-510"]
 sitting = "after this change is installed"
+
+[LIVE-787]
+title = "Reminders, timers, schedules and tasks show a short name"
+area = "orchestration"
+surface = "FERB.app with this build"
+request = "Ask FERB for \"a 1 minute timer\", then \"every day at 9 check Coursera in my scaler profile for new BITS assignments and tell me only new ones\", then a short task (\"find the weather in Bangalore\"). Let the timer fire; open Settings → Schedules & Reminders and the Tasks page; tap a schedule's and a task's heading."
+pass = "The timer's set card and arrival say Timer with a short name (\"1-minute timer\"), not \"Reminder\"; the schedule's card, its run card and its row show a 2-5 word name, not the instruction; the task row in the notch and on the Tasks page shows a short name. The full instruction appears only after tapping the heading in the FERB window. An older schedule shows its first words cut with \"…\"."
+decisions = ["ORCH-542", "APP-727", "DMN-544", "PRM-328"]
+sitting = "after this change is installed"

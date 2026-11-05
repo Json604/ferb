@@ -10,7 +10,8 @@ public struct ResultCard: Codable, Equatable {
     public let type: String
     /// The line of the text this card stands for, exactly as the text carries it.
     public var line: String?
-    // reminder: a schedule's run came due
+    // reminder: a schedule's run, a reminder or a timer came due. `title` is its short name (T-1055), never the
+    // instruction; `kind` (schedule | reminder | timer) says which, so a timer's card says it's a timer.
     public var title: String?
     public var due: String?
     public var repeatRule: String?
@@ -18,7 +19,7 @@ public struct ResultCard: Codable, Equatable {
     public var scheduleID: String?
     /// reminder and event: the schedule's recorded end (ORCH-320); the countdown is to it when present.
     public var until: String?
-    // event: a reminder or schedule just set (kind reminder | schedule)
+    // event: a reminder, timer or schedule just set (kind reminder | timer | schedule); `what` is its short name
     public var kind: String?
     public var id: String?
     public var what: String?
@@ -89,6 +90,9 @@ public struct ResultCard: Codable, Equatable {
     public var nextRunDate: Date? { LiveProgress.time(nextRun) }
     public var whenDate: Date? { LiveProgress.time(when) }
     public var untilDate: Date? { LiveProgress.time(until) }
+
+    /// A reminder or event card for a timer (its row's kind, T-1055).
+    public var isTimer: Bool { kind == "timer" }
 
     /// What a reminder or event card counts down to: the schedule's end when it has one (ORCH-320), else a
     /// reminder's next run; nothing for an event without an end (its first time shows as chips).

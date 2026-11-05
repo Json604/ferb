@@ -9,6 +9,7 @@ from ferb.core import origin
 from ferb.core.errors import Unsupported
 from ferb.core.types import RunHandle
 from ferb.daemon.gateway import CONFIRM_ASK, RETRY_ASK
+from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.plans import SendScope
 from ferb.policy.confirm import from_task_lines
 from ferb.policy.targets import Request
@@ -237,6 +238,8 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
             tree.spec.goal = spec.goal
             tree.spec.success_conditions = spec.success_conditions
             tree.spec.targets = spec.targets
+            if spec.name.strip():            # T-1055: a correction keeps the task's name unless it writes a new one
+                tree.spec.name = spec.name
         tree.worker.goal = tree.spec.goal
         tree.worker.success_conditions = [c.text for c in tree.spec.success_conditions]
         turn = supervisor._turns.get(request_id)
@@ -292,7 +295,8 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
         # questions settled. A worker whose safety check is set aside reads "the owner changed the task" after the
         # words; one whose run didn't take them gets no new question until a run has them (`correction_pending`).
         settle_questions(supervisor, prior.request_id, clean['words'], supersedes, tree.id)
-        supervisor.publish('task.steered', {'task_id': tree.id, 'revision': revision, 'goal': tree.spec.goal})
+        supervisor.publish('task.steered', {'task_id': tree.id, 'revision': revision, 'goal': tree.spec.goal,
+                                            'name': shown_name(tree.spec.name, tree.spec.goal)})
         # L11: the reply is the planner's own sentence for this turn; the updated goal shows in the task list
         text = acknowledgement(said, bool(active and all(accepted)), stated.text if stated is not None else None)
         reply = {'type': 'reply', 'task_id': tree.id, 'text': text}

@@ -138,7 +138,7 @@ struct PlaygroundServices {
         },
                          open: { [weak notch] in notch?.open($0) })
         poster.onReminder = { [weak notch] item in
-            if case .reminder(let id) = item.target { notch?.receiveReminder(id: id, text: item.body) }
+            if case .reminder(let id) = item.target { notch?.receiveReminder(id: id, text: item.body, card: item.card) }
         }
         daemon.workspace.onNotification = { [weak poster] in poster?.receive($0) }
         let services = PlaygroundServices(home: home, state: state, daemon: daemon, setup: setup, notch: notch,

@@ -165,12 +165,16 @@ class Schedules:
             c.execute("ROLLBACK")
             raise
         late = f" (due {round((t.overdue_s or 0) / 60)} min ago)" if (t.overdue_s or 0) >= 60 else ""
-        self._publish("timer.fired", {"timer_id": t.id, "kind": t.kind, "message": t.message,
+        named = self.timers.get(t.id) if self.timers is not None else None      # the claimed row has no name
+        name = named.label if named is not None else t.label
+        self._publish("timer.fired", {"timer_id": t.id, "kind": t.kind, "message": t.message, "name": name,
                                       "overdue_by": round(t.overdue_s or 0)})
         try:
-            await self._notify("FERB reminder" if t.kind == "reminder" else "FERB timer", f"{t.message}{late}",
-                               urgent=True, category="reminder", target={"kind": "reminder", "timer_id": str(t.id)},
-                               ident=f"reminder:{t.id}")                       # a reminder is for now
+            # T-1055: the banner's heading is its short name, and its card says timer or reminder (its kind)
+            await self._notify(name, f"{t.message}{late}", urgent=True, category="reminder",
+                               target={"kind": "reminder", "timer_id": str(t.id)}, ident=f"reminder:{t.id}",
+                               card={"type": "reminder", "title": name, "kind": t.kind, "timer_id": str(t.id),
+                                     "due": t.fire_at.isoformat()})          # a reminder is for now
         except Exception:
             pass                                                     # chat, logs and the journal still have it
 
@@ -243,7 +247,7 @@ class Schedules:
             s = self.schedules.add(spec.request, own_words,
                                    recorded.to_json() | ({"standing_sends": scopes} if scopes else {})
                                    | ({RUN_SCOPE: self.redact(run_scope)} if run_scope is not None else {}), rule,
-                                   first, spec.watch, until)
+                                   first, spec.watch, until, name=str(getattr(spec, "name", "") or ""))
         except (ScheduleError, ValueError) as e:
             return f"I couldn't schedule that: {e}.", None
         t = self._book(s, first, return_after=return_after)
@@ -268,10 +272,10 @@ class Schedules:
             when = "the next time you're back at your Mac"
         else:
             when = f"on {at}, when you're at your Mac"
-        said = ", ".join(part for part in (f"🗓 Scheduled: {s.request} — {when}", until_said(s.until) if s.until else "",
+        said = ", ".join(part for part in (f"🗓 Scheduled: {s.label} — {when}", until_said(s.until) if s.until else "",
                                            WATCH_SAID[s.watch]) if part)
         from ferb.orchestrator import cards
-        card = cards.event("schedule", s.id, s.request, first.isoformat(), said,
+        card = cards.event("schedule", s.id, s.label, first.isoformat(), said,
                            repeat=rule.describe() if rule.repeat != "none" else None, watch=WATCH_SAID[s.watch] or None,
                            until=s.until.isoformat() if s.until else None)
         from ferb.orchestrator.plans import SendScope
@@ -344,7 +348,8 @@ class Schedules:
         if t is None or t.kind not in ("reminder", "timer") or not self.timers.cancel(rc.id):
             return "I couldn't find that reminder among the pending ones."
         self._journal().append("timer.cancelled", {"timer_id": rc.id, "by": "owner"})     # the id stays here (L11)
-        return f"⏰ Cancelled the reminder “{t.message}” for {t.fire_at.astimezone():%a %d %b %H:%M}."
+        what = "timer" if t.kind == "timer" else "reminder"
+        return f"⏰ Cancelled the {what} “{t.label}” for {t.fire_at.astimezone():%a %d %b %H:%M}."
 
     def _schedule_change_from_chat(self, ch: Any, own_words: str) -> str:
         from ferb.memory.items import quoted
@@ -353,6 +358,11 @@ class Schedules:
             return blocked_.blocked(blocked_.CHANGES, blocked_.NOT_IN_WORDS, "no schedule was changed",
                                     "say which schedule should change and how")
         ends = getattr(ch, "until", None)
+        renamed = " ".join(str(getattr(ch, "name", "") or "").split())
+        if renamed and ch.action != "cancel" and self.schedules.get(ch.id) is not None:
+            # T-1055: a change keeps the schedule's name unless the planner wrote a new one in it
+            self.schedules.set_name(ch.id, renamed)
+            self._journal().append("schedule.renamed", {"schedule_id": ch.id, "name": renamed})
         if (ch.action == "set_end") != (ends is not None):  # argument validity: an end goes with set_end, and only there
             self._journal().append("schedule.refused", {"schedule_id": ch.id, "why": "set_end needs an end, and only "
                                                                                      "set_end takes one"})
@@ -387,14 +397,14 @@ class Schedules:
             self.schedules.set_state(sid, "done")
             self._journal().append("schedule.ended", {"schedule_id": sid, "until": until.isoformat()})
             self._withdraw_schedule_scope(sid, "ended")
-            return self._ended_line(s.request, until)
-        return f"🗓 {s.request} now runs {until_said(until)}."
+            return self._ended_line(s.label, until)
+        return f"🗓 {s.label} now runs {until_said(until)}."
 
     @staticmethod
-    def _ended_line(request: str, until: datetime) -> str:
-        """The owner's line when a schedule's end leaves it no more runs (ORCH-320)."""
+    def _ended_line(name: str, until: datetime) -> str:
+        """The owner's line when a schedule's end leaves it no more runs (ORCH-320), by its heading (T-1055)."""
         from ferb.orchestrator.schedules import until_said
-        return f"🗓 Schedule ended: {request} (it ran {until_said(until)})"
+        return f"🗓 Schedule ended: {name} (it ran {until_said(until)})"
 
     def _last_run_holds_scope(self, sid: str) -> bool:
         """Whether a one-time schedule's last run is still under way: from `_run_schedule` marking it done (its
@@ -433,8 +443,8 @@ class Schedules:
             covered = ("Its run already under way keeps going, but nothing it sends is covered any more: each send "
                        "gets FERB's usual checks.")
             if action == "pause":            # no future run to pause: it stays done, never "paused" for good
-                return f"{s.request} has no future runs, so there's nothing left to pause. {covered}"
-            return f"Cancelled: {s.request}. {covered}"
+                return f"{s.label} has no future runs, so there's nothing left to pause. {covered}"
+            return f"Cancelled: {s.label}. {covered}"
         if action == "cancel":
             self.schedules.set_state(sid, "cancelled")
             if s.timer_id:
@@ -451,12 +461,12 @@ class Schedules:
                 if s.rule.repeat != "none" else (s.next_run if s.next_run and s.next_run > self.clock.now() else None)
             if nxt is None:
                 self.schedules.set_state(sid, "done")
-                return f"{s.request} has no future runs left."
+                return f"{s.label} has no future runs left."
             t = self._book(s, nxt)
             self.schedules.set_timer(sid, t.id, nxt)
         self._journal().append(f"schedule.{action}", {"schedule_id": sid} | ({"with_task": with_task} if with_task
                                                                             else {}))
-        return {"cancel": "Cancelled", "pause": "Paused", "resume": "Resumed"}[action] + f": {s.request}"
+        return {"cancel": "Cancelled", "pause": "Paused", "resume": "Resumed"}[action] + f": {s.label}"
 
     def _withdraw_schedule_scope(self, sid: str, action: str) -> None:
         """D30: a cancelled or paused schedule's recorded scope stops covering its runs at once, a run in flight or one
@@ -512,9 +522,10 @@ class Schedules:
             why = "the previous run is still under way" if busy else "FERB was stopped"
             self._journal().append("schedule.skipped", {"schedule_id": sid, "why": why, "retry": retry})
             if nxt is None and not retry:
-                ended = f"\n\n{self._ended_line(s.request, s.until)}" if s.until and s.ends_after(now) else ""
+                ended = f"\n\n{self._ended_line(s.label, s.until)}" if s.until and s.ends_after(now) else ""
                 await self._task_result({"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "cancelled", "goal": s.request,
-                                         "answer": f"“{s.request}” was due, but {why}, so it didn't run.{ended}"},
+                                         "name": s.label,
+                                         "answer": f"“{s.label}” was due, but {why}, so it didn't run.{ended}"},
                                         shown=False)
             return
         if nxt is None and not retry:
@@ -525,7 +536,7 @@ class Schedules:
         except Exception as e:                              # a run's failure is reported with its reason, never lost
             self._journal().append("schedule.failed", {"schedule_id": sid, "why": f"{type(e).__name__}: {e}"})
             final = {"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "failed",
-                     "answer": f"“{s.request}” didn't work this time; I'll try again at the next run. Why: "
+                     "answer": f"“{s.label}” didn't work this time; I'll try again at the next run. Why: "
                                f"{reason(e, self.redact)}"}
         finally:
             self._last_runs.discard(sid)
@@ -576,18 +587,18 @@ class Schedules:
         met = s.watch != "none" and watch_met(status, reported)
         superseded = s.watch == "until_met" and self._watch_ended(sid)
         alert = met and not told_before and not superseded
-        result = {**final, "goal": s.request}
+        result = {**final, "goal": s.request, "name": s.label}
         ended = (met and not superseded and s.watch == "until_met" and status == "done"
                  and self._end_watch(sid, str(final.get("task_id"))))
         if ended:                        # decided before `quiet`: the stop line always reaches the owner
-            line = f"🗓 Stopped checking: {s.request}"
+            line = f"🗓 Stopped checking: {s.label}"
             answer = f"{answer}\n\n{line}"
             self._record_stop_line(str(final.get("task_id")), line)
         # ORCH-320: the last run its end left it ends it, said once (never by a retry, which books nothing)
         expired = not ended and not retry and self._schedule_expired(sid)
         if expired:                      # like the stop line: always reaches the owner
             current = self.schedules.get(sid)
-            line = self._ended_line(s.request, current.until if current is not None and current.until else now)
+            line = self._ended_line(s.label, current.until if current is not None and current.until else now)
             answer = f"{answer}\n\n{line}"
             self._record_stop_line(str(final.get("task_id")), line)
         # ORCH-317: an ordinary run that found nothing to tell and did nothing (its worker's report) posts nothing,
@@ -609,7 +620,7 @@ class Schedules:
         s = self.schedules.get(sid)
         assert s is not None
         active = s.state == "active"
-        return {"type": "reminder", "schedule_id": sid, "title": s.request, "due": due.isoformat(),
+        return {"type": "reminder", "schedule_id": sid, "title": s.label, "kind": "schedule", "due": due.isoformat(),
                 **({"repeat": s.rule.describe()} if s.rule.repeat != "none" else {}),
                 **({"next_run": s.next_run.isoformat()} if s.next_run is not None and active else {}),
                 **({"until": s.until.isoformat()} if s.until is not None and active else {})}
@@ -652,7 +663,8 @@ class Schedules:
         return True
 
     async def _schedules_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        return {"schedules": [{"id": s.id, "request": s.request, "rule": s.rule.describe(), "state": s.state,
+        return {"schedules": [{"id": s.id, "request": s.request, "name": s.label, "rule": s.rule.describe(),
+                               "state": s.state,
                                "next_run": s.next_run.isoformat() if s.next_run else None, "failures": s.failures,
                                "until": s.until.isoformat() if s.until else None,
                                "watch": s.watch, "last_result": self._schedule_last_result(s.id)}
@@ -671,7 +683,8 @@ class Schedules:
 
     async def _reminders_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         assert self.timers is not None
-        return {"pending": [{"id": t.id, "kind": t.kind, "at": t.fire_at.isoformat(), "message": t.message}
+        return {"pending": [{"id": t.id, "kind": t.kind, "at": t.fire_at.isoformat(), "message": t.message,
+                             "name": t.label}
                             for t in self.timers.pending()]}
 
     async def _reminders_cancel(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:

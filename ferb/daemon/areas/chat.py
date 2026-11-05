@@ -13,6 +13,7 @@ from ferb.daemon.questions import card_flags
 from ferb.daemon.server import Session
 from ferb.orchestrator import acks
 from ferb.orchestrator.continuity import RESERVED_SESSIONS
+from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.worker import couldnt
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.untrusted import mark
@@ -81,7 +82,8 @@ class Chat:
                     **({"part": ap.part} if ap.part else {}),
                     **({"runtime_switch": ap.runtime_switch} if ap.runtime_switch else {}),
                     **card_flags(ap)} for ap in approvals]
-        running = [{"task_id": t, "goal": g}                  # a watch check isn't listed: no client adopts it (I3)
+        running = [{"task_id": t, "goal": g,                  # a watch check isn't listed: no client adopts it (I3)
+                    "name": self.supervisor.tree_name(t) if self.supervisor else shown_name("", g)}
                    for t, g in (self.supervisor.running_trees(watches=False) if self.supervisor else [])]
         for r in running:                                     # the notch's elapsed timer (2026-10-27)
             started = self.tasks.column(r["task_id"], "created_at")
@@ -95,6 +97,7 @@ class Chat:
             recorded = json.loads(row['outcome_json'] or '{}')
             # request_id and at: a client whose chat.send stream ended early still places the answer (L6, L7)
             results.append({key: row[key] for key in ('task_id', 'request_id', 'at', 'status', 'goal', 'answer')} |
+                           {'name': shown_name(row['name'], str(row['goal'] or ''))} |
                            {'artifacts': recorded.get('artifacts', []), 'verified': recorded.get('verified'),
                             'verification': recorded.get('verification', [])} |
                            # the answer's own fields (a multi-part task's card and footer; its lines; ORCH-319)

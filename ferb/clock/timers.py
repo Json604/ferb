@@ -44,11 +44,22 @@ class Timer:
     request_id: str | None
     state: str
     overdue_s: float | None = None
+    name: str = ""               # T-1055: its short name (`timer_names`, migration 0060); "" for one made before
+
+    @property
+    def label(self) -> str:
+        """Its heading (T-1055): its short name, else its message's first clause, cut (`names.shown_name`)."""
+        from ferb.orchestrator.names import shown_name
+        return shown_name(self.name, self.message)
 
 
 def _row(r: Any) -> Timer:
     return Timer(r["id"], r["kind"], datetime.fromisoformat(r["fire_at"]), r["message"], r["task_id"], r["request_id"],
-                 r["state"], r["overdue_s"])
+                 r["state"], r["overdue_s"], (r["name"] or "") if "name" in r.keys() else "")
+
+
+# a timer's row with its name (T-1055): get and pending read it; a claim hands the consumer the row without it
+_SELECT = "SELECT t.*, n.name FROM timers t LEFT JOIN timer_names n ON n.timer_id = t.id"
 
 
 class Timers:
@@ -69,7 +80,7 @@ class Timers:
 
     def add(self, kind: str, fire_at: datetime, message: str = "", task_id: str | None = None,
             request_id: str | None = None, *, when_active: bool = False,
-            return_after: datetime | None = None) -> Timer:
+            return_after: datetime | None = None, name: str = "") -> Timer:
         """`when_active` (ORCH-317): it fires only while the owner is at the Mac; `return_after`: only in an active
         stretch that began after that time."""
         now = self.clock.now()
@@ -84,13 +95,15 @@ class Timers:
         if when_active or return_after is not None:
             self.db.conn.execute("INSERT INTO timer_when_active (timer_id, return_after) VALUES (?, ?)",
                                  (tid, return_after.astimezone(timezone.utc).isoformat() if return_after else None))
+        if name.strip():
+            self.db.conn.execute("INSERT INTO timer_names (timer_id, name) VALUES (?, ?)", (tid, " ".join(name.split())))
         self._wake.set()
         t = self.get(tid)
         assert t is not None
         return t
 
     def get(self, tid: str) -> Timer | None:
-        r = self.db.conn.execute("SELECT * FROM timers WHERE id = ?", (tid,)).fetchone()
+        r = self.db.conn.execute(f"{_SELECT} WHERE t.id = ?", (tid,)).fetchone()
         return _row(r) if r else None
 
     def when_active(self, tid: str) -> bool:
@@ -131,7 +144,7 @@ class Timers:
     def pending(self, kinds: tuple[str, ...] = ("reminder", "timer")) -> list[Timer]:
         q = ",".join("?" * len(kinds))
         return [_row(r) for r in self.db.conn.execute(
-            f"SELECT * FROM timers WHERE state = 'pending' AND kind IN ({q}) ORDER BY fire_at", kinds)]
+            f"{_SELECT} WHERE t.state = 'pending' AND t.kind IN ({q}) ORDER BY t.fire_at", kinds)]
 
     # ---------- firing ----------
 

@@ -16,6 +16,7 @@ from ferb.core.errors import Deferred, FerbError
 from ferb.daemon.areas.shared import TASK_PAGE, TASK_PAGE_MAX
 from ferb.daemon.server import Session
 from ferb.orchestrator import episodes
+from ferb.orchestrator.names import shown_name
 from ferb.store import retention
 from ferb.trace import compose
 
@@ -63,7 +64,8 @@ class Rpc:
         for r in rows[:limit]:
             outcome = json.loads(r["outcome_json"] or "{}")
             answer = r["answer"] or outcome.get("answer") or outcome.get("summary") or ""
-            out.append({"task_id": r["id"], "goal": self._redact_text(str(r["goal"])), "status": r["status"],
+            out.append({"task_id": r["id"], "goal": self._redact_text(str(r["goal"])),
+                        "name": self._redact_text(shown_name(r["name"], str(r["goal"]))), "status": r["status"],
                         "created_at": r["created_at"], "updated_at": r["updated_at"],
                         "answer": self._redact_text(str(answer)), "verdict": r["verdict"]})
         return {"tasks": out, "more": len(rows) > limit}
