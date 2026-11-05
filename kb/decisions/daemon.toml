@@ -676,3 +676,13 @@ rule = "Migration 0060 adds schedule_names, timer_names and task_result_names; a
 why = "ORCH-542 (owner, 2026-11-05); AGENTS.md: an RPC the UI needs is a daemon change recorded in kb."
 paths = ["ferb/daemon/areas/schedules.py::Schedules._schedules_list", "ferb/daemon/areas/rpc.py::Rpc._tasks_list", "ferb/daemon/areas/chat.py::Chat._chat_status", "ferb/daemon/areas/notify.py::Notify._deliver", "ferb/store/task_results.py::TaskResults.record"]
 live = ["LIVE-787"]
+
+[DMN-545]
+title = "about.guide carries FERB.app's settings with their current values"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "about.guide (APP_ONLY) also takes `app_settings` [{key, name, where, what, value?}]: clean_guide keeps at most GUIDE_ITEMS (80) rows with a key, name and place, each string cut at GUIDE_CHARS (400) and a value at VALUE_CHARS (120); a row without a value (the app didn't share it) has none. Each send replaces the last in memory. The About document's app section lists them as `settings` (about.get and about.read, redacted as the rest); the always-on summary stays without live values (DMN-22)."
+why = "APP-728 (owner, 2026-11-05); AGENTS.md: an RPC change for the UI is a daemon change recorded in kb."
+paths = ["ferb/daemon/about.py::clean_guide", "ferb/daemon/areas/about.py::About._about_document", "ferb/daemon/areas/about.py::About._about_guide"]
+live = ["LIVE-788"]

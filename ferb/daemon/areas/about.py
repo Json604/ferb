@@ -32,7 +32,7 @@ class About:
         return about.summary(ferb.__version__, self._models())
 
     def _guide(self) -> dict[str, Any]:
-        return dict(getattr(self, "_app_guide", None) or {"howtos": [], "shortcuts": [], "places": {}})
+        return dict(getattr(self, "_app_guide", None) or {"howtos": [], "shortcuts": [], "places": {}, "app_settings": []})
 
     async def _about_document(self) -> dict[str, Any]:
         """The whole self-description, redacted (FERB.app's About page and the `about.read` tool read this one)."""
@@ -64,7 +64,9 @@ class About:
             "health": await self._about_health(),
             "cost": self._about_cost(),
             "app": {"howtos": guide["howtos"], "shortcuts": guide["shortcuts"],
-                    "where_settings_live": places or "FERB.app hasn't sent its guide since FERB started"},
+                    "where_settings_live": places or "FERB.app hasn't sent its guide since FERB started",
+                    # FERB.app's own settings as they are now (APP-728: re-sent by the app whenever one changes)
+                    "settings": guide.get("app_settings") or []},
         }
         return dict(self.redact(doc))
 
@@ -111,12 +113,13 @@ class About:
         return await self._about_document()
 
     async def _about_guide(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """FERB.app hands over its how-tos, shortcuts and where each setting lives (the list kept with its screens),
-        once per connection (auth.APP_ONLY: only FERB.app's words become FERB's guide). Kept in memory."""
+        """FERB.app hands over its how-tos, shortcuts, where each setting lives and its own settings with their current
+        values (declared with its screens), on each connection and again when one of its settings changes (APP-728;
+        auth.APP_ONLY: only FERB.app's words become FERB's guide). Kept in memory, each send replacing the last."""
         from ferb.daemon.about import clean_guide
         self._app_guide = clean_guide(params)
         return {"howtos": len(self._app_guide["howtos"]), "shortcuts": len(self._app_guide["shortcuts"]),
-                "places": len(self._app_guide["places"])}
+                "places": len(self._app_guide["places"]), "app_settings": len(self._app_guide["app_settings"])}
 
     # ---------- saved secrets and cards (APP-2) ----------
 

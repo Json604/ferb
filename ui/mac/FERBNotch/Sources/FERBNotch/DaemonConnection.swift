@@ -53,8 +53,31 @@ extension NotchModel {
         supportsAttachments = (attached["capabilities"] as? [String] ?? []).contains("input_paths")
         previewAccess.reconnected()         // the daemon may have been updated: a refused preview is asked for again
         connectionStatus = "Connected to FERB"
-        // FERB's self-description says what this app shows (DMN-6): its how-tos, shortcuts and settings' places.
-        Task { [rpc] in _ = try? await rpc.call("about.guide", params: AppGuide.payload) }
+        // FERB's self-description says what this app shows (DMN-6): its how-tos, shortcuts, settings' places and its
+        // own settings with their current values; sent again whenever one of those changes (`appSettingsChanged`).
+        sendGuide()
+    }
+
+    /// Hands the daemon FERB.app's guide as it stands now (APP-4, APP-728).
+    func sendGuide() {
+        guideResend?.cancel(); guideResend = nil
+        guideSent = AppSettings.current(preferences)
+        let payload = AppGuide.payload(preferences)
+        Task { [rpc] in _ = try? await rpc.call("about.guide", params: payload) }
+    }
+
+    /// A preference changed somewhere in the app: when a declared setting's value differs from what FERB's guide
+    /// last carried, the guide is sent again once things settle (one send for a slider's many writes). Nothing is sent
+    /// before the first connection, which sends it anyway.
+    func appSettingsChanged() {
+        guard let sent = guideSent, AppSettings.current(preferences) != sent else { return }
+        guideResend?.cancel()
+        let wait = guideDebounce
+        guideResend = Task { [weak self] in
+            try? await Task.sleep(for: wait)
+            guard !Task.isCancelled else { return }
+            self?.sendGuide()
+        }
     }
 
     func refreshDaemonStatus() async {

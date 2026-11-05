@@ -3159,3 +3159,12 @@ request = "Ask FERB for \"a 1 minute timer\", then \"every day at 9 check Course
 pass = "The timer's set card and arrival say Timer with a short name (\"1-minute timer\"), not \"Reminder\"; the schedule's card, its run card and its row show a 2-5 word name, not the instruction; the task row in the notch and on the Tasks page shows a short name. The full instruction appears only after tapping the heading in the FERB window. An older schedule shows its first words cut with \"…\"."
 decisions = ["ORCH-542", "APP-727", "DMN-544", "PRM-328"]
 sitting = "after this change is installed"
+
+[LIVE-788]
+title = "FERB knows FERB.app's settings as they are now"
+area = "app"
+surface = "FERB.app with this build"
+request = "In Settings → Notch & Shortcuts turn \"Open when I hover over FERB\" off and set Sounds → Intensity to Subtle. Then ask FERB \"is hover-to-open on, and are my sounds standard or subtle?\" Turn hover back on and ask again."
+pass = "FERB answers off and Subtle the first time and on the second, naming where each lives in Settings, without a restart. Settings → About → Your settings lists FERB.app's settings with those values."
+decisions = ["APP-728", "DMN-545"]
+sitting = "after this change is installed"

@@ -26,15 +26,86 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(about.cost.map(\.value), ["$1.50", "$4.25"])
     }
 
-    // decision: APP-4
+    // decision: APP-728
     func testTheAppGuideNamesWhereEverySettingLives() {
         let keys = ["privacy.exclude_apps", "privacy.exclude_domains", "sense.window_titles", "sense.trail_retention_days",
                     "retention.trace_days", "retention.decision_days", "retention.evidence_days", "retention.recovery_days",
                     "retention.resource_days", "retention.operational_days", "browsing.owner_profile"]
         XCTAssertEqual(Set(AppGuide.places.keys), Set(keys))
-        let payload = AppGuide.payload
+        let payload = AppGuide.payload(scratchDefaults())
         XCTAssertEqual((payload["howtos"] as? [[String: String]])?.count, AppGuide.howtos.count)
         XCTAssertEqual((payload["shortcuts"] as? [[String: String]])?.count, AppGuide.shortcuts.count)
+    }
+
+    // decision: APP-728
+    func testEveryPreferenceFERBAppSavesIsDeclaredForTheGuide() throws {
+        // Owner 2026-11-05: a saved app preference with no guide entry fails here. Every UserDefaults key the app's
+        // sources write or read (literal keys and key constants), plus the sound switches' keys, must be declared in
+        // AppSettings or listed in AppSettings.internalKeys with why.
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources")
+        let call = try NSRegularExpression(pattern: #"\.(set|object|bool|string|double|integer|float|data|array|dictionary|removeObject|url|stringArray)\((?:[^()]|\([^()]*\))*?forKey:\s*"([^"]+)""#)
+        let storage = try NSRegularExpression(pattern: #"AppStorage\("([^"]+)""#)
+        let constant = try NSRegularExpression(pattern: #"static let \w*[Kk]ey\w*\s*=\s*"([^"]+)""#)
+        var found: [String: String] = [:]
+        let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)!
+        for case let file as URL in files where file.pathExtension == "swift" {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let range = NSRange(text.startIndex..., in: text)
+            for regex in [call, storage, constant] {
+                for match in regex.matches(in: text, range: range) {
+                    let key = String(text[Range(match.range(at: match.numberOfRanges - 1), in: text)!])
+                    found[key] = file.lastPathComponent
+                }
+            }
+        }
+        for sound in SoundSwitch.allCases { found[sound.key] = "SoundPolicy.swift" }
+        XCTAssertGreaterThan(found.count, 20)                  // the scan found the app's keys at all
+        let accounted = AppSettings.declaredKeys.union(AppSettings.internalKeys.keys)
+        let missing = found.keys.filter { !accounted.contains($0) }.sorted()
+        XCTAssertEqual(missing, [], "declare these in AppSettings, or list them as internal with why: "
+                       + missing.map { "\($0) (\(found[$0]!))" }.joined(separator: ", "))
+        XCTAssertTrue(AppSettings.declaredKeys.isDisjoint(with: AppSettings.internalKeys.keys))
+        for setting in AppSettings.all {
+            XCTAssertFalse(setting.name.isEmpty || setting.place.isEmpty || setting.effect.isEmpty, setting.key)
+        }
+    }
+
+    // decision: APP-728
+    func testTheGuideCarriesEachSettingsCurrentValue() {
+        let defaults = scratchDefaults()
+        defaults.set(false, forKey: AppSettings.hover.key)
+        defaults.set("subtle", forKey: SoundPolicy.intensityKey)
+        let rows = AppGuide.payload(defaults)["app_settings"] as? [[String: String]] ?? []
+        XCTAssertEqual(rows.count, AppSettings.all.count)
+        XCTAssertEqual(rows.first { $0["key"] == AppSettings.hover.key }?["value"], "off")
+        XCTAssertEqual(rows.first { $0["key"] == SoundPolicy.intensityKey }?["value"], "Subtle")
+        XCTAssertEqual(rows.first { $0["key"] == AppSettings.sendOnRelease.key }?["value"], "off")   // its default
+        XCTAssertEqual(AppGuide.keys("Open / close FERB", defaults), "Double-tap right Option")
+    }
+
+    // decision: APP-728
+    func testChangingADeclaredSettingSendsTheGuideAgain() async throws {
+        let rpc = ScriptedRPC()
+        let defaults = scratchDefaults()
+        let model = NotchModel(rpc: rpc, preferences: defaults)
+        model.guideDebounce = .zero
+        let resent = expectation(description: "the guide is sent again")
+        var sends = 0
+        rpc.onCall = { method in
+            guard method == "about.guide" else { return }
+            sends += 1
+            if sends == 2 { resent.fulfill() }
+        }
+        model.sendGuide()                                      // as a connection does
+        defaults.set("not a setting", forKey: "FERBConversationID")       // not declared: no send of its own
+        defaults.set(0.1, forKey: AppSettings.volume.key)
+        defaults.set(0.2, forKey: AppSettings.volume.key)
+        await fulfillment(of: [resent], timeout: 5)
+        let rows = rpc.calls.filter { $0.0 == "about.guide" }.last?.1["app_settings"] as? [[String: String]] ?? []
+        XCTAssertEqual(rows.first { $0["key"] == AppSettings.volume.key }?["value"], "40% of the slider")
+        model.appSettingsChanged()                             // nothing differs from what was sent: no send
+        XCTAssertNil(model.guideResend)
     }
 
     // decision: APP-2

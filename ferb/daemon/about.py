@@ -12,8 +12,9 @@ What it holds (`document`, assembled by the daemon's About area): version, model
 permissions, the settings the owner changes in FERB.app (values from `settings.read`, places from the app's guide),
 what FERB keeps about the owner, where and for how long (`retention.describe`: the rule table the hourly pass runs),
 health (the database's size and clean-up state, FERB's CPU and memory from `resource_samples`), cost (the priced
-model calls in traces) and FERB.app's how-tos and shortcuts (`APP_GUIDE`: the list FERB.app keeps with its screens and
-hands to the daemon with `about.guide`)."""
+model calls in traces) and FERB.app's how-tos, shortcuts and own settings with their current values (`APP_GUIDE`: what
+FERB.app declares beside its screens and hands to the daemon with `about.guide`, on each connection and again whenever
+one of its settings changes, APP-728)."""
 
 from typing import Any, Callable
 
@@ -24,6 +25,9 @@ from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolContext, ToolRe
 SECTIONS = ("version", "models", "account", "permissions", "settings", "records", "health", "cost", "app")
 # The app guide FERB.app sends (`about.guide`): at most this many entries of each list, each string at most this long
 GUIDE_ITEMS, GUIDE_CHARS = 80, 400
+# FERB.app's own settings in it (APP-728): each with its key, name, place, effect and current value (a value only when the
+# app shares it), at most GUIDE_ITEMS of them; a value is one short line
+VALUE_CHARS = 120
 
 
 def summary(version: str, models: dict[str, str]) -> str:
@@ -40,7 +44,8 @@ def summary(version: str, models: dict[str, str]) -> str:
 
 def clean_guide(value: Any) -> dict[str, Any]:
     """The app guide as FERB.app sent it, kept only in its shape: `howtos` [{title, steps}], `shortcuts` [{action,
-    keys}], `places` {setting key: where in the app}; anything else is dropped and long strings cut."""
+    keys}], `places` {setting key: where in the app}, `app_settings` [{key, name, where, what, value?}] (FERB.app's own
+    settings with their current values, APP-728); anything else is dropped and long strings cut."""
     def text(x: Any) -> str:
         return " ".join(x.split())[:GUIDE_CHARS] if isinstance(x, str) else ""
 
@@ -51,16 +56,25 @@ def clean_guide(value: Any) -> dict[str, Any]:
                  for k in data.get("shortcuts", []) if isinstance(k, dict)][:GUIDE_ITEMS]
     raw: dict[Any, Any] = data["places"] if isinstance(data.get("places"), dict) else {}
     places = {text(k): text(v) for k, v in list(raw.items())[:GUIDE_ITEMS]}
+    settings = []
+    for row in [r for r in data.get("app_settings", []) if isinstance(r, dict)][:GUIDE_ITEMS]:
+        entry = {field: text(row.get(field)) for field in ("key", "name", "where", "what")}
+        if entry["key"] and entry["name"] and entry["where"]:
+            if isinstance(row.get("value"), str):      # sent only for a setting the app shares (never a secret)
+                entry["value"] = text(row["value"])[:VALUE_CHARS]
+            settings.append(entry)
     return {"howtos": [h for h in howtos if h["title"] and h["steps"]],
             "shortcuts": [k for k in shortcuts if k["action"] and k["keys"]],
-            "places": {k: v for k, v in places.items() if k and v}}
+            "places": {k: v for k, v in places.items() if k and v},
+            "app_settings": settings}
 
 
 class AboutRead:
     """FERB's self-description for a worker (DMN-6): read-only, redacted, the same document FERB.app shows."""
     name = "about.read"
     description = ("Read FERB's own self-description: version and models, FERB's own account, permissions, the owner's "
-                   "current settings and where each is changed in FERB.app, what FERB records about the owner (where "
+                   "current settings and where each is changed in FERB.app, FERB.app's own settings (hover, sounds, "
+                   "where FERB sits, shortcuts …) with their current values, what FERB records about the owner (where "
                    "and for how long), health, cost, and how-tos and shortcuts for FERB.app. Read-only: settings are "
                    "the owner's to change in FERB.app; tell them where. `section` narrows it to one part.")
     scopes: set[str] = set()

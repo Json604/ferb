@@ -110,18 +110,42 @@ def test_what_ferb_keeps_comes_from_the_retention_rule_table(daemon: RunningDaem
 
 
 # decision: DMN-6
-# decision: APP-4
+# decision: APP-728
 def test_the_app_guide_becomes_the_self_descriptions_how_tos(daemon: RunningDaemon) -> None:
     _grants(daemon)
     _as_app(daemon)
     guide = {"howtos": [{"title": "Delete a saved card", "steps": "Settings → Data"}],
              "shortcuts": [{"action": "Open FERB", "keys": "Double-tap right Option"}],
              "places": {"privacy.exclude_apps": "Settings → Privacy → Apps FERB ignores"}, "other": "dropped"}
-    assert _call(daemon, "about.guide", guide) == {"howtos": 1, "shortcuts": 1, "places": 1}
+    assert _call(daemon, "about.guide", guide) == {"howtos": 1, "shortcuts": 1, "places": 1, "app_settings": 0}
     doc = _call(daemon, "about.get")
     assert doc["app"]["howtos"] == guide["howtos"]
     assert next(s for s in doc["settings"] if s["key"] == "privacy.exclude_apps")["where"] == \
         "Settings → Privacy → Apps FERB ignores"
+
+
+# decision: APP-728, DMN-545
+def test_fERB_knows_the_apps_own_settings_as_they_are_now(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-05 ("what gurantees ferb knowledge about itself is updated too??"): FERB.app sends each of its
+    settings with its current value; a later send (a setting changed) replaces it; a value the app didn't share is never
+    there; the always-on summary stays without live values (DMN-22)."""
+    _grants(daemon)
+    _as_app(daemon)
+    hover = {"key": "notch.hoverEnabled", "name": "Open when I hover over FERB", "where": "Settings → Notch",
+             "what": "Hovering opens FERB", "value": "on"}
+    unshared = {"key": "some.private", "name": "A private one", "where": "Settings → Advanced", "what": "x"}
+    long = {"key": "feedback.volume", "name": "Volume", "where": "Settings → Sounds", "what": "How loud",
+            "value": "9" * 500}
+    reply = _call(daemon, "about.guide", {"howtos": [], "shortcuts": [], "places": {},
+                                          "app_settings": [hover, unshared, long, {"key": "", "name": "no key"}]})
+    assert reply["app_settings"] == 3
+    shown = {s["key"]: s for s in _call(daemon, "about.get")["app"]["settings"]}
+    assert shown["notch.hoverEnabled"]["value"] == "on" and "value" not in shown["some.private"]
+    assert len(shown["feedback.volume"]["value"]) <= 120
+    _call(daemon, "about.guide", {"howtos": [], "shortcuts": [], "places": {}, "app_settings": [hover | {"value": "off"}]})
+    read = daemon.run(daemon.daemon._about_document())["app"]["settings"]      # what about.read hands a worker
+    assert read == [hover | {"value": "off"}]
+    assert "notch.hoverEnabled" not in daemon.daemon._about_summary()
 
 
 # ---------- FERB's own account (APP-1) ----------
@@ -239,7 +263,7 @@ def test_the_app_lists_and_restores_a_trash_move(daemon: RunningDaemon, monkeypa
 # decision: DMN-23, DMN-21
 @pytest.mark.parametrize("method", ["secrets.saved", "secrets.delete", "identity.find", "identity.choose",
                                     "identity.pair", "about.guide", "setup.finish"])
-# decision: APP-4
+# decision: APP-728
 def test_the_owner_data_methods_refuse_any_other_program(daemon: RunningDaemon, method: str) -> None:
     with pytest.raises(RpcError) as refused:
         _call(daemon, method, {"place": "https://x.example", "name": "n"})

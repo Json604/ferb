@@ -20,13 +20,39 @@ public func shownBytes(_ bytes: Int) -> String {
 /// app actually shows. Change it together with the screen it names.
 public enum AppGuide {
     public struct HowTo: Equatable { public let title: String; public let steps: String }
-    public struct Shortcut: Equatable { public let action: String; public let keys: String }
+
+    /// A shortcut, declared once: Settings → Notch & Shortcuts, Settings → About and FERB's guide all read it. A
+    /// shortcut the owner can change names the declared setting (`setting`, an AppSettings key) whose current value
+    /// is its keys; until one exists its keys are the fixed `standard` ones.
+    public struct Shortcut {
+        public let action: String
+        public let standard: String
+        public let setting: String?
+        public let inNotchSettings: Bool
+
+        public init(action: String, standard: String, setting: String? = nil, inNotchSettings: Bool = true) {
+            self.action = action
+            self.standard = standard
+            self.setting = setting
+            self.inNotchSettings = inNotchSettings
+        }
+
+        /// Its keys now: the declared setting's current value, else the standard keys.
+        public func keys(_ defaults: UserDefaults = .standard) -> String {
+            guard let key = setting, let declared = AppSettings.all.first(where: { $0.keys.contains(key) }) else {
+                return standard
+            }
+            let value = declared.read(defaults)
+            return value.isEmpty ? standard : value
+        }
+    }
 
     public static let shortcuts: [Shortcut] = [
-        Shortcut(action: "Open / close FERB", keys: "Double-tap right Option"),
-        Shortcut(action: "Dictation", keys: "Hold right Command + Option"),
-        Shortcut(action: "Submit / new line", keys: "Return / Shift–Return"),
-        Shortcut(action: "FERB's window and Settings", keys: "FERB's menu bar icon → Open FERB Window, or ⌘, in it"),
+        Shortcut(action: "Open / close FERB", standard: "Double-tap right Option"),
+        Shortcut(action: "Dictation", standard: "Hold right Command + Option"),
+        Shortcut(action: "Submit / new line", standard: "Return / Shift–Return"),
+        Shortcut(action: "FERB's window and Settings", standard: "FERB's menu bar icon → Open FERB Window, or ⌘, in it",
+                 inNotchSettings: false),
     ]
 
     public static let howtos: [HowTo] = [
@@ -70,14 +96,18 @@ public enum AppGuide {
         "browsing.owner_profile": "Settings → Browsers → FERB's own account (when FERB has none)",
     ]
 
-    /// The keys of one shortcut, by its action.
-    public static func keys(_ action: String) -> String { shortcuts.first { $0.action == action }?.keys ?? "" }
+    /// The keys of one shortcut, by its action, as they are now.
+    public static func keys(_ action: String, _ defaults: UserDefaults = .standard) -> String {
+        shortcuts.first { $0.action == action }?.keys(defaults) ?? ""
+    }
 
-    /// `about.guide`'s parameters.
-    public static var payload: [String: Any] {
+    /// `about.guide`'s parameters: the how-tos, the shortcuts with their keys now, where each daemon setting lives,
+    /// and FERB.app's own settings with their current values (`AppSettings.current`).
+    public static func payload(_ defaults: UserDefaults = .standard) -> [String: Any] {
         ["howtos": howtos.map { ["title": $0.title, "steps": $0.steps] },
-         "shortcuts": shortcuts.map { ["action": $0.action, "keys": $0.keys] },
-         "places": places]
+         "shortcuts": shortcuts.map { ["action": $0.action, "keys": $0.keys(defaults)] },
+         "places": places,
+         "app_settings": AppSettings.current(defaults)]
     }
 }
 
@@ -101,6 +131,8 @@ public struct AboutDocument: Equatable {
     public let records: [Line]
     public let health: [Line]
     public let cost: [Line]
+    /// FERB.app's own settings as FERB knows them now (APP-728: the guide the app sent, with current values).
+    public let appSettings: [Line]
 
     public init(_ reply: [String: Any]) {
         version = text((reply["version"] as? [String: Any])?["ferb"])
@@ -139,6 +171,9 @@ public struct AboutDocument: Equatable {
         self.cost = [7, 30].compactMap { days -> Line? in
             guard let usd = cost["last_\(days)_days_usd"] as? NSNumber else { return nil }
             return Line(name: "Last \(days) days", value: String(format: "$%.2f", usd.doubleValue), note: text(cost["basis"]))
+        }
+        appSettings = ((reply["app"] as? [String: Any])?["settings"] as? [[String: Any]] ?? []).map {
+            Line(name: text($0["name"]), value: text($0["value"]), note: text($0["where"]))
         }
     }
 

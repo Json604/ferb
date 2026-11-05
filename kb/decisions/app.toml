@@ -38,7 +38,8 @@ legacy = "notes/daemon.md fix list: \"What FERB saw\""
 title = "The app guide lives in NotchCore and reaches the daemon on each connection"
 by = "agent"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "APP-728"
 rule = "FERB.app's how-tos, shortcuts and setting places are one list kept in NotchCore (AppGuide), beside the screens it names. FERB.app sends it with about.guide (APP_ONLY: only FERB.app's words become FERB's guide) on every connection; the daemon keeps it in memory and, until the app connects after a daemon start, the About document says so."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppScreens.swift", "ferb/daemon/about.py"]
 legacy = "notes/daemon.md Rulings (step 12c): the app guide"
@@ -2269,3 +2270,16 @@ rule = "FERB.app reads `name` beside goal, request and message (ShortName.of: th
 why = "ORCH-542 (owner, 2026-11-05)."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ShortName.swift", "ui/mac/FERBNotch/Sources/NotchCore/WindowRows.swift", "ui/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift"]
 live = ["LIVE-787"]
+
+[APP-728]
+title = "FERB knows FERB.app's own settings as they are now"
+by = "owner"
+date = 2026-11-05
+status = "active"
+supersedes = ["APP-4"]
+words = "since we have many settings hcange or so, will ferb be on pace with this???  what gurantees ferb knowledge about itself is updated too??"
+words_source = "Owner, 2026-11-05: \"yeah works\" for one declaration per setting with its guide line, a test for undeclared preferences, current non-secret values re-sent on change"
+rule = "Each owner-facing FERB.app setting is declared once in NotchCore (AppSettings: its UserDefaults keys, name, place, effect, how its value reads, whether it is shared; never a secret); Settings and FERB's guide read it, and shortcuts are declared once (AppGuide.Shortcut). about.guide (APP_ONLY) carries the how-tos, shortcuts, places and every setting with its current value, on each connection and again (debounced) when one changes. A test fails on a saved preference that is neither declared nor listed internal with why."
+why = "Refines DMN-6 (owner): the app's own preferences (hover, sounds, placement, chat size) weren't in FERB's self-description and no current values were sent; batch 6's custom shortcuts and placement settings only add declarations."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppSettings.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppScreens.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+live = ["LIVE-788"]

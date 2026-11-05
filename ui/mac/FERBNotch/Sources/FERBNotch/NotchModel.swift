@@ -116,7 +116,13 @@ final class NotchModel: ObservableObject {
     @Published var voiceFinishing = false
     private var voiceDraft = ""
     /// Settings → Notch & Shortcuts: a held dictation sends its draft when the keys are released.
-    static let sendOnReleaseKey = "voice.sendOnRelease"
+    static let sendOnReleaseKey = AppSettings.sendOnRelease.key
+    /// FERB's guide (`about.guide`) follows FERB.app's settings: the declared values last sent, a pending re-send after
+    /// a change (debounced by `guideDebounce`), and the defaults observer that notices one.
+    var guideSent: [[String: String]]?
+    var guideResend: Task<Void, Never>?
+    var guideDebounce: Duration = .seconds(1)
+    private var guideObserver: NSObjectProtocol?
     let rpc: DaemonRPCTransport
     /// FERB's click-through windows, told to the daemon (D31 fix round 4)
     let clickThrough: ClickThroughReport
@@ -257,6 +263,10 @@ final class NotchModel: ObservableObject {
             }
         }
         conversationID = preferences.string(forKey: "FERBConversationID")
+        guideObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
+                                                               object: preferences, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.appSettingsChanged() }
+        }
         announcedAttentionIDs = Set(preferences.stringArray(forKey: "FERBAnnouncedAttentionIDs") ?? [])
         acknowledgement.changed = { [weak self] text in
             guard let self else { return }

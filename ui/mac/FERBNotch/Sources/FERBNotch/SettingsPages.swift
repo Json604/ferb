@@ -116,28 +116,29 @@ struct GeneralSettingsPage: View {
 struct NotchSettingsPage: View {
     let cursor: CursorController
     var onHoverEnabledChange: ((Bool) -> Void)?
-    @AppStorage("cursor.enabled") private var cursorEnabled = true
-    @AppStorage("notch.hoverEnabled") private var hoverEnabled = true
-    @AppStorage(NotchModel.sendOnReleaseKey) private var sendOnRelease = false
+    // Each control's key and name come from its one declaration (AppSettings), which FERB's guide reads too
+    @AppStorage(AppSettings.pointer.key) private var cursorEnabled = true
+    @AppStorage(AppSettings.hover.key) private var hoverEnabled = true
+    @AppStorage(AppSettings.sendOnRelease.key) private var sendOnRelease = false
 
     var body: some View {
         WindowPage {
             WindowSettingsSection(title: "Notch & pill") {
-                Toggle("Open when I hover over FERB", isOn: $hoverEnabled)
+                Toggle(AppSettings.hover.name, isOn: $hoverEnabled)
                     .onChange(of: hoverEnabled) { _, enabled in onHoverEnabledChange?(enabled) }
                 Text("Drag FERB away from the notch to leave its pill on any screen edge.")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             WindowSettingsSection(title: "Keyboard & voice") {
-                LabeledContent("Open / close FERB", value: AppGuide.keys("Open / close FERB"))
-                LabeledContent("Dictation", value: AppGuide.keys("Dictation"))
-                LabeledContent("Submit / new line", value: AppGuide.keys("Submit / new line"))
-                Toggle("Send dictation when I let go of the keys", isOn: $sendOnRelease)
+                ForEach(AppGuide.shortcuts.filter(\.inNotchSettings), id: \.action) { shortcut in
+                    LabeledContent(shortcut.action, value: shortcut.keys())
+                }
+                Toggle(AppSettings.sendOnRelease.name, isOn: $sendOnRelease)
                 Text("FERB replies in the chat, in text. It never speaks.")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             WindowSettingsSection(title: "FERB’s pointer") {
-                Toggle("Show FERB's pointer when it acts on screen", isOn: $cursorEnabled)
+                Toggle(AppSettings.pointer.name, isOn: $cursorEnabled)
                     .onChange(of: cursorEnabled) { _, on in cursor.enabled = on }
             }
         }
@@ -147,9 +148,9 @@ struct NotchSettingsPage: View {
 struct SoundSettingsControls: View {
     @ObservedObject var feedback: SoundFeedback
     var body: some View {
-        Toggle("Play feedback sounds", isOn: $feedback.enabled)
-        Slider(value: $feedback.volume, in: 0...0.5) { Text("Volume") }.disabled(!feedback.enabled)
-        Picker("Intensity", selection: $feedback.subtle) {
+        Toggle(AppSettings.soundsOn.name, isOn: $feedback.enabled)
+        Slider(value: $feedback.volume, in: 0...0.5) { Text(AppSettings.volume.name) }.disabled(!feedback.enabled)
+        Picker(AppSettings.intensity.name, selection: $feedback.subtle) {
             Text("Standard").tag(false)
             Text("Subtle").tag(true)
         }.pickerStyle(.segmented).disabled(!feedback.enabled)
@@ -169,35 +170,6 @@ struct SoundSettingsControls: View {
                     }.disabled(!feedback.enabled)
                 }
             }.padding(.top, 16)
-        }
-    }
-}
-
-extension SoundSwitch {
-    /// Settings' name for the sound, and what it means in a few words.
-    var title: String {
-        switch self {
-        case .needsYou: return "Needs you"
-        case .error: return "Something went wrong"
-        case .notification: return "Notification"
-        case .listeningStart: return "Listening"
-        case .listeningEnd: return "Done listening"
-        case .tour: return "Intro tour"
-        case .summon: return "Open FERB"
-        case .paused: return "Paused"
-        }
-    }
-
-    var meaning: String {
-        switch self {
-        case .needsYou: return "A question or approval is waiting for you"
-        case .error: return "A task couldn't finish"
-        case .notification: return "Reminders, scheduled tasks and notices"
-        case .listeningStart: return "Dictation starts"
-        case .listeningEnd: return "Dictation stops"
-        case .tour: return "The sounds of the first-run tour"
-        case .summon: return "You open FERB"
-        case .paused: return "You pause FERB"
         }
     }
 }
@@ -519,7 +491,8 @@ struct AboutSettingsPage: View {
                 }
                 WindowSettingsSection(title: "Permissions") { ForEach(about.permissions) { LabeledContent($0.name, value: $0.value) } }
                 WindowSettingsSection(title: "Your settings") {
-                    ForEach(about.settings) { line in
+                    // FERB's settings, then FERB.app's own as FERB knows them now (APP-728)
+                    ForEach(about.settings + about.appSettings) { line in
                         VStack(alignment: .leading, spacing: 2) {
                             LabeledContent(line.name, value: line.value)
                             Text(line.note).font(.caption).foregroundStyle(.secondary)
@@ -539,7 +512,7 @@ struct AboutSettingsPage: View {
             } else {
                 ProgressView()
             }
-            WindowSettingsSection(title: "Shortcuts") { ForEach(AppGuide.shortcuts, id: \.action) { LabeledContent($0.action, value: $0.keys) } }
+            WindowSettingsSection(title: "Shortcuts") { ForEach(AppGuide.shortcuts, id: \.action) { LabeledContent($0.action, value: $0.keys()) } }
             WindowSettingsSection(title: "How to") { ForEach(AppGuide.howtos, id: \.title) { LabeledContent($0.title, value: $0.steps) } }
             WindowSettingsSection(title: "Sounds") { SoundCredits() }
         }
