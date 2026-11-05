@@ -8,7 +8,7 @@ already recorded, and the app rebuilds its rows from the record). A later step t
 one `updated` row with one line why; nothing posts the same answer again. Live states (asks, paused, working) are
 events only. No model writes anything here: code records and counts."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -178,21 +178,39 @@ class Card:
         self.emit(event)
 
 
-def composed(card: Card, lines: list[str]) -> str:
-    """The task's answer as the record keeps it (history, voice, task results, clients without rows): each part's row in
-    the owner's order, then the done count and code's lines. Built by code from the posted rows: nothing new is said."""
-    blocks = []
+NOT_FINISHED = "not finished"                     # an index line's part that neither filled nor failed
+PARTLY_UNCONFIRMED = "not all of it confirmed"    # an index line's part whose row has a "Couldn't confirm" line
+RESULTS = "Results: "                             # an index line naming where the task's files are
+
+
+def composed(card: Card, lines: list[str], artifacts: Sequence[str] = (), chars: int = 300) -> str:
+    """The task's answer as the record keeps it (history, voice, task results, the planner's short form, clients
+    without rows): an index of the card, one paragraph (owner D7, ORCH-534). Per part in the owner's order: its label
+    and its row's first line (the outcome: a done row's result, a failed row's "Couldn't do: …", a question it asks),
+    else "not finished"; then where the results are (`artifacts`), the done count and code's lines. Each line is
+    clipped to `chars`. Built by code from the rows: nothing new is said; the full rows stay in the card and in
+    `chat.part`."""
+    out = []
     for row in card.rows():
-        text = str(row.get("text") or "").strip()
-        if row.get("note"):
-            text += f"\nCouldn't confirm: {row['note']}."
-        if row.get("correction"):
-            text += f"\nCorrection: {row['correction']}."
-        if row.get("why"):
-            text += f"\n{UPDATED_WHY}: {row['why']}"
-        blocks.append(f"{row['label']}: {text}" if text else str(row["label"]))
+        state, text = row.get("state"), _first_line(row.get("text"))
+        if state == "asks" and isinstance(row.get("question"), dict):
+            text = _first_line(row["question"].get("text"))
+        said = text if text and (state in (*DONE, "failed", "asks")) else NOT_FINISHED
+        if row.get("note") and state in DONE:
+            said += f" ({PARTLY_UNCONFIRMED})"
+        out.append(f"{row['label']}: {said}")
+    if artifacts:
+        out.append(RESULTS + ", ".join(artifacts))
     done, total = card.tally()
-    return "\n\n".join([*blocks, "\n".join([done_line(done, total), *lines])])
+    return "\n".join(_clip(line, chars) for line in [*out, done_line(done, total), *lines])
+
+
+def _first_line(text: Any) -> str:
+    return next((line.strip() for line in str(text or "").strip().split("\n") if line.strip()), "")
+
+
+def _clip(line: str, chars: int) -> str:
+    return line if len(line) <= chars else line[:chars - 1].rstrip() + "…"
 
 
 def done_line(done: int, total: int) -> str:

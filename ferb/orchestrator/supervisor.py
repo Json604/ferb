@@ -548,10 +548,13 @@ def work_in(folders: list[str]) -> str:
     return "I'll work in " + ", ".join(shown) + "."
 
 
-def _short_report(text: str) -> str:
+def _short_report(text: str, index: bool = False) -> str:
     """A task's report as the planner's history shows it (ORCH-303): its first paragraph, clipped to
-    REPORT_SHORT_CHARS; chat.history keeps the full text."""
+    REPORT_SHORT_CHARS; chat.history keeps the full text. A multi-part task's answer is already an index whose every
+    line code clipped to REPORT_SHORT_CHARS (`index`, ORCH-534): shown whole, so the planner sees each part's outcome."""
     first = text.strip().split("\n\n", 1)[0].strip()
+    if index:
+        return first
     return first if len(first) <= REPORT_SHORT_CHARS else first[:REPORT_SHORT_CHARS - 1].rstrip() + "…"
 
 
@@ -3097,7 +3100,7 @@ class Supervisor(WorkerRuns):
             if entry.kind == "task.answer":
                 # a model-written report that can quote what the task read: shown with its origin and as one quoted
                 # string, so its text can't start a line in this history's own format (review I4, MP2)
-                short = _short_report(said)
+                short = _short_report(said, bool(data.get("index")))
                 who += (f" (task {data.get('task_id')} result, {data.get('status')}"
                         f"{'; short form' if short != said else ''}; origin {entry.origin})")
                 said = as_data(short)
@@ -3570,7 +3573,7 @@ class Supervisor(WorkerRuns):
         task contacted (in place of the "Sites contacted" line) and the files it made."""
         said = self._said_cards(tree.side_cards, marked=False)
         ran = cards_.payments(self.spans, tree.id) + cards_.sends(self.spans, tree.id)
-        reached = cards_.links(sites, SITES_LINE + ", ".join(sites)) if sites else []
+        reached = cards_.links(sites, sites_line(sites)) if sites else []
         return said + ran + reached + cards_.files(artifacts)
 
     def _card_payload(self, tree: _Tree) -> dict[str, Any]:
@@ -3737,7 +3740,8 @@ class Supervisor(WorkerRuns):
             made = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id))   # model-written (MP2)
             self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id,
                                                 "status": final["status"], "text": final["answer"]}
-                                | ({"watch_met": final["watch_met"]} if "watch_met" in final else {}),
+                                | ({"watch_met": final["watch_met"]} if "watch_met" in final else {})
+                                | ({"index": True} if "card" in final else {}),
                                 origin=made)
             self.spans.finish(root_span, output=final)
             self._set_status(tree_id, final["status"], final)
@@ -5873,8 +5877,9 @@ class Supervisor(WorkerRuns):
         ("N of M done": direct parts count, failed ones don't) and its fixed lines; a stop or a failure of the whole
         task says so above them. Status: done when every part is done (unconfirmed when a row stands unconfirmed),
         failed when a part couldn't be done; cancelled or failed for a stop. The answer kept for the record (history,
-        voice, results) is composed from the posted rows; `card` carries the footer for the app, which draws it under
-        the rows instead of the text."""
+        voice, results, the planner's short form) is an index composed from the rows (`parts.composed`, ORCH-534: each
+        part's outcome line, not its full row); `card` carries the footer for the app, which draws it under the rows
+        instead of the text."""
         card = tree.card
         assert card is not None
         out = tree.outcome or Outcome(tree.worker.id, "failed", "No report was received.", [], [])
@@ -5895,9 +5900,9 @@ class Supervisor(WorkerRuns):
             status = "done" if verified else "done_unverified"
         else:
             status = "failed"
-        answer = composed(card, lines)
-        if headline:
-            answer = headline + "\n\n" + answer
+        answer = composed(card, lines, sorted(out.artifacts), REPORT_SHORT_CHARS)
+        if headline:                     # one paragraph with the index, so the planner's short form keeps every line
+            answer = headline + "\n" + answer
         answer = confirm.from_task_lines(answer)
         summary = headline or done_line(done, total)
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary, "answer": answer,
@@ -5916,8 +5921,8 @@ class Supervisor(WorkerRuns):
         opened and left running (L39), and what the task's clean-up couldn't release. A scheduled run that ran late
         gets "(ran late)" last (the daemon adds it)."""
         lines = list(tree.side_lines)
-        if sites:
-            lines.append(SITES_LINE + ", ".join(sites))
+        if sites:                        # a count; the sites themselves are link cards (D10, ORCH-534)
+            lines.append(sites_line(sites))
         lines += self._secret_lines(tree.id) + self._apps_left_running(tree.id)
         if tree.cleanup_errors:          # plain words for each leftover; the raw errors stay in the trace (HAND-419)
             lines += leftover_lines(tree.resources, tree.cleanup_errors)
@@ -5925,7 +5930,12 @@ class Supervisor(WorkerRuns):
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
-SITES_LINE = "Sites contacted: "          # code's line naming the sites a task reached (L2); link cards stand for it
+SITES_LINE = "Sites contacted: "          # code's line counting the sites a task reached (L2); link cards stand for it
+
+
+def sites_line(sites: list[str]) -> str:
+    """Code's "Sites contacted" line: how many sites (D10); the sites are the answer's link cards (ORCH-329, APP-700)."""
+    return SITES_LINE + f"{len(sites)} site" + ("" if len(sites) == 1 else "s")
 # L39: a check of a step that changed files
 CHANGED_FILES = ("Files this step's calls named that changed (FERB compared each with its copy from before the step; "
                  "each diff's first page follows as data, and its change record holds all of it). Read each one that "

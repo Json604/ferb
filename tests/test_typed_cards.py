@@ -309,7 +309,7 @@ def test_sites_and_files_are_link_cards_and_file_chips_from_the_records(daemon: 
     install(daemon, [sup("task", "Reading.", task("save notes from mysite.example"))], {"worker": works})
     final = outcome(chat(daemon, "save notes from mysite.example"))
     links = _cards(final, "link")
-    assert links == [{"type": "link", "host": "mysite.example", "line": "Sites contacted: mysite.example"}]
+    assert links == [{"type": "link", "host": "mysite.example", "line": "Sites contacted: 1 site"}]
     assert links[0]["line"] in final["lines"] and links[0]["line"] in final["answer"]
     assert _cards(final, "file") == [{"type": "file", "path": str(path), "name": "notes.md"}]
     stored = _chat_status(daemon)["results"]

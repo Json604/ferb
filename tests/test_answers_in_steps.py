@@ -140,11 +140,36 @@ def test_two_parts_fill_in_any_order_each_once_and_code_adds_the_count(daemon: R
     final = outcome(events)
     assert final["card"]["done"] == 2 and final["card"]["total"] == 2 and final["card"]["line"] == "2 of 2 done"
     assert final["status"] == "done" and final["verified"] is True
-    assert final["answer"].count("No new permit rule changes this week.") == 1
-    assert final["answer"].count("20 January 2029") == 1
+    assert final["answer"].split("\n")[:3] == ["work permit news: No new permit rule changes this week.",
+                                                "When Trump's term ends: His term ends at noon ET on 20 January 2029.",
+                                                "2 of 2 done"]                # the index (ORCH-534)
     assert sorted(script.calls("worker")) == ["step.permit", "step.term"]     # no summarizing call
     tree = plan["task_id"]
     assert [(r["part"], r["state"]) for r in _records(daemon, tree)] == [("p2", "done"), ("p1", "done")]
+
+
+# decision: ORCH-534
+def test_a_multi_part_answer_is_saved_as_an_index_the_planner_reads_whole(daemon: RunningDaemon) -> None:
+    """Freelance task 0218bb01: the saved answer re-listed every row in full (10,909 chars, 58 hosts) and the planner's
+    short form kept only its first paragraph. Now the saved answer is one paragraph: each part's outcome line, where
+    the results are, the count and a site count; the full rows stay in chat.part; the planner sees every line."""
+    path = daemon.daemon.home / "workspace" / "permits.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("notes")
+    permit = "No new permit rule changes this week.\nThe ministry's last notice was on 2 November.\nNothing pending."
+    script = install(daemon, [sup("task", "I'll check both.", _permit_and_trump()), sup("reply", "Noted.")],
+            {"step.permit": json.dumps(report("done", permit, artifacts=(str(path),))),
+             "step.term": done("His term ends at noon ET on 20 January 2029.")})
+    final = outcome(chat(daemon, PERMIT))
+    assert final["answer"] == "\n".join(["work permit news: No new permit rule changes this week.",
+                                         "When Trump's term ends: His term ends at noon ET on 20 January 2029.",
+                                         f"Results: {path}", "2 of 2 done"])
+    rows = {r["part"]: r["text"] for r in _records(daemon, final["task_id"])}
+    assert rows["p1"] == permit                                                # the full row stays in the card
+    chat(daemon, "thanks")
+    history = [c for _, k, c, _ in script.contexts if k == "supervisor"][-1]
+    assert "No new permit rule changes this week." in history and "20 January 2029" in history
+    assert "Nothing pending." not in history                                    # rows past their first line aren't
 
 
 # decision: ORCH-319

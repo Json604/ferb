@@ -3067,7 +3067,7 @@ area = "app"
 surface = "FERB.app with this build"
 request = "Ask for a multi-part task whose parts give long answers (e.g. three short research questions), and separately one question with a long answer. Click Show more on a row, then Show less; select and copy text in a collapsed and an expanded answer. Let another row update while one is open."
 pass = "Each done row shows its first ~3 lines with a fade and Show more; a row asking you is open. The long answer shows ~6 lines and Show all. Show less keeps the row's top in view. Copy works in both states. An opened row stays open when the card updates; after quitting and reopening FERB.app everything starts collapsed. Short texts show no control."
-decisions = ["APP-719", "APP-721", "ORCH-533"]
+decisions = ["APP-719", "APP-721", "ORCH-534"]
 sitting = "after this change is installed"
 
 [LIVE-778]
@@ -3095,4 +3095,13 @@ surface = "FERB.app with this build; FERB's Gmail; a disposable folder"
 request = "Ask one quick question (\"what's on my calendar tomorrow?\" or a file lookup), one request for content (\"list every file in <disposable folder>\") and one vague request that needs a which (\"send the notes to Sam\" with two Sams in memory)."
 pass = "The quick answer is the result in a few lines with its source in a few words, no narration of windows or background work. The content request lists every item. The vague one asks only the question, naming each Sam with its evidence, with no restatement of the request or explanation of what FERB can't do. `ferb trace` shows no checker edit that added a sentence."
 decisions = ["PRM-320", "PRM-321", "PRM-322", "PRM-323", "PRM-324"]
+sitting = "after this change is installed"
+
+[LIVE-781]
+title = "A multi-part task's saved answer is a short index"
+area = "orchestration"
+surface = "FERB.app with this build; kartikey.xyz pages; a disposable folder"
+request = "Ask for three things at once that give long answers and visit several pages (e.g. \"summarize kartikey.xyz, list the files in <disposable folder> into a note there, and what's today's date\"). When it ends, open Tasks, and ask \"what did you find for the second one?\"."
+pass = "The card's rows hold each full answer. The Tasks page / history answer lists each part with its outcome line, where the note is, \"3 of 3 done\" and \"Sites contacted: N sites\" with the sites as link cards. The follow-up answer knows every part's outcome without starting a task."
+decisions = ["ORCH-534"]
 sitting = "after this change is installed"
