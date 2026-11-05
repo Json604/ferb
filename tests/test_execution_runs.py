@@ -279,7 +279,29 @@ def _routed(approval_id: str, reading: str) -> str:
                        "answer_question": {"approval_id": approval_id, "answer": reading}})
 
 
-# decision: ORCH-328, ORCH-301
+# decision: ORCH-536
+def test_typed_words_on_the_check_ins_card_are_refused_and_only_its_buttons_answer(daemon: RunningDaemon) -> None:
+    """Review §0.2, the bug of 2026-11-05: words typed in the check-in's box ("no, stop it") resolved as an answer with
+    no option, which the check-in read as "keep going". FERB's own check-ins are buttons only: the card says so
+    (`options_only`), the daemon refuses typed words with "Pick ...", and a button still answers."""
+    from ferb.cli.client import Client
+    script, turn = _failing(daemon, [])
+    asked = _pending(daemon)
+    c = Client(daemon.sock)
+    try:
+        listed = next(a for a in c.call("chat.status", {})["approvals"] if a["approval_id"] == asked.id)
+        assert listed.get("options_only") is True and not listed.get("corrects")
+        with pytest.raises(Exception, match="Pick Yes or No"):
+            c.call("chat.answer", {"approval_id": asked.id, "text": "no, stop it"})
+        assert run(daemon, lambda: daemon.daemon.state.approvals.get(asked.id)).state == "pending"
+        c.call("chat.approve", {"approval_id": asked.id, "granted": True, "choice": 2})       # the No button
+    finally:
+        c.close()
+    result = turn.result()
+    assert result["status"] == "failed" and len(script.calls("worker")) == CHECK_IN_AFTER
+
+
+# decision: ORCH-537, ORCH-301
 def test_free_text_in_chat_answers_the_check_in_only_as_one_of_its_options(daemon: RunningDaemon) -> None:
     """A chat answer to an option question counted as "carry on" whatever it said ("stop it" kept going). Now words
     that aren't an option count only through the planner's reading when that is exactly an option; otherwise FERB asks

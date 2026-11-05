@@ -421,7 +421,7 @@ def test_a_side_entry_reply_never_lets_the_next_message_in_before_the_task_regis
     assert len(_planner_calls(script)) == 3
 
 
-# decision: ORCH-328, ORCH-301
+# decision: ORCH-537, ORCH-301
 def test_questions_are_recorded_with_their_kind_and_answer(daemon: RunningDaemon) -> None:
     """Fix list: every question FERB asks, with its kind and how it was answered, so "few questions" can be measured."""
     install(daemon, [sup("task", "Booking.", task("Book the table"))],

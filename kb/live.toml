@@ -3114,3 +3114,39 @@ request = "Ask FERB to email a short note to an address you haven't used with FE
 pass = "Each card shows one question and no Details: the send names the recipient and the text, the delete names the path, the Terminal one shows the exact command (a long one scrolls in its block), each with the task's reason as a small line. No tool names, element ids or raw errors appear. The Sam question is one question naming each Sam with its evidence and a small \"from the task\" tag, with no \"Question from the task:\" prefix."
 decisions = ["GATE-225", "PRM-324"]
 sitting = "after this change is installed"
+
+[LIVE-783]
+title = "FERB's check-in takes only its buttons"
+area = "orchestration"
+surface = "FERB.app with this build; a disposable folder"
+request = "Ask for something that keeps failing (e.g. \"open the file ~/Desktop/ferb-live/missing.txt and summarise it\" with no such file) until FERB asks after 5 attempts whether to keep going."
+pass = "The check-in card shows only Keep going / Stop buttons, with no text box, in the task's row and at the bottom. Stop stops the task with what it found. Typing \"no, stop it\" in chat instead gets \"Is that Yes or No?\" and the task waits."
+decisions = ["ORCH-536", "APP-726"]
+sitting = "after this change is installed"
+
+[LIVE-784]
+title = "A task's question answered in its row's box"
+area = "orchestration"
+surface = "FERB.app with this build; FERB's Gmail"
+request = "Ask two things at once where one needs a choice, e.g. \"summarise my last 3 emails, and draft a reply to one of them\"; when the drafting row asks which email (with options), type in that row's box an instruction that isn't an option, e.g. \"the newest, and keep it to two lines\"."
+pass = "The row's question shows its option buttons and a text box. After sending, the row carries on and the draft follows the typed instruction (newest email, two lines); no \"which one?\" comes back."
+decisions = ["ORCH-536", "ORCH-537", "APP-726"]
+sitting = "after this change is installed"
+
+[LIVE-785]
+title = "\"Yes but the cheaper one\" in a safety check's box"
+area = "gateway"
+surface = "FERB.app with this build; FERB's Gmail; a kartikey.xyz test page"
+request = "Ask FERB to email a short note to an address it hasn't used (test-mode allowlist on). When the Yes / No card asks, type in its box \"yes but send it to <your other test address> instead\" and send."
+pass = "The card goes at once; no email is sent to the first address and the trace records no Yes or No for it (the check superseded). The task then asks again with the new address in the card; Yes sends to that address only."
+decisions = ["GATE-510", "ORCH-538", "APP-726"]
+sitting = "after this change is installed"
+
+[LIVE-786]
+title = "The same correction typed in chat while the card waits"
+area = "gateway"
+surface = "FERB.app with this build; FERB's Gmail"
+request = "As LIVE-785, but type \"yes but send it to <your other test address> instead\" in the chat composer while the card waits."
+pass = "FERB treats it as a correction of that task (not a Yes): the first card is set aside, nothing is sent to the first address, and a new card asks with the new address. A plain \"yes\" in chat on a later card still answers it."
+decisions = ["PRM-325", "ORCH-538", "GATE-510"]
+sitting = "after this change is installed"

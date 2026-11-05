@@ -2249,3 +2249,13 @@ rule = "A chat answer collapses only when it is taller than the transcript's vis
 why = "Batch 2 clamped answers at ~6 lines and rows at ~3, so ordinary answers were clipped."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::CollapsePolicy", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::CollapsibleText", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::AnswerView"]
 live = ["LIVE-777"]
+
+[APP-726]
+title = "Which question cards have a text box"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "DaemonApproval.answerBox decides from the daemon's flags only: a secret or a question without options takes an answer as before; options_only and a runtime offer: buttons only; corrects: Yes / No plus \"Or tell the task something else\", sent with chat.correct (the card goes at once; a refusal shows its reason and the open questions are read again); a task's question (from_task) with options: its buttons plus a box, inside a row too, with no Decline; anything else with options (a forget): buttons only."
+why = "ORCH-536 and GATE-510 (owner, 2026-11-05)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/DaemonApproval.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
+live = ["LIVE-783", "LIVE-784", "LIVE-785"]

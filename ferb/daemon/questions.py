@@ -33,6 +33,13 @@ class Approval:
     part: str = ""                            # the part of a multi-part request FERB's own question is about (8d)
     runtime_switch: dict[str, Any] | None = None   # the offer of another AI service it carries (ORCH-315)
     hidden: tuple[str, ...] = ()              # the kinds of secret FERB hid in the typed answer, by name (task 11)
+    # Batch 3b (ORCH-536, GATE-510): how the card answers it, set by whoever asks it, from structure only.
+    # `options_only`: FERB's own question about whether the task goes on (a check-in, a paused task's "Resume?", a
+    # closed tab's "continue?", a runtime offer): only one of its options answers it, never typed words.
+    # `corrects`: FERB's safety check that belongs to a task (a confirmation, a retry, a conversation's scope): its card
+    # also takes the owner's words for that task as a correction (`chat.correct`), never as an answer.
+    options_only: bool = False
+    corrects: bool = False
 
     def option_for(self, text: str) -> int | None:
         """The option (1-based) a typed answer picks: its exact words in any case, else its number."""
@@ -40,6 +47,11 @@ class Approval:
         if len(matches) == 1:
             return matches[0]
         return int(text) if text.isdecimal() and 1 <= int(text) <= len(self.options) else None
+
+
+def card_flags(ap: Approval) -> dict[str, Any]:
+    """How the app's card answers this question (`chat.status` and `approval.requested` carry the same flags)."""
+    return ({"options_only": True} if ap.options_only else {}) | ({"corrects": True} if ap.corrects else {})
 
 
 class Approvals:

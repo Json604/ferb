@@ -382,3 +382,15 @@ rule = "Every question card shows one question. A confirmation's is built by cod
 why = "Cards showed a summary plus the raw call under Details, router questions a display line plus the full question, retries the raw call and its JSON error."
 paths = ["ferb/policy/confirm.py::summary", "ferb/policy/confirm.py::task_question", "ferb/daemon/gateway.py::retry_question", "ferb/daemon/gateway.py::Gateway.ask_confirmation", "ui/mac/FERBNotch/Sources/NotchCore/DaemonApproval.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift"]
 live = ["LIVE-782"]
+
+[GATE-510]
+title = "A safety check's box: the owner's words go to that task as a correction, never as a Yes"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "so there will be a types box when worker wants it right?? or why not enable the chat in yes no too?? what downside there?? worker will see that and think what to do??"
+words_source = "Owner, 2026-11-05, batch 3b: after an independent review of the question paths the owner approved the design (\"rest im ok with\", then \"ok do it\"); the rule is the approved design, in an agent's words"
+rule = "A task's safety check (confirmation, retry, conversation scope) shows its options and a box \"Or tell the task something else\" (chat.correct). Words there never count as Yes or No: the action doesn't run, they reach that check's task as the owner's correction by structure and the check is set aside (ORCH-538); the card goes at once. Redacted as a chat message is. Exact option words count as that option. Refused for closed questions and checks with no task. chat.answer words on FERB's checks: \"Pick Yes or No.\""
+why = "Review §0.3 and §0.9: typed words on a safety check reached the worker as \"the owner didn't answer\" without the words, and the card's redaction hid a whole reply when the question mentioned a password."
+paths = ["ferb/daemon/areas/chat.py::Chat._chat_correct", "ferb/orchestrator/supervisor.py::Supervisor.correct_from_question", "ferb/orchestrator/steering.py::OPTION_ONLY", "ferb/orchestrator/steering.py::TASK_CHECKS"]
+live = ["LIVE-785", "LIVE-786"]

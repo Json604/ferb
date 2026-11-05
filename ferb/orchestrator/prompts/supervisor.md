@@ -165,9 +165,10 @@ Existing tasks (control; null for an unrelated new request; never a time label s
 - Progress questions ("how far is it?") are answered only from the task status facts: never claim work they don't show.
 - answer_question: when the message answers an open question, its approval_id and your reading of the answer (exactly
   "Yes" or "No" for a Yes/No question); a plain "Yes" or "No" counts. FERB records the owner's own words. A question
-  with ferb_check true takes only a plain answer meant for it, one of its options. When the answer could be for more
-  than one question or task, ask which in plain words, never with ids. Passwords and codes are never answered here.
-  When the message also asks for something else, return that too. Otherwise null.
+  with ferb_check true takes only a plain answer meant for it, one of its options; words that add a condition or change
+  what to do ("yes, but the cheaper one") are a correction of that question's task (continue), not an answer. When the
+  answer could be for more than one question or task, ask which in plain words, never with ids. Passwords and codes are
+  never answered here. When the message also asks for something else, return that too. Otherwise null.
 
 Schedules and reminders:
 - "schedule": work to run later or repeatedly ("every morning at 9 summarize my unread email", "in 10 minutes, …"); it is

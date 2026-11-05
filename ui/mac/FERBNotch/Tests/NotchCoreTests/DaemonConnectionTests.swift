@@ -38,6 +38,32 @@ final class DaemonConnectionTests: XCTestCase {
         XCTAssertTrue(model.pendingApprovals.isEmpty)
     }
 
+    // decision: APP-726, GATE-510, ORCH-536
+    func testEachCardTakesWordsOnlyWhereTheDaemonSaysAndASafetyChecksWordsAreACorrection() async throws {
+        func card(_ extra: [String: Any]) -> DaemonApproval {
+            DaemonApproval(["approval_id": "a", "kind": "owner_question", "options": ["Yes", "No"]].merging(extra) { $1 })!
+        }
+        XCTAssertEqual(card(["options_only": true]).answerBox, .none)                    // a check-in, "Resume?"
+        XCTAssertEqual(card(["runtime_switch": ["runtime": "codex", "choices": ["claude"]]]).answerBox, .none)
+        XCTAssertEqual(card(["capability": "memory.forget"]).answerBox, .none)           // no task: Yes / No only
+        XCTAssertEqual(card(["from_task": true]).answerBox, .answer)                     // a task's question, in a row too
+        XCTAssertEqual(card(["capability": "ferb.confirm", "corrects": true]).answerBox, .correction)
+        XCTAssertEqual(card(["options": []]).answerBox, .answer)                         // text-only: as before
+        XCTAssertEqual(card(["kind": "owner_secret", "options": []]).answerBox, .answer)
+
+        let rpc = RecordingRPC()
+        let model = makeModel(rpc)
+        let check = card(["approval_id": "c1", "capability": "ferb.confirm", "corrects": true, "task_id": "t1"])
+        model.pendingApprovals = [check]
+        model.correctApproval(check, text: "yes but the cheaper one")
+        XCTAssertTrue(model.pendingApprovals.isEmpty)                                    // the card goes at once
+        await Task.yield()
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(rpc.calls.first?.0, "chat.correct")
+        XCTAssertEqual(rpc.calls.first?.1["approval_id"] as? String, "c1")
+        XCTAssertFalse(rpc.calls.contains { $0.0 == "chat.approve" || $0.0 == "chat.answer" })   // never a Yes
+    }
+
     func testDuplicateOptionUsesExactOneBasedChoiceAndDenialDoesNotGrant() async throws {
         let rpc = RecordingRPC()
         let model = makeModel(rpc)

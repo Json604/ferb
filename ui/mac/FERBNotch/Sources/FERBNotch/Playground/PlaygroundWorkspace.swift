@@ -102,7 +102,7 @@ final class PlaygroundWorkspace {
         case "verdict.set":
             if let index = tasks.firstIndex(where: { $0["task_id"] as? String == params["task_id"] as? String }) { tasks[index]["verdict"] = params["verdict"] }
             return ["ok": true]
-        case "chat.approve", "chat.answer":
+        case "chat.approve", "chat.answer", "chat.correct":
             let id = params["approval_id"] as? String
             let approval = approvals.first { $0["approval_id"] as? String == id }
             let task = approval?["task_id"] as? String

@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator
 from ferb.act.fs.files import normalize_path
 from ferb.core import origin as origin_
 from ferb.core.errors import FerbError, Refused
+from ferb.daemon.questions import card_flags
 from ferb.daemon.server import Session
 from ferb.orchestrator import acks
 from ferb.orchestrator.continuity import RESERVED_SESSIONS
@@ -78,7 +79,8 @@ class Chat:
                     **({"why": ap.why} if getattr(ap, "why", "") else {}),
                     **({"source_task_id": ap.task_id} if ap.task_id else {}),
                     **({"part": ap.part} if ap.part else {}),
-                    **({"runtime_switch": ap.runtime_switch} if ap.runtime_switch else {})} for ap in approvals]
+                    **({"runtime_switch": ap.runtime_switch} if ap.runtime_switch else {}),
+                    **card_flags(ap)} for ap in approvals]
         running = [{"task_id": t, "goal": g}                  # a watch check isn't listed: no client adopts it (I3)
                    for t, g in (self.supervisor.running_trees(watches=False) if self.supervisor else [])]
         for r in running:                                     # the notch's elapsed timer (2026-10-27)
@@ -190,6 +192,38 @@ class Chat:
         text = str(params.get("text") or "")
         return self._resolve_approval(str(params["approval_id"]), bool(text), None, text or None)
 
+    async def _chat_correct(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`chat.correct {approval_id, text}` (GATE-510): the box on a safety check's card that belongs to a task ("Or
+        tell the task something else"). The owner's exact option words ("yes", "no", typed by them) are that option, as
+        `chat.answer` takes them; any other words never count as a Yes or a No: they are the owner's correction of
+        that check's task (`Supervisor.correct_from_question`), redacted as a chat message is (`chat.send`'s path:
+        the redactor, a code reply hidden while a question asks for one, the GATE-501/502 notice), never hidden whole
+        because the check's own words mention a password."""
+        if self.supervisor is None:
+            raise FerbError("daemon not started")
+        approval_id = str(params.get("approval_id") or "")
+        raw = str(params.get("text") or "").strip()
+        ap = self.state.approvals.get(approval_id)
+        if ap is None or ap.state != "pending":
+            raise FerbError("That question isn't waiting any more, so nothing was sent to the task.")
+        if not ap.corrects or not ap.task_id:
+            raise FerbError("This question isn't part of a task, so it takes only Yes or No.")
+        if not raw:
+            raise FerbError("Type what the task should do instead, or pick one of the answers.")
+        if ap.option_for(raw) is not None:            # exactly an option, in the owner's own keystrokes
+            return self._resolve_approval(approval_id, True, None, raw)
+        hidden = self._secret_kinds(raw)               # the kinds masked below, by name: the notice and the fact line
+        session_id = self.supervisor.continuity.conversation_of(self.tasks.tree_of(ap.task_id) or ap.task_id)
+        text = self._hide_code_reply(self.redact(raw), session_id)
+        told = await self.supervisor.correct_from_question(approval_id, text, hidden)
+        if hidden:
+            self._journal().append("chat.secret_hidden", {"session_id": session_id, "request_id": told["request_id"],
+                                                          "kinds": hidden})
+        self._journal().append("approval.corrected", {"approval_id": approval_id, "task_id": told["task_id"],
+                                                      "state": told["state"]})
+        return {"approval_id": approval_id, "state": told["state"], "task_id": told["task_id"],
+                "message": mark(text).for_model, "reply": told["text"], **({"hidden": hidden} if hidden else {})}
+
     async def _test_mode(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         if self.gateway is None:
             raise FerbError("the tool gateway is not ready")
@@ -228,7 +262,10 @@ class Chat:
                 text = text.strip()
                 granted = bool(text)
                 from ferb.orchestrator.steering import MEMORY_ASKS, OPTION_ONLY, choices
-                if ap is not None and ap.capability in OPTION_ONLY and text and ap.option_for(text) is None:
+                # FERB's checks (GATE-510: "Pick Yes or No.", never dropped as "neither Yes nor No") and FERB's own
+                # check-ins (ORCH-536) take only one of their options; typed words never answer them
+                if (ap is not None and (ap.capability in OPTION_ONLY or ap.options_only) and text
+                        and ap.option_for(text) is None):
                     raise FerbError(f"Pick {choices(ap.options)}.")
                 # Only the sealed secret inputs (a secret, the admin password, a login code) make hidden secrets
                 # (L18, D28). A picked option is never one; other typed words to a question are hidden for this

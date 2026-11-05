@@ -657,3 +657,12 @@ why = "Owner's run, 2026-11-04: \"Summarise my recently visited coding pages in 
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04). Journal rows 54-57."
 paths = ["ferb/daemon/areas/intro.py::GENERAL_TASKS", "ferb/orchestrator/prompts/intro.md"]
 live = ["LIVE-728"]
+
+[DMN-543]
+title = "chat.correct, and the card flags in chat.status"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "chat.correct {approval_id, text} is on the cli role beside chat.answer (the worker's sandbox denies the socket). It answers with the approval's state, the task, the owner's message as recorded and FERB's reply; the correction is journaled in that task's chat as chat.message (correction_of: the approval) and chat.reply, plus approval.corrected. chat.status and approval.requested carry options_only and corrects from the approval (questions.card_flags)."
+why = "GATE-510 needs an RPC that never resolves an approval as an answer; AGENTS.md: a UI change that needs an RPC is a daemon change recorded in kb."
+paths = ["ferb/daemon/auth.py::METHODS", "ferb/daemon/areas/chat.py::Chat._chat_correct", "ferb/daemon/questions.py::card_flags"]

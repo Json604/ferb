@@ -11,13 +11,11 @@ struct ApprovalView: View {
     @State private var answer = ""
     @FocusState private var inputFocused: Bool
 
-    /// A typed answer: a secret, a question without choices, or (outside a row) any question but a runtime offer,
-    /// which only its buttons answer (ORCH-315). In a row the choices are the answer, like the mock's.
-    private var takesTypedAnswer: Bool {
-        if approval.isSecret { return true }
-        if approval.runtimeSwitch != nil { return false }
-        return !inRow || approval.options.isEmpty
-    }
+    /// The card's box (APP-726, `DaemonApproval.answerBox`): FERB's own check-ins and runtime offers are buttons only
+    /// (ORCH-536, ORCH-315); a task's question takes its buttons or the owner's words, in a row too; a safety check of a
+    /// task takes Yes / No, or words for that task, sent as a correction and never as a Yes (GATE-510).
+    private var box: DaemonApproval.AnswerBox { approval.answerBox }
+    private var takesTypedAnswer: Bool { box != .none }
 
     var body: some View {
         VStack(alignment: .leading, spacing: inRow ? 6 : 9) {
@@ -89,10 +87,11 @@ struct ApprovalView: View {
                 Text("Sent privately to FERB’s sealed input path.")
                     .font(.system(size: 10)).foregroundStyle(Palette.secondary)
             } else if takesTypedAnswer {
-                TextField("Your answer…", text: $answer)
+                TextField(box == .correction ? "Or tell the task something else…" : "Your answer…", text: $answer)
                     .textFieldStyle(.plain).padding(8)
                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
                     .focused($inputFocused).onSubmit(send)
+                    .accessibilityLabel(box == .correction ? "Tell the task something else instead" : "Your answer")
             }
             if takesTypedAnswer { answerButtons }
         }
@@ -122,10 +121,12 @@ struct ApprovalView: View {
 
     private var answerButtons: some View {
         HStack {
-            Button(approval.isSecret ? "Cancel" : "Decline") {
-                answer = ""
-                model.declineApproval(approval)
-            }.buttonStyle(FerbButtonStyle(quiet: true))
+            if approval.isSecret || approval.options.isEmpty {     // with choices, the choices already answer it
+                Button(approval.isSecret ? "Cancel" : "Decline") {
+                    answer = ""
+                    model.declineApproval(approval)
+                }.buttonStyle(FerbButtonStyle(quiet: true))
+            }
             Spacer()
             Button(model.sendingAnswer ? "Sending…" : "Send", action: send)
                 .buttonStyle(FerbButtonStyle(primary: true)).disabled(answer.isEmpty || model.sendingAnswer)
@@ -143,7 +144,8 @@ struct ApprovalView: View {
         guard !answer.isEmpty, !model.sendingAnswer else { return }
         let value = answer
         answer = ""
-        model.answerApproval(approval, text: value)
+        if box == .correction { model.correctApproval(approval, text: value) }
+        else { model.answerApproval(approval, text: value) }
     }
 }
 

@@ -36,6 +36,7 @@ from ferb.trace.lines import clip
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Span, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import DESTINATION_HELP, EFFECT_HELP, FsRoots, Gateway, Observer, observes
+from ferb.daemon.questions import card_flags
 from ferb.memory.items import CAPTURE_TOLD, capture, query_terms, quoted
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, REQUEST_REFERENCE, TASK
@@ -201,6 +202,10 @@ KEPT_IDENTITY = "It keeps working as {who}: a running task can't switch whose ac
 KEPT_PLAN = "It keeps its current plan: a running task's steps can't be rearranged while it runs."
 NEXT_WORKER = "Its next attempt uses {worker}."
 NOT_WAITING = "That question isn't waiting for an answer any more, so I didn't count your message as one."
+# GATE-510: the box of a safety check's card, refused (plain words, I12)
+CARD_NOT_WAITING = "That question isn't waiting any more, so nothing was sent to the task."
+CARD_NO_TASK = "This question isn't part of a task, so it takes only Yes or No."
+CARD_TASK_ENDED = "That task isn't running any more, so nothing was sent to it."
 WHICH_QUESTION = "I couldn't tell which question that answers. Which one is it for?"
 NO_QUESTION = "No question is waiting for your answer right now."
 PASTED_ANSWER = "I take an answer only in your own words, not pasted text. What's your answer?"
@@ -213,6 +218,12 @@ NOT_RUNNING = "That task isn't running, so there's nothing to pause."
 TASK_STATE = {"running": "still running", "planned": "about to start", "paused": "paused, waiting for the owner",
               "done": "done", "done_unverified": "done but not confirmed", "failed": "failed",
               "needs_user": "waiting for the owner", "cancelled": "cancelled", "interrupted": "interrupted by a restart"}
+
+
+def _takes_words(ap: Any) -> bool:
+    """A question the owner's own words can answer as words (ORCH-537): a task's question (with or without options),
+    never one of FERB's checks or FERB's own check-ins, which take only one of their options."""
+    return ap.capability not in FERB_CHECKS and not ap.options_only
 
 
 def _plain_choice(ap: Any) -> str:
@@ -804,6 +815,9 @@ class _Watch(Observer):
 
     def waiting(self, worker: str, on: bool) -> None:
         self.sup.activity.waiting(worker, on)
+
+    async def correction_pending(self, grant: RunGrant) -> bool:
+        return await self.sup.correction_pending(grant.worker_id)
 
 
 def _summary_blocks(previous: JournalEntry | None, copied: list[Any], today: datetime | None = None
@@ -1456,6 +1470,19 @@ class Supervisor(WorkerRuns):
     def _unattended(self, task: Task) -> bool:
         return task.request_id in self.state.approvals.unattended
 
+    async def correction_pending(self, worker_id: str) -> bool:
+        """ORCH-538: whether the owner's latest correction to this worker's task hasn't reached the worker's run. A
+        correction being applied now (its tree's steering lock held) is waited for: it is delivered before its
+        task's open safety checks are set aside (`steering.apply`), so a worker told "set aside" already has the words.
+        A run that couldn't take it ends its attempt and the next one starts from it."""
+        held = self._worker_runs.get(worker_id)
+        tree = self._tree_of.get(held[1].task_id) if held is not None else None
+        if held is None or tree is None:
+            return False
+        state, run = tree.steering, held[1]
+        async with state.lock:
+            return state.delivered.get(run.id, len(state.messages)) < len(state.messages)
+
     def task_paused(self, task_id: str) -> bool:
         """Whether this task's tree is paused (ORCH-308; HAND-201): its tab group stays, nothing of it is
         released. True too for a tree suspended by a restart while one of its steps waited for the owner."""
@@ -1525,6 +1552,7 @@ class Supervisor(WorkerRuns):
                                task.request_id, frozenset(task.scopes), content=question)
         earlier = wait.approval
         wait.approval = ap = self.state.approvals.question(action, question, options)
+        ap.options_only = True                       # ORCH-536: Resume or Stop, never typed words
         row = self._part_of(tree, tree.step_id)
         ap.part = row[1].id if row is not None else ""
         wait.extra = {**wait.extra, 'mention': question}
@@ -1536,7 +1564,7 @@ class Supervisor(WorkerRuns):
         self.publish('approval.requested', {'approval_id': ap.id, 'capability': TASK_ASK, 'kind': 'owner_question',
                                             'reason': question, 'options': options, 'task_id': task.id,
                                             'request_id': task.request_id, 'question_kind': 'paused'}
-                     | ({'part': row[1].id} if row is not None else {}))
+                     | card_flags(ap) | ({'part': row[1].id} if row is not None else {}))
         if row is not None:
             row[0].show(row[1], 'asks', question={'approval_id': ap.id, 'text': question, 'options': options})
 
@@ -1596,6 +1624,11 @@ class Supervisor(WorkerRuns):
             ap.part = row[1].id if row is not None else ""
             ap.runtime_switch = wait.extra.get("runtime_switch")
             ap.from_task = from_task
+            # ORCH-536: FERB's own question with fixed options about whether the task goes on (a check-in, a closed
+            # tab, a runtime offer) takes only one of them; GATE-510: a conversation's scope is a safety check of the
+            # task, whose card also takes a correction
+            ap.options_only = not from_task and bool(options)
+            ap.corrects = wait.capability == CONVERSATION_ASK
             self._questions[tree.id] = question
             self.journal.append('loop.question' if loop else 'plan.question',
                                 {'task_id': tree.id, 'step': step_id, 'approval_id': ap.id, 'question': question,
@@ -1604,7 +1637,7 @@ class Supervisor(WorkerRuns):
                                                 'kind': 'owner_question', 'reason': question, 'options': options,
                                                 'task_id': task.id, 'request_id': task.request_id}
                          | ({'part': row[1].id} if row is not None else {}) | ({'from_task': True} if from_task else {})
-                         | wait.extra)
+                         | card_flags(ap) | wait.extra)
             if row is not None:      # ORCH-319: the question sits in its part's row; the other rows keep going
                 check_in = wait.extra.get('question_kind') == 'check_in'
                 row[0].show(row[1], 'paused' if check_in else 'asks',
@@ -2599,17 +2632,31 @@ class Supervisor(WorkerRuns):
                         lines.append('- ' + confirm.from_task(" ".join(printable(planner_asked).split())))
                     return 'clarify', WHICH_ONE.format(words=printable(text)) + '\n' + '\n'.join(lines)
             text = ap.options[choice - 1]
-        elif ap.options:
-            # any other question with options (a check-in, a paused task's mention, a closed tab's "continue?", a
-            # step's choice): the owner's words count as one option only when they are exactly it; else the planner's
-            # reading picks the option when it is exactly one; else FERB asks which, as for its own checks. Free text
-            # never counts as an answer with no option (a check-in reads that as "keep going")
+        elif ap.options and ap.options_only:
+            # FERB's own question about whether the task goes on (a check-in, a paused task's mention, a closed tab's
+            # "continue?", ORCH-536): the owner's words count as one option only when they are exactly it; else the
+            # planner's reading picks the option when it is exactly one; else FERB asks which, as for its own checks.
+            # Free text never counts as an answer with no option (a check-in reads that as "keep going")
             choice = ap.option_for(_bare(text))
             if choice is None:
                 choice = ap.option_for(_bare(routed.answer))
             if choice is None:
                 self._answer_focus[turn.session.id] = _Focus(None, frozenset({ap.id}), seen, displaced)
                 return 'clarify', _plain_choice(ap)
+        elif ap.options:
+            # a task's own question with options (ORCH-537): the owner's words are one option when they are exactly
+            # it; any other words go to the task as the owner's answer, unless they could answer another open question
+            # too (one taking words, or one they name an option of): then FERB asks which, once
+            choice = ap.option_for(_bare(text))
+            if choice is None and not carried:
+                asked_this = focus is not None and focus.named == {ap.id}
+                others = [q for q in open_now if q.id != ap.id and q.capability in ROUTABLE_QUESTIONS
+                          and (_takes_words(q) or q.option_for(_bare(text)) is not None)
+                          and not (asked_this and focus is not None and q.id in focus.seen)]
+                if others:
+                    self._answer_focus[turn.session.id] = _Focus(text, frozenset({ap.id, *(q.id for q in others)}),
+                                                                 seen, displaced)
+                    return 'clarify', WHICH_ONE.format(words=printable(text)) + '\n' + self._listed([ap, *others])
         self.state.approvals.resolve(ap.id, True, choice=choice, text=text)
         self.journal.append('approval.resolved', {'approval_id': ap.id, 'state': ap.state, 'capability': ap.capability})
         self.publish('approval.resolved', {'approval_id': ap.id, 'state': ap.state})
@@ -3025,12 +3072,19 @@ class Supervisor(WorkerRuns):
                                        "payload": text})
                 turn.looked = rowid
 
+    def _question_task(self, ap: Any) -> str:
+        """ORCH-539: the short label of the running task an open question belongs to (its asking task's tree), so the
+        planner sees which task each question is about; '' for one outside any running task (a forget)."""
+        root = self.tasks.tree_of(ap.task_id) if ap.task_id else None
+        tree = self._tree_of.get(root) if root else None
+        return short_label(tree.spec.goal) if tree is not None else ''
+
     def _questions_block(self, session: ChatSession) -> tuple[ContextBlock, set[str]]:
         """The open questions the owner's chat message can answer (the planner routes an answer by id, L3): only those
         `_answer` takes (fix list: never one it can't, such as a one-tap runtime switch or a paused loop's, whose reply
         is a correction of its task), with this chat's delegated conversations."""
-        questions = [{'approval_id': a.id, 'question': a.reason, 'options': list(a.options),
-                      'ferb_check': a.capability in FERB_CHECKS}
+        questions = [{'approval_id': a.id, **({'task': task} if (task := self._question_task(a)) else {}),
+                      'question': a.reason, 'options': list(a.options), 'ferb_check': a.capability in FERB_CHECKS}
                      for a in self.state.approvals.pending()
                      if a.kind == 'owner_question' and a.capability in ROUTABLE_QUESTIONS]
         mine = self.continuity.task_ids(session.id)
@@ -3843,9 +3897,13 @@ class Supervisor(WorkerRuns):
         FERB's own checks), labelled as the task's (D33), through the one wait for the owner: the step pauses and waits
         for the answer (a reply in chat answers it only through the planner's answer); a run nobody attends can't be
         asked and reports it at once. A stop of the task closes it as superseded, never a No (L3)."""
-        wait = _Wait(tree.id, question, tuple(options), origins_.INFERRED, capability,
-                     extra={'question_kind': 'conversation_scope' if capability == CONVERSATION_ASK else 'task'})
-        reply = await self._wait_for_owner(tree, tree.worker, wait, step_id=step_id, steer_resumes=False)
+        while True:
+            wait = _Wait(tree.id, question, tuple(options), origins_.INFERRED, capability,
+                         extra={'question_kind': 'conversation_scope' if capability == CONVERSATION_ASK else 'task'})
+            reply = await self._wait_for_owner(tree, tree.worker, wait, step_id=step_id, steer_resumes=False)
+            # set aside by the owner's correction (ORCH-538): the step's question is asked again, never skipped
+            if reply.kind != 'steer' or tree.stop:
+                break
         if reply.kind == 'declined':
             return {'status': 'needs_user', 'summary': "You need to answer this before I continue: " + question,
                     'question': question}
@@ -5227,6 +5285,41 @@ class Supervisor(WorkerRuns):
             raise FerbError(f"no question is waiting to switch task {task_id} to {runtime}")
         self.state.approvals.resolve(ap.id, True, offer["choices"].index(runtime) + 1, None)   # options: choices, Stop
         return dict(offer)
+
+    async def correct_from_question(self, approval_id: str, words: str, hidden: list[str]) -> dict[str, Any]:
+        """GATE-510: the owner's words typed in the box of a safety check's card ("Or tell the task something else"),
+        already redacted as a chat message is (`Daemon._chat_correct`). They are the owner's correction of exactly the
+        task that check belongs to (structure: the check's asking task, its tree; no planner guess), through the one
+        steering path: recorded in that task's chat as the owner's message, delivered to its live workers, and only
+        then are the task's open safety checks set aside (ORCH-538), this one included: never a Yes or a No, nothing is
+        recorded, and the corrected action asks again if it is still needed. The words never go into a tool result
+        (rule 9). Refused for a question no longer waiting, one with no task, or a task that is no longer running."""
+        ap = self.state.approvals.get(approval_id)
+        if ap is None or ap.state != 'pending':
+            raise FerbError(CARD_NOT_WAITING)
+        root = self.tasks.tree_of(ap.task_id) if ap.task_id else None
+        if not ap.corrects or root is None:
+            raise FerbError(CARD_NO_TASK)
+        tree = self._tree_of.get(root)
+        session_id = self.continuity.conversation_of(root)
+        if tree is None or tree.id != root or tree.stop or not tree.accepting_updates or session_id is None:
+            raise FerbError(CARD_TASK_ENDED)
+        request_id = self.ids.new_id()
+        marked = mark(words)                    # all of it the owner's words (ORCH-518)
+        entry = self.journal.append('chat.message', {'session_id': session_id, 'request_id': request_id,
+                                                     'text': marked.for_model, 'untrusted_parts': 0,
+                                                     'input_paths': [], 'correction_of': ap.id})
+        payload = marked.for_model + ('\n\n' + hidden_note(hidden) if hidden else '')
+        steered = await apply_steering(self, tree, session_id, request_id, marked.own_words, payload, None,
+                                       'journal:' + entry.id, standing='unchanged', supersedes=[])
+        if steered is None:
+            raise FerbError(CARD_TASK_ENDED)
+        text = steered[0]['text']
+        self.journal.append('chat.reply', {'session_id': session_id, 'request_id': request_id, 'text': text},
+                            origin=origins_.FERB)
+        current = self.state.approvals.get(approval_id)
+        return {'task_id': tree.id, 'request_id': request_id, 'text': text,
+                'state': current.state if current is not None else 'gone'}
 
     @staticmethod
     def _owner_continuation(reply: OwnerReply) -> str:

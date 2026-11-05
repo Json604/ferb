@@ -858,6 +858,27 @@ extension NotchModel {
         }
     }
 
+    /// The owner's words in a safety check's box (GATE-510): a correction of that check's task, never a Yes. The card
+    /// goes at once; a refusal (the question closed, no task) brings back what the daemon still has open.
+    func correctApproval(_ approval: DaemonApproval, text: String) {
+        guard !sendingAnswer, approval.corrects, !approval.isSecret else { return }
+        sendingAnswer = true
+        promptError = nil
+        resolveApproval(approval.id)
+        Task {
+            do {
+                _ = try await rpc.call("chat.correct", params: ["approval_id": approval.id, "text": text])
+                taskStateRevision += 1
+            } catch {
+                if case DaemonRPCError.remote(let reason, _) = error { promptError = reason }
+                else { promptError = "The message could not be confirmed. Rechecking the pending request." }
+                await refreshDaemonStatus()
+            }
+            sendingAnswer = false
+            onBackgroundChange?(true)
+        }
+    }
+
     func chooseApproval(_ approval: DaemonApproval, index: Int) {
         guard !sendingAnswer, approval.options.indices.contains(index), !approval.isSecret else { return }
         sendingAnswer = true

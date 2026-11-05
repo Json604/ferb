@@ -68,6 +68,7 @@ from ferb.core.interfaces import Capability, Clock
 from ferb.core.types import ActionFacts, Target, ToolContext, EscapeGrant, TerminalGrant, TerminalInput
 from ferb.daemon.auth import RunGrant
 from ferb.daemon.call_hooks import CallHooks, error_name, on_screen  # noqa: F401 (tests import it from here)
+from ferb.daemon.questions import card_flags
 from ferb.daemon.hidden_input import (ADMIN_SUMMARY, HiddenInput, _account, _site, _unfilled, login_code_question,  # noqa: F401
                                       login_code_summary, secret_place, secret_question, secret_summary, shown_name)
 from ferb.daemon.server import caller_left
@@ -135,6 +136,11 @@ ALLOW_WINDOW = "Yes, and don't ask for 30 min"   # a routine question's third an
 SAID_NO = "the owner said no to this: {line}"
 ALREADY_NO = "the owner already said no to this in this task: {line}"
 NO_ANSWER = "the owner didn't answer FERB's question, so it didn't run: {line}"
+# ORCH-538: a question asked before the owner's latest correction reached this worker's run is never opened
+CORRECTION_FIRST = ("the owner corrected this task and the correction hasn't reached you yet, so FERB didn't ask this: "
+                    "{line}")
+CORRECTION_FIRST_NEXT = ("End this attempt with what you have; the next one starts from the owner's correction, and "
+                         "if this is still needed as corrected it asks again.")
 SUPERSEDED = ("the owner changed the task while FERB was asking, so this didn't run and no answer was recorded: "
               "{line}")
 SUPERSEDED_NEXT = ("Apply the owner's correction first. If this action is still needed as corrected, prepare it and call "
@@ -429,6 +435,12 @@ class Observer:
 
     def waiting(self, worker: str, on: bool) -> None:
         pass
+
+    async def correction_pending(self, grant: RunGrant) -> bool:
+        """ORCH-538: whether the owner's latest correction to this worker's task hasn't reached its run yet (once a
+        correction being applied now has been delivered, or failed to be). No new question is opened for it until it
+        has, so the worker never re-prepares an action without the owner's words."""
+        return False
 
 
 
@@ -1867,6 +1879,10 @@ class Gateway:
             declined = {"declined": True, "unattended": True}
             self._finish_call(q_span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
             return Answer(False, error=UNATTENDED.format(line=text), next=NEEDS_OWNER_NEXT)
+        if await self.observer.correction_pending(grant):     # ORCH-538: the owner's correction comes first
+            first = {"declined": True, "state": "correction pending"}
+            self._finish_call(q_span, OWNER_ASK, first, False, output=first, origins=ask_origins(first))
+            return Answer(False, error=CORRECTION_FIRST.format(line=text), next=CORRECTION_FIRST_NEXT)
         if routine and self.allow_until is not None and self.clock.now() < self.allow_until:
             # the owner's "don't ask for 30 min" answers this routine question: their Yes, recorded and traced
             ids = [self.confirmations.record(root, n.rule, n.key, True, q_span.id) for n in needs]
@@ -1878,6 +1894,7 @@ class Gateway:
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=text, effect="navigate")
         ap, new = self._question(ask, text, options, key=text)
+        ap.corrects = True          # GATE-510: its card also takes the owner's words for this task, as a correction
         if new:     # the card's one question (GATE-225): the facts that decide it, never the step or the raw call
             shown_typed = quoted(self.redact({"t": typed})["t"]) if typed.strip() else ""
             ap.summary = self._one_line(confirm.summary(needs, shown_typed),
@@ -1885,7 +1902,8 @@ class Gateway:
             ap.why = self._one_line(confirm.reason_line(quoted(self.redact({"w": why})["w"]) if why.strip() else ""))
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": options,
-                                                "task_id": grant.task_id, "summary": ap.summary, "why": ap.why})
+                                                "task_id": grant.task_id, "summary": ap.summary, "why": ap.why}
+                         | card_flags(ap))
         self.observer.tool_call(grant, done=False)
         try:
             state = await self._wait_answer(grant, ap.id)
@@ -2265,6 +2283,11 @@ class Gateway:
             self._finish_call(span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
             return {"declined": True, "reason": "the owner isn't here (a scheduled run): decide yourself or report "
                                                 "what's missing"}
+        if reused is None and await self.observer.correction_pending(grant):     # ORCH-538: the correction first
+            first = {"declined": True, "state": "correction pending"}
+            self._finish_call(span, OWNER_ASK, first, False, output=first, origins=ask_origins(first))
+            return {"declined": True, "error": CORRECTION_FIRST.format(line="your question"),
+                    "next": CORRECTION_FIRST_NEXT}
         # a retry question is FERB's own consequential Yes/No (P19): answered like FERB's checks, never by a steer
         capability = RETRY_ASK if retry else OWNER_ASK
         ask = ActionRequest(capability=capability, kind="owner_question", identity=grant.identity, scopes=frozenset(),
@@ -2279,10 +2302,12 @@ class Gateway:
             # GATE-225: a retry's card shows its plain question (the attempts and the call stay in `reason` and the
             # span); a task's question carries the structural tag the app draws ("from the task", D33)
             ap.summary, ap.from_task = (retry_said if retry else ""), from_task
+            ap.corrects = bool(retry)        # GATE-510: a retry is FERB's safety check of this task
             self.publish("approval.requested", {"approval_id": ap.id, "capability": capability,
                                                 "kind": "owner_question", "reason": question, "options": options,
                                                 "task_id": grant.task_id}
-                         | ({"summary": ap.summary} if ap.summary else {}) | ({"from_task": True} if from_task else {}))
+                         | ({"summary": ap.summary} if ap.summary else {}) | ({"from_task": True} if from_task else {})
+                         | card_flags(ap))
         self.observer.tool_call(grant, done=False)
         try:
             answer = await self._wait_answer(grant, ap.id)

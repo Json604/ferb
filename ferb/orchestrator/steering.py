@@ -23,14 +23,18 @@ DOWNLOADS_ASK = 'downloads.delete'           # HAND-211: delete the oldest downl
 # downloads folder's cap (permanent deletion, HAND-211)
 MEMORY_QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {'forget': (FORGET_ASK, ('Yes', 'No')),
                                                             'downloads': (DOWNLOADS_ASK, ('Yes', 'No'))}
-# Checks whose typed answer must be one of their options (none left among memory's: a forget's Yes / No is a FERB check)
-OPTION_ONLY: frozenset[str] = frozenset()
 # None of them asks for a secret, so their own words never hide an answer or a chat message as a password question's
 # would; secret classes are still hidden (rule 14)
 MEMORY_ASKS = frozenset(capability for capability, _ in MEMORY_QUESTIONS.values())
 # FERB's own consequential checks: answered only by one of their options in plain words (Yes or No), never by a
 # correction's words (L3)
 FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK, DOWNLOADS_ASK})
+# Checks whose typed answer on the card (`chat.answer`) must be one of their options (GATE-510: "Pick Yes or No."). A
+# question's own `options_only` flag (FERB's check-ins, ORCH-536) is checked beside it.
+OPTION_ONLY: frozenset[str] = FERB_CHECKS
+# FERB's safety checks that belong to a task: a correction steered into the task sets them aside (ORCH-538), and their
+# card takes the owner's words for the task as a correction (GATE-510). A forget and the downloads cap have no task.
+TASK_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK})
 
 
 def acknowledgement(reply: str, delivered: bool, stated: str | None) -> str:
@@ -74,17 +78,31 @@ async def deliver(supervisor: Any, tree: Any, runtime: Any, run: RunHandle) -> b
     return True
 
 
-def settle_questions(supervisor: Any, request_id: str, words: str, supersedes: list[str]) -> None:
-    """What a correction does to the request's open questions (L3, spec 4.1). Only the questions the planner named as
-    changed by it (`supersedes`), and only this request's, are touched; every other question stays open, so "also cc
-    Bob" doesn't re-ask a payment or close a waiting login-code prompt. A named task question is answered with the
-    owner's exact words. A named FERB check (floor, P19 retry, conversation scope) or hidden input is closed as
-    superseded: never a No (I1), nothing is recorded, and the corrected action asks again if it still needs to."""
+def belongs(supervisor: Any, approval: Any, request_id: str, tree_id: str | None) -> bool:
+    """Structurally this task's question: asked under its request, or by one of its tree's tasks."""
+    return approval.request_id == request_id or (
+        tree_id is not None and bool(approval.task_id) and supervisor.tasks.tree_of(approval.task_id) == tree_id)
+
+
+def settle_questions(supervisor: Any, request_id: str, words: str, supersedes: list[str],
+                     tree_id: str | None = None) -> None:
+    """What a correction does to the task's open questions (L3, spec 4.1; ORCH-538). Every open safety check of the
+    task (a confirmation, a P19 retry, a conversation's scope: `TASK_CHECKS`) is set aside, whoever named it: the
+    task changed while it was asked, so it is closed as superseded, never a No (I1), nothing is recorded, and the
+    corrected action asks again if it still needs to. Of its other questions only those the planner named as changed by
+    the correction (`supersedes`) are touched, so "also cc Bob" doesn't close a waiting login-code prompt: a named task
+    question is answered with the owner's exact words; a named check-in of FERB's (`options_only`, ORCH-536) or hidden
+    input is set aside, never answered with words that aren't one of its options."""
     named = set(supersedes)
     for approval in supervisor.state.approvals.pending():
-        if approval.request_id != request_id or approval.id not in named:
+        if not belongs(supervisor, approval, request_id, tree_id):
             continue
-        if approval.kind == 'owner_question' and approval.capability not in FERB_CHECKS and words.strip():
+        if approval.capability in TASK_CHECKS and approval.kind == 'owner_question':
+            supervisor.state.approvals.supersede(approval.id)
+        elif approval.id not in named:
+            continue
+        elif (approval.kind == 'owner_question' and approval.capability not in FERB_CHECKS
+                and not approval.options_only and words.strip()):
             supervisor.state.approvals.resolve(approval.id, True, text=words)
         else:
             supervisor.state.approvals.supersede(approval.id)
@@ -267,10 +285,13 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
             origin=origin.join(made | shown | (turn.turn_origins if turn is not None else set()) | {origin.INFERRED}))
         supervisor.journal.append('task.steered', {'task_id': tree.id, 'session_id': session_id,
             'request_id': request_id, 'revision': revision, 'source_ref': source_ref})
-        settle_questions(supervisor, prior.request_id, clean['words'], supersedes)
         active = [(runtime, run) for runtime, run in list(supervisor._worker_runs.values())
                   if (member := supervisor._tree_of.get(run.task_id)) is not None and member.id == tree.id]
         accepted = await asyncio.gather(*(deliver(supervisor, tree, runtime, run) for runtime, run in active))
+        # ORCH-538 (review §0.6): only now, with the correction in each live worker's input, are the task's open
+        # questions settled. A worker whose safety check is set aside reads "the owner changed the task" after the
+        # words; one whose run didn't take them gets no new question until a run has them (`correction_pending`).
+        settle_questions(supervisor, prior.request_id, clean['words'], supersedes, tree.id)
         supervisor.publish('task.steered', {'task_id': tree.id, 'revision': revision, 'goal': tree.spec.goal})
         # L11: the reply is the planner's own sentence for this turn; the updated goal shows in the task list
         text = acknowledgement(said, bool(active and all(accepted)), stated.text if stated is not None else None)

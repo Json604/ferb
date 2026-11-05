@@ -288,3 +288,14 @@ words_source = "PRM-307 (agent-drafted R5) refined by the owner's approval of pr
 rule = "When the owner hands work to a named agent or person, that one does it (an app FERB drives as a tool doesn't count). FERB starts it with the settings the owner named (model and reasoning names are settings, not things to find), gives it what it needs, monitors it to the end and checks its result; starting it is not finishing. If it is stuck, help it or ask the owner whether FERB should take over; never quietly do its work. The answer says who did each part when an agent, app or person other than FERB did some of it."
 paths = ["ferb/orchestrator/prompts/interaction.md", "ferb/orchestrator/prompts/worker.md"]
 live = ["LIVE-507", "LIVE-520", "LIVE-610", "LIVE-615"]
+
+[PRM-325]
+title = "Words that add a condition to a safety check are a correction of its task, not an answer"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "ok do it"
+words_source = "Owner, 2026-11-05, batch 3b item 6, approved with the reviewed design; code unchanged (a plain Yes needs the owner's words and the planner's reading to agree)"
+rule = "supervisor.md's answer_question rule says: words that add a condition or change what to do (\"yes, but the cheaper one\") are a correction of that question's task (continue), not an answer. A plain Yes or No still answers; a vague \"sure\" still gets \"Yes or No?\"."
+paths = ["ferb/orchestrator/prompts/supervisor.md"]
+live = ["LIVE-786"]

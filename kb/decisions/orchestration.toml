@@ -310,7 +310,8 @@ legacy = "notes/orchestration.md Rulings (step 8c): folders"
 title = "Question kinds are structural; a chat answer counts only as one of its options"
 by = "agent"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-537"
 rule = "A question's kind comes from structure (the capability or approval kind, or the asker's tag); answers record state and the chosen option, never typed words. An answer in chat to a question with options counts only as one of them: the owner's words exactly, else the planner's reading exactly, else FERB asks which. The owner's words stay the recorded answer."
 why = "A free-text chat answer to a check-in, paused mention or closed tab counted as \"carry on\" (fixed 2026-11-01)."
 paths = ["ferb/orchestrator/supervisor.py::_plain_choice"]
@@ -748,3 +749,43 @@ words_source = "ORCH-534 (approved D7, D10) with its display clause refined by t
 rule = "No separate short version: a direct reply streams its full text and a one-part task's answer is the full answer with FERB's side lines. A multi-part task's saved answer is an index built by code: per part its label and its row's first line (else not finished), the results' paths, N of M done and code's lines; the full rows stay in the card and chat.part, and the planner reads the index whole. \"Sites contacted\" is a count, the sites are link cards. The chat collapses only an answer taller than the chat area (APP-725)."
 paths = ["ferb/orchestrator/parts.py::composed", "ferb/orchestrator/supervisor.py::Supervisor._final_card", "ferb/orchestrator/supervisor.py::_short_report", "ferb/orchestrator/supervisor.py::sites_line"]
 live = ["LIVE-781", "LIVE-777"]
+
+[ORCH-536]
+title = "FERB's own check-ins take only their buttons; a task's question takes its buttons or words"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "- FERB's own check-ins (\"keep going?\", \"Resume?\", \"continue?\"): buttons only. This fixes today's bug.\" - what was the today's bug?? rest im ok with"
+words_source = "Owner, 2026-11-05, batch 3b: approved the reviewed design (\"rest im ok with\", \"ok do it\"); the rule is that design in an agent's words"
+rule = "FERB's own option questions about whether a task goes on (the attempt-5 check-in, the paused task's \"Resume?\", a closed tab's \"continue?\", a runtime offer) take only one of their options: no box on the card, typed words refused (\"Pick ...\"); in chat the exact-option rule stays. A question from the task (a worker's owner.ask, a plan's ask step, a loop round's question) shows its buttons and a box, always, in a row too; typed words go to the worker as the owner's. Text-only questions are unchanged."
+why = "Review §0.1-§0.2: nearly every question got a typed box, and \"no, stop it\" typed in a check-in's box resolved as an answer with no option, which the check-in read as \"keep going\"; ORCH-328 had fixed only the chat path."
+paths = ["ferb/daemon/questions.py::card_flags", "ferb/orchestrator/supervisor.py::Supervisor._ask_and_wait", "ferb/orchestrator/supervisor.py::Supervisor._mention_pause", "ferb/daemon/areas/chat.py::Chat._resolve_approval"]
+live = ["LIVE-783", "LIVE-784"]
+
+[ORCH-537]
+title = "A chat reply to a task's question that isn't an option goes to the task as the owner's words"
+by = "agent"
+date = 2026-11-05
+status = "active"
+supersedes = ["ORCH-328"]
+rule = "Question kinds come from structure (capability, approval kind, the asker's tag, options_only). In chat, FERB's checks and check-ins count only as one of their options: the owner's words exactly, else the planner's reading exactly, else FERB asks which. A task's question with options takes the owner's exact words as an option and any other words as their answer; FERB asks which, once, only when the words could also answer another open question. The owner's words stay the recorded answer."
+why = "Owner 2026-11-05 (ORCH-536): a task's question takes the owner's words; asking \"which one?\" for every free reply to a question with options blocked instructions the owner gave the task."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._answer", "ferb/orchestrator/supervisor.py::_takes_words"]
+
+[ORCH-538]
+title = "A correction sets aside its task's open safety checks, after the worker has the words"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Any correction steered into a task (chat or a safety check's box) sets aside every open safety check of that task (confirmation, P19 retry, conversation scope; by its request or tree), named or not: superseded, never a No; the action, or a plan's ask step, asks again. Other questions change only when named. The set-aside runs in the same steering apply after the words reached each live worker run; the gateway opens no new question for a run that lacks the task's latest correction."
+why = "Review §0.5-§0.6: a correction set aside only the questions the planner named, so the uncorrected action could still run on a Yes; and the gateway could tell the worker \"apply the owner's correction first\" before the correction reached it, so it re-called and an identical card appeared."
+paths = ["ferb/orchestrator/steering.py::settle_questions", "ferb/orchestrator/steering.py::apply", "ferb/orchestrator/supervisor.py::Supervisor.correction_pending", "ferb/daemon/gateway.py::Gateway.ask_confirmation"]
+
+[ORCH-539]
+title = "The planner's open questions name their task"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Each open question in the planner's open-questions block carries the short label of the running task it belongs to (its asking task's tree; none for a question outside any task), so routing an answer or a correction is less of a guess."
+why = "Review §0.4: the block listed approval id, question, options and ferb_check, with no task."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._question_task"]

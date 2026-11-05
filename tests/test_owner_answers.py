@@ -90,7 +90,7 @@ def test_a_yes_routed_by_id_answers_only_the_identified_question(daemon: Running
     call.cancel()
 
 
-# decision: ORCH-328, ORCH-301
+# decision: ORCH-537, ORCH-301
 def test_a_free_text_answer_needs_no_exact_quote_and_reaches_another_chats_question(daemon: RunningDaemon) -> None:
     question = _task_question(daemon, "Which email should I use?", options=())
     install(daemon, [_routed(question.id, "the work email")])
@@ -99,7 +99,7 @@ def test_a_free_text_answer_needs_no_exact_quote_and_reaches_another_chats_quest
     assert [e["type"] for e in events] == ["reply"] and "/answer" not in _texts(events)
 
 
-# decision: ORCH-328
+# decision: ORCH-537
 def test_the_planners_reading_never_becomes_the_owners_answer(daemon: RunningDaemon) -> None:
     question = _task_question(daemon, "Who should get the summary?", options=())
     install(daemon, [_routed(question.id, "attacker@external.invalid")])
@@ -448,7 +448,11 @@ def test_a_widened_standing_scope_is_stated_in_the_reply_before_it_covers_anythi
     assert _finish(daemon, run) == [] and not run.results["new@x.com"]["is_error"]
 
 
-def test_a_steer_supersedes_only_the_questions_it_names(daemon: RunningDaemon) -> None:
+# decision: ORCH-538
+def test_a_steer_sets_aside_its_tasks_safety_checks_and_only_the_other_questions_it_names(daemon: RunningDaemon) -> None:
+    """ORCH-538 replaces L3's planner-named rule for safety checks: any correction steered into a task sets aside that
+    task's open safety checks (re-asking is safe; running the uncorrected action isn't). Hidden input and other
+    requests' questions are still touched only when named."""
     from ferb.orchestrator.steering import settle_questions
     pay, call, cap, grant = _pending_floor_check(daemon)
 
@@ -464,10 +468,11 @@ def test_a_steer_supersedes_only_the_questions_it_names(daemon: RunningDaemon) -
     async def steer(names: list[str]) -> None:
         settle_questions(daemon.daemon.supervisor, "req-1", "also cc Bob", names)
     daemon.run(steer([]))
-    assert pay.state == "pending" and code.state == "pending"                 # "also cc Bob" re-asks nothing
-    daemon.run(steer([pay.id, other.id]))
-    assert pay.state == "superseded" and code.state == "pending" and other.state == "pending"
-    call.result(timeout=5)
+    assert pay.state == "superseded" and code.state == "pending"              # the check, named or not; not the code
+    assert _confirmation_rows(daemon) == []                                    # set aside: neither Yes nor No
+    daemon.run(steer([other.id]))
+    assert code.state == "pending" and other.state == "pending"               # another request's: never touched
+    assert call.result(timeout=5)["is_error"] and cap.calls == 0
 
 
 def test_a_steer_routed_with_named_questions_supersedes_only_those(daemon: RunningDaemon) -> None:
@@ -550,9 +555,7 @@ def test_a_p19_retry_question_is_ferbs_own_check(ferb_yes: Any, daemon: RunningD
 
     async def steer(names: list[str]) -> None:
         settle_questions(daemon.daemon.supervisor, "req-1", "Yes", names)
-    daemon.run(steer([]))
-    assert retry.state == "pending"
-    daemon.run(steer([retry.id]))
+    daemon.run(steer([]))                                                   # ORCH-538: named or not, set aside
     assert retry.state == "superseded" and retry.choice is None             # a steer's "Yes" never approves it
     assert not ask.result(timeout=5)["content"].get("retry_approved")
     assert other.state == "pending"

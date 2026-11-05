@@ -31,6 +31,22 @@ public struct DaemonApproval: Identifiable, Equatable {
     /// The offer of another AI service (`runtime.switch`, ORCH-315): answered only with its buttons.
     public let runtimeSwitch: RuntimeSwitch?
     public var isSecret: Bool { ["owner_login_code", "owner_admin_password", "owner_secret"].contains(kind) }
+    /// FERB's own question about whether the task goes on (a check-in, "Resume?", a closed tab, a runtime offer):
+    /// answered only with its buttons; the daemon refuses typed words (ORCH-536). The daemon's flag, never the text.
+    public let optionsOnly: Bool
+    /// A safety check that belongs to a task (a confirmation, a retry, a conversation's scope): besides its buttons, the
+    /// owner's words for that task go as a correction through `chat.correct`, never as a Yes (GATE-510).
+    public let corrects: Bool
+
+    /// The card's text box (APP-726): none, an answer (a secret, a question without choices, a task's question with
+    /// choices, in a row too), or the owner's words for the task beside a safety check's buttons.
+    public enum AnswerBox: Equatable { case none, answer, correction }
+    public var answerBox: AnswerBox {
+        if isSecret || options.isEmpty { return .answer }
+        if optionsOnly || runtimeSwitch != nil { return .none }
+        if corrects { return .correction }
+        return fromTask ? .answer : .none
+    }
     public init?(_ value: [String: Any]) {
         guard let id = value["approval_id"] as? String, !id.isEmpty else { return nil }
         self.id = id
@@ -47,5 +63,7 @@ public struct DaemonApproval: Identifiable, Equatable {
         sourceTaskID = value["source_task_id"] as? String ?? taskID
         part = (value["part"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         runtimeSwitch = RuntimeSwitch(value["runtime_switch"])
+        optionsOnly = value["options_only"] as? Bool ?? false
+        corrects = value["corrects"] as? Bool ?? false
     }
 }
