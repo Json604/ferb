@@ -427,6 +427,48 @@ def test_a_check_in_asked_before_a_restart_is_asked_again_and_no_stops(home: Any
         second.stop()
 
 
+# decision: ORCH-307, ORCH-541
+def test_a_report_only_check_in_asked_again_after_a_restart_keeps_its_answer(home: Any, monkeypatch: Any) -> None:
+    """ORCH-541 across a restart: a check-in reached only because the records kept contradicting the answer (its
+    outcome verified) was asked again after a restart without that knowledge, so its No failed the task. Now the saved
+    step keeps the latest answer, and No ends done-unconfirmed with it and code's own line, never the evidence."""
+    monkeypatch.setattr("ferb.sanitize.images.recognize_text", lambda _image: [])
+    found = "Three of the five tools support offline mode."
+    evidence = "The records show only two tools with an offline mode"
+    first = own_daemon(home, "a")
+    try:
+        install(first, [sup("task", "On it.", task("Research offline support in the five tools"))],
+                {"worker": done(found), "worker.verify": verdict(True, False, next="retry", evidence=evidence)})
+        turn = Turn(first, "which of the five tools work offline?")
+        asked = _pending(first)
+        assert "Keep going?" in asked.reason
+        tree = asked.task_id.split(".", 1)[0]
+    finally:
+        first.stop()
+    turn.thread.join(10)
+    import ferb.orchestrator.supervisor as supervisor_module
+    resume = supervisor_module.Supervisor.resume_plans
+
+    async def held(self: Any) -> None:                   # resumed below, once the scripted model is in place
+        return None
+    monkeypatch.setattr(supervisor_module.Supervisor, "resume_plans", held)
+    second = own_daemon(home, "b")
+    try:
+        monkeypatch.setattr(supervisor_module.Supervisor, "resume_plans", resume)
+        sv = second.daemon.supervisor
+        script = install(second, [], {"worker": done("Not this one."), "worker.verify": verdict(True)})
+        second.loop.call_soon_threadsafe(lambda: second.loop.create_task(sv.resume_plans()))
+        answer_question(second, choice="No")
+        _until(second, lambda: _row(second, tree) == "done_unverified")
+        assert script.calls("worker") == []
+        answer = run(second, lambda: second.daemon.db.conn.execute(
+            "SELECT answer FROM task_results WHERE task_id = ?", (tree,)).fetchone()[0])
+        first_line, line = answer.split("\n\n")
+        assert first_line == found and line.startswith("Couldn't confirm:") and evidence not in answer
+    finally:
+        second.stop()
+
+
 def test_closing_a_tab_the_task_holds_asks_whether_to_continue(daemon: RunningDaemon) -> None:
     """HAND-201: the owner closing a FERB tab or the task's group mid-task stops that part, and FERB asks whether
     to continue (Continue / Stop). Continue carries the task on in place."""

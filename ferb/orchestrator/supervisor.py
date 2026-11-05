@@ -773,6 +773,9 @@ class _Wait:
     approval: Any = None
     extra: dict[str, Any] = field(default_factory=dict)   # more for the app with the question (runtime_switch)
     attempts: int = 0                    # a check-in: the failed attempts it asks about (kept for a restart)
+    # a check-in after a report-only retry (ORCH-541): the latest answer and its artifacts, kept for a restart, so a No
+    # or nobody there still ends done-unconfirmed with that answer
+    report: dict[str, Any] = field(default_factory=dict)
     opened: bool = False                 # its first waiter asked; later ones wait for its reply
     # the tree's corrections when it opened (a pause): one made after that resumes it, even before a step reached it
     steered: int | None = None
@@ -1701,7 +1704,8 @@ class Supervisor(WorkerRuns):
                 # which wait it is (a check-in, a runtime switch), so a restart asks the same again, not a pause
                 kind = wait.extra.get('question_kind')
                 restored = {'question_kind': kind, 'attempts': wait.attempts,
-                            'runtime_switch': wait.extra.get('runtime_switch')} \
+                            'runtime_switch': wait.extra.get('runtime_switch'),
+                            **({'report_only': wait.report} if wait.report else {})} \
                     if kind in RESTORED_WAITS and wait is not self._pauses.get(tree.id) else {}
                 self.plans.finish(tree.id, step_id, {'status': 'paused', 'question': wait.question,
                                                      'options': list(wait.options), 'origin': wait.origin,
@@ -4934,7 +4938,7 @@ class Supervisor(WorkerRuns):
         tree.confirmed = {}
         retrying = False                     # the next attempt follows the checker's retry (ORCH-531: "retrying")
         if tree.restored_wait:               # asked when FERB restarted: the same question first
-            again = await self._restored(tree, task, attempts)
+            again = await self._restored(tree, task, attempts, span)
             if isinstance(again, Outcome):
                 return again
             instructions = again or ""
@@ -5028,11 +5032,14 @@ class Supervisor(WorkerRuns):
                 f"\nInstructions for this attempt: {choice.instructions}"
             retrying = True
             if attempts.failed_one():        # ORCH-307: the check-in before another attempt
-                keep = await self._check_in(tree, task, attempts)
+                report_only = choice.report_only and out.status == "done"
+                keep = await self._check_in(tree, task, attempts, {"answer": tree.owner_answer,
+                                                                   "artifacts": list(out.artifacts)}
+                                            if report_only else None)
                 if keep is None:
                     break
                 if keep is False:
-                    if choice.report_only and out.status == "done":
+                    if report_only:
                         return await self._report_unconfirmed(tree, out, span)
                     return Outcome(task.id, "failed", tree.stop_reason, out.artifacts, [])
                 instructions += keep
@@ -5052,17 +5059,25 @@ class Supervisor(WorkerRuns):
         tree.outcome = Outcome(tree.worker.id, "done", tree.owner_answer, out.artifacts, [])
         return tree.outcome
 
-    async def _restored(self, tree: _Tree, task: Task, attempts: Attempts) -> str | Outcome | None:
+    async def _restored(self, tree: _Tree, task: Task, attempts: Attempts, span: str) -> str | Outcome | None:
         """The check-in or runtime switch this step waited on when FERB restarted, asked again as itself (never as an
         owner pause, whose answers mean other things: a No to a check-in stops). What the first attempt is told, or the
-        step's end (a No, nobody there, stopped)."""
+        step's end (a No, nobody there, stopped). A check-in after a report-only retry (ORCH-541) keeps that answer
+        across the restart: a No ends done-unconfirmed with it, as it would have before."""
         saved, tree.restored_wait = tree.restored_wait, {}
         if saved.get('question_kind') == 'check_in':
             attempts.failed = attempts.allowed = max(1, int(saved.get('attempts') or CHECK_IN_AFTER))
-            keep = await self._check_in(tree, task, attempts)
+            kept = saved.get('report_only')
+            report: dict[str, Any] = kept if isinstance(kept, dict) else {}
+            keep = await self._check_in(tree, task, attempts, report or None)
             if keep is None:
                 return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, [], [])
             if keep is False:
+                if str(report.get('answer') or '').strip():
+                    tree.owner_answer = str(report['answer'])
+                    artifacts = [str(a) for a in report.get('artifacts') or []]
+                    return await self._report_unconfirmed(tree, Outcome(task.id, "done", tree.owner_answer,
+                                                                        artifacts, []), span)
                 return Outcome(task.id, "failed", tree.stop_reason, [], [])
             return keep
         offer = saved.get('runtime_switch')
@@ -5389,14 +5404,17 @@ class Supervisor(WorkerRuns):
             return f"\nThe owner's answer to the question “{reply.question}”: {reply.words}{note}"
         return "\nThe owner replied: their words are in the latest owner corrections. Carry on from there."
 
-    async def _check_in(self, tree: _Tree, task: Task, attempts: Attempts) -> str | Literal[False] | None:
+    async def _check_in(self, tree: _Tree, task: Task, attempts: Attempts,
+                        report: dict[str, Any] | None = None) -> str | Literal[False] | None:
         """ORCH-307: after CHECK_IN_AFTER failed attempts, "keep going?". Yes (or the owner's own words) allows
         CHECK_IN_AFTER more and returns what the next attempt is told ('' for a plain Yes); No stops with what it found
-        (False, its reason in `stop_reason`). A run nobody attends stops here and reports (False). None: stopped."""
+        (False, its reason in `stop_reason`). A run nobody attends stops here and reports (False). None: stopped.
+        `report`: a report-only retry's latest answer (ORCH-541), saved with the waiting step for a restart."""
         unattended = self._unattended(task)
         if not unattended:
             wait = _Wait(tree.id, check_in_question(attempts.failed, short_label(tree.spec.goal)),
-                         (KEEP_GOING, STOP_HERE), extra={'question_kind': 'check_in'}, attempts=attempts.failed)
+                         (KEEP_GOING, STOP_HERE), extra={'question_kind': 'check_in'}, attempts=attempts.failed,
+                         report=dict(report or {}))
             reply = await self._wait_for_owner(tree, task, wait, step_id=tree.step_id)
             if reply.kind == 'stopped' or tree.stop:
                 return None
