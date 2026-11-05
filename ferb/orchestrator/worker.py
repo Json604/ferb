@@ -325,7 +325,9 @@ class WorkerRuns:
         except Exception as e:
             self.journal.append("progress.failed", {"task_id": grant.task_id, "tool": name, "error": type(e).__name__})
             return
-        live.put_nowait({"type": "progress", "task_id": tree.id, "text": text, "started_at": self.clock.now().isoformat()})
+        # the step's own task id, so each of a card's parallel rows shows its own line (ORCH-531)
+        live.put_nowait({"type": "progress", "task_id": tree.id, "step_task_id": tree.worker.id, "text": text,
+                         "started_at": self.clock.now().isoformat()})
 
     def _tell_tree(self, tree_id: str, event: dict[str, Any]) -> None:
         """An event on a tree's live line (its run's stream, L8), while the tree runs."""

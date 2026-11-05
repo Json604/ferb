@@ -16,7 +16,7 @@ from pathlib import Path
 from contextlib import suppress
 from functools import partial
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal, cast
 from urllib.parse import urlsplit
 
@@ -704,7 +704,18 @@ class _Tree:
     card: Card | None = None             # the root of a multi-part task: its rows
     answers: dict[str, "_Tree"] = field(default_factory=dict)   # the root: each answer step's tree, as it ran here
     answering: "_Tree | None" = None     # the root of a one-ask plan: the step whose checked answer is the answer
+    # the step lifecycle (ORCH-531): the root keeps each step's latest state (live, never stored: a restart derives it
+    # from plan_steps); a step's tree counts its attempts
+    step_states: dict[str, dict[str, Any]] = field(default_factory=dict)
+    attempt: int = 0
 
+
+# The step lifecycle (ORCH-531): states of a step at work, states it ended in, and how plan_steps' statuses read.
+STEP_LIVE = ('starting', 'running', 'checking', 'retrying', 'needs_you')
+STEP_ENDED = ('done', 'failed', 'not_finished', 'wont_run')
+STEP_STORED = {'done': 'done', 'done_unverified': 'done', 'failed': 'failed', 'blocked': 'failed',
+               'cancelled': 'not_finished', 'needs_user': 'not_finished', 'paused': 'needs_you',
+               'running': 'running', 'interrupted': 'starting', 'waiting': 'waiting'}
 
 LOOP_ASK = "loop.ask"                 # a paused loop's question to the owner (L31 item 8)
 LOOP_STOP, LOOP_KEEP = "Stop", "Keep watching"
@@ -859,6 +870,7 @@ class Supervisor(WorkerRuns):
         self._answer_checks: dict[tuple[str, str], dict[str, Any]] = {}
         # the event topics each registered plan waits for, beside the executor they were read for (notify_plan_event)
         self._plan_topics: dict[str, tuple[PlanExecutor, int, frozenset[str]]] = {}
+        self._step_seq = ""                 # the step lifecycle's last seq (ORCH-531): strictly increasing
         self.loops = LoopStore(self.plans.db, self.clock)                 # loop steps' durable state (L31)
         self._loops: dict[str, set[LoopRunner]] = {}                      # tree id -> its running LoopRunners
         self._loop_status: dict[tuple[str, str], dict[str, Any]] = {}     # (tree id, step id) -> its last status
@@ -1650,10 +1662,12 @@ class Supervisor(WorkerRuns):
                                                      **restored})
             self._tell_tree(tree.id, {'type': 'subtask', 'id': step_id, 'status': 'paused', 'role': 'worker',
                                       'summary': wait.question or 'Paused.'})
+            self._step_state(tree.id, step_id, 'needs_you')
             return
         if tree.stop:
             return
         self._set_status(task.id, 'running')
+        self._step_state(tree.id, step_id, 'running')
         if step_id in self._plan_steps(tree.id):          # running again: a later restart doesn't ask it again
             self.plans.finish(tree.id, step_id, {'status': 'running'})
         self._resumed(tree)
@@ -1944,8 +1958,8 @@ class Supervisor(WorkerRuns):
                         conversation_id=saved['conversation'], origins=set(data.get('origins', [])),
                         resume_id=tree_id, unattended_scopes=self.standing.scopes(tree_id), restored=True,
                         schedule=schedule, watch=bool(schedule and schedule.get('watch'))):
-                    if (quiet and event.get('type') == 'plan') or event.get('type') == 'part':
-                        continue             # a row's change is on the bus already (task.part)
+                    if (quiet and event.get('type') == 'plan') or event.get('type') in ('part', 'step'):
+                        continue             # a row's or step's change is on the bus already (task.part, task.step)
                     # no chat stream stamps these: each names its request and when it was sent, as task.result does
                     event = {**event, 'request_id': request_id, 'at': self.clock.now().isoformat()}
                     if event.get('type') == 'outcome' and schedule is not None:
@@ -3566,7 +3580,8 @@ class Supervisor(WorkerRuns):
         done, total = tree.card.tally()
         rows = [row | {"step_task_id": self._step_task(tree.id, str(row["step"]))} if row.get("step") else row
                 for row in tree.card.rows()]
-        return {"request_id": tree.card.request_id, "rows": rows, "done": done, "total": total}
+        return {"request_id": tree.card.request_id, "rows": rows, "done": done, "total": total,
+                "steps": self._step_payload(tree)}
 
     @staticmethod
     def _step_task(tree_id: str, step_id: str) -> str:
@@ -3586,6 +3601,77 @@ class Supervisor(WorkerRuns):
             event = {**event, "done": done, "total": total}
         self._tell_tree(tree_id, event)
         self.publish("task.part", event)
+
+    def _attempt_state(self, tree: _Tree, status: str) -> None:
+        """An attempt of a task's or plan step's own attempt loop started (running, or retrying after the checker's
+        retry) or went to its check. A loop's round and a conversation's turn report through their own runner."""
+        if tree.asks_in_place:
+            self._step_state(tree.id, tree.step_id, status, {'attempt': tree.attempt})
+
+    def _step_state(self, tree_id: str, step_id: str, status: str, facts: dict[str, Any] | None = None) -> None:
+        """The one step-state path (ORCH-531, ORCH-323's one status path): the plan runner's lifecycle (waiting,
+        starting, done, failed, not_finished, wont_run), the attempt loop's (running, checking, retrying) and the shared
+        wait for the owner (needs_you), as one `step` event on the tree's stream and the bus (`task.step`), with the row
+        it answers, what it waits on, the attempt and its times. The root keeps each step's latest state for the card
+        payload; the same state twice sends nothing. A step whose dependency ended unfinished settles its row at once."""
+        root = self._tree_of.get(tree_id)
+        if root is None or root.id != tree_id or self._suspending:
+            return
+        facts = dict(facts or {})
+        before = root.step_states.get(step_id, {})
+        waits_on = list(facts.get('waits_on') or ([] if status in ('waiting', 'wont_run') or 'waits_on' not in before
+                                                  else before['waits_on']))
+        attempt = int(facts.get('attempt') or before.get('attempt') or 0)
+        if (before.get('status'), before.get('waits_on', []), before.get('attempt', 0)) == (status, waits_on, attempt):
+            return
+        now = self.clock.now().astimezone(timezone.utc)
+        started = before.get('started_at') if status not in ('waiting', 'starting') else None
+        if status == 'starting' or (started is None and status in STEP_LIVE):
+            started = now.isoformat()
+        ended = now.isoformat() if status in STEP_ENDED else None
+        floor = self._step_seq
+        while (stamp := now.isoformat(timespec='microseconds')) <= floor:
+            now += timedelta(microseconds=1)
+        self._step_seq = stamp
+        row = self._part_of(root, step_id)
+        state: dict[str, Any] = {
+            'status': status, 'waits_on': waits_on, 'attempt': attempt, 'started_at': started, 'ended_at': ended,
+            'seq': stamp, **({'part': row[1].id} if row is not None else {}),
+            **({'loop': True} if facts.get('loop') or before.get('loop') else {}),
+            **{k: facts[k] for k in ('until', 'event') if facts.get(k)}}
+        root.step_states[step_id] = state
+        request = root.card.request_id if root.card is not None else root.worker.request_id
+        event = {'type': 'step', 'task_id': tree_id, 'request_id': request, 'step': step_id,
+                 'step_task_id': self._step_task(tree_id, step_id), **state}
+        self._tell_tree(tree_id, event)
+        self.publish('task.step', event)
+        if status == 'wont_run' and row is not None and row[1] in row[0].unposted() and not self._stopped(root):
+            states = self.plans.steps(tree_id)
+            steps = {s.id: s for s in self.plans.load(tree_id)['plan'].steps}
+            row[0].settle(row[1], 'failed', self._said(self._couldnt_do(None, self._never_ran(step_id, steps,
+                                                                                              states))))
+
+    def _step_payload(self, tree: _Tree) -> dict[str, dict[str, Any]]:
+        """Each plan step's state for the card (ORCH-531): the live one, else what plan_steps recorded (a restart, a
+        resumed task); a step that hasn't started and waits on others says so."""
+        try:
+            steps = self.plans.load(tree.id)['plan'].steps
+            stored = self.plans.steps(tree.id)
+        except KeyError:
+            return {}
+        out: dict[str, dict[str, Any]] = {}
+        for step in steps:
+            if step.id in tree.step_states:
+                out[step.id] = dict(tree.step_states[step.id])
+                continue
+            status = STEP_STORED.get(str(stored.get(step.id, {}).get('status') or 'pending'))
+            waits_on = [d for d in step.depends_on if stored.get(d, {}).get('status') not in DONE]
+            if status is None and waits_on:
+                status = 'waiting'
+            if status is not None:
+                out[step.id] = {'status': status, 'waits_on': waits_on if status == 'waiting' else [], 'attempt': 0,
+                                **({'loop': True} if step.loops else {})}
+        return out
 
     def card_state(self, tree_id: str) -> dict[str, Any] | None:
         """A running multi-part task's card now (chat.status): rows posted from the record, live states as they are."""
@@ -3930,7 +4016,8 @@ class Supervisor(WorkerRuns):
                 await self._release_resources(member, span)
                 tree.resources.extend(member.resources)
                 tree.cleanup_errors.extend(member.cleanup_errors)
-        engine = PlanExecutor(self.plans, execute, lambda: self._stopped(tree), self.clock.now)
+        engine = PlanExecutor(self.plans, execute, lambda: self._stopped(tree), self.clock.now,
+                              on_step=lambda tid, key, status, facts: self._step_state(tid, key, status, facts))
         self._plan_runs[tree.id] = engine
         try:
             while True:
@@ -4115,14 +4202,19 @@ class Supervisor(WorkerRuns):
                 self._post_part(tree, key, None, status, output)
                 continue
             if status not in ('failed', 'blocked', 'needs_user', 'cancelled'):
-                ended = [d for d in (steps[key].depends_on if key in steps else [])
-                         if states.get(d, {}).get('status') not in DONE]
-                why = next((str(states[d]['output'].get('summary') or '') for d in ended
-                            if states.get(d, {}).get('output', {}).get('summary')), '')
-                goal = " ".join(steps[ended[0]].goal.split()) if ended and ended[0] in steps else ''
-                output = {'summary': (f"a step it needed (\u201c{clip(goal, 120)}\u201d) didn't finish"
-                                      + (f": {why}" if why else "")) if goal else "the plan stopped before it ran"}
+                output = self._never_ran(key, steps, states)
             card.settle(part, 'failed', self._said(self._couldnt_do(None, output)))
+
+    @staticmethod
+    def _never_ran(key: str, steps: dict[str, Step], states: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """Why a step never ran: the step it needed that didn't finish (and that step's reason), else the plan's end."""
+        ended = [d for d in (steps[key].depends_on if key in steps else [])
+                 if states.get(d, {}).get('status') not in DONE]
+        why = next((str(states[d]['output'].get('summary') or '') for d in ended
+                    if states.get(d, {}).get('output', {}).get('summary')), '')
+        goal = " ".join(steps[ended[0]].goal.split()) if ended and ended[0] in steps else ''
+        return {'summary': (f"a step it needed (\u201c{clip(goal, 120)}\u201d) didn't finish"
+                            + (f": {why}" if why else "")) if goal else "the plan stopped before it ran"}
 
     def _finish_step(self, member: _Tree, out: Outcome) -> str:
         """A step's (or a conversation turn's) status from its attempt loop's outcome, written once: done but not
@@ -4760,6 +4852,7 @@ class Supervisor(WorkerRuns):
         instructions = ""
         attempts = Attempts()
         tree.confirmed = {}
+        retrying = False                     # the next attempt follows the checker's retry (ORCH-531: "retrying")
         if tree.restored_wait:               # asked when FERB restarted: the same question first
             again = await self._restored(tree, task, attempts)
             if isinstance(again, Outcome):
@@ -4777,6 +4870,9 @@ class Supervisor(WorkerRuns):
             ctx = (await self._context(tree, learned=True)) + [ContextBlock(instructions, "current continuation",
                                                                             protected=True)]
             schema, roles = self._report_roles(tree)
+            tree.attempt += 1
+            self._attempt_state(tree, 'retrying' if retrying else 'running')
+            retrying = False
             raw, _ = await self.run_worker(tree, task, "worker.md", ctx, schema, span, roles=roles)
             if self._is_paused(tree) and not tree.stop:
                 continue                 # the pause ended this attempt: its report is dropped, and it isn't counted
@@ -4784,6 +4880,7 @@ class Supervisor(WorkerRuns):
             down = raw if isinstance(raw, ServiceDown) else None
             out = self._read_report(tree, task, raw)
             if down is None and not self._steered(tree) and not tree.stop:
+                self._attempt_state(tree, 'checking')
                 try:
                     choice = await self._judge(tree, out, span)
                 except _RuntimeDown as exc:              # the checker's runtime hit the same kind of account fact
@@ -4849,6 +4946,7 @@ class Supervisor(WorkerRuns):
                 tree.spec.worker_type = choice.worker_type
             instructions = (f"\nWhat the check found missing: {choice.missing}" if choice.missing else "") + \
                 f"\nInstructions for this attempt: {choice.instructions}"
+            retrying = True
             if attempts.failed_one():        # ORCH-307: the check-in before another attempt
                 keep = await self._check_in(tree, task, attempts)
                 if keep is None:

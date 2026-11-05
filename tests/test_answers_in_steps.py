@@ -8,10 +8,11 @@ import threading
 import time
 from typing import Any
 
+from ferb.cli.client import Client
 from ferb.orchestrator.plans import Plan, Step
 from ferb.orchestrator.attempts import CHECK_IN_AFTER
 from tests.conftest import (STALL, RunningDaemon, answer_question, chat, done, install, outcome, report, sup, task,
-                            cond, verdict)
+                            cond, tool, turn_events, verdict)
 from tests.support.schedules import own_daemon, run
 
 
@@ -281,7 +282,7 @@ def test_a_part_that_keeps_failing_pauses_only_its_row_and_checks_in(daemon: Run
     assert outcome(events)["card"]["line"] == "1 of 2 done"
 
 
-# decision: ORCH-319
+# decision: ORCH-319, ORCH-532
 def test_a_restart_mid_task_posts_nothing_twice(home: Any, monkeypatch: Any) -> None:
     """Scenario 8: FERB restarts after one row filled: the resumed task's card comes from the record, the filled row is
     never posted again, the working row runs again and fills once."""
@@ -318,6 +319,7 @@ def test_a_restart_mid_task_posts_nothing_twice(home: Any, monkeypatch: Any) -> 
         assert script.calls("worker") == ["step.permit"]                      # only the unfinished step ran again
         resumed_plan = next(d for t, d in published if t == "task.resumed_event" and d.get("type") == "plan")
         assert resumed_plan["resumed"] is True
+        assert resumed_plan["card"]["steps"]["term"]["status"] == "done"     # ORCH-531: the steps from the record
         assert {r["part"]: r["state"] for r in resumed_plan["card"]["rows"]} == {"p1": "working", "p2": "done"}
         parts = [(d["part"], d["state"]) for t, d in published if t == "task.part"]
         assert parts == [("p1", "done")]                                    # p2 is never posted again
@@ -425,3 +427,74 @@ def test_continuing_a_multi_part_task_never_shows_a_finished_part_again(daemon: 
     assert "notch chat design" not in final["answer"] and "checkable loops" not in final["answer"]
     shown = [(r["part"], r["state"]) for r in _records(daemon, tree)]
     assert shown.count(("a", "done")) == 1 and shown.count(("c", "done")) == 1     # each finished part, once
+
+
+# ---------- the step lifecycle (ORCH-531) ----------
+
+def _steps(events: list[dict[str, Any]], step: str) -> list[dict[str, Any]]:
+    return [e for e in events if e["type"] == "step" and e["step"] == step]
+
+
+def _fetch(sock: Any, answer: str) -> Any:
+    def act(token: str) -> str:
+        tool(sock, token, "task.evidence")            # one tool call: the step's live line
+        return done(answer)
+    return act
+
+
+# decision: ORCH-531
+def test_step_states_follow_each_step_from_waiting_to_done_with_its_row_and_times(daemon: RunningDaemon) -> None:
+    """The plan event's card names each step's state (a step that depends on another waits on it); each step then
+    reports starting, running, checking and done, with its row, attempt and times, and its live line names the step's
+    own task."""
+    spec = _spec("Mail and leads", ["The mail is summarized", "Leads are listed"],
+                 [_part("mail", "check my mail", "Mail", step="mail", conds=(0,)),
+                  _part("leads", "find leads from it", "Leads", step="leads", conds=(1,))],
+                 [Step(id="mail", kind="do", goal="Read the mail"),
+                  Step(id="leads", kind="do", goal="Find leads in the mail", depends_on=["mail"])])
+    install(daemon, [sup("task", "I'll read your mail, then find leads.", spec)],
+            {"step.mail": _fetch(daemon.sock, "3 new mails."), "step.leads": done("2 leads.")})
+    c = Client(daemon.sock, timeout=30)
+    try:
+        raw = list(c.stream("chat.send", {"session_id": "s1", "text": "check my mail and find leads from it"}))
+    finally:
+        c.close()
+    events = turn_events(raw)
+    plan = next(e for e in events if e["type"] == "plan")
+    assert plan["card"]["steps"]["leads"]["status"] == "waiting"
+    assert plan["card"]["steps"]["leads"]["waits_on"] == ["mail"]
+    mail = [e["status"] for e in _steps(events, "mail")]
+    assert mail[:4] == ["starting", "running", "checking", "done"]
+    first, last = _steps(events, "mail")[0], _steps(events, "mail")[3]
+    assert first["part"] == "mail" and first["step_task_id"].endswith(".step.mail") and first["started_at"]
+    assert last["ended_at"] and last["started_at"] == first["started_at"] and last["attempt"] == 1
+    assert [e["seq"] for e in events if e["type"] == "step"] == sorted(e["seq"] for e in events if e["type"] == "step")
+    leads = [e["status"] for e in _steps(events, "leads")]
+    assert leads[0] == "waiting" and leads[-1] == "done"
+    assert events.index(_steps(events, "leads")[1]) > events.index(_steps(events, "mail")[3])   # only after mail
+    progress = [e for e in raw if e["type"] == "progress" and not e.get("connection")]
+    assert progress and all(e["step_task_id"].endswith(".step.mail") for e in progress)
+
+
+# decision: ORCH-532
+def test_a_failed_prerequisite_settles_its_dependent_row_at_once(daemon: RunningDaemon) -> None:
+    """A row whose step depends on a step that couldn't be done is settled as soon as that step ends (won't run), while
+    an independent step is still working; not at the plan's end."""
+    spec = _spec("Resumes and gigs", ["Resumes found", "Resume revised", "Gigs listed"],
+                 [_part("find", "find my resumes", "Resumes", step="find", conds=(0,)),
+                  _part("revise", "revise the best one", "Revised resume", step="revise", conds=(1,)),
+                  _part("gigs", "list some gigs", "Gigs", step="gigs", conds=(2,))],
+                 [Step(id="find", kind="do", goal="Find the resumes"),
+                  Step(id="revise", kind="do", goal="Revise the best resume", depends_on=["find"]),
+                  Step(id="gigs", kind="do", goal="List gigs")])
+    install(daemon, [sup("task", "I'll find and revise your resume and list gigs.", spec)],
+            {"step.find": _not_done("No resume files are in the folder."),
+             "step.gigs": _slow("Three gigs.", 0.8)})
+    events = chat(daemon, "find my resumes, revise the best one, and list some gigs")
+    wont = _steps(events, "revise")
+    assert wont[-1]["status"] == "wont_run" and wont[-1]["waits_on"] == ["find"]
+    rows = _parts(events)
+    revise = next(i for i, e in enumerate(rows) if e["part"] == "revise")
+    gigs = next(i for i, e in enumerate(rows) if e["part"] == "gigs")
+    assert rows[revise]["state"] == "failed" and revise < gigs              # settled before the slow row filled
+    assert outcome(events)["card"]["line"] == "1 of 3 done"
