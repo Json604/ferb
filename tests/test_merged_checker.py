@@ -56,22 +56,43 @@ def test_an_unverifiable_side_detail_is_marked_inline_and_the_task_is_done(daemo
     assert result["answer"] == "The library is at 100 Larkin St. It opens at 10am (I couldn't confirm this)."
 
 
-# decision: ORCH-309, PRM-323
-def test_a_checker_edit_that_adds_words_is_dropped(daemon: RunningDaemon) -> None:
+# decision: ORCH-309, PRM-323, PRM-326
+def test_a_checker_edit_that_rewrites_marks_its_text_and_one_that_adds_is_dropped(daemon: RunningDaemon) -> None:
     """Freelance task 0218bb01: the checker's edits ADDED sentences ("Preview and Finder came to the front…") to the
-    answer. An edit may only remove its text or mark it inline; one that writes more is dropped and journaled, and the
-    unproven detail gets the one "Couldn't confirm" line instead."""
+    answer. An edit may only remove its text or mark it inline; one that writes more is never applied and is journaled.
+    A rewrite marks the text it would have changed (PRM-326: all 12 recorded checker edits were rewrites, so dropping
+    them left unconfirmed claims bare); a pure addition leaves its text as it was (it wasn't disputed)."""
     install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
-        "worker": done("The library is at 100 Larkin St."),
-        "worker.verify": verdict(True, None, next="fix_answer", evidence="The hours weren't on the page",
-                                 edits=(("100 Larkin St.", "100 Larkin St. Preview came to the front once."),))})
+        "worker": done("The library is at 100 Larkin St. It has 3 floors."),
+        "worker.verify": verdict(True, None, next="fix_answer", evidence="The floors weren't on the page",
+                                 edits=(("It has 3 floors.", "It appears to have several floors."),
+                                        ("100 Larkin St.", "100 Larkin St. Preview came to the front once.")))})
     result = outcome(chat(daemon, "where's the library"))
     assert result["status"] == "done"
-    assert result["answer"].startswith("The library is at 100 Larkin St.")
-    assert "Preview" not in result["answer"]
+    assert result["answer"] == "The library is at 100 Larkin St. It has 3 floors (I couldn't confirm this)."
     async def dropped() -> list[Any]:
-        return [e.data["finds"] for e in daemon.daemon.journal.of_kind("task.answer_edit_dropped")]
-    assert daemon.run(dropped()) == [["100 Larkin St."]]
+        return [(e.data["finds"], e.data["marked"]) for e in daemon.daemon.journal.of_kind("task.answer_edit_dropped")]
+    assert daemon.run(dropped()) == [(["It has 3 floors.", "100 Larkin St."], ["It has 3 floors."])]
+
+
+# decision: ORCH-309, PRM-326, ORCH-540
+def test_a_report_condition_the_checker_found_unmet_never_adds_a_correction_line(daemon: RunningDaemon) -> None:
+    """Live task 794e3bd8 (owner 2026-11-05: "what correction message is this?? who added it??"): the checker failed
+    FERB's report condition because the answer didn't say FERB did the research, tried a pure addition ("I researched
+    this. " + the sentence), which code dropped, and its evidence then showed as "Correction: …". The addition is
+    dropped and the sentence left bare (it was confirmed); the evidence stays in the record only."""
+    found = "Three of the five tools support offline mode."
+    evidence = "The answer does not state that FERB performed the research"
+    install(daemon, [sup("task", "On it.", task("Research offline support in the five tools"))], {
+        "worker": done(found),
+        "worker.verify": verdict(True, False, next="fix_answer", evidence=evidence,
+                                 edits=((found, "I researched the five tools myself. " + found),))})
+    result = outcome(chat(daemon, "which of the five tools work offline?"))
+    assert result["answer"] == found and "correction" not in result
+    assert "Correction" not in result["answer"] and "couldn't confirm" not in result["answer"]
+    async def recorded() -> list[Any]:
+        return [e.data["evidence"] for e in daemon.daemon.journal.of_kind("task.report_condition_unmet")]
+    assert daemon.run(recorded()) == [evidence]
 
 
 # decision: ORCH-309, PRM-323

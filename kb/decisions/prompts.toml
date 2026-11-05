@@ -299,3 +299,22 @@ words_source = "Owner, 2026-11-05, batch 3b item 6, approved with the reviewed d
 rule = "supervisor.md's answer_question rule says: words that add a condition or change what to do (\"yes, but the cheaper one\") are a correction of that question's task (continue), not an answer. A plain Yes or No still answers; a vague \"sure\" still gets \"Yes or No?\"."
 paths = ["ferb/orchestrator/prompts/supervisor.md"]
 live = ["LIVE-786"]
+
+[PRM-326]
+title = "A checker edit that rewrites a claim marks it instead of leaving it bare"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Refines PRM-323's drop: an answer edit that is neither a removal nor its find with the inline marker is never applied and is journaled (task.answer_edit_dropped with `marked`). A pure addition (its replace keeps the find whole) leaves the text as it was. A rewrite (it changes or drops words of the find) marks the text's first occurrence inline with \"(I couldn't confirm this)\", once, before its closing punctuation. A find not in the answer changes nothing."
+why = "Owner's database, 2026-11-05: all 12 recorded checker edits (6 fix_answer verdicts of 26) were rewrites; dropping them left unconfirmed sentences unmarked, against ORCH-309. Coordinator-approved from the owner's P4 approval."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._apply_edits", "ferb/orchestrator/supervisor.py::mark_unconfirmed"]
+
+[PRM-327]
+title = "The checker's report condition follows PRM-322: who did a part only when it wasn't FERB"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "FERB's report condition (REPORT_CONDITION and verifier.md) reads: the answer says only what the records support, names who did a part only when an agent, app or person other than FERB did it, names its source and account in a few words, and leaves out nothing that changes the result. interaction.md's named-doer rule says the same."
+why = "Live task 794e3bd8: the stale \"says who did each part\" made the checker fail an answer for not saying FERB did the research. Part of the owner-approved P3/P4 refinement (PRM-322, PRM-323)."
+paths = ["ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/supervisor.py::REPORT_CONDITION", "ferb/orchestrator/prompts/interaction.md"]
+untestable = "Prompt text: TEST-500 keeps no wording tests; the owner's live check of a researched answer shows it."

@@ -108,8 +108,9 @@ assert WORKER == "worker"
 # condition (ORCH-309): when only it isn't met, the checker fixes the answer (fix_answer), or the answer's one
 # "Couldn't confirm" line says what isn't confirmed; the work is never redone for it (`_next`).
 REPORT_CONDITION = Condition(
-    text="My report to you says truthfully what was done, who did each part (FERB itself, or the agent, app or person "
-         "you named) and with what, and leaves out nothing that changes the result",
+    text="My report to you says only what the records support, names who did a part only when an agent, app or "
+         "person other than FERB did it, names its source and account in a few words, and leaves out nothing that "
+         "changes the result",
     check=Check(kind="none", path=None, text=None, url_contains=None, site=None, expected=None), layer="outcome")
 
 # How long a message waits for the owner's front window before the plan goes on without it: a safety limit, kept at
@@ -676,7 +677,6 @@ class _Tree:
     how: str = ''                        # the worker's note on the steps that worked (memory, kb area memory)
     confirmed: dict[int, ConditionResult] = field(default_factory=dict)   # conditions confirmed by an earlier attempt
     unconfirmed: str = ''                # code's one "Couldn't confirm" line for a done answer, '' when none
-    correction: str = ''                 # and what the records show against an unfixed detail of the answer
     runtime: str | None = None           # the runtime the owner chose for this task's worker and checker (ORCH-315)
     runtime_switch: dict[str, Any] | None = None   # the offer of another runtime when an account fact ended the work
     input_notes: list[dict[str, Any]] = field(default_factory=list)
@@ -4184,11 +4184,11 @@ class Supervisor(WorkerRuns):
 
     def _checked_record(self, member: _Tree) -> dict[str, Any]:
         """What a finished step keeps of its check, so its answer can be told after a restart as it was: the one
-        "Couldn't confirm" line, a correction, and whether every condition it was checked against was verified."""
+        "Couldn't confirm" line and whether every condition it was checked against was verified."""
         if member.outcome is None or member.outcome.status != 'done':
             return {}
-        text, note, correction, verified = self._checked_answer(member, member.outcome)
-        return {'note': note, 'correction': correction, 'verified': verified,
+        text, note, verified = self._checked_answer(member, member.outcome)
+        return {'note': note, 'verified': verified,
                 'verification': [r.as_dict() for r in member.verification]}
 
     def _adopt_saved(self, tree: _Tree, outputs: list[dict[str, Any]]) -> None:
@@ -4197,7 +4197,6 @@ class Supervisor(WorkerRuns):
         tree.owner_answer = "\n\n".join(str(o.get('answer') or o.get('summary') or '').strip() for o in outputs
                                          if str(o.get('answer') or o.get('summary') or '').strip())
         tree.unconfirmed = "; ".join(str(o['note']) for o in outputs if o.get('note'))
-        tree.correction = "; ".join(str(o['correction']) for o in outputs if o.get('correction'))
         planned = len(tree.spec.success_conditions)
         if len(outputs) == 1 and outputs[0].get('verification'):
             tree.verification = [ConditionResult(int(r['index']), str(r.get('condition', '')), r.get('met'),
@@ -4220,13 +4219,12 @@ class Supervisor(WorkerRuns):
         if part is not None:
             if status in DONE:
                 if member is not None and member.outcome is not None:
-                    text, note, correction, verified = self._checked_answer(member, member.outcome)
+                    text, note, verified = self._checked_answer(member, member.outcome)
                 else:
                     text = str(output.get('answer') or output.get('summary') or '')
-                    note, correction = str(output.get('note') or ''), str(output.get('correction') or '')
-                    verified = bool(output.get('verified'))
-                card.settle(part, 'done', self._said(text), note=self._said(note),
-                            correction=self._said(correction), verified=verified, step_task=task_id)
+                    note, verified = str(output.get('note') or ''), bool(output.get('verified'))
+                card.settle(part, 'done', self._said(text), note=self._said(note), verified=verified,
+                            step_task=task_id)
             elif status in ('failed', 'blocked', 'needs_user'):
                 card.settle(part, 'failed', self._said(self._couldnt_do(member, output)), step_task=task_id)
         if status in DONE and member is not None:
@@ -5053,7 +5051,7 @@ class Supervisor(WorkerRuns):
         """Everything an attempt reports starts empty, so an attempt whose report fails validation reports nothing of
         an earlier one (fix list: stale fields); only confirmed conditions carry over (`tree.confirmed`)."""
         tree.resources, tree.cleanup_errors, tree.verification = [], [], []
-        tree.check_problem = tree.unconfirmed = tree.correction = tree.unchecked = ''
+        tree.check_problem = tree.unconfirmed = tree.unchecked = ''
         tree.owner_answer = tree.reason = tree.how = tree.worker_question = tree.owner_question = ''
         tree.input_notes, tree.conversation_proposals, tree.part_updates = [], [], []
         tree.conversation_action = tree.loop_action = None
@@ -5188,8 +5186,12 @@ class Supervisor(WorkerRuns):
             if report is not None and report.met is None and not fixed:
                 lines.append(report.evidence)
             tree.unconfirmed = "; ".join(line.strip().rstrip(".") for line in lines if line.strip())
-            # a detail of the answer the records contradict, left unfixed: said as a correction, never left standing
-            tree.correction = report.evidence if report is not None and report.met is False and not fixed else ""
+            if report is not None and report.met is False:
+                # ORCH-540: what the check found against the answer's report condition is the checker's own evidence,
+                # kept in the record only (with whether its edits all applied); the owner's answer gets no
+                # "Correction:" line (ORCH-309)
+                self.journal.append("task.report_condition_unmet", {"task_id": tree.worker.id,
+                                                                    "evidence": report.evidence, "fixed": fixed})
             return _Next("accept_unconfirmed" if unknown else "accept")
         if action == "retry":
             instructions = checked.instructions.strip() or checked.missing.strip() or tree.reason
@@ -5207,13 +5209,22 @@ class Supervisor(WorkerRuns):
 
     def _apply_edits(self, tree: _Tree, checked: CheckerOutcome) -> list[str]:
         """The checker's exact edits to the worker's answer (fix_answer), each applied where its text appears; the ones
-        whose text isn't in the answer, and the ones that would write more than a removal or the inline marker (P4:
-        the checker never adds sentences; dropped and journaled), returned (the answer keeps that part, and it is
-        marked unconfirmed)."""
-        unapplied, dropped = [], []
+        whose text isn't in the answer are returned (the answer keeps that part, and it is marked unconfirmed). An edit
+        that would write more than a removal or the inline marker (P4: the checker never adds sentences) is never
+        applied and is journaled (PRM-326): one whose replace keeps its text whole (a pure addition) leaves that text
+        as it is, since the checker didn't dispute it; one that changes or drops words of it marks that text inline
+        instead, once, so an unconfirmed claim never stays bare (ORCH-309)."""
+        unapplied, dropped, marked = [], [], []
         for edit in checked.answer_edits:
             if not removes_or_marks(edit.find, edit.replace):
                 dropped.append(edit.find)
+                if not edit.find.strip() or edit.find in edit.replace:
+                    continue                                 # a pure addition: the text stays as it was
+                if edit.find in tree.owner_answer:
+                    tree.owner_answer = mark_unconfirmed(tree.owner_answer, edit.find)
+                    marked.append(edit.find)
+                else:
+                    unapplied.append(edit.find)
             elif edit.find and edit.find in tree.owner_answer:
                 tree.owner_answer = tree.owner_answer.replace(edit.find, edit.replace)
             elif edit.find:
@@ -5222,8 +5233,9 @@ class Supervisor(WorkerRuns):
             self.journal.append("task.answer_fixed", {"task_id": tree.worker.id, "edits": len(checked.answer_edits),
                                                       "unapplied": len(unapplied), "dropped": len(dropped)})
         if dropped:
-            self.journal.append("task.answer_edit_dropped", {"task_id": tree.worker.id, "finds": dropped})
-        return unapplied + dropped
+            self.journal.append("task.answer_edit_dropped", {"task_id": tree.worker.id, "finds": dropped,
+                                                             "marked": marked})
+        return unapplied
 
     @staticmethod
     def _owner_text(tree: _Tree, result: ConditionResult) -> str:
@@ -5883,18 +5895,17 @@ class Supervisor(WorkerRuns):
         planned = len(src.spec.success_conditions) + int(src.watch)
         return results, [r for r in results if r.index < planned], attempted, conditions
 
-    def _checked_answer(self, src: _Tree, out: Outcome) -> tuple[str, str, str, bool]:
-        """A finished answer as the owner gets it (ORCH-309): the worker's answer with the checker's fixes, at
+    def _checked_answer(self, src: _Tree, out: Outcome) -> tuple[str, str, bool]:
+        """A finished answer as the owner gets it (ORCH-309): the worker's answer with the checker's fixes and at
         most one short "Couldn't confirm" text (an outcome the check couldn't settle, a check that couldn't run, or
-        nothing to check against) and a correction (what the records show against a detail left unfixed), each
-        without its prefix; and whether every outcome condition was verified."""
+        nothing to check against), without its prefix; and whether every outcome condition was verified. Nothing
+        else: the checker's evidence stays in the record (ORCH-540)."""
         results, outcomes, attempted, conditions = self._results(src)
         verified = (out.status == "done" and attempted and not src.stands_unconfirmed and bool(outcomes)
                     and all(r.met is True for r in outcomes))
         note = src.unconfirmed or ("" if verified else NOTHING_TO_CHECK if not conditions else
                                    "; ".join(self._owner_text(src, r) for r in outcomes if r.met is not True))
-        return ((src.owner_answer or out.summary).strip(), _clipped(note) if note else "",
-                _clipped(src.correction) if src.correction else "", verified)
+        return (src.owner_answer or out.summary).strip(), _clipped(note) if note else "", verified
 
     def _final(self, tree: _Tree) -> dict[str, Any]:
         """The task's status and the owner's answer (ORCH-309: "done" is about the outcome asked for):
@@ -5912,7 +5923,7 @@ class Supervisor(WorkerRuns):
         src = tree.answering or tree             # whose checked answer is the task's
         out = tree.outcome or Outcome(tree.worker.id, "failed", "No report was received.", [], [])
         results, outcomes, attempted, conditions = self._results(src)
-        note = correction = ""
+        note = ""
         verified = False
         status: str
         if tree.stop == STOPPED_BY_YOU:
@@ -5927,11 +5938,9 @@ class Supervisor(WorkerRuns):
             status, summary = self._stop_status(tree), tree.stop
             answer = f"I couldn't finish that: {tree.stop}"
         elif out.status == "done" and not any(r.met is False for r in outcomes):
-            answer_text, note, correction, verified = self._checked_answer(src, out)
+            answer_text, note, verified = self._checked_answer(src, out)
             status = "done" if verified else "done_unverified"
-            line = " ".join(part for part in (f"Couldn't confirm: {note}." if note else "",
-                                              f"Correction: {correction}." if correction else "") if part)
-            summary = answer = answer_text + (f"\n\n{line}" if line else "")
+            summary = answer = answer_text + (f"\n\nCouldn't confirm: {note}." if note else "")
         elif out.status == "needs_user":
             status = "needs_user"
             question = src.owner_question or tree.owner_question or out.summary
@@ -5960,7 +5969,6 @@ class Supervisor(WorkerRuns):
                 "resources": tree.resources, "stop_reason": src.stop_reason or tree.stop_reason} | (
                 # the answer's parts as fields of their own (the app renders them without parsing the text)
                 {"note": confirm.from_task_lines(note)} if note else {}) | (
-                {"correction": confirm.from_task_lines(correction)} if correction else {}) | (
                 {"lines": lines} if lines else {}) | (
                 {"how": src.how} if status in ("done", "done_unverified") and src.how.strip() else {}) | (
                 {"runtime_switch": switch} if switch and status == "failed" else {}) | (
@@ -6109,6 +6117,23 @@ def removes_or_marks(find: str, replace: str) -> bool:
     rest = plain[:at] + plain[at + len(mark):]
     target = find.replace("\u2019", "'")
     return rest == target or (at > 0 and rest[:at - 1] + rest[at:] == target and plain[at - 1] == " ")
+
+
+def mark_unconfirmed(answer: str, find: str) -> str:
+    """The answer with the first occurrence of `find` marked inline with UNCONFIRMED_MARK, before its closing
+    punctuation ("It opens at 10am (I couldn't confirm this)."); unchanged when that occurrence is already marked
+    (PRM-326). Structure only: no word is judged."""
+    at = answer.find(find)
+    if at < 0:
+        return answer
+    end = at + len(find)
+    body = find.rstrip()
+    tail = len(body) - len(body.rstrip(".!?;:,"))
+    core, stop = body[:len(body) - tail].rstrip(), body[len(body) - tail:]
+    after = answer[at + len(core):].lstrip()
+    if after.replace("\u2019", "'").startswith(UNCONFIRMED_MARK):
+        return answer
+    return answer[:at] + core + " " + UNCONFIRMED_MARK + stop + find[len(body):] + answer[end:]
 UNCONFIRMED_CHARS = 300                          # the "Couldn't confirm" line stays one short line
 # The checker's code facts about how the work was done (ORCH-309) and what the task holds (ORCH-333)
 HOW_FACTS = ("FERB's code facts about how this work was done, measured by FERB's code from its own records (never the "

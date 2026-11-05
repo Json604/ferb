@@ -11,10 +11,10 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 36 | 7 | 48 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 71 | 2 | 11 |
 | memory | Memory and memory import | `ferb/memory` | 58 | 3 | 0 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 65 | 8 | 10 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 66 | 8 | 10 |
 | perception | Perception | `ferb/sense` | 15 | 2 | 0 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 8 | 6 | 0 |
-| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 21 | 2 | 11 |
+| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 23 | 2 | 11 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 18 | 2 | 2 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 26 | 2 | 2 |
 | storage | Storage | `ferb/store` | 25 | 6 | 3 |

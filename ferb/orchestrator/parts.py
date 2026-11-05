@@ -73,7 +73,7 @@ class Card:
             if live is not None and (posted is None or str(live["seq"]) > str(posted.get("seq", ""))):
                 row |= {k: v for k, v in live.items() if k not in ("type", "task_id", "request_id")}
             elif posted is not None:
-                row |= {k: posted[k] for k in ("state", "text", "note", "correction", "why", "seq", "verified",
+                row |= {k: posted[k] for k in ("state", "text", "note", "why", "seq", "verified",
                                                "card_request_id") if posted.get(k)}
             out.append(row)
         return out
@@ -116,8 +116,8 @@ class Card:
             said.append({"part": p.id, "label": p.label, "text": p.direct})
         return said
 
-    def settle(self, part: Part, outcome: str, text: str, *, note: str = "", correction: str = "",
-               verified: bool = False, step_task: str = "") -> bool:
+    def settle(self, part: Part, outcome: str, text: str, *, note: str = "", verified: bool = False,
+               step_task: str = "") -> bool:
         """A part's answer step ended: done (its checked answer and at most one "Couldn't confirm" line) or failed
         ("Couldn't do: reason"). Posted once: a rerun in the same run (a restart) never posts it again, and a later
         failure never replaces an answer. A changed answer is an `updated` row with one line why: a failed part a
@@ -125,8 +125,7 @@ class Card:
         posted."""
         latest = self.records().get(part.id)
         if latest is None:
-            return self._post(part, outcome, text, note=note, correction=correction, verified=verified,
-                              step_task=step_task)
+            return self._post(part, outcome, text, note=note, verified=verified, step_task=step_task)
         same_run, before = latest.get("request_id") == self.request_id, latest.get("state")
         if outcome == "failed":
             if before == "failed" and not same_run:          # still failing in a follow-up: this card says so
@@ -135,8 +134,7 @@ class Card:
         if before in DONE and (same_run or latest.get("text") == text):
             return False
         why = WHY_CORRECTION if same_run else WHY_FOLLOW_UP
-        return self._post(part, "updated", text, note=note, correction=correction, why=why, verified=verified,
-                          step_task=step_task)
+        return self._post(part, "updated", text, note=note, why=why, verified=verified, step_task=step_task)
 
     def update(self, part: Part, text: str, why: str, step_task: str = "") -> bool:
         """A later step found a posted answer wrong or out of date (its `part_updates`, judged by its check): one
@@ -156,9 +154,9 @@ class Card:
         self.journal.append(KIND, data, origin=self.origin())
         return data
 
-    def _post(self, part: Part, state: str, text: str, *, note: str = "", correction: str = "", why: str = "",
+    def _post(self, part: Part, state: str, text: str, *, note: str = "", why: str = "",
               verified: bool = False, step_task: str = "") -> bool:
-        data = self._record(part, state, text, note=note, correction=correction, why=why, verified=verified,
+        data = self._record(part, state, text, note=note, why=why, verified=verified,
                             step=part.answer_step, step_task_id=step_task)
         self._live.pop(part.id, None)
         self.emit({"type": "part", **{k: v for k, v in data.items() if k != "quote"}})

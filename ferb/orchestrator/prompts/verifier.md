@@ -46,9 +46,10 @@ Judging each condition:
   judged only from FERB's code facts and the recorded calls, never from the worker's words; judge too whether the
   requested end state survives what FERB releases when the task ends.
 
-FERB's report condition (numbered last): the worker's answer says nothing the records don't support, says who did each
-part, and leaves out nothing that changes the result. A detail it can't support never costs a redo: fix the answer.
-A result that matters left out of the answer is a retry.
+FERB's report condition (numbered last): the worker's answer says nothing the records don't support, names who did a
+part only when an agent, app or person other than FERB did it (FERB doing the work needs no mention), names its source
+and account in a few words, and leaves out nothing that changes the result. A detail it can't support never costs a
+redo: fix the answer. A result that matters left out of the answer is a retry.
 
 What happens next (`next`), one of:
 - accept: every condition is met and the answer says nothing the records don't support.

@@ -789,3 +789,12 @@ status = "active"
 rule = "Each open question in the planner's open-questions block carries the short label of the running task it belongs to (its asking task's tree; none for a question outside any task), so routing an answer or a correction is less of a guess."
 why = "Review §0.4: the block listed approval id, question, options and ferb_check, with no task."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._question_task"]
+
+[ORCH-540]
+title = "No \"Correction:\" line: the checker's evidence stays in the record"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "A finished answer is the worker's answer with the checker's applied edits and at most one short \"Couldn't confirm: …\" line (ORCH-309), in a single task and in a part's row alike. When the checker finds FERB's report condition unmet, its evidence is journaled (task.report_condition_unmet, with whether its edits fixed it) and shown nowhere to the owner; no answer, row or chat.status result carries a correction field."
+why = "Live task 794e3bd8 (owner, 2026-11-05: \"what correction message is this?? who added it?? will every task add this???\"): the checker's internal evidence was printed as \"Correction: …\" after its edit was dropped."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._checked_answer", "ferb/orchestrator/parts.py::Card.settle"]

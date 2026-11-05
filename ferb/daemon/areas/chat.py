@@ -98,7 +98,7 @@ class Chat:
                            {'artifacts': recorded.get('artifacts', []), 'verified': recorded.get('verified'),
                             'verification': recorded.get('verification', [])} |
                            # the answer's own fields (a multi-part task's card and footer; its lines; ORCH-319)
-                           {key: recorded[key] for key in ('card', 'note', 'correction', 'lines', 'runtime_switch')
+                           {key: recorded[key] for key in ('card', 'note', 'lines', 'runtime_switch')
                             if recorded.get(key)} |
                            # its typed cards as told (step 8e)
                            ({'cards': json.loads(row['cards_json'])} if row['cards_json'] else {}))
