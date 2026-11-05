@@ -5017,9 +5017,25 @@ class Supervisor(WorkerRuns):
                 if keep is None:
                     break
                 if keep is False:
+                    if choice.report_only and out.status == "done":
+                        return await self._report_unconfirmed(tree, out, span)
                     return Outcome(task.id, "failed", tree.stop_reason, out.artifacts, [])
                 instructions += keep
         return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, [], [])
+
+    async def _report_unconfirmed(self, tree: _Tree, out: Outcome, span: str) -> Outcome:
+        """The attempts ran out while only the answer's report condition stood false and unfixed (a run nobody attends
+        can't be asked to go on; or the owner's No): the work's own outcome stands, done-unconfirmed, with the latest
+        answer and code's one "Couldn't confirm" line in the owner's terms (ORCH-309), never the checker's evidence."""
+        tree.unconfirmed = REPORT_UNCONFIRMED
+        tree.stands_unconfirmed = True
+        tree.stop_reason = ''
+        if not tree.hold_resources:
+            if self._tree_of.get(tree.id) is tree:
+                tree.work_done = True
+            await self._release_resources(tree, span)
+        tree.outcome = Outcome(tree.worker.id, "done", tree.owner_answer, out.artifacts, [])
+        return tree.outcome
 
     async def _restored(self, tree: _Tree, task: Task, attempts: Attempts) -> str | Outcome | None:
         """The check-in or runtime switch this step waited on when FERB restarted, asked again as itself (never as an
@@ -5160,6 +5176,9 @@ class Supervisor(WorkerRuns):
           outcome condition found false, or unfinished work with outcomes unknown, fails;
         - an unproven detail of the answer (FERB's report condition not confirmed and not fixed by edits) is marked by
           the one "Couldn't confirm" line, never by a redo;
+        - a detail the records contradict (FERB's report condition false) that no edit removed or marked would stand
+          unmarked (ORCH-309), so it is a retry with the checker's evidence as the next attempt's instructions
+          (`report_only`: when the attempts run out, the answer stands done-unconfirmed with code's line);
         - a retry with every outcome verified becomes fix_answer, unless FERB's report condition is false and the checker
           gave no edits: the answer leaves out or misstates a result that matters, which an edit can't add (P4), so a
           new attempt writes it;
@@ -5170,10 +5189,11 @@ class Supervisor(WorkerRuns):
         report = next((r for r in tree.verification if r.index == planned), None)
         action = checked.next
         rewrite = report is not None and report.met is False and not checked.answer_edits
-        if (action == "retry" and planned and len(outcome) == planned and all(r.met is True for r in outcome)
-                and not rewrite):
+        verified = bool(planned) and len(outcome) == planned and all(r.met is True for r in outcome)
+        if action == "retry" and verified and not rewrite:
             action = "fix_answer"        # ORCH-309: every outcome verified, so only the answer can be wrong: no redo
         if action in ("accept", "fix_answer", "accept_unconfirmed"):
+            before = tree.owner_answer
             unapplied = self._apply_edits(tree, checked)
             refuted = [r for r in outcome if r.met is False]
             unknown = [r for r in outcome if r.met is not True]
@@ -5181,6 +5201,17 @@ class Supervisor(WorkerRuns):
                 why = checked.reason or ("" if refuted else tree.reason) or "; ".join(
                     f"{self._owner_text(tree, r)}: {r.evidence}" for r in (refuted or unknown))
                 return _Next("fail", reason=why)
+            if report is not None and report.met is False and tree.owner_answer == before:
+                # ORCH-309 (agent ruling, after ORCH-540): the records contradict a detail of the answer and no edit
+                # removed or marked anything (the only changes an edit may make, P4), so it would stand unmarked: the
+                # next attempt rewrites the answer from the checker's evidence (capped by ORCH-307's check-in; a run
+                # that can't go on ends done-unconfirmed with code's own line, `_report_unconfirmed`)
+                self.journal.append("task.report_condition_unmet", {"task_id": tree.worker.id,
+                                                                    "evidence": report.evidence, "fixed": False,
+                                                                    "retry": True})
+                instructions = "; ".join(t for t in (report.evidence.strip(), checked.instructions.strip()) if t)
+                return _Next("retry", instructions=instructions or tree.reason, missing=checked.missing.strip(),
+                             worker_type=checked.worker_type, report_only=True)
             lines = [self._owner_text(tree, r) + (f" ({r.how.rstrip('.')})" if r.how else "") for r in unknown]
             fixed = action == "fix_answer" and bool(checked.answer_edits) and not unapplied
             if report is not None and report.met is None and not fixed:
@@ -5189,14 +5220,14 @@ class Supervisor(WorkerRuns):
             if report is not None and report.met is False:
                 # ORCH-540: what the check found against the answer's report condition is the checker's own evidence,
                 # kept in the record only (with whether its edits all applied); the owner's answer gets no
-                # "Correction:" line (ORCH-309)
+                # "Correction:" line (ORCH-309). An edit removed or marked the disputed text.
                 self.journal.append("task.report_condition_unmet", {"task_id": tree.worker.id,
                                                                     "evidence": report.evidence, "fixed": fixed})
             return _Next("accept_unconfirmed" if unknown else "accept")
         if action == "retry":
             instructions = checked.instructions.strip() or checked.missing.strip() or tree.reason
             return _Next("retry", instructions=instructions, missing=checked.missing.strip(),
-                         worker_type=checked.worker_type)
+                         worker_type=checked.worker_type, report_only=verified and rewrite)
         if action == "ask":
             question = checked.question.strip() or tree.worker_question
             if question:
@@ -6100,6 +6131,7 @@ COULDNT_DO = "Couldn't do:"                      # a part that couldn't be done,
 FOUND_UNCHECKED = "What I found (not checked):"
 WATCH_TEXT = "whether it has happened"          # a watch's own condition, in the owner's terms
 NOTHING_TO_CHECK = "there was nothing to check it against"
+REPORT_UNCONFIRMED = "every detail of this answer against what I saw"   # its report condition stayed unmet
 NOT_ACCEPTED = "the check didn't confirm the result"     # a failure no reason came with (never a done claim)
 UNCONFIRMED_MARK = "(I couldn't confirm this)"            # the one inline marker a checker's answer edit may add (P4)
 
@@ -6163,6 +6195,7 @@ class _Next:
     worker_type: str | None = None
     question: str = ""
     reason: str = ""
+    report_only: bool = False        # a retry only because the answer's report condition was found false, unfixed
 
 
 class _RuntimeDown(Exception):

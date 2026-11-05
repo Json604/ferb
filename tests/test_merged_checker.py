@@ -6,9 +6,10 @@ import json
 from typing import Any
 
 from ferb.core.types import RuntimeEvent
+from ferb.orchestrator.attempts import CHECK_IN_AFTER
 from ferb.orchestrator.supervisor import RUNTIME_ASK
-from tests.conftest import (RunningDaemon, answer_question, chat, done, install, outcome, report, sup, task, cond,
-                            verdict)
+from tests.conftest import (RunningDaemon, _context_of, answer_question, chat, done, install, outcome, report, sup,
+                            task, cond, verdict)
 from tests.support.schedules import run
 from tests.test_execution_runs import Turn
 
@@ -75,24 +76,60 @@ def test_a_checker_edit_that_rewrites_marks_its_text_and_one_that_adds_is_droppe
     assert daemon.run(dropped()) == [(["It has 3 floors.", "100 Larkin St."], ["It has 3 floors."])]
 
 
-# decision: ORCH-309, PRM-326, ORCH-540
-def test_a_report_condition_the_checker_found_unmet_never_adds_a_correction_line(daemon: RunningDaemon) -> None:
+# decision: ORCH-309, PRM-326, ORCH-540, ORCH-541
+def test_a_contradicted_detail_no_edit_removed_goes_back_as_a_retry_with_the_evidence(daemon: RunningDaemon) -> None:
     """Live task 794e3bd8 (owner 2026-11-05: "what correction message is this?? who added it??"): the checker failed
-    FERB's report condition because the answer didn't say FERB did the research, tried a pure addition ("I researched
-    this. " + the sentence), which code dropped, and its evidence then showed as "Correction: …". The addition is
-    dropped and the sentence left bare (it was confirmed); the evidence stays in the record only."""
+    FERB's report condition and tried a pure addition, which code drops, so the evidence showed as "Correction: …".
+    Batch 3b journaled it instead, which left the contradicted detail standing unmarked (ORCH-309). Now, with no edit
+    that removed or marked anything, the next attempt rewrites the answer from the checker's evidence; never a
+    "Correction:" line or the checker's words in the answer."""
     found = "Three of the five tools support offline mode."
-    evidence = "The answer does not state that FERB performed the research"
-    install(daemon, [sup("task", "On it.", task("Research offline support in the five tools"))], {
-        "worker": done(found),
-        "worker.verify": verdict(True, False, next="fix_answer", evidence=evidence,
-                                 edits=((found, "I researched the five tools myself. " + found),))})
+    fixed = "Two of the five tools support offline mode."
+    evidence = "The records show only two tools with an offline mode"
+    script = install(daemon, [sup("task", "On it.", task("Research offline support in the five tools"))], {
+        "worker": [done(found), done(fixed)],
+        "worker.verify": [verdict(True, False, next="fix_answer", evidence=evidence,
+                                  edits=((found, "I researched the five tools myself. " + found),)),
+                          verdict(True, True)]})
     result = outcome(chat(daemon, "which of the five tools work offline?"))
-    assert result["answer"] == found and "correction" not in result
-    assert "Correction" not in result["answer"] and "couldn't confirm" not in result["answer"]
+    assert len(script.calls("worker")) == 2
+    assert evidence in _context_of(script, "worker")              # the second attempt was told what the check found
+    assert result["status"] == "done" and result["answer"] == fixed and "correction" not in result
     async def recorded() -> list[Any]:
-        return [e.data["evidence"] for e in daemon.daemon.journal.of_kind("task.report_condition_unmet")]
-    assert daemon.run(recorded()) == [evidence]
+        return [(e.data["evidence"], e.data.get("retry")) for e in
+                daemon.daemon.journal.of_kind("task.report_condition_unmet")]
+    assert daemon.run(recorded()) == [(evidence, True)]
+
+
+# decision: ORCH-309, ORCH-540, ORCH-541
+def test_a_contradicted_detail_an_edit_removed_is_accepted(daemon: RunningDaemon) -> None:
+    """The same false report condition with an edit that removed the disputed sentence: the answer no longer states
+    it, so the task is done with no redo."""
+    script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
+        "worker": done(BOOKED),
+        "worker.verify": verdict(True, False, next="accept", evidence="No confirmation email was read",
+                                 edits=((" The restaurant confirmed by email.", ""),))})
+    result = outcome(chat(daemon, "book a table for 4 at 7pm"))
+    assert script.calls("worker") == ["worker"]
+    assert result["status"] == "done" and result["answer"] == "Booked a table for 4 at 7pm at Nopa."
+
+
+# decision: ORCH-309, ORCH-307, ORCH-541
+def test_an_unattended_run_that_cant_retry_ends_unconfirmed_without_checker_speak(daemon: RunningDaemon,
+                                                                                    unattended: None) -> None:
+    """A scheduled run whose answer the records keep contradicting runs out of attempts (ORCH-307: nobody to ask):
+    its verified outcome stands, done-unconfirmed, with code's own "Couldn't confirm" line, never the evidence."""
+    evidence = "The records show only two tools with an offline mode"
+    found = "Three of the five tools support offline mode."
+    script = install(daemon, [sup("task", "On it.", task("Research offline support in the five tools"))], {
+        "worker": [done(found) for _ in range(CHECK_IN_AFTER)],
+        "worker.verify": [verdict(True, False, next="retry", evidence=evidence) for _ in range(CHECK_IN_AFTER)]})
+    result = outcome(chat(daemon, "which of the five tools work offline?"))
+    assert len(script.calls("worker")) == CHECK_IN_AFTER
+    assert result["status"] == "done_unverified" and result["verified"] is False
+    first, line = result["answer"].split("\n\n")
+    assert first == found and line.startswith("Couldn't confirm:")
+    assert evidence not in result["answer"] and "Correction" not in result["answer"]
 
 
 # decision: ORCH-309, PRM-323
