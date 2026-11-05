@@ -404,3 +404,12 @@ rule = "confirm.pair_need takes the profile's signed-in account (GatewayDeps.pro
 why = "HAND-424 (owner, 2026-11-05): the pair question is a place the profile is shown."
 paths = ["ferb/policy/confirm.py::pair_need", "ferb/daemon/gateway.py::Gateway._pair_need"]
 live = ["LIVE-791"]
+
+[GATE-512]
+title = "A number never answers FERB's own checks"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Approval.option_for counts an option's number only for a task's own question. FERB's own checks (questions.OWN_CHECKS, the same five as steering.FERB_CHECKS: confirmation, P19 retry, conversation scope, forget, downloads cap) and FERB's check-ins (options_only) take only an option's own words, in chat.answer, in the box (chat.correct) and in chat; a typed \"1\" there is words: refused on the card (\"Pick Yes or No.\"), a correction in the box, never a Yes. Buttons (chat.approve with a choice) are unchanged."
+why = "Security run T-1058: a \"1\" typed on a payment's card or in its box was read as option 1, Yes, and the payment ran, against GATE-510, ORCH-536 and ORCH-537 (only an option's exact words). The number form is left from the removed CLI chat (DMN-1); no FERB text numbers its options."
+paths = ["ferb/daemon/questions.py::Approval.option_for"]

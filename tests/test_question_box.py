@@ -198,6 +198,49 @@ def test_typed_words_never_answer_a_safety_check(daemon: RunningDaemon) -> None:
     assert call.result(timeout=5)["is_error"] and cap.calls == 0
 
 
+# decision: GATE-512, GATE-510, ORCH-536, ORCH-537
+def test_an_options_number_never_answers_ferbs_own_check(daemon: RunningDaemon,
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """Security run T-1058: a "1" typed on a payment's card (chat.answer) or in its box (chat.correct) was read as
+    option 1, Yes, and the payment ran. Only an option's own words answer FERB's checks; a number is words."""
+    from ferb.daemon.questions import OWN_CHECKS
+    from ferb.orchestrator.steering import FERB_CHECKS
+    assert OWN_CHECKS == FERB_CHECKS
+    cap = FakeCap("probe.pay", "pay", {"probe"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("pay x@y.com $5"), [cap])
+    call = asyncio.run_coroutine_threadsafe(
+        daemon.daemon.gateway.call(grant, cap.name, {"to": "x@y.com", "text": "pay"}), daemon.loop)
+    _until(lambda: bool(_pending(daemon, CONFIRM_ASK)))
+    pay = _pending(daemon, CONFIRM_ASK)[0]
+    with pytest.raises(Exception, match="Pick Yes or No"):
+        _call(daemon, "chat.answer", {"approval_id": pay.id, "text": "1"})
+    assert pay.state == "pending" and pay.choice is None and cap.calls == 0
+    _call(daemon, "chat.approve", {"approval_id": pay.id, "granted": True, "choice": 2})
+    assert call.result(timeout=5)["is_error"] and cap.calls == 0
+    run = _asking_task(daemon, monkeypatch, takes_steering=True)          # the box of a task's safety check
+    told = _call(daemon, "chat.correct", {"approval_id": run.check.id, "text": "1"})
+    assert told["state"] == "superseded" and run.check.choice is None and run.cap.calls == 0
+    assert _confirmation_rows(daemon) == [] or all(not r["granted"] for r in _confirmation_rows(daemon))
+    _end(daemon, run)
+
+
+# decision: GATE-510, ORCH-538
+def test_a_yes_tapped_after_the_box_set_the_check_aside_approves_nothing(
+        daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Security run T-1058, the answer-and-correct race: the correction typed in a safety check's box sets the check
+    aside; a Yes that arrives after it (another surface, a late tap) is refused, records nothing and runs nothing. The
+    action asks again with a new card (the other order, a Yes before a chat correction, is pinned above)."""
+    run = _asking_task(daemon, monkeypatch, takes_steering=True)
+    _call(daemon, "chat.correct", {"approval_id": run.check.id, "text": "post it in the team channel instead"})
+    assert run.check.state == "superseded"
+    with pytest.raises(Exception):
+        _call(daemon, "chat.approve", {"approval_id": run.check.id, "granted": True, "choice": 1})
+    assert run.check.state == "superseded" and run.check.choice is None
+    _until(lambda: len(run.results) == 1)
+    assert run.results[0]["is_error"] and run.cap.calls == 0 and _confirmation_rows(daemon) == []
+    _end(daemon, run)
+
+
 # ---------- a task's question: its buttons or the owner's words ----------
 
 # decision: ORCH-536

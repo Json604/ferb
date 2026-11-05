@@ -11,6 +11,12 @@ from typing import Any, Literal
 
 from ferb.policy.rules import ActionRequest
 
+# FERB's own consequential checks, by capability (steering.FERB_CHECKS names the same five): a confirmation, a P19
+# retry, a delegated conversation's scope, a forget and the downloads cap. Like FERB's check-ins (`options_only`), only
+# an option's own words answer them (GATE-510, ORCH-536, ORCH-537), never its number: a "1" typed in a safety check's
+# box or in chat is words, not a Yes.
+OWN_CHECKS = frozenset({"ferb.confirm", "ferb.retry", "conversation.approve", "memory.forget", "downloads.delete"})
+
 
 @dataclass
 class Approval:
@@ -42,10 +48,13 @@ class Approval:
     corrects: bool = False
 
     def option_for(self, text: str) -> int | None:
-        """The option (1-based) a typed answer picks: its exact words in any case, else its number."""
+        """The option (1-based) a typed answer picks: its exact words in any case, else, for a task's own question, its
+        number. FERB's own checks and check-ins take only an option's words (`OWN_CHECKS`)."""
         matches = [i for i, o in enumerate(self.options, 1) if o.strip().casefold() == text.casefold()]
         if len(matches) == 1:
             return matches[0]
+        if self.options_only or self.capability in OWN_CHECKS:
+            return None
         return int(text) if text.isdecimal() and 1 <= int(text) <= len(self.options) else None
 
 
