@@ -728,10 +728,23 @@ paths = ["ferb/orchestrator/schemas.py", "ferb/orchestrator/prompts", "ui/mac/FE
 title = "A multi-part task's saved answer is an index; \"Sites contacted\" is a count"
 by = "owner"
 date = 2026-11-05
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-535"
 supersedes = ["ORCH-533"]
 words_source = "Owner, 2026-11-05: approved recommendations D7 (a multi-part task's saved answer is an index) and D10 (\"Sites contacted\" is a count, the sites link cards)"
 rule = "No separate short version: a direct reply streams its full text and a one-part task's answer is the full answer with FERB's side lines. A multi-part task's saved answer is an index built by code: per part its label and its row's first line (else not finished), the results' paths, N of M done and code's lines; the full rows stay in the card and chat.part, and the planner reads the index whole. \"Sites contacted\" is a count, the sites are link cards. The chat shows a long answer's first ~6 lines with Show all (APP-719)."
 why = "Freelance task 0218bb01: the saved answer re-listed every row in full (10,909 characters with 58 hosts) and the planner's short form kept only \"Stopped, as you asked.\""
 live = ["LIVE-781"]
 paths = ["ferb/orchestrator/parts.py::composed", "ferb/orchestrator/supervisor.py::Supervisor._final_card", "ferb/orchestrator/supervisor.py::_short_report", "ferb/orchestrator/supervisor.py::sites_line", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::AnswerView"]
+
+[ORCH-535]
+title = "A multi-part answer is saved as an index; \"Sites contacted\" is a count; only long answers collapse"
+by = "owner"
+date = 2026-11-05
+status = "active"
+supersedes = ["ORCH-534"]
+words = "add to the plan where appropriate that this show less and more also requires some limit. caus ehtis message is not aht big"
+words_source = "ORCH-534 (approved D7, D10) with its display clause refined by the owner's words above (APP-725)"
+rule = "No separate short version: a direct reply streams its full text and a one-part task's answer is the full answer with FERB's side lines. A multi-part task's saved answer is an index built by code: per part its label and its row's first line (else not finished), the results' paths, N of M done and code's lines; the full rows stay in the card and chat.part, and the planner reads the index whole. \"Sites contacted\" is a count, the sites are link cards. The chat collapses only an answer taller than the chat area (APP-725)."
+paths = ["ferb/orchestrator/parts.py::composed", "ferb/orchestrator/supervisor.py::Supervisor._final_card", "ferb/orchestrator/supervisor.py::_short_report", "ferb/orchestrator/supervisor.py::sites_line"]
+live = ["LIVE-781", "LIVE-777"]

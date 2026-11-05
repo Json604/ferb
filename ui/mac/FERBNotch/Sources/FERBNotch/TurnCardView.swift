@@ -249,7 +249,7 @@ struct CardRowView: View {
     }
 
     private func collapsible<Content: View>(@ViewBuilder _ content: @escaping () -> Content) -> some View {
-        CollapsibleText(key: ExpansionState.key(turn: turnID, item: row.part), lines: CollapsePolicy.rowLines,
+        CollapsibleText(key: ExpansionState.key(turn: turnID, item: row.part), kind: .row,
                         target: TranscriptTarget.row(turn: turnID, part: row.part), more: "Show more", model: model,
                         content: content)
     }
@@ -304,12 +304,12 @@ struct RowSpinner: View {
     }
 }
 
-/// A text shown to its first `lines` lines with a fade and Show more / Show less (APP-719), when it is taller than
-/// that; the same text either way. The control is explicit (selection on the text keeps working, APP-637). Collapsing
+/// A text shown to its first lines with a fade and Show more / Show less (APP-719), when `CollapsePolicy` says it is
+/// long enough for its `kind` (APP-725); the same text either way. The control is explicit (selection on the text keeps working, APP-637). Collapsing
 /// keeps the item's top in view.
 struct CollapsibleText<Content: View>: View {
     let key: String
-    let lines: Int
+    let kind: CollapsePolicy.Kind
     let target: String
     let more: String
     @ObservedObject var model: NotchModel
@@ -322,8 +322,8 @@ struct CollapsibleText<Content: View>: View {
 
     var body: some View {
         let lineHeight = Self.lineHeight
-        let clamp = CollapsePolicy.clampHeight(lines: lines, lineHeight: lineHeight)
-        let collapsible = CollapsePolicy.needsControl(natural: natural, clamp: clamp, lineHeight: lineHeight)
+        let clamp = CollapsePolicy.clamp(kind, natural: natural, lineHeight: lineHeight)
+        let collapsible = clamp != nil
         let collapsed = collapsible && !model.expandedText.isOpen(key)
         VStack(alignment: .leading, spacing: 3) {
             content()

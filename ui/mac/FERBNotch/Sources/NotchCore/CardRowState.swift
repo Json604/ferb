@@ -172,17 +172,33 @@ public enum CardStatusLine {
     }
 }
 
-/// Collapsed text (APP-719, display only): a done or failed row shows its first ~3 lines, a long answer in chat its
-/// first ~6, with the rest one click away; the same text, never a second version.
+/// Collapsed text (APP-719, APP-725, display only), the same text with the rest one click away, never a second version.
+/// A chat answer collapses only when it is taller than the transcript's visible height (APP-587: the height the owner
+/// set) and then shows about half that height; a done or failed row collapses only past ~8 lines and then shows 3.
+/// Nothing collapses when what it would hide is under ~3 lines.
 public enum CollapsePolicy {
-    public static let rowLines = 3
-    public static let answerLines = 6
+    public enum Kind: Equatable {
+        case row
+        case answer(viewport: CGFloat)
+    }
 
-    public static func clampHeight(lines: Int, lineHeight: CGFloat) -> CGFloat { CGFloat(lines) * lineHeight }
+    public static let rowLines = 3              // a collapsed row shows this many lines
+    public static let rowLongerThanLines = 8    // a row collapses only when its text is longer than this
+    public static let leastHiddenLines = 3      // never collapse to hide less than this
 
-    /// The control shows only when the text is taller than the clamp by more than half a line.
-    public static func needsControl(natural: CGFloat, clamp: CGFloat, lineHeight: CGFloat) -> Bool {
-        natural > clamp + lineHeight / 2
+    /// The height a text collapses to, whole lines only; nil when it shows whole (no control).
+    public static func clamp(_ kind: Kind, natural: CGFloat, lineHeight: CGFloat) -> CGFloat? {
+        guard lineHeight > 0 else { return nil }
+        let clamp: CGFloat
+        switch kind {
+        case .row:
+            guard natural > CGFloat(rowLongerThanLines) * lineHeight + lineHeight / 2 else { return nil }
+            clamp = CGFloat(rowLines) * lineHeight
+        case .answer(let viewport):
+            guard natural > viewport else { return nil }
+            clamp = max(1, (viewport / 2 / lineHeight).rounded(.down)) * lineHeight
+        }
+        return natural - clamp >= CGFloat(leastHiddenLines) * lineHeight ? clamp : nil
     }
 }
 

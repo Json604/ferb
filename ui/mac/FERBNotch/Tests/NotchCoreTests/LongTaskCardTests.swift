@@ -136,15 +136,14 @@ final class LongTaskCardTests: XCTestCase {
 
     // ---------- collapsed text ----------
 
-    // decision: APP-719, APP-721
+    // decision: APP-725, APP-721
     func testOnlyAnswersAndFailuresCollapseAndTheOpenedOnesSurviveUpdates() {
         XCTAssertTrue(RowDisplay(kind: .done).collapses)
         XCTAssertTrue(RowDisplay(kind: .failed).collapses)
         XCTAssertFalse(RowDisplay(kind: .needsYou).collapses)            // a row that needs the owner starts open
         XCTAssertFalse(RowDisplay(kind: .paused).collapses)
-        let clamp = CollapsePolicy.clampHeight(lines: CollapsePolicy.rowLines, lineHeight: 15)
-        XCTAssertFalse(CollapsePolicy.needsControl(natural: clamp, clamp: clamp, lineHeight: 15))
-        XCTAssertTrue(CollapsePolicy.needsControl(natural: clamp * 2, clamp: clamp, lineHeight: 15))
+        XCTAssertNil(CollapsePolicy.clamp(.row, natural: 3 * 15, lineHeight: 15))
+        XCTAssertEqual(CollapsePolicy.clamp(.row, natural: 12 * 15, lineHeight: 15), 3 * 15)
         let model = makeModel()
         let id = begin("mail and leads", in: model)
         model.receiveChatEvent(plan(), localID: id)
@@ -157,6 +156,27 @@ final class LongTaskCardTests: XCTestCase {
         model.toggleExpanded(key, target: TranscriptTarget.row(turn: id, part: "mail"))
         XCTAssertFalse(model.expandedText.isOpen(key))
         XCTAssertEqual(model.scrollRequest?.reason, .collapse)          // collapsing keeps its top in view
+    }
+
+    // decision: APP-725
+    func testOnlyTextsThatAreReallyLongCollapse() {
+        let line: CGFloat = 15
+        // a chat answer: only when taller than the chat area the owner set (300 pt), then about half of it shows
+        XCTAssertNil(CollapsePolicy.clamp(.answer(viewport: 300), natural: 13 * line, lineHeight: line))   // fits
+        XCTAssertNil(CollapsePolicy.clamp(.answer(viewport: 300), natural: 300, lineHeight: line))
+        XCTAssertNil(CollapsePolicy.clamp(.answer(viewport: 300), natural: 7 * line, lineHeight: line))   // past the
+        // old 6-line clamp: whole. Hiding under 3 lines shows it whole too (a small area, just over it)
+        XCTAssertNil(CollapsePolicy.clamp(.answer(viewport: 60), natural: 65, lineHeight: line))
+        XCTAssertEqual(CollapsePolicy.clamp(.answer(viewport: 60), natural: 75, lineHeight: line), 30)
+        let tall = CollapsePolicy.clamp(.answer(viewport: 300), natural: 40 * line, lineHeight: line)
+        XCTAssertEqual(tall, 150)                                        // half the area, whole lines
+        // the threshold follows the owner's resize
+        XCTAssertNil(CollapsePolicy.clamp(.answer(viewport: 600), natural: 30 * line, lineHeight: line))
+        XCTAssertEqual(CollapsePolicy.clamp(.answer(viewport: 260), natural: 30 * line, lineHeight: line), 120)
+        // a card row: only past ~8 lines, then 3 lines
+        XCTAssertNil(CollapsePolicy.clamp(.row, natural: 8 * line, lineHeight: line))
+        XCTAssertNil(CollapsePolicy.clamp(.row, natural: 8 * line + line / 3, lineHeight: line))
+        XCTAssertEqual(CollapsePolicy.clamp(.row, natural: 9 * line, lineHeight: line), 3 * line)
     }
 
     // ---------- the answer comes forward ----------

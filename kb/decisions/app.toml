@@ -2184,7 +2184,8 @@ live = ["LIVE-775", "LIVE-776"]
 title = "Done rows and long answers show their first lines; the rest is one click away"
 by = "owner"
 date = 2026-11-05
-status = "active"
+status = "superseded"
+superseded_by = "APP-725"
 words = "see the frellnace task: the response boxes are a good ui BUT, they shoudl still show less adn seeable as first and rest on clcik to see, theres many parts in thsi, the agnet didnt work in prallele at all cause it needed some prev steps, thats correct BUT the wording shoudl be better and there shoudl be a loader when that step srtarts,. it always ssays 'working' ... its not an issue with me. im fine with your state update changes, btu i dont think so other more structural shcnges are required"
 rule = "A done or failed card row shows about its first 3 lines with Show more; a row that needs the owner starts open. A long answer in chat shows about its first 6 lines with Show all. The same text either way, never a second version. A row's \"Couldn't confirm\", correction and \"Updated\" lines stay visible."
 why = "Approved recommendations D3 (rows) and D8 (answers; supersedes ORCH-501's full-text display only, ORCH-533)."
@@ -2235,3 +2236,16 @@ rule = "Refines APP-718: while a step is trying again, its row shows one line: \
 why = "Owner, 2026-11-05: \"yeha show the live line\" (a retrying row showed only \"Trying again (attempt N)\", no live line or time)."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::RowDisplay", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
 live = ["LIVE-775"]
+
+[APP-725]
+title = "Only really long texts collapse: answers taller than the chat area, rows past ~8 lines"
+by = "owner"
+date = 2026-11-05
+status = "active"
+supersedes = ["APP-719"]
+words = "add to the plan where appropriate that this show less and more also requires some limit. caus ehtis message is not aht big"
+words_source = "Owner, 2026-11-05, with a screenshot of a ~13-line chat answer collapsed behind Show less; the thresholds are the coordinator's proposal for it"
+rule = "A chat answer collapses only when it is taller than the transcript's visible height (APP-587: the height the owner set) and then shows about half that height with Show all. A done or failed card row collapses only when its text is longer than about 8 lines and then shows 3 lines with Show more; a row that needs the owner starts open. Nothing collapses when it would hide under about 3 lines. The same text either way; a row's Couldn't confirm, correction and Updated lines stay visible."
+why = "Batch 2 clamped answers at ~6 lines and rows at ~3, so ordinary answers were clipped."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::CollapsePolicy", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::CollapsibleText", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::AnswerView"]
+live = ["LIVE-777"]

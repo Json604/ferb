@@ -148,7 +148,7 @@ def test_two_parts_fill_in_any_order_each_once_and_code_adds_the_count(daemon: R
     assert [(r["part"], r["state"]) for r in _records(daemon, tree)] == [("p2", "done"), ("p1", "done")]
 
 
-# decision: ORCH-534
+# decision: ORCH-535
 def test_a_multi_part_answer_is_saved_as_an_index_the_planner_reads_whole(daemon: RunningDaemon) -> None:
     """Freelance task 0218bb01: the saved answer re-listed every row in full (10,909 chars, 58 hosts) and the planner's
     short form kept only its first paragraph. Now the saved answer is one paragraph: each part's outcome line, where

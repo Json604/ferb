@@ -495,9 +495,11 @@ private struct AnswerView: View {
                 }
                 FerbBubble {
                     VStack(alignment: .leading, spacing: 6) {
-                        // A long answer shows its first lines, the rest on Show all: the same text (APP-719).
+                        // An answer taller than the chat area shows about half of it, the rest on Show all: the
+                        // same text (APP-719, APP-725). The threshold follows the height the owner set (APP-587).
                         CollapsibleText(key: ExpansionState.key(turn: turn.id, item: "answer"),
-                                        lines: CollapsePolicy.answerLines, target: TranscriptTarget.answer(turn: turn.id),
+                                        kind: .answer(viewport: model.preferredTranscriptHeight),
+                                        target: TranscriptTarget.answer(turn: turn.id),
                                         more: "Show all", model: model, whenCollapsed: collapsedLines) {
                             MarkdownContent(CardLayout.strip(visibleParts.answer, cards),
                                             note: split.note, correction: split.correction,

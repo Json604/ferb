@@ -3062,12 +3062,12 @@ decisions = ["APP-718", "ORCH-532"]
 sitting = "after this change is installed"
 
 [LIVE-777]
-title = "Done rows and long answers are collapsed with Show more / Show all"
+title = "Only really long rows and answers collapse, with Show more / Show all"
 area = "app"
 surface = "FERB.app with this build"
-request = "Ask for a multi-part task whose parts give long answers (e.g. three short research questions), and separately one question with a long answer. Click Show more on a row, then Show less; select and copy text in a collapsed and an expanded answer. Let another row update while one is open."
-pass = "Each done row shows its first ~3 lines with a fade and Show more; a row asking you is open. The long answer shows ~6 lines and Show all. Show less keeps the row's top in view. Copy works in both states. An opened row stays open when the card updates; after quitting and reopening FERB.app everything starts collapsed. Short texts show no control."
-decisions = ["APP-719", "APP-721", "ORCH-534"]
+request = "Ask for a multi-part task where one part gives a long answer (20+ lines) and another a short one (5-8 lines); separately ask one question with a ~13-line answer and one with a very long answer. Click Show more on a row, then Show less; select and copy text in a collapsed and an expanded answer. Resize the chat area taller, then shorter. Let another row update while one is open."
+pass = "The short row and the ~13-line answer show whole with no control. The long row shows 3 lines with a fade and Show more; the very long answer shows about half the chat area and Show all; a row asking you is open. Resizing the chat area moves the point where an answer collapses. Show less keeps the row's top in view. Copy works in both states. An opened row stays open when the card updates; after quitting and reopening FERB.app everything starts collapsed."
+decisions = ["APP-725", "APP-721", "ORCH-535"]
 sitting = "after this change is installed"
 
 [LIVE-778]
@@ -3103,7 +3103,7 @@ area = "orchestration"
 surface = "FERB.app with this build; kartikey.xyz pages; a disposable folder"
 request = "Ask for three things at once that give long answers and visit several pages (e.g. \"summarize kartikey.xyz, list the files in <disposable folder> into a note there, and what's today's date\"). When it ends, open Tasks, and ask \"what did you find for the second one?\"."
 pass = "The card's rows hold each full answer. The Tasks page / history answer lists each part with its outcome line, where the note is, \"3 of 3 done\" and \"Sites contacted: N sites\" with the sites as link cards. The follow-up answer knows every part's outcome without starting a task."
-decisions = ["ORCH-534"]
+decisions = ["ORCH-535"]
 sitting = "after this change is installed"
 
 [LIVE-782]
