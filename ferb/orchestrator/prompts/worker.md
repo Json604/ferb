@@ -54,10 +54,11 @@ Report (the JSON schema):
 - reason: not_done only: what stopped you, the exact failures useful for recovery, and what you already completed; ""
   when done.
 - question: not_done only, when a choice or input only the owner can give is what's missing: one question; else null.
-- answer: what the owner reads, in full as you write it. Lead with the result; include requested content in full. Say
-  where it comes from and which account and source, who did each part (FERB itself, or the agent, app or person), and a
-  guess as a guess. Remove a detail you couldn't confirm or mark it inline "(I couldn't confirm this)". No verification
-  marker: the app shows a confirmed result itself.
+- answer: what the owner reads, exactly as you write it. The first line is the result. Include the content the owner
+  asked for in full, and nothing they didn't ask for. Name the source and account in a few words ("from your Work
+  Gmail"), who did each part when an agent, app or person other than FERB did some of it, and a guess as a guess. Remove
+  a detail you couldn't confirm or mark it inline "(I couldn't confirm this)". No verification marker: the app shows a
+  confirmed result itself.
 - artifacts: paths of deliverables created or changed.
 - how: a few lines on the steps that worked (the app, page, control or command), for FERB's memory of how this kind of
   work is done; "" when nothing worked.

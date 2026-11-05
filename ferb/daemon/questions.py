@@ -23,7 +23,6 @@ class Approval:
     options: tuple[str, ...] = ()
     choice: str | None = None
     answer: str | None = None
-    display_text: str = ""                    # a worker's question reworded by the orchestrator (owner.ask only)
     summary: str = ""                         # FERB's own question in one line, written by code (P27, D33)
     why: str = ""                             # the task's reason, shown smaller under the question (2026-10-27)
     taken: bool = False                       # its answer reached the call that waited for it

@@ -50,10 +50,40 @@ def test_an_unverifiable_side_detail_is_marked_inline_and_the_task_is_done(daemo
     script = install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
         "worker": done("The library is at 100 Larkin St. It opens at 10am."),
         "worker.verify": verdict(True, None, next="fix_answer",
-                                 edits=(("It opens at 10am.", "It opens at 10am (I couldn't confirm the hours)."),))})
+                                 edits=(("It opens at 10am.", "It opens at 10am (I couldn't confirm this)."),))})
     result = outcome(chat(daemon, "where's the library"))
     assert result["status"] == "done" and len(script.calls("worker")) == 1
-    assert result["answer"] == "The library is at 100 Larkin St. It opens at 10am (I couldn't confirm the hours)."
+    assert result["answer"] == "The library is at 100 Larkin St. It opens at 10am (I couldn't confirm this)."
+
+
+# decision: ORCH-309, PRM-323
+def test_a_checker_edit_that_adds_words_is_dropped(daemon: RunningDaemon) -> None:
+    """Freelance task 0218bb01: the checker's edits ADDED sentences ("Preview and Finder came to the front…") to the
+    answer. An edit may only remove its text or mark it inline; one that writes more is dropped and journaled, and the
+    unproven detail gets the one "Couldn't confirm" line instead."""
+    install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
+        "worker": done("The library is at 100 Larkin St."),
+        "worker.verify": verdict(True, None, next="fix_answer", evidence="The hours weren't on the page",
+                                 edits=(("100 Larkin St.", "100 Larkin St. Preview came to the front once."),))})
+    result = outcome(chat(daemon, "where's the library"))
+    assert result["status"] == "done"
+    assert result["answer"].startswith("The library is at 100 Larkin St.")
+    assert "Preview" not in result["answer"]
+    async def dropped() -> list[Any]:
+        return [e.data["finds"] for e in daemon.daemon.journal.of_kind("task.answer_edit_dropped")]
+    assert daemon.run(dropped()) == [["100 Larkin St."]]
+
+
+# decision: ORCH-309, PRM-323
+def test_an_answer_that_leaves_out_a_result_goes_back_as_a_retry(daemon: RunningDaemon) -> None:
+    """P4's trade-off (owner 2026-11-05): with every outcome verified, a report condition found false with no edit
+    (the answer leaves out a result that matters, which an edit can't add) is a new attempt, not a checker rewrite."""
+    script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
+        "worker": [done("Booked."), done(BOOKED)],
+        "worker.verify": [verdict(True, False, next="retry", instructions="Say where and when the table is."),
+                          verdict(True, True)]})
+    result = outcome(chat(daemon, "book a table for 4 at 7pm"))
+    assert len(script.calls("worker")) == 2 and result["status"] == "done" and result["answer"] == BOOKED
 
 
 # decision: ORCH-309

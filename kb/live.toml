@@ -3087,3 +3087,12 @@ request = "Ask FERB something that takes a minute, close the notch and keep work
 pass = "The notch opens by itself without taking keyboard focus and already shows the answer's top (no visible jump). With Reduce motion on nothing animates; the result is the same."
 decisions = ["APP-720", "APP-722", "APP-571"]
 sitting = "after this change is installed"
+
+[LIVE-780]
+title = "Answers are to the point and questions are only the question"
+area = "prompts"
+surface = "FERB.app with this build; FERB's Gmail; a disposable folder"
+request = "Ask one quick question (\"what's on my calendar tomorrow?\" or a file lookup), one request for content (\"list every file in <disposable folder>\") and one vague request that needs a which (\"send the notes to Sam\" with two Sams in memory)."
+pass = "The quick answer is the result in a few lines with its source in a few words, no narration of windows or background work. The content request lists every item. The vague one asks only the question, naming each Sam with its evidence, with no restatement of the request or explanation of what FERB can't do. `ferb trace` shows no checker edit that added a sentence."
+decisions = ["PRM-320", "PRM-321", "PRM-322", "PRM-323", "PRM-324"]
+sitting = "after this change is installed"

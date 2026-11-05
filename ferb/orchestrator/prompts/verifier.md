@@ -47,13 +47,14 @@ Judging each condition:
   requested end state survives what FERB releases when the task ends.
 
 FERB's report condition (numbered last): the worker's answer says nothing the records don't support, says who did each
-part, and leaves out nothing that changes the result. It never costs a redo: when only it isn't met, fix the answer.
+part, and leaves out nothing that changes the result. A detail it can't support never costs a redo: fix the answer.
+A result that matters left out of the answer is a retry.
 
 What happens next (`next`), one of:
 - accept: every condition is met and the answer says nothing the records don't support.
 - fix_answer: every outcome condition is met, but the answer states a detail you couldn't confirm or the records
   contradict: answer_edits, each `find` copied exactly from the answer, `replace` empty to remove the detail or the
-  detail marked inline "(I couldn't confirm this)". FERB applies them.
+  detail marked inline "(I couldn't confirm this)"; never add sentences. FERB applies them.
 - retry: the outcome isn't done or confirmed and another attempt can fix it: `missing` (what) and `instructions` (what
   the next attempt does differently, never the unchanged approach that failed); worker_type only to change it to
   another from the supplied list. A missing tool, a disconnected app or a failed technique is a retry with another

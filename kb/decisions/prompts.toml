@@ -108,7 +108,8 @@ legacy = "notes/prompt-patches.md R1"
 title = "R2. Settle which one from evidence"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "PRM-321"
 words_source = "Agent-drafted rule R2 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
 rule = "Work out which app, account, profile, source, contact or file the owner means from their words, their memory and what can be observed; never from a generic word (\"messages\" names no app unless memory says so), the account an earlier task used, a matching name or a default. Confirm the account by the label or address the page shows and say which account and source was used. A same-named item elsewhere (local vs Drive) is a different item until shown otherwise. If several still fit, ask one question naming each with its evidence."
 paths = ["ferb/orchestrator/prompts/interaction.md", "ferb/orchestrator/prompts/question.md"]
@@ -141,7 +142,8 @@ legacy = "notes/prompt-patches.md R4"
 title = "R5. A named doer does its own work"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "PRM-322"
 words_source = "Agent-drafted rule R5 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
 rule = "When the owner hands work to a named agent or person, that one does it (an app FERB drives as a tool doesn't count). FERB starts it with the settings the owner named (model and reasoning names are settings, not things to find), gives it what it needs, monitors it to the end and checks its result; starting it is not finishing. If it is stuck, help it or ask the owner whether FERB should take over; never quietly do its work. The answer says who did each part."
 paths = ["ferb/orchestrator/prompts/interaction.md"]
@@ -226,3 +228,63 @@ why = "Carries PRM-301's unchanged parts after PRM-318 superseded it for the see
 paths = ["ferb/orchestrator/prompts", "ferb/memory/profile.py::SEARCH_ONLY_KIND"]
 live = ["LIVE-534", "LIVE-516", "LIVE-517"]
 legacy = "notes/prompts.md decision 4"
+
+[PRM-320]
+title = "Answers are sized to the ask: the result first, requested content in full, nothing else"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "when people are wokring on any type of task - big or small with a personl agent. i think the response of the agent on every type of request or function shuold be concise and to the point. we dont currnelty have that. also it gets hard to read long ass responses on this samll window. so the fix is to-the-point answers. BUT full transparency too. check the trace of the ferb for the resposnes it gave me to see how humungous thouse were. bog responses are fine but tehy shuodl be relevant . this sdo4ns mean our previosu double response approahc, btus omething better inherintely adn smart"
+words_source = "Item 2 of the owner's 0.27.1 list (2026-11-05); prompt edits P1-P3 approved with \"agreee to all except exaplin me this\""
+rule = "An answer is sized to what was asked: the complete content when content was asked for (a report, a list, a draft, every X); otherwise the result and what the owner must act on, in a few lines. No narration of how the work was done (which windows came to the front, what stayed in the background) unless it changes what the owner should trust or do. The worker's answer starts with the result, holds the requested content in full and nothing unrequested, and names source and account in a few words."
+why = "Freelance task 0218bb01 (2026-11-05): a 10,909-character answer, each part in full plus 58 hosts and narration of windows."
+paths = ["ferb/orchestrator/prompts/interaction.md", "ferb/orchestrator/prompts/worker.md"]
+live = ["LIVE-780"]
+
+[PRM-323]
+title = "The checker's answer edits only remove or mark; an omitted result is a retry"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "agreee to all except exaplin me this"
+words_source = "The owner's approval of prompt edit P4 and its trade-off (2026-11-05); the exception was the answer box, a later batch"
+rule = "The checker's answer edits never add sentences: code drops (and journals) an edit that is neither a removal nor its own text with the inline marker \"(I couldn't confirm this)\". An answer that leaves out a result that matters goes back as a retry instead of the checker writing it in; an unproven detail still never costs a redo (ORCH-309)."
+why = "Freelance task 0218bb01: the checker's fix_answer edits added \"Preview and Finder came to the front…\" and \"No application… was sent\"."
+paths = ["ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/supervisor.py::removes_or_marks", "ferb/orchestrator/supervisor.py::Supervisor._apply_edits"]
+live = ["LIVE-780"]
+
+[PRM-324]
+title = "A routed or clarifying question is only the question"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "why is there a details adn noralml text version in ferb question box??? it shoudlbe just its question directly - this also shuodl adhere to point number 2"
+words_source = "Item 10 of the owner's 0.27.1 list (2026-11-05); prompt edits P5 and P6 approved with \"agreee to all except exaplin me this\""
+rule = "The question router writes one question, no second display version: what FERB needs, each candidate with its evidence in a few words, the reason in one short clause, every concrete target and consequence kept. The planner's clarify is only the question: no restating the request and no explanation of what FERB can't do."
+why = "Trace 2026-11-04 14:48: a 325-character clarify (question, restatement, \"I can't…\"); router questions showed a display line plus the full question under Details."
+paths = ["ferb/orchestrator/prompts/question.md", "ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/schemas.py::QUESTION_SCHEMA"]
+live = ["LIVE-780"]
+
+[PRM-321]
+title = "R2. Settle which one from evidence (source named in a few words)"
+by = "owner"
+date = 2026-11-05
+status = "active"
+supersedes = ["PRM-304"]
+words = "agreee to all except exaplin me this"
+words_source = "PRM-304 (agent-drafted R2) refined by the owner's approval of prompt edit P3 on 2026-11-05: source and account in a few words"
+rule = "Work out which app, account, profile, source, contact or file the owner means from their words, their memory and what can be observed; never from a generic word (\"messages\" names no app unless memory says so), the account an earlier task used, a matching name or a default. Confirm the account by the label or address the page shows and name the account and source used in a few words (\"from your Work Gmail\"). A same-named item elsewhere (local vs Drive) is a different item until shown otherwise. If several still fit, ask one question naming each with its evidence."
+paths = ["ferb/orchestrator/prompts/interaction.md", "ferb/orchestrator/prompts/question.md", "ferb/orchestrator/prompts/worker.md"]
+live = ["LIVE-509", "LIVE-527", "LIVE-596", "LIVE-599", "LIVE-600", "LIVE-614"]
+
+[PRM-322]
+title = "R5. A named doer does its own work (the answer names other doers)"
+by = "owner"
+date = 2026-11-05
+status = "active"
+supersedes = ["PRM-307"]
+words = "agreee to all except exaplin me this"
+words_source = "PRM-307 (agent-drafted R5) refined by the owner's approval of prompt edit P3 on 2026-11-05: other doers named"
+rule = "When the owner hands work to a named agent or person, that one does it (an app FERB drives as a tool doesn't count). FERB starts it with the settings the owner named (model and reasoning names are settings, not things to find), gives it what it needs, monitors it to the end and checks its result; starting it is not finishing. If it is stuck, help it or ask the owner whether FERB should take over; never quietly do its work. The answer says who did each part when an agent, app or person other than FERB did some of it."
+paths = ["ferb/orchestrator/prompts/interaction.md", "ferb/orchestrator/prompts/worker.md"]
+live = ["LIVE-507", "LIVE-520", "LIVE-610", "LIVE-615"]

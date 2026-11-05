@@ -253,7 +253,6 @@ QUESTION_SCHEMA = _obj({
     "ask_owner": {"type": "boolean"},
     "answer": {"type": "string"},
     "question": {"type": "string"},
-    "display_text": {"type": "string"},
 })
 
 
@@ -478,7 +477,6 @@ class QuestionOutcome(BaseModel):
     ask_owner: bool
     answer: str
     question: str
-    display_text: str = ""
 
 
 class CheckerResult(BaseModel):

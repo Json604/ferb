@@ -5095,13 +5095,18 @@ class Supervisor(WorkerRuns):
           outcome condition found false, or unfinished work with outcomes unknown, fails;
         - an unproven detail of the answer (FERB's report condition not confirmed and not fixed by edits) is marked by
           the one "Couldn't confirm" line, never by a redo;
+        - a retry with every outcome verified becomes fix_answer, unless FERB's report condition is false and the checker
+          gave no edits: the answer leaves out or misstates a result that matters, which an edit can't add (P4), so a
+          new attempt writes it;
         - retry needs instructions (else what's missing, else the worker's reason); ask needs a question (else the
           worker's own); fail carries the checker's reason (else the worker's)."""
         planned = len(tree.spec.success_conditions) + int(tree.watch)       # FERB's report condition comes after
         outcome = [r for r in tree.verification if r.index < planned]
         report = next((r for r in tree.verification if r.index == planned), None)
         action = checked.next
-        if action == "retry" and planned and len(outcome) == planned and all(r.met is True for r in outcome):
+        rewrite = report is not None and report.met is False and not checked.answer_edits
+        if (action == "retry" and planned and len(outcome) == planned and all(r.met is True for r in outcome)
+                and not rewrite):
             action = "fix_answer"        # ORCH-309: every outcome verified, so only the answer can be wrong: no redo
         if action in ("accept", "fix_answer", "accept_unconfirmed"):
             unapplied = self._apply_edits(tree, checked)
@@ -5135,17 +5140,23 @@ class Supervisor(WorkerRuns):
 
     def _apply_edits(self, tree: _Tree, checked: CheckerOutcome) -> list[str]:
         """The checker's exact edits to the worker's answer (fix_answer), each applied where its text appears; the ones
-        whose text isn't in the answer, returned (the answer keeps that part, and it is marked unconfirmed)."""
-        unapplied = []
+        whose text isn't in the answer, and the ones that would write more than a removal or the inline marker (P4:
+        the checker never adds sentences; dropped and journaled), returned (the answer keeps that part, and it is
+        marked unconfirmed)."""
+        unapplied, dropped = [], []
         for edit in checked.answer_edits:
-            if edit.find and edit.find in tree.owner_answer:
+            if not removes_or_marks(edit.find, edit.replace):
+                dropped.append(edit.find)
+            elif edit.find and edit.find in tree.owner_answer:
                 tree.owner_answer = tree.owner_answer.replace(edit.find, edit.replace)
             elif edit.find:
                 unapplied.append(edit.find)
         if checked.answer_edits:
             self.journal.append("task.answer_fixed", {"task_id": tree.worker.id, "edits": len(checked.answer_edits),
-                                                      "unapplied": len(unapplied)})
-        return unapplied
+                                                      "unapplied": len(unapplied), "dropped": len(dropped)})
+        if dropped:
+            self.journal.append("task.answer_edit_dropped", {"task_id": tree.worker.id, "finds": dropped})
+        return unapplied + dropped
 
     @staticmethod
     def _owner_text(tree: _Tree, result: ConditionResult) -> str:
@@ -5974,6 +5985,22 @@ FOUND_UNCHECKED = "What I found (not checked):"
 WATCH_TEXT = "whether it has happened"          # a watch's own condition, in the owner's terms
 NOTHING_TO_CHECK = "there was nothing to check it against"
 NOT_ACCEPTED = "the check didn't confirm the result"     # a failure no reason came with (never a done claim)
+UNCONFIRMED_MARK = "(I couldn't confirm this)"            # the one inline marker a checker's answer edit may add (P4)
+
+
+def removes_or_marks(find: str, replace: str) -> bool:
+    """Whether a checker's answer edit only removes its text or marks it unconfirmed (P4, ORCH-309): `replace` is
+    empty, or `find` with UNCONFIRMED_MARK inserted once (a typographic apostrophe counts as a plain one). Anything
+    else would write new words into the owner's answer. Structure, not content: no word of the answer is judged."""
+    if not replace:
+        return True
+    plain, mark = replace.replace("\u2019", "'"), UNCONFIRMED_MARK
+    at = plain.find(mark)
+    if at < 0:
+        return False
+    rest = plain[:at] + plain[at + len(mark):]
+    target = find.replace("\u2019", "'")
+    return rest == target or (at > 0 and rest[:at - 1] + rest[at:] == target and plain[at - 1] == " ")
 UNCONFIRMED_CHARS = 300                          # the "Couldn't confirm" line stays one short line
 # The checker's code facts about how the work was done (ORCH-309) and what the task holds (ORCH-333)
 HOW_FACTS = ("FERB's code facts about how this work was done, measured by FERB's code from its own records (never the "

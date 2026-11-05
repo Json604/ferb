@@ -72,7 +72,7 @@ class Chat:
         pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason,
                     "task_id": next(iter(request_trees[ap.request_id]))
                         if len(request_trees.get(ap.request_id, ())) == 1 else None,
-                    "options": list(ap.options), **({"display_text": ap.display_text} if ap.display_text else {}),
+                    "options": list(ap.options),
                     **({"summary": ap.summary} if ap.summary else {}),
                     **({"why": ap.why} if getattr(ap, "why", "") else {}),
                     **({"source_task_id": ap.task_id} if ap.task_id else {}),

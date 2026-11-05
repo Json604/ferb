@@ -2188,7 +2188,6 @@ class Gateway:
         """owner.ask: the worker's question goes to chat as an approval with options (or free text); the call waits
         for the answer. A scheduled run (nobody at chat) is declined at once."""
         question = str(getattr(args, "question"))
-        display_text = ""
         options = [str(o) for o in getattr(args, "options", []) if str(o).strip()]
         retry = str(getattr(args, "retry_action", "") or "").strip()
         # A retry of a dropped call matches its question on the worker's own words, before the orchestrator rewords
@@ -2227,7 +2226,6 @@ class Gateway:
             if not decision['ask_owner']:
                 return {'answer': decision['answer'], 'answered_by': 'orchestrator'}
             question = decision['question'] or question
-            display_text = str(decision.get('display_text', ''))
         given_options = worker_options if reused is not None else options
         if not retry and reused is None:             # D33: only FERB's own checks read as FERB's; a task's is labelled
             question = confirm.task_question(printable(question))
@@ -2253,12 +2251,9 @@ class Gateway:
                 ap.about = tuple(asked_about)
             asked_about = list(ap.about)
         if new:
-            ap.display_text = (confirm.task_question(printable(self.redact(display_text))) if display_text.strip()
-                               else "")
             self.publish("approval.requested", {"approval_id": ap.id, "capability": capability,
                                                 "kind": "owner_question", "reason": question, "options": options,
-                                                "task_id": grant.task_id,
-                                                **({"display_text": ap.display_text} if ap.display_text else {})})
+                                                "task_id": grant.task_id})
         self.observer.tool_call(grant, done=False)
         try:
             answer = await self._wait_answer(grant, ap.id)
