@@ -476,7 +476,7 @@ private struct AnswerView: View {
 
     /// The answer's own lines drawn on their own (ORCH-319), cut from its text.
     private var split: AnswerParts {
-        AnswerParts(answer: turn.visibleAnswer, note: turn.note, correction: turn.correction, lines: turn.codeLines ?? [])
+        AnswerParts(answer: turn.visibleAnswer, note: turn.note, lines: turn.codeLines ?? [])
     }
     private var codeSites: String? {
         split.lines.first { $0.hasPrefix("Sites contacted:") }.map {
@@ -490,10 +490,10 @@ private struct AnswerView: View {
     private var codeLines: [String] {
         CardLayout.remaining(split.lines.filter { !$0.hasPrefix("Sites contacted:") }, cards)
     }
-    /// A collapsed answer's own lines ("Couldn't confirm", the correction, code's lines) stay in view under the fade.
+    /// A collapsed answer's own lines ("Couldn't confirm", code's lines) stay in view under the fade.
     private var collapsedLines: AnyView? {
-        guard split.note != nil || split.correction != nil || !codeLines.isEmpty else { return nil }
-        return AnyView(AnswerLinesView(note: split.note, correction: split.correction, lines: codeLines))
+        guard split.note != nil || !codeLines.isEmpty else { return nil }
+        return AnyView(AnswerLinesView(note: split.note, lines: codeLines))
     }
 
     /// Typed cards (step 8e): each drawn in place of the line it stands for; a turn saved before cards has none.
@@ -516,8 +516,7 @@ private struct AnswerView: View {
                                         target: TranscriptTarget.answer(turn: turn.id),
                                         more: "Show all", model: model, whenCollapsed: collapsedLines) {
                             MarkdownContent(CardLayout.strip(visibleParts.answer, cards),
-                                            note: split.note, correction: split.correction,
-                                            lines: codeLines).equatable()
+                                            note: split.note, lines: codeLines).equatable()
                         }
                         if turn.displayText != nil && turn.visibleAnswer != turn.answer {
                             DisclosureGroup("Details") {

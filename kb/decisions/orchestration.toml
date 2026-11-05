@@ -797,7 +797,7 @@ date = 2026-11-05
 status = "active"
 rule = "A finished answer is the worker's answer with the checker's applied edits and at most one short \"Couldn't confirm: …\" line (ORCH-309), in a single task and in a part's row alike. When the checker finds FERB's report condition unmet, its evidence is journaled (task.report_condition_unmet, with whether its edits fixed it) and shown nowhere to the owner; no answer, row or chat.status result carries a correction field."
 why = "Live task 794e3bd8 (owner, 2026-11-05: \"what correction message is this?? who added it?? will every task add this???\"): the checker's internal evidence was printed as \"Correction: …\" after its edit was dropped."
-paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._checked_answer", "ferb/orchestrator/parts.py::Card.settle"]
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._checked_answer", "ferb/orchestrator/parts.py::Card.settle", "ui/mac/FERBNotch/Sources/NotchCore/TurnCard.swift"]
 
 [ORCH-541]
 title = "A detail the records contradict never stands unmarked: no removal or mark is a retry"

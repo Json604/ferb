@@ -226,10 +226,6 @@ struct CardRowView: View {
                 (Text("Couldn't confirm: ").fontWeight(.semibold).foregroundStyle(Palette.amber)
                     + Text(note).foregroundStyle(Palette.secondary)).font(.system(size: 11.5))
             }
-            if let correction = row.correction {
-                (Text("Correction: ").fontWeight(.semibold).foregroundStyle(Palette.ink)
-                    + Text(correction).foregroundStyle(Palette.secondary)).font(.system(size: 11.5))
-            }
             if let why = row.why, display.kind == .updated {
                 Text(why.hasPrefix("Updated") ? why : "Updated: " + why)
                     .font(.system(size: 11.5)).foregroundStyle(Palette.chatBlue)
@@ -369,21 +365,16 @@ private struct UpdatedTag: View {
     }
 }
 
-/// A one-ask answer's own lines (ORCH-319): "Couldn't confirm", the correction, and code's lines other than the
-/// sites (which keep their chip).
+/// A one-ask answer's own lines (ORCH-319): "Couldn't confirm" and code's lines other than the sites (which keep their
+/// chip). A checker's evidence is never one of them (ORCH-540).
 struct AnswerLinesView: View {
     let note: String?
-    let correction: String?
     let lines: [String]
 
     var body: some View {
         if let note {
             (Text("Couldn't confirm: ").fontWeight(.semibold).foregroundStyle(Palette.amber)
                 + Text(note).foregroundStyle(Palette.secondary)).font(.system(size: 11.5)).textSelection(.enabled)
-        }
-        if let correction {
-            (Text("Correction: ").fontWeight(.semibold).foregroundStyle(Palette.ink)
-                + Text(correction).foregroundStyle(Palette.secondary)).font(.system(size: 11.5)).textSelection(.enabled)
         }
         ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
             Text(verbatim: line).font(.system(size: 11)).foregroundStyle(Palette.secondary).textSelection(.enabled)

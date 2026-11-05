@@ -32,7 +32,6 @@ public struct CardRow: Codable, Equatable, Identifiable {
     public var text: String?
     /// "Couldn't confirm: …", without its prefix.
     public var note: String?
-    public var correction: String?
     /// Why an updated row changed, without the "Updated:" prefix.
     public var why: String?
     /// The owner's answer to the row's question, while it works on with it.
@@ -75,7 +74,6 @@ public struct CardRow: Codable, Equatable, Identifiable {
         func words(_ key: String) -> String? { (value[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
         text = words("text")
         note = words("note")
-        correction = words("correction")
         why = words("why")
         chosen = words("chosen")
         verified = value["verified"] as? Bool
@@ -242,16 +240,15 @@ public struct RuntimeSwitch: Codable, Equatable {
 }
 
 /// A one-ask answer split into what it says and code's own lines after it (ORCH-319's structured fields), so the
-/// notch draws the "Couldn't confirm" line, the correction and code's lines on their own. The daemon also writes them
+/// notch draws the "Couldn't confirm" line and code's lines on their own. The daemon also writes them
 /// into `answer` (history, voice, older clients): what is drawn on its own is cut from the end of the text, and a piece
 /// that isn't found there stays in the text and isn't drawn again.
 public struct AnswerParts: Equatable {
     public let body: String
     public let note: String?
-    public let correction: String?
     public let lines: [String]
 
-    public init(answer: String, note: String?, correction: String?, lines: [String]) {
+    public init(answer: String, note: String?, lines: [String]) {
         var body = answer
         var shownLines: [String] = []
         if !lines.isEmpty {
@@ -266,20 +263,16 @@ public struct AnswerParts: Equatable {
         }
         body = body.trimmingCharacters(in: .whitespacesAndNewlines)
         let note = note.flatMap { $0.isEmpty ? nil : $0 }
-        let correction = correction.flatMap { $0.isEmpty ? nil : $0 }
-        let said = [note.map { "Couldn't confirm: \($0)." }, correction.map { "Correction: \($0)." }].compactMap { $0 }
-        var shownNote: String?, shownCorrection: String?
-        if !said.isEmpty {
-            let line = said.joined(separator: " ")
+        var shownNote: String?
+        if let note {
+            let line = "Couldn't confirm: \(note)."
             if body.hasSuffix(line) {
                 body = String(body.dropLast(line.count)).trimmingCharacters(in: .whitespacesAndNewlines)
                 shownNote = note
-                shownCorrection = correction
             }
         }
         self.body = body
         self.note = shownNote
-        self.correction = shownCorrection
         self.lines = shownLines
     }
 }

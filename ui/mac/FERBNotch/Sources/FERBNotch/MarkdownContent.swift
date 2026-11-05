@@ -17,16 +17,15 @@ struct MarkdownContent: View, Equatable {
     let source: String
     let baseSize: CGFloat
     let note: String?
-    let correction: String?
     let lines: [String]
-    init(_ source: String, size: CGFloat = 12, note: String? = nil, correction: String? = nil, lines: [String] = []) {
-        self.source = source; self.baseSize = size; self.note = note; self.correction = correction; self.lines = lines
+    init(_ source: String, size: CGFloat = 12, note: String? = nil, lines: [String] = []) {
+        self.source = source; self.baseSize = size; self.note = note; self.lines = lines
     }
 
     var body: some View {
         NativeMessageText(MessageTextAttributes.joined([
             MarkdownTextAttributes.make(source, size: baseSize),
-            MarkdownTextAttributes.annotations(note: note, correction: correction, lines: lines)
+            MarkdownTextAttributes.annotations(note: note, lines: lines)
         ]))
     }
 }
@@ -34,14 +33,13 @@ struct MarkdownContent: View, Equatable {
 /// Paragraphs, lists, code and tables share one text storage, so native selection
 /// and Command-A/Command-C work across the entire message. Parsing stays inert.
 enum MarkdownTextAttributes {
-    static func annotations(note: String?, correction: String?, lines: [String]) -> NSAttributedString {
+    static func annotations(note: String?, lines: [String]) -> NSAttributedString {
         var parts: [NSAttributedString] = []
-        for (prefix, value, color) in [("Couldn't confirm: ", note, NSColor(Palette.amber)),
-                                       ("Correction: ", correction, NSColor.labelColor)] {
-            guard let value else { continue }
-            let label = NSMutableAttributedString(attributedString: plain(prefix, size: 11.5, bold: true))
-            label.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: label.length))
-            label.append(plain(value, size: 11.5, secondary: true))
+        if let note {
+            let label = NSMutableAttributedString(attributedString: plain("Couldn't confirm: ", size: 11.5, bold: true))
+            label.addAttribute(.foregroundColor, value: NSColor(Palette.amber),
+                               range: NSRange(location: 0, length: label.length))
+            label.append(plain(note, size: 11.5, secondary: true))
             parts.append(label)
         }
         parts += lines.map { plain($0, size: 11, secondary: true) }

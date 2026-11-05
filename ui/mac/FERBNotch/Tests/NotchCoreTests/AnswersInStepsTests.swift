@@ -179,16 +179,16 @@ final class AnswersInStepsTests: XCTestCase {
         XCTAssertTrue(model.conversation.replies.isEmpty)                   // the card filled in place
     }
 
+    // decision: ORCH-540
     func testAOneAskAnswerSplitsItsOwnLinesFromTheText() {
-        let answer = "The flight leaves at 7:15.\n\nCouldn't confirm: the gate. Correction: it's T1.\n\nRemembered: gate\nSites contacted: goindigo.in\n(ran late)"
-        let split = AnswerParts(answer: answer, note: "the gate", correction: "it's T1",
+        let answer = "The flight leaves at 7:15.\n\nCouldn't confirm: the gate.\n\nRemembered: gate\nSites contacted: goindigo.in\n(ran late)"
+        let split = AnswerParts(answer: answer, note: "the gate",
                                 lines: ["Remembered: gate", "Sites contacted: goindigo.in"])
         XCTAssertEqual(split.body, "The flight leaves at 7:15.")
         XCTAssertEqual(split.note, "the gate")
-        XCTAssertEqual(split.correction, "it's T1")
         XCTAssertEqual(split.lines, ["Remembered: gate", "Sites contacted: goindigo.in", "(ran late)"])
         // A piece the text doesn't end with stays in the text and isn't drawn twice.
-        let other = AnswerParts(answer: "Done.", note: "something else", correction: nil, lines: ["Sites contacted: x"])
+        let other = AnswerParts(answer: "Done.", note: "something else", lines: ["Sites contacted: x"])
         XCTAssertEqual(other.body, "Done.")
         XCTAssertNil(other.note)
         XCTAssertTrue(other.lines.isEmpty)

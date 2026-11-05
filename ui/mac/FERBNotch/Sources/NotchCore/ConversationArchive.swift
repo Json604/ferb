@@ -51,9 +51,9 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var receipts: [String]?
     /// A multi-part request's card (ORCH-319): a row per ask, filled in place, and the footer once the task ended.
     public var card: TurnCard?
-    /// A one-ask answer's structured lines (ORCH-319): "Couldn't confirm: …", "Correction: …", code's lines.
+    /// A one-ask answer's structured lines (ORCH-319): "Couldn't confirm: …" and code's lines. A turn saved with the
+    /// "Correction: …" field older daemons sent decodes without it (ORCH-540: no answer carries one).
     public var note: String?
-    public var correction: String?
     public var codeLines: [String]?
     /// The offer of another AI service when an account problem ended the work (ORCH-315).
     public var runtimeSwitch: RuntimeSwitch?
@@ -102,7 +102,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
         case requestID, ack, plan, parts, verified, question, taskGoal, taskName, statusInferred
-        case planLine, planLines, direct, receipts, card, note, correction, codeLines, runtimeSwitch, mergedInto
+        case planLine, planLines, direct, receipts, card, note, codeLines, runtimeSwitch, mergedInto
         case cards, receiptCards, hiddenKinds
     }
 }
@@ -575,7 +575,7 @@ public struct ConversationArchive: Codable, Equatable {
     }
 
     /// The outcome's own fields (ORCH-319) on the turn that asked (its request, else the task's newest turn): a
-    /// one-ask answer's "Couldn't confirm", correction and code lines; a multi-part task's footer; the offer of another
+    /// one-ask answer's "Couldn't confirm" and code lines; a multi-part task's footer; the offer of another
     /// AI service. Returns whether the turn changed.
     @discardableResult
     public mutating func applyOutcome(_ event: [String: Any]) -> Bool {
@@ -586,7 +586,6 @@ public struct ConversationArchive: Codable, Equatable {
         let before = turns[index]
         func words(_ key: String) -> String? { (event[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
         turns[index].note = words("note")
-        turns[index].correction = words("correction")
         turns[index].codeLines = (event["lines"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
         turns[index].runtimeSwitch = RuntimeSwitch(event["runtime_switch"])
         if let card = TurnCard(event["card"], taskID: taskID) { place(card, at: index) }
