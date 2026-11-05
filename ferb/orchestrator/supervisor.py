@@ -5706,9 +5706,9 @@ class Supervisor(WorkerRuns):
         status: str
         if tree.stop == STOPPED_BY_YOU:
             status, summary, answer = self._stop_status(tree), STOPPED_BY_YOU, "Stopped, as you asked."
-            # what the worker had found, from its latest report: unchecked, so it says so (owner live use 2026-10-15)
-            said = [str(r.get("answer") or r.get("reason") or r.get("summary") or "").strip()
-                    for r in reversed(src.reports)]
+            # what the worker had found, from its latest report's answer: unchecked, so it says so (owner live use
+            # 2026-10-15). Only an answer is a finding; a stopped attempt's reason is "stopped by you" (ORCH-530).
+            said = [str(r.get("answer") or "").strip() for r in reversed(src.reports)]
             found = next((text for text in said if text), "")
             if found:
                 answer += f"\n\n{FOUND_BEFORE_STOP} {found}"

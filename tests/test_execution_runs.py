@@ -107,6 +107,25 @@ def test_stop_mid_task_ends_every_row_as_stopped(daemon: RunningDaemon) -> None:
     assert run(daemon, lambda: daemon.daemon.supervisor.plans.steps(tree))["worker"]["status"] == "cancelled"
 
 
+# decision: ORCH-530
+def test_a_stopped_task_shows_only_a_reports_answer_as_found(daemon: RunningDaemon) -> None:
+    """Task 8bf4e2e7 (2026-11-05): the stopped attempt's reason is "stopped by you", and the answer read
+    "What I'd found before stopping (not checked): stopped by you". Only a report's answer is a finding."""
+    from ferb.core.types import Identity, Task
+    from ferb.orchestrator.schemas import TaskSpec
+    from ferb.orchestrator.supervisor import FOUND_BEFORE_STOP, STOPPED_BY_YOU, _Tree
+    worker = Task("tree-st.worker", "tree-st", "Find the flight", "browser", Identity.OWNER, set(), "worker",
+                  "req-st", [], None)
+    tree = _Tree("tree-st", TaskSpec(goal="Find the flight", identity="owner"), worker)
+    tree.stop = STOPPED_BY_YOU
+    tree.reports = [{"status": "not_done", "answer": "", "reason": STOPPED_BY_YOU, "summary": "stopped by you"}]
+    final = run(daemon, lambda: daemon.daemon.supervisor._final(tree))
+    assert final["answer"].startswith("Stopped, as you asked.") and FOUND_BEFORE_STOP not in final["answer"]
+    tree.reports.insert(0, {"status": "not_done", "answer": "The 9:40 flight is $212.", "reason": ""})
+    final = run(daemon, lambda: daemon.daemon.supervisor._final(tree))
+    assert f"{FOUND_BEFORE_STOP} The 9:40 flight is $212." in final["answer"]
+
+
 # decision: ORCH-308
 # decision: TEST-502
 def test_pause_keeps_everything_in_place_and_the_owners_reply_resumes_it(daemon: RunningDaemon) -> None:

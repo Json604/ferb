@@ -684,3 +684,12 @@ words_source = "The same 2026-11-04 owner words as ORCH-528: lifting the 90 s ch
 rule = "Only messages sent before FERB's first reply to the previous one restart the turn: FERB restarts once and reads them together (related: folded in; unrelated: both answered). Later messages wait their turn, and messages that queued are read together in the next turn. Once FERB has replied, a running task is unaffected. Code enforces at most one restart per turn; the turn has no overall time limit, and each of its planner calls, the restart's included, is stopped only by the silence guard (ORCH-528)."
 paths = ["ferb/orchestrator/supervisor.py::_ChatLine", "ferb/orchestrator/supervisor.py::MAX_RESTARTS"]
 live = ["LIVE-556", "LIVE-764"]
+
+[ORCH-530]
+title = "A stopped task's \"found before stopping\" line is a report's answer, never its reason"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "When the owner stops a task, the answer adds \"What I'd found before stopping (not checked):\" only with the latest worker report's non-empty answer; a report's reason or summary is never shown there, and with no answer the line is left out."
+why = "Task 8bf4e2e7 (2026-11-05): the stopped attempt's reason is \"stopped by you\", so the answer read \"What I'd found before stopping (not checked): stopped by you\"."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final"]
