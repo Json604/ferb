@@ -3276,3 +3276,21 @@ request = "With the window open, switch between Stage Manager's app groups, clic
 pass = "The window stays visible beside every group and is never swallowed into the strip or hidden by a group switch; the shortcut always brings it forward."
 decisions = ["APP-745", "APP-748"]
 sitting = "after this change is installed"
+
+[LIVE-801]
+title = "With Keep on top, FERB's Settings, Quick Look and what it opens show above the window"
+area = "app"
+surface = "FERB.app with this build in window mode, Keep on top on, the window open over the middle of the screen; a chat answer with a file card and a link"
+request = "Open Settings from the menu-bar menu where it overlaps the window; close it. Quick Look the file card; close it. Click the file card (Finder), then the link (browser). Then click the window."
+pass = "Settings, Quick Look, the Finder window and the browser each show above the window; after Settings and Quick Look close and after you click the window, it floats on top again."
+decisions = ["APP-749"]
+sitting = "after this change is installed"
+
+[LIVE-802]
+title = "\"Updated to\" once per version"
+area = "app"
+surface = "FERB.app: an install of a new build of the same version, then a relaunch"
+request = "Install the new build over the same version, open FERB, quit and reopen it."
+pass = "No new \"Updated to …\" line appears in the chat for the same version; the next new version adds one line once."
+decisions = ["APP-750"]
+sitting = "after this change is installed"

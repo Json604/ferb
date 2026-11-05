@@ -37,9 +37,17 @@ public enum UpdatePlan {
         !(domain == "SUSparkleErrorDomain" && (code == 1001 || code == 4007))
     }
 
-    /// The line the notch shows once after a launch on a new build; nil on a first launch or the same build.
-    public static func updatedNote(previousBuild: String?, build: String, version: String) -> String? {
-        guard let previousBuild, !previousBuild.isEmpty, previousBuild != build else { return nil }
+    /// The line the notch shows once after the first launch of a new version (APP-749); nil on a first launch, a
+    /// relaunch, or a reinstall or rebuild of the same version (each build has its own CFBundleVersion). A FERB that
+    /// recorded only its build (before APP-749) gives no version: the line shows unless the chat already has it
+    /// (`alreadySaid`).
+    public static func updatedNote(previousVersion: String?, previousBuild: String?, build: String, version: String,
+                                   alreadySaid: Bool) -> String? {
+        guard !version.isEmpty else { return nil }
+        if let previousVersion, !previousVersion.isEmpty {
+            return previousVersion == version ? nil : "Updated to \(version)"
+        }
+        guard let previousBuild, !previousBuild.isEmpty, previousBuild != build, !alreadySaid else { return nil }
         return "Updated to \(version)"
     }
 }

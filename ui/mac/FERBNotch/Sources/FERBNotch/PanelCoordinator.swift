@@ -348,7 +348,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
         applyChatHost()
         model.onOpenDocument = { [weak self] url in
-            if NSWorkspace.shared.open(url) { self?.model.dismissAutomatically() }
+            if HandOff.open(url) { self?.model.dismissAutomatically() }
             else {
                 let alert = NSAlert()
                 alert.messageText = "The artifact couldn’t be opened."
@@ -2058,10 +2058,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         beginInteraction()
         guard let preview = QLPreviewPanel.shared() else { return }
         preview.updateController()
-        if let window = chatWindow?.panel, model.chatInWindow, preview.level.rawValue <= window.level.rawValue {
-            preview.level = NSWindow.Level(rawValue: window.level.rawValue + 1)
-        }
-        preview.makeKeyAndOrderFront(nil)
+        preview.makeKeyAndOrderFront(nil)            // the sticky window steps down while it shows (APP-749)
         if !model.chatInWindow { model.collapse() }
         if preview.currentController as AnyObject? === self { preview.reloadData() }
     }

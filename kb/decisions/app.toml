@@ -2501,3 +2501,21 @@ rule = "Implements APP-745. ChatBodyView is the one chat body; only the host hol
 why = "Two copies of the conversation would drift; a mounted hidden transcript would consume the other's scroll requests. AppKit's all-Spaces join keeps drags, Keep on top off and FERB's menus and picker working."
 evidence = "Live, macOS 27.2: like any all-Spaces window (probes with .stationary too) it slides with the desktop swipe, then sits in the same place; Mission Control shows it as a thumbnail; no re-present. The overlay space would stop the slide but cover other apps' menus."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/NotchCore/TranscriptFollow.swift"]
+
+[APP-749]
+title = "A kept-on-top window steps down for FERB's own windows and for what FERB opens elsewhere"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-745's Keep on top. The sticky window sits at the normal level, behind the window that opened, while another of FERB's own windows shows (a titled one: Settings and the FERB window, an alert, a file picker; or Quick Look's panel), and after FERB hands the owner something in another app (HandOff: a file revealed in Finder, a document, link or site opened) until the window becomes key or is shown again. Structure only: a window's style, class and visibility."
+why = "Leftover sweep T-1059 (owner's batch 7 check): with Keep on top on, FERB's own Settings opened underneath the floating window where they overlapped; Quick Look alone had a per-case level raise."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift"]
+
+[APP-750]
+title = "\"Updated to <version>\" shows once per new version"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "FERB.app records the version it last launched (FERBLastLaunchedVersion) beside the build and says \"Updated to <version>\" only when the version changed; a relaunch, reinstall or rebuild of the same version (a new CFBundleVersion each build) says nothing. Upgrading from a FERB that recorded only its build, the line shows once unless the chat already has that version's line. The notice id is update-<version>."
+why = "Leftover sweep T-1059: each reinstall of 0.27.1 added the line again, since it was keyed by build."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/UpdatePlan.swift", "ui/mac/FERBNotch/Sources/FERBNotch/UpdateNotes.swift"]

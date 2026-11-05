@@ -26,10 +26,19 @@ final class UpdatePlanTests: XCTestCase {
                        "FERB 0.28.0 installs when this finishes: Rename; process: npm run dev")
     }
 
-    func testUpdatedToOncePerNewBuild() {
-        XCTAssertEqual(UpdatePlan.updatedNote(previousBuild: "202610250900", build: "202611010900", version: "0.28.0"),
-                       "Updated to 0.28.0")
-        XCTAssertNil(UpdatePlan.updatedNote(previousBuild: "202611010900", build: "202611010900", version: "0.28.0"))
-        XCTAssertNil(UpdatePlan.updatedNote(previousBuild: nil, build: "202611010900", version: "0.28.0"))
+    // decision: APP-750
+    func testUpdatedToOncePerNewVersion() {
+        func note(_ previousVersion: String?, _ previousBuild: String?, said: Bool = false) -> String? {
+            UpdatePlan.updatedNote(previousVersion: previousVersion, previousBuild: previousBuild, build: "202611010900",
+                                   version: "0.28.0", alreadySaid: said)
+        }
+        XCTAssertEqual(note("0.27.1", "202610250900"), "Updated to 0.28.0")
+        XCTAssertNil(note("0.28.0", "202610311200"))                 // a rebuild or reinstall of the same version
+        XCTAssertNil(note("0.28.0", "202611010900"))
+        XCTAssertNil(note(nil, nil))                                 // a first launch
+        // An older FERB recorded only its build: the line shows once, unless the chat already has it
+        XCTAssertEqual(note(nil, "202610250900"), "Updated to 0.28.0")
+        XCTAssertNil(note(nil, "202610250900", said: true))
+        XCTAssertNil(note(nil, "202611010900"))
     }
 }

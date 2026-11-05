@@ -309,6 +309,38 @@ final class WindowModeTests: XCTestCase {
         XCTAssertEqual(w.panel.level, .floating)
     }
 
+    // decision: APP-749
+    func testFERBsOwnWindowsAndWhatItOpensElsewhereShowAboveAKeptOnTopWindow() throws {
+        let h = try harness(window: true)
+        h.coordinator.toggleByShortcut()
+        let w = try window(h)
+        XCTAssertEqual(w.panel.level, .floating)
+        // Settings (a titled FERB window) opens: the window steps down and goes behind it, and floats again after
+        let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        settings.isReleasedWhenClosed = false
+        addTeardownBlock { settings.orderOut(nil) }
+        settings.orderFrontRegardless()
+        w.ownWindowsChanged()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(w.panel.level, .normal, "FERB's own window shows above the sticky window")
+        settings.orderOut(nil)
+        w.ownWindowsChanged()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(w.panel.level, .floating)
+        // A file shown in Finder (any hand-off): down until the owner comes back to the window
+        HandOff.announce()
+        XCTAssertEqual(w.panel.level, .normal)
+        h.coordinator.toggleByShortcut()                 // hidden
+        h.coordinator.toggleByShortcut()                 // and opened again by the owner
+        XCTAssertEqual(w.panel.level, .floating)
+        // The notch's own borderless panels never count; Keep on top off stays normal whatever shows
+        XCTAssertFalse(ChatWindowController.coveredByOwnWindow([(isChat: true, isTitled: true, isVisible: true),
+                                                                 (isChat: false, isTitled: false, isVisible: true)]))
+        XCTAssertEqual(ChatWindowController.level(keepOnTop: false, picker: false, ownWindow: false, handedOff: false),
+                       .normal)
+    }
+
     // decision: APP-745, APP-748, APP-600
     func testTheWindowJoinsEverySpaceStaysOutOfCommandTabAndTheDockAndNeverActivatesFERB() throws {
         let h = try harness(window: true)

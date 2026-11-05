@@ -12,16 +12,29 @@ final class UpdateWiringTests: XCTestCase {
         NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("ferb-update"))
     }
 
-    func testTheNotchSaysUpdatedToOncePerNewBuild() {
+    // decision: APP-750
+    func testTheNotchSaysUpdatedToOncePerNewVersion() {
         let model = model()
         model.preferences.set("202610250900", forKey: NotchModel.lastBuildKey)
+        model.preferences.set("0.27.1", forKey: NotchModel.lastVersionKey)
         let info: [String: Any] = ["CFBundleVersion": "202611010900", "CFBundleShortVersionString": "0.28.0"]
         model.noteUpdate(info: info)
         XCTAssertEqual(model.conversation.notices.map(\.text), ["Updated to 0.28.0"])
         XCTAssertEqual(model.conversation.notices.first?.tag, "FERB")
         model.noteUpdate(info: info)                                       // the same build again
+        model.noteUpdate(info: ["CFBundleVersion": "202611011500", "CFBundleShortVersionString": "0.28.0"])  // rebuilt
         XCTAssertEqual(model.conversation.notices.count, 1)
-        XCTAssertEqual(model.preferences.string(forKey: NotchModel.lastBuildKey), "202611010900")
+        XCTAssertEqual(model.preferences.string(forKey: NotchModel.lastBuildKey), "202611011500")
+        XCTAssertEqual(model.preferences.string(forKey: NotchModel.lastVersionKey), "0.28.0")
+    }
+
+    // decision: APP-750, STORE-403
+    func testAnOlderBuildsLineForTheSameVersionIsntRepeated() {
+        let model = model()                       // 0.27.1 as it was: only the build recorded, its line keyed by build
+        model.preferences.set("202611051241", forKey: NotchModel.lastBuildKey)
+        _ = model.conversation.addNotice(id: "update-202611051241", text: "Updated to 0.27.1", tag: "FERB")
+        model.noteUpdate(info: ["CFBundleVersion": "202611060900", "CFBundleShortVersionString": "0.27.1"])
+        XCTAssertEqual(model.conversation.notices.count, 1)
     }
 
     func testAFirstLaunchSaysNothing() {

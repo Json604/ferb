@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import Quartz
 import NotchCore
 
 /// The sticky window (APP-745, owner's item 8 "Sticky window, like ChatGPT old app"): FERB's chat in a black-glass
@@ -51,6 +52,26 @@ final class ChatWindowPanel: NSPanel {
     }
 }
 
+/// FERB handing the owner something in another app: a file shown in Finder, a document, link or site opened. Every
+/// such hand-off goes through here, so the sticky window steps down from Keep on top and what opened shows above it,
+/// until the owner comes back to the window (APP-749).
+enum HandOff {
+    static let notification = Notification.Name("FERBHandOff")
+
+    static func announce() { NotificationCenter.default.post(name: notification, object: nil) }
+
+    @discardableResult
+    static func open(_ url: URL) -> Bool {
+        announce()
+        return NSWorkspace.shared.open(url)
+    }
+
+    static func reveal(_ urls: [URL]) {
+        announce()
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+}
+
 /// The window's own controls, observed by its header: Keep on top (D20; named so it isn't taken for the notch's
 /// removed pin, APP-743) and close.
 @MainActor
@@ -83,6 +104,13 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     private var placing = false
     /// FERB's own file picker is open: the window steps down to the normal level so the picker shows above it.
     private var underPicker = false
+    /// Another of FERB's own titled windows is on screen (Settings and the FERB window, an alert, Quick Look, a file
+    /// picker): the window steps down so it shows above (APP-749).
+    private var underOwnWindow = false
+    /// FERB handed the owner something in another app (`HandOff`): the window stays down until the owner comes back
+    /// to it (it becomes key) or FERB shows it again.
+    private var handedOff = false
+    private var observers: [NSObjectProtocol] = []
 
     static let behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
 
@@ -123,13 +151,31 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         hosting.sizingOptions = []
         panel.contentView = hosting
         applyLevel()
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: HandOff.notification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handOff() }
+        })
+        observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.ownerReturned() }
+        })
+        // FERB's other windows coming and going (the same notifications DockPresence counts them by)
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                     NSWindow.willCloseNotification, NSWindow.didMiniaturizeNotification,
+                     NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.ownWindowsChanged() }
+            })
+        }
     }
+
+    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
 
     var isShown: Bool { panel.isVisible }
 
     /// Shows the window: placed on the pointer's display at its saved place when it wasn't showing, brought in front
     /// of other windows without taking keyboard focus (D22), and made key only for `focus` (the owner opened it).
     func show(focus: Bool) {
+        if handedOff { ownerReturned() }
         if !panel.isVisible { place() }
         panel.orderFrontRegardless()
         if focus { panel.makeKey() }
@@ -152,8 +198,55 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         applyLevel()
     }
 
+    /// FERB opened something in another app: what opened shows above the window.
+    func handOff() {
+        handedOff = true
+        applyLevel()
+    }
+
+    private func ownerReturned() {
+        handedOff = false
+        applyLevel()
+    }
+
+    /// Whether another of FERB's own windows the owner works in is showing: a titled one (Settings and the FERB
+    /// window, an alert, a file picker) or Quick Look's panel (untitled). Counted after the current event, so a closing
+    /// one has left the screen; structure only, never a window's title or content. The notch's own borderless panels
+    /// never count.
+    static func coveredByOwnWindow(_ windows: [(isChat: Bool, isTitled: Bool, isVisible: Bool)]) -> Bool {
+        windows.contains { !$0.isChat && $0.isTitled && $0.isVisible }
+    }
+
+    func ownWindowsChanged() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let windows = NSApp.windows
+            let facts = windows.map {
+                (isChat: $0 === self.panel, isTitled: $0.styleMask.contains(.titled) || $0 is QLPreviewPanel,
+                 isVisible: $0.isVisible)
+            }
+            let covered = Self.coveredByOwnWindow(facts)
+            guard covered != self.underOwnWindow else { return }
+            self.underOwnWindow = covered
+            self.applyLevel()
+            // Down among normal windows, it goes behind the one that opened (a level change alone may leave it in front)
+            if covered, self.panel.isVisible,
+               let front = zip(windows, facts).first(where: { $0.0 === NSApp.keyWindow && !$0.1.isChat && $0.1.isTitled })
+                ?? zip(windows, facts).first(where: { !$0.1.isChat && $0.1.isTitled && $0.1.isVisible }) {
+                self.panel.order(.below, relativeTo: front.0.windowNumber)
+            }
+        }
+    }
+
+    /// Keep on top floats the window, except while FERB's own picker, alert, Quick Look or Settings shows, or after
+    /// FERB handed something to another app (APP-748, APP-749).
+    static func level(keepOnTop: Bool, picker: Bool, ownWindow: Bool, handedOff: Bool) -> NSWindow.Level {
+        keepOnTop && !picker && !ownWindow && !handedOff ? .floating : .normal
+    }
+
     private func applyLevel() {
-        panel.level = controls.keepOnTop && !underPicker ? .floating : .normal
+        panel.level = Self.level(keepOnTop: controls.keepOnTop, picker: underPicker, ownWindow: underOwnWindow,
+                                 handedOff: handedOff)
     }
 
     /// The displays changed: a window no longer reachable on any of them (its display unplugged) moves onto the

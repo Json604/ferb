@@ -244,7 +244,7 @@ final class NotchModel: ObservableObject {
         if !opening { requestScroll(target, .collapse) }
     }
     /// Opens a report file the owner asked to view; tests replace it.
-    var openReportFile: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    var openReportFile: (URL) -> Void = { HandOff.open($0) }
 
     init(rpc: DaemonRPCTransport = DaemonRPC(), preferences: UserDefaults = .standard, microphone: VoiceCapturing? = nil) {
         self.microphone = microphone ?? Microphone()
@@ -307,8 +307,8 @@ final class NotchModel: ObservableObject {
     var onOpenDocument: ((URL) -> Void)?
     var onQuickLook: ((URL) -> Void)?
     /// Where a file card's click and a link's click go (APP-715); tests record them instead.
-    var revealInFinder: ([URL]) -> Void = { NSWorkspace.shared.activateFileViewerSelecting($0) }
-    var openURL: (URL) -> Void = { _ = NSWorkspace.shared.open($0) }
+    var revealInFinder: ([URL]) -> Void = { HandOff.reveal($0) }
+    var openURL: (URL) -> Void = { HandOff.open($0) }
     /// Copy path / Copy link write here; tests use a private pasteboard.
     var pasteboard: NSPasteboard = .general
     var onSettings: (() -> Void)?

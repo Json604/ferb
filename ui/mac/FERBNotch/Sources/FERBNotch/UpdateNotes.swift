@@ -3,15 +3,25 @@ import NotchCore
 
 extension NotchModel {
     static let lastBuildKey = "FERBLastLaunchedBuild"
+    static let lastVersionKey = "FERBLastLaunchedVersion"
 
-    /// L34 Phase G: once per new build, after its setup settled, the notch says "Updated to <version>".
+    /// L34 Phase G, APP-749: once per new version, after its setup settled, the notch says "Updated to <version>"; a
+    /// relaunch, reinstall or rebuild of the same version says nothing.
     func noteUpdate(info: [String: Any] = Bundle.main.infoDictionary ?? [:]) {
         let build = info["CFBundleVersion"] as? String ?? ""
         let version = info["CFBundleShortVersionString"] as? String ?? ""
-        let previous = preferences.string(forKey: Self.lastBuildKey)
+        let previousBuild = preferences.string(forKey: Self.lastBuildKey)
+        let previousVersion = preferences.string(forKey: Self.lastVersionKey)
         if !build.isEmpty { preferences.set(build, forKey: Self.lastBuildKey) }
-        guard let note = UpdatePlan.updatedNote(previousBuild: previous, build: build, version: version) else { return }
-        if conversation.addNotice(id: "update-" + build, text: note, tag: "FERB") {
+        if !version.isEmpty { preferences.set(version, forKey: Self.lastVersionKey) }
+        let id = "update-" + version
+        // An older FERB keyed its line by build ("update-<build>"): the same version's line already in the chat counts
+        let said = conversation.notices.contains {
+            $0.id == id || ($0.id.hasPrefix("update-") && $0.text == "Updated to \(version)")
+        }
+        guard let note = UpdatePlan.updatedNote(previousVersion: previousVersion, previousBuild: previousBuild,
+                                                build: build, version: version, alreadySaid: said) else { return }
+        if conversation.addNotice(id: id, text: note, tag: "FERB") {
             saveConversation()
             onBackgroundChange?(true)
         }

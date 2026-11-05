@@ -166,7 +166,7 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
 
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
         let url = (link as? URL) ?? (link as? String).flatMap(URL.init(string:))
-        if let url, MarkdownDocument.safeLink(url) { NSWorkspace.shared.open(url) }
+        if let url, MarkdownDocument.safeLink(url) { HandOff.open(url) }
         return true // Never delegate unsupported URLs to AppKit's default opener.
     }
 }
