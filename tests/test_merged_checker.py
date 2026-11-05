@@ -144,17 +144,20 @@ def test_an_answer_that_leaves_out_a_result_goes_back_as_a_retry(daemon: Running
     assert len(script.calls("worker")) == 2 and result["status"] == "done" and result["answer"] == BOOKED
 
 
-# decision: ORCH-309
+# decision: ORCH-309, ORCH-540
 def test_an_unconfirmed_detail_the_checker_left_unfixed_gets_the_one_line(daemon: RunningDaemon) -> None:
     """The checker accepted while FERB's report condition stayed unknown: the outcome is verified (done), and the
-    unproven detail is marked by the one "Couldn't confirm" line, never by a redo."""
+    unproven detail is marked by the one "Couldn't confirm" line, never by a redo. The line is code's own words with
+    the checker's how; its evidence (written for FERB, task 794e3bd8) stays in the record."""
+    evidence = "No record in span 3 shows the source account the answer names"
     install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
         "worker": done("The library is at 100 Larkin St."),
-        "worker.verify": verdict(True, None, next="accept", evidence="The opening hours weren't on the page")})
+        "worker.verify": verdict(True, None, next="accept", evidence=evidence, how="Check the library's own page")})
     result = outcome(chat(daemon, "where's the library"))
     assert result["status"] == "done"
-    assert result["answer"] == ("The library is at 100 Larkin St.\n\n"
-                                "Couldn't confirm: The opening hours weren't on the page.")
+    first, line = result["answer"].split("\n\n")
+    assert first == "The library is at 100 Larkin St." and line.startswith("Couldn't confirm:")
+    assert "(Check the library's own page)" in line and evidence not in result["answer"]
 
 
 # decision: ORCH-309

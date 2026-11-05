@@ -4817,7 +4817,8 @@ class Supervisor(WorkerRuns):
         unmet = [answers[r.index - offset].owner_text or answers[r.index - offset].text for r in results
                  if r.met is not True]
         verified = not unmet and len(results) == len(answers) and report is not None and report.met is True
-        note = "; ".join(unmet) or ("" if verified else (report.evidence if report is not None else NOTHING_TO_CHECK))
+        note = "; ".join(unmet) or ("" if verified else (Supervisor._report_line(report) if report is not None
+                                                         else NOTHING_TO_CHECK))
         return {'verified': verified, 'note': _clipped(note) if note else '',
                 'verification': [ConditionResult(r.index - offset, r.text, r.met, r.path, r.evidence, r.how).as_dict()
                                  for r in results]}
@@ -5245,14 +5246,16 @@ class Supervisor(WorkerRuns):
             lines = [self._owner_text(tree, r) + (f" ({r.how.rstrip('.')})" if r.how else "") for r in unknown]
             fixed = action == "fix_answer" and bool(checked.answer_edits) and not unapplied
             if report is not None and report.met is None and not fixed:
-                lines.append(report.evidence)
+                lines.append(self._report_line(report))
             tree.unconfirmed = "; ".join(line.strip().rstrip(".") for line in lines if line.strip())
-            if report is not None and report.met is False:
+            if report is not None and report.met is not True:
                 # ORCH-540: what the check found against the answer's report condition is the checker's own evidence,
                 # kept in the record only (with whether its edits all applied); the owner's answer gets no
-                # "Correction:" line (ORCH-309). An edit removed or marked the disputed text.
+                # "Correction:" line and no evidence in its "Couldn't confirm" line (ORCH-309). False: an edit removed
+                # or marked the disputed text.
                 self.journal.append("task.report_condition_unmet", {"task_id": tree.worker.id,
-                                                                    "evidence": report.evidence, "fixed": fixed})
+                                                                    "evidence": report.evidence, "fixed": fixed}
+                                    | ({"unknown": True} if report.met is None else {}))
             return _Next("accept_unconfirmed" if unknown else "accept")
         if action == "retry":
             instructions = checked.instructions.strip() or checked.missing.strip() or tree.reason
@@ -5262,10 +5265,9 @@ class Supervisor(WorkerRuns):
             question = checked.question.strip() or tree.worker_question
             if question:
                 return _Next("ask", question=question)
-        # without the checker's reason: the worker's own reason for not finishing, else what the check found (never a
-        # done report's claim)
-        found = "; ".join(f"{self._owner_text(tree, r)}: {r.evidence}" for r in outcome if r.met is not True) or (
-            report.evidence if report is not None and report.met is not True else "")
+        # without the checker's reason: the worker's own reason for not finishing, else what the check found of the
+        # outcome (never a done report's claim; the report condition's evidence is the checker's own, ORCH-540)
+        found = "; ".join(f"{self._owner_text(tree, r)}: {r.evidence}" for r in outcome if r.met is not True)
         return _Next("fail", reason=checked.reason.strip() or tree.reason or found or NOT_ACCEPTED)
 
     def _apply_edits(self, tree: _Tree, checked: CheckerOutcome) -> list[str]:
@@ -5297,6 +5299,13 @@ class Supervisor(WorkerRuns):
             self.journal.append("task.answer_edit_dropped", {"task_id": tree.worker.id, "finds": dropped,
                                                              "marked": marked})
         return unapplied
+
+    @staticmethod
+    def _report_line(report: ConditionResult) -> str:
+        """FERB's report condition left unconfirmed, as the owner's "Couldn't confirm" text: code's own words and the
+        checker's how (how the owner could check it, written for them), never its evidence (ORCH-540)."""
+        how = (report.how or "").strip().rstrip(".")
+        return REPORT_UNCONFIRMED + (f" ({how})" if how else "")
 
     @staticmethod
     def _owner_text(tree: _Tree, result: ConditionResult) -> str:
