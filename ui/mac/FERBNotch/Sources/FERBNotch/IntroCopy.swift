@@ -359,10 +359,28 @@ enum IntroCopy {
 
     // MARK: 7. Control
 
-    static func control(_ control: IntroControl) -> IntroLine {
+    /// How the owner opens FERB from the keyboard now: double-tap right Option (unless switched off) or their own
+    /// shortcut (D24); neither leaves a click on the notch.
+    struct OpenKeys: Equatable {
+        var doubleTap = true
+        var combo: String?
+        static func now(_ defaults: UserDefaults) -> OpenKeys {
+            OpenKeys(doubleTap: AppSettings.doubleTap.read(defaults) == "on", combo: KeyCombo.saved(in: defaults)?.display)
+        }
+        var hasKeys: Bool { doubleTap || combo != nil }
+    }
+
+    static func control(_ control: IntroControl, open: OpenKeys = OpenKeys()) -> IntroLine {
         switch control {
         case .toggle:
-            return IntroLine(text: "Double-tap the right ⌥ Option key to open me. Do it again to close me.")
+            if open.doubleTap {
+                return IntroLine(text: "Double-tap the right ⌥ Option key to open me. Do it again to close me.")
+            }
+            if let combo = open.combo {
+                return IntroLine(text: "Press \(combo) to open me. Press it again to close me.")
+            }
+            return IntroLine(text: "Click the notch to open me. Press Escape or click elsewhere to close me.",
+                             detail: "You can set a keyboard shortcut in Settings → Notch & Shortcuts.")
         case .talk:
             return IntroLine(text: "Hold right ⌘ Command and ⌥ Option together and talk to me. Let go when you're done.",
                              detail: "Nothing you say now starts a task.")
@@ -391,8 +409,11 @@ enum IntroCopy {
 
     // MARK: 8. Home
 
-    static let home = IntroLine(text: "That's it. I'll be up here in the notch.",
-                                detail: "Double-tap right ⌥ whenever you need me. You can replay this tour in Settings.")
+    static func home(_ open: OpenKeys = OpenKeys()) -> IntroLine {
+        let how = open.doubleTap ? "Double-tap right ⌥" : open.combo.map { "Press \($0)" } ?? "Click the notch"
+        return IntroLine(text: "That's it. I'll be up here in the notch.",
+                         detail: "\(how) whenever you need me. You can replay this tour in Settings.")
+    }
 
     // MARK: Helpers
 

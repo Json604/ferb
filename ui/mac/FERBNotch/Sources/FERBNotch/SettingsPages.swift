@@ -68,7 +68,8 @@ struct SettingsView: View {
             switch selection.settingsTab {
             case .general:
                 GeneralSettingsPage(loginItems: actions.loginItems, updates: actions.updates, onReplayIntro: actions.replayIntro)
-            case .notch: NotchSettingsPage(cursor: actions.cursor, onHoverEnabledChange: actions.setHoverEnabled)
+            case .notch: NotchSettingsPage(cursor: actions.cursor, hotKeys: actions.hotKeys,
+                                           onHoverEnabledChange: actions.setHoverEnabled)
             case .ai: AISettingsPage(store: store, actions: actions, output: aiOutput)
             case .permissions: PermissionsSettingsPage(actions: actions)
             case .browsers: BrowsersSettingsPage(actions: actions)
@@ -115,11 +116,13 @@ struct GeneralSettingsPage: View {
 
 struct NotchSettingsPage: View {
     let cursor: CursorController
+    var hotKeys: HotKeyCenter?
     var onHoverEnabledChange: ((Bool) -> Void)?
     // Each control's key and name come from its one declaration (AppSettings), which FERB's guide reads too
     @AppStorage(AppSettings.pointer.key) private var cursorEnabled = true
     @AppStorage(AppSettings.hover.key) private var hoverEnabled = true
     @AppStorage(AppSettings.sendOnRelease.key) private var sendOnRelease = false
+    @AppStorage(AppSettings.doubleTap.key) private var doubleTap = true
 
     var body: some View {
         WindowPage {
@@ -130,7 +133,10 @@ struct NotchSettingsPage: View {
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             WindowSettingsSection(title: "Keyboard & voice") {
-                ForEach(AppGuide.shortcuts.filter(\.inNotchSettings), id: \.action) { shortcut in
+                if let hotKeys { ShortcutRecorder(hotKeys: hotKeys) }
+                Toggle(AppSettings.doubleTap.name, isOn: $doubleTap)
+                ForEach(AppGuide.shortcuts.filter { $0.inNotchSettings && $0.action != AppGuide.openAction },
+                        id: \.action) { shortcut in
                     LabeledContent(shortcut.action, value: shortcut.keys())
                 }
                 Toggle(AppSettings.sendOnRelease.name, isOn: $sendOnRelease)
@@ -142,6 +148,77 @@ struct NotchSettingsPage: View {
                     .onChange(of: cursorEnabled) { _, on in cursor.enabled = on }
             }
         }
+    }
+}
+
+/// Settings → Keyboard & voice: the owner's own shortcut to open FERB (D24). Click, then press the keys: Escape
+/// cancels, Delete removes it; a combination without ⌘ or ⌃, or one of FERB's own, is explained and recording goes on;
+/// one macOS uses too is saved with a warning. Reset leaves no shortcut (the default).
+struct ShortcutRecorder: View {
+    @ObservedObject var hotKeys: HotKeyCenter
+    @State private var monitor: Any?
+    @State private var problem: String?
+    @State private var warning: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text(AppSettings.openShortcut.name)
+                Spacer(minLength: 12)
+                Button(hotKeys.recording ? "Press the keys…" : (hotKeys.combo?.display ?? "Record Shortcut")) {
+                    hotKeys.recording ? stop() : start()
+                }
+                .accessibilityLabel(hotKeys.recording ? "Recording the shortcut" : "Record a shortcut to open FERB")
+                if hotKeys.combo != nil && !hotKeys.recording {
+                    Button("Reset") {
+                        hotKeys.set(nil)
+                        warning = nil
+                    }
+                }
+            }
+            if hotKeys.recording {
+                note("Press a combination with ⌘ or ⌃. Escape cancels; Delete removes the shortcut.", .secondary)
+            }
+            if let problem { note(problem, .orange) }
+            if let warning, !hotKeys.recording { note(warning, .orange) }
+            if let failure = hotKeys.failure { note(failure, .red) }
+        }
+        .onAppear { warning = hotKeys.combo.flatMap { KeyCombo.warning($0, conflicts: hotKeys.systemConflicts($0)) } }
+        .onDisappear { stop() }
+    }
+
+    private func note(_ text: String, _ color: Color) -> some View {
+        Text(text).font(.system(size: 11)).foregroundStyle(color).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func start() {
+        problem = nil
+        hotKeys.beginRecording()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+            switch KeyCombo.recorded(keyCode: event.keyCode, cocoaModifiers: flags) {
+            case .cancel:
+                stop()
+            case .clear:
+                hotKeys.set(nil)
+                warning = nil
+                stop()
+            case .invalid(let why):
+                problem = KeyCombo.describe(why)
+            case .record(let combo):
+                hotKeys.set(combo)
+                warning = KeyCombo.warning(combo, conflicts: hotKeys.systemConflicts(combo))
+                stop()
+            }
+            return nil
+        }
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        problem = nil
+        if hotKeys.recording { hotKeys.endRecording() }
     }
 }
 

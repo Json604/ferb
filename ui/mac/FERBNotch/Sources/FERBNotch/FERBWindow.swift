@@ -36,6 +36,8 @@ struct FERBAppActions {
     let feedback: SoundFeedback
     let cursor: CursorController
     var setHoverEnabled: ((Bool) -> Void)?
+    /// Settings → Keyboard & voice records the owner's shortcut to open FERB here (D24).
+    var hotKeys: HotKeyCenter?
     var correctMemory: ((String) -> Void)?
     var appVersion: String? = NotchModel.appVersion
     /// Plan C's: Settings → AI, Permissions and Browsers embed its step views on this model.

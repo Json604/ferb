@@ -3204,3 +3204,12 @@ request = "Hover off, FERB closed: drag a file onto the notch, hold a moment, dr
 pass = "Each drop opens the chat with the files under the focused message box; nothing is sent until you send, with or without words (files alone arrive as yours). The chat stays open when the pointer leaves; a repeat file isn't added twice; a folder stays a folder. The drag that left with nothing dropped closes what it opened. The Mail attachment and the text slide back."
 decisions = ["APP-737", "APP-738", "APP-739"]
 sitting = "after this change is installed"
+
+[LIVE-793]
+title = "A recorded shortcut opens FERB from any app; double-tap can be switched off"
+area = "app"
+surface = "FERB.app with this build; Settings → Notch & Shortcuts → Keyboard & voice; any other app, a password field, a full-screen app"
+request = "Record ⌃⌥F. From another app press it (open), again (close); in a web page's password field; over a full-screen app. Try recording ⌥F and ⌘Q. Try ⌘Space (Spotlight may take it before FERB sees it). Reset. Turn off double-tap right Option, double-tap, then hold right ⌘ + ⌥. Turn it back on. Ask FERB in chat how to open it."
+pass = "⌃⌥F opens and closes FERB everywhere, focused for typing, and the chat stays when the pointer leaves. ⌥F and ⌘Q are refused with a reason; a macOS shortcut that records shows a warning. After Reset no shortcut works but double-tap. With double-tap off it does nothing while hold-to-talk still dictates. FERB names the shortcut as set."
+decisions = ["APP-740", "APP-741"]
+sitting = "after this change is installed"

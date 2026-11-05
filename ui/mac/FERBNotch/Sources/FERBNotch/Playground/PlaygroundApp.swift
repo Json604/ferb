@@ -35,7 +35,8 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
         state.onSpeedChange = { services.applySpeed() }
         state.note(fresh ? "fresh start (home: \(home.path))" : "reopened (state kept)")
 
-        let coordinator = PanelCoordinator(model: services.notch)
+        // The review never registers a system-wide hot key: the installed FERB.app may hold the owner's shortcut.
+        let coordinator = PanelCoordinator(model: services.notch, hotKeyRegistrar: PlaygroundHotKeys())
         coordinator.service = services.service            // the menu's Restart: faked, never launchctl
         let sound = PlaygroundSound(state: state, defaults: defaults)
         coordinator.model.feedback.player = sound
@@ -237,5 +238,11 @@ final class PlaygroundArrival: IntroArrivalShowing {
         arrival.show(seconds: seconds / state.speed)
     }
     func hide() { arrival.hide() }
+}
+/// The playground's shortcut registrar: records and shows the shortcut, registers nothing.
+@MainActor
+final class PlaygroundHotKeys: HotKeyRegistering {
+    func register(_ combo: KeyCombo, pressed: @escaping () -> Void) -> String? { nil }
+    func unregister() {}
 }
 #endif

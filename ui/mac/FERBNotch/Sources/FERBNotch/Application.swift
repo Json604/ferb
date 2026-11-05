@@ -82,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let coordinator {
             var actions = FERBAppActions(feedback: coordinator.model.feedback, cursor: coordinator.cursor)
             actions.setHoverEnabled = { [weak model = coordinator.model] enabled in model?.setHoverEnabled(enabled) }
+            actions.hotKeys = coordinator.hotKeys
             let loginItems = LoginItemController.installed(available: appSetup.isPackaged)
             self.loginItems = loginItems
             actions.loginItems = loginItems

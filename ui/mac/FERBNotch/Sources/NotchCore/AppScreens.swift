@@ -22,33 +22,43 @@ public enum AppGuide {
     public struct HowTo: Equatable { public let title: String; public let steps: String }
 
     /// A shortcut, declared once: Settings → Notch & Shortcuts, Settings → About and FERB's guide all read it. A
-    /// shortcut the owner can change names the declared setting (`setting`, an AppSettings key) whose current value
-    /// is its keys; until one exists its keys are the fixed `standard` ones.
+    /// shortcut the owner can change reads its keys from the declared settings (`read`); otherwise its keys are the
+    /// fixed `standard` ones.
     public struct Shortcut {
         public let action: String
         public let standard: String
-        public let setting: String?
         public let inNotchSettings: Bool
+        private let read: ((UserDefaults) -> String)?
 
-        public init(action: String, standard: String, setting: String? = nil, inNotchSettings: Bool = true) {
+        public init(action: String, standard: String, inNotchSettings: Bool = true,
+                    read: ((UserDefaults) -> String)? = nil) {
             self.action = action
             self.standard = standard
-            self.setting = setting
             self.inNotchSettings = inNotchSettings
+            self.read = read
         }
 
-        /// Its keys now: the declared setting's current value, else the standard keys.
-        public func keys(_ defaults: UserDefaults = .standard) -> String {
-            guard let key = setting, let declared = AppSettings.all.first(where: { $0.keys.contains(key) }) else {
-                return standard
-            }
-            let value = declared.read(defaults)
-            return value.isEmpty ? standard : value
+        /// Its keys now.
+        public func keys(_ defaults: UserDefaults = .standard) -> String { read?(defaults) ?? standard }
+    }
+
+    public static let openAction = "Open / close FERB"
+
+    /// How the owner opens FERB from the keyboard now (AppSettings.doubleTap, AppSettings.openShortcut): double-tap
+    /// right Option, their own combination, both, or neither (a click on the notch or pill).
+    public static func openKeys(_ defaults: UserDefaults) -> String {
+        let doubleTap = AppSettings.doubleTap.read(defaults) == "on"
+        let combo = KeyCombo.saved(in: defaults)?.display
+        switch (doubleTap, combo) {
+        case (true, nil): return "Double-tap right Option"
+        case (true, let combo?): return "Double-tap right Option, or \(combo)"
+        case (false, let combo?): return combo
+        case (false, nil): return "No keyboard shortcut: click the notch or pill"
         }
     }
 
     public static let shortcuts: [Shortcut] = [
-        Shortcut(action: "Open / close FERB", standard: "Double-tap right Option"),
+        Shortcut(action: openAction, standard: "Double-tap right Option", read: openKeys),
         Shortcut(action: "Dictation", standard: "Hold right Command + Option"),
         Shortcut(action: "Submit / new line", standard: "Return / Shift–Return"),
         Shortcut(action: "FERB's window and Settings", standard: "FERB's menu bar icon → Open FERB Window, or ⌘, in it",

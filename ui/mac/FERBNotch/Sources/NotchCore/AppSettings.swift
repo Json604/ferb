@@ -54,6 +54,16 @@ public enum AppSettings {
         "voice.sendOnRelease", "Send dictation when I let go of the keys", place: notch + " → Keyboard & voice",
         effect: "Dictation is sent as soon as the dictation keys are released, instead of waiting in the composer",
         on: false)
+    /// The owner's own keyboard shortcut to open FERB (D24: any combination with ⌘ or ⌃; none by default).
+    public static let openShortcut = AppSetting(
+        keys: [KeyCombo.defaultsKey], name: "Keyboard shortcut to open FERB", place: notch + " → Keyboard & voice",
+        effect: "Pressing this combination anywhere opens FERB, or closes it when open; none is set at first") { defaults in
+        KeyCombo.saved(in: defaults)?.display ?? "none"
+    }
+    public static let doubleTap = AppSetting.toggle(
+        "shortcut.doubleTapRightOption", "Double-tap right Option to open FERB", place: notch + " → Keyboard & voice",
+        effect: "Tapping the right Option key twice opens FERB, or closes it when open; holding right ⌘ + ⌥ to dictate "
+            + "works either way")
     public static let pointer = AppSetting.toggle(
         "cursor.enabled", "Show FERB's pointer when it acts on screen", place: notch + " → FERB’s pointer",
         effect: "A small pointer shows where FERB clicks or types on screen")
@@ -102,7 +112,7 @@ public enum AppSettings {
     /// Every owner-facing app preference, in Settings' order. A new preference is added here (the test enumerates the
     /// keys FERB.app writes and fails on one that is neither declared nor in `internalKeys`).
     public static var all: [AppSetting] {
-        [hover, sendOnRelease, pointer, placement, chatHeight, chatWidth, soundsOn, volume, intensity] + soundSwitches
+        [hover, openShortcut, doubleTap, sendOnRelease, pointer, placement, chatHeight, chatWidth, soundsOn, volume, intensity] + soundSwitches
     }
 
     /// UserDefaults keys FERB.app writes that are no owner preference, each with why.

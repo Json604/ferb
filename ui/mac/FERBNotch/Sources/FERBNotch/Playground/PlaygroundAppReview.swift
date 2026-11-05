@@ -31,6 +31,7 @@ final class PlaygroundAppReview {
         actions.appVersion = "Playground"
         actions.replayIntro = replayIntro
         actions.setHoverEnabled = { [weak model = coordinator.model] in model?.setHoverEnabled($0) }
+        actions.hotKeys = coordinator.hotKeys
         actions.loginItems = LoginItemController(appService: PlaygroundLoginItem(), launchAgent: PlaygroundLoginItem(enabled: false), available: true)
         actions.updates = updates
         actions.logsDirectory = services.home.appendingPathComponent("logs")

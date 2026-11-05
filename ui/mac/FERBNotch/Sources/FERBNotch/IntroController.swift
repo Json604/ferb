@@ -468,7 +468,7 @@ final class IntroController {
         await orb.flyHome()
         guard live else { return }
         if notch.expanded { notch.collapse() }
-        say(IntroCopy.home)
+        say(IntroCopy.home(.now(notch.preferences)))
         await setup.refreshPermissions()
         await setup.refreshAI()
         guard live else { return }

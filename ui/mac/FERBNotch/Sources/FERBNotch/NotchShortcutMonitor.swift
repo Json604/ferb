@@ -9,6 +9,8 @@ final class NotchShortcutMonitor: NSObject {
     var onHoldBegan: (() -> Void)?
     var onHoldEnded: (() -> Void)?
     var onHoldCancelled: (() -> Void)?
+    /// Whether double-tap right Option is on (Settings → Keyboard & voice, AppSettings.doubleTap), read per change.
+    var doubleTapEnabled: () -> Bool = { true }
 
     private var globalHandler: EventHandlerRef?
     private var localMonitor: Any?
@@ -49,6 +51,7 @@ final class NotchShortcutMonitor: NSObject {
                                                timestamp: TimeInterval, keyCount: UInt32) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.globalHandler != nil || self.localMonitor != nil else { return }
+            self.recognition.doubleTapEnabled = self.doubleTapEnabled()
             let actions = self.recognition.update(Self.modifiers(from: flags), at: timestamp,
                                                    keyCount: keyCount)
             self.dispatch(actions)

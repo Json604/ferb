@@ -122,6 +122,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private let presentation = NotchPresentation()
     private weak var hostingView: TrackingHostingView<NotchView>?
     private let shortcuts = NotchShortcutMonitor()
+    /// The owner's own shortcut to open FERB (D24), recorded in Settings → Keyboard & voice.
+    let hotKeys: HotKeyCenter
     /// The owner's controls as they happen, for the intro's Control beat (IntroController).
     let introControls = IntroControlSignals()
     private let overlaySpace: NotchOverlaySpace
@@ -253,8 +255,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// `model`, `defaults` and `overlaySpace` are for tests (a scripted daemon, a scratch suite, the AppKit fallback);
     /// the app uses its own, the standard defaults and SkyLight's overlay space.
     init(model: NotchModel? = nil, defaults: UserDefaults = .standard,
-         overlaySpace: NotchOverlaySpace? = nil) {
+         overlaySpace: NotchOverlaySpace? = nil, hotKeyRegistrar: HotKeyRegistering? = nil) {
         let model = model ?? NotchModel()
+        hotKeys = HotKeyCenter(defaults: defaults, registrar: hotKeyRegistrar)
         self.model = model
         self.defaults = defaults
         self.overlaySpace = overlaySpace ?? NotchOverlaySpace()
@@ -311,6 +314,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.updatePointer()
         }
         model.onDetachTaskActivity = { [weak self] taskID in self?.showTaskActivity(taskID) }
+        hotKeys.onPressed = { [weak self] in self?.toggleByShortcut() }
         // A file drag over the handle or pill (D17): the pill un-rests at once; held there, the chat opens by the
         // press path whatever the hover setting; a chat it opened folds when the drag leaves with nothing dropped.
         model.drops.onReach = { [weak self] in
@@ -363,6 +367,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         model.onApprovalResolved = { [weak self] id in self?.poster?.withdrawQuestion(id) }
         statusRefresh = model.objectWillChange.sink { [weak self] _ in self?.queueStatusRefresh() }
         shortcuts.onDoubleTap = { [weak self] in self?.modifierDoubleTapped() }
+        shortcuts.doubleTapEnabled = { [defaults] in AppSettings.doubleTap.read(defaults) == "on" }
+        KeyCombo.layoutCharacter = KeyboardLayout.character
+        hotKeys.start()
         shortcuts.onHoldBegan = { [weak self] in
             self?.hoverTask?.cancel()
             self?.model.beginHeldVoice()
@@ -1821,9 +1828,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         model.toggle(byPress: true)
     }
 
-    /// The modifier double-tap: opens or closes the notch; opening it plays summon. A chat it opens stays open on
-    /// hover-out, like a press-opened one (APP-709).
-    func modifierDoubleTapped() {
+    /// The modifier double-tap (when on, AppSettings.doubleTap).
+    func modifierDoubleTapped() { toggleByShortcut() }
+
+    /// Every keyboard shortcut that opens FERB (double-tap right Option, the owner's own combination): opens or closes
+    /// the notch; opening it plays summon; from a yield it brings FERB back. A chat it opens stays open on hover-out,
+    /// like a press-opened one (APP-709). The one place a shortcut opens FERB.
+    func toggleByShortcut() {
         if summonFromYield() { model.feedback.play(.summon) }
         else {
             model.toggle(byPress: true)
@@ -1875,6 +1886,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         statusRefresh = nil
         model.disconnectDaemon()
         shortcuts.stop()
+        hotKeys.stop()
         model.cancelPinnedFold()
         presentation.stop()
         panel.orderOut(nil)

@@ -26,6 +26,8 @@ public struct NotchShortcutState {
     private var tapKeyCount: UInt32 = 0
     private var firstTapReleasedAt: TimeInterval?
     private var firstTapKeyCount: UInt32 = 0
+    /// Double-tap right Option opens and closes FERB unless the owner switched it off (D24); hold-to-talk is unaffected.
+    public var doubleTapEnabled = true
 
     public init() {}
 
@@ -62,7 +64,7 @@ public struct NotchShortcutState {
                 tapStartedAt = nil
                 if time - began < 0.22 && tapKeyCount == keyCount {
                     if let first = firstTapReleasedAt, time - first <= 0.36, firstTapKeyCount == keyCount {
-                        actions.append(.togglePanel)
+                        if doubleTapEnabled { actions.append(.togglePanel) }
                         firstTapReleasedAt = nil
                     } else {
                         firstTapReleasedAt = time
@@ -76,7 +78,9 @@ public struct NotchShortcutState {
 
     public mutating func reset() -> [NotchShortcutAction] {
         let actions: [NotchShortcutAction] = voiceHeld ? [.cancelVoice] : []
+        let doubleTap = doubleTapEnabled
         self = Self()
+        doubleTapEnabled = doubleTap
         return actions
     }
 }

@@ -162,7 +162,15 @@ extension IntroController {
                 seenControls.insert(.pause)
                 continue
             }
-            say(IntroCopy.control(next))
+            let open = IntroCopy.OpenKeys.now(notch.preferences)
+            if next == .toggle && !open.hasKeys {
+                // No keyboard shortcut opens FERB (double-tap off, none recorded): the step is explained, not practised.
+                say(IntroCopy.control(next, open: open))
+                await dwell(Timing.line * 2)
+                seenControls.insert(.toggle)
+                continue
+            }
+            say(IntroCopy.control(next, open: open))
             _ = await suspend { [weak self] (resume: @escaping (Bool?) -> Void) in self?.controlWaiter = { resume(true) } }
             if seenControls.contains(.pause) && !lifted && !pausedByOwner {
                 lifted = true
