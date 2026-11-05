@@ -2283,3 +2283,79 @@ rule = "Each owner-facing FERB.app setting is declared once in NotchCore (AppSet
 why = "Refines DMN-6 (owner): the app's own preferences (hover, sounds, placement, chat size) weren't in FERB's self-description and no current values were sent; batch 6's custom shortcuts and placement settings only add declarations."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppSettings.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppScreens.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
 live = ["LIVE-788"]
+
+[APP-729]
+title = "The notch stays put across Space changes"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words = "It keeps popping up in M1 Mac on space shift. it also isnt sticking in my mac too on space shift. i.e when notch chat is open and i shift spaces, it goes back and comes down again. IT SHOULD STICK - but doing this dont break any other behaviorus. It Even pops up on space shift when on hover is turned off in the m1 no notch mac."
+words_source = "Owner, 2026-11-05, approving the 0.27.1 plan's D13, D14 and D15; live that day: \"i keep switchign spaces it still closese ad opens on eveyr sapce shift\""
+rule = "A Space switch changes nothing about FERB: an open chat (however opened, pinned or not) stays in place and in front, never closes, reopens, steps back or rides the swipe; a closed FERB shows nothing new, hover on or off, notched or not. The new Space's front app isn't an app the owner brought forward (D13, refines APP-559). On a full-screen app's Space the closed pill stays its resting line and never pops up by itself, not hidden; arrivals still open (D14). The planning preview survives a switch (D15, refines APP-624)."
+why = "Live on 202611050933 (macOS 27.2): with the chat open, each switch moved the panel off the overlay space onto every ordinary Space at layer 0, where it slid away with the old Space and came back after. On the notchless M1 the closed pill and an empty panel popped up."
+evidence = "CGWindowList + SLSCopySpacesForWindows (scratchpad b4/base-open2.txt): panel L25 (455,0) -> L0 on all ordinary Spaces at x 2289..3522 as the menu-bar strips slid to x 80..663; back to L25 after activeSpaceDidChange."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchYieldController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchWindowYield.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift", "ui/mac/FERBNotch/Sources/NotchCore/NotchYield.swift"]
+live = ["LIVE-789", "LIVE-790"]
+
+[APP-730]
+title = "The notchless top-edge pill takes a press on its very top row"
+by = "owner"
+date = 2026-11-05
+status = "active"
+words_source = "Owner, 2026-11-05: approved the 0.27.1 plan's D31 (the APP-710 report's question: should the top-edge pill also take a press on its top row?); no verbatim quote"
+rule = "Like the docked notch (APP-710), the edge pill and its resting line on the top edge take a press on their topmost point row: a click opens FERB and a press-and-drag moves it by the same path and feel (APP-705, APP-597, APP-629). Only the handle's drawn span along the edge takes it; the rest of the menu bar keeps its clicks."
+why = "The window server gives a window's topmost point row to what lies under it; at the top edge that is the menu bar, so the notchless pill lost its top row as the notch did before APP-710."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchDocking.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-790"]
+
+[APP-731]
+title = "A Space change only keeps FERB's windows in the overlay space"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-729. On activeSpaceDidChange FERB only runs NotchOverlaySpace.ensure on its windows (not the panel while it yields): a window moves only when the space doesn't list it or the window server also has it on an ordinary Space. Every order-in and makeKey is followed by ensure. No orderFront, presentation, hover cancel or preview dismissal. With the AppKit fallback the panel is ordered in only while FERB's surface shows. NotchWindowYield never orders in a panel that is out, and a closed FERB occupies nothing for yielding."
+why = "An ordinary-Space panel rides the swipe; a yield or Space change while closed ordered the empty notchless panel in."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchWindowYield.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-789"]
+
+[APP-732]
+title = "What counts as over FERB around a Space change"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-729 within APP-559. A window that stays within the menu bar's band height never counts as over FERB, wherever it sits horizontally, and a window that belongs only to Spaces other than the one showing (SLSCopySpacesForWindows vs SLSGetActiveSpace) never counts. The next yield check after a Space change overrides the windows already over FERB, as ownerOpened does. An activation is by a Space change when the Space showing differs from the one FERB last saw; it never yields."
+why = "Each Space's menu bar slides past the display's sides during a switch, and the open chat yielded to it. macOS activates the new Space's front app about 20 ms before posting the Space change."
+evidence = "scratchpad b4/notes1.txt: activated at 1.063 s with SLSGetActiveSpace already the new Space, activeSpaceDidChange at 1.083 s; SLSCopySpacesForWindows answers for other apps' windows."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/NotchYield.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchYieldController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-789"]
+
+[APP-733]
+title = "Only a changed screen layout lays FERB out again"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-729. A screen-parameters notice or a wake lays FERB out again only when ScreenLayout changed: each display's id, frame, top safe-area inset, the areas beside the camera housing and backing scale (not the visible frame). The notch's geometry comes from one helper: the camera housing, and the menu bar's height as last seen on that display (MenuBarHeights), since a full-screen Space or auto-hiding menu bar reports none."
+why = "macOS posts screen-parameter notices with Space switches; each re-layout reset the pointer state, presented again and un-rested the pill, and the notchless virtual notch followed the visible frame."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/NotchCore/NotchSpaces.swift"]
+live = ["LIVE-789", "LIVE-790"]
+
+[APP-734]
+title = "Hover after a Space change and during Mission Control"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-729. After a Space change pointer updates do nothing until the pointer really moves. While Mission Control or App Exposé shows (a com.apple.WindowManager window above the normal layer, not the Dock layer, covering the whole display) the pointer entering FERB opens, reveals and un-rests nothing, and only leaving and coming back opens it afterwards."
+why = "The pointer crossing the top edge to Mission Control's Spaces bar opened the chat (hover on) or popped up the pill (hover off)."
+evidence = "scratchpad b4/in-mc.txt, desk-mc.txt: WindowManager L19 (0,0 1470x956) and its L14 Spaces bar only while Mission Control shows; the Dock's L20 whole-display window is always on a desktop."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-789", "LIVE-790"]
+
+[APP-735]
+title = "The resting pill on full-screen Spaces, its edge row and the spaces log"
+by = "agent"
+date = 2026-11-05
+status = "active"
+rule = "Implements APP-729 and APP-730. On a full-screen Space (type 4) the closed pill rests at the Space change and after a fold unless the pointer is on it; closed presentations don't un-rest it and running tasks don't hold it up. Undocked on the top edge, APP-710's edge-row window lies over the pill's span less its 15-point ends, or its resting line; out while dragging or docking. The `spaces` log (notice) records Space changes, screen notices, wake, presents with caller, yields, hover opens, pill rests and overlay repairs: states, frames and numbers only."
+why = "D14 and D31 as built; the log lets a friend's notchless M1 report what moved."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchDocking.swift"]
+live = ["LIVE-790"]

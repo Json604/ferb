@@ -113,7 +113,25 @@ final class NotchWindowYieldTests: XCTestCase {
         yield.comeBack(refocus: false)
         yield.showPanel()
         XCTAssertTrue(panel.isVisible)
-        XCTAssertEqual(rejoined, ["panel"])
+        // Coming back and each order-in keep it in the overlay space (the real rejoin moves it only when needed).
+        XCTAssertEqual(rejoined, ["panel", "panel"])
+    }
+
+    /// Live 2026-11-05 (owner, a notchless M1 with hover off): "It Even pops up on space shift". A yield that began
+    /// while FERB was closed ordered the empty, closed panel in as an ordinary window. A panel that is out stays out
+    /// through the yield, a restack and coming back.
+    // decision: APP-729, APP-731, APP-560
+    func testAYieldWhileThePanelIsOutNeverOrdersItIn() {
+        panel.isVisible = false
+        yield.yield(behind: 42)
+        yield.restack(behind: 43)
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(panel.log, [])
+        XCTAssertEqual(yield.behind, 43)
+        yield.comeBack(refocus: true)
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(panel.log, [])
+        XCTAssertEqual(panel.level, ownLevel)
     }
 
     // decision: APP-586, APP-560

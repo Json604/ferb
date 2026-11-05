@@ -17,6 +17,7 @@ final class NotchYieldControllerTests: XCTestCase {
                                           layout: { [unowned self] in self.layout() })
         controller.canBeActive = { _ in true }                  // the fixture's processes are ordinary apps
         controller.frontmostApp = { nil }
+        controller.onAnotherSpace = { _ in false }              // fixture windows are on the Space showing
     }
 
     override func tearDown() async throws {
@@ -130,6 +131,53 @@ final class NotchYieldControllerTests: XCTestCase {
         controller.evaluate()
         XCTAssertEqual(model.yielding.reasons, [.foreignOverlay])
         XCTAssertNil(controller.coveringWindow())
+    }
+
+    /// Owner, 2026-11-05: "IT SHOULD STICK". macOS activates the new Space's front app as the owner switches Spaces;
+    /// that app wasn't brought forward over FERB, so a pinned chat stays in front of its window. The same app brought
+    /// forward afterwards still makes the chat step back (APP-559).
+    // decision: APP-729, APP-732, APP-559
+    func testTheNewSpacesFrontAppDoesNotMakeThePinnedChatStepBack() {
+        pinOpenChat()
+        windows = [F.maximizedBrowser]
+        XCTAssertFalse(controller.appActivated(F.browser, bySpaceChange: true))
+        XCTAssertFalse(model.isYielded)
+        XCTAssertNil(controller.coveredApp)
+        controller.appActivated(F.browser)
+        XCTAssertEqual(model.yielding.reasons, [.activeAppUnderPinnedChat])
+    }
+
+    /// After a Space change the floating windows already over FERB on the new Space don't make it step aside (as when
+    /// the owner opens FERB over them); one that newly covers FERB afterwards, and a menu, still do.
+    // decision: APP-729, APP-732, APP-559
+    func testWindowsAlreadyOverFERBOnTheNewSpaceAreOverriddenNewOnesStillYield() {
+        model.expand()
+        controller.evaluate()                                   // the open chat, nothing over it
+        controller.spaceChanged()
+        windows = [F.shareBar]                                  // already on the new Space, over the chat
+        controller.evaluate()
+        XCTAssertFalse(model.isYielded)
+        windows = [F.shareBar, F.clipboardMenu]                 // a menu opens over FERB afterwards
+        controller.evaluate()
+        XCTAssertEqual(model.yielding.reasons, [.foreignOverlay])
+        windows = [F.shareBar]
+        controller.evaluate()
+        XCTAssertFalse(model.isYielded)
+    }
+
+    /// Mid-swipe the window list still has the other Space's windows sliding across the display: a window that belongs
+    /// only to another Space is never over FERB.
+    // decision: APP-729, APP-732
+    func testAWindowOfAnotherSpaceSlidingAcrossFERBDoesNotYield() {
+        model.expand()
+        let sliding = F.window(F.clipboardApp, layer: 3, 500, 40, 400, 300, id: 77)
+        controller.onAnotherSpace = { $0 == 77 }
+        windows = [sliding]
+        controller.evaluate()
+        XCTAssertFalse(model.isYielded)
+        controller.onAnotherSpace = { _ in false }              // the same window on the Space showing
+        controller.evaluate()
+        XCTAssertTrue(model.isYielded)
     }
 
     // decision: APP-559

@@ -121,9 +121,11 @@ public enum NotchOverlap {
     /// Counted: windows above the normal layer (layer > 0) that are visible (`minimumVisibleAlpha`) and overlap a
     /// FERB frame.
     /// Never counted, so FERB doesn't hide for good: FERB's own processes; anything that stays within the menu
-    /// bar strip (the menu bar itself, status items, the privacy indicator); the Dock layer; and windows that cover
-    /// the whole display below the menu bar (screen dimmers, the screenshot crosshair, Launchpad), which are
-    /// overlays of the entire screen rather than something FERB sits on top of.
+    /// bar's band (the menu bar itself, status items, the privacy indicator), whatever its horizontal position: while
+    /// the owner switches Spaces each Space's menu bar slides across the display with its Space, reaching past the
+    /// display's sides (APP-729); the Dock layer; and windows that cover the whole display below the menu bar (screen
+    /// dimmers, the screenshot crosshair, Launchpad), which are overlays of the entire screen rather than something
+    /// FERB sits on top of.
     public static func foreignOverlays(in windows: [ScreenWindow], ferbFrames: [CGRect], ownPIDs: Set<Int32>,
                                        menuBar: CGRect, display: CGRect) -> [ScreenWindow] {
         let belowMenuBar = CGRect(x: display.minX, y: menuBar.maxY, width: display.width,
@@ -131,7 +133,7 @@ public enum NotchOverlap {
         return windows.filter { window in
             guard !ownPIDs.contains(window.ownerPID), window.layer > 0, window.layer != dockLayer,
                   window.alpha >= minimumVisibleAlpha, !window.bounds.isEmpty else { return false }
-            if menuBar.insetBy(dx: -1, dy: -1).contains(window.bounds) { return false }
+            if window.bounds.minY >= menuBar.minY - 1 && window.bounds.maxY <= menuBar.maxY + 1 { return false }
             if !belowMenuBar.isEmpty, window.bounds.insetBy(dx: -1, dy: -1).contains(belowMenuBar) { return false }
             return ferbFrames.contains { overlaps(window.bounds, $0) }
         }

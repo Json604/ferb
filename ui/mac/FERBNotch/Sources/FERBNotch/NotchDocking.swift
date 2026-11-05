@@ -24,8 +24,15 @@ enum NotchDocking {
     /// screen's top edge is the menu bar (macOS 27's MenuBarAgent strip), whatever FERB's layer. The handle and the
     /// open surface both start exactly at the top edge, so that row needs a window reaching above the edge: this one,
     /// as wide as the housing and no wider, one point above the edge and one below.
-    static func edgeRow(cutout: CGRect) -> CGRect {
-        CGRect(x: cutout.minX, y: cutout.maxY - edgeReach, width: cutout.width, height: 2 * edgeReach)
+    static func edgeRow(cutout: CGRect) -> CGRect { edgeRow(over: cutout, cornerRadius: 0) }
+
+    /// The same row over any handle flush with the screen's top edge (`handle`'s maxY is that edge): the edge pill
+    /// and its resting line on the top edge (APP-730). Only the handle's drawn span along the edge takes the press:
+    /// a capsule's rounded ends (`cornerRadius`) don't reach the edge, so the row stops where they begin.
+    static func edgeRow(over handle: CGRect, cornerRadius: CGFloat) -> CGRect {
+        let inset = min(max(cornerRadius, 0), handle.width / 2)
+        return CGRect(x: handle.minX + inset, y: handle.maxY - edgeReach, width: handle.width - 2 * inset,
+                      height: 2 * edgeReach)
     }
 
     static func dragRegion(cutout: CGRect) -> CGRect {

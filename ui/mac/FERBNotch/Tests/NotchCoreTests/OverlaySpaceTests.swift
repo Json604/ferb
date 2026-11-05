@@ -61,4 +61,42 @@ final class OverlaySpaceTests: XCTestCase {
         space.stop()
         XCTAssertFalse(space.isAttached)
     }
+
+    /// Owner, 2026-11-05: "IT SHOULD STICK". A notch window on an ordinary Space rides the desktop swipe. After it is
+    /// made key and ordered front it is on no ordinary Space, and when AppKit puts it back on the ordinary Spaces (as
+    /// a collection-behaviour reset or a yield does) `ensure` moves it back; an already-placed window isn't moved.
+    // decision: APP-729, APP-731, APP-563
+    func testEnsureKeepsANotchWindowOnNoOrdinarySpace() throws {
+        _ = NSApplication.shared
+        guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
+        let window = NotchPanel(contentRect: CGRect(x: 0, y: 0, width: 2, height: 2),
+                                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        window.orderFrontRegardless()
+        let space = NotchOverlaySpace()
+        defer {
+            space.stop()
+            window.orderOut(nil)
+        }
+        space.attach([window])
+        guard space.isAttached else { throw XCTSkip("No SkyLight overlay spaces here: FERB keeps ordinary windows (APP-563)") }
+        window.makeKey()
+        window.orderFrontRegardless()
+        space.ensure(window)
+        XCTAssertEqual(space.membership(of: window)?.member, true)
+        XCTAssertEqual(space.membership(of: window)?.ordinary, [])
+        XCTAssertFalse(space.ensure(window), "a window in place moved")
+        let behavior = window.collectionBehavior
+        window.collectionBehavior = []
+        window.collectionBehavior = behavior
+        space.leave(window)                                     // what a yield does: back on the ordinary Spaces
+        window.level = .normal
+        window.orderFrontRegardless()
+        let left = try XCTUnwrap(space.membership(of: window))
+        XCTAssertTrue(!left.member || !left.ordinary.isEmpty, "the window never left the overlay space")
+        XCTAssertTrue(space.ensure(window))
+        XCTAssertEqual(space.membership(of: window)?.member, true)
+        XCTAssertEqual(space.membership(of: window)?.ordinary, [], "ensure left it on an ordinary Space")
+    }
 }

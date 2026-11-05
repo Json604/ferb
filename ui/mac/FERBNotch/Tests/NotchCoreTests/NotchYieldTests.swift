@@ -50,6 +50,19 @@ final class NotchOverlapTests: XCTestCase {
         XCTAssertTrue(covers(chrome + [F.clipboardMenu], frames: [F.openPanel]))
     }
 
+    /// Live 2026-11-05 (owner: "when notch chat is open and i shift spaces, it goes back and comes down again"): while
+    /// the owner switches Spaces each Space's menu bar (MenuBarAgent's layer-25 strip and the window server's) slides
+    /// across the display with its Space, reaching past its sides, so the strip no longer fit inside the menu bar's
+    /// rect and counted as a window over FERB: the chat stepped back and rode the swipe. The menu bar's band never
+    /// counts, wherever it sits horizontally; a menu reaching below it still does.
+    // decision: APP-729, APP-732, APP-559
+    func testAMenuBarSlidingWithItsSpaceIsNotAWindowOverFERB() {
+        let sliding = [F.window(F.windowServer, layer: 25, 300, 0, 1470, 33), F.window(F.windowServer, layer: 24, -871, 0, 1470, 33),
+                       F.window(F.windowServer, layer: 24, 663, 0, 1470, 33)]
+        XCTAssertFalse(covers(sliding, frames: [F.openPanel]))
+        XCTAssertTrue(covers(sliding + [F.clipboardMenu], frames: [F.openPanel]))
+    }
+
     // decision: APP-559
     func testWindowsThatOnlyTouchFERBsEdgeDoNotYield() {
         XCTAssertFalse(covers([F.window(F.clipboardApp, layer: 101, 850, 44, 260, 400)]))

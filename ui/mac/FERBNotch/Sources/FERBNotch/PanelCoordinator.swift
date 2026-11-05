@@ -3,6 +3,7 @@ import Combine
 import SwiftUI
 import Quartz
 import NotchCore
+import os
 
 final class NotchPanel: NSPanel {
     var onEscape: (() -> Void)?
@@ -123,7 +124,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private let shortcuts = NotchShortcutMonitor()
     /// The owner's controls as they happen, for the intro's Control beat (IntroController).
     let introControls = IntroControlSignals()
-    private let overlaySpace = NotchOverlaySpace()
+    private let overlaySpace: NotchOverlaySpace
+    /// Space changes, screen-parameter notices, wake, presentations, yields and hover, at notice level so the system
+    /// log keeps them (APP-729): states, frames and window numbers only, never chat text.
+    private static let spacesLog = Logger(subsystem: "com.ferb.FERB", category: "spaces")
     private static let overlayBehavior: NSWindow.CollectionBehavior = [
         .canJoinAllSpaces, .canJoinAllApplications, .stationary,
         .ignoresCycle, .fullScreenAuxiliary, .fullScreenDisallowsTiling
@@ -149,7 +153,36 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
     /// How the hover open and hover-out grace pass (tests end them at once instead of racing a clock).
     var hoverWait: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    private var indicatorRestTask: Task<Void, Never>?
+    /// How the edge pill's three idle seconds before it rests pass (tests end them at once).
+    var restWait: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// What a display reports about a camera housing: its top safe-area inset and the areas beside it (tests stand in
+    /// a notchless display).
+    var cameraHousing: (NSScreen) -> (top: CGFloat, left: CGRect?, right: CGRect?) = {
+        ($0.safeAreaInsets.top, $0.auxiliaryTopLeftArea, $0.auxiliaryTopRightArea)
+    }
+    /// Whether a full-screen app's Space shows on a display (D14: the edge pill stays its resting line there).
+    var fullScreenSpace: (UInt32) -> Bool = { WindowServerSpaces.isFullScreen(display: $0) }
+    /// The Space showing now, as the window server says (an activation that comes with a Space change).
+    var activeSpace: () -> UInt64? = { WindowServerSpaces.activeSpace() }
+    /// Mission Control (or App Exposé) shows: the pointer crossing FERB on its way to the Spaces bar opens nothing.
+    var missionControlShowing: (CGRect) -> Bool = { display in
+        SpaceFacts.missionControlShowing(in: ScreenWindow.onScreen(), display: display) { pid in
+            NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.WindowManager"
+        }
+    }
+    /// How many times FERB laid out its presentation (tests check that a Space change or an unchanged screen notice
+    /// doesn't).
+    private(set) var presentCount = 0
+    /// The Space FERB last saw become active.
+    private var lastSpace: UInt64?
+    /// After a Space change, hover waits for the pointer to really move: where it was at the change (APP-729).
+    private var pointerAtSpaceChange: CGPoint?
+    /// The screens as FERB last laid itself out on them; a notice that changes none of it changes nothing.
+    private var appliedLayout: ScreenLayout?
+    private var menuBarHeights = MenuBarHeights()
+    /// The edge pill sits as its resting line.
+    private(set) var pillResting = false
+    private(set) var indicatorRestTask: Task<Void, Never>?
     private(set) weak var indicatorControl: FerbIndicatorControl?
     private var presentedExpanded = false
     private var isDocked = false
@@ -216,19 +249,21 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// Where the notch's place is kept (`notch.*`: docked, edge, fraction, display).
     private let defaults: UserDefaults
 
-    /// `model` and `defaults` are for tests (a scripted daemon, a scratch suite); the app uses its own and the
-    /// standard defaults.
-    init(model: NotchModel? = nil, defaults: UserDefaults = .standard) {
+    /// `model`, `defaults` and `overlaySpace` are for tests (a scripted daemon, a scratch suite, the AppKit fallback);
+    /// the app uses its own, the standard defaults and SkyLight's overlay space.
+    init(model: NotchModel? = nil, defaults: UserDefaults = .standard,
+         overlaySpace: NotchOverlaySpace? = nil) {
         let model = model ?? NotchModel()
         self.model = model
         self.defaults = defaults
+        self.overlaySpace = overlaySpace ?? NotchOverlaySpace()
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                            backing: .buffered, defer: false)
         yieldController = NotchYieldController(model: model)
-        windowYield = NotchWindowYield(panel: panel, tracer: tracerPanel, rejoinOverlay: { [overlaySpace] window in
-            if let window = window as? NSWindow { overlaySpace.rejoin(window) }
-        }, leaveOverlay: { [overlaySpace] window in
-            if let window = window as? NSWindow { overlaySpace.leave(window) }
+        windowYield = NotchWindowYield(panel: panel, tracer: tracerPanel, rejoinOverlay: { [space = self.overlaySpace] window in
+            if let window = window as? NSWindow { space.rejoin(window) }
+        }, leaveOverlay: { [space = self.overlaySpace] window in
+            if let window = window as? NSWindow { space.leave(window) }
         })
         super.init()
         model.cursor = cursor
@@ -237,9 +272,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         yieldController.layout = { [weak self] in self?.yieldLayout() }
         configurePanel()
         configureIndicator()
-        model.onPresentationChange = { [weak self] animate in self?.present(animate: animate) }
+        model.onPresentationChange = { [weak self] animate in self?.present(animate: animate, caller: "model") }
         model.onAttentionArrival = { [weak self] in self?.hoverTask?.cancel() }
-        model.onBackgroundChange = { [weak self] animate in self?.present(animate: animate, requestFocus: false) }
+        model.onBackgroundChange = { [weak self] animate in
+            self?.present(animate: animate, requestFocus: false, caller: "background")
+        }
         // After a Quit & Reopen FERB itself is frontmost, so Settings never "comes forward": the tour asks (APP-642).
         model.onStepBehindSettings = { [weak self] in
             guard let self, let settings = NSRunningApplication.runningApplications(
@@ -348,27 +385,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             return nil
         }) { eventMonitors.append(monitor) }
         updateScreen()
-        magneticFieldPanel.backgroundColor = .clear
-        magneticFieldPanel.isOpaque = false
-        magneticFieldPanel.hasShadow = false
-        magneticFieldPanel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
-        magneticFieldPanel.collectionBehavior = Self.overlayBehavior
-        magneticFieldPanel.contentView = magneticField
-        overlaySpace.attach([panel, tracerPanel, indicatorPanel, edgeRowPanel, magneticFieldPanel])
-        NotificationCenter.default.addObserver(self, selector: #selector(displayParametersChanged),
-                                              name: NSApplication.didChangeScreenParametersNotification, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(screenDidWake),
-                                                          name: NSWorkspace.screensDidWakeNotification, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(activeSpaceChanged),
-                                                          name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(applicationActivated(_:)),
-                                                          name: NSWorkspace.didActivateApplicationNotification, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(screensDidSleep),
-                                                          name: NSWorkspace.screensDidSleepNotification, object: nil)
-        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
-            NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(applicationsChanged),
-                                                              name: name, object: nil)
-        }
+        attachOverlay()
+        observeWorkspace()
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in
             self?.ownerClickedInAnotherApp()
         }) { eventMonitors.append(monitor) }
@@ -392,6 +410,81 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self?.updatePointer(revealPinnedHeader: true)
             return event
         }) { eventMonitors.append(monitor) }
+    }
+
+    /// FERB's notch windows join the fixed overlay space (APP-563), with AppKit's all-Spaces windows as the fallback.
+    func attachOverlay() {
+        magneticFieldPanel.backgroundColor = .clear
+        magneticFieldPanel.isOpaque = false
+        magneticFieldPanel.hasShadow = false
+        magneticFieldPanel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
+        magneticFieldPanel.collectionBehavior = Self.overlayBehavior
+        magneticFieldPanel.contentView = magneticField
+        overlaySpace.attach([panel, tracerPanel, indicatorPanel, edgeRowPanel, magneticFieldPanel])
+        lastSpace = activeSpace()
+        Self.spacesLog.notice("""
+            Overlay attached \(self.overlaySpace.isAttached, privacy: .public) on Space \(self.lastSpace ?? 0, privacy: .public): \
+            \(self.overlaySpace.describe(), privacy: .public)
+            """)
+    }
+
+    /// Where one of FERB's windows is: in the overlay space, and on which ordinary Spaces (nil without the space).
+    func overlayMembership(of window: NSWindow) -> (member: Bool, ordinary: [UInt64])? {
+        overlaySpace.membership(of: window)
+    }
+
+    /// The display, wake, Space, activation and app launch notices FERB follows.
+    func observeWorkspace() {
+        isStarted = true
+        NotificationCenter.default.addObserver(self, selector: #selector(displayParametersChanged),
+                                              name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(self, selector: #selector(screenDidWake), name: NSWorkspace.screensDidWakeNotification,
+                              object: nil)
+        workspace.addObserver(self, selector: #selector(activeSpaceChanged),
+                              name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(applicationActivated(_:)),
+                              name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(screensDidSleep), name: NSWorkspace.screensDidSleepNotification,
+                              object: nil)
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            workspace.addObserver(self, selector: #selector(applicationsChanged), name: name, object: nil)
+        }
+    }
+
+    /// Orders one of FERB's windows in and keeps it in the overlay space, on no ordinary Space (APP-729).
+    private func orderInOverlay(_ window: NSWindow) {
+        window.orderFrontRegardless()
+        overlaySpace.ensure(window)
+    }
+
+    /// The notch's geometry on a screen, from facts that a Space change doesn't touch: the camera housing, and the
+    /// menu bar's height as last seen on that display (a full-screen Space or an auto-hiding menu bar reports none).
+    private func notchGeometry(for screen: NSScreen) -> NotchGeometry {
+        let housing = cameraHousing(screen)
+        return NotchGeometry(screen: screen.frame, topInset: housing.top, leftAreaMaxX: housing.left?.maxX,
+                             rightAreaMinX: housing.right?.minX, menuBarHeight: steadyMenuBarHeight(on: screen))
+    }
+
+    private func steadyMenuBarHeight(on screen: NSScreen) -> CGFloat {
+        menuBarHeights.height(display: displayID(screen), visibleGap: screen.frame.maxY - screen.visibleFrame.maxY)
+    }
+
+    /// What FERB's layout depends on, now (see ScreenLayout).
+    private func currentLayout() -> ScreenLayout {
+        ScreenLayout(displays: NSScreen.screens.map { screen in
+            let housing = cameraHousing(screen)
+            return ScreenLayout.Display(id: displayID(screen), frame: screen.frame, topInset: housing.top,
+                                        leftArea: housing.left, rightArea: housing.right,
+                                        scale: screen.backingScaleFactor)
+        })
+    }
+
+    /// One line of FERB's state for the `spaces` log (no text from the chat).
+    private var stateLine: String {
+        "expanded \(model.expanded) body \(model.bodyVisible) pinned \(model.isPinned) byPress \(model.staysOpenOnHoverOut) "
+            + "yielded \(model.isYielded) \(model.yielding.reasons.map { "\($0)" }) panel \(panel.frame) visible \(panel.isVisible) "
+            + "key \(panel.isKeyWindow) docked \(isDocked) resting \(pillResting) pointerInside \(pointerIsInside)"
     }
 
     /// A click that went to another app or the desktop (the global monitor). It closes an unpinned chat, a
@@ -528,7 +621,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private func showTaskActivity(_ taskID: String) {
         guard model.taskItems.contains(where: { $0.id == taskID && $0.isRunning }) else { return }
         if activityTaskID == taskID, let activityPanel {
-            activityPanel.orderFrontRegardless()
+            orderInOverlay(activityPanel)
             return
         }
         closeTaskActivity()
@@ -536,7 +629,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         activityTaskID = taskID
         activityPanel = window
         overlaySpace.include(window)
-        window.orderFrontRegardless()
+        orderInOverlay(window)
     }
 
     private func closeTaskActivity() {
@@ -617,6 +710,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             moveIndicator(with: point)
             return
         }
+        // The handle leaves the top edge's row behind while it moves; the drop lays it out again.
+        if edgeRowPanel.isVisible { edgeRowPanel.orderOut(nil) }
         let previous = indicatorFrame
         let now = CACurrentMediaTime()
         let dt = now - magneticPointerTime
@@ -705,9 +800,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ??
             NSScreen.screens.min(by: { distance(point, to: $0.frame) < distance(point, to: $1.frame) })
         guard let screen else { return }
-        let targetGeometry = NotchGeometry(screen: screen.frame, topInset: screen.safeAreaInsets.top,
-            leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX, rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
-            menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
+        let targetGeometry = notchGeometry(for: screen)
         if NotchDocking.accepts(point, cutout: targetGeometry.cutoutFrame,
                                 hasHardwareNotch: targetGeometry.hasNotch && holder(of: targetGeometry) == nil) {
             dockIndicator(on: screen, cutout: targetGeometry.cutoutFrame)
@@ -751,10 +844,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     private func sampleMagneticDrag(at time: TimeInterval) {
         guard let screen = indicatorScreen else { return }
-        let notch = NotchGeometry(screen: screen.frame, topInset: screen.safeAreaInsets.top,
-            leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
-            rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
-            menuBarHeight: screen.frame.maxY-screen.visibleFrame.maxY)
+        let notch = notchGeometry(for: screen)
         updateMagneticDrag(pill: magneticRawPill, target: notch.hasNotch && !notchTaken ? notch.cutoutFrame : nil,
             at: time, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             velocity: time-magneticPointerTime < 0.08 ? magneticPointerVelocity : .zero)
@@ -876,7 +966,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         magneticFieldPanel.setFrame(canvas, display: false)
         magneticField.frame = CGRect(origin: .zero, size: canvas.size)
         magneticField.update(magneticSample, canvas: canvas)
-        if magneticFieldPresentationEnabled && !magneticFieldPanel.isVisible { magneticFieldPanel.orderFrontRegardless() }
+        if magneticFieldPresentationEnabled && !magneticFieldPanel.isVisible { orderInOverlay(magneticFieldPanel) }
     }
 
     var hasMagneticInteraction: Bool {
@@ -965,16 +1055,24 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     private func safeTopIndicatorX(_ proposedX: CGFloat, size: CGSize, screen: NSScreen) -> CGFloat {
         let bounds = screen.frame
-        let notch = NotchGeometry(screen: bounds, topInset: screen.safeAreaInsets.top,
-            leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
-            rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
-            menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
+        let notch = notchGeometry(for: screen)
         // A notch app's window over the camera is stepped around whole, so the handle stays reachable (APP-644).
         let avoid = notch.hasNotch ? notchHolder.map { $0.union(notch.cutoutFrame) } ?? notch.cutoutFrame : nil
         return IndicatorPlacement.safeTopX(proposedX: proposedX, size: size.width, screen: bounds, notch: avoid)
     }
 
+    /// macOS posts screen-parameter notices for more than display changes (a Space switch, a full-screen app, the
+    /// menu bar or Dock hiding). Only a notice that changes what FERB's layout depends on (ScreenLayout) lays it out
+    /// again; any other leaves the chat, the pointer state, the pill and a drag exactly as they are (APP-729).
     @objc func displayParametersChanged() {
+        let layout = currentLayout()
+        let changed = layout != appliedLayout
+        Self.spacesLog.notice("""
+            Screen parameters changed: layout \(changed ? "changed" : "unchanged", privacy: .public) \
+            (\(layout.displays.map { "\($0.id ?? 0) \($0.frame) top \($0.topInset) scale \($0.scale)" }, privacy: .public)); \
+            \(self.stateLine, privacy: .public)
+            """)
+        guard changed else { return }
         cancelMagneticInteraction()
         if isStarted { updateScreen() }
     }
@@ -982,17 +1080,15 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// Lays FERB out on its screen: docked in the hardware notch unless the owner tore it out (a first run docks), else
     /// on the edge where the owner dropped it (the top centre by default).
     @objc func updateScreen() {
+        appliedLayout = currentLayout()
         model.acknowledgement.dismissTransient()
         let savedDisplay = defaults.object(forKey: "notch.indicatorDisplayID") as? NSNumber
         let preferred = savedDisplay.flatMap { saved in NSScreen.screens.first { displayID($0) == saved.uint32Value } }
-        guard let screen = preferred ?? NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        guard let screen = preferred ?? NSScreen.screens.first(where: { cameraHousing($0).top > 0 }) ?? NSScreen.main ?? NSScreen.screens.first else { return }
         indicatorScreen = screen
         indicatorEdge = NotchDocking.edge(in: defaults)
         indicatorFraction = NotchDocking.fraction(in: defaults)
-        let current = NotchGeometry(screen: screen.frame, topInset: screen.safeAreaInsets.top,
-                                    leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
-                                    rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
-                                    menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
+        let current = notchGeometry(for: screen)
         geometry = current
         notchHolder = holder(of: current)
         isDocked = NotchDocking.isDocked(in: defaults, hasNotch: current.hasNotch && !notchTaken)
@@ -1003,27 +1099,43 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         model.indicatorEdge = indicatorEdge.rawValue
         screenFrame = screen.frame
         // The strip whose windows are always-present chrome (menu bar, status items), never something to yield to.
-        menuBarHeight = max(screen.frame.maxY - screen.visibleFrame.maxY, screen.safeAreaInsets.top,
-                            NSStatusBar.system.thickness)
+        menuBarHeight = max(steadyMenuBarHeight(on: screen), cameraHousing(screen).top, NSStatusBar.system.thickness)
         model.handleWidth = current.handleWidth
         model.hasHardwareNotch = current.hasNotch
         // The camera housing, or a virtual notch over the menu bar's centre: both begin at the screen's top edge.
         model.cutoutHeight = max(40, current.cutoutFrame.height)
         cutoutFrame = current.cutoutFrame
         indicatorFrame = isDocked ? NotchDocking.dragRegion(cutout: cutoutFrame) : indicatorFrame(on: screen)
-        indicatorPanel.setFrame(indicatorFrame, display: true)
-        if indicatorControl?.isAttached != true { indicatorPanel.orderFrontRegardless() }
-        // Docked, the housing's topmost row takes a press too, closed or open (APP-710); undocked there is no housing.
-        if isDocked {
-            edgeRowPanel.setFrame(NotchDocking.edgeRow(cutout: cutoutFrame), display: true)
-            edgeRowPanel.orderFrontRegardless()
-        } else {
-            edgeRowPanel.orderOut(nil)
-        }
+        if isDocked { pillResting = false }
+        // A resting line keeps resting where the layout puts it; the pill otherwise.
+        indicatorPanel.setFrame(pillResting ? restingFrame(on: screen) : indicatorFrame, display: true)
+        if indicatorControl?.isAttached != true { orderInOverlay(indicatorPanel) }
+        placeEdgeRow()
         tracerPanel.setFrame(frame(for: CGSize(width: model.handleWidth + 40,
                                                height: model.cutoutHeight + 24)), display: true)
         pointerIsInside = false
-        present(animate: false, requestFocus: false)
+        present(animate: false, requestFocus: false, caller: "updateScreen")
+    }
+
+    /// The window over the handle's topmost point row, which the window server would give the menu bar: docked, the
+    /// camera housing's (APP-710), closed or open; undocked on the top edge, the pill's or its resting line's
+    /// (APP-730), on its own or drawn in the open surface. Out during a drag or docking (the handle moves), on any
+    /// other edge, and before a layout.
+    private func placeEdgeRow() {
+        let row: CGRect?
+        if isDocked {
+            row = NotchDocking.edgeRow(cutout: cutoutFrame)
+        } else if indicatorEdge == .top, indicatorDragPointer == nil, dockingRevision == nil,
+                  let screen = indicatorScreen, geometry != nil {
+            row = pillResting && indicatorControl?.isAttached != true
+                ? NotchDocking.edgeRow(over: restingFrame(on: screen), cornerRadius: 0)
+                : NotchDocking.edgeRow(over: indicatorFrame, cornerRadius: indicatorFrame.height / 2)
+        } else {
+            row = nil
+        }
+        guard let row, row.width > 0 else { edgeRowPanel.orderOut(nil); return }
+        edgeRowPanel.setFrame(row, display: true)
+        orderInOverlay(edgeRowPanel)
     }
 
     /// What another app's windows cover over this geometry's hardware notch now (AppKit coordinates), or nil (one
@@ -1051,13 +1163,22 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
     }
 
+    /// The displays woke: lay out again only if the screens changed while they slept, order in the panel only while
+    /// FERB's surface shows (never an empty closed panel, APP-729), and keep every window in the overlay space.
     @objc private func screenDidWake() {
         screensAsleep = false
-        updateScreen()
-        windowYield.showPanel()
-        if !model.expanded { indicatorPanel.orderFrontRegardless() }
+        let changed = currentLayout() != appliedLayout
+        Self.spacesLog.notice("""
+            Displays woke: layout \(changed ? "changed" : "unchanged", privacy: .public); \(self.stateLine, privacy: .public)
+            """)
+        if changed { updateScreen() }
+        if model.surfaceVisible { windowYield.showPanel() }
+        if indicatorControl?.isAttached != true { orderInOverlay(indicatorPanel) }
+        placeEdgeRow()
+        overlaySpace.ensureAll(except: model.isYielded ? [panel] : [])
         panel.resetCursorRects()
         updateTracerVisibility()
+        updateYieldWatch()
     }
 
     @objc func screensDidSleep() {
@@ -1069,46 +1190,70 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     @objc private func applicationActivated(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        let cameBack = yieldController.appActivated(app.processIdentifier)
+        // macOS activates the new Space's front app just before it posts the Space change: the Space showing then
+        // already differs from the one FERB last saw. That app wasn't brought forward over FERB (APP-729).
+        let space = activeSpace()
+        let bySpaceChange = space != nil && lastSpace != nil && space != lastSpace
+        if bySpaceChange {
+            Self.spacesLog.notice("""
+                App \(app.processIdentifier, privacy: .public) became active with a Space change \
+                (\(self.lastSpace ?? 0, privacy: .public) → \(space ?? 0, privacy: .public)): no yield; \
+                \(self.stateLine, privacy: .public)
+                """)
+        }
+        let cameBack = yieldController.appActivated(app.processIdentifier, bySpaceChange: bySpaceChange)
         // Another app came forward: coming back must not take the focus the owner moved there.
         if app.processIdentifier != getpid() { windowYield.ownerMovedElsewhere() }
         if cameBack { updatePointer() }
         restackYield()
     }
 
-    @objc private func activeSpaceChanged() {
-        model.acknowledgement.dismissTransient()
-        // Space changes are not display changes. Keep the same geometry, draft,
-        // pin state, running spring and current text responder. In particular,
-        // do not resignKey here: that discarded input focus on every swipe.
-        hoverTask?.cancel()
+    /// Space changes are not display changes (APP-562, APP-729): FERB stays exactly as it is. No layout, no
+    /// presentation, no reordering, no focus change (never resignKey: that discarded input focus on every swipe), and
+    /// the planning preview, a reminder arrival, a pending hover and a scroll request all survive. The windows are only
+    /// kept in the overlay space, on no ordinary Space, so they never ride the swipe; with the AppKit fallback the
+    /// all-Spaces windows follow by themselves and the panel is ordered in only while FERB's surface shows. Hover then
+    /// waits for the pointer to really move, and windows already over FERB on the new Space don't make it step aside.
+    @objc func activeSpaceChanged() {
+        let space = activeSpace()
+        Self.spacesLog.notice("""
+            Space changed \(self.lastSpace ?? 0, privacy: .public) → \(space ?? 0, privacy: .public): \
+            \(self.stateLine, privacy: .public); windows \(self.overlaySpace.describe(), privacy: .public)
+            """)
+        lastSpace = space
+        pointerAtSpaceChange = pointerLocation()
+        yieldController.spaceChanged()
         if overlaySpace.isAttached {
-            // macOS can drop unmanaged overlay windows during a desktop swipe without detaching our space handle.
-            // Re-add the persistent indicator and light, and the chat unless it is intentionally yielding.
-            overlaySpace.rejoin(tracerPanel)
-            overlaySpace.rejoin(indicatorPanel)
-            overlaySpace.rejoin(edgeRowPanel)
-            overlaySpace.rejoin(magneticFieldPanel)
-            if let activityPanel { overlaySpace.rejoin(activityPanel) }
-            if !model.isYielded { overlaySpace.rejoin(panel) }
-            if indicatorPanel.isVisible { indicatorPanel.orderFrontRegardless() }
-            if edgeRowPanel.isVisible { edgeRowPanel.orderFrontRegardless() }
-            if tracerPanel.isVisible { tracerPanel.orderFrontRegardless() }
-            if magneticFieldPanel.isVisible { magneticFieldPanel.orderFrontRegardless() }
-            if !model.isYielded && panel.isVisible { panel.orderFrontRegardless() }
-        } else {
+            overlaySpace.ensureAll(except: model.isYielded ? [panel] : [])
+        } else if model.surfaceVisible {
             windowYield.showPanel()
             updateTracerVisibility()
         }
-        pointerIsInside = pointerIsOverSurface
+        // On a full-screen app's Space the closed edge pill is its resting line (D14).
+        if !model.surfaceVisible, !pointerIsOverSurface, onFullScreenSpace, !pillResting {
+            indicatorRestTask?.cancel()
+            indicatorRestTask = nil
+            setIndicatorResting(true)
+        }
     }
 
-    private func present(animate: Bool, requestFocus: Bool = true) {
+    /// A full-screen app's Space shows on FERB's display.
+    private var onFullScreenSpace: Bool {
+        guard let screen = indicatorScreen, let id = displayID(screen) else { return false }
+        return fullScreenSpace(id)
+    }
+
+    private func present(animate: Bool, requestFocus: Bool = true, caller: String) {
         // Explicit close must win even while a pointer/fusion owns geometry.
         if requestFocus && !model.surfaceVisible && hasMagneticInteraction {
             cancelMagneticInteraction()
         }
         guard geometry != nil, indicatorDragPointer == nil, dockingRevision == nil else { return }
+        presentCount += 1
+        Self.spacesLog.notice("""
+            Present (\(caller, privacy: .public), animate \(animate, privacy: .public), focus \(requestFocus, privacy: .public)) \
+            surface \(self.model.surfaceVisible, privacy: .public): \(self.stateLine, privacy: .public)
+            """)
         presentation.compactSize = isDocked ? cutoutFrame.size : CGSize(width: 58, height: 30)
         model.noteTextPresentation(expanded: model.surfaceVisible)
         let wasExpanded = presentedExpanded
@@ -1122,7 +1267,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             presentedBodyVisible = false
             updateTracerVisibility()
             updateYieldWatch()
-            setIndicatorResting(false)
+            // On a full-screen app's Space the closed edge pill stays its resting line (D14): nothing un-rests it but
+            // the owner reaching for it.
+            let restsHere = onFullScreenSpace
+            if !restsHere { setIndicatorResting(false) }
             indicatorRestTask?.cancel()
             indicatorRestTask = nil
             let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -1139,16 +1287,20 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                     self.panel.setFrame(self.isDocked ? NotchDocking.dragRegion(cutout: self.cutoutFrame) : self.indicatorFrame(on: screen), display: true)
                     self.panel.orderOut(nil)
                     self.model.finishCompactPreviewDismissal()
-                    self.indicatorPanel.orderFrontRegardless()
-                    self.scheduleIndicatorRest()
+                    self.orderInOverlay(self.indicatorPanel)
+                    if restsHere && !self.pointerIsInside { self.setIndicatorResting(true) }
+                    else { self.scheduleIndicatorRest() }
+                    self.placeEdgeRow()
                 }
                 return
             }
             detachIndicator()
             panel.orderOut(nil)
             model.finishCompactPreviewDismissal()
-            scheduleIndicatorRest()
-            if indicatorControl?.isAttached != true { indicatorPanel.orderFrontRegardless() }
+            if restsHere && !pillResting && !pointerIsInside { setIndicatorResting(true, animated: false) }
+            else { scheduleIndicatorRest() }
+            if indicatorControl?.isAttached != true { orderInOverlay(indicatorPanel) }
+            placeEdgeRow()
             return
         }
         indicatorRestTask?.cancel()
@@ -1183,6 +1335,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.hostingView?.scheduleTextDisplayRefresh()
         }
         windowYield.showPanel()
+        placeEdgeRow()
         panel.resetCursorRects()
         updateTracerVisibility()
         updateYieldWatch()
@@ -1195,6 +1348,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             // focus with the user's active app, including after a Space change.
             // An invisible (yielded) panel never takes focus.
             panel.makeKey()
+            overlaySpace.ensure(panel)
             panel.contentView?.layoutSubtreeIfNeeded()
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.model.bodyVisible, self.presentationRevision == revision else { return }
@@ -1214,26 +1368,14 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     /// After three idle seconds the pill settles into a home-indicator line. Both
     /// states share the same center, so hovering unfolds it in place.
-    private func setIndicatorResting(_ resting: Bool, animated: Bool = true) {
+    private func setIndicatorResting(_ resting: Bool, animated: Bool = true, cause: String = #function) {
         let animated = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         guard !isDocked, indicatorControl?.isAttached != true, let screen = indicatorScreen else { return }
-        let pill = indicatorFrame(on: screen)
-        let length = cutoutFrame.width / 2
-        let target: CGRect
-        if resting {
-            switch indicatorEdge {
-            case .top:
-                target = CGRect(x: safeTopIndicatorX(pill.midX - length / 2, size: CGSize(width: length, height: 5), screen: screen), y: screen.frame.maxY - 5, width: length, height: 5)
-            case .bottom:
-                target = CGRect(x: min(screen.frame.maxX - length, max(screen.frame.minX, pill.midX - length / 2)), y: screen.frame.minY, width: length, height: 5)
-            case .left:
-                target = CGRect(x: screen.frame.minX, y: min(screen.frame.maxY - length, max(screen.frame.minY, pill.midY - length / 2)), width: 5, height: length)
-            case .right:
-                target = CGRect(x: screen.frame.maxX - 5, y: min(screen.frame.maxY - length, max(screen.frame.minY, pill.midY - length / 2)), width: 5, height: length)
-            }
-        } else {
-            target = pill
+        if resting != pillResting {
+            Self.spacesLog.notice("Edge pill \(resting ? "rests" : "un-rests", privacy: .public) (\(cause, privacy: .public))")
         }
+        pillResting = resting
+        let target = resting ? restingFrame(on: screen) : indicatorFrame(on: screen)
         indicatorControl?.setResting(resting, animated: animated)
         if indicatorPanel.frame != target {
             NSAnimationContext.runAnimationGroup { context in
@@ -1242,18 +1384,36 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 indicatorPanel.animator().setFrame(target, display: true)
             }
         }
-        if indicatorControl?.isAttached != true { indicatorPanel.orderFrontRegardless() }
+        if indicatorControl?.isAttached != true { orderInOverlay(indicatorPanel) }
+        placeEdgeRow()
     }
 
+    /// The pill's home-indicator line on its edge, centred where the pill is.
+    private func restingFrame(on screen: NSScreen) -> CGRect {
+        let pill = indicatorFrame(on: screen)
+        let length = cutoutFrame.width / 2
+        switch indicatorEdge {
+        case .top:
+            return CGRect(x: safeTopIndicatorX(pill.midX - length / 2, size: CGSize(width: length, height: 5), screen: screen), y: screen.frame.maxY - 5, width: length, height: 5)
+        case .bottom:
+            return CGRect(x: min(screen.frame.maxX - length, max(screen.frame.minX, pill.midX - length / 2)), y: screen.frame.minY, width: length, height: 5)
+        case .left:
+            return CGRect(x: screen.frame.minX, y: min(screen.frame.maxY - length, max(screen.frame.minY, pill.midY - length / 2)), width: 5, height: length)
+        case .right:
+            return CGRect(x: screen.frame.maxX - 5, y: min(screen.frame.maxY - length, max(screen.frame.minY, pill.midY - length / 2)), width: 5, height: length)
+        }
+    }
+
+    /// On a full-screen app's Space a running task doesn't hold the pill up (D14).
     private func scheduleIndicatorRest() {
         guard !isDocked, indicatorRestTask == nil, !model.surfaceVisible,
-              !model.taskItems.contains(where: \.isRunning) else { return }
-        indicatorRestTask = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(3)) } catch { return }
-            guard let self else { return }
+              onFullScreenSpace || !model.taskItems.contains(where: \.isRunning) else { return }
+        indicatorRestTask = Task { [weak self, restWait] in
+            do { try await restWait(.seconds(3)) } catch { return }
+            guard let self, !Task.isCancelled else { return }
             self.indicatorRestTask = nil
             guard !self.model.expanded, !self.pointerIsInside,
-                  !self.model.taskItems.contains(where: \.isRunning) else { return }
+                  self.onFullScreenSpace || !self.model.taskItems.contains(where: \.isRunning) else { return }
             self.setIndicatorResting(true)
         }
     }
@@ -1271,6 +1431,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// panel only if its body shows, it was key when the yield began, and the owner hasn't clicked or switched to
     /// another app meanwhile.
     private func applyYield(_ yielded: Bool) {
+        Self.spacesLog.notice("""
+            Yield \(yielded ? "starts" : "ends", privacy: .public) (\(self.model.yielding.reasons.map { "\($0)" }, privacy: .public)): \
+            \(self.stateLine, privacy: .public)
+            """)
         if yielded {
             model.acknowledgement.dismissTransient()
             hoverTask?.cancel()
@@ -1283,6 +1447,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             }
         } else {
             windowYield.comeBack(refocus: model.bodyVisible && !model.voiceIsHeld)
+            overlaySpace.ensure(panel)
         }
         updateTracerVisibility()
     }
@@ -1294,15 +1459,15 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     func introCompanionFocused(_ window: Int?) { yieldController.companionFocused(window) }
 
-    private func yieldLayout() -> NotchYieldController.Layout? {
+    func yieldLayout() -> NotchYieldController.Layout? {
         guard geometry != nil, !screenFrame.isEmpty else { return nil }
         let height = primaryDisplayHeight
         func server(_ rect: CGRect) -> CGRect { NotchOverlap.windowServerRect(rect, primaryDisplayHeight: height) }
         // FERB's drawn surface, not the panel window: its transparent margins pass clicks through.
         var occupied: [CGRect] = []
+        // Closed, nothing of the panel shows: the handle (in the camera housing, or the edge pill on its own window) is
+        // never ordered out for another app, so a closed FERB never yields (APP-729).
         if model.surfaceVisible { occupied.append(frame(for: model.surfaceSize)) }
-        // On a notched display the collapsed pill sits inside the camera housing, where nothing can be drawn.
-        else if !model.hasHardwareNotch { occupied.append(cutoutFrame) }
         if model.showsTraceGlow { occupied.append(tracerPanel.frame) }
         let menuBar = CGRect(x: screenFrame.minX, y: screenFrame.maxY - menuBarHeight,
                              width: screenFrame.width, height: menuBarHeight)
@@ -1368,7 +1533,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     /// Hover, a click on the notch and the shortcut focus the visible text input; never while FERB still yields.
     private func focusVisibleInput() {
-        if windowYield.focusInput(bodyVisible: model.bodyVisible) { model.focusRequest = UUID() }
+        if windowYield.focusInput(bodyVisible: model.bodyVisible) {
+            overlaySpace.ensure(panel)
+            model.focusRequest = UUID()
+        }
     }
 
     private func beginInteraction() {
@@ -1383,7 +1551,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         indicatorRestTask?.cancel()
         indicatorRestTask = nil
         setIndicatorResting(false)
-        if model.bodyVisible, !model.isYielded { panel.makeKey() }
+        if model.bodyVisible, !model.isYielded {
+            panel.makeKey()
+            overlaySpace.ensure(panel)
+        }
     }
 
     private var previewWindows: [UUID: NSWindow] = [:]
@@ -1408,6 +1579,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     func updatePointer(revealPinnedHeader: Bool = false) {
         guard indicatorDragPointer == nil, dockingRevision == nil else { return }
+        // After a Space change nothing happens until the pointer really moves: tracking areas and windows coming back
+        // on the new Space report a pointer that never moved (APP-729).
+        if let held = pointerAtSpaceChange {
+            guard pointerLocation() != held else { return }
+            pointerAtSpaceChange = nil
+        }
         // While FERB yields it is ordered out: hover must not open, reveal, fold or dismiss it. Entering the notch
         // brings it back, and like any hover that focuses the visible input.
         var broughtBack = false
@@ -1431,6 +1608,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func pointerEntered() {
+        // On its way to Mission Control's Spaces bar the pointer crosses the top edge: that isn't reaching for FERB,
+        // so nothing opens, reveals or un-rests (it counts as inside, so only leaving and coming back opens).
+        if missionControlShowing(screenFrame) {
+            Self.spacesLog.notice("Pointer entered FERB while Mission Control shows: nothing opens or un-rests")
+            return
+        }
         hoverTask?.cancel()
         indicatorRestTask?.cancel()
         indicatorRestTask = nil
@@ -1448,6 +1631,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         hoverTask = Task { [weak self, hoverWait] in
             do { try await hoverWait(.milliseconds(100)) } catch { return }
             guard let self, !Task.isCancelled else { return }
+            Self.spacesLog.notice("Hover opens the chat: \(self.stateLine, privacy: .public)")
             self.model.expand()
         }
     }

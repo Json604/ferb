@@ -3168,3 +3168,21 @@ request = "In Settings → Notch & Shortcuts turn \"Open when I hover over FERB\
 pass = "FERB answers off and Subtle the first time and on the second, naming where each lives in Settings, without a restart. Settings → About → Your settings lists FERB.app's settings with those values."
 decisions = ["APP-728", "DMN-545"]
 sitting = "after this change is installed"
+
+[LIVE-789]
+title = "The open notch chat stays put through Space switches (owner's notched Mac)"
+area = "app"
+surface = "FERB.app with this build, two or more Spaces including a full-screen app's"
+request = "Open the chat three ways in turn (hover the notch, click it, double-tap right Option), with hover on and then off. Each time switch Spaces several times in a row (Control-arrow, a three/four-finger swipe), open and close Mission Control, and switch to and from a full-screen app's Space. Then open a menu bar menu and FERB's file picker over the open chat, press and drag the notch, and double-tap right Option."
+pass = "The chat never closes, reopens, slides away or steps behind anything during or after a switch; it stays exactly in place with its text and the typing caret; a closed notch shows nothing new and Mission Control's Spaces bar opens nothing. Menus and the file picker still make it step aside and it comes back; press, drag and double-tap work as before. If anything moves, send `log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" && category == \"spaces\"'`."
+decisions = ["APP-729", "APP-731", "APP-732", "APP-733", "APP-734"]
+sitting = "after this change is installed"
+
+[LIVE-790]
+title = "Nothing pops up on Space switches on a notchless Mac with hover off (the friend's M1)"
+area = "app"
+surface = "FERB.app with this build on the M1 without a notch, hover off, a full-screen app open"
+request = "With FERB closed, switch Spaces several times (Control-arrow and swipes), open and close Mission Control, and go to and from a full-screen app's Space. Then click the very top pixel row of the pill (or its resting line) at the top centre."
+pass = "Nothing appears or pops up: no black panel, the resting line stays a line (on the full-screen Space it is the line too), and Mission Control opens nothing. The top-row click opens FERB. If anything appears, send `log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" && category == \"spaces\"'`."
+decisions = ["APP-729", "APP-730", "APP-733", "APP-734", "APP-735"]
+sitting = "after this change is installed"

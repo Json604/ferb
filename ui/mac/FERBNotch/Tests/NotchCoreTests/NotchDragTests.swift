@@ -237,13 +237,74 @@ final class NotchDragTests: XCTestCase {
                     view.mouseDragged(with: try event(.leftMouseDragged))
                     XCTAssertFalse(model.isNotchDocked, "\(content): a drag from the topmost row didn't tear it out")
                     view.mouseUp(with: try event(.leftMouseUp))
-                    XCTAssertFalse(edge.isVisible, "\(content): undocked, nothing may take the housing's row")
+                    // Undocked on the top edge the row follows the pill (APP-730), which rests clear of the housing.
+                    let housing = CGRect(x: housingX - 1, y: screen.frame.maxY - 1, width: 2, height: 1)
+                    XCTAssertFalse(edge.isVisible && edge.frame.intersects(housing),
+                                   "\(content): undocked, nothing may take the housing's row")
                 } else {
                     view.mouseUp(with: try event(.leftMouseUp))
                     XCTAssertEqual(model.bodyVisible, content == "closed", "\(content): the press didn't toggle FERB")
                 }
             }
         }
+    }
+
+    /// D31 (owner, 2026-11-05): the notchless top-edge pill takes a press on its very top row too, as the notch does.
+    /// The row follows the pill and its resting line along the top edge, only over their drawn span, and hands the
+    /// press to the handle; it is out while the handle is dragged and on any other edge.
+    // decision: APP-730, APP-735, APP-705
+    func testTheTopEdgePillTakesAPressOnItsTopmostRow() async throws {
+        _ = NSApplication.shared
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Needs a display") }
+        let pill = CGRect(x: 700, y: 870, width: 58, height: 30)
+        let row = NotchDocking.edgeRow(over: pill, cornerRadius: 15)
+        XCTAssertEqual(row.maxY, pill.maxY + 1)
+        XCTAssertEqual(row.minY, pill.maxY - 1)
+        XCTAssertEqual(row.minX, pill.minX + 15)
+        XCTAssertEqual(row.maxX, pill.maxX - 15)
+
+        let defaults = scratchDefaults()
+        if let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+            defaults.set(id.intValue, forKey: "notch.indicatorDisplayID")
+        }
+        let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
+        model.setHoverEnabled(false)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        defer { coordinator.tearDown() }
+        coordinator.cameraHousing = { _ in (0, nil, nil) }       // a notchless display
+        coordinator.fullScreenSpace = { _ in false }
+        coordinator.restWait = { _ in }
+        coordinator.updateScreen()
+        XCTAssertFalse(model.isNotchDocked)
+        let edge = coordinator.edgeRowPanel
+        let control = try XCTUnwrap(coordinator.indicatorControl)
+        let handle = try XCTUnwrap(control.window)
+        let pillFrame = handle.frame
+        XCTAssertTrue(edge.isVisible, "no window over the pill's topmost row")
+        XCTAssertGreaterThanOrEqual(edge.frame.maxY, screen.frame.maxY + 1)
+        XCTAssertTrue(edge.frame.minX >= handle.frame.minX && edge.frame.maxX <= handle.frame.maxX,
+                      "the row reaches past the pill")
+        var pointer = CGPoint(x: edge.frame.midX, y: screen.frame.maxY - 0.5)
+        control.pointerLocation = { pointer }
+        coordinator.pointerLocation = { pointer }
+        let view = try XCTUnwrap(edge.contentView)
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: edge.convertPoint(fromScreen: pointer),
+                modifierFlags: [], timestamp: 0, windowNumber: edge.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: 1))
+        }
+        view.mouseDown(with: try event(.leftMouseDown))
+        view.mouseUp(with: try event(.leftMouseUp))
+        XCTAssertTrue(model.bodyVisible, "a press on the pill's topmost row didn't open FERB")
+        model.collapse(keyboard: true)                          // Escape: no closing animation to wait for
+        pointer = CGPoint(x: screen.frame.midX, y: screen.frame.minY + 20)
+        coordinator.updatePointer()
+        await coordinator.indicatorRestTask?.value
+        XCTAssertTrue(coordinator.pillResting)
+        XCTAssertTrue(edge.isVisible && edge.frame.maxY >= screen.frame.maxY + 1, "the resting line lost its row")
+        // The resting line (half the virtual notch's width, centred where the pill was) is flat along the edge.
+        XCTAssertEqual(edge.frame.midX, pillFrame.midX, accuracy: 0.5)
+        XCTAssertEqual(edge.frame.width, model.handleWidth / 2, accuracy: 0.5)
     }
 
     /// Live 2026-11-02 (a friend's M1, no notch): the handle never sat at the top centre and jumped sideways when

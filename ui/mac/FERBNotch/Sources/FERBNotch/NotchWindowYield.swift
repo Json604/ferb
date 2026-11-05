@@ -49,6 +49,8 @@ final class NotchWindowYield {
 
     /// Steps the panel one layer back, just behind window `behind` (another app's window under the pinned chat), or
     /// in front of ordinary windows when nil (a menu, popover or floating window over FERB, or FERB's file picker).
+    /// A panel that is out (FERB closed, nothing of its surface showing) stays out: it is only marked as yielding,
+    /// so it can't appear as an empty black window (APP-729).
     func yield(behind window: Int?) {
         guard !isYielded else { return }
         isYielded = true
@@ -56,14 +58,16 @@ final class NotchWindowYield {
         if ownLevel == nil { ownLevel = panel.level }
         leaveOverlay(panel)
         panel.level = .normal
-        place(behind: window)
+        behind = window
+        if panel.isVisible { place(behind: window) }
     }
 
     /// While FERB yields, what it yields to changed (another app came forward, the app's front window changed, a
     /// menu took over from the app): sit behind that instead. Nothing moves when it's the same.
     func restack(behind window: Int?) {
         guard isYielded, window != behind else { return }
-        place(behind: window)
+        behind = window
+        if panel.isVisible { place(behind: window) }
     }
 
     /// The owner clicked or switched into another app while FERB yielded: coming back must not take the focus
@@ -80,7 +84,8 @@ final class NotchWindowYield {
         isYielded = false
         behind = nil
         if let ownLevel { panel.level = ownLevel }
-        panel.orderFrontRegardless()
+        // Back at its own level in the overlay space; a panel that is out (FERB closed meanwhile) stays out.
+        if panel.isVisible { panel.orderFrontRegardless() }
         rejoinOverlay(panel)
         if keyBeforeYield && refocus { panel.makeKey() }
         keyBeforeYield = false
@@ -95,8 +100,9 @@ final class NotchWindowYield {
         return true
     }
 
-    /// Keeps the panel on screen after a presentation, Space change or wake. While FERB yields it stays where it
-    /// stepped back to, and is placed there again only if something took it off the screen.
+    /// Keeps the panel on screen after a presentation, Space change or wake: callers call it only while FERB's
+    /// surface shows (APP-729). While FERB yields it stays where it stepped back to, and is placed there again only if
+    /// something took it off the screen.
     func showPanel() {
         if !isYielded { orderIn(panel) }
         else if !panel.isVisible { place(behind: behind) }
@@ -112,9 +118,9 @@ final class NotchWindowYield {
         if let window { panel.order(.below, relativeTo: window) } else { panel.orderFrontRegardless() }
     }
 
+    /// Ordered in, then kept in the overlay space and on no ordinary Space (`rejoinOverlay` moves it only if needed).
     private func orderIn(_ window: NotchYieldWindow) {
-        let wasOut = !window.isVisible
         window.orderFrontRegardless()
-        if wasOut { rejoinOverlay(window) }
+        rejoinOverlay(window)
     }
 }

@@ -48,6 +48,13 @@ final class NotchYieldController {
     var frontmostApp: () -> Int32? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }
     /// A window that un-minimizes or unhides when its app comes forward isn't on screen yet at activation.
     var activationRecheckDelay: Duration = .milliseconds(500)
+    /// Whether a window belongs only to Spaces other than the one showing (sliding in or out with a Space switch):
+    /// such a window is never over FERB, whatever its bounds say mid-swipe (APP-729).
+    var onAnotherSpace: (UInt32) -> Bool = { number in
+        let spaces = WindowServerSpaces.spaces(ofWindow: Int(number))
+        guard !spaces.isEmpty, let active = WindowServerSpaces.activeSpace() else { return false }
+        return !spaces.contains(active)
+    }
     /// The app FERB is yielding to because one of its windows lies under the pinned chat.
     private(set) var coveredApp: Int32?
     private var companionWindow: Int?
@@ -107,7 +114,7 @@ final class NotchYieldController {
         let rows = windows()
         currentOverlays = NotchOverlap.foreignOverlays(in: rows, ferbFrames: layout.occupied, ownPIDs: ownPIDs,
                                                        menuBar: layout.menuBar, display: layout.display)
-            .filter { !isSystemInput($0.ownerPID) }
+            .filter { !isSystemInput($0.ownerPID) && !onAnotherSpace($0.windowID) }
         let overlays = Set(currentOverlays.map(\.windowID))
         // An override is forgotten only when its window leaves the screen, not when FERB folds away from it.
         overriddenOverlays.formIntersection(rows.map(\.windowID))
@@ -129,9 +136,15 @@ final class NotchYieldController {
     }
 
     /// An app came forward. Yield when one of its windows lies under the pinned chat. FERB itself coming forward,
-    /// or an app with nothing under the chat, brings FERB back. Returns whether FERB just came back.
+    /// or an app with nothing under the chat, brings FERB back. An app that became active because the owner switched
+    /// Spaces (the new Space's own front app) wasn't brought forward over FERB: nothing changes (APP-729, refining
+    /// APP-559). Returns whether FERB just came back.
     @discardableResult
-    func appActivated(_ pid: Int32) -> Bool {
+    func appActivated(_ pid: Int32, bySpaceChange: Bool = false) -> Bool {
+        if bySpaceChange && !ownPIDs.contains(pid) {
+            activationRecheck?.cancel()
+            return false
+        }
         activationRecheck?.cancel()
         let wasYielded = model.isYielded
         if ownPIDs.contains(pid) {
@@ -180,6 +193,13 @@ final class NotchYieldController {
     /// click, hover-open, pinned reveal). FERB stays over the windows found over it at the next check; the pointer
     /// that opened it counts as entering the notch.
     func ownerOpened() {
+        overrideAtNextCheck = true
+    }
+
+    /// The owner switched Spaces with FERB on screen: the other apps' windows found over FERB at the next check were
+    /// already there on the new Space, so FERB stays over them (as when the owner opens it); a window that newly
+    /// covers FERB afterwards, a menu or FERB's file picker still makes it step aside (APP-729).
+    func spaceChanged() {
         overrideAtNextCheck = true
     }
 

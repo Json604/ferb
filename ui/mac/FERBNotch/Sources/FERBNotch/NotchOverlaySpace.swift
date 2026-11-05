@@ -17,6 +17,7 @@ import os
 @MainActor
 final class NotchOverlaySpace {
     private static let log = Logger(subsystem: "com.ferb.FERB", category: "notch")
+    private static let spacesLog = Logger(subsystem: "com.ferb.FERB", category: "spaces")
     private typealias Connection = @convention(c) () -> Int32
     private typealias Create = @convention(c) (Int32, UInt64, CFDictionary?) -> UInt64
     private typealias SetLevel = @convention(c) (Int32, UInt64, Int32) -> Int32
@@ -34,11 +35,19 @@ final class NotchOverlaySpace {
     private var destroy: Destroy?
     private var moveWindows: MoveWindows?
     private var copyWindows: CopyWindows?
+    /// False only in tests that exercise the AppKit fallback (APP-563): attaching then fails as if SkyLight were absent.
+    private let available: Bool
+
+    init(available: Bool = true) { self.available = available }
 
     var isAttached: Bool { space != 0 }
 
     func attach(_ windows: [NSWindow]) {
         guard !isAttached, !windows.isEmpty else { return }
+        guard available else {
+            Self.log.error("Fixed overlay unavailable (turned off): the notch windows stay ordinary all-Spaces windows.")
+            return
+        }
         guard let library = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight", RTLD_NOW) else {
             Self.log.error("Fixed overlay unavailable (no SkyLight): the notch windows stay ordinary all-Spaces windows.")
             return
@@ -153,12 +162,49 @@ final class NotchOverlaySpace {
         return joined
     }
 
-    /// Ordering one of our windows out and back in (the trace after each glow) may drop it from the space, and the
-    /// panel leaves it while FERB yields (`leave`). Move it back in every time, with the same call `attach` uses.
-    func rejoin(_ window: NSWindow) {
-        guard space != 0, windows.contains(where: { $0 === window }) else { return }
-        _ = moveIn(window)
+    /// Where one of our windows is: whether the space lists it, and the ordinary (managed) Spaces the window server
+    /// also has it on. Nil without the space or for a window that isn't ours.
+    func membership(of window: NSWindow) -> (member: Bool, ordinary: [UInt64])? {
+        guard space != 0, let copyWindows, windows.contains(where: { $0 === window }) else { return nil }
+        let member = Self.members(of: space, connection: connection, copyWindows: copyWindows)
+            .contains(window.windowNumber)
+        return (member, WindowServerSpaces.spaces(ofWindow: window.windowNumber))
     }
+
+    /// Keeps one of our windows in the space and on no ordinary Space (APP-729). Ordering a window out and in, making
+    /// it key, or the panel leaving the space while FERB yields (`leave`) can put it on the ordinary Spaces, where it
+    /// rides the desktop swipe like any window. It moves only when the space doesn't list it or it is also on an
+    /// ordinary Space, with the same call `attach` uses; returns whether it moved.
+    @discardableResult
+    func ensure(_ window: NSWindow) -> Bool {
+        guard let place = membership(of: window), !place.member || !place.ordinary.isEmpty else { return false }
+        let joined = moveIn(window)
+        let after = WindowServerSpaces.spaces(ofWindow: window.windowNumber)
+        Self.spacesLog.notice("""
+            \(window.title, privacy: .public) put back in the fixed overlay space (was member \(place.member, privacy: .public), \
+            ordinary Spaces \(place.ordinary, privacy: .public); now member \(joined, privacy: .public), ordinary \
+            \(after, privacy: .public)).
+            """)
+        return true
+    }
+
+    /// `ensure` for every window of ours, except those that left on purpose (the panel while FERB yields).
+    func ensureAll(except excluded: [NSWindow] = []) {
+        for window in windows where !excluded.contains(where: { $0 === window }) { ensure(window) }
+    }
+
+    /// One line per window of ours for the `spaces` log: number, member of the space, ordinary Spaces, on screen.
+    func describe() -> String {
+        guard space != 0 else { return "no overlay space (AppKit all-Spaces windows)" }
+        return windows.map { window in
+            let place = membership(of: window)
+            return "\(window.windowNumber) member \(place?.member ?? false) ordinary \(place?.ordinary ?? []) "
+                + "visible \(window.isVisible)"
+        }.joined(separator: "; ")
+    }
+
+    /// The panel coming back from a yield, or a window the trace orders in again: same as `ensure`.
+    func rejoin(_ window: NSWindow) { ensure(window) }
 
     /// Add an independently detached UI panel to FERB's fixed overlay when that space is available.
     func include(_ window: NSWindow) {
@@ -201,5 +247,67 @@ final class NotchOverlaySpace {
         copyWindows = nil
         if let library { dlclose(library) }
         library = nil
+    }
+}
+
+/// Read-only Space facts from the window server (SkyLight's private symbols, resolved once and defensively; each
+/// answer is nil or empty when a symbol is missing). Window numbers and Space numbers only: no titles, nothing personal.
+@MainActor
+enum WindowServerSpaces {
+    private typealias Connection = @convention(c) () -> Int32
+    private typealias ActiveSpace = @convention(c) (Int32) -> UInt64
+    private typealias CurrentSpace = @convention(c) (Int32, CFString) -> UInt64
+    private typealias SpaceType = @convention(c) (Int32, UInt64) -> Int32
+    private typealias SpacesForWindows = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
+
+    private struct Symbols {
+        let connection: Int32
+        let active: ActiveSpace?
+        let current: CurrentSpace?
+        let type: SpaceType?
+        let spacesFor: SpacesForWindows?
+    }
+
+    private static let symbols: Symbols? = {
+        guard let library = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight", RTLD_NOW),
+              let main = dlsym(library, "SLSMainConnectionID") else { return nil }
+        func symbol<T>(_ name: String, as type: T.Type) -> T? {
+            dlsym(library, name).map { unsafeBitCast($0, to: type) }
+        }
+        return Symbols(connection: unsafeBitCast(main, to: Connection.self)(),
+                       active: symbol("SLSGetActiveSpace", as: ActiveSpace.self),
+                       current: symbol("SLSManagedDisplayGetCurrentSpace", as: CurrentSpace.self),
+                       type: symbol("SLSSpaceGetType", as: SpaceType.self),
+                       spacesFor: symbol("SLSCopySpacesForWindows", as: SpacesForWindows.self))
+    }()
+
+    /// The Space showing on the display with the menu bar's focus.
+    static func activeSpace() -> UInt64? {
+        guard let symbols, let active = symbols.active else { return nil }
+        let space = active(symbols.connection)
+        return space == 0 ? nil : space
+    }
+
+    /// The Space showing on one display.
+    static func currentSpace(display: UInt32) -> UInt64? {
+        guard let symbols, let current = symbols.current,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(display)?.takeRetainedValue(),
+              let name = CFUUIDCreateString(nil, uuid) else { return nil }
+        let space = current(symbols.connection, name)
+        return space == 0 ? nil : space
+    }
+
+    /// A full-screen app's Space shows on that display.
+    static func isFullScreen(display: UInt32) -> Bool {
+        guard let symbols, let type = symbols.type, let space = currentSpace(display: display) else { return false }
+        return type(symbols.connection, space) == SpaceFacts.fullScreenType
+    }
+
+    /// The ordinary (managed) Spaces a window is on; FERB's own overlay space is never listed here.
+    static func spaces(ofWindow number: Int) -> [UInt64] {
+        guard let symbols, let spacesFor = symbols.spacesFor,
+              let list = spacesFor(symbols.connection, 7, [NSNumber(value: number)] as CFArray)?.takeRetainedValue()
+        else { return [] }
+        return (list as? [NSNumber] ?? []).map(\.uint64Value)
     }
 }
