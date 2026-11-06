@@ -821,6 +821,15 @@ why = "Schedule sc-7884cee123's card was its 392-character run instruction; a 1-
 paths = ["ferb/orchestrator/names.py::shown_name", "ferb/orchestrator/schedules.py::Schedule.label", "ferb/clock/timers.py::Timer.label", "ferb/daemon/areas/schedules.py::Schedules._run_card", "ferb/daemon/areas/schedules.py::Schedules._timer_fired"]
 live = ["LIVE-787"]
 
+[ORCH-543]
+title = "A card's count is of the rows it shows, so rows and count always agree"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Implements APP-300 for the count: a card's done/total (Card.tally: plan event, part events, chat.status, the footer, the saved index) is over the rows it shows: every part of this run, a direct part included (a done row with its answer, drawn like any done row), a part this run changed; never a part an earlier turn finished (a continued run leaves those out of rows and count; whether every ask is done reads the same). A feeder step answers no part: no row, no count. Loop, conversation, stopped and won't-run rows count."
+why = "Owner, 2026-11-06, of two rows and \"1 of 3 done\": \"if theres 2 boxes why is it saying /3 ???\". Task 4be19c0f: the third part was answered directly; the daemon sent and counted its row (direct: true), the app hid it. A continued run also counted earlier turns' parts."
+paths = ["ferb/orchestrator/parts.py::Card.tally", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::TurnCardView"]
+
 [ORCH-544]
 title = "A report condition failed only by a left-out detail stands unmarked; an unfixable one retries"
 by = "agent"

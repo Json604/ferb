@@ -87,8 +87,9 @@ struct MergedLabel: View {
     }
 }
 
-/// The turn card: a row per ask in the owner's order (the asks answered in the first reply aren't rows), a status line
-/// while it runs (APP-718), then the footer code wrote once the task ended.
+/// The turn card: a row per ask in the owner's order, an ask answered in the first reply too (a done row with its
+/// answer, so the rows and "N of M" always agree: ORCH-543), a status line while it runs (APP-718), then the footer code
+/// wrote once the task ended.
 struct TurnCardView: View {
     let card: TurnCard
     let turn: ConversationTurn
@@ -96,7 +97,7 @@ struct TurnCardView: View {
 
     var body: some View {
         let questions = model.rowQuestions(turn)
-        let rows = card.rows.filter { !$0.direct }
+        let rows = card.rows
         let running = model.runningTasks[card.taskID] != nil
         // A row still working in a turn that ended without its footer (interrupted, or read from history) isn't moving.
         let live = running || ["working", "needs_user", "previewRunning"].contains(turn.status)
@@ -135,21 +136,18 @@ struct TurnCardView: View {
 
     // One colour belongs to the complete card, including its footer; the row's words carry its state.
     private var surfaceTint: Color {
-        let states = Set(card.rows.filter { !$0.direct }.map(\.state))
+        let states = Set(card.rows.map(\.state))
         if !model.rowQuestions(turn).isEmpty || states.contains("asks") { return Palette.amber }
         if states.contains("failed") { return Palette.red }
         if !states.isDisjoint(with: ["paused", "updated"]) { return Palette.chatBlue }
         return .clear
     }
 
-    /// "1 of 4 done · 2 running · 1 waiting · 12:03" while the task runs; its clock pauses while the body is hidden.
+    /// "1 of 4 done · 2 running · 1 waiting" while the task runs; no clock (APP-752).
     private func statusLine(_ displays: [RowDisplay]) -> some View {
-        TimelineView(.animation(minimumInterval: 1, paused: !model.bodyVisible)) { context in
-            Text(CardStatusLine.text(card: card, displays: displays, since: model.runningSince[card.taskID],
-                                     at: context.date))
-                .font(.system(size: 10.5)).foregroundStyle(Palette.secondary)
-                .lineLimit(1).truncationMode(.tail)
-        }
+        Text(CardStatusLine.text(card: card, displays: displays))
+            .font(.system(size: 10.5)).foregroundStyle(Palette.secondary)
+            .lineLimit(1).truncationMode(.tail)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 11).padding(.top, 7).padding(.bottom, 5)
         .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.07)).frame(height: 1) }
@@ -259,22 +257,20 @@ struct CardRowView: View {
     }
 }
 
-/// A row's state words, then a small spinner while its step works (a still dot under Reduce Motion), then how long the
-/// step has worked. No leading icon (APP-628, refined by APP-718). The clock pauses while the notch body is hidden.
+/// A row's state words, then a small spinner while its step works (a still dot under Reduce Motion). No leading icon
+/// (APP-628, refined by APP-718) and no clock (APP-752).
 struct RowStateLine: View {
     let display: RowDisplay
     let visible: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1, paused: !visible || display.since == nil)) { context in
-            HStack(spacing: 6) {
-                Text(display.text(at: context.date) ?? "")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                    // a retrying row is one line (APP-724); its middle gives way so the attempt and the time stay
-                    .lineLimit(display.kind == .retrying ? 1 : 2)
-                    .truncationMode(display.kind == .retrying ? .middle : .tail)
-                if display.spinner { RowSpinner(paused: !visible) }
-            }
+        HStack(spacing: 6) {
+            Text(display.words ?? "")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+                // a retrying row is one line (APP-724); its middle gives way so the attempt and the live line's end stay
+                .lineLimit(display.kind == .retrying ? 1 : 2)
+                .truncationMode(display.kind == .retrying ? .middle : .tail)
+            if display.spinner { RowSpinner(paused: !visible) }
         }
     }
 }

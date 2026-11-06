@@ -25,7 +25,7 @@ WHY_FOLLOW_UP = "changed after your follow-up"    # a part a later turn of the t
 class Card:
     """The rows of one multi-part turn of a task (`task_id`, `request_id`). Rows are keyed by (task, part) across
     turns (a part is the same ask when its id and quote are): a continued run's card carries only the parts that run
-    changes; a part finished in an earlier turn stays as posted in the card that showed it, and changes only through an
+    changes, and counts only those (ORCH-543); a part finished in an earlier turn stays as posted in the card that showed it, and changes only through an
     `updated` row. `emit` sends a part event to the task's stream and the bus; `origin` gives the journal origin of a
     model-written row (the task's)."""
 
@@ -79,11 +79,14 @@ class Card:
         return out
 
     def tally(self) -> tuple[int, int]:
-        """(done, total) over the task's asks: direct parts count as done, a failed part doesn't (ORCH-319's "N of
-        M done")."""
+        """(done, total) over this card's rows (ORCH-319's "N of M done"; ORCH-543: the count is of the rows the card
+        shows, so it always agrees with them): a direct part's row counts as done, a failed one doesn't. A continued
+        run's card leaves out parts an earlier turn finished, and so does its count; those were done, so whether every
+        ask is done reads the same either way."""
         records = self.records()
-        done = sum(1 for p in self.parts if p.direct is not None or records.get(p.id, {}).get("state") in DONE)
-        return done, len(self.parts)
+        shown = [p for p in self.parts if self._shown(p, records)]
+        done = sum(1 for p in shown if p.direct is not None or records.get(p.id, {}).get("state") in DONE)
+        return done, len(shown)
 
     def unposted(self) -> list[Part]:
         """This card's answer rows that have neither filled nor failed in this run."""

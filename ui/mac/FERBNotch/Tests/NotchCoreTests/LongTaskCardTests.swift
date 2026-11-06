@@ -21,7 +21,7 @@ final class LongTaskCardTests: XCTestCase {
                    "started_at": "2026-11-05T10:00:00+00:00"])!
     }
 
-    // decision: APP-718, APP-724
+    // decision: APP-718, APP-724, APP-752
     func testEachStepStateShowsItsOwnRowState() {
         let mail = row("mail"), leads = row("leads"), rows = [mail, leads]
         func kind(_ status: String, waitsOn: [String] = [], attempt: Int = 1) -> RowDisplay {
@@ -39,19 +39,20 @@ final class LongTaskCardTests: XCTestCase {
                                       liveLine: LiveProgress(text: "reading mail.example.com", startedAt: t0))
         XCTAssertEqual(running.kind, .running)
         XCTAssertTrue(running.spinner)
-        XCTAssertNotNil(running.since)
         XCTAssertTrue(running.words?.contains("mail.example.com") == true)   // its own live line
         XCTAssertEqual(kind("checking").kind, .checking)
-        XCTAssertNotNil(kind("checking").since)
         XCTAssertEqual(kind("retrying", attempt: 2).kind, .retrying)
         XCTAssertTrue(kind("retrying", attempt: 2).words?.contains("2") == true)
-        // APP-724: a retrying row shows its attempt and its step's live line with the time, on one line
+        // APP-724: a retrying row shows its attempt and its step's live line, on one line (no time, APP-752)
         let retrying = RowDisplay.make(row: leads, steps: ["leads": step("retrying", attempt: 2)], rows: rows, live: true,
                                        liveLine: LiveProgress(text: "reading mail.example.com", startedAt: t0))
         XCTAssertTrue(retrying.spinner)
-        XCTAssertNotNil(retrying.since)
         XCTAssertTrue(retrying.words?.contains("2") == true && retrying.words?.contains("mail.example.com") == true)
-        XCTAssertFalse(retrying.text(at: t0)?.contains("\n") ?? true)
+        XCTAssertFalse(retrying.words?.contains("\n") ?? true)
+        // APP-752 (owner 2026-11-06: "remove the timer from these boxes"): no row shows a clock
+        for display in [running, retrying, kind("checking"), kind("starting"), waiting] {
+            XCTAssertNil(display.words?.range(of: #"\d+:\d\d"#, options: .regularExpression), display.kind.rawValue)
+        }
         XCTAssertEqual(kind("needs_you").kind, .needsYou)
         XCTAssertEqual(kind("not_finished").kind, .notFinished)
         XCTAssertEqual(kind("wont_run").kind, .wontRun)
@@ -78,24 +79,21 @@ final class LongTaskCardTests: XCTestCase {
             let shown = RowDisplay.make(row: leads, steps: ["leads": step(status)], rows: [leads], live: false)
             XCTAssertEqual(shown.kind, .notFinished, status)
             XCTAssertFalse(shown.spinner)
-            XCTAssertNil(shown.since)
         }
     }
 
-    // decision: APP-723
-    func testTheStatusLineCountsRowsByState() {
+    // decision: APP-723, APP-752
+    func testTheStatusLineCountsRowsByStateWithNoClock() {
         let card = TurnCard(["request_id": "R", "done": 1, "total": 4, "rows": []], taskID: "T")!
         let line = CardStatusLine.text(card: card, displays: [
             RowDisplay(kind: .done), RowDisplay(kind: .running, spinner: true), RowDisplay(kind: .checking),
-            RowDisplay(kind: .waiting)], since: t0, at: t0.addingTimeInterval(723))
+            RowDisplay(kind: .waiting)])
         let pieces = line.components(separatedBy: " · ")
-        XCTAssertEqual(pieces.count, 4)                                     // done, running, waiting, the time
+        XCTAssertEqual(pieces.count, 3)                                     // done, running, waiting; no time
         XCTAssertTrue(pieces[0].contains("1") && pieces[0].contains("4"))
         XCTAssertTrue(pieces[1].hasPrefix("2"))
         XCTAssertTrue(pieces[2].hasPrefix("1"))
-        XCTAssertEqual(pieces[3], "12:03")
-        XCTAssertEqual(RowDisplay.elapsed(from: t0, to: t0.addingTimeInterval(161)), "2:41")
-        XCTAssertEqual(RowDisplay.elapsed(from: t0, to: t0.addingTimeInterval(-5)), "0:00")
+        XCTAssertNil(line.range(of: #"\d+:\d\d"#, options: .regularExpression))
     }
 
     // decision: ORCH-531

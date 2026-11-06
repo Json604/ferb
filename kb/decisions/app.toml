@@ -2528,3 +2528,13 @@ status = "active"
 rule = "Implements APP-728's test within TEST-508. A SwiftPM build-tool plugin (Plugins/SettingsKeysPlugin) runs Tools/SettingsKeyScan when the test target builds: it scans the FERBNotch and NotchCore sources for every UserDefaults key (calls, @AppStorage, key constants) and writes them into a generated Swift file of the test target (SourceSettingsKeys). The test fails on a key neither declared nor internal, reading only its own module."
 why = "Leftover sweep T-1059: batch 3c's test read the checked-in Swift sources at test time, which TEST-508 (owner) forbids; the build reading its own sources is not a test."
 paths = ["ui/mac/FERBNotch/Package.swift", "ui/mac/FERBNotch/Plugins/SettingsKeysPlugin/plugin.swift", "ui/mac/FERBNotch/Tools/SettingsKeyScan/main.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/AppScreensTests.swift"]
+
+[APP-752]
+title = "No timers in the task card"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "remove the timer from these boxes. also if theres 2 boxes why is it saying /3 ???"
+words_source = "Owner, 2026-11-06, about a card with rows \"Read email list — Running a command · 0:18\" and \"Write summary — Waiting for Read email list\" and the footer \"1 of 3 done · 1 running · 1 waiting · 0:18\""
+rule = "Supersedes the time parts of APP-718 (a running row's \"and the time\"), APP-723 (the status line's task time; row and status-line clocks) and APP-724 (a retrying row's elapsed time and \"the time stay\"): the task card's rows and its status line show no elapsed time. The spinner, the states and their words stay; the rest of APP-718, APP-723 and APP-724 stands. The count side is ORCH-543."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::RowDisplay", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::CardStatusLine", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]

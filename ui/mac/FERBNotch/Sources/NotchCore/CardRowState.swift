@@ -48,8 +48,9 @@ public struct LoopRound: Equatable {
     }
 }
 
-/// What one card row shows (APP-718): its state's words, the small spinner after them while its step works (a still
-/// dot under Reduce Motion, drawn by the view), and the time its step has been working.
+/// What one card row shows (APP-718): its state's words and the small spinner after them while its step works (a still
+/// dot under Reduce Motion, drawn by the view). No clock (APP-752, owner 2026-11-06: "remove the timer from these
+/// boxes").
 public struct RowDisplay: Equatable {
     public enum Kind: String {
         case waiting, starting, running, checking, retrying, needsYou, paused, done, updated, failed, wontRun
@@ -60,14 +61,11 @@ public struct RowDisplay: Equatable {
     /// The state's words; nil when the row's own text says it (done, updated, failed, a question).
     public let words: String?
     public let spinner: Bool
-    /// Elapsed time counts from here (the step's start); nil shows none.
-    public let since: Date?
 
-    public init(kind: Kind, words: String? = nil, spinner: Bool = false, since: Date? = nil) {
+    public init(kind: Kind, words: String? = nil, spinner: Bool = false) {
         self.kind = kind
         self.words = words
         self.spinner = spinner
-        self.since = since
     }
 
     /// Counted as running in the card's status line.
@@ -110,33 +108,18 @@ public struct RowDisplay: Equatable {
                               : "Waiting for " + Self.list(names))
         case "starting": return RowDisplay(kind: .starting, words: "Starting…", spinner: true)
         case "running":
-            return RowDisplay(kind: .running, words: liveLine.map { Self.sentence($0.text) } ?? "Working", spinner: true,
-                              since: step.startedAt)
-        case "retrying":     // APP-724: the attempt, then its live line and time, like a running row
+            return RowDisplay(kind: .running, words: liveLine.map { Self.sentence($0.text) } ?? "Working", spinner: true)
+        case "retrying":     // APP-724: the attempt, then its live line, like a running row (no time, APP-752)
             let attempt = "Trying again (attempt \(max(2, step.attempt)))"
             return RowDisplay(kind: .retrying, words: liveLine.map { attempt + " · " + $0.text } ?? attempt,
-                              spinner: true, since: step.startedAt)
+                              spinner: true)
         case "needs_you": return RowDisplay(kind: .needsYou, words: "Needs you")
         case "not_finished": return RowDisplay(kind: .notFinished, words: "Not finished")
         case "wont_run": return RowDisplay(kind: .wontRun, words: "Won't run: an earlier step couldn't be done")
         default:
             // checking; or done / failed a moment before the row posts its answer
-            return RowDisplay(kind: .checking, words: "Checking the result", spinner: true, since: step.startedAt)
+            return RowDisplay(kind: .checking, words: "Checking the result", spinner: true)
         }
-    }
-
-    /// The words with the elapsed time: "reading mail.example.com · 2:41".
-    public func text(at now: Date) -> String? {
-        guard let words else { return nil }
-        guard let since else { return words }
-        return words + " · " + Self.elapsed(from: since, to: now)
-    }
-
-    /// "0:12", "2:41", "1:02:41"; clock skew never shows negative time.
-    public static func elapsed(from start: Date, to now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(start)))
-        if seconds >= 3600 { return String(format: "%d:%02d:%02d", seconds / 3600, seconds % 3600 / 60, seconds % 60) }
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
     static func clock(_ date: Date) -> String {
@@ -157,9 +140,10 @@ public struct RowDisplay: Equatable {
     }
 }
 
-/// The running card's one status line (APP-718): "1 of 4 done · 2 running · 1 waiting · 12:03".
+/// The running card's one status line (APP-718, APP-723 without the time, APP-752): "1 of 4 done · 2 running ·
+/// 1 waiting".
 public enum CardStatusLine {
-    public static func text(card: TurnCard, displays: [RowDisplay], since: Date?, at now: Date) -> String {
+    public static func text(card: TurnCard, displays: [RowDisplay]) -> String {
         var pieces = ["\(card.done) of \(card.total) done"]
         let running = displays.filter(\.isRunning).count
         let waiting = displays.filter { $0.kind == .waiting }.count
@@ -167,7 +151,6 @@ public enum CardStatusLine {
         if running > 0 { pieces.append("\(running) running") }
         if waiting > 0 { pieces.append("\(waiting) waiting") }
         if asking > 0 { pieces.append("\(asking) need\(asking == 1 ? "s" : "") you") }
-        if let since { pieces.append(RowDisplay.elapsed(from: since, to: now)) }
         return pieces.joined(separator: " · ")
     }
 }

@@ -172,7 +172,7 @@ def test_a_multi_part_answer_is_saved_as_an_index_the_planner_reads_whole(daemon
     assert "Nothing pending." not in history                                    # rows past their first line aren't
 
 
-# decision: ORCH-319
+# decision: ORCH-319, ORCH-543
 def test_a_direct_part_is_answered_in_the_first_reply_and_counts_as_done(daemon: RunningDaemon) -> None:
     """Scenario 3: "who are you" is answered in the first reply, above the plan line; only the research gets a row;
     the count includes the direct part."""
@@ -191,6 +191,11 @@ def test_a_direct_part_is_answered_in_the_first_reply_and_counts_as_done(daemon:
     assert [(e["part"], e["state"]) for e in _parts(events)] == [("kb", "done")]   # the direct part isn't re-sent
     final = outcome(events)
     assert (final["card"]["done"], final["card"]["total"]) == (2, 2) and final["status"] == "done"
+    # ORCH-543 (owner 2026-11-06: "if theres 2 boxes why is it saying /3 ???"): every part the count includes has a
+    # row, the direct one too, in every picture of the card
+    for card in (plan["card"], final["card"]):
+        assert card["total"] == len(card["rows"])
+    assert all(e["total"] == len(rows) for e in _parts(events))
 
 
 # decision: ORCH-319
@@ -422,7 +427,7 @@ def test_a_plan_saved_before_parts_resumes_and_answers_from_its_last_steps(daemo
 def test_continuing_a_multi_part_task_never_shows_a_finished_part_again(daemon: RunningDaemon) -> None:
     """Rows are keyed by (task, part) across turns: the owner's follow-up on the failed link runs only that part; its
     card carries only that row, which updates to its answer; the finished parts stay as posted in the first card,
-    shown once; the count covers the task's asks."""
+    shown once; the count covers the rows this card shows (ORCH-543: rows and count always agree)."""
     spec = _spec("Summarize three links", ["Link 1 summarized", "Link 2 summarized", "Link 3 summarized"],
                  [_part("a", "mysite.example/posts/notch-chat", "notch-chat", step="a", conds=(0,)),
                   _part("b", "ft.com/content/ai-agents-india", "ai-agents-india", step="b", conds=(1,)),
@@ -448,7 +453,8 @@ def test_continuing_a_multi_part_task_never_shows_a_finished_part_again(daemon: 
     updated = _parts(second)[0]
     assert updated["text"] == "India's agent startups, in numbers." and updated["why"]
     final = outcome(second)
-    assert final["card"]["line"] == "3 of 3 done" and [r["part"] for r in final["card"]["rows"]] == ["b"]
+    assert final["card"]["line"] == "1 of 1 done" and [r["part"] for r in final["card"]["rows"]] == ["b"]
+    assert final["status"] in ("done", "done_unverified")                   # every ask is done
     assert "notch chat design" not in final["answer"] and "checkable loops" not in final["answer"]
     shown = [(r["part"], r["state"]) for r in _records(daemon, tree)]
     assert shown.count(("a", "done")) == 1 and shown.count(("c", "done")) == 1     # each finished part, once
