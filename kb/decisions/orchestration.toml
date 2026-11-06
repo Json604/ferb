@@ -850,3 +850,12 @@ supersedes = ["ORCH-540", "ORCH-541", "PRM-326"]
 rule = "Implements ORCH-545. No runtime resumes an ended worker run, so the fix turn is a new observe-only run of the same worker type and runtime, given its answer and the findings (roles/fix.md, FIX_SCHEMA). recheck.md re-checks only the revised answer. Fallback: contradicted is removed, unsupported is marked; quotes are matched, never meaning. A plan row keeps a fix in progress; after a restart code settles it. Loop and conversation end checks use the same round; an old fix_answer reads as findings."
 why = "Owner ORCH-545. Checker text never reaches the owner; its findings and the round's result are journaled (task.answer_findings, task.answer_settled). A check-in saved by an older build after report-only retries still ends done-unconfirmed with its answer (STORE-403)."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._fix_turn", "ferb/orchestrator/supervisor.py::Supervisor._recheck", "ferb/orchestrator/supervisor.py::Supervisor._restored_fix", "ferb/orchestrator/supervisor.py::Supervisor._judged", "ferb/orchestrator/answer_marks.py", "ferb/orchestrator/schemas.py::CheckerOutcome", "ferb/orchestrator/worker.py::WorkerRuns.run_worker"]
+
+[ORCH-547]
+title = "The fix round never empties an answer and may change only the quoted sentences"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Refines ORCH-546. A fallback removal never leaves an answer or a part's row empty: when removing the contradicted sentences would leave no text, code marks them \"(I couldn't confirm this)\" instead (answer_marks.settle). The fix turn may change only the quoted sentences: code compares the revised answer with the original structurally (the text outside the quoted sentences must stand unchanged and in order, answer_marks.only_quoted_changed); otherwise the revision is discarded (journaled task.answer_fix_discarded), no re-check runs, and the fallback settles the original."
+why = "Review of fixes8: a one-sentence answer quoted as contradicted ended done and verified with no text when the fix turn failed; a fix turn could rewrite sentences the re-check never looks at. Structure only (rule 4)."
+paths = ["ferb/orchestrator/answer_marks.py::settle", "ferb/orchestrator/answer_marks.py::only_quoted_changed", "ferb/orchestrator/supervisor.py::Supervisor._settle_findings"]

@@ -11,7 +11,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 38 | 9 | 48 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 73 | 3 | 12 |
 | memory | Memory and memory import | `ferb/memory` | 58 | 3 | 0 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 69 | 7 | 11 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 70 | 7 | 11 |
 | perception | Perception | `ferb/sense` | 15 | 2 | 0 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 8 | 6 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 23 | 2 | 11 |

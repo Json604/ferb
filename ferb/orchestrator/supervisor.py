@@ -66,7 +66,7 @@ from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line,
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
-from ferb.orchestrator.answer_marks import remove_quote, settle
+from ferb.orchestrator.answer_marks import only_quoted_changed, remove_quote, settle
 from ferb.orchestrator.schemas import (CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHEMA, RECHECK_SCHEMA, SUMMARY_SCHEMA,
                                        SUPERVISOR_SCHEMA, WORKER_SCHEMA, AnswerQuestion, Check, CheckerOutcome, Condition,
                                        Finding, FixOutcome, QuestionOutcome, RecheckOutcome, SummaryOutcome,
@@ -5250,7 +5250,8 @@ class Supervisor(WorkerRuns):
         """ORCH-545 (owner, 2026-11-06): the checker quoted sentences of a done answer that the evidence contradicts or
         doesn't support. The same worker gets ONE turn to fix only those sentences (`_fix_turn`: observe-only, no new
         work, no action), and a short re-check judges only the revised answer against the same findings (`_recheck`).
-        When the fix turn fails, or the re-check still finds them, code removes (contradicted) or marks "(I couldn't
+        A revision that changed anything outside the quoted sentences is discarded (ORCH-547, compared structurally:
+        `only_quoted_changed`). When the fix turn fails, or the re-check still finds them, code removes (contradicted) or marks "(I couldn't
         confirm this)" (unsupported) exactly the quoted sentences (answer_marks.settle): of the revised answer when the
         re-check quoted it, else of the original. One round only, attended or not; a restart during it settles the
         saved original by code (`_restored_fix`). Nothing of the checker's words reaches the answer."""
@@ -5263,6 +5264,10 @@ class Supervisor(WorkerRuns):
                                                      "findings": [f.model_dump() for f in findings]})
         self._keep_fixing(tree, task, original, findings)
         revised = await self._fix_turn(tree, task, original, findings, span)
+        if revised is not None and not only_quoted_changed(original, revised, [f.quote for f in findings]):
+            # ORCH-547: the fix turn changed something outside the quoted sentences; that text was never checked
+            self.journal.append("task.answer_fix_discarded", {"task_id": task.id})
+            revised = None
         remaining = await self._recheck(tree, task, findings, revised, span) if revised is not None else None
         if revised is not None and remaining == []:
             tree.owner_answer, how = revised, "fixed"

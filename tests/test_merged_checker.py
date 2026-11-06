@@ -89,6 +89,47 @@ def test_when_the_fix_turn_fails_code_removes_or_marks_exactly_the_quoted_senten
     assert [d["how"] for d in _settled(daemon)] == ["marked"]
 
 
+# decision: ORCH-547
+def test_a_removal_never_leaves_the_answer_empty(daemon: RunningDaemon) -> None:
+    """The quoted sentence is the whole answer and the fix turn fails: removing it would leave "done" with nothing
+    said, so code marks it instead."""
+    said = "The meeting is on Friday at 3pm."
+    install(daemon, [sup("task", "On it.", task("Find when the meeting is"))], {
+        "worker": done(said),
+        "worker.verify": verdict(True, findings=((said, "contradicted", "The invite says Thursday."),)),
+        "worker.fix": "not a report"})
+    result = outcome(chat(daemon, "when is the meeting"))
+    assert result["status"] == "done"
+    assert result["answer"].startswith("The meeting is on Friday at 3pm (I couldn't confirm this).")
+
+
+# decision: ORCH-547
+def test_a_fix_that_changes_other_sentences_is_discarded_for_the_fallback(daemon: RunningDaemon) -> None:
+    """The fix turn may change only the quoted sentences: a revision that also rewrites another one (never re-checked)
+    is discarded, no re-check runs, and code settles the original."""
+    said = "The store opens at 9. It has a café. Parking is free."
+    script = install(daemon, [sup("task", "On it.", task("Find the store's hours"))], {
+        "worker": done(said),
+        "worker.verify": verdict(True, findings=(("It has a café.", "unsupported", "No page mentioned a café."),)),
+        "worker.fix": _fix("The store opens at 8. It may have a café. Parking is free.")})
+    result = outcome(chat(daemon, "when does the store open"))
+    assert script.calls("rechecker") == []
+    assert result["answer"].startswith("The store opens at 9. It has a café (I couldn't confirm this). Parking is free.")
+
+
+def test_only_the_quoted_sentences_may_change() -> None:
+    from ferb.orchestrator.answer_marks import only_quoted_changed
+    said = "A is 1. B is 2. C is 3."
+    assert only_quoted_changed(said, "A is 1. B is two, I think. C is 3.", ["B is 2."])
+    assert only_quoted_changed(said, "A is 1. C is 3.", ["B is 2."])
+    assert only_quoted_changed(said, "A is 1. B is 4. C is 3.", ["B is 2.", "Z."])
+    assert not only_quoted_changed(said, "A is 5. B is 4. C is 3.", ["B is 2."])
+    assert not only_quoted_changed(said, "A is 1. B is 4. C is 3. D is 9.", ["B is 2."])
+    assert not only_quoted_changed(said, "New. A is 1. B is 4. C is 3.", ["B is 2."])
+    assert only_quoted_changed(said, "A is 1. B is 4. C is 5.", ["B is 2.", "C is 3."])
+    assert not only_quoted_changed(said, "A is 1. B is 4.", ["Z."])
+
+
 # decision: ORCH-545
 def test_a_sentence_the_recheck_still_finds_is_marked_in_the_revised_answer(daemon: RunningDaemon) -> None:
     said = "The store opens at 9. It has a café."
