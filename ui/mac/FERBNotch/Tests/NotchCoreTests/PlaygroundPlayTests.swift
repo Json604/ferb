@@ -16,7 +16,6 @@ final class PlaygroundPlayTests: XCTestCase {
         func showSettings(_ tab: SettingsTab) { calls.append("settings \(tab)") }
         func closeSettings() { calls.append("close settings") }
         func setChatHost(_ host: ChatHost) { calls.append("host \(host.rawValue)") }
-        func setKeepOnTop(_ on: Bool) { calls.append("keep on top \(on)") }
         func setHidePill(_ on: Bool) { calls.append("hide pill \(on)") }
     }
 

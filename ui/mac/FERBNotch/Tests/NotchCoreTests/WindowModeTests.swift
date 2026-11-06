@@ -17,13 +17,15 @@ final class WindowModeTests: XCTestCase {
 
     private var pointer = CGPoint.zero
 
-    private func harness(window: Bool = false, hidePill: Bool = false) throws -> Harness {
+    private func harness(window: Bool = false, hidePill: Bool = false,
+                         before: (UserDefaults) -> Void = { _ in }) throws -> Harness {
         _ = NSApplication.shared
         guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
         let defaults = scratchDefaults()
         NotchDocking.save(true, in: defaults)
         if window { defaults.set(ChatHost.window.rawValue, forKey: ChatHost.defaultsKey) }
         if hidePill { defaults.set(true, forKey: ChatHost.hidePillKey) }
+        before(defaults)
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         let coordinator = PanelCoordinator(model: model, defaults: defaults)
         coordinator.updateScreen()
@@ -289,20 +291,18 @@ final class WindowModeTests: XCTestCase {
         XCTAssertTrue(ChatWindowFrames.isReachable(CGRect(x: 1300, y: 200, width: 400, height: 500), on: [visible]))
     }
 
-    // decision: APP-745, APP-748
-    func testKeepOnTopSwitchesTheLevelAndFERBsFilePickerShowsAboveTheWindow() throws {
-        let h = try harness(window: true)
+    // decision: APP-772, APP-745, APP-748
+    func testTheWindowAlwaysFloatsAnOldKeepOnTopOffIsClearedAndFERBsFilePickerShowsAboveIt() throws {
+        // Owner 2026-11-06: "c, remove it" (Keep on top). A stored "off" from before is ignored and cleared at launch.
+        let h = try harness(window: true, before: { $0.set(false, forKey: ChatHost.retiredKeepOnTopKey) })
+        XCTAssertNil(h.defaults.object(forKey: ChatHost.retiredKeepOnTopKey), "cleared on upgrade")
         h.coordinator.toggleByShortcut()
         let w = try window(h)
-        XCTAssertEqual(w.panel.level, .floating, "floats on top by default")
-        h.defaults.set(false, forKey: ChatHost.keepOnTopKey)
-        h.coordinator.applyChatHost()
-        XCTAssertEqual(w.panel.level, .normal)
-        XCTAssertFalse(w.controls.keepOnTop)
-        h.defaults.set(true, forKey: ChatHost.keepOnTopKey)
+        XCTAssertEqual(w.panel.level, .floating, "always floats")
+        h.defaults.set(false, forKey: ChatHost.retiredKeepOnTopKey)        // written by an older build: never read
         h.coordinator.applyChatHost()
         XCTAssertEqual(w.panel.level, .floating)
-        XCTAssertEqual(h.defaults.object(forKey: ChatHost.keepOnTopKey) as? Bool, true)
+        XCTAssertFalse(AppSettings.all.contains { $0.keys.contains(ChatHost.retiredKeepOnTopKey) }, "no setting")
         h.model.setFilePickerOpen(true)
         XCTAssertEqual(w.panel.level, .normal, "the picker shows above the window")
         XCTAssertTrue(w.isShown)
@@ -335,11 +335,10 @@ final class WindowModeTests: XCTestCase {
         h.coordinator.toggleByShortcut()                 // hidden
         h.coordinator.toggleByShortcut()                 // and opened again by the owner
         XCTAssertEqual(w.panel.level, .floating)
-        // The notch's own borderless panels never count; Keep on top off stays normal whatever shows
+        // The notch's own borderless panels never count
         XCTAssertFalse(ChatWindowController.coveredByOwnWindow([(isChat: true, isTitled: true, isVisible: true),
                                                                  (isChat: false, isTitled: false, isVisible: true)]))
-        XCTAssertEqual(ChatWindowController.level(keepOnTop: false, picker: false, ownWindow: false, handedOff: false),
-                       .normal)
+        XCTAssertEqual(ChatWindowController.level(picker: false, ownWindow: false, handedOff: false), .floating)
     }
 
     // decision: APP-745, APP-748, APP-600
@@ -358,20 +357,17 @@ final class WindowModeTests: XCTestCase {
     }
 
     // decision: APP-728, APP-745
-    func testTheGuideCarriesWhereFERBOpensKeepOnTopAndHideThePill() {
+    func testTheGuideCarriesWhereFERBOpensAndHideThePill() {
         let defaults = scratchDefaults()
         func value(_ name: String) -> String? {
             (AppGuide.payload(defaults)["app_settings"] as? [[String: String]])?.first { $0["name"] == name }?["value"]
         }
         XCTAssertEqual(value(AppSettings.whereFERBOpens.name), "Notch")
-        XCTAssertEqual(value(AppSettings.keepOnTop.name), "on")
         XCTAssertEqual(value(AppSettings.hidePill.name), "off")
         defaults.set(ChatHost.window.rawValue, forKey: ChatHost.defaultsKey)
         defaults.set(true, forKey: ChatHost.hidePillKey)
-        defaults.set(false, forKey: ChatHost.keepOnTopKey)
         defaults.set(false, forKey: AppSettings.doubleTap.key)
         XCTAssertEqual(value(AppSettings.whereFERBOpens.name), "Window")
-        XCTAssertEqual(value(AppSettings.keepOnTop.name), "off")
         XCTAssertEqual(value(AppSettings.hidePill.name), "on")
         XCTAssertEqual(AppGuide.openKeys(defaults), "No keyboard shortcut: FERB's menu bar icon → Open FERB")
         ChatWindowFrames.save(CGRect(x: 0, y: 0, width: 400, height: 500), display: 7, in: defaults)

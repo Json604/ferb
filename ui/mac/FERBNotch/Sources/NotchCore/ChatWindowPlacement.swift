@@ -12,13 +12,15 @@ public enum ChatHost: String, Equatable, Sendable {
         defaults.string(forKey: defaultsKey).flatMap(ChatHost.init(rawValue:)) ?? .notch
     }
 
-    /// The window's two choices, each read only in window mode (D20 Keep on top, D21 Hide the pill).
-    public static let keepOnTopKey = "chatWindow.keepOnTop"
+    /// The window's one choice, read only in window mode (D21 Hide the pill). The window always floats (APP-772).
     public static let hidePillKey = "chatWindow.hidePill"
+    /// Keep on top's old key (D20): the setting is gone (owner 2026-11-06, APP-772); a stored value is cleared on
+    /// upgrade and never read.
+    public static let retiredKeepOnTopKey = "chatWindow.keepOnTop"
 
-    /// Keep on top: on unless the owner turned it off (D20 "floats on top by default").
-    public static func keepsOnTop(_ defaults: UserDefaults) -> Bool {
-        defaults.object(forKey: keepOnTopKey) as? Bool ?? true
+    /// Clears what removed window settings left (APP-772, as APP-527 cleared its setting).
+    public static func clearRetired(_ defaults: UserDefaults) {
+        defaults.removeObject(forKey: retiredKeepOnTopKey)
     }
 
     /// Hide the pill: off unless the owner turned it on, and only ever in window mode (D21).

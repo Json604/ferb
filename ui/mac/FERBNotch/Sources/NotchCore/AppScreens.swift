@@ -72,7 +72,7 @@ public enum AppGuide {
         HowTo(title: "Talk to FERB",
               steps: "Type in the notch, or hold right Command + Option to dictate. FERB always replies in text in the chat; it never speaks aloud"),
         HowTo(title: "Open FERB in a window instead of the notch",
-              steps: "Settings → Notch & Shortcuts → Where FERB opens → Window (Keep on top and Hide the pill are there too)"),
+              steps: "Settings → Notch & Shortcuts → Where FERB opens → Window (Hide the pill is there too)"),
         HowTo(title: "Stop everything FERB is doing", steps: "FERB window → Tasks → Stop everything (Resume FERB undoes it)"),
         HowTo(title: "Stop one task", steps: "FERB window → Tasks → the task → Stop"),
         HowTo(title: "See or change what FERB remembers", steps: "FERB window → Memory: Always on, Not right, Forget…"),

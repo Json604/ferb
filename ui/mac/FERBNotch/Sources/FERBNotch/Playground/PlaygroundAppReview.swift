@@ -123,7 +123,6 @@ final class PlaygroundAppReview: PlayHost {
     func showSettings(_ tab: SettingsTab) { window.show(.settings, tab: tab) }
     func closeSettings() { window.window?.orderOut(nil) }
     func setChatHost(_ host: ChatHost) { UserDefaults.standard.set(host.rawValue, forKey: ChatHost.defaultsKey) }
-    func setKeepOnTop(_ on: Bool) { UserDefaults.standard.set(on, forKey: ChatHost.keepOnTopKey) }
     func setHidePill(_ on: Bool) { UserDefaults.standard.set(on, forKey: ChatHost.hidePillKey) }
 
     func showPreview() {

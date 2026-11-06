@@ -349,7 +349,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.model.collapse()
         }
         model.onYieldChange = { [weak self] yielded in self?.applyYield(yielded) }
-        // Where FERB opens, Keep on top and Hide the pill take effect as Settings changes them (APP-745).
+        // Keep on top is gone (APP-772): an old stored value is cleared before the settings are watched.
+        ChatHost.clearRetired(defaults)
+        // Where FERB opens and Hide the pill take effect as Settings changes them (APP-745).
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
                                                                   object: defaults, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyChatHost() }
@@ -542,7 +544,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// included (APP-707).
     func ownerClickedInAnotherApp() {
         let location = pointerLocation()
-        chatWindow?.ownerClicked(at: windowServerPoint(location))
         let cameBack = yieldController.ownerClicked(at: windowServerPoint(location))
         // The click went to another app: coming back must not take the focus the owner moved there.
         windowYield.ownerMovedElsewhere()
@@ -1262,7 +1263,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 \(self.stateLine, privacy: .public)
                 """)
         }
-        chatWindow?.otherAppActivated(app.processIdentifier, bySpaceChange: bySpaceChange)
         let cameBack = yieldController.appActivated(app.processIdentifier, bySpaceChange: bySpaceChange)
         // Another app came forward: coming back must not take the focus the owner moved there.
         if app.processIdentifier != getpid() { windowYield.ownerMovedElsewhere() }
@@ -1318,14 +1318,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// notch; window mode returns after it).
     private var wantsChatInWindow: Bool { ChatHost.setting(defaults) == .window && !model.tourRunning }
 
-    /// Applies Where FERB opens, Keep on top and Hide the pill as they are now. Switching while the chat is open moves
+    /// Applies Where FERB opens and Hide the pill as they are now. Switching while the chat is open moves
     /// it: the same NotchModel, draft, attachments and transcript place, now shown by the other host, without taking
     /// keyboard focus. Runs at launch, on every defaults change and when the tour starts or ends.
     func applyChatHost() {
         let inWindow = wantsChatInWindow
         let hidden = inWindow && ChatHost.hidesPill(defaults)
         let moved = model.chatInWindow != inWindow
-        chatWindow?.settingsChanged()
         if moved {
             Self.spacesLog.notice("The chat moves to the \(inWindow ? "window" : "notch", privacy: .public): \(self.stateLine, privacy: .public)")
             hoverTask?.cancel()

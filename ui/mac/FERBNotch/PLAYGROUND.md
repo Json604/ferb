@@ -27,7 +27,7 @@ then its end on the notch with Done in the full ring, Stop and Repeat, its one b
 (APP-769: the set card leaves its old spot, no "is up" bubble), Repeat starting it again and the repeat's end moving
 the same box down again; a reminder's arrival with its icon, title, due time and Done, its words inside its one box;
 Settings' shortcut and double-tap,
-profile names with their accounts (Settings → Browsers), window mode with Keep on top and Hide the pill, and "Updated
+profile names with their accounts (Settings → Browsers), window mode (always floating, APP-772) with Hide the pill, and "Updated
 to 0.27.1" once. It never calls a model, the real daemon, `~/.ferb` or the network. Each beat checks the UI state it
 leaves; failed checks show under the controls and in the log, and `PlaygroundPlayTests` runs every beat hermetically.
 

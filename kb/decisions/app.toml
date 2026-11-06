@@ -2503,11 +2503,11 @@ evidence = "Live, macOS 27.2: like any all-Spaces window (probes with .stationar
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/NotchCore/TranscriptFollow.swift"]
 
 [APP-749]
-title = "A kept-on-top window steps down for FERB's own windows and for what FERB opens elsewhere"
+title = "The floating window steps down for FERB's own windows and for what FERB opens elsewhere"
 by = "agent"
 date = 2026-11-05
 status = "active"
-rule = "Implements APP-745's Keep on top. The sticky window sits at the normal level, behind the window that opened, while another of FERB's own windows shows (a titled one: Settings and the FERB window, an alert, a file picker; or Quick Look's panel), and after FERB hands the owner something in another app (HandOff: a file revealed in Finder, a document, link or site opened) until the window becomes key or is shown again. Structure only: a window's style, class and visibility."
+rule = "Implements APP-745 and APP-772. The sticky window sits at the normal level, behind the window that opened, while another of FERB's own windows shows (a titled one: Settings and the FERB window, an alert, a file picker; or Quick Look's panel), and after FERB hands the owner something in another app (HandOff: a file revealed in Finder, a document, link or site opened) until the window becomes key or is shown again. Structure only: a window's style, class and visibility."
 why = "Leftover sweep T-1059 (owner's batch 7 check): with Keep on top on, FERB's own Settings opened underneath the floating window where they overlapped; Quick Look alone had a per-case level raise."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift"]
 
@@ -2625,7 +2625,7 @@ title = "The sticky window lives in FERB's fixed overlay space and steps back li
 by = "agent"
 date = 2026-11-06
 status = "active"
-rule = "Implements APP-760. The window lives in the notch's overlay space and steps back to the normal level in the ordinary stack while FERB's picker, titled windows or Quick Look show, after a hand-off, while another process's menu, popover or floating window is over it (250 ms poll), or, with Keep on top off, while a window of an app the owner brought forward overlaps it at all; a file drag holds it out. Trade-off: stepped back, it is an ordinary all-Spaces window and slides with the desktop on a Space switch, rejoining the space after it (owner's choice pending, review 2)."
+rule = "Implements APP-760 and APP-772. The window lives in the notch's overlay space and always floats; it steps back to the normal level in the ordinary stack only while FERB's picker, titled windows or Quick Look show, after a hand-off, or while another process's menu, popover or floating window is over it (250 ms poll); a file drag holds it out. Another app's ordinary window never steps it back."
 why = "Live probe, macOS 27.2: Control-arrow both ways and Mission Control in and out left it in the space, on no ordinary Space, at the same window-server bounds at every 20 ms sample. Activations within 1 s of a Space change (seen by notification or the Space showing) are that Space's own."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController", "ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift::NotchOverlaySpace", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
 live = ["LIVE-804"]
@@ -2733,3 +2733,14 @@ words_source = "Owner, 2026-11-06, about a screenshot of the closed notch while 
 rule = "Supersedes APP-763's \"middle clear\" for the docked live activity: while a timer runs and FERB is closed on a notched Mac, the glyph and the countdown sit in one black shape that grows out of the notch, the compact arrival's silhouette (NotchSurfaceShape) across both ears and the housing (black behind the camera is invisible), just the housing's height from the safe-area inset and the areas beside it, flush with its bottom edge, rounded only at its outer lower corners; no seam where it meets the housing. It stays click-through and under the handle; the pill case and APP-766 are unchanged."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift::TimerActivityView", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.timerActivityPlace", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.updateTimerActivity"]
 live = ["LIVE-807"]
+
+[APP-772]
+title = "No Keep on top: the sticky window always floats and stays still"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "c. Remove the Keep on top setting: the window always floats and stays still, like the notch. · c, remove it"
+words_source = "Owner, 2026-11-06, choosing option c of review 2's finding 2 (Keep on top off made the stepped-back window slide on a Space switch), then the owner's words"
+rule = "Supersedes the Keep on top parts of APP-745 (D20's toggle), APP-758 (Keep on top stays a setting) and APP-760 (Keep on top off lets other apps' windows cover it): the sticky window always floats over other apps' windows and stays put on a Space switch, like the notch. Settings has no Keep on top switch; an old stored value is ignored and cleared on upgrade (as APP-527's setting was). FERB's own windows, its picker, Quick Look, hand-offs, other apps' menus and popovers and file drags still show above it (APP-749, APP-761)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController", "ui/mac/FERBNotch/Sources/NotchCore/ChatWindowPlacement.swift::ChatHost.clearRetired", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppSettings.swift"]
+live = ["LIVE-804"]

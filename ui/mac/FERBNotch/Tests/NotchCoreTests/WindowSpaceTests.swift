@@ -19,7 +19,7 @@ final class WindowSpaceTests: XCTestCase {
     private var rows: [ScreenWindow] = []
 
     /// `focus`: the test clicks or needs keyboard focus, which only an unlocked session gives.
-    private func harness(keepOnTop: Bool = false, focus: Bool = true) throws -> Harness {
+    private func harness(focus: Bool = true) throws -> Harness {
         _ = NSApplication.shared
         guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
         // Clicks and keyboard focus need an unlocked session (a locked screen keeps every window from becoming key)
@@ -29,7 +29,6 @@ final class WindowSpaceTests: XCTestCase {
         let defaults = scratchDefaults()
         NotchDocking.save(true, in: defaults)
         defaults.set(ChatHost.window.rawValue, forKey: ChatHost.defaultsKey)
-        defaults.set(keepOnTop, forKey: ChatHost.keepOnTopKey)
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         let coordinator = PanelCoordinator(model: model, defaults: defaults, overlaySpace: NotchOverlaySpace())
         coordinator.activeSpace = { 1 }
@@ -78,20 +77,17 @@ final class WindowSpaceTests: XCTestCase {
     }
 
     /// The sticky window is in FERB's fixed space, on no ordinary Space, and stays exactly where it is through
-    /// repeated Space switches, with Keep on top off (the owner's setting) and on.
-    // decision: APP-760, APP-745
+    /// repeated Space switches.
+    // decision: APP-760, APP-745, APP-772
     func testTheWindowStaysPutThroughSpaceSwitches() throws {
-        for keepOnTop in [false, true] {
-            let h = try harness(keepOnTop: keepOnTop)
-            assertFixed(h, "opened, keep on top \(keepOnTop)")
-            let before = (h.window.panel.frame, h.window.panel.isKeyWindow, h.window.isShown)
-            switchSpaces(h)
-            assertFixed(h, "after the switches, keep on top \(keepOnTop)")
-            XCTAssertEqual(h.window.panel.frame, before.0, "the window moved")
-            XCTAssertEqual(h.window.panel.isKeyWindow, before.1)
-            XCTAssertTrue(h.window.isShown)
-            h.coordinator.tearDown()
-        }
+        let h = try harness()
+        assertFixed(h, "opened")
+        let before = (h.window.panel.frame, h.window.panel.isKeyWindow, h.window.isShown)
+        switchSpaces(h)
+        assertFixed(h, "after the switches")
+        XCTAssertEqual(h.window.panel.frame, before.0, "the window moved")
+        XCTAssertEqual(h.window.panel.isKeyWindow, before.1)
+        XCTAssertTrue(h.window.isShown)
     }
 
     /// FERB's own windows, its file picker and what it opens in another app show above the window; it comes back after.
@@ -165,37 +161,18 @@ final class WindowSpaceTests: XCTestCase {
         assertFixed(h, "after the switches")
     }
 
-    /// Keep on top off means another app's window the owner brings forward over the sticky window is in front of it;
-    /// the new Space's own front app (a Space switch) isn't. With Keep on top on, nothing of the kind steps it back.
-    // decision: APP-760, APP-745
-    func testWithKeepOnTopOffAnAppBroughtForwardOverItIsInFront() throws {
-        let h = try harness(keepOnTop: false)
+    /// The window always floats (APP-772, owner 2026-11-06: "c, remove it"): an app the owner brings forward, its
+    /// window lying over the sticky window, never steps it back; it stays fixed in the space, in front.
+    // decision: APP-772, APP-760
+    func testAnAppBroughtForwardOverItNeverStepsItBack() throws {
+        let h = try harness()
         let editor = ScreenWindow(windowID: 7001, ownerPID: 5151, layer: 0, bounds: frame(h).offsetBy(dx: 60, dy: 60),
                                   alpha: 1)
         rows = [editor]
-        h.window.otherAppActivated(5151, bySpaceChange: true)
-        assertFixed(h, "the new Space's front app")
-        var clock = Date()
-        h.window.now = { clock }
-        switchSpaces(h, times: 1)                          // macOS may post the activation just after the change
-        h.window.otherAppActivated(5151, bySpaceChange: false)
-        assertFixed(h, "the new Space's front app, activated after the Space change")
-        clock = clock.addingTimeInterval(ChatWindowController.spaceChangeGrace + 0.1)
-        h.window.otherAppActivated(5151, bySpaceChange: false)
-        assertSteppedBack(h, "the owner brought the editor forward")
-        XCTAssertEqual(h.window.coveredBy, 5151)
-        rows = []                                           // its window moved away or closed
         h.window.evaluate()
-        assertFixed(h, "nothing covers it any more")
-        rows = [editor]
-        h.window.ownerClicked(at: CGPoint(x: editor.bounds.maxX - 5, y: editor.bounds.maxY - 5))
-        assertSteppedBack(h, "a click into the editor already in front")
-        h.window.show(focus: true)
-        assertFixed(h, "the owner opened FERB again")
-        h.defaults.set(true, forKey: ChatHost.keepOnTopKey)
-        h.coordinator.applyChatHost()
-        h.window.otherAppActivated(5151, bySpaceChange: false)
-        assertFixed(h, "keep on top on")
+        assertFixed(h, "an editor window over it")
+        switchSpaces(h, times: 1)
+        assertFixed(h, "after a Space switch")
     }
 
     /// A file drag reaches the window: it leaves the fixed space while the drag lasts (no drag reaches a window there,

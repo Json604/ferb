@@ -16,9 +16,8 @@ protocol PlayHost: AnyObject {
     func closeNotch()
     func showSettings(_ tab: SettingsTab)
     func closeSettings()
-    /// Where FERB opens (APP-745), Keep on top and Hide the pill: the playground's own preferences.
+    /// Where FERB opens (APP-745) and Hide the pill: the playground's own preferences.
     func setChatHost(_ host: ChatHost)
-    func setKeepOnTop(_ on: Bool)
     func setHidePill(_ on: Bool)
 }
 
@@ -609,11 +608,6 @@ enum PlayScript {
                 p.host?.closeSettings()
                 p.host?.setChatHost(.window)
                 p.host?.openNotch()
-            }),
-            PlayBeat(caption: "Keep on top off, then on", wait: 2.4, run: { p in
-                p.host?.setKeepOnTop(false)
-                await p.workspace.state.pause(1.6)
-                p.host?.setKeepOnTop(true)
             }),
             PlayBeat(caption: "Hide the pill: the menu bar icon carries its colour", wait: 2.4, run: { p in
                 p.host?.setHidePill(true)

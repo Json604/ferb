@@ -6,7 +6,7 @@ import NotchCore
 
 /// Window mode's header (owner, 2026-11-06: "cant open settings by clicking on icon, it flcikers sometime adn many times
 /// dont even takes the click"): every header control takes a single click, also while another window has keyboard
-/// focus, and no pin shows (Keep on top lives in Settings). Clicks go through AppKit's own event dispatch (posted to the
+/// focus, and no pin shows. Clicks go through AppKit's own event dispatch (posted to the
 /// app's queue and sent by NSApp, as a real click is), never through the owner's input.
 @MainActor
 final class WindowHeaderClickTests: XCTestCase {
@@ -20,7 +20,6 @@ final class WindowHeaderClickTests: XCTestCase {
         let defaults = scratchDefaults()
         NotchDocking.save(true, in: defaults)
         if window { defaults.set(ChatHost.window.rawValue, forKey: ChatHost.defaultsKey) }
-        defaults.set(false, forKey: ChatHost.keepOnTopKey)        // the owner's setting when they reported it
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         let coordinator = PanelCoordinator(model: model, defaults: defaults)
         coordinator.updateScreen()

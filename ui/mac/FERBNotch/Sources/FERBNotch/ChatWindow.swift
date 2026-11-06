@@ -57,7 +57,7 @@ final class ChatWindowPanel: NSPanel {
 }
 
 /// FERB handing the owner something in another app: a file shown in Finder, a document, link or site opened. Every
-/// such hand-off goes through here, so the sticky window steps down from Keep on top and what opened shows above it,
+/// such hand-off goes through here, so the sticky window steps down from floating and what opened shows above it,
 /// until the owner comes back to the window (APP-749).
 enum HandOff {
     static let notification = Notification.Name("FERBHandOff")
@@ -76,12 +76,10 @@ enum HandOff {
     }
 }
 
-/// The window's state its header and level read: Keep on top (D20; set only in Settings, APP-758) and close.
+/// What the window's header acts on: close. The window always floats (APP-772: no Keep on top setting).
 @MainActor
 final class ChatWindowControls: ObservableObject {
-    @Published var keepOnTop: Bool
     var close: () -> Void = {}
-    init(keepOnTop: Bool) { self.keepOnTop = keepOnTop }
 }
 
 /// Opens, hides, places and levels the sticky window. Created the first time window mode shows it, never otherwise.
@@ -90,9 +88,9 @@ final class ChatWindowControls: ObservableObject {
 /// (Control-arrow, a swipe, Mission Control, a full-screen Space) never moves it. It steps back into the ordinary window
 /// stack, one layer back like the notch's yield, while something must show above it: FERB's own file picker, Settings,
 /// alerts or Quick Look (APP-749), what FERB just opened in another app, another process's menu, popover or floating
-/// window over it, a file drag (APP-742's hold-out) and, with Keep on top off, another app's window the owner brought
-/// forward over it. It comes back when none of those holds. Without the overlay space (SkyLight unavailable) it is an
-/// ordinary all-Spaces panel whose level follows Keep on top, as before.
+/// window over it, and a file drag (APP-742's hold-out). It comes back when none of those holds. It always floats over
+/// other apps' windows (owner, 2026-11-06, APP-772: no Keep on top setting). Without the overlay space (SkyLight
+/// unavailable) it is an ordinary all-Spaces floating panel.
 @MainActor
 final class ChatWindowController: NSObject, NSWindowDelegate {
     let panel: ChatWindowPanel
@@ -122,8 +120,6 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     private var handedOff = false
     /// Another process's menu, popover or floating window (one the owner hasn't shown the window above) is over it.
     private(set) var overlaysOver = false
-    /// Keep on top off: the app whose window the owner brought forward over the window.
-    private(set) var coveredBy: Int32?
     /// Other processes' windows the owner chose to show the window above (over it when they opened it or clicked into
     /// it), until they leave the screen; the notch's rule (NotchYieldController.overriddenOverlays).
     private var overridden = Set<UInt32>()
@@ -132,7 +128,6 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     private(set) var steppedBack = false
     private var observers: [NSObjectProtocol] = []
     private var watch: Task<Void, Never>?
-    private var activationRecheck: Task<Void, Never>?
     private var systemInput: [Int32: Bool] = [:]
 
     /// FERB's fixed overlay space (the notch's); nil or detached: the AppKit fallback.
@@ -153,30 +148,13 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         NSRunningApplication(processIdentifier: $0)?.bundleIdentifier == "com.apple.WindowManager"
     }
     static let watchInterval: Duration = .milliseconds(250)
-    /// How long after a Space change an app's activation still counts as that Space's own front app coming forward:
-    /// macOS posts the activation before or after the Space change (live probe, macOS 27.2: after, on Control-arrow).
-    static let spaceChangeGrace: TimeInterval = 1.0
-    var now: () -> Date = { Date() }
-    /// The Space showing (tests stand in their own).
-    var activeSpace: () -> UInt64? = { WindowServerSpaces.activeSpace() }
-    private var lastSpaceChange: Date?
-    /// The Space showing at the last look: a different one now is a Space change, whether or not its notification
-    /// has arrived yet.
-    private var seenSpace: UInt64?
-
-    /// Notes a Space change seen by its notification or by the Space showing having changed since the last look.
-    private func noteSpace(changed: Bool = false) {
-        let space = activeSpace()
-        if changed || (space != nil && seenSpace != nil && space != seenSpace) { lastSpaceChange = now() }
-        if space != nil { seenSpace = space }
-    }
 
     static let behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
 
     init(model: NotchModel, defaults: UserDefaults) {
         self.model = model
         self.defaults = defaults
-        controls = ChatWindowControls(keepOnTop: ChatHost.keepsOnTop(defaults))
+        controls = ChatWindowControls()
         panel = ChatWindowPanel(contentRect: CGRect(origin: .zero, size: ChatWindowFrames.standardSize),
                                 styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
                                 backing: .buffered, defer: false)
@@ -231,7 +209,6 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     deinit {
         observers.forEach(NotificationCenter.default.removeObserver)
         watch?.cancel()
-        activationRecheck?.cancel()
     }
 
     var isShown: Bool { panel.isVisible }
@@ -241,7 +218,6 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     /// owner (or FERB's arrival) showing it is the owner's choice of it over what was in front: it comes forward.
     func show(focus: Bool) {
         handedOff = false
-        coveredBy = nil
         overrideAtNextCheck = true
         if !panel.isVisible { place() }
         panel.orderFrontRegardless()
@@ -259,13 +235,6 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         watch = nil
     }
 
-    /// Keep on top (on: floating; off: among other windows) read again, e.g. after Settings changed it.
-    func settingsChanged() {
-        controls.keepOnTop = ChatHost.keepsOnTop(defaults)
-        if controls.keepOnTop { coveredBy = nil }
-        applyPlace()
-    }
-
     /// FERB's file picker opened or closed (it must show above the window).
     func filePicker(open: Bool) {
         underPicker = open
@@ -281,7 +250,6 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     /// The owner came back to the window (it became key): nothing they had brought forward holds it back any more.
     private func ownerReturned() {
         handedOff = false
-        coveredBy = nil
         overrideAtNextCheck = true
         applyPlace()
     }
@@ -291,56 +259,15 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     private var fixed: Bool { space?.isAttached == true }
 
     /// What must show above the window now.
-    var stepsBack: Bool { underPicker || underOwnWindow || handedOff || overlaysOver || coveredBy != nil }
+    var stepsBack: Bool { underPicker || underOwnWindow || handedOff || overlaysOver }
 
     /// The window's frame in window-server coordinates (origin at the primary display's top left).
     private var serverFrame: CGRect {
         NotchOverlap.windowServerRect(panel.frame, primaryDisplayHeight: NSScreen.screens.first?.frame.maxY ?? 0)
     }
 
-    /// An app came forward (`bySpaceChange`: the new Space's own front app, which nobody brought over the window).
-    /// With Keep on top off, the window steps behind that app's window when one lies over it; a window that unhides
-    /// or un-minimizes with its app shows a moment later, so it is looked for again then.
-    func otherAppActivated(_ pid: Int32, bySpaceChange: Bool) {
-        activationRecheck?.cancel()
-        noteSpace()
-        let afterSpaceChange = lastSpaceChange.map { now().timeIntervalSince($0) < Self.spaceChangeGrace } ?? false
-        guard !bySpaceChange, !afterSpaceChange, !ownPIDs.contains(pid), !controls.keepOnTop, isShown, fixed
-        else { return }
-        if coverIfUnder(pid) { return }
-        activationRecheck = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
-            self?.coverIfUnder(pid)
-        }
-    }
-
-    /// The owner clicked another app (FERB's global monitor; `point` in window-server coordinates): with Keep on top
-    /// off, an app already in front whose window lies under the window takes the front as an activation would.
-    func ownerClicked(at point: CGPoint) {
-        guard !controls.keepOnTop, isShown, fixed else { return }
-        let rows = windowList()
-        if let app = NotchOverlap.clickedApp(at: point, in: rows, ownPIDs: ownPIDs,
-                                             canBeActive: { _ in true }, frontmost: { nil }) {
-            coverIfUnder(app, rows: rows)
-        }
-    }
-
-    @discardableResult
-    private func coverIfUnder(_ pid: Int32, rows: [ScreenWindow]? = nil) -> Bool {
-        let rows = (rows ?? windowList()).filter { !onAnotherSpace($0.windowID) }
-        guard let front = NotchOverlap.frontWindowUnderChat(in: rows, appPID: pid, chat: serverFrame) else { return false }
-        coveredBy = pid
-        applyPlace()
-        if panel.isVisible { panel.order(.below, relativeTo: Int(front.windowID)) }
-        return true
-    }
-
     /// A Space change: nothing moves; what holds the window back is read again on the Space showing now.
-    func spaceChanged() {
-        noteSpace(changed: true)
-        activationRecheck?.cancel()
-        evaluate()
-    }
+    func spaceChanged() { evaluate() }
 
     private func startWatch() {
         guard fixed, watch == nil else { return }
@@ -353,11 +280,9 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     }
 
     /// One look at the windows around the sticky window: another process's menu, popover or floating window over it
-    /// (not one the owner chose to show it above; never during Mission Control or for system text input), and, with
-    /// Keep on top off, whether the app it stepped behind still has a window over it.
+    /// (not one the owner chose to show it above; never during Mission Control or for system text input).
     func evaluate() {
         guard isShown, fixed, let screen = panel.screen ?? NSScreen.main else { return }
-        noteSpace()
         let height = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
         func server(_ rect: CGRect) -> CGRect { NotchOverlap.windowServerRect(rect, primaryDisplayHeight: height) }
         let bar = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
@@ -380,12 +305,6 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         let overlays = !ids.isSubset(of: overridden)
         if overlays != overlaysOver {
             overlaysOver = overlays
-            changed = true
-        }
-        if let app = coveredBy, !missionControl,
-           NotchOverlap.frontWindowUnderChat(in: rows.filter { !onAnotherSpace($0.windowID) }, appPID: app,
-                                             chat: frame) == nil {
-            coveredBy = nil
             changed = true
         }
         if changed { applyPlace() }
@@ -427,21 +346,19 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Keep on top floats the window, except while FERB's own picker, alert, Quick Look or Settings shows, or after
-    /// FERB handed something to another app (APP-748, APP-749).
-    static func level(keepOnTop: Bool, picker: Bool, ownWindow: Bool, handedOff: Bool) -> NSWindow.Level {
-        keepOnTop && !picker && !ownWindow && !handedOff ? .floating : .normal
+    /// The window floats, except while FERB's own picker, alert, Quick Look or Settings shows, or after FERB handed
+    /// something to another app (APP-748, APP-749, APP-772).
+    static func level(picker: Bool, ownWindow: Bool, handedOff: Bool) -> NSWindow.Level {
+        !picker && !ownWindow && !handedOff ? .floating : .normal
     }
 
     /// In the overlay space the window floats above every ordinary window; while something must show above it, it
     /// steps back to the normal level in the ordinary window stack: in front of ordinary windows under another
-    /// process's menu or popover, behind the app window the owner brought forward (`coverIfUnder`) or FERB's own window
-    /// (`ownWindowsChanged`), and left where it is under the picker or after a hand-off, whose window comes forward
-    /// by itself. Without the overlay space: Keep on top's level, as before (`level`).
+    /// process's menu or popover, behind FERB's own window (`ownWindowsChanged`), and left where it is under the picker
+    /// or after a hand-off, whose window comes forward by itself. Without the overlay space: `level`.
     private func applyPlace() {
         guard let space, space.isAttached else {
-            panel.level = Self.level(keepOnTop: controls.keepOnTop, picker: underPicker, ownWindow: underOwnWindow,
-                                     handedOff: handedOff)
+            panel.level = Self.level(picker: underPicker, ownWindow: underOwnWindow, handedOff: handedOff)
             return
         }
         if stepsBack {
@@ -450,7 +367,7 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
             steppedBack = true
             space.stepBack(panel)
             Self.log.notice("Window steps back (\(self.reasons, privacy: .public))")
-            if panel.isVisible && overlaysOver && coveredBy == nil && !underPicker && !underOwnWindow && !handedOff {
+            if panel.isVisible && overlaysOver && !underPicker && !underOwnWindow && !handedOff {
                 panel.orderFrontRegardless()                  // menus and popovers sit above the normal level
             }
         } else {
@@ -465,7 +382,7 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
 
     var reasons: String {
         [underPicker ? "picker" : nil, underOwnWindow ? "FERB window" : nil, handedOff ? "hand-off" : nil,
-         overlaysOver ? "menu or popover" : nil, coveredBy.map { "app \($0)" }].compactMap { $0 }.joined(separator: ", ")
+         overlaysOver ? "menu or popover" : nil].compactMap { $0 }.joined(separator: ", ")
     }
 
     static let log = Logger(subsystem: "com.ferb.FERB", category: "spaces")
@@ -511,8 +428,7 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     }
 }
 
-/// The window's content: a draggable header (title with its status dot, profile menu, close; Keep on top is a setting,
-/// APP-758) over the one chat body (ChatBodyView), on black glass like the notch (APP-551).
+/// The window's content: a draggable header (title with its status dot, profile menu, close; no pin, APP-758) over the one chat body (ChatBodyView), on black glass like the notch (APP-551).
 struct ChatWindowView: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var controls: ChatWindowControls

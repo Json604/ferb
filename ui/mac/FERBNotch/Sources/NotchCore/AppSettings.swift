@@ -51,13 +51,10 @@ public enum AppSettings {
     public static let whereFERBOpens = AppSetting(
         keys: [ChatHost.defaultsKey], name: "Where FERB opens", place: notch + " → Where FERB opens",
         effect: "Notch: FERB opens in the notch. Window: FERB opens in a window that stays open until closed (close "
-            + "button, ⌘W or Esc) and shows on every Space; the shortcut, the menu bar's Open FERB, a file drop or "
+            + "button, ⌘W or Esc), floats above other apps' windows and shows on every Space; the shortcut, the menu bar's Open FERB, a file drop or "
             + "opening FERB.app again opens it") { defaults in
         ChatHost.setting(defaults) == .window ? "Window" : "Notch"
     }
-    public static let keepOnTop = AppSetting.toggle(
-        ChatHost.keepOnTopKey, "Keep on top", place: notch + " → Where FERB opens (window only)",
-        effect: "In window mode FERB's window floats above other apps' windows; off, it stays among them")
     public static let hidePill = AppSetting.toggle(
         ChatHost.hidePillKey, "Hide the pill", place: notch + " → Where FERB opens (window only)",
         effect: "In window mode the notch handle and pill disappear and the menu bar icon shows FERB's status; the "
@@ -133,7 +130,7 @@ public enum AppSettings {
     /// Every owner-facing app preference, in Settings' order. A new preference is added here (the test enumerates the
     /// keys FERB.app writes and fails on one that is neither declared nor in `internalKeys`).
     public static var all: [AppSetting] {
-        [whereFERBOpens, keepOnTop, hidePill, windowPlace, hover, openShortcut, doubleTap, sendOnRelease, pointer, placement,
+        [whereFERBOpens, hidePill, windowPlace, hover, openShortcut, doubleTap, sendOnRelease, pointer, placement,
          chatHeight, chatWidth, soundsOn, volume, intensity] + soundSwitches
     }
 
@@ -155,6 +152,7 @@ public enum AppSettings {
         "loginItem.defaultApplied": "whether open-at-login's default was applied once (bookkeeping)",
         "loginItem.refusal": "macOS refused open at login (state; the setting itself lives in macOS's Login Items)",
         "feedback.magneticEnabled": "a removed setting (APP-527), only cleared on upgrade",
+        "chatWindow.keepOnTop": "a removed setting (Keep on top, APP-772), only cleared on upgrade",
         "concept.arrivalStyle": "the isolated playground's review switch, never in FERB.app's Settings",
     ]
 

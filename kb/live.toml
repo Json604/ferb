@@ -3227,8 +3227,8 @@ sitting = "after this change is installed"
 title = "The sticky window opens every way, stays until closed and shows on every Space"
 area = "app"
 surface = "FERB.app with this build; Settings → Notch & Shortcuts → Where FERB opens: Window; a full-screen app; several Spaces"
-request = "Open FERB by double-tap, your shortcut, the menu bar's Open FERB, opening FERB.app again, a press on the notch, and by dropping a disposable file on the window and on the notch. Type, send, attach. Click other apps, switch Spaces (Control-arrow, swipes), open Mission Control, go to a full-screen app's Space. Close it with its ×, ⌘W and Esc. Turn Keep on top off and on. ⌘Q once."
-pass = "Each way opens the window focused for typing (the drop puts the file in the message box, unsent). It stays open on every Space in the same place, never sliding with the desktop (APP-760), isn't in the Dock or ⌘-Tab, floats over other windows only with Keep on top on. ×, ⌘W and Esc hide it; ⌘Q quits FERB."
+request = "Open FERB by double-tap, your shortcut, the menu bar's Open FERB, opening FERB.app again, a press on the notch, and by dropping a disposable file on the window and on the notch. Type, send, attach. Click other apps, switch Spaces (Control-arrow, swipes), open Mission Control, go to a full-screen app's Space. Close it with its ×, ⌘W and Esc. ⌘Q once."
+pass = "Each way opens the window focused for typing (the drop puts the file in the message box, unsent). It stays open on every Space in the same place, never sliding with the desktop (APP-760), isn't in the Dock or ⌘-Tab, and always floats over other apps' windows (APP-772). ×, ⌘W and Esc hide it; ⌘Q quits FERB."
 decisions = ["APP-745", "APP-746", "APP-748"]
 sitting = "after this change is installed"
 
@@ -3254,7 +3254,7 @@ sitting = "after this change is installed"
 title = "Questions, answers and reminders bring the window forward while you type elsewhere"
 area = "app"
 surface = "FERB.app with this build in window mode, the window closed; a text editor you are typing in"
-request = "Start a task that will ask you something, then a reminder due in a minute, and keep typing in the editor until each arrives. Repeat with the window open behind the editor, Keep on top off."
+request = "Start a task that will ask you something, then a reminder due in a minute, and keep typing in the editor until each arrives."
 pass = "Each arrival shows the window (in front of the editor) with the question, answer or reminder, while your typing keeps going into the editor; sounds as before."
 decisions = ["APP-745"]
 sitting = "after this change is installed"
@@ -3272,15 +3272,15 @@ sitting = "after this change is installed"
 title = "Stage Manager leaves the sticky window alone"
 area = "app"
 surface = "FERB.app with this build in window mode; Stage Manager on"
-request = "With the window open, switch between Stage Manager's app groups, click the desktop, and open FERB from the shortcut with another group in front. Repeat with Keep on top off."
+request = "With the window open, switch between Stage Manager's app groups, click the desktop, and open FERB from the shortcut with another group in front."
 pass = "The window stays visible beside every group and is never swallowed into the strip or hidden by a group switch; the shortcut always brings it forward."
 decisions = ["APP-745", "APP-748"]
 sitting = "after this change is installed"
 
 [LIVE-801]
-title = "With Keep on top, FERB's Settings, Quick Look and what it opens show above the window"
+title = "FERB's Settings, Quick Look and what it opens show above the floating window"
 area = "app"
-surface = "FERB.app with this build in window mode, Keep on top on, the window open over the middle of the screen; a chat answer with a file card and a link"
+surface = "FERB.app with this build in window mode, the window open over the middle of the screen; a chat answer with a file card and a link"
 request = "Open Settings from the menu-bar menu where it overlaps the window; close it. Quick Look the file card; close it. Click the file card (Finder), then the link (browser). Then click the window."
 pass = "Settings, Quick Look, the Finder window and the browser each show above the window; after Settings and Quick Look close and after you click the window, it floats on top again."
 decisions = ["APP-749"]
@@ -3298,19 +3298,19 @@ sitting = "after this change is installed"
 [LIVE-803]
 title = "The window's header: no pin; the profile menu opens on every click"
 area = "app"
-surface = "FERB.app with this build in window mode (Keep on top off and on), the window open, another app in front with keyboard focus"
+surface = "FERB.app with this build in window mode, the window open, another app in front with keyboard focus"
 request = "Look at the header. Click the profile circle ten times in a row, each time closing the menu with Esc, with another app focused before some of the clicks; then choose Settings… from it and switch Where FERB opens to Notch. Drag the window by the header's empty space; click ×."
-pass = "The header shows ferb., the profile circle and ×, no pin. Every click opens the menu at once without the window flickering or moving; Settings opens and the switch to Notch works. Dragging the header moves the window and it keeps that place; × closes it with one click. Keep on top is in Settings and still works."
+pass = "The header shows ferb., the profile circle and ×, no pin. Every click opens the menu at once without the window flickering or moving; Settings opens and the switch to Notch works. Dragging the header moves the window and it keeps that place; × closes it with one click. Settings has no Keep on top switch."
 decisions = ["APP-758", "APP-759"]
 sitting = "after this change is installed"
 
 [LIVE-804]
 title = "The sticky window stays put through Space switches"
 area = "app"
-surface = "FERB.app with this build in window mode, Keep on top off (then on), the window open; several Spaces and a full-screen app"
+surface = "FERB.app with this build in window mode (after an older build that had Keep on top off), the window open; several Spaces and a full-screen app"
 request = "Switch Spaces with Control-arrow and a trackpad swipe, open and close Mission Control, go to the full-screen app's Space and back. Then click another app whose window overlaps FERB's, open one of its menus over FERB's window, open FERB's Settings and the file picker from the window, Quick Look a file card, and drop a file on the window."
-pass = "Through every Space switch and Mission Control the window stays exactly where it is, never sliding out and back. The other app's window (Keep on top off), its menu, Settings, the picker and Quick Look each show above the window; the drop lands in the message box; clicking the window brings it back in front. With Keep on top on, other apps' windows never cover it but their menus still show."
-decisions = ["APP-760", "APP-761"]
+pass = "Through every Space switch and Mission Control the window stays exactly where it is, never sliding out and back, and floats over other apps' windows: the other app's window never covers it, but its menu, Settings, the picker and Quick Look each show above it; the drop lands in the message box; clicking the window brings it back in front. Settings has no Keep on top switch."
+decisions = ["APP-760", "APP-761", "APP-772"]
 sitting = "after this change is installed"
 
 [LIVE-805]
