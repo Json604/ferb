@@ -64,6 +64,9 @@ def _row(r: Any) -> Timer:
 # a timer's row with its name (T-1055): get and pending read it; a claim hands the consumer the row without it
 _SELECT = "SELECT t.*, n.name FROM timers t LEFT JOIN timer_names n ON n.timer_id = t.id"
 
+# what a timer's row state means to the owner (DMN-548): due and being delivered still counts as running
+SHOWN_STATE = {"pending": "running", "claimed": "running", "delivered": "fired", "cancelled": "cancelled"}
+
 
 class Timers:
     def __init__(self, db: Database, clock: Clock, ids: IdSource,
@@ -77,15 +80,18 @@ class Timers:
         # daemon sets both from its presence signal (MacPresence), and calls `wake()` when the Mac is back in use
         self.owner_away: Callable[[], bool] = lambda: False
         self.present_since: Callable[[], datetime | None] = lambda: None   # None: FERB can't tell (unknown = present)
+        # DMN-548: told of every change to a timer that isn't a worker's sleep (its row and its shown state); the daemon
+        # publishes it. Reporting never stops the write.
+        self.on_change: Callable[[Timer, str], None] | None = None
         self._wake = asyncio.Event()
 
     # ---------- writes ----------
 
     def add(self, kind: str, fire_at: datetime, message: str = "", task_id: str | None = None,
             request_id: str | None = None, *, when_active: bool = False,
-            return_after: datetime | None = None, name: str = "") -> Timer:
+            return_after: datetime | None = None, name: str = "", repeat_of: str | None = None) -> Timer:
         """`when_active` (ORCH-317): it fires only while the owner is at the Mac; `return_after`: only in an active
-        stretch that began after that time."""
+        stretch that began after that time; `repeat_of`: the fired timer whose Repeat this is (recorded, DMN-548)."""
         now = self.clock.now()
         if fire_at.tzinfo is None or (return_after is not None and return_after.tzinfo is None):
             raise ValueError("a timer needs a time zone")
@@ -100,9 +106,12 @@ class Timers:
                                  (tid, return_after.astimezone(timezone.utc).isoformat() if return_after else None))
         if name.strip():
             self.db.conn.execute("INSERT INTO timer_names (timer_id, name) VALUES (?, ?)", (tid, " ".join(name.split())))
+        if repeat_of is not None:
+            self.db.conn.execute("INSERT INTO timer_repeats (timer_id, repeat_id) VALUES (?, ?)", (repeat_of, tid))
         self._wake.set()
         t = self.get(tid)
         assert t is not None
+        self._changed(t)
         return t
 
     def get(self, tid: str) -> Timer | None:
@@ -131,8 +140,30 @@ class Timers:
         return self.db.conn.execute("SELECT 1 FROM timer_deliveries WHERE timer_id = ?", (tid,)).fetchone() is not None
 
     def cancel(self, tid: str) -> bool:
-        return self.db.conn.execute("UPDATE timers SET state = 'cancelled' WHERE id = ? AND state IN ('pending', "
-                                    "'claimed')", (tid,)).rowcount > 0
+        """Every cancel of one timer comes here (a card's Cancel, chat, Settings, a schedule's change): told once."""
+        cancelled = self.db.conn.execute("UPDATE timers SET state = 'cancelled' WHERE id = ? AND state IN ('pending', "
+                                         "'claimed')", (tid,)).rowcount > 0
+        if cancelled:
+            self._changed(self.get(tid))
+        return cancelled
+
+    def repeated_by(self, tid: str) -> str | None:
+        """The timer a fired timer's Repeat started (DMN-548), or None."""
+        r = self.db.conn.execute("SELECT repeat_id FROM timer_repeats WHERE timer_id = ?", (tid,)).fetchone()
+        return str(r[0]) if r else None
+
+    def repeat_of(self, tid: str) -> str | None:
+        """The fired timer this one repeats, or None."""
+        r = self.db.conn.execute("SELECT timer_id FROM timer_repeats WHERE repeat_id = ?", (tid,)).fetchone()
+        return str(r[0]) if r else None
+
+    def _changed(self, t: Timer | None) -> None:
+        if t is None or t.kind == "sleep" or self.on_change is None:
+            return
+        try:
+            self.on_change(t, SHOWN_STATE.get(t.state, t.state))
+        except Exception as e:
+            self._report(t, e)                                 # a failed report never undoes the write
 
     def cancel_task(self, task_id: str) -> int:
         """A task ended: its sleeps go (reminders it set for the owner stay)."""
@@ -174,8 +205,9 @@ class Timers:
         return out
 
     def ack(self, tid: str) -> None:
-        self.db.conn.execute("UPDATE timers SET state = 'delivered', delivered_at = ? WHERE id = ? AND state = 'claimed'",
-                             (self.clock.now().isoformat(), tid))
+        if self.db.conn.execute("UPDATE timers SET state = 'delivered', delivered_at = ? WHERE id = ? AND state = "
+                                "'claimed'", (self.clock.now().isoformat(), tid)).rowcount:
+            self._changed(self.get(tid))
 
     async def tick(self) -> int:
         """Hand each due timer to the consumer and acknowledge it. A consumer that raises leaves that timer claimed (it

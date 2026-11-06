@@ -567,7 +567,7 @@ enum PlayScript {
                     ? nil : "the reminder didn't arrive"
             }),
             PlayBeat(caption: "Done dismisses it; the chat keeps the message", wait: 1.6, run: { p in
-                p.model.stopTimerAlert()
+                p.model.stopTimerAlert("play-\(p.ids.run)-water")
             }, check: { probe in
                 (probe.model.chatInWindow || probe.model.compactPlanText == nil)
                     && probe.model.conversation.notices.contains { $0.id.hasSuffix("play-\(probe.ids.run)-water") }

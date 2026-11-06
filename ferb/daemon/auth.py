@@ -35,6 +35,7 @@ METHODS: dict[Role, frozenset[str]] = {
                          "memory.retract", "memory.forget", "memory.restore", "memory.repeats", "memory.import.estimate",
                          "memory.import.start", "memory.import.status", "memory.import.cancel", "timeline.get",
                          "jev.stats", "jev.enable", "jev.reload", "runtimes.check", "reminders.list", "reminders.cancel", "timers.repeat",
+                         "timers.states",
                          "chat.status", "results.ack", "chat.attach", "task.stop", "schedules.list", "schedules.change",
                          "verdict.set", "recovery.list", "recovery.restore",
                          "conversations.list", "conversations.change", "attention.ack",

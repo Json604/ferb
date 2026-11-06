@@ -705,3 +705,13 @@ status = "active"
 rule = "For APP-762. A timer's event card, its pending row (reminders.list) and its arrival card carry `started` (the timer row's created_at), so the app draws its ring over its duration. `timers.repeat {id}` (the app's role) starts the same timer again from now for the same duration, with its name and message, journals timer.repeated by the owner, and returns the new row; a reminder or a timer without a start is refused."
 why = "The ring and Repeat need the duration, which only the daemon's row knows; Repeat is the owner's own tap on a timer FERB already set: no model, no new words."
 paths = ["ferb/daemon/areas/schedules.py::Schedules._timers_repeat", "ferb/daemon/areas/schedules.py::Schedules._reminders_list", "ferb/clock/timers.py::Timer", "ferb/orchestrator/cards.py::event"]
+
+[DMN-548]
+title = "Every change of a timer reaches every client, and a fired timer repeats once"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "For APP-764. Every write of a timer (not a sleep) goes through ferb/clock/timers.py, which tells `Timers.on_change`: set (running), cancelled by any path (reminders.cancel from a card or Settings, chat, a schedule change), acknowledged (fired); the daemon publishes the critical event `timer.changed`. `timers.states {ids}` (cli role) gives each timer's or reminder's state and `repeated_by`. Migration 0061 timer_repeats: `timers.repeat` repeats a fired timer at most once (a second call returns that repeat); a running or cancelled one is refused."
+why = "Review 2 (findings 1 and 6): a timer cancelled in chat or Settings kept counting down in the closed notch and on its card, and Repeat on the alert and again on the card started two timers. One write path tells every client; the record of a repeat is a row, not app memory."
+paths = ["ferb/clock/timers.py::Timers", "ferb/daemon/areas/schedules.py::Schedules._timer_changed", "ferb/daemon/areas/schedules.py::Schedules._timers_repeat", "ferb/daemon/areas/schedules.py::Schedules._timers_states", "ferb/bus.py", "ferb/store/migrations/0061_timer_repeats.sql"]
+live = ["LIVE-805"]

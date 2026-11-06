@@ -336,8 +336,13 @@ final class NotchModel: ObservableObject {
     @Published private(set) var compactReminderCard: ResultCard?
     /// The owner's timers still running (`reminders.list`, APP-762): the closed notch's live activity shows the soonest.
     @Published var runningTimers: [RunningTimer] = []
-    /// Timers the owner cancelled from their card here: the card says so instead of counting down.
-    @Published var cancelledTimers: Set<String> = []
+    /// What FERB's rows say happened to each timer or reminder the app shows (DMN-548: `timers.states`, then
+    /// `timer.changed`): its cards, the closed notch and the done alert read this, never state of their own.
+    @Published var timerRecords: [String: TimerRecord] = [:]
+    /// Timers whose done alert the owner stopped (Stop or Repeat) in this session: their Stop and Repeat go.
+    @Published var stoppedTimers: Set<String> = []
+    /// Timers whose record was asked for (a card showed): connect asks for all of them again.
+    var askedTimerStates: Set<String> = []
     private var measuredReminder: (card: ResultCard, text: String, width: CGFloat, minute: Int, height: CGFloat)?
     func finishCompactPreviewDismissal() {
         if compactPlanText == nil { compactPlanDisplayText = nil }

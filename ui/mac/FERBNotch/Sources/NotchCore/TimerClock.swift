@@ -45,3 +45,26 @@ public struct RunningTimer: Equatable, Identifiable, Sendable {
         timers.filter { $0.ends > now }.min { $0.ends < $1.ends }
     }
 }
+
+/// What FERB's records say happened to a timer or reminder the app shows (DMN-548): running, cancelled or fired, and
+/// the timer a fired one's Repeat started. `timers.states` gives it on connect and when a card first shows;
+/// `timer.changed` keeps it after. The cards, the closed notch and the done alert's Stop and Repeat read it, never their
+/// own memory.
+public struct TimerRecord: Equatable, Sendable {
+    public enum State: String, Sendable { case running, cancelled, fired }
+
+    public var state: State
+    public var repeatedBy: String?
+
+    public init(state: State, repeatedBy: String? = nil) {
+        self.state = state
+        self.repeatedBy = repeatedBy
+    }
+
+    /// One row of `timers.states` (`state`, `repeated_by`); nil for a state this app doesn't know.
+    public init?(row: [String: Any]) {
+        guard let state = State(rawValue: row["state"] as? String ?? "") else { return nil }
+        let repeated = row["repeated_by"] as? String
+        self.init(state: state, repeatedBy: repeated?.isEmpty == false ? repeated : nil)
+    }
+}

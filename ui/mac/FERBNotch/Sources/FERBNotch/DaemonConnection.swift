@@ -14,7 +14,7 @@ extension NotchModel {
                     self.daemonLink.succeeded()
                     self.clickThrough.reconnected()     // the daemon may have restarted: its click-through windows
                     await self.refreshDaemonStatus()
-                    await self.refreshRunningTimers()
+                    await self.refreshTimers()
                     for try await event in self.rpc.stream("logs.subscribe", params: [:]) {
                         guard !Task.isCancelled else { return }
                         self.receiveBusEvent(event)
@@ -474,8 +474,10 @@ extension NotchModel {
         }
         switch event["topic"] as? String {
         case "timer.fired":
-            runningTimers.removeAll { $0.id == data["timer_id"] as? String }
+            timerFired(data["timer_id"] as? String)
             Task { await refreshRunningTimers() }
+        case "timer.changed":                            // DMN-548: set, cancelled (by any path) or fired
+            receiveTimerChange(data)
         case "approval.requested":
             guard let approval = normalizeApproval(data), !pendingApprovals.contains(where: { $0.id == approval.id }) else { return }
             pendingApprovals.append(approval)
@@ -687,6 +689,7 @@ extension NotchModel {
         if let due = card?.due { shown["due"] = due }
         if let started = card?.started { shown["started"] = started }    // a timer's: its done alert repeats its duration
         shown["timer_id"] = card?.timerID ?? id
+        if card?.isTimer == true { timerFired(card?.timerID ?? id) }      // its arrival: it fired (DMN-548)
         receiveNotices([["id": "reminder:" + id, "text": text, "at": at ?? ISO8601DateFormatter().string(from: Date()),
                          "banner": true, "cards": [shown]]], soundIDs: [id])
     }

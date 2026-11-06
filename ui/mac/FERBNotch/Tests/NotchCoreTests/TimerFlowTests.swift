@@ -40,13 +40,74 @@ final class TimerFlowTests: XCTestCase {
         model.acknowledgement.show("Your tea is ready.", reminder: ResultCard(["type": "reminder", "kind": "timer",
                                                                                 "title": "Tea", "timer_id": "tm-1"]))
         XCTAssertNotNil(model.compactPlanText)
-        model.stopTimerAlert()
+        model.stopTimerAlert("tm-1")
         XCTAssertNil(model.compactPlanText, "Stop dismissed the alert")
         XCTAssertFalse(rpc.calls.contains { $0.0 == "timers.repeat" }, "Stop never starts a timer")
         model.repeatTimer("tm-1")
         for _ in 0..<50 where model.runningTimers.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(rpc.calls.first { $0.0 == "timers.repeat" }?.1["id"] as? String, "tm-1")
         XCTAssertEqual(model.runningTimers.map(\.id), ["tm-2"])
+    }
+
+    // decision: DMN-548, APP-764, APP-762
+    func testATimerCancelledAnywhereStopsEverywhereAndConnectReadsTheDaemonsRows() async throws {
+        // Review 2, finding 1: a timer cancelled in chat or in Settings kept counting down in the closed notch and on
+        // its card, and a relaunch called a cancelled timer "Timer done".
+        let rpc = ScriptedRPC()
+        let ends = ISO8601DateFormatter().string(from: Date().addingTimeInterval(300))
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
+        model.receiveBusEvent(["topic": "timer.changed", "data": ["timer_id": "tm-1", "kind": "timer", "state": "running",
+                                                                  "at": ends, "name": "Tea"]])
+        XCTAssertEqual(model.soonestTimer()?.id, "tm-1", "a timer set anywhere counts down in the closed notch")
+        model.receiveBusEvent(["topic": "timer.changed", "data": ["timer_id": "tm-1", "kind": "timer",
+                                                                  "state": "cancelled", "at": ends]])
+        XCTAssertNil(model.soonestTimer(), "cancelled in chat or Settings: the closed notch stops counting")
+        XCTAssertEqual(model.timerRecords["tm-1"]?.state, .cancelled, "its card says Cancelled")
+        XCTAssertFalse(model.timerAlertOpen("tm-1"))
+        // relaunch: nothing in memory; the cards' states come from FERB's rows
+        let relaunched = NotchModel(rpc: rpc, preferences: scratchDefaults())
+        rpc.replies["reminders.list"] = ["pending": []]
+        rpc.replies["timers.states"] = ["timers": ["tm-1": ["kind": "timer", "state": "cancelled"],
+                                                   "tm-2": ["kind": "timer", "state": "fired"]]]
+        relaunched.needTimerState("tm-1")
+        relaunched.needTimerState("tm-2")
+        for _ in 0..<50 where relaunched.timerRecords.count < 2 { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(relaunched.timerRecords["tm-1"]?.state, .cancelled, "a cancelled timer never reads Done")
+        XCTAssertEqual(relaunched.timerRecords["tm-2"]?.state, .fired)
+        // a reconnect asks again for every timer shown (a cancel while the app was away)
+        rpc.replies["timers.states"] = ["timers": ["tm-2": ["kind": "timer", "state": "fired", "repeated_by": "tm-3"]]]
+        await relaunched.refreshTimers()
+        let asked = rpc.calls.last { $0.0 == "timers.states" }?.1["ids"] as? [String]
+        XCTAssertEqual(asked, ["tm-1", "tm-2"])
+        XCTAssertEqual(relaunched.timerRecords["tm-2"]?.repeatedBy, "tm-3")
+    }
+
+    // decision: DMN-548, APP-764, APP-622
+    func testStopAndRepeatComeFromTheModelAndStopDismissesOnlyThatTimersArrival() async throws {
+        // Review 2, finding 6: Repeat on the alert and again on the chat card started two timers; Stop dismissed
+        // whatever arrival was showing.
+        let rpc = ScriptedRPC()
+        let ends = ISO8601DateFormatter().string(from: Date().addingTimeInterval(300))
+        rpc.replies["timers.repeat"] = ["timer": "tm-2", "kind": "timer", "at": ends, "name": "Tea", "state": "running",
+                                        "repeat_of": "tm-1", "started": ISO8601DateFormatter().string(from: Date())]
+        rpc.replies["reminders.list"] = ["pending": [["id": "tm-2", "kind": "timer", "at": ends, "name": "Tea"]]]
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
+        model.receiveBusEvent(["topic": "timer.fired", "data": ["timer_id": "tm-1", "kind": "timer"]])
+        XCTAssertTrue(model.timerAlertOpen("tm-1"), "fired and not repeated: the arrival and its card offer Stop and Repeat")
+        model.acknowledgement.show("Water break", reminder: ResultCard(["type": "reminder", "kind": "reminder",
+                                                                         "title": "Water", "timer_id": "rm-9"]))
+        model.stopTimerAlert("tm-1")
+        XCTAssertNotNil(model.compactPlanText, "Stop on the tea timer's card leaves another arrival alone")
+        XCTAssertFalse(model.timerAlertOpen("tm-1"), "stopped: its Stop and Repeat go everywhere")
+        model.stopTimerAlert("rm-9")
+        XCTAssertNil(model.compactPlanText, "that reminder's own Done dismisses it")
+        let other = NotchModel(rpc: rpc, preferences: scratchDefaults())
+        other.timerFired("tm-1")
+        other.repeatTimer("tm-1")
+        for _ in 0..<50 where other.timerRecords["tm-1"]?.repeatedBy == nil { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(other.timerRecords["tm-1"]?.repeatedBy, "tm-2")
+        XCTAssertFalse(other.timerAlertOpen("tm-1"), "repeated: no second Repeat anywhere")
+        XCTAssertEqual(other.runningTimers.map(\.id), ["tm-2"])
     }
 
     // decision: APP-762, APP-550, APP-588

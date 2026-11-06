@@ -692,17 +692,64 @@ class Schedules:
                              **({"started": t.created_at.isoformat()} if t.kind == "timer" and t.created_at else {})}
                             for t in self.timers.pending()]}
 
+    def _timer_changed(self, t: Any, state: str) -> None:
+        """DMN-548: a timer was set, cancelled (a card's Cancel, chat, Settings, a schedule's change) or fired; one event
+        from the store's one write path (`Timers.on_change`), so the closed notch, its cards and every client show the
+        state FERB's row has. A repeat names the timer it repeats."""
+        of = self.timers.repeat_of(t.id) if state == "running" and t.kind == "timer" else None
+        self._publish("timer.changed", {"timer_id": t.id, "kind": t.kind, "state": state, "name": t.label,
+                                        "at": t.fire_at.isoformat(), "message": t.message}
+                      | ({"started": t.created_at.isoformat()} if t.kind == "timer" and t.created_at else {})
+                      | ({"repeat_of": of} if of else {}))
+
+    def _timer_row(self, t: Any) -> dict[str, Any]:
+        """A timer as `timers.repeat` returns it: the pending row's fields, its shown state and the timer it repeats."""
+        from ferb.clock.timers import SHOWN_STATE
+        assert self.timers is not None
+        of = self.timers.repeat_of(t.id)
+        return {"timer": t.id, "id": t.id, "kind": t.kind, "at": t.fire_at.isoformat(), "name": t.label,
+                "started": t.created_at.isoformat() if t.created_at else None, "message": t.message,
+                "state": SHOWN_STATE.get(t.state, t.state)} | ({"repeat_of": of} if of else {})
+
     async def _timers_repeat(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """The done alert's Repeat (APP-762, owner 2026-11-06): the same timer again, for the same duration, from now,
-        with its name and message. The owner's own tap on a timer FERB already set: no model, no new words."""
+        with its name and message. The owner's own tap on a timer FERB already set: no model, no new words. A fired
+        timer repeats at most once (DMN-548): a second Repeat (the notch's alert, then the chat's card) returns the timer
+        the first one started; a timer still running or cancelled is refused."""
         assert self.timers is not None
         t = self.timers.get(str(params.get("id") or ""))
         if t is None or t.kind != "timer" or t.created_at is None or t.fire_at <= t.created_at:
             raise FerbError(f"no timer {params.get('id')} to repeat")
-        again = self.timers.add("timer", self.clock.now() + (t.fire_at - t.created_at), t.message, name=t.name)
+        made = self.timers.repeated_by(t.id)
+        again = self.timers.get(made) if made else None
+        if again is not None:
+            return self._timer_row(again)
+        if t.state != "delivered":
+            raise FerbError("that timer was cancelled, so there's nothing to repeat" if t.state == "cancelled"
+                            else "that timer is still running")
+        again = self.timers.add("timer", self.clock.now() + (t.fire_at - t.created_at), t.message, name=t.name,
+                                repeat_of=t.id)
         self._journal().append("timer.repeated", {"timer_id": again.id, "of": t.id, "by": "owner"})
-        return {"timer": again.id, "kind": "timer", "at": again.fire_at.isoformat(), "name": again.label,
-                "started": again.created_at.isoformat() if again.created_at else None, "message": again.message}
+        return self._timer_row(again)
+
+    async def _timers_states(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """DMN-548: what FERB's rows say of the timers and reminders the app shows (`ids`): running, cancelled or fired,
+        and the timer a fired one's Repeat started. On connect and when a card first shows, the app takes these, not
+        its memory. An id FERB has no such row for (a sleep, a schedule's run, one gone with its records) is left out."""
+        from ferb.clock.timers import SHOWN_STATE
+        assert self.timers is not None
+        ids = params.get("ids")
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+            raise FerbError("ids must be a list of timer ids")
+        out: dict[str, Any] = {}
+        for tid in dict.fromkeys(ids):
+            t = self.timers.get(tid)
+            if t is None or t.kind not in ("reminder", "timer"):
+                continue
+            made = self.timers.repeated_by(t.id)
+            out[t.id] = {"kind": t.kind, "state": SHOWN_STATE.get(t.state, t.state)} | (
+                {"repeated_by": made} if made else {})
+        return {"timers": out}
 
     async def _reminders_cancel(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         assert self.timers is not None

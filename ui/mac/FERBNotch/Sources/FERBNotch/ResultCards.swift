@@ -43,7 +43,7 @@ struct ResultCardView: View {
 
     var body: some View {
         switch card.type {
-        case "reminder": ReminderCard(card: card)
+        case "reminder": ReminderCard(card: card, model: model)    // a timer's: its Stop and Repeat (DMN-548)
         case "event":
             if card.isTimer { TimerSetCard(card: card, model: model) } else { EventCard(card: card) }
         case "note": NoteCard(card: card, model: model)
@@ -162,7 +162,7 @@ struct ReminderCard: View {
                                 .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        Button("Done") { model?.stopTimerAlert() }
+                        Button("Done") { model?.stopTimerAlert(card.timerID) }
                             .buttonStyle(FerbButtonStyle(primary: true))
                             .accessibilityLabel("Dismiss the reminder")
                             .padding(.top, 2)

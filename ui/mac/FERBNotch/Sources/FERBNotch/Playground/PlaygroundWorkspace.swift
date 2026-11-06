@@ -22,6 +22,9 @@ final class PlaygroundWorkspace {
     /// The play's timers: their minutes and names, for Repeat (`timers.repeat`).
     var playTimers: [String: Double] = [:]
     var playTimerNames: [String: String] = [:]
+    /// What happened to the sample timers (`timers.states`, DMN-548): cancelled, and the repeat each one started.
+    var playCancelled: Set<String> = []
+    var playRepeats: [String: String] = [:]
     var stopped = false
     var listeners: [UUID: AsyncThrowingStream<[String: Any], Error>.Continuation] = [:]
     var seenNotices: Set<String> = []
@@ -70,17 +73,35 @@ final class PlaygroundWorkspace {
             }
             return ["text": "Sample schedule updated."]
         case "reminders.cancel":
-            reminders.removeAll { $0["id"] as? String == params["id"] as? String }
+            let id = params["id"] as? String ?? ""
+            let kind = reminders.first { $0["id"] as? String == id }?["kind"] as? String ?? "reminder"
+            reminders.removeAll { $0["id"] as? String == id }
+            playCancelled.insert(id)
+            emit("timer.changed", ["timer_id": id, "kind": kind, "state": "cancelled"])
             return ["ok": true]
-        case "timers.repeat":                    // APP-762: the same sample timer again, for its duration, from now
+        case "timers.repeat":                    // APP-762: the same sample timer again, for its duration, from now, once
             let id = params["id"] as? String ?? ""
             let minutes = (playTimers[id] ?? 10) * 60
             let again: [String: Any] = ["id": id + "-again", "kind": "timer", "name": playTimerNames[id] ?? "Timer",
                                         "message": "Your timer is done.", "at": PlaygroundSamples.time(minutes),
-                                        "started": PlaygroundSamples.time(0)]
-            reminders.removeAll { $0["id"] as? String == id + "-again" }
-            reminders.append(again)
+                                        "started": PlaygroundSamples.time(0), "state": "running", "repeat_of": id]
+            if playRepeats[id] == nil {
+                playRepeats[id] = id + "-again"
+                reminders.append(again)
+                emit("timer.changed", again.merging(["timer_id": id + "-again"]) { $1 })
+            }
             return again.merging(["timer": id + "-again"]) { $1 }
+        case "timers.states":                    // DMN-548: the sample timers' rows
+            let pending = Set(reminders.compactMap { $0["id"] as? String })
+            var rows: [String: Any] = [:]
+            for id in params["ids"] as? [String] ?? [] {
+                if playCancelled.contains(id) { rows[id] = ["state": "cancelled"] }
+                else if pending.contains(id) { rows[id] = ["state": "running"] }
+                else if playTimers[id] != nil || id.hasPrefix("play-") {
+                    rows[id] = ["state": "fired"].merging(playRepeats[id].map { ["repeated_by": $0] } ?? [:]) { $1 }
+                }
+            }
+            return ["timers": rows]
         case "notices.list": return ["notices": notices]
         case "attention.ack": seenNotices.formUnion(params["ids"] as? [String] ?? []); return ["ok": true]
         case "results.ack": seenResults.formUnion(params["task_ids"] as? [String] ?? []); return ["ok": true]

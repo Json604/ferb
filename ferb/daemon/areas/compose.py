@@ -67,6 +67,7 @@ class Compose:
         self.learning = Learning(self.db, self.clock, self._publish, self._redact_text, redact_id=self._redact_id,
                                  redact_value=lambda value: self.redact(value))
         self.timers = Timers(self.db, self.clock, self.ids, self._timer_fired, on_error=self._timer_failed)
+        self.timers.on_change = self._timer_changed               # DMN-548: every client shows the same timer state
         self.timers.cancel_all_sleeps()
         self.schedules = Schedules(self.db, self.clock, self.ids)
         self.attention_notices = AttentionNotices(self.db, self.clock, self.redact)

@@ -2650,3 +2650,13 @@ rule = "Implements APP-762. One orange accent (Palette.timer). The ring drains l
 why = "Apple HIG Live Activities and WWDC23 10194 for the flow; FERB's sound rules (APP-521, APP-532) win over Apple's looping alarm. A click-through window leaves press, drag, hover and yield exactly as APP-704..711 built them."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TimerModel.swift", "ui/mac/FERBNotch/Sources/NotchCore/TimerClock.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.updateTimerActivity"]
 live = ["LIVE-805"]
+
+[APP-764]
+title = "A timer's state in the app is FERB's row's, and its alert's Stop and Repeat follow it"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Implements APP-762 with DMN-548. NotchModel.timerRecords holds each shown timer's state from FERB's rows: `timers.states` when its card or alert first shows and for all on each connect, then `timer.changed` (also the closed notch's running timers) and `timer.fired`. The set card says Done only for a fired timer, Cancelled for one cancelled anywhere. Stop and Repeat show on the arrival and the chat card while fired, not repeated and not stopped this session; Stop and Done dismiss only that timer's arrival."
+why = "Review 2 (findings 1 and 6): `cancelledTimers` and the alert's `handled` were per-session and per-view, so a cancel in chat or Settings, a relaunch or a rebuilt chat row showed the wrong state, a second Repeat duplicated the timer, and Stop dismissed whatever arrival showed."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TimerModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/NotchCore/TimerClock.swift::TimerRecord", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
+live = ["LIVE-805"]
