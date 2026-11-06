@@ -115,6 +115,23 @@ extension NotchModel {
         }
     }
 
+    /// The arrival's own buttons as VoiceOver actions (APP-765): a fired timer's Stop and Repeat while its alert offers
+    /// them, a reminder's Done. The arrival's default action still opens today's chat.
+    func arrivalActions(_ card: ResultCard) -> [ArrivalAction] {
+        let id = card.timerID
+        guard card.isTimer else { return [ArrivalAction(name: "Done") { [weak self] in self?.stopTimerAlert(id) }] }
+        guard let id, timerAlertOpen(id) else { return [] }
+        return [ArrivalAction(name: "Stop") { [weak self] in self?.stopTimerAlert(id) }]
+            + (card.started != nil ? [ArrivalAction(name: "Repeat") { [weak self] in self?.repeatTimer(id) }] : [])
+    }
+
     /// The timer the closed notch shows now: the soonest still running.
     func soonestTimer(now: Date = Date()) -> RunningTimer? { RunningTimer.soonest(runningTimers, now: now) }
+}
+
+/// One of the arrival's buttons as a named accessibility action (APP-765).
+struct ArrivalAction: Identifiable {
+    let name: String
+    let run: @MainActor () -> Void
+    var id: String { name }
 }

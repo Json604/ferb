@@ -110,6 +110,26 @@ final class TimerFlowTests: XCTestCase {
         XCTAssertEqual(other.runningTimers.map(\.id), ["tm-2"])
     }
 
+    // decision: APP-765, APP-762, APP-622
+    func testTheArrivalsStopRepeatAndDoneAreItsAccessibilityActions() throws {
+        // Review 2, finding 7: the arrival was one combined element whose only action opened the chat.
+        let rpc = ScriptedRPC()
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
+        model.timerFired("tm-1")
+        let timer = try XCTUnwrap(ResultCard(["type": "reminder", "kind": "timer", "title": "Tea", "timer_id": "tm-1",
+                                              "started": "2026-11-06T10:00:00Z", "due": "2026-11-06T10:10:00Z"]))
+        let reminder = try XCTUnwrap(ResultCard(["type": "reminder", "kind": "reminder", "title": "Water",
+                                                 "timer_id": "rm-1"]))
+        XCTAssertEqual(model.arrivalActions(timer).map(\.name), ["Stop", "Repeat"])
+        XCTAssertEqual(model.arrivalActions(reminder).map(\.name), ["Done"])
+        // ReminderArrivalSurface lists exactly these as its named accessibility actions (`accessibilityActions`); an
+        // in-process test can't read SwiftUI's accessibility tree (it is built only for an assistive client)
+        _ = ReminderArrivalSurface(card: timer, text: "Your tea is ready.", model: model)
+        model.arrivalActions(timer).first { $0.name == "Stop" }?.run()
+        XCTAssertFalse(model.timerAlertOpen("tm-1"))
+        XCTAssertEqual(model.arrivalActions(timer).map(\.name), [], "stopped: nothing left to offer")
+    }
+
     // decision: APP-762, APP-550, APP-588
     func testAClosedNotchShowsTheSoonestTimerBesideTheCameraAndNeverTakesAClick() throws {
         _ = NSApplication.shared

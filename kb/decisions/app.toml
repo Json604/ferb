@@ -2660,3 +2660,13 @@ rule = "Implements APP-762 with DMN-548. NotchModel.timerRecords holds each show
 why = "Review 2 (findings 1 and 6): `cancelledTimers` and the alert's `handled` were per-session and per-view, so a cancel in chat or Settings, a relaunch or a rebuilt chat row showed the wrong state, a second Repeat duplicated the timer, and Stop dismissed whatever arrival showed."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TimerModel.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/NotchCore/TimerClock.swift::TimerRecord", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
 live = ["LIVE-805"]
+
+[APP-765]
+title = "The arrival's Stop, Repeat and Done are VoiceOver actions"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Refines APP-762 for VoiceOver. The notch's reminder arrival (ReminderArrivalSurface) stays one accessibility button whose default action opens today's chat, as a click on it does (APP-622, APP-624), and lists its buttons as named actions from NotchModel.arrivalActions: a fired timer's Stop and Repeat while its alert offers them (APP-764), a reminder's Done. Each runs the same model call as its button."
+why = "Review 2, finding 7: the arrival combined its children into one element with the open-chat action only, so Stop, Repeat and Done were unreachable by VoiceOver. Named actions keep the arrival one element while every button is reachable."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift::ReminderArrivalSurface", "ui/mac/FERBNotch/Sources/FERBNotch/TimerModel.swift::NotchModel.arrivalActions", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+live = ["LIVE-805"]

@@ -24,16 +24,9 @@ struct NotchView: View {
                 } else if case .reminder(let card, let text)? = model.compactContent {
                     // Its buttons (Done; a timer's Stop and Repeat, APP-762) take their own clicks; anywhere else opens
                     // today's chat as before (APP-622, APP-624)
-                    ScrollView { ReminderArrivalView(card: card, text: text, model: model) }
+                    ReminderArrivalSurface(card: card, text: text, model: model)
                         .padding(.top, model.isNotchDocked ? model.cutoutHeight : 0)
                         .frame(height: presentation.size.height, alignment: .top)
-                        .contentShape(Rectangle())
-                        .pointingHand("reminder")
-                        .onTapGesture { model.openReminderChat() }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityHint("Open reminder in chat")
-                        .accessibilityAction { model.openReminderChat() }
                 } else if case .plan(let text)? = model.compactContent {
                     ScrollView {
                         Text(text)

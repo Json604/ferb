@@ -300,6 +300,29 @@ private struct IntroChoiceStyle: ButtonStyle {
 }
 
 /// The transcript's reminder details, directly on the notch's black glass.
+/// The notch's reminder arrival (APP-622, APP-762): its buttons (Done; a timer's Stop and Repeat) take their own clicks
+/// and anywhere else opens today's chat (APP-622, APP-624). For VoiceOver it is one button that opens the chat, with
+/// its buttons as named actions (APP-765), so Stop, Repeat and Done are reachable without the pointer.
+struct ReminderArrivalSurface: View {
+    let card: ResultCard
+    let text: String
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        ScrollView { ReminderArrivalView(card: card, text: text, model: model) }
+            .contentShape(Rectangle())
+            .pointingHand("reminder")
+            .onTapGesture { model.openReminderChat() }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Open reminder in chat")
+            .accessibilityAction { model.openReminderChat() }
+            .accessibilityActions {
+                ForEach(model.arrivalActions(card)) { action in Button(action.name) { action.run() } }
+            }
+    }
+}
+
 struct ReminderArrivalView: View {
     let card: ResultCard
     let text: String
