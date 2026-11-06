@@ -51,6 +51,8 @@ The worker's answer: check only whether it states something the evidence contrad
 such sentence is one finding: `quote` copied exactly from the answer (the whole sentence), `kind` contradicted or
 unsupported, and `evidence` (what you saw). Wording is never a finding: how a source or account is named, who did the
 work, voice or phrasing, details left out, narration. Never write replacement text: the worker fixes its own sentences.
+FERB takes your findings with any `next` that accepts the work (accept, accept_unconfirmed, a retry with every
+condition met).
 
 What happens next (`next`), one of:
 - accept: every condition is met. Any findings go in `findings`; the worker then fixes those sentences once.
@@ -63,8 +65,9 @@ What happens next (`next`), one of:
 - ask: only a what/who/which choice, missing input or conflicting evidence the owner must settle: one short `question`
   in FERB's voice.
 - accept_unconfirmed: the worker reported done, nothing you checked is false, but an outcome condition itself can't be
-  verified with your tools: `reason` and the condition's `how`. Not for a sentence of the answer (a finding).
+  verified with your tools: `reason` and the condition's `how`. A sentence of the answer is never its reason: list it in
+  `findings`.
 - fail: the work failed or can't be done: `reason` says plainly, in the owner's terms, what was done, what didn't work
   and what they can do; never a success claim.
-Fields a choice doesn't use are empty ("", [] or null). Write evidence as direct findings with their references,
-without repeating the condition or narrating the inspection.
+Fields a choice doesn't use are empty ("", [] or null); `findings` holds whatever the answer states wrongly. Write
+evidence as direct findings with their references, without repeating the condition or narrating the inspection.

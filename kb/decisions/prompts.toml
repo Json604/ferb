@@ -341,3 +341,13 @@ rule = "verifier.md has no report condition: the worker's answer is checked only
 why = "Owner ORCH-545 (2026-11-06). The exact old and new text is in the fixes8 report."
 paths = ["ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/prompts/roles/fix.md", "ferb/orchestrator/prompts/recheck.md"]
 untestable = "Prompt text: TEST-500 keeps no wording tests; the owner's live check shows the checker's findings."
+
+[PRM-331]
+title = "verifier.md: findings go with every accepting next"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Refines PRM-330. verifier.md says in one line that FERB takes the checker's findings with any next that accepts the work (accept, accept_unconfirmed, a retry with every condition met), as the code does (ORCH-548); accept_unconfirmed's reason is never a sentence of the answer, which goes in findings; findings is filled whatever the choice. A contradicted sentence never stands in an accept_unconfirmed answer."
+why = "Review of fixes8, finding 4: the prompt told the checker to leave findings empty for accept_unconfirmed while code used them, so a contradicted sentence could stand unmarked against ORCH-309."
+paths = ["ferb/orchestrator/prompts/verifier.md"]
+untestable = "Prompt text: TEST-500 keeps no wording tests; tests/test_merged_checker.py guards the code side."
