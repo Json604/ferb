@@ -17,7 +17,7 @@ from contextlib import suppress
 from functools import partial
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, AsyncIterator, Awaitable, Callable, Literal, Sequence, cast
+from typing import Any, AsyncIterator, Awaitable, Callable, Literal, cast
 from urllib.parse import urlsplit
 
 from pydantic import ValidationError
@@ -67,8 +67,7 @@ from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_onl
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
 from ferb.orchestrator.schemas import (CHECKER_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, WORKER_SCHEMA,
-                                       AnswerEdit, AnswerQuestion, Check, CheckerOutcome, Condition, QuestionOutcome,
-                                       SummaryOutcome,
+                                       AnswerQuestion, Check, CheckerOutcome, Condition, QuestionOutcome, SummaryOutcome,
                                        SupervisorOutcome, TaskSpec, WorkerReport, worker_schema)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
@@ -774,7 +773,7 @@ class _Wait:
     approval: Any = None
     extra: dict[str, Any] = field(default_factory=dict)   # more for the app with the question (runtime_switch)
     attempts: int = 0                    # a check-in: the failed attempts it asks about (kept for a restart)
-    # a check-in after a report-only retry (ORCH-544): the latest answer and its artifacts, kept for a restart, so a No
+    # a check-in after a report-only retry (ORCH-541): the latest answer and its artifacts, kept for a restart, so a No
     # or nobody there still ends done-unconfirmed with that answer
     report: dict[str, Any] = field(default_factory=dict)
     opened: bool = False                 # its first waiter asked; later ones wait for its reply
@@ -4800,11 +4799,7 @@ class Supervisor(WorkerRuns):
         spec.success_conditions = list(conditions)
         judge = dataclasses.replace(member, spec=spec, outcome=out, verification=[], confirmed={})
         try:
-            results, checked = await self.verify(judge, span)  # only its verdict counts here, not a next step
-            report = next((r for r in results if r.index == len(conditions)), None)
-            if self._omitted_only(member, report, checked) and report is not None:
-                # PRM-329 in a loop's or conversation's end check: a detail left out is no "Couldn't confirm"
-                results = [dataclasses.replace(r, met=True) if r is report else r for r in results]
+            results, _ = await self.verify(judge, span)       # only its verdict counts here, not a next step
             return results
         except asyncio.CancelledError:
             raise
@@ -5068,7 +5063,7 @@ class Supervisor(WorkerRuns):
     async def _restored(self, tree: _Tree, task: Task, attempts: Attempts, span: str) -> str | Outcome | None:
         """The check-in or runtime switch this step waited on when FERB restarted, asked again as itself (never as an
         owner pause, whose answers mean other things: a No to a check-in stops). What the first attempt is told, or the
-        step's end (a No, nobody there, stopped). A check-in after a report-only retry (ORCH-544) keeps that answer
+        step's end (a No, nobody there, stopped). A check-in after a report-only retry (ORCH-541) keeps that answer
         across the restart: a No ends done-unconfirmed with it, as it would have before."""
         saved, tree.restored_wait = tree.restored_wait, {}
         if saved.get('question_kind') == 'check_in':
@@ -5237,8 +5232,6 @@ class Supervisor(WorkerRuns):
                 why = checked.reason or ("" if refuted else tree.reason) or "; ".join(
                     f"{self._owner_text(tree, r)}: {r.evidence}" for r in (refuted or unknown))
                 return _Next("fail", reason=why)
-            if tree.owner_answer == before and self._omitted_only(tree, report, checked):
-                report = None            # PRM-329: a detail left out, not a contradiction: unmarked, no redo
             if report is not None and report.met is False and tree.owner_answer == before:
                 # ORCH-309 (agent ruling, after ORCH-540): the records contradict a detail of the answer and no edit
                 # removed or marked anything (the only changes an edit may make, P4), so it would stand unmarked: the
@@ -5277,33 +5270,34 @@ class Supervisor(WorkerRuns):
         found = "; ".join(f"{self._owner_text(tree, r)}: {r.evidence}" for r in outcome if r.met is not True)
         return _Next("fail", reason=checked.reason.strip() or tree.reason or found or NOT_ACCEPTED)
 
-    def _omitted_only(self, tree: _Tree, report: ConditionResult | None, checked: CheckerOutcome | None) -> bool:
-        """PRM-329 (agent ruling, owner 2026-11-06: "why couldnt it confirm thsi task??"): FERB's report condition was
-        found false, yet the checker chose to accept or fix the answer without a single remove or unconfirmed edit (none
-        at all, or only older-shape rewrites and additions, which are dropped): it found nothing to take out or mark, so
-        the answer only leaves out a detail. Such an answer stands unmarked and costs no redo; a result that matters
-        left out is the checker's retry (PRM-323), and a contradicted detail is its remove or unconfirmed edit (an edit
-        that couldn't be applied is ORCH-544's retry). The evidence is journaled (task.report_condition_unmet,
-        omission: true) and shown nowhere (ORCH-540). Structure only."""
-        if (report is None or report.met is not False or checked is None or checked.next not in ("accept", "fix_answer")
-                or any(e.action is not None or (e.replace is not None and removes_or_marks(e.find, e.replace))
-                       for e in checked.answer_edits)):
-            return False
-        self.journal.append("task.report_condition_unmet", {"task_id": tree.worker.id, "evidence": report.evidence,
-                                                            "fixed": False, "omission": True})
-        return True
-
     def _apply_edits(self, tree: _Tree, checked: CheckerOutcome) -> list[str]:
-        """The checker's edits to the worker's answer, applied by code (`edit_answer`): each removes its text or marks
-        it "(I couldn't confirm this)" once; an older-shape rewrite or addition is dropped unmarked and journaled
-        (task.answer_edit_dropped). Returns the finds that aren't in the answer (it keeps that part)."""
-        tree.owner_answer, unapplied, dropped, marked = edit_answer(tree.owner_answer, checked.answer_edits)
+        """The checker's exact edits to the worker's answer (fix_answer), each applied where its text appears; the ones
+        whose text isn't in the answer are returned (the answer keeps that part, and it is marked unconfirmed). An edit
+        that would write more than a removal or the inline marker (P4: the checker never adds sentences) is never
+        applied and is journaled (PRM-326): one whose replace keeps its text whole (a pure addition) leaves that text
+        as it is, since the checker didn't dispute it; one that changes or drops words of it marks that text inline
+        instead, once, so an unconfirmed claim never stays bare (ORCH-309)."""
+        unapplied, dropped, marked = [], [], []
+        for edit in checked.answer_edits:
+            if not removes_or_marks(edit.find, edit.replace):
+                dropped.append(edit.find)
+                if not edit.find.strip() or edit.find in edit.replace:
+                    continue                                 # a pure addition: the text stays as it was
+                if edit.find in tree.owner_answer:
+                    tree.owner_answer = mark_unconfirmed(tree.owner_answer, edit.find)
+                    marked.append(edit.find)
+                else:
+                    unapplied.append(edit.find)
+            elif edit.find and edit.find in tree.owner_answer:
+                tree.owner_answer = tree.owner_answer.replace(edit.find, edit.replace)
+            elif edit.find:
+                unapplied.append(edit.find)
         if checked.answer_edits:
             self.journal.append("task.answer_fixed", {"task_id": tree.worker.id, "edits": len(checked.answer_edits),
-                                                      "unapplied": len(unapplied), "dropped": len(dropped),
-                                                      "marked": len(marked)})
+                                                      "unapplied": len(unapplied), "dropped": len(dropped)})
         if dropped:
-            self.journal.append("task.answer_edit_dropped", {"task_id": tree.worker.id, "finds": dropped})
+            self.journal.append("task.answer_edit_dropped", {"task_id": tree.worker.id, "finds": dropped,
+                                                             "marked": marked})
         return unapplied
 
     @staticmethod
@@ -5424,7 +5418,7 @@ class Supervisor(WorkerRuns):
         """ORCH-307: after CHECK_IN_AFTER failed attempts, "keep going?". Yes (or the owner's own words) allows
         CHECK_IN_AFTER more and returns what the next attempt is told ('' for a plain Yes); No stops with what it found
         (False, its reason in `stop_reason`). A run nobody attends stops here and reports (False). None: stopped.
-        `report`: a report-only retry's latest answer (ORCH-544), saved with the waiting step for a restart."""
+        `report`: a report-only retry's latest answer (ORCH-541), saved with the waiting step for a restart."""
         unattended = self._unattended(task)
         if not unattended:
             wait = _Wait(tree.id, check_in_question(attempts.failed, short_label(tree.spec.goal)),
@@ -6199,56 +6193,10 @@ def removes_or_marks(find: str, replace: str) -> bool:
     return rest == target or (at > 0 and rest[:at - 1] + rest[at:] == target and plain[at - 1] == " ")
 
 
-def _cut(answer: str, find: str) -> str:
-    """The answer with every occurrence of `find` removed, and the one space it leaves doubled taken out."""
-    out, rest = "", answer
-    while (at := rest.find(find)) >= 0:
-        before, rest = rest[:at], rest[at + len(find):]
-        if before.endswith(" ") and (not rest or rest[0] in " \n.,;:!?"):
-            before = before[:-1]
-        out += before
-    return out + rest
-
-
-def edit_answer(answer: str, edits: Sequence[AnswerEdit]) -> tuple[str, list[str], list[str], list[str]]:
-    """The checker's answer edits applied by code (PRM-329, ORCH-309, P4): each `find` copied from the answer is removed
-    ("remove") or marked inline with UNCONFIRMED_MARK once ("unconfirmed"); FERB writes nothing else. An edit in the
-    older shape (`replace`, from a saved or cached reply) is applied as written only when it removes its text or marks
-    it (`removes_or_marks`); anything else (a rewrite, an addition) is dropped unmarked, since the checker disputed
-    nothing it could remove. Returns (answer, unapplied finds: not in the answer, dropped finds, marked finds).
-    Structure only: no word is judged."""
-    unapplied: list[str] = []
-    dropped: list[str] = []
-    marked: list[str] = []
-    seen: set[tuple[str, str | None, str | None]] = set()
-    for edit in edits:
-        if (edit.find, edit.action, edit.replace) in seen:
-            continue                                         # the same edit twice is one edit
-        seen.add((edit.find, edit.action, edit.replace))
-        find = edit.find
-        legacy = edit.action is None
-        action = edit.action or ("remove" if not edit.replace else "unconfirmed"
-                                 if edit.replace is not None and removes_or_marks(find, edit.replace) else None)
-        if action is None or not find.strip():
-            dropped.append(find)
-        elif find not in answer:
-            unapplied.append(find)
-        elif legacy:
-            answer = answer.replace(find, edit.replace or "")
-        elif action == "remove":
-            answer = _cut(answer, find)
-        else:
-            changed = mark_unconfirmed(answer, find)
-            if changed != answer:
-                marked.append(find)
-            answer = changed
-    return answer, unapplied, dropped, marked
-
-
 def mark_unconfirmed(answer: str, find: str) -> str:
     """The answer with the first occurrence of `find` marked inline with UNCONFIRMED_MARK, before its closing
     punctuation ("It opens at 10am (I couldn't confirm this)."); unchanged when that occurrence is already marked
-    (PRM-329). Structure only: no word is judged."""
+    (PRM-326). Structure only: no word is judged."""
     at = answer.find(find)
     if at < 0:
         return answer

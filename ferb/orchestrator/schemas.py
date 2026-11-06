@@ -236,17 +236,13 @@ WORKER_ALL_SCHEMA: dict[str, Any] = worker_schema(inputs=True, proposals=True, c
 # The merged checker (ORCH-302, ORCH-333): it judges each condition and chooses what's next. Code
 # checks the choice against the checker's own verdicts (`Supervisor._next`); it never judges content.
 NEXT = ["accept", "fix_answer", "retry", "ask", "accept_unconfirmed", "fail"]
-EDIT_ACTIONS = ("remove", "unconfirmed")
 CHECKER_SCHEMA: dict[str, Any] = _obj({
     "results": {"type": "array", "items": _obj({"index": {"type": "integer"}, "met": {"type": ["boolean", "null"]},
                                                 "evidence": {"type": "string"},
                                                 "how": {"type": ["string", "null"]}})},
     "next": {"type": "string", "enum": NEXT},
-    # accept / fix_answer / accept_unconfirmed: each `find` copied from the worker's answer, with what FERB's code does
-    # to it: remove it, or mark it "(I couldn't confirm this)" (PRM-329, ORCH-309, P4). No replacement text: a
-    # rewrite or an addition can't be expressed.
-    "answer_edits": {"type": "array", "items": _obj({"find": {"type": "string"},
-                                                     "action": {"type": "string", "enum": list(EDIT_ACTIONS)}})},
+    # accept / fix_answer / accept_unconfirmed: exact edits to the worker's answer (each `find` copied from it)
+    "answer_edits": {"type": "array", "items": _obj({"find": {"type": "string"}, "replace": {"type": "string"}})},
     "missing": {"type": "string"},             # retry: what is missing
     "instructions": {"type": "string"},        # retry: what the next attempt does differently
     "worker_type": _nullable("string"),        # retry: another worker type from the supplied list, else null
@@ -505,11 +501,8 @@ class CheckerResult(BaseModel):
 
 
 class AnswerEdit(BaseModel):
-    """One checker edit (PRM-329): `find` and `action`. `replace` is only read from a reply in the older shape (a
-    saved or cached one): FERB applies it only when it removes `find` or marks it, and drops anything else unmarked."""
     find: str
-    action: Literal["remove", "unconfirmed"] | None = None
-    replace: str | None = None
+    replace: str
 
 
 class CheckerOutcome(BaseModel):

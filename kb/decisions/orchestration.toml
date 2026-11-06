@@ -803,11 +803,10 @@ paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrato
 title = "A detail the records contradict never stands unmarked: no removal or mark is a retry"
 by = "agent"
 date = 2026-11-05
-status = "superseded"
+status = "active"
 rule = "When the checker finds FERB's report condition false and no edit removed or marked anything, the attempt is a retry told the checker's evidence (journaled: task.report_condition_unmet, retry: true); with a removal or mark applied it is accepted (ORCH-540). The retry counts toward ORCH-307's check-in; when attempts run out on it (nobody attends, or the owner's No), the latest answer stands done_unverified with code's own \"Couldn't confirm\" line, never the checker's evidence. Its waiting step saves that answer, so a restart's check-in ends the same way."
 why = "ORCH-540 kept the checker's evidence out of the answer, which left a detail the records contradict standing unmarked when no edit applied, against ORCH-309 (owner): \"FERB never states unseen things as fact\". The owner accepted retries for the report condition with P4."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._report_unconfirmed", "ferb/orchestrator/supervisor.py::Supervisor._restored"]
-superseded_by = "ORCH-544"
 
 [ORCH-542]
 title = "Reminders, schedules, timers and tasks show a short name"
@@ -829,13 +828,3 @@ status = "active"
 rule = "Implements APP-300 for the count: a card's done/total (Card.tally: plan event, part events, chat.status, the footer, the saved index) is over the rows it shows: every part of this run, a direct part included (a done row with its answer, drawn like any done row), a part this run changed; never a part an earlier turn finished (a continued run leaves those out of rows and count; whether every ask is done reads the same). A feeder step answers no part: no row, no count. Loop, conversation, stopped and won't-run rows count."
 why = "Owner, 2026-11-06, of two rows and \"1 of 3 done\": \"if theres 2 boxes why is it saying /3 ???\". Task 4be19c0f: the third part was answered directly; the daemon sent and counted its row (direct: true), the app hid it. A continued run also counted earlier turns' parts."
 paths = ["ferb/orchestrator/parts.py::Card.tally", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::TurnCardView"]
-
-[ORCH-544]
-title = "A report condition failed only by a left-out detail stands unmarked; an unfixable one retries"
-by = "agent"
-date = 2026-11-06
-status = "active"
-supersedes = ["ORCH-541"]
-rule = "With every outcome met, a false report condition where the checker chose accept or fix_answer with no remove/unconfirmed edit (none, or only dropped older-shape ones) is a left-out detail: unmarked, no \"Couldn't confirm\", no retry (journaled omission: true); a loop's or conversation's end check counts it met. A result left out is the checker's retry (PRM-323). Remove/unconfirmed edits none of which applied: retry with the evidence (retry: true), capped by ORCH-307; run out, done_unverified with code's line, saved for a restart."
-why = "Owner, 2026-11-06: \"why couldnt it confirm thsi task??\" (task 4be19c0f: the checker confirmed the work and failed the report condition only for a left-out source file; the confirmed sentence got marked). ORCH-309: never state unseen things as fact, never call a confirmed thing unconfirmed."
-paths = ["ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._omitted_only", "ferb/orchestrator/supervisor.py::Supervisor._judged", "ferb/orchestrator/supervisor.py::Supervisor._report_unconfirmed", "ferb/orchestrator/supervisor.py::Supervisor._restored"]

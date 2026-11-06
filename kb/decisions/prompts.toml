@@ -304,11 +304,10 @@ live = ["LIVE-786"]
 title = "A checker edit that rewrites a claim marks it instead of leaving it bare"
 by = "agent"
 date = 2026-11-05
-status = "superseded"
+status = "active"
 rule = "Refines PRM-323's drop: an answer edit that is neither a removal nor its find with the inline marker is never applied and is journaled (task.answer_edit_dropped with `marked`). A pure addition (its replace keeps the find whole) leaves the text as it was. A rewrite (it changes or drops words of the find) marks the text's first occurrence inline with \"(I couldn't confirm this)\", once, before its closing punctuation. A find not in the answer changes nothing."
 why = "Owner's database, 2026-11-05: all 12 recorded checker edits (6 fix_answer verdicts of 26) were rewrites; dropping them left unconfirmed sentences unmarked, against ORCH-309. Coordinator-approved from the owner's P4 approval."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._apply_edits", "ferb/orchestrator/supervisor.py::mark_unconfirmed"]
-superseded_by = "PRM-329"
 
 [PRM-327]
 title = "The checker's report condition follows PRM-322: who did a part only when it wasn't FERB"
@@ -329,13 +328,3 @@ rule = "The planner's schema has `name` (a plain string, \"\" unset, ORCH-330) o
 why = "ORCH-542 (owner, 2026-11-05): headings show a short name and a timer says it is one."
 paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/schemas.py::NAME_SCHEMA", "ferb/orchestrator/schemas.py::TIMER_SCHEMA"]
 untestable = "Prompt text: TEST-500 keeps no wording tests; the owner's live check LIVE-787 shows the names."
-
-[PRM-329]
-title = "A checker edit names text and an action (remove or unconfirmed); code applies it"
-by = "agent"
-date = 2026-11-06
-status = "active"
-supersedes = ["PRM-326"]
-rule = "Each answer_edits item is {find, action}, action \"remove\" or \"unconfirmed\" (CHECKER_SCHEMA, strict, no replacement field): code removes every occurrence of find or marks its first occurrence \"(I couldn't confirm this)\" once (edit_answer); rewrites and additions can't be expressed. An older {find, replace} reply applies only when it removes or marks its text; anything else is dropped unmarked and journaled. verifier.md's fix_answer line describes the field, same meaning (ORCH-309, P4/PRM-323)."
-why = "Owner, 2026-11-06: \"why couldnt it confirm thsi task??\". The owner's database since batch 3a: 5 checker edits, none a removal or mark (three voice rewrites in 7d870ef5, a narration in 794e3bd8, an inserted source in 4be19c0f); PRM-326 marked every rewrite, so confirmed sentences got marked."
-paths = ["ferb/orchestrator/schemas.py::CHECKER_SCHEMA", "ferb/orchestrator/schemas.py::AnswerEdit", "ferb/orchestrator/supervisor.py::edit_answer", "ferb/orchestrator/supervisor.py::Supervisor._apply_edits", "ferb/orchestrator/prompts/verifier.md"]
