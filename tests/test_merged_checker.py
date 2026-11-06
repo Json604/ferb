@@ -117,6 +117,52 @@ def test_a_fix_that_changes_other_sentences_is_discarded_for_the_fallback(daemon
     assert result["answer"].startswith("The store opens at 9. It has a café (I couldn't confirm this). Parking is free.")
 
 
+# decision: ORCH-548, ORCH-333
+def test_what_the_fix_turn_and_the_recheck_open_is_released_and_their_rows_end_done(daemon: RunningDaemon) -> None:
+    """The fix turn may look again (observe only): a tab it opens in FERB's browser closes at the task's end like the
+    worker's and the checker's, and the fix and re-check rows end done, not "cancelled"."""
+    tabs: dict[str, str] = {}
+    released: list[str] = []
+    router = daemon.daemon.router
+    assert router is not None
+
+    async def release(owner: str) -> list[dict[str, Any]]:
+        released.append(owner)
+        tab = tabs.pop(owner, None)
+        return [{"resource": "tab", "tab": tab, "closed": True}] if tab else []
+    router.release = release                                 # type: ignore[method-assign]
+
+    def fix(token: str) -> str:
+        tabs[daemon.daemon.supervisor.tokens.validate(token).task_id] = "t-fix"     # it opened a page to look again
+        return _fix(COURSERA.replace("visible but locked until Monday", "open and due Friday"))
+    install(daemon, [sup("task", "On it.", task("Check the Coursera assignments"))], {
+        "worker": done(COURSERA),
+        "worker.verify": verdict(True, findings=(("Quiz 3 is visible but locked until Monday.", "contradicted",
+                                                  "The page shows it open."),)),
+        "worker.fix": fix, "worker.recheck": json.dumps({"findings": []})})
+    result = outcome(chat(daemon, "check my coursera assignments"))
+    assert result["status"] == "done"
+    tree = next(o for o in released if o.endswith(".worker")).rsplit(".", 1)[0]
+    assert tree + ".worker.fix" in released and tree + ".worker.recheck" in released
+    assert tabs == {}, "the fix turn's tab was left open"
+    rows = dict(run(daemon, lambda: [tuple(r) for r in daemon.daemon.db.conn.execute(
+        "SELECT id, status FROM tasks WHERE id LIKE ?", (tree + ".worker.%",)).fetchall()]))
+    assert rows[tree + ".worker.fix"] == "done" and rows[tree + ".worker.recheck"] == "done"
+
+
+# decision: ORCH-548, ORCH-309
+def test_a_contradicted_sentence_never_stands_in_an_unconfirmed_answer(daemon: RunningDaemon) -> None:
+    """accept_unconfirmed takes the checker's findings as accept does: the quoted sentence goes to the fix round."""
+    said = "The library opens at 10am. It has a rooftop garden."
+    install(daemon, [sup("task", "On it.", task("Find the library's hours"))], {
+        "worker": done(said),
+        "worker.verify": verdict(None, next="accept_unconfirmed", how="Check the library's site.", findings=(
+            ("It has a rooftop garden.", "contradicted", "The page lists no garden."),)),
+        "worker.fix": "not a report"})
+    result = outcome(chat(daemon, "library hours?"))
+    assert "rooftop garden" not in result["answer"] and result["answer"].startswith("The library opens at 10am.")
+
+
 def test_only_the_quoted_sentences_may_change() -> None:
     from ferb.orchestrator.answer_marks import only_quoted_changed
     said = "A is 1. B is 2. C is 3."

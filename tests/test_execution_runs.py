@@ -14,7 +14,7 @@ from ferb.orchestrator.attempts import CHECK_IN_AFTER
 from ferb.orchestrator.plans import Plan, Step
 from ferb.policy.targets import Targets
 from tests.conftest import (STALL, RunningDaemon, answer_question, chat, done, install, outcome, report, sup, task,
-                            verdict, writes)
+                            cond, verdict, writes)
 from tests.support.schedules import make_schedule, own_daemon, run
 
 
@@ -518,6 +518,54 @@ def test_a_restart_during_the_fix_round_settles_the_saved_answer_by_code(home: A
         assert answer.startswith("The library opens at 10am. It has a rooftop garden (I couldn't confirm this).")
     finally:
         second.stop()
+
+
+# decision: ORCH-548, ORCH-545
+def test_a_restart_during_a_steps_fix_round_keeps_its_whole_output(home: Any, monkeypatch: Any) -> None:
+    """A research step that feeds the next step was in its fix turn when FERB restarted: after the restart its saved
+    output still carries what its worker reported for the steps after it (conversation proposals, input notes), so
+    nothing downstream finds it empty; neither the work nor the fix turn runs again."""
+    monkeypatch.setattr("ferb.sanitize.images.recognize_text", lambda _image: [])
+    proposals = [{"scope": "Ask the venue about parking", "evidence": "the venue's page"}]
+    notes = [{"input": "venue", "note": "The venue is Hall B.", "evidence": "the venue's page"}]
+    spec = task("Plan the meetup", conds=(cond("The venue is named"),))
+    spec["plan"] = Plan(steps=[Step(id="research", kind="do", goal="Research the venue"),
+                               Step(id="write", kind="do", goal="Write the summary", depends_on=["research"])]
+                        ).model_dump()
+    first = own_daemon(home, "a")
+    try:
+        script = install(first, [sup("task", "On it.", spec)], {
+            "step.research": json.dumps(report("done", "The venue is Hall B. It has free parking.",
+                                               conversation_proposals=proposals, input_notes=notes)),
+            "step.research.verify": verdict(True, findings=(("It has free parking.", "unsupported",
+                                                             "Nothing about parking was seen."),)),
+            "step.research.fix": STALL})
+        turn = Turn(first, "plan the meetup")
+        _until(first, lambda: "step.research.fix" in script.calls("worker"))
+        tree = _tree(first)
+    finally:
+        first.stop()
+    turn.thread.join(10)
+    import ferb.orchestrator.supervisor as supervisor_module
+    resume = supervisor_module.Supervisor.resume_plans
+
+    async def held(self: Any) -> None:
+        return None
+    monkeypatch.setattr(supervisor_module.Supervisor, "resume_plans", held)
+    second = own_daemon(home, "b")
+    try:
+        monkeypatch.setattr(supervisor_module.Supervisor, "resume_plans", resume)
+        sv = second.daemon.supervisor
+        again = install(second, [], {"step.write": done("Hall B.")})
+        second.loop.call_soon_threadsafe(lambda: second.loop.create_task(sv.resume_plans()))
+        _until(second, lambda: _row(second, tree) in ("done", "done_unverified"))
+        assert "step.research" not in again.calls("worker") and "step.research.fix" not in again.calls("worker")
+        saved = run(second, lambda: sv.plans.steps(tree))["research"]["output"]
+        assert saved["conversation_proposals"] == proposals and saved["input_notes"] == notes
+        assert saved["answer"].startswith("The venue is Hall B. It has free parking (I couldn't confirm this).")
+    finally:
+        second.stop()
+
 
 def test_closing_a_tab_the_task_holds_asks_whether_to_continue(daemon: RunningDaemon) -> None:
     """HAND-201: the owner closing a FERB tab or the task's group mid-task stops that part, and FERB asks whether

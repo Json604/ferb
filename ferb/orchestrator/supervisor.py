@@ -4613,7 +4613,8 @@ class Supervisor(WorkerRuns):
             # the round's checker (its check, and any end check) is done: its tabs and processes go now, into the
             # loop's lists; what the round's worker started stays the loop's until it ends. Always: an earlier attempt
             # of a round that skipped its check may have been checked (review M7)
-            await self._release_task(holder, child.id + '.verify', round_span.id)
+            for tid in self._helper_ids(child.id):      # the round's checker and its fix round (ORCH-548)
+                await self._release_task(holder, tid, round_span.id)
             status, question = out.status, member.owner_question
             probe = self._resolved_probe(member.probe)
             if unknown and status not in ('needs_user', 'blocked'):
@@ -4838,12 +4839,19 @@ class Supervisor(WorkerRuns):
                          'note': _clipped("; ".join(dict.fromkeys(c['note'] for c in checks if c['note'])))}
 
     async def _release_resources(self, tree: _Tree, parent_span: str) -> bool:
-        """Release worker and checker resources, preserving actual observations and every cleanup failure."""
+        """Release worker and checker resources, preserving actual observations and every cleanup failure: the
+        worker's, its checker's, and the fix round's (`_helper_ids`)."""
         observed = False
-        for tid in (tree.worker.id, f"{tree.worker.id}.verify"):
+        for tid in (tree.worker.id, *self._helper_ids(tree.worker.id)):
             released = await self._release_task(tree, tid, parent_span)
             observed = observed or released
         return observed
+
+    def _helper_ids(self, task_id: str) -> list[str]:
+        """The task ids that run around one worker and hold what they open (tabs, listening) under their own id: its
+        checker, always released as before, and the fix round's turn and re-check (ORCH-548), when they ran."""
+        return [f"{task_id}.verify"] + [tid for tid in (f"{task_id}.fix", f"{task_id}.recheck")
+                                        if self.tasks.get(tid) is not None]
 
     async def _release_task(self, tree: _Tree, tid: str, parent_span: str) -> bool:
         """One task id's resources released, recorded in `tree`'s resources and cleanup errors: whether any were
@@ -5295,7 +5303,11 @@ class Supervisor(WorkerRuns):
         fixing = {} if answer is None else {'fixing': {
             'answer': answer, 'findings': [f.model_dump() for f in findings],
             'artifacts': list(tree.outcome.artifacts) if tree.outcome else [],
-            'verification': [r.as_dict() for r in tree.verification], 'unconfirmed': tree.unconfirmed}}
+            'evidence': list(tree.outcome.evidence) if tree.outcome else [],
+            'verification': [r.as_dict() for r in tree.verification], 'unconfirmed': tree.unconfirmed,
+            # the rest of the step's output (ORCH-548), so the steps after it read it after a restart as before
+            'input_notes': tree.input_notes, 'conversation_proposals': tree.conversation_proposals,
+            'part_updates': tree.part_updates, 'how': tree.how, 'nothing_to_tell': tree.nothing_to_tell}}
         self.plans.finish(tree.id, tree.step_id, {'status': 'running', **fixing})
 
     async def _restored_fix(self, tree: _Tree, task: Task, saved: dict[str, Any], span: str) -> Outcome:
@@ -5308,6 +5320,12 @@ class Supervisor(WorkerRuns):
                              for r in saved.get('verification') or [] if int(r.get('index', planned)) < planned]
         tree.unconfirmed = str(saved.get('unconfirmed') or '')
         tree.stands_unconfirmed = any(r.met is not True for r in tree.verification) or not tree.verification
+        # the rest of the step's output as its worker reported it (ORCH-548); a row saved before this has none
+        tree.input_notes = [n for n in saved.get('input_notes') or [] if isinstance(n, dict)]
+        tree.conversation_proposals = [p for p in saved.get('conversation_proposals') or [] if isinstance(p, dict)]
+        tree.part_updates = [u for u in saved.get('part_updates') or [] if isinstance(u, dict)]
+        tree.how = str(saved.get('how') or '')
+        tree.nothing_to_tell = bool(saved.get('nothing_to_tell'))
         findings = [Finding.model_validate(f) for f in saved.get('findings') or [] if isinstance(f, dict)]
         done = settle(str(saved.get('answer') or ''), [(f.quote, f.kind) for f in findings])
         tree.owner_answer, tree.answer_settled = done.answer, True
@@ -5319,7 +5337,8 @@ class Supervisor(WorkerRuns):
             if self._tree_of.get(tree.id) is tree:
                 tree.work_done = True
             await self._release_resources(tree, span)
-        tree.outcome = Outcome(task.id, "done", tree.owner_answer, [str(a) for a in saved.get('artifacts') or []], [])
+        tree.outcome = Outcome(task.id, "done", tree.owner_answer, [str(a) for a in saved.get('artifacts') or []],
+                               [str(e) for e in saved.get('evidence') or []])
         return tree.outcome
 
     async def _fix_turn(self, tree: _Tree, task: Task, answer: str, findings: list[Finding],
@@ -5338,18 +5357,25 @@ class Supervisor(WorkerRuns):
             raw, _ = await self.run_worker(tree, fix, "worker.md", (await self._context(tree)) + [block], FIX_SCHEMA,
                                            span, roles=("fix",), observe_only=True)
         except asyncio.CancelledError:
+            self._set_status(fix.id, "cancelled", {"summary": "Stopped during the fix turn."})
             raise
         except Exception as exc:
             self.journal.append("task.answer_fix_failed", {"task_id": task.id, "error": f"{type(exc).__name__}: {exc}"})
+            self._set_status(fix.id, "failed", {"summary": f"The fix turn couldn't run: {type(exc).__name__}"})
             return None
         if not isinstance(raw, dict):
             self.journal.append("task.answer_fix_failed", {"task_id": task.id, "error": getattr(raw, "summary", "")})
+            self._set_status(fix.id, "cancelled" if getattr(raw, "status", "") == "cancelled" else "failed",
+                             {"summary": getattr(raw, "summary", "")})
             return None
         try:
-            revised = FixOutcome.model_validate(raw).answer
+            fixed = FixOutcome.model_validate(raw)
         except ValidationError:
+            self._set_status(fix.id, "failed", {"summary": "The fix turn's report wasn't usable."})
             return None
-        return revised if revised.strip() else None
+        # ORCH-548: a turn that finished ends done, so the tree-end sweep leaves it alone
+        self._set_status(fix.id, "done" if fixed.answer.strip() else "failed", fixed.model_dump())
+        return fixed.answer if fixed.answer.strip() else None
 
     async def _recheck(self, tree: _Tree, task: Task, findings: list[Finding], revised: str,
                        span: str) -> list[Finding] | None:
@@ -5364,17 +5390,24 @@ class Supervisor(WorkerRuns):
         try:
             raw, _ = await self.run_worker(tree, vtask, "recheck.md", [block], RECHECK_SCHEMA, span)
         except asyncio.CancelledError:
+            self._set_status(vtask.id, "cancelled", {"summary": "Stopped during the re-check."})
             raise
         except Exception as exc:
             self.journal.append("task.answer_recheck_failed", {"task_id": task.id,
                                                               "error": f"{type(exc).__name__}: {exc}"})
+            self._set_status(vtask.id, "failed", {"summary": f"The re-check couldn't run: {type(exc).__name__}"})
             return None
         if not isinstance(raw, dict):
+            self._set_status(vtask.id, "cancelled" if getattr(raw, "status", "") == "cancelled" else "failed",
+                             {"summary": getattr(raw, "summary", "")})
             return None
         try:
-            return [f for f in RecheckOutcome.model_validate(raw).findings if f.quote.strip()]
+            checked = RecheckOutcome.model_validate(raw)
         except ValidationError:
+            self._set_status(vtask.id, "failed", {"summary": "The re-check's answer wasn't usable."})
             return None
+        self._set_status(vtask.id, "done", checked.model_dump())          # ORCH-548
+        return [f for f in checked.findings if f.quote.strip()]
 
     @staticmethod
     def _owner_text(tree: _Tree, result: ConditionResult) -> str:
