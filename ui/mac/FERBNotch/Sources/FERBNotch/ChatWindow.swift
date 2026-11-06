@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 import Quartz
@@ -84,6 +85,14 @@ final class ChatWindowControls: ObservableObject {
 }
 
 /// Opens, hides, places and levels the sticky window. Created the first time window mode shows it, never otherwise.
+///
+/// Where it lives (owner, 2026-11-06, APP-760): in FERB's fixed overlay space, like the notch, so a Space switch
+/// (Control-arrow, a swipe, Mission Control, a full-screen Space) never moves it. It steps back into the ordinary window
+/// stack, one layer back like the notch's yield, while something must show above it: FERB's own file picker, Settings,
+/// alerts or Quick Look (APP-749), what FERB just opened in another app, another process's menu, popover or floating
+/// window over it, a file drag (APP-742's hold-out) and, with Keep on top off, another app's window the owner brought
+/// forward over it. It comes back when none of those holds. Without the overlay space (SkyLight unavailable) it is an
+/// ordinary all-Spaces panel whose level follows Keep on top, as before.
 @MainActor
 final class ChatWindowController: NSObject, NSWindowDelegate {
     let panel: ChatWindowPanel
@@ -111,7 +120,56 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     /// FERB handed the owner something in another app (`HandOff`): the window stays down until the owner comes back
     /// to it (it becomes key) or FERB shows it again.
     private var handedOff = false
+    /// Another process's menu, popover or floating window (one the owner hasn't shown the window above) is over it.
+    private(set) var overlaysOver = false
+    /// Keep on top off: the app whose window the owner brought forward over the window.
+    private(set) var coveredBy: Int32?
+    /// Other processes' windows the owner chose to show the window above (over it when they opened it or clicked into
+    /// it), until they leave the screen; the notch's rule (NotchYieldController.overriddenOverlays).
+    private var overridden = Set<UInt32>()
+    private var overrideAtNextCheck = false
+    /// The window stepped back into the ordinary window stack (out of the overlay space).
+    private(set) var steppedBack = false
     private var observers: [NSObjectProtocol] = []
+    private var watch: Task<Void, Never>?
+    private var activationRecheck: Task<Void, Never>?
+    private var systemInput: [Int32: Bool] = [:]
+
+    /// FERB's fixed overlay space (the notch's); nil or detached: the AppKit fallback.
+    var space: NotchOverlaySpace? {
+        didSet { applyPlace() }
+    }
+    /// The on-screen windows (tests stand in their own rows).
+    var windowList: () -> [ScreenWindow] = ScreenWindow.onScreen
+    /// Whether a window belongs only to Spaces other than the one showing (mid-swipe), as the notch reads it.
+    var onAnotherSpace: (UInt32) -> Bool = { number in
+        let spaces = WindowServerSpaces.spaces(ofWindow: Int(number))
+        guard !spaces.isEmpty, let active = WindowServerSpaces.activeSpace() else { return false }
+        return !spaces.contains(active)
+    }
+    var ownPIDs: Set<Int32> = [getpid()]
+    var bundleID: (Int32) -> String? = { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+    var isWindowManager: (Int32) -> Bool = {
+        NSRunningApplication(processIdentifier: $0)?.bundleIdentifier == "com.apple.WindowManager"
+    }
+    static let watchInterval: Duration = .milliseconds(250)
+    /// How long after a Space change an app's activation still counts as that Space's own front app coming forward:
+    /// macOS posts the activation before or after the Space change (live probe, macOS 27.2: after, on Control-arrow).
+    static let spaceChangeGrace: TimeInterval = 1.0
+    var now: () -> Date = { Date() }
+    /// The Space showing (tests stand in their own).
+    var activeSpace: () -> UInt64? = { WindowServerSpaces.activeSpace() }
+    private var lastSpaceChange: Date?
+    /// The Space showing at the last look: a different one now is a Space change, whether or not its notification
+    /// has arrived yet.
+    private var seenSpace: UInt64?
+
+    /// Notes a Space change seen by its notification or by the Space showing having changed since the last look.
+    private func noteSpace(changed: Bool = false) {
+        let space = activeSpace()
+        if changed || (space != nil && seenSpace != nil && space != seenSpace) { lastSpaceChange = now() }
+        if space != nil { seenSpace = space }
+    }
 
     static let behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
 
@@ -152,7 +210,7 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         let hosting = NSHostingView(rootView: ChatWindowView(model: model, controls: controls))
         hosting.sizingOptions = []
         panel.contentView = hosting
-        applyLevel()
+        applyPlace()
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: HandOff.notification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.handOff() }
@@ -170,45 +228,173 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        watch?.cancel()
+        activationRecheck?.cancel()
+    }
 
     var isShown: Bool { panel.isVisible }
 
     /// Shows the window: placed on the pointer's display at its saved place when it wasn't showing, brought in front
-    /// of other windows without taking keyboard focus (D22), and made key only for `focus` (the owner opened it).
+    /// of other windows without taking keyboard focus (D22), and made key only for `focus` (the owner opened it). The
+    /// owner (or FERB's arrival) showing it is the owner's choice of it over what was in front: it comes forward.
     func show(focus: Bool) {
-        if handedOff { ownerReturned() }
+        handedOff = false
+        coveredBy = nil
+        overrideAtNextCheck = true
         if !panel.isVisible { place() }
         panel.orderFrontRegardless()
+        applyPlace()
+        if fixed && !steppedBack { space?.stepForward(panel) }
         if focus { panel.makeKey() }
+        startWatch()
     }
 
     func hide() {
         guard panel.isVisible else { return }
         panel.orderOut(nil)
+        watch?.cancel()
+        watch = nil
     }
 
     /// Keep on top (on: floating; off: among other windows) read again, e.g. after Settings changed it.
     func settingsChanged() {
         controls.keepOnTop = ChatHost.keepsOnTop(defaults)
-        applyLevel()
+        if controls.keepOnTop { coveredBy = nil }
+        applyPlace()
     }
 
     /// FERB's file picker opened or closed (it must show above the window).
     func filePicker(open: Bool) {
         underPicker = open
-        applyLevel()
+        applyPlace()
     }
 
     /// FERB opened something in another app: what opened shows above the window.
     func handOff() {
         handedOff = true
-        applyLevel()
+        applyPlace()
     }
 
+    /// The owner came back to the window (it became key): nothing they had brought forward holds it back any more.
     private func ownerReturned() {
         handedOff = false
-        applyLevel()
+        coveredBy = nil
+        overrideAtNextCheck = true
+        applyPlace()
+    }
+
+    // MARK: - Fixed on every Space (APP-760)
+
+    private var fixed: Bool { space?.isAttached == true }
+
+    /// What must show above the window now.
+    var stepsBack: Bool { underPicker || underOwnWindow || handedOff || overlaysOver || coveredBy != nil }
+
+    /// The window's frame in window-server coordinates (origin at the primary display's top left).
+    private var serverFrame: CGRect {
+        NotchOverlap.windowServerRect(panel.frame, primaryDisplayHeight: NSScreen.screens.first?.frame.maxY ?? 0)
+    }
+
+    /// An app came forward (`bySpaceChange`: the new Space's own front app, which nobody brought over the window).
+    /// With Keep on top off, the window steps behind that app's window when one lies over it; a window that unhides
+    /// or un-minimizes with its app shows a moment later, so it is looked for again then.
+    func otherAppActivated(_ pid: Int32, bySpaceChange: Bool) {
+        activationRecheck?.cancel()
+        noteSpace()
+        let afterSpaceChange = lastSpaceChange.map { now().timeIntervalSince($0) < Self.spaceChangeGrace } ?? false
+        guard !bySpaceChange, !afterSpaceChange, !ownPIDs.contains(pid), !controls.keepOnTop, isShown, fixed
+        else { return }
+        if coverIfUnder(pid) { return }
+        activationRecheck = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            self?.coverIfUnder(pid)
+        }
+    }
+
+    /// The owner clicked another app (FERB's global monitor; `point` in window-server coordinates): with Keep on top
+    /// off, an app already in front whose window lies under the window takes the front as an activation would.
+    func ownerClicked(at point: CGPoint) {
+        guard !controls.keepOnTop, isShown, fixed else { return }
+        let rows = windowList()
+        if let app = NotchOverlap.clickedApp(at: point, in: rows, ownPIDs: ownPIDs,
+                                             canBeActive: { _ in true }, frontmost: { nil }) {
+            coverIfUnder(app, rows: rows)
+        }
+    }
+
+    @discardableResult
+    private func coverIfUnder(_ pid: Int32, rows: [ScreenWindow]? = nil) -> Bool {
+        let rows = (rows ?? windowList()).filter { !onAnotherSpace($0.windowID) }
+        guard let front = NotchOverlap.frontWindowUnderChat(in: rows, appPID: pid, chat: serverFrame) else { return false }
+        coveredBy = pid
+        applyPlace()
+        if panel.isVisible { panel.order(.below, relativeTo: Int(front.windowID)) }
+        return true
+    }
+
+    /// A Space change: nothing moves; what holds the window back is read again on the Space showing now.
+    func spaceChanged() {
+        noteSpace(changed: true)
+        activationRecheck?.cancel()
+        evaluate()
+    }
+
+    private func startWatch() {
+        guard fixed, watch == nil else { return }
+        watch = Task { [weak self] in
+            repeat {
+                self?.evaluate()
+                do { try await Task.sleep(for: Self.watchInterval, tolerance: .milliseconds(50)) } catch { return }
+            } while self != nil
+        }
+    }
+
+    /// One look at the windows around the sticky window: another process's menu, popover or floating window over it
+    /// (not one the owner chose to show it above; never during Mission Control or for system text input), and, with
+    /// Keep on top off, whether the app it stepped behind still has a window over it.
+    func evaluate() {
+        guard isShown, fixed, let screen = panel.screen ?? NSScreen.main else { return }
+        noteSpace()
+        let height = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+        func server(_ rect: CGRect) -> CGRect { NotchOverlap.windowServerRect(rect, primaryDisplayHeight: height) }
+        let bar = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+        let display = server(screen.frame)
+        let menuBar = server(CGRect(x: screen.frame.minX, y: screen.frame.maxY - bar, width: screen.frame.width,
+                                    height: bar))
+        let rows = windowList()
+        let missionControl = SpaceFacts.missionControlShowing(in: rows, display: display) { [unowned self] in
+            isWindowManager($0)
+        }
+        let frame = serverFrame
+        let over = missionControl ? [] : NotchOverlap.foreignOverlays(in: rows, ferbFrames: [frame], ownPIDs: ownPIDs,
+                                                                      menuBar: menuBar, display: display)
+            .filter { !isSystemInput($0.ownerPID) && !onAnotherSpace($0.windowID) }
+        let ids = Set(over.map(\.windowID))
+        overridden.formIntersection(rows.map(\.windowID))
+        if overrideAtNextCheck { overridden.formUnion(ids) }
+        overrideAtNextCheck = false
+        var changed = false
+        let overlays = !ids.isSubset(of: overridden)
+        if overlays != overlaysOver {
+            overlaysOver = overlays
+            changed = true
+        }
+        if let app = coveredBy, !missionControl,
+           NotchOverlap.frontWindowUnderChat(in: rows.filter { !onAnotherSpace($0.windowID) }, appPID: app,
+                                             chat: frame) == nil {
+            coveredBy = nil
+            changed = true
+        }
+        if changed { applyPlace() }
+    }
+
+    private func isSystemInput(_ pid: Int32) -> Bool {
+        if let known = systemInput[pid] { return known }
+        let input = bundleID(pid).map(NotchOverlap.isSystemInput(bundleID:)) ?? false
+        systemInput[pid] = input
+        return input
     }
 
     /// Whether another of FERB's own windows the owner works in is showing: a titled one (Settings and the FERB
@@ -230,7 +416,7 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
             let covered = Self.coveredByOwnWindow(facts)
             guard covered != self.underOwnWindow else { return }
             self.underOwnWindow = covered
-            self.applyLevel()
+            self.applyPlace()
             // Down among normal windows, it goes behind the one that opened (a level change alone may leave it in front)
             if covered, self.panel.isVisible,
                let front = zip(windows, facts).first(where: { $0.0 === NSApp.keyWindow && !$0.1.isChat && $0.1.isTitled })
@@ -246,10 +432,42 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         keepOnTop && !picker && !ownWindow && !handedOff ? .floating : .normal
     }
 
-    private func applyLevel() {
-        panel.level = Self.level(keepOnTop: controls.keepOnTop, picker: underPicker, ownWindow: underOwnWindow,
-                                 handedOff: handedOff)
+    /// In the overlay space the window floats above every ordinary window; while something must show above it, it
+    /// steps back to the normal level in the ordinary window stack: in front of ordinary windows under another
+    /// process's menu or popover, behind the app window the owner brought forward (`coverIfUnder`) or FERB's own window
+    /// (`ownWindowsChanged`), and left where it is under the picker or after a hand-off, whose window comes forward
+    /// by itself. Without the overlay space: Keep on top's level, as before (`level`).
+    private func applyPlace() {
+        guard let space, space.isAttached else {
+            panel.level = Self.level(keepOnTop: controls.keepOnTop, picker: underPicker, ownWindow: underOwnWindow,
+                                     handedOff: handedOff)
+            return
+        }
+        if stepsBack {
+            panel.level = .normal
+            guard !steppedBack else { return }
+            steppedBack = true
+            space.stepBack(panel)
+            Self.log.notice("Window steps back (\(self.reasons, privacy: .public))")
+            if panel.isVisible && overlaysOver && coveredBy == nil && !underPicker && !underOwnWindow && !handedOff {
+                panel.orderFrontRegardless()                  // menus and popovers sit above the normal level
+            }
+        } else {
+            panel.level = .floating
+            guard steppedBack else { return }
+            steppedBack = false
+            if panel.isVisible { panel.orderFrontRegardless() }
+            space.stepForward(panel)
+            Self.log.notice("Window comes back into the fixed space")
+        }
     }
+
+    var reasons: String {
+        [underPicker ? "picker" : nil, underOwnWindow ? "FERB window" : nil, handedOff ? "hand-off" : nil,
+         overlaysOver ? "menu or popover" : nil, coveredBy.map { "app \($0)" }].compactMap { $0 }.joined(separator: ", ")
+    }
+
+    static let log = Logger(subsystem: "com.ferb.FERB", category: "spaces")
 
     /// The displays changed: a window no longer reachable on any of them (its display unplugged) moves onto the
     /// pointer's display at its place there.

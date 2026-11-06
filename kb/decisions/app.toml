@@ -2608,3 +2608,24 @@ rule = "Implements APP-758. The sticky window isn't movable by the window server
 why = "Owner couldn't reach Settings from the window. A movable window's title bar is a server-side drag region; once a server drag starts \"a mouseUp may not get sent\" (NSWindow.h). Tests click through NSApp's dispatch; the server path needs the owner's live check."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowPanel", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::WindowDragArea", "ui/mac/FERBNotch/Sources/FERBNotch/ProfileMenuButton.swift"]
 live = ["LIVE-803"]
+
+[APP-760]
+title = "The sticky window stays put on a Space switch"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "the notch open close on space change is fully fixed - ive testes. BUT the open close haoppens on the window on space switch have ot fix that too"
+words_source = "Owner, 2026-11-06, after testing the notch's Space fix, about window mode (Keep on top off)"
+rule = "Supersedes APP-748's part that keeps the sticky window an ordinary all-Spaces panel that slides with the desktop. Like the open notch (APP-729), the window never moves on a Space switch (Control-arrow, a swipe, Mission Control, a full-screen Space). FERB's own picker, Settings, alerts and Quick Look, other apps' menus and popovers, and file drops keep working; Keep on top off still lets other apps' windows the owner brings forward cover it."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController"]
+live = ["LIVE-804"]
+
+[APP-761]
+title = "The sticky window lives in FERB's fixed overlay space and steps back like the notch's yield"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Implements APP-760. The window joins the notch's overlay space (NotchOverlaySpace.stepForward) and steps back to the normal level in the ordinary stack (stepBack) while FERB's picker, own titled windows or Quick Look show, after a hand-off, while another process's menu, popover or floating window is over it (polled every 250 ms, the notch's rules), and with Keep on top off while an app the owner brought forward has a window over it. A file drag holds it out. Without the space: Keep on top's level, as before."
+why = "Live probe, macOS 27.2: Control-arrow both ways and Mission Control in and out left it in the space, on no ordinary Space, at the same window-server bounds at every 20 ms sample. Activations within 1 s of a Space change (seen by notification or the Space showing) are that Space's own."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController", "ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift::NotchOverlaySpace", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-804"]

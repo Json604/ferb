@@ -458,6 +458,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         magneticFieldPanel.collectionBehavior = Self.overlayBehavior
         magneticFieldPanel.contentView = magneticField
         overlaySpace.attach([panel, tracerPanel, indicatorPanel, edgeRowPanel, magneticFieldPanel])
+        if overlaySpace.isAttached, let chatWindow { chatWindow.space = overlaySpace }
         lastSpace = activeSpace()
         Self.spacesLog.notice("""
             Overlay attached \(self.overlaySpace.isAttached, privacy: .public) on Space \(self.lastSpace ?? 0, privacy: .public): \
@@ -533,6 +534,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// included (APP-707).
     func ownerClickedInAnotherApp() {
         let location = pointerLocation()
+        chatWindow?.ownerClicked(at: windowServerPoint(location))
         let cameBack = yieldController.ownerClicked(at: windowServerPoint(location))
         // The click went to another app: coming back must not take the focus the owner moved there.
         windowYield.ownerMovedElsewhere()
@@ -1244,6 +1246,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 \(self.stateLine, privacy: .public)
                 """)
         }
+        chatWindow?.otherAppActivated(app.processIdentifier, bySpaceChange: bySpaceChange)
         let cameBack = yieldController.appActivated(app.processIdentifier, bySpaceChange: bySpaceChange)
         // Another app came forward: coming back must not take the focus the owner moved there.
         if app.processIdentifier != getpid() { windowYield.ownerMovedElsewhere() }
@@ -1266,6 +1269,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         lastSpace = space
         pointerAtSpaceChange = pointerLocation()
         yieldController.spaceChanged()
+        chatWindow?.spaceChanged()
         if overlaySpace.isAttached {
             overlaySpace.ensureAll(except: model.isYielded ? [panel] : [])
         } else if notchSurfaceVisible {
@@ -1363,6 +1367,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private func ensureChatWindow() -> ChatWindowController {
         if let chatWindow { return chatWindow }
         let window = ChatWindowController(model: model, defaults: defaults)
+        // Fixed on every Space like the notch (APP-760): in the overlay space when FERB has one
+        if overlaySpace.isAttached { window.space = overlaySpace }
         window.onClose = { [weak self] in
             guard let self, self.model.expanded else { return }
             self.model.collapse(keyboard: true)
@@ -1985,7 +1991,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         beginFileDrag()
     }
 
-    private var dropWindows: [NSWindow] { [indicatorPanel, edgeRowPanel, panel] }
+    /// The windows a file drag must reach: the notch's, and the sticky window while it shows (APP-742, APP-760).
+    private var dropWindows: [NSWindow] {
+        [indicatorPanel, edgeRowPanel, panel] + (chatWindow.map { $0.isShown ? [$0.panel] : [] } ?? [])
+    }
 
     func beginFileDrag() {
         guard !fileDragActive else { return }
@@ -2100,6 +2109,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         tracerPanel.orderOut(nil)
         indicatorPanel.orderOut(nil)
         edgeRowPanel.orderOut(nil)
+        chatWindow?.space = nil
         overlaySpace.stop()
         presentationRevision = UUID()
         hoverTask?.cancel()

@@ -197,9 +197,35 @@ final class NotchOverlaySpace {
         return true
     }
 
-    /// `ensure` for every window of ours, except those that left on purpose (the panel while FERB yields).
+    /// `ensure` for every window of ours, except those that left on purpose (the panel while FERB yields, a window
+    /// that stepped back, `stepBack`).
     func ensureAll(except excluded: [NSWindow] = []) {
-        for window in windows where !excluded.contains(where: { $0 === window }) { ensure(window) }
+        for window in windows where !excluded.contains(where: { $0 === window }) && !away.contains(where: { $0 === window }) {
+            ensure(window)
+        }
+    }
+
+    /// Windows of ours that stepped back into the ordinary window stack on purpose (`stepBack`): nothing puts them back
+    /// in the space until `stepForward`.
+    private(set) var away: [NSWindow] = []
+
+    /// A window that lives in the space (the sticky window, APP-760) steps back into the ordinary window stack, as the
+    /// panel does when FERB yields (`leave`), and stays out until `stepForward`. A window not yet ours is adopted first.
+    func stepBack(_ window: NSWindow) {
+        guard space != 0 else { return }
+        if !windows.contains(where: { $0 === window }) { windows.append(window) }
+        if !away.contains(where: { $0 === window }) { away.append(window) }
+        leave(window)
+    }
+
+    /// The window comes back into the space (adopted first when it isn't ours yet); whether the space lists it.
+    @discardableResult
+    func stepForward(_ window: NSWindow) -> Bool {
+        guard space != 0 else { return false }
+        away.removeAll { $0 === window }
+        if !windows.contains(where: { $0 === window }) { windows.append(window) }
+        ensure(window)
+        return membership(of: window)?.member == true
     }
 
     /// One line per window of ours for the `spaces` log: number, member of the space, ordinary Spaces, on screen.
@@ -226,6 +252,7 @@ final class NotchOverlaySpace {
         guard space != 0, let removeWindows, windows.contains(where: { $0 === window }) else { return }
         removeWindows(connection, [NSNumber(value: window.windowNumber)] as CFArray, [NSNumber(value: space)] as CFArray)
         windows.removeAll { $0 === window }
+        away.removeAll { $0 === window }
         let behavior = window.collectionBehavior
         window.collectionBehavior = []
         window.collectionBehavior = behavior
@@ -272,11 +299,14 @@ final class NotchOverlaySpace {
     func endHoldOut(keepOut: [NSWindow] = []) {
         let held = heldOut
         heldOut = []
-        for window in held where !keepOut.contains(where: { $0 === window }) { ensure(window) }
+        for window in held where !keepOut.contains(where: { $0 === window }) && !away.contains(where: { $0 === window }) {
+            ensure(window)
+        }
     }
 
     func stop() {
         heldOut = []
+        away = []
         guard space != 0 else { return }
         // Remove only our windows and destroy only the space we created.
         removeWindows?(connection, windows.map { NSNumber(value: $0.windowNumber) } as CFArray,
