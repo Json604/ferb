@@ -1911,7 +1911,7 @@ by = "agent"
 date = 2026-11-04
 status = "active"
 supersedes = ["APP-650"]
-rule = "FERB's own windows (Settings and the rest of the FERB window) join the Space the owner is on (moveToActiveSpace) and are put there before FERB activates, so activating never switches Spaces; the APP-630 move onto a full-screen Space stays."
+rule = "FERB's own windows (Settings and the rest of the FERB window) join the Space the owner is on (moveToActiveSpace), are put there and take key from FERB's overlay windows (the notch's panel, the sticky window) before FERB activates, so activating never switches Spaces (APP-773); the APP-630 move onto a full-screen Space stays."
 why = "APP-650 named the setup window, which APP-685 removed; the rest holds. Owner, 2026-11-04 (APP-650): opening Settings switched the screen to the home Space. Rule 10."
 evidence = "Fix batch the owner approved: \"i approve all fixes\" (2026-11-04)"
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
@@ -2744,3 +2744,14 @@ words_source = "Owner, 2026-11-06, choosing option c of review 2's finding 2 (Ke
 rule = "Supersedes the Keep on top parts of APP-745 (D20's toggle), APP-758 (Keep on top stays a setting) and APP-760 (Keep on top off lets other apps' windows cover it): the sticky window always floats over other apps' windows and stays put on a Space switch, like the notch. Settings has no Keep on top switch; an old stored value is ignored and cleared on upgrade (as APP-527's setting was). FERB's own windows, its picker, Quick Look, hand-offs, other apps' menus and popovers and file drags still show above it (APP-749, APP-761)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController", "ui/mac/FERBNotch/Sources/NotchCore/ChatWindowPlacement.swift::ChatHost.clearRetired", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppSettings.swift"]
 live = ["LIVE-804"]
+
+[APP-773]
+title = "Opening FERB's window never leaves the owner on another Space"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "one thign i noticed, when im in nothc mode adn open ferbs window for settigns ot shofts focus to home space and opens that window htere - ok. but hwne i do the smae in window mode of ferb it switches to home but open the settings on the same space i was on and not the desktop - too bad ux here, fix this too"
+words_source = "Owner, 2026-11-06, about opening Settings from the notch and from the sticky window"
+rule = "Refines APP-630 and APP-688. Opening Settings or any page of FERB's window (Tasks, Schedules, the profile menu's items), in notch mode and in window mode, leaves the owner and the window on the same Space: no Space switch; the window opens on the Space the owner is on, including over a full-screen app. Notch mode keeps working at least as well as before."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
+live = ["LIVE-803"]

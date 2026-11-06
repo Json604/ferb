@@ -3299,9 +3299,9 @@ sitting = "after this change is installed"
 title = "The window's header: no pin; the profile menu opens on every click"
 area = "app"
 surface = "FERB.app with this build in window mode, the window open, another app in front with keyboard focus"
-request = "Look at the header. Click the profile circle ten times in a row, each time closing the menu with Esc, with another app focused before some of the clicks; then choose Settings… from it and switch Where FERB opens to Notch. Drag the window by the header's empty space; click ×."
-pass = "The header shows ferb., the profile circle and ×, no pin. Every click opens the menu at once without the window flickering or moving; Settings opens and the switch to Notch works. Dragging the header moves the window and it keeps that place; × closes it with one click. Settings has no Keep on top switch."
-decisions = ["APP-758", "APP-759"]
+request = "From another Space than the first (home) one: look at the header. Click the profile circle ten times in a row, each time closing the menu with Esc, with another app focused before some of the clicks; then choose Settings… from it and switch Where FERB opens to Notch; from the notch's profile menu open Settings again, then Tasks. Drag the window by the header's empty space; click ×."
+pass = "The header shows ferb., the profile circle and ×, no pin. Every click opens the menu at once without the window flickering or moving; Settings opens on the Space you are on, with no Space switch, from the window and from the notch (Tasks too), and the switch to Notch works. Dragging the header moves the window and it keeps that place; × closes it with one click. Settings has no Keep on top switch."
+decisions = ["APP-758", "APP-759", "APP-773", "APP-688"]
 sitting = "after this change is installed"
 
 [LIVE-804]

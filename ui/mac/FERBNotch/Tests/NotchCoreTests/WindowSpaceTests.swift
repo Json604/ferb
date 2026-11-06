@@ -175,6 +175,39 @@ final class WindowSpaceTests: XCTestCase {
         assertFixed(h, "after a Space switch")
     }
 
+    /// Owner 2026-11-06 (window mode): "it switches to home but open the settings on the same space i was on". The
+    /// sticky window was FERB's key window, on no ordinary Space, when FERB activated for Settings. The requested
+    /// window takes key from it before FERB activates, on the owner's Space; FERB's activation is recorded here, never
+    /// run, so the owner's Space is untouched.
+    // decision: APP-773, APP-688, APP-630
+    func testSettingsIsKeyOnTheOwnersSpaceBeforeFERBActivates() throws {
+        let h = try harness()
+        h.window.show(focus: true)
+        for _ in 0..<5 where !h.window.panel.isKeyWindow {         // as a click on its profile menu leaves it
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            h.window.panel.makeKey()
+        }
+        // Keyboard focus is another app's right now (the owner working on this Mac): nothing to show here
+        guard h.window.panel.isKeyWindow else { throw XCTSkip("Another app has keyboard focus") }
+        let controller = FERBWindowController(store: FERBWindowStore(rpc: ScriptedRPC()),
+            actions: FERBAppActions(feedback: SoundFeedback(), cursor: CursorController(makePanels: false)))
+        var atActivation: [Bool] = []                       // whether the sticky window was key
+        let activate = AppWindowPresentation.activate
+        AppWindowPresentation.activate = { atActivation.append(h.window.panel.isKeyWindow) }
+        defer { AppWindowPresentation.activate = activate }
+        for page in [FERBSection.settings, .tasks, .schedules] {
+            controller.show(page)
+            let window = try XCTUnwrap(controller.window)
+            addTeardownBlock { window.orderOut(nil) }
+            XCTAssertTrue(window.isOnActiveSpace, "\(page): on the owner's Space")
+            h.window.show(focus: true)                       // back in the sticky window for the next page
+        }
+        XCTAssertEqual(atActivation.count, 3)
+        for (index, stickyKey) in atActivation.enumerated() {
+            XCTAssertFalse(stickyKey, "page \(index): the sticky window, on no ordinary Space, was still key")
+        }
+    }
+
     /// A file drag reaches the window: it leaves the fixed space while the drag lasts (no drag reaches a window there,
     /// APP-742) and comes back after.
     // decision: APP-760, APP-742
