@@ -66,7 +66,7 @@ from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line,
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
-from ferb.orchestrator.answer_marks import settle
+from ferb.orchestrator.answer_marks import remove_quote, settle
 from ferb.orchestrator.schemas import (CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHEMA, RECHECK_SCHEMA, SUMMARY_SCHEMA,
                                        SUPERVISOR_SCHEMA, WORKER_SCHEMA, AnswerQuestion, Check, CheckerOutcome, Condition,
                                        Finding, FixOutcome, QuestionOutcome, RecheckOutcome, SummaryOutcome,
@@ -552,7 +552,7 @@ def work_in(folders: list[str]) -> str:
     """The plan line's folder statement (HAND-204), the home folder shown as ~."""
     home = str(Path.home())
     shown = ["~" + f[len(home):] if f == home or f.startswith(home + "/") else f for f in folders]
-    return "I'll work in " + ", ".join(shown) + "."
+    return "Working in " + ", ".join(shown) + "."
 
 
 def _short_report(text: str, index: bool = False) -> str:
@@ -3594,12 +3594,17 @@ class Supervisor(WorkerRuns):
 
     def _plan_event(self, tree: _Tree, text: str, stated: str, restored: bool) -> dict[str, Any]:
         """The first reply of a task's turn: the plan line (the planner's words, a line that reads like FERB's own check
-        marked as the task's, D33) and code's lines under it (a big job's statement, how each loop ends, "I'll work
-        in …"). Several asks (ORCH-319): the direct parts' answers first, then code's receipts for the turn's
-        reminders, memory and schedules (said here, not again at the end), then the plan line; and the card, one row per
-        other part. Each piece is also its own field, so the app renders them without parsing the text; `plan_line` is
-        what `plan_delta` streamed. A resumed task (`restored`) says nothing again: its card comes from the record."""
+        marked as the task's, D33) and code's lines under it (a big job's statement, how each loop ends, "Working
+        in …"). Several asks (ORCH-319): code's receipts for the turn's reminders, memory and schedules (said here, not
+        again at the end), then the plan line; and the card, one row per part. A part answered at once shows only as its
+        own done row (APP-755, owner 2026-11-06): its answer is in the event's `direct` field and the card, never in
+        the reply's text, and the planner's own copy of it is taken out of the plan line (the part's exact text, found
+        structurally). Each piece is also its own field, so the app renders them without parsing the text; `plan_line`
+        is what `plan_delta` streamed. A resumed task (`restored`) says nothing again: its card comes from the record."""
         spec = tree.spec
+        if tree.card is not None:
+            for answer in (p.direct for p in spec.parts if p.direct and p.direct.strip()):
+                text = remove_quote(text, answer.strip())
         plan_line = confirm.from_task_lines(text)
         lines = [line for line in stated.split("\n") if line.strip()]
         event: dict[str, Any] = {
@@ -3620,8 +3625,7 @@ class Supervisor(WorkerRuns):
         receipts = [] if restored else [confirm.from_task_lines(self.gateway.redact(l)) for l in tree.side_lines]
         said_cards = [] if restored else self._said_cards(tree.side_cards)
         tree.side_lines, tree.side_cards = [], []   # said in the first reply; the last part's footer doesn't repeat them
-        top = "\n\n".join(d["text"] for d in direct if d["text"].strip())
-        event["text"] = "\n\n".join(piece for piece in (top, "\n".join(receipts), event["text"]) if piece.strip())
+        event["text"] = "\n\n".join(piece for piece in ("\n".join(receipts), event["text"]) if piece.strip())
         event |= {"direct": direct, "receipts": receipts, "card": self._card_payload(tree)}
         if said_cards:                       # step 8e: the receipts' cards (the app draws them in their lines' place)
             event["cards"] = said_cards

@@ -246,7 +246,7 @@ def test_a_stop_after_the_work_finished_never_records_it_as_cancelled(daemon: Ru
     assert outcome(first.done())["status"] == "done"
 
 
-# decision: ORCH-327
+# decision: ORCH-327, HAND-425
 def test_the_plan_line_states_the_folders_and_the_shell_works_only_there(daemon: RunningDaemon) -> None:
     """HAND-204: the planner resolves the owner's folder words into `folders`; the plan line says them, so a
     wrong guess can be corrected, and they are the task's shell scope. One that names no specific folder is repaired."""
@@ -262,7 +262,7 @@ def test_the_plan_line_states_the_folders_and_the_shell_works_only_there(daemon:
     script = install(daemon, [sup("task", "Tidying.", broad), sup("task", "Tidying.", named)], {"worker": worker})
     events = chat(daemon, "tidy my downlods folder")
     plan = next(e for e in events if e["type"] == "plan")
-    assert "I'll work in ~/Downloads." in plan["text"]
+    assert "Working in ~/Downloads." in plan["text"]
     assert seen == [(str(Path.home() / "Downloads"),)]
     assert len(_planner_calls(script)) == 2 and "folders must each name one specific folder" in \
         _planner_calls(script)[1].context

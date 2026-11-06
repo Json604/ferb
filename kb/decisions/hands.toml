@@ -764,3 +764,13 @@ rule = "Wherever FERB shows a browser profile (tour and playground, Settings →
 why = "Two profiles can share a name (live 2026-10-27: two \"Work\" profiles); the account tells them apart and says which inbox a profile reaches."
 paths = ["ferb/act/browser/profiles.py::shown", "ferb/act/browser/profiles.py::named", "ferb/daemon/areas/environment.py::Environment._availability", "ferb/daemon/areas/environment.py::Environment._live_facts"]
 live = ["LIVE-791"]
+
+[HAND-425]
+title = "The folder line says \"Working in …\""
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "ok keep it. btu it only shows in fodler tasks, right??? also is it code computed or ferb's line?? if its code computed then we can change it to wrokign in X, not im workign in X casue that seems reperatetive"
+words_source = "Owner, 2026-11-06, about the plan's folder line written by code (work_in)"
+rule = "Refines HAND-204's wording: code's folder line under the plan line reads \"Working in ~/Desktop.\" (the same list, the home folder shown as ~), not \"I'll work in …\". It shows only when the task has folders. Saved history keeps the text it was saved with."
+paths = ["ferb/orchestrator/supervisor.py::work_in"]

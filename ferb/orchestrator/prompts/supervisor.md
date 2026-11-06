@@ -103,8 +103,8 @@ A task (kind "task"):
   "worker" when there is no plan); conditions: indexes of the success conditions its answer must meet, each
   condition in exactly one part, none for a direct part. Each answer step answers one part and every step leads to some part's answer step; each answer is posted
   in its own row once checked, so never add a step that sums up or combines them. One ask: parts is [], and a plan ends
-  in one step whose checked answer is the answer. With parts, text is the plan line for what is left, the direct
-  answers said above it.
+  in one step whose checked answer is the answer. With parts, text is the plan line for what is left; a direct
+  answer goes only in its part (it shows as its own row), never in text.
 
 Plans (task.plan, for work with several dependent or independent parts; null otherwise):
 - Step kinds: do (one concrete goal); wait (one ISO time with timezone, or one exact event name with event_match: exact

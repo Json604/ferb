@@ -6,15 +6,16 @@ import NotchCore
 /// reply's bubble with the plan line, the turn card with one row per ask and its footer, the typing
 /// dots. Not the mock's pink dashed explanation labels or "code" chips.
 
-/// FERB's first reply: the asks answered at once, code's receipts, then the plan line and code's lines under it ("I'll
-/// work in …"). While the plan streams, its words so far stand where the plan line will be.
+/// FERB's first reply: code's receipts, then the plan line and code's lines under it ("Working in …"); the asks answered
+/// at once only when there is no card (with one, each is its own row, APP-755). While the plan streams, its words so far stand where the plan line will be.
 struct FirstReplyView: View {
     let turn: ConversationTurn
 
     var body: some View {
-        if let line = turn.planLine {
-            // a receipt drawn as its card (step 8e) isn't said again here
-            let direct = turn.direct ?? [], lines = turn.planLines ?? []
+        if let line = turn.shownPlanLine {
+            // a receipt drawn as its card (step 8e) isn't said again here; with a card, a part answered at once is only
+            // its row (APP-755)
+            let direct = turn.shownDirect, lines = turn.planLines ?? []
             let receipts = CardLayout.remaining(turn.receipts ?? [], turn.receiptCards ?? [])
             FerbBubble {
                 NativeMessageText(MessageTextAttributes.joined(
@@ -24,7 +25,7 @@ struct FirstReplyView: View {
                     + lines.map { NativeMessageText($0, secondary: true).text }
                 ))
             }
-        } else if let plan = turn.plan {
+        } else if let plan = turn.shownPlan {
             FerbBubble { NativeMessageText(plan) }            // saved before the plan line was its own field
         } else if let streaming = turn.streamingPlan, !streaming.isEmpty {
             FerbBubble { PlanLineBlock(line: streaming, lines: []) }

@@ -41,7 +41,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     /// The task's short name (T-1055: the plan event's `name`), its heading in the task list; nil for a turn with no
     /// task or saved before names.
     public var taskName: String?
-    /// The plan line on its own and code's lines under it ("I'll work in …"), from the plan event's fields; nil for a
+    /// The plan line on its own and code's lines under it ("Working in …"), from the plan event's fields; nil for a
     /// turn saved before they existed (its `plan` text is shown).
     public var planLine: String?
     public var planLines: [String]?
@@ -80,6 +80,24 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var showsTyping: Bool {
         awaitingReply && status == "working" && answer.isEmpty && plan == nil && (streamingPlan ?? "").isEmpty
             && mergedInto == nil && card == nil
+    }
+    /// The first reply's bubble above a card (APP-755, owner 2026-11-06: "keep the row in the card. and dont show in
+    /// the above reply"): a part answered at once shows only as its own card row, so with a card the bubble says no
+    /// direct answer, and the planner's own copy of one is taken out of the plan line (its exact text, found
+    /// structurally; a turn saved before this reads the same). Without a card nothing changes.
+    public var shownDirect: [String] { card == nil ? (direct ?? []) : [] }
+    public var shownPlanLine: String? { planLine.map(withoutDirect) }
+    public var shownPlan: String? { plan.map(withoutDirect) }
+
+    private func withoutDirect(_ text: String) -> String {
+        guard let card else { return text }
+        let answers = (direct ?? []) + card.rows.filter(\.direct).compactMap(\.text)
+        var shown = text
+        for answer in Set(answers.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !answer.isEmpty {
+            shown = shown.replacingOccurrences(of: answer, with: "")
+        }
+        while shown.contains("\n\n\n") { shown = shown.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
+        return shown.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     public var isRecovered: Bool { taskGoal != nil }
     public var isVerified: Bool { verified == true }

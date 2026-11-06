@@ -23,9 +23,10 @@ final class AnswersInStepsTests: XCTestCase {
         let shown = turn(id, model)
         XCTAssertNil(shown.streamingPlan)
         XCTAssertEqual(shown.direct, ["I'm FERB, your Mac assistant."])
+        XCTAssertEqual(shown.shownDirect, [])                             // APP-755: with a card it is only its row
         XCTAssertEqual(shown.receipts, ["🗓 Scheduled: call mom, tomorrow 9:00"])
         XCTAssertEqual(shown.planLine, "I'll research keyboards.")
-        XCTAssertEqual(shown.planLines, ["I'll work in ~/Research."])
+        XCTAssertEqual(shown.planLines, ["Working in ~/Research."])
         XCTAssertEqual(shown.backendTaskID, "T")
         let card = try XCTUnwrap(shown.card)
         XCTAssertEqual(card.rows.map(\.part), ["who", "kb"])
@@ -35,6 +36,32 @@ final class AnswersInStepsTests: XCTestCase {
         XCTAssertFalse(card.finished)
         // History keeps the card (the history view draws it from the saved archive).
         XCTAssertEqual(try savedArchive(model).turns.first?.card, card)
+    }
+
+    // decision: APP-755, ORCH-319
+    func testAPartAnsweredAtOnceShowsOnceAsItsRowLiveAndAfterARestore() throws {
+        // task 4be19c0f: the planner's plan line carried the Tokyo answer, the event's `direct` carried it, and the card
+        // row too: three times. Now only the row says it, live and in a restored chat.
+        let model = makeModel()
+        let id = begin("read my email list, summarize it, and tell me the date in Tokyo", in: model)
+        let date = "Today in Tokyo is Friday, November 6, 2026."
+        model.receiveChatEvent(["type": "plan", "request_id": "R", "task_id": "T", "goal": "emails",
+            "text": "I'll read the list, then write the summary.\nWorking in ~/Desktop.",
+            "plan_line": date + "\n\nI'll read the list, then write the summary.", "lines": ["Working in ~/Desktop."],
+            "direct": [["part": "tokyo", "label": "Tokyo date", "text": date]],
+            "card": ["request_id": "R", "done": 1, "total": 3, "rows": [
+                ["part": "emails", "label": "Read email list", "state": "working", "step": "read"],
+                ["part": "summary", "label": "Write summary", "state": "working", "step": "write"],
+                ["part": "tokyo", "label": "Tokyo date", "state": "done", "direct": true, "text": date,
+                 "seq": "2026-11-06T03:20:03.766152+00:00"]]]], localID: id)
+        for shown in [turn(id, model), try XCTUnwrap(savedArchive(model).turns.first)] {
+            XCTAssertEqual(shown.shownDirect, [])
+            XCTAssertEqual(shown.shownPlanLine, "I'll read the list, then write the summary.")
+            XCTAssertEqual(shown.planLines, ["Working in ~/Desktop."])
+            XCTAssertEqual(shown.card?.row("tokyo")?.text, date)
+            let said = [shown.shownPlanLine ?? ""] + shown.shownDirect + (shown.card?.shownRows.compactMap(\.text) ?? [])
+            XCTAssertEqual(said.filter { $0.contains("Tokyo") }.count, 1)
+        }
     }
 
     func testAPlanWithoutACardIsTheOneAskTurnAsBefore() {
@@ -179,7 +206,7 @@ final class AnswersInStepsTests: XCTestCase {
         XCTAssertTrue(model.conversation.replies.isEmpty)                   // the card filled in place
     }
 
-    // decision: ORCH-540
+    // decision: ORCH-546
     func testAOneAskAnswerSplitsItsOwnLinesFromTheText() {
         let answer = "The flight leaves at 7:15.\n\nCouldn't confirm: the gate.\n\nRemembered: gate\nSites contacted: goindigo.in\n(ran late)"
         let split = AnswerParts(answer: answer, note: "the gate",
@@ -296,8 +323,8 @@ final class AnswersInStepsTests: XCTestCase {
 
     private func plan() -> [String: Any] {
         ["type": "plan", "request_id": "R", "task_id": "T", "goal": "two things",
-         "text": "I'm FERB, your Mac assistant.\n\n🗓 Scheduled: call mom, tomorrow 9:00\n\nI'll research keyboards.\nI'll work in ~/Research.",
-         "plan_line": "I'll research keyboards.", "lines": ["I'll work in ~/Research."], "work_in": "I'll work in ~/Research.",
+         "text": "I'm FERB, your Mac assistant.\n\n🗓 Scheduled: call mom, tomorrow 9:00\n\nI'll research keyboards.\nWorking in ~/Research.",
+         "plan_line": "I'll research keyboards.", "lines": ["Working in ~/Research."], "work_in": "Working in ~/Research.",
          "direct": [["part": "who", "label": "Who I am", "text": "I'm FERB, your Mac assistant."]],
          "receipts": ["🗓 Scheduled: call mom, tomorrow 9:00"],
          "card": ["request_id": "R", "done": 1, "total": 2, "rows": [

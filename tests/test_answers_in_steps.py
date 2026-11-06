@@ -172,19 +172,20 @@ def test_a_multi_part_answer_is_saved_as_an_index_the_planner_reads_whole(daemon
     assert "Nothing pending." not in history                                    # rows past their first line aren't
 
 
-# decision: ORCH-319, ORCH-543
+# decision: ORCH-319, ORCH-543, APP-755
 def test_a_direct_part_is_answered_in_the_first_reply_and_counts_as_done(daemon: RunningDaemon) -> None:
-    """Scenario 3: "who are you" is answered in the first reply, above the plan line; only the research gets a row;
-    the count includes the direct part."""
+    """Scenario 3: "who are you" is answered at once: it is its own done row (APP-755: never also in the reply's text,
+    even when the planner wrote it there); the count includes it."""
     spec = _spec("Research keyboards", ["Three keyboards under ₹10k are named"],
                  [_part("who", "who are you", "Who I am", direct="I'm FERB. I run on your Mac."),
                   _part("kb", "research the 3 best mechanical keyboards under ₹10k", "3 best keyboards under ₹10k",
                         step="worker", conds=(0,))])
-    install(daemon, [sup("task", "I'll research keyboards under ₹10,000.", spec)],
+    install(daemon, [sup("task", "I'm FERB. I run on your Mac.\n\nI'll research keyboards under ₹10,000.", spec)],
             {"worker": done("Keychron K2, Royal Kludge RK84, Redragon K552.")})
     events = chat(daemon, "who are you, research the 3 best mechanical keyboards under ₹10k")
     plan = next(e for e in events if e["type"] == "plan")
-    assert plan["text"].index("I'm FERB.") < plan["text"].index("I'll research keyboards")
+    assert "I'm FERB." not in plan["text"] and "I'm FERB." not in plan["plan_line"]
+    assert plan["plan_line"] == "I'll research keyboards under ₹10,000."
     assert plan["direct"] == [{"part": "who", "label": "Who I am", "text": "I'm FERB. I run on your Mac."}]
     rows = plan["card"]["rows"]
     assert [(r["part"], r["state"], r["direct"]) for r in rows] == [("who", "done", True), ("kb", "working", False)]

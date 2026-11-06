@@ -2547,7 +2547,7 @@ status = "active"
 words = "they are not changing color on hover - they shoudl adn also if its a link. the N number hsuodlb be ina  box or something"
 words_source = "Owner, 2026-11-06, about a FERB answer with blue inline links, a site chip \"example.com +1\" and a file card \"visit-note.txt\""
 rule = "File cards (reply files, file chips, composer attachments), the sites chip and its links, and links inside answers share one hover look (HoverLook): the card or chip fill brightens, link text lifts towards white, and a link shows the pointing hand. Only colour changes; nothing opens on hover and clicks stay as APP-715..717 and APP-589 say. The \"+N\" overflow count sits in its own small rounded box. Reduce Motion changes the colour at once. Refines APP-716's removal of the pointing hand for links."
-paths = ["ui/mac/FERBNotch/Sources/NotchCore/HoverLook.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::CardHover", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::OverflowBadge", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::FileChip"]
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/HoverLook.swift", "ui/mac/FERBNotch/Sources/FERBNotch/HoverSource.swift::CardHover", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::OverflowBadge", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::FileChip"]
 
 [APP-754]
 title = "Play 0.27.1: the whole 0.27.1 UI as a scripted play in the playground"
@@ -2558,3 +2558,23 @@ words = "also i dont wanna run the tests to see this, jsut make a fake message a
 words_source = "Owner, 2026-11-06, with \"fix all thsi with one agent, after fixing just runt he test, DONT AHVE THIS test sheet for me to push\""
 rule = "The UI playground (APP-619) has one control, Play 0.27.1 (also playground.sh --play), that plays a scripted, invented conversation through the real notch and chat, beat by beat with pauses, covering every 0.27.1 change that shows in the UI, with Pause, Restart and Notch | Window. It never calls a model, the real daemon, ~/.ferb or the network. A hermetic test runs every beat and its check of the UI state it leaves."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPlay.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundWorkspace.swift", "ui/mac/FERBNotch/PLAYGROUND.md", "ui/mac/FERBNotch/playground.sh"]
+
+[APP-755]
+title = "A part answered at once is only its card row, never also in the reply above"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "yes keep the row in the card. and dont show in the above reply, cause currnetly it does and ig its just a ui error and not ferb's answer"
+words_source = "Owner, 2026-11-06, of task 4be19c0f, whose Tokyo date showed twice in the first reply and once as its row"
+rule = "Refines ORCH-319 and APP-300. When a turn has a card, a part answered at once shows only as its own done row. The first reply keeps the plan line, the folder line and code's other fixed lines; the daemon's reply text and plan line leave the direct answer out (the planner's copy is removed by exact match), and the app draws no direct answer above a card, also for restored turns. A request answered entirely at once, with no card, shows its answer in the reply as before."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._plan_event", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::FirstReplyView", "ferb/orchestrator/prompts/supervisor.md"]
+
+[APP-756]
+title = "Hover works while another app is in front; anything openable shows the pointing hand"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "no the link adn file box colors are not changing on hover, theyv should. / also change the pointer icon on hover on a link/file or any openable thing"
+words_source = "Owner, 2026-11-06, after testing build 202611060408 (APP-753)"
+rule = "Refines APP-753. Hover colour and cursor come from one AppKit hover source tracking the pointer whenever it is over FERB, active or not, in the notch and the sticky window. Everything a click opens or reveals shows the pointing hand: inline links (question cards too), file cards, site chips and +N, the reminder arrival, the planning preview and page buttons. Plain text and fields keep their cursor. The hand never stays after the pointer leaves, the view goes away or its window hides."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/HoverSource.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::SelectableNameView", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
