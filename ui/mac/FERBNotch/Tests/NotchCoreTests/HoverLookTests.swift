@@ -73,6 +73,33 @@ final class HoverLookTests: XCTestCase {
         XCTAssertTrue(pieces.allSatisfy { $0.owner is LinkHoverOwner })
     }
 
+    // decision: APP-757, APP-756
+    func testALiftedLinkRestsWhenItsWindowHidesOrTheViewIsHidden() {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 420, height: 80), styleMask: [.borderless],
+                              backing: .buffered, defer: true)                 // never ordered in: not visible
+        let view = MessageTextView()
+        view.frame = CGRect(x: 0, y: 0, width: 400, height: 40)
+        window.contentView?.addSubview(view)
+        view.update(MessageTextAttributes.make("[example.com](https://example.com) then plain words",
+                                               size: 12, secondary: false, markdown: true, bold: false,
+                                               monospaced: false, alignment: .left), generation: 0)
+        view.layout()
+        guard let manager = view.layoutManager, let container = view.textContainer else { return XCTFail("no layout") }
+        manager.ensureLayout(for: container)
+        let range = (view.string as NSString).range(of: "example.com")
+        let rect = manager.boundingRect(forGlyphRange: manager.glyphRange(forCharacterRange: range,
+                                                                          actualCharacterRange: nil), in: container)
+        let point = NSPoint(x: rect.midX + view.textContainerOrigin.x, y: rect.midY + view.textContainerOrigin.y)
+        view.hover(at: point)
+        XCTAssertEqual(view.hoveredLink, range)
+        // the window folds or yields (ordered out, no exit from AppKit)
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        XCTAssertNil(view.hoveredLink, "the link stayed lifted after its window hid")
+        view.hover(at: point)
+        view.viewDidHide()                                           // hidden with an ancestor
+        XCTAssertNil(view.hoveredLink)
+    }
+
     // decision: APP-753, APP-589
     func testAnAnswersLinkLiftsUnderThePointerAndPlainTextDoesNot() {
         let view = MessageTextView()

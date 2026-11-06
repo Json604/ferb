@@ -286,7 +286,19 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if hoveredLink != nil { lift(nil) }
+        hiddenWatch.watch(newWindow) { [weak self] in self?.restLink() }
     }
+
+    /// Hidden with an ancestor (the notch folding its body) or its window no longer visible (ordered out, occluded):
+    /// no link stays lifted and the hand goes back (APP-756), as HoverSourceView does.
+    override func viewDidHide() {
+        super.viewDidHide()
+        restLink()
+    }
+
+    private let hiddenWatch = WindowHiddenWatch()
+
+    private func restLink() { if hoveredLink != nil { lift(nil) } }
 
     /// Where each link sits on screen, for a live check of the hover (numbers only, debug level).
     private func logLinkAreas() {

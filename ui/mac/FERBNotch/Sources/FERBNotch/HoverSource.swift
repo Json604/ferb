@@ -33,6 +33,30 @@ enum BackgroundCursor {
     }
 }
 
+/// Tells a hover source that its window stopped being visible (ordered out when the notch folds or yields, closed,
+/// fully covered): AppKit may never send the pointer's exit then, so the hover is put to rest here (APP-757). One
+/// watch for the AppKit hover source and for inline links (MessageTextView).
+@MainActor
+final class WindowHiddenWatch {
+    nonisolated(unsafe) private var token: NSObjectProtocol?
+
+    /// Watches `window` (nil: nothing) instead of the window watched before.
+    func watch(_ window: NSWindow?, onHidden: @escaping () -> Void) {
+        if let token { NotificationCenter.default.removeObserver(token) }
+        token = nil
+        guard let window else { return }
+        token = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification,
+                                                       object: window, queue: .main) { [weak window] _ in
+            MainActor.assumeIsolated {
+                guard let window else { return }
+                if !window.occlusionState.contains(.visible) || !window.isVisible { onHidden() }
+            }
+        }
+    }
+
+    deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+}
+
 /// The tracking view: invisible, never takes a click (hit-testing passes through to the card below it).
 final class HoverSourceView: NSView {
     static let log = Logger(subsystem: "com.ferb.FERB", category: "hover")
@@ -45,7 +69,7 @@ final class HoverSourceView: NSView {
     /// The cursor this view last asked AppKit for (tests read it; AppKit owns the real one).
     private(set) var cursorAsked: NSCursor?
     private var area: NSTrackingArea?
-    private var watched: NSObjectProtocol?
+    private let hiddenWatch = WindowHiddenWatch()
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override var acceptsFirstResponder: Bool { false }
@@ -94,15 +118,7 @@ final class HoverSourceView: NSView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if newWindow !== window { set(false) }
-        if let watched { NotificationCenter.default.removeObserver(watched) }
-        watched = nil
-        guard let newWindow else { return }
-        watched = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification,
-                                                         object: newWindow, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                if newWindow.occlusionState.contains(.visible) == false || !newWindow.isVisible { self?.set(false) }
-            }
-        }
+        hiddenWatch.watch(newWindow) { [weak self] in self?.set(false) }
     }
 
     override func viewDidHide() {
@@ -114,10 +130,6 @@ final class HoverSourceView: NSView {
         BackgroundCursor.enable()
         cursor.set()
         cursorAsked = cursor
-    }
-
-    deinit {
-        if let watched { NotificationCenter.default.removeObserver(watched) }
     }
 
     /// The hover changed: tell the card, set or put back the cursor, and say so in the log (state only).
