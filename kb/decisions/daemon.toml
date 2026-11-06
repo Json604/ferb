@@ -715,3 +715,12 @@ rule = "For APP-764. Every write of a timer (not a sleep) goes through ferb/cloc
 why = "Review 2 (findings 1 and 6): a timer cancelled in chat or Settings kept counting down in the closed notch and on its card, and Repeat on the alert and again on the card started two timers. One write path tells every client; the record of a repeat is a row, not app memory."
 paths = ["ferb/clock/timers.py::Timers", "ferb/daemon/areas/schedules.py::Schedules._timer_changed", "ferb/daemon/areas/schedules.py::Schedules._timers_repeat", "ferb/daemon/areas/schedules.py::Schedules._timers_states", "ferb/bus.py", "ferb/store/migrations/0061_timer_repeats.sql"]
 live = ["LIVE-805"]
+
+[DMN-549]
+title = "A Repeat's arrival card names the first timer of its chain"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "For APP-769/APP-770. A timer's arrival card (the reminder banner's `card`) carries `repeat_of`: the first timer of its Repeat chain (timer_repeats followed back, DMN-548), absent for a timer no Repeat started. The app draws a timer and its repeats as one box."
+why = "Only the daemon's rows know the chain after a restart; carried on the stored card, the box is chosen from the saved chat alone."
+paths = ["ferb/daemon/areas/schedules.py::Schedules._first_of"]

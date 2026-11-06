@@ -177,9 +177,22 @@ class Schedules:
                                      "due": t.fire_at.isoformat(),         # a reminder is for now
                                      # a timer's start: its done alert shows its whole ring and repeats its duration
                                      **({"started": named.created_at.isoformat()}
-                                        if t.kind == "timer" and named is not None and named.created_at else {})})
+                                        if t.kind == "timer" and named is not None and named.created_at else {}),
+                                     # a Repeat's: the first timer of its chain, whose one box it is (APP-769)
+                                     **({"repeat_of": first} if (first := self._first_of(t.id)) else {})})
         except Exception:
             pass                                                     # chat, logs and the journal still have it
+
+    def _first_of(self, tid: str) -> str | None:
+        """The first timer of a Repeat chain this timer belongs to (timer_repeats, DMN-548), or None for a timer no
+        Repeat started: the app draws one box per chain (APP-769)."""
+        if self.timers is None:
+            return None
+        first, seen = None, {tid}
+        while (earlier := self.timers.repeat_of(first or tid)) is not None and earlier not in seen:
+            first = earlier
+            seen.add(earlier)
+        return first
 
     async def _sleep_until(self, worker_id: str, task_id: str, at: datetime) -> str:
         """time.sleep_until: a durable sleep timer; waiting on it is the owner's kind of wait (not a stall)."""

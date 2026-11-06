@@ -3321,3 +3321,12 @@ request = "Ask FERB for a 2 minute tea timer. Watch its card, close FERB and wor
 pass = "The card shows Tea, a ticking countdown in a draining orange ring, Ends with a bell and Cancel. With FERB closed a timer glyph and the countdown sit beside the camera (in the pill without a notch); pressing, dragging and hovering it work as before. At the end one sound, the notch shows Tea large, Done in the full ring and Stop and Repeat; Repeat starts 2 minutes again, Stop dismisses; the chat keeps the message. The reminder arrives with its icon, title, due time and Done,."
 decisions = ["APP-762", "APP-763", "DMN-547"]
 sitting = "after this change is installed"
+
+[LIVE-806]
+title = "One box per timer, reminder and schedule, at the bottom when it goes off"
+area = "app"
+surface = "FERB.app with this build in notch mode (then window mode), with a daily schedule that ran today"
+request = "Ask FERB for a 1 minute tea timer and wait for its end; press Repeat and let it end again. Ask for a reminder in 1 minute with a longer message. Restart FERB.app. Open yesterday in History."
+pass = "At a tea timer's end the Tea box leaves its request (no empty bubble there) and shows at the bottom as the done box with Stop and Repeat, no \"is up\" bubble; after Repeat ends, the one Tea box is at the bottom again. A reminder's box at the bottom carries its words. A daily schedule's box shows only at its latest run, with the next run; each run's result stays. After a restart the same boxes, no replayed arrival; an earlier day shows its cards without countdowns or buttons."
+decisions = ["APP-768", "APP-769", "APP-770", "DMN-549"]
+sitting = "after this change is installed"

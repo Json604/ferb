@@ -137,3 +137,21 @@ def test_a_fired_timer_repeats_at_most_once(daemon: RunningDaemon) -> None:
     _call(daemon, "reminders.cancel", {"id": again["timer"]})
     with pytest.raises(Exception, match="cancelled"):
         _call(daemon, "timers.repeat", {"id": again["timer"]})
+
+
+# decision: DMN-549, APP-769
+def test_a_repeats_arrival_names_the_first_timer_of_its_chain(daemon: RunningDaemon) -> None:
+    """APP-769 (owner, 2026-11-06: one box per timer): the app draws a timer and the timers its Repeat starts as one
+    box. A Repeat's arrival card says the chain's first timer (`repeat_of`); the first timer's arrival says none."""
+    tea = _tea(daemon)["id"]
+    queue = run(daemon, daemon.daemon.posters.open)
+    fire(daemon, 301)
+    assert "repeat_of" not in queue.get_nowait()["card"]
+    again = _call(daemon, "timers.repeat", {"id": tea})["timer"]
+    fire(daemon, 301)
+    arrived = queue.get_nowait()["card"]
+    assert arrived["timer_id"] == again and arrived["repeat_of"] == tea
+    third = _call(daemon, "timers.repeat", {"id": again})["timer"]
+    fire(daemon, 301)
+    arrived = queue.get_nowait()["card"]
+    assert arrived["timer_id"] == third and arrived["repeat_of"] == tea

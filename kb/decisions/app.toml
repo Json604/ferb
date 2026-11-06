@@ -2700,4 +2700,25 @@ words = "i get these emptyu bbubbles eveytime on a timer request fix this too"
 words_source = "Owner, 2026-11-06, about a chat where every timer request showed a small empty FERB bubble above the \"Timer\" card"
 rule = "FERB's chat never draws an empty bubble. A reply whose text is only the lines its cards stand for (a timer's \"Timer set\" line) shows its cards with no bubble; words beside those lines, a Couldn't confirm note, a code line or Details keep it. The same for a first reply whose plan line is left empty once the direct answer and the receipts drawn as cards are taken out, and for a saved part with no words."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift::CardLayout.bubble", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationTurn.firstReplySays", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::FirstReplyView"]
-live = ["LIVE-805"]
+live = ["LIVE-806"]
+
+[APP-769]
+title = "One box per timer, reminder and schedule; it moves to the bottom when it goes off"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "also whyh doesbly boxes for end and start??? why not use the same??? this is for other schedules and other type of boxes too · chose \"Moves to the bottom (Recommended)\": \"The 'Timer set' box leaves its old spot and reappears at the bottom of today's chat as the done box with Stop/Repeat, so you always see it where the chat ends. Its old spot shows nothing.\" · chose \"One box, latest run (Recommended)\": \"Same rule: the schedule's one box moves to the bottom on each run and shows that run plus the next one; a run's own result text (what FERB found) still shows under it.\""
+words_source = "Owner, 2026-11-06, about one 10-second timer drawn as a set card, a done card and \"Your 10-second timer is up.\"; then the owner's two answers to the box questions"
+rule = "Supersedes the chat parts of APP-622 and APP-627 (card and message kept in chat) and the set card saying Done in place (APP-762, APP-764): each timer, reminder and schedule is one box in the chat. When it goes off it shows at the bottom in its done or delivered state (Stop and Repeat, Done, a run with its next run); its earlier spot shows nothing else of it. No bubble repeats the box; a run's result, quotes or proposals stay under it. History storage, the arrival, sound, persistence, banner and attention.ack stay."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/CardBoxes.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::ReminderCard"]
+live = ["LIVE-806"]
+
+[APP-770]
+title = "How the one box is chosen and drawn"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Implements APP-769. ResultCard.box: an event card's `id` (timer, reminder, schedule) or a reminder card's `schedule_id`, else `repeat_of` (DMN-549), else `timer_id`. CardBoxes.moved draws each box only at the last entry of the shown day that carries it, from the saved archive alone; earlier entries still drop its line (APP-768). An arrival that is only its box draws no bubble; a reminder's longer message shows inside the box. A fired set card draws TimerDoneView. Another day's chat is a record (cardsLive off): no countdown, ring, row state or buttons."
+why = "The archive is what every chat draw reads (live, restored, history, window mode), so the rule sits where entries become views; the saved notices and turns stay for search, voice and older clients."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/CardBoxes.swift", "ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift::ResultCard.box", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPlay.swift"]
+live = ["LIVE-806"]

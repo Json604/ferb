@@ -51,13 +51,17 @@ struct ConversationTranscript: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                // One box per timer, reminder and schedule: drawn only at its last entry (APP-769)
+                let moved = CardBoxes.moved(entries)
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(entries) { entry in
+                        let hidden = moved[entry.id] ?? []
                         Group {
                             switch entry {
-                            case let .turn(turn, answeredBelow): TurnView(turn: turn, answeredBelow: answeredBelow, model: model)
-                            case let .reply(reply, turn): LateReplyView(reply: reply, turn: turn, model: model)
-                            case let .notice(notice): NoticeView(notice: notice, model: model)
+                            case let .turn(turn, answeredBelow):
+                                TurnView(turn: turn, answeredBelow: answeredBelow, hidden: hidden, model: model)
+                            case let .reply(reply, turn): LateReplyView(reply: reply, turn: turn, hidden: hidden, model: model)
+                            case let .notice(notice): NoticeView(notice: notice, hidden: hidden, model: model)
                             }
                         }.transcriptAnchor(TranscriptTarget.entry(entry.id))
                     }
@@ -67,6 +71,8 @@ struct ConversationTranscript: View {
                     Color.clear.frame(height: 1).id("transcript-bottom")
                 }
                 .font(.system(size: 12))
+                // Another day's chat is a record: its cards draw without live state (APP-769)
+                .environment(\.cardsLive, model.viewingToday)
                 .padding(.top, 36)
                 .padding(.bottom, 2)
                 .frame(maxWidth: .infinity)
@@ -226,6 +232,8 @@ struct ConversationTranscript: View {
 private struct TurnView: View {
     let turn: ConversationTurn
     let answeredBelow: Bool
+    /// The boxes a later entry draws (APP-769).
+    var hidden: Set<String> = []
     @ObservedObject var model: NotchModel
 
     var body: some View {
@@ -244,11 +252,15 @@ private struct TurnView: View {
             }
             if turn.showsTyping { TypingDots() }
             FirstReplyView(turn: turn)
-            if let cards = turn.receiptCards { ResultCardsView(cards: cards, turnID: turn.id, model: model) }
+            if let cards = turn.receiptCards {
+                ResultCardsView(cards: CardBoxes.shown(cards, hiding: hidden), turnID: turn.id, model: model)
+            }
             if let card = turn.card {
                 TurnCardView(card: card, turn: turn, model: model)
                 // Step 8e: the task's cards (payments, sends, links, files) under its card's footer.
-                if let cards = turn.cards { ResultCardsView(cards: cards, turnID: turn.id, model: model) }
+                if let cards = turn.cards {
+                    ResultCardsView(cards: CardBoxes.shown(cards, hiding: hidden), turnID: turn.id, model: model)
+                }
             }
             ForEach(Array((turn.parts ?? []).enumerated()), id: \.offset) { _, part in    // parts saved before cards
                 if !part.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -264,7 +276,7 @@ private struct TurnView: View {
             if answeredBelow {
                 Text("Answered below").font(.system(size: 10)).foregroundStyle(Palette.secondary)
             } else {
-                AnswerView(turn: turn, model: model)
+                AnswerView(turn: turn, hidden: hidden, model: model)
             }
         }
     }
@@ -310,6 +322,7 @@ private struct RequestView: View {
 private struct LateReplyView: View {
     let reply: ConversationReply
     let turn: ConversationTurn
+    var hidden: Set<String> = []
     @ObservedObject var model: NotchModel
 
     var body: some View {
@@ -326,31 +339,30 @@ private struct LateReplyView: View {
                 // The question was shown here; the final answer follows it unless it went further below.
                 FerbBubble { MarkdownContent(question).equatable() }
                 if !model.conversation.repliesBelow(turn.id).contains(where: { $0.part == .answer }) {
-                    AnswerView(turn: turn, model: model)
+                    AnswerView(turn: turn, hidden: hidden, model: model)
                 }
             } else {
-                AnswerView(turn: turn, model: model)
+                AnswerView(turn: turn, hidden: hidden, model: model)
             }
         }
     }
 }
 
-/// A background message, with typed reminder cards above it and attributed outside text kept as a quote.
+/// A background message, with typed reminder cards above it and attributed outside text kept as a quote. A timer's or
+/// reminder's arrival is its one box (APP-769): no bubble repeats it, and a reminder's own words show inside the box.
 private struct NoticeView: View {
     let notice: ConversationNotice
+    var hidden: Set<String> = []
     @ObservedObject var model: NotchModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            ForEach(Array(CardLayout.above(notice.cards ?? []).enumerated()), id: \.offset) { _, card in
-                ReminderCard(card: card, model: model).padding(.trailing, 28)
+            let boxSays = CardBoxes.boxSays(notice)
+            ForEach(Array(CardLayout.above(CardBoxes.shown(notice.cards ?? [], hiding: hidden)).enumerated()),
+                    id: \.offset) { _, card in
+                ReminderCard(card: card, words: CardBoxes.words(notice), model: model).padding(.trailing, 28)
             }
-            // A plain timer's entire message is already the reminder card's title.
-            if !(notice.cards?.count == 1 && notice.cards?.first?.type == "reminder"
-                 && notice.cards?.first?.title == notice.text && notice.quotes.isEmpty
-                 && (notice.proposals ?? []).isEmpty) {
-                message
-            }
+            if !boxSays { message }
         }
         .help((notice.noticedAt ?? notice.createdAt).formatted(date: .omitted, time: .shortened))
     }
@@ -475,6 +487,8 @@ struct QuickReplyBubble: View {
 
 private struct AnswerView: View {
     let turn: ConversationTurn
+    /// The boxes a later entry draws (APP-769): their cards aren't drawn here; their lines still leave the text.
+    var hidden: Set<String> = []
     @ObservedObject var model: NotchModel
 
     /// The answer's own lines drawn on their own (ORCH-319), cut from its text.
@@ -501,13 +515,14 @@ private struct AnswerView: View {
 
     /// Typed cards (step 8e): each drawn in place of the line it stands for; a turn saved before cards has none.
     private var cards: [ResultCard] { turn.cards ?? [] }
+    private var drawn: [ResultCard] { CardBoxes.shown(cards, hiding: hidden) }
     private var cardFiles: Set<String> { Set(CardLayout.files(cards).compactMap(\.path)) }
 
     var body: some View {
         // A card's rows and footer are the answer; its text is kept for history, voice and older clients.
         if !turn.answer.isEmpty && turn.card == nil {
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(CardLayout.above(cards).enumerated()), id: \.offset) { _, card in
+                ForEach(Array(CardLayout.above(drawn).enumerated()), id: \.offset) { _, card in
                     ReminderCard(card: card, model: model).padding(.trailing, 28)  // a reminder: FERB's text under it
                 }
                 // Nothing left once the cards say their lines (a timer's "Timer set"): no empty bubble
@@ -536,7 +551,7 @@ private struct AnswerView: View {
                         }
                     }
                 }
-                ResultCardsView(cards: cards, turnID: turn.id, model: model)
+                ResultCardsView(cards: drawn, turnID: turn.id, model: model)
                 if !displayedSites.isEmpty && CardLayout.links(cards).isEmpty {     // a turn from before link cards
                     VisitedSitesView(sites: VisitedSites(displayedSites), model: model)
                 }

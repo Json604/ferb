@@ -8,6 +8,16 @@ import NotchCore
 /// SwiftUI for the dark notch; Shapeshift's text classifier is not used: the daemon's `type` decides each card.
 /// Functional first; the owner polishes.
 
+/// Whether the chat's cards draw live state (APP-769): today's chat does; another day's chat is a record, so its
+/// cards draw as stored, with no countdown, ring, state from FERB's rows or buttons.
+private struct CardsLiveKey: EnvironmentKey { static let defaultValue = true }
+extension EnvironmentValues {
+    var cardsLive: Bool {
+        get { self[CardsLiveKey.self] }
+        set { self[CardsLiveKey.self] = newValue }
+    }
+}
+
 /// The cards under (or, for a reminder, above) FERB's text: one surface each, then the links, then the files.
 struct ResultCardsView: View {
     let cards: [ResultCard]
@@ -122,12 +132,17 @@ enum CardTime {
 struct ReminderCard: View {
     let card: ResultCard
     var framed = true
+    /// A reminder's own words under its title in chat, when they say more than it (APP-769: its arrival's one box).
+    var words: String? = nil
     /// For the arrival's and the timer's buttons (Done, Stop, Repeat); nil where nothing acts (a measurement).
     var model: NotchModel? = nil
+    @Environment(\.cardsLive) private var live
 
     var body: some View {
         Group {
-            if card.isTimer { TimerDoneView(card: card, model: model, framed: framed) }   // APP-762: the timer's end
+            if card.isTimer {                                                         // APP-762: the timer's end
+                TimerDoneView(card: card, model: live ? model : nil, framed: framed)
+            }
             else if framed { CardSurface { details } }
             else { arrivalDetails }
         }
@@ -180,13 +195,17 @@ struct ReminderCard: View {
             VStack(alignment: .leading, spacing: 7) {
                 CardMeta(icon: meta.icon, text: meta.text)
                 CardTitle(text: card.title ?? "Scheduled reminder")
+                if let words {
+                    Text(verbatim: words).font(.system(size: 12)).foregroundStyle(Palette.ink)
+                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                }
                 HStack(spacing: 5) {
                     if let due = card.dueDate {
                         CardChip(icon: "clock", text: "Due " + CardTime.day(due) + ", " + CardTime.time(due))
                     }
                     if card.repeatRule != nil { RepeatsBadge(rule: card.repeatRule) }
                 }
-                if let target = card.countdown { CountdownLine(target: target) }
+                if live, let target = card.countdown { CountdownLine(target: target) }
             }
     }
 }
@@ -249,6 +268,7 @@ private struct RepeatsBadge: View {
 /// A reminder or schedule just set: what, its day and time chips, "Repeats" with its rule.
 struct EventCard: View {
     let card: ResultCard
+    @Environment(\.cardsLive) private var live
 
     var body: some View {
         CardSurface {
@@ -270,7 +290,7 @@ struct EventCard: View {
                     Text(verbatim: watch.prefix(1).capitalized + watch.dropFirst())
                         .font(.system(size: 10.5)).foregroundStyle(Palette.secondary)
                 }
-                if let target = card.countdown { CountdownLine(target: target) }
+                if live, let target = card.countdown { CountdownLine(target: target) }
             }
         }
     }

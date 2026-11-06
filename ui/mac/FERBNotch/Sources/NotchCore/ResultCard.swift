@@ -29,6 +29,8 @@ public struct ResultCard: Codable, Equatable {
     public var started: String?
     /// A reminder card's timer (`timer_id`), else an event card's `id`: what Cancel and Repeat act on.
     public var timerID: String?
+    /// A timer's delivery card: the first timer of its Repeat chain (`repeat_of`, DMN-549), whose box it is.
+    public var repeatOf: String?
     // note: a remembered item (state saved | proposed; corrected | forgotten after the owner acts on it here)
     public var itemID: String?
     public var text: String?
@@ -64,7 +66,7 @@ public struct ResultCard: Codable, Equatable {
         title = words("title"); due = words("due"); repeatRule = words("repeat"); nextRun = words("next_run")
         scheduleID = words("schedule_id"); until = words("until")
         kind = words("kind"); id = words("id"); what = words("what"); when = words("when"); watch = words("watch")
-        started = words("started"); timerID = words("timer_id") ?? words("id")
+        started = words("started"); timerID = words("timer_id") ?? words("id"); repeatOf = words("repeat_of")
         itemID = words("item_id"); text = words("text"); state = words("state")
         amount = words("amount"); merchant = words("merchant"); site = words("site"); savedCard = words("card")
         recipient = words("recipient"); app = words("app"); account = words("account")
@@ -101,6 +103,17 @@ public struct ResultCard: Codable, Equatable {
 
     /// A reminder or event card for a timer (its row's kind, T-1055).
     public var isTimer: Bool { kind == "timer" }
+
+    /// The box this card is (APP-769, owner 2026-11-06: one box per timer, reminder and schedule): the id of the
+    /// timer, reminder or schedule it was set as (an event card's `id`) or delivers (a reminder card's `schedule_id`,
+    /// else the first timer of its Repeat chain, else its `timer_id`). Nil for every other card.
+    public var box: String? {
+        switch type {
+        case "event": return ["timer", "reminder", "schedule"].contains(kind ?? "") ? id : nil
+        case "reminder": return scheduleID ?? repeatOf ?? timerID
+        default: return nil
+        }
+    }
 
     /// What a reminder or event card counts down to: the schedule's end when it has one (ORCH-320), else a
     /// reminder's next run; nothing for an event without an end (its first time shows as chips).

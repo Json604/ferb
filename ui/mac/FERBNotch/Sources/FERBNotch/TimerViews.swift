@@ -58,36 +58,60 @@ private struct TimerMeta: View {
 }
 
 /// "Timer set" in chat: the name, a large live countdown inside its draining ring, "Ends 10:41" with a bell, Cancel.
-/// What it says after comes from FERB's row (DMN-548, `NotchModel.timerRecords`), whoever changed it: Done only for a
-/// timer that fired, Cancelled for one cancelled anywhere (its card, chat, Settings).
+/// What it says after comes from FERB's row (DMN-548, `NotchModel.timerRecords`), whoever changed it: Cancelled for one
+/// cancelled anywhere (its card, chat, Settings); a timer that fired shows the one done look (TimerDoneView, APP-769),
+/// though its box normally moves to the bottom with its arrival. Another day's chat draws it as a record (APP-769):
+/// the name and its end, no countdown, ring, state or Cancel.
 struct TimerSetCard: View {
     let card: ResultCard
     @ObservedObject var model: NotchModel
+    @Environment(\.cardsLive) private var live
 
     var body: some View {
-        CardSurface {
-            if let ends = card.timerEnds, ends > Date(), record?.state ?? .running == .running {
-                TimelineView(.periodic(from: Date(), by: 1)) { context in content(now: context.date, ends: ends) }
-            } else {
-                content(now: Date(), ends: card.timerEnds)
+        if !live {
+            CardSurface { recordContent }
+        } else if record?.state == .fired {
+            TimerDoneView(set: card, model: model)
+        } else {
+            CardSurface {
+                if let ends = card.timerEnds, ends > Date(), record?.state ?? .running == .running {
+                    TimelineView(.periodic(from: Date(), by: 1)) { context in content(now: context.date, ends: ends) }
+                } else {
+                    content(now: Date(), ends: card.timerEnds)
+                }
             }
+            .onAppear { model.needTimerState(card.timerID) }
         }
-        .onAppear { model.needTimerState(card.timerID) }
     }
 
     private var record: TimerRecord? { card.timerID.flatMap { model.timerRecords[$0] } }
 
+    /// As stored: the timer's name and when it ends or ended.
+    private var recordContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TimerMeta(text: "Timer")
+            Text(verbatim: card.what ?? card.title ?? "Timer")
+                .font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Palette.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            if let ends = card.timerEnds {
+                Label((ends > Date() ? "Ends " : "Ended ") + CardTime.time(ends), systemImage: "bell.fill")
+                    .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func content(now: Date, ends: Date?) -> some View {
-        let cancelled = record?.state == .cancelled, fired = record?.state == .fired
-        let running = !cancelled && !fired && (ends.map { $0 > now } ?? false)
+        let cancelled = record?.state == .cancelled
+        let running = !cancelled && (ends.map { $0 > now } ?? false)
         let left = ends.map { $0.timeIntervalSince(now) } ?? 0
-        let fraction: Double? = cancelled ? 0 : fired ? 1
+        let fraction: Double? = cancelled ? 0
             : running ? ends.flatMap { TimerClock.remaining(started: card.startedDate, ends: $0, now: now) } : 0
         // ended, but FERB's row doesn't say fired yet (its firing in flight, or an older daemon): neither Done nor a count
-        let digits = cancelled ? "–" : running ? TimerClock.countdown(left) : fired ? "Done" : "0:00"
+        let digits = cancelled ? "–" : running ? TimerClock.countdown(left) : "0:00"
         return HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                TimerMeta(text: cancelled ? "Timer cancelled" : fired ? "Timer done" : "Timer")
+                TimerMeta(text: cancelled ? "Timer cancelled" : "Timer")
                 Text(verbatim: card.what ?? card.title ?? "Timer")
                     .font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Palette.ink)
                     .fixedSize(horizontal: false, vertical: true)
@@ -105,7 +129,7 @@ struct TimerSetCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             ZStack {
                 if let fraction { TimerRing(fraction: fraction) }
-                TimerDigits(text: digits, size: running ? 19 : 15, tint: fired ? Palette.timer : Palette.ink)
+                TimerDigits(text: digits, size: running ? 19 : 15)
             }
             .frame(width: 78, height: 78)
         }
@@ -113,17 +137,42 @@ struct TimerSetCard: View {
     }
 }
 
-/// The timer's end, as the arrival's alert (the closed notch's compact arrival grows into it, APP-622) and as its card
-/// in chat: the name large, "Done" in orange inside the completed ring with one gentle pulse, when it was due, and
-/// Stop and Repeat. It stays until handled or the owner hovers, clicks or opens the chat (APP-624). Stop and Repeat show
-/// while FERB's row says the timer fired and wasn't repeated and the owner hasn't stopped it (DMN-548,
-/// `NotchModel.timerAlertOpen`): the arrival and the card agree, and a relaunch reads the row again.
+/// The timer's end, as the arrival's alert (the closed notch's compact arrival grows into it, APP-622) and as its one
+/// box in chat (APP-769: the same look whether the set card or the arrival draws it): the name large, "Done" in orange
+/// inside the completed ring with one gentle pulse, when it was due, and Stop and Repeat. It stays until handled or the
+/// owner hovers, clicks or opens the chat (APP-624). Stop and Repeat show while FERB's row says the timer fired and
+/// wasn't repeated and the owner hasn't stopped it (DMN-548, `NotchModel.timerAlertOpen`): the arrival and the card
+/// agree, and a relaunch reads the row again. Without a model (another day's chat) it is a record: no buttons.
 struct TimerDoneView: View {
-    let card: ResultCard
+    let name: String
+    let due: Date?
+    let timerID: String?
+    /// The timer's start is known: a duration to repeat.
+    let repeatable: Bool
     var model: NotchModel?
     var framed = false
     @State private var pulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// A timer's arrival (its reminder card).
+    init(card: ResultCard, model: NotchModel?, framed: Bool = false) {
+        name = card.title ?? "Timer"
+        due = card.dueDate
+        timerID = card.timerID
+        repeatable = card.started != nil
+        self.model = model
+        self.framed = framed
+    }
+
+    /// A timer's set card once it fired: the same box.
+    init(set card: ResultCard, model: NotchModel?) {
+        name = card.what ?? card.title ?? "Timer"
+        due = card.whenDate
+        timerID = card.timerID
+        repeatable = card.started != nil
+        self.model = model
+        framed = true
+    }
 
     var body: some View {
         if framed { CardSurface { content } } else { content }
@@ -133,15 +182,15 @@ struct TimerDoneView: View {
         HStack(alignment: .center, spacing: framed ? 14 : 22) {
             VStack(alignment: .leading, spacing: framed ? 6 : 10) {
                 TimerMeta(text: "Timer")
-                Text(verbatim: card.title ?? "Timer")
+                Text(verbatim: name)
                     .font(.system(size: framed ? 15 : 24, weight: .semibold)).tracking(framed ? 0 : -0.5)
                     .foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true)
-                if let due = card.dueDate {
+                if let due {
                     Label("Due " + CardTime.time(due), systemImage: "bell.fill")
                         .font(.system(size: framed ? 10.5 : 12, weight: .medium)).foregroundStyle(Palette.secondary)
                 }
-                if let model, let id = card.timerID {
-                    TimerAlertButtons(id: id, repeatable: card.started != nil, framed: framed, model: model)
+                if let model, let id = timerID {
+                    TimerAlertButtons(id: id, repeatable: repeatable, framed: framed, model: model)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,7 +206,8 @@ struct TimerDoneView: View {
         }
         .frame(maxWidth: .infinity, minHeight: framed ? 0 : 118, alignment: .topLeading)
         .onAppear {
-            model?.needTimerState(card.timerID)
+            guard let model else { return }                       // a record: no state, no pulse
+            model.needTimerState(timerID)
             guard !reduceMotion else { return }                   // Reduce Motion: no pulse
             withAnimation(.spring(response: 0.32, dampingFraction: 0.6)) { pulse = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {

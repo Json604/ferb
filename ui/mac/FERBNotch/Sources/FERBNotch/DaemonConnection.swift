@@ -688,6 +688,7 @@ extension NotchModel {
                                     "kind": card?.kind ?? "reminder"]
         if let due = card?.due { shown["due"] = due }
         if let started = card?.started { shown["started"] = started }    // a timer's: its done alert repeats its duration
+        if let first = card?.repeatOf { shown["repeat_of"] = first }      // a Repeat's: its first timer's box (APP-769)
         shown["timer_id"] = card?.timerID ?? id
         if card?.isTimer == true { timerFired(card?.timerID ?? id) }      // its arrival: it fired (DMN-548)
         receiveNotices([["id": "reminder:" + id, "text": text, "at": at ?? ISO8601DateFormatter().string(from: Date()),

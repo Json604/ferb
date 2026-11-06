@@ -82,6 +82,17 @@ struct PlayProbe {
     }
 
     static func all(_ checks: String?...) -> String? { checks.compactMap { $0 }.first }
+
+    /// One box per timer, reminder and schedule (APP-769): today's chat draws `box` once, at the bottom.
+    func oneBox(_ box: String) -> String? {
+        let entries = model.conversation.transcript(on: Date())
+        let moved = CardBoxes.moved(entries)
+        let drawing = entries.filter { entry in
+            CardBoxes.cards(of: entry).contains { $0.box == box } && !(moved[entry.id] ?? []).contains(box)
+        }
+        if drawing.count != 1 { return "the box \(box) draws \(drawing.count) times" }
+        return drawing.first?.id == entries.last?.id ? nil : "the box \(box) isn't at the bottom"
+    }
 }
 
 /// The play's ids: a new run gets new ones, so a restart never mixes with the run before.
@@ -532,7 +543,8 @@ enum PlayScript {
             }, check: { probe in
                 probe.model.soonestTimer() != nil && !probe.model.expanded ? nil : "no running timer for the live activity"
             }),
-            PlayBeat(caption: "The timer ends: the name, Done in its full ring, Stop and Repeat", wait: 3.2, run: { p in
+            PlayBeat(caption: "The timer ends: its one box moves to the bottom, Done in its full ring, Stop and Repeat",
+                     wait: 3.2, run: { p in
                 let tea = "play-\(p.ids.run)-tea"
                 p.workspace.reminders.removeAll { $0["id"] as? String == tea }
                 p.workspace.onNotification?(["id": "reminder:\(tea)", "category": "reminder", "title": "Tea",
@@ -544,6 +556,7 @@ enum PlayScript {
             }, check: { probe in
                 guard probe.model.conversation.notices.contains(where: { $0.id.hasSuffix("play-\(probe.ids.run)-tea") })
                 else { return "the timer didn't arrive" }
+                if let box = probe.oneBox("play-\(probe.ids.run)-tea") { return box }
                 return probe.model.chatInWindow || probe.model.compactReminderCard?.isTimer == true
                     ? nil : "the done alert isn't on the notch"
             }),
@@ -554,6 +567,16 @@ enum PlayScript {
                 probe.model.runningTimers.contains { $0.id == "play-\(probe.ids.run)-tea-again" }
                     ? nil : "Repeat didn't start the timer again"
             }),
+            PlayBeat(caption: "The repeated timer ends: the same box moves to the bottom again", wait: 3.2, run: { p in
+                let tea = "play-\(p.ids.run)-tea"
+                p.workspace.onNotification?(["id": "reminder:\(tea)-again", "category": "reminder", "title": "Tea",
+                                             "body": "Your tea is ready.", "when_hidden": false,
+                                             "target": ["kind": "reminder", "timer_id": tea + "-again"],
+                                             "card": ["type": "reminder", "title": "Tea", "kind": "timer",
+                                                      "timer_id": tea + "-again", "repeat_of": tea,
+                                                      "due": PlaygroundSamples.time(0),
+                                                      "started": PlaygroundSamples.time(-600)]])
+            }, check: { probe in probe.oneBox("play-\(probe.ids.run)-tea") }),
             PlayBeat(caption: "A reminder arrives: its icon, title, when it was due and Done", wait: 3.0, run: { p in
                 p.host?.closeNotch()
                 let water = "play-\(p.ids.run)-water"
@@ -563,8 +586,11 @@ enum PlayScript {
                                              "card": ["type": "reminder", "title": "Water break", "kind": "reminder",
                                                       "timer_id": water, "due": PlaygroundSamples.time(0)]])
             }, check: { probe in
-                probe.model.conversation.notices.contains { $0.id.hasSuffix("play-\(probe.ids.run)-water") }
-                    ? nil : "the reminder didn't arrive"
+                guard let water = probe.model.conversation.notices.first(where: {
+                    $0.id.hasSuffix("play-\(probe.ids.run)-water")
+                }) else { return "the reminder didn't arrive" }
+                // its one box carries its words; no bubble repeats it (APP-769)
+                return CardBoxes.words(water) == "Take a break and get some water." ? nil : "the reminder's words aren't in its box"
             }),
             PlayBeat(caption: "Done dismisses it; the chat keeps the message", wait: 1.6, run: { p in
                 p.model.stopTimerAlert("play-\(p.ids.run)-water")

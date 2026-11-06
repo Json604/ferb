@@ -23,8 +23,10 @@ check with "Yes but the cheaper one" as a correction, a confirmed part unmarked 
 links: hover them), a long answer with Show all, a file drop waiting in the composer until sent, a timer and a schedule
 with short names; the timer's flow like Apple's (APP-762): set in chat with its live countdown in a draining ring,
 "Ends" with a bell and Cancel, then FERB closed with the countdown beside the camera (in the pill without a notch),
-then its end on the notch with Done in the full ring, Stop and Repeat, Repeat starting it again; a reminder's arrival
-with its icon, title, due time and Done; Settings' shortcut and double-tap,
+then its end on the notch with Done in the full ring, Stop and Repeat, its one box moving to the bottom of the chat
+(APP-769: the set card leaves its old spot, no "is up" bubble), Repeat starting it again and the repeat's end moving
+the same box down again; a reminder's arrival with its icon, title, due time and Done, its words inside its one box;
+Settings' shortcut and double-tap,
 profile names with their accounts (Settings → Browsers), window mode with Keep on top and Hide the pill, and "Updated
 to 0.27.1" once. It never calls a model, the real daemon, `~/.ferb` or the network. Each beat checks the UI state it
 leaves; failed checks show under the controls and in the log, and `PlaygroundPlayTests` runs every beat hermetically.
