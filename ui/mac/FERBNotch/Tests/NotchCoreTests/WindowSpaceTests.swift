@@ -211,6 +211,53 @@ final class WindowSpaceTests: XCTestCase {
         }
     }
 
+    /// Owner, 2026-11-06, build 202611061440: "the settings window shuold open on that home space but it opens on
+    /// currnet space but still shifts". Live: shown on Space 1380, then FERB's activation switched to 3 within 0.4 s.
+    /// The first Space change soon after showing brings the window to where the owner landed; a later one (the owner's
+    /// own switch) leaves it, and one that already shows it does nothing. Space changes, time and the move stood in.
+    // decision: APP-775, APP-773
+    func testFERBsWindowFollowsTheSpaceSwitchItsActivationMakes() {
+        _ = NSApplication.shared
+        let spaces = NotificationCenter()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        var here = true
+        var moved = 0
+        let saved = (AppWindowPresentation.spaces, AppWindowPresentation.now, AppWindowPresentation.isHere,
+                     AppWindowPresentation.bringHere, AppWindowPresentation.activate)
+        AppWindowPresentation.spaces = spaces
+        AppWindowPresentation.now = { clock }
+        AppWindowPresentation.isHere = { _ in here }
+        AppWindowPresentation.bringHere = { _ in moved += 1 }
+        AppWindowPresentation.activate = {}
+        defer {
+            (AppWindowPresentation.spaces, AppWindowPresentation.now, AppWindowPresentation.isHere,
+             AppWindowPresentation.bringHere, AppWindowPresentation.activate) = saved
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        addTeardownBlock { window.orderOut(nil) }
+        func switchSpace() {
+            spaces.post(name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        AppWindowPresentation.show(window)
+        clock += 0.4
+        here = false                                          // FERB's activation switched to the home Space
+        switchSpace()
+        XCTAssertEqual(moved, 1, "the window goes where the owner landed")
+        switchSpace()                                         // the owner's next switch: it stays where it is
+        XCTAssertEqual(moved, 1)
+        AppWindowPresentation.show(window)
+        clock += 5                                            // a switch long after showing is the owner's own
+        switchSpace()
+        XCTAssertEqual(moved, 1)
+        AppWindowPresentation.show(window)
+        here = true                                           // already on the Space showing: nothing to do
+        switchSpace()
+        XCTAssertEqual(moved, 1)
+    }
+
     /// A file drag reaches the window: it leaves the fixed space while the drag lasts (no drag reaches a window there,
     /// APP-742) and comes back after.
     // decision: APP-760, APP-742

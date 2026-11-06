@@ -47,6 +47,43 @@ enum AppWindowPresentation {
         if window.canBecomeKey { window.makeKey() }
         activate()
         window.makeKeyAndOrderFront(nil)
+        follow(window)
+    }
+
+    // MARK: - Following a Space switch FERB's activation makes (APP-775)
+
+    /// How long after FERB's window shows a Space switch still counts as the one its activation made.
+    static let followWindow: TimeInterval = 1.5
+    /// Space changes (tests post their own), the time, whether a window is on the Space showing, and the move.
+    static var spaces: NotificationCenter = NSWorkspace.shared.notificationCenter
+    static var now: () -> Date = { Date() }
+    static var isHere: (NSWindow) -> Bool = { $0.isOnActiveSpace }
+    static var bringHere: (NSWindow) -> Void = { window in
+        moveToActiveSpace(window)                        // the switch has landed: the Space showing is the new one
+        if !window.isOnActiveSpace { window.orderOut(nil); window.orderFrontRegardless() }
+        window.makeKeyAndOrderFront(nil)
+    }
+    private static var following: NSObjectProtocol?
+
+    /// macOS may still switch the owner to another Space as FERB comes forward, with the window already shown on the
+    /// Space they were on (live 2026-11-06: shown on 1380, then 1380 → 3 within 0.4 s). The owner accepts the switch;
+    /// the window goes where it lands (owner: "the settings window shuold open on that home space but it opens on
+    /// currnet space but still shifts"). Only the first Space change within `followWindow` counts: the owner's own
+    /// switch later leaves the window where it is.
+    private static func follow(_ window: NSWindow) {
+        if let following { spaces.removeObserver(following) }
+        let shown = now()
+        following = spaces.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil,
+                                       queue: .main) { [weak window] _ in
+            MainActor.assumeIsolated {
+                if let following { spaces.removeObserver(following) }
+                following = nil
+                guard let window, window.isVisible, now().timeIntervalSince(shown) < followWindow, !isHere(window)
+                else { return }
+                log.notice("FERB window follows FERB's Space switch")
+                bringHere(window)
+            }
+        }
     }
 
     /// A frame for `frame` beside `chat` (left or right, whichever side has more room) inside `visible`, as wide and

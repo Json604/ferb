@@ -3318,8 +3318,8 @@ title = "FERB's window with the sticky window across Spaces"
 area = "app"
 surface = "FERB.app with this build in window mode, the sticky window open; two desktops"
 request = "From the window's profile menu open Settings, then Tasks. Switch to the other desktop and back with Control-arrow. Leave Settings open, go to the other desktop and open Settings again from the window's profile menu. Do the same once in notch mode."
-pass = "Settings opens beside the window (or in front of it on a small screen), on the desktop you are on, and every menu item opens its page on the first try. No step switches you to another desktop. The window never slides or blinks on a desktop switch while Settings is on another desktop or beside it."
-decisions = ["APP-774", "APP-773", "APP-772"]
+pass = "Every menu item opens its page on the first try, beside the window where there is room. If FERB switches you to another desktop as it opens, the page is on the desktop you land on, never left behind. The window never slides or blinks on a desktop switch while Settings is on another desktop or beside it."
+decisions = ["APP-774", "APP-775", "APP-773", "APP-772"]
 sitting = "after this change is installed"
 
 [LIVE-805]

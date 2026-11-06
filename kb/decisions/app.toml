@@ -2765,3 +2765,14 @@ rule = "Refines APP-749, APP-761, APP-688 for APP-772/773. The sticky window ste
 why = "Owner, 2026-11-06, build 202611061406: \"the previous issue of settings and other options not openign nad close open on space shift is back\". Log: stepped back for the FERB window left on another Space; Settings switched Spaces to where it had been."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController", "ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
 live = ["LIVE-808", "LIVE-803", "LIVE-804"]
+
+[APP-775]
+title = "Settings opens on the Space FERB's switch lands on"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "ok fixed - but the space shift happnes and im ok with it, BUT the settings window shuold open on that home space but it opens on currnet space but still shifts. so this is the bad UX not shofting spaces for opening hte settigns window. rest stick on spac shift works fine"
+words_source = "Owner, 2026-11-06, after build 202611061440 (APP-774), about opening Settings in window mode"
+rule = "Refines APP-773. When macOS switches the owner to another Space as FERB comes forward to show its window (Settings, Tasks, the other pages), the window goes to the Space the owner lands on: the first Space change within 1.5 s of showing it brings it there; a later switch is the owner's own and leaves it. The switch itself is accepted."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
+live = ["LIVE-808"]
