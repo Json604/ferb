@@ -60,7 +60,10 @@ enum MessageTextAttributes {
         let result = NSMutableAttributedString(string: "")
         for run in parsed.runs {
             var style = attributes(run.inlinePresentationIntent)
-            if let url = run.link, MarkdownDocument.safeLink(url) { style[.link] = url }
+            if let url = run.link, MarkdownDocument.safeLink(url) {
+                style[.link] = url
+                style[.foregroundColor] = NSColor.linkColor     // the link's colour lives in the text: hover lifts it
+            }
             result.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: style))
         }
         return result
@@ -69,6 +72,9 @@ enum MessageTextAttributes {
 
 final class MessageTextView: NSTextView, NSTextViewDelegate {
     private var revealGeneration: Int?
+    /// The link under the pointer, drawn lifted (APP-753, `HoverLook`): a temporary attribute, never the text.
+    private(set) var hoveredLink: NSRange?
+    private var hoverArea: NSTrackingArea?
     private var measuredWidths: [CGFloat: CGSize] = [:]
     private(set) var displayRefreshCount = 0
 
@@ -91,7 +97,8 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
         minSize = .zero
         maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         delegate = self
-        linkTextAttributes = [.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand]
+        // No colour here, so a hovered link's temporary colour shows; the text carries the link colour itself.
+        linkTextAttributes = [.cursor: NSCursor.pointingHand]
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -162,6 +169,57 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
         layoutManager?.invalidateDisplay(forCharacterRange: NSRange(location: 0, length: storage.length))
         needsDisplay = true
         displayRefreshCount += 1
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        // Always active: FERB never activates, and a link still answers the pointer (APP-753)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        hover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        hover(at: nil)
+    }
+
+    /// Lifts the link under `point` (none: every link at rest) and shows the pointing hand over it.
+    func hover(at point: NSPoint?) {
+        var range: NSRange?
+        if let point, let manager = layoutManager, let container = textContainer, let storage = textStorage,
+           storage.length > 0 {
+            let inside = CGPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+            var fraction: CGFloat = 0
+            let glyph = manager.glyphIndex(for: inside, in: container, fractionOfDistanceThroughGlyph: &fraction)
+            let rect = manager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+            let index = manager.characterIndexForGlyph(at: glyph)
+            var effective = NSRange(location: 0, length: 0)
+            if rect.contains(inside), index < storage.length,
+               storage.attribute(.link, at: index, effectiveRange: &effective) != nil {
+                range = effective
+            }
+        }
+        guard range != hoveredLink else { return }
+        if let old = hoveredLink, let manager = layoutManager {
+            manager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: old)
+        }
+        hoveredLink = range
+        if let range, let manager = layoutManager {
+            manager.addTemporaryAttribute(.foregroundColor, value: NSColor.linkColor.hoverLifted(true),
+                                          forCharacterRange: range)
+            NSCursor.pointingHand.set()
+        } else if point != nil {
+            NSCursor.iBeam.set()
+        }
+        needsDisplay = true
     }
 
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {

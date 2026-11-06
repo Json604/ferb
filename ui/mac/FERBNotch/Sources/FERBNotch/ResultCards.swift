@@ -456,6 +456,7 @@ struct FileChip: View {
     let url: URL
     @ObservedObject var model: NotchModel
     @StateObject private var card = FileCardState()
+    @State private var hovered = false
     func reveal() { card.reveal(url, with: model) }
 
     var body: some View {
@@ -469,7 +470,7 @@ struct FileChip: View {
                 }
                 .foregroundStyle(Palette.ink)
                 .padding(.horizontal, 9).frame(height: 28)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .cardHover($hovered)
                 .contentShape(RoundedRectangle(cornerRadius: 9))
             }
             .buttonStyle(.plain)

@@ -2538,3 +2538,13 @@ words = "remove the timer from these boxes. also if theres 2 boxes why is it say
 words_source = "Owner, 2026-11-06, about a card with rows \"Read email list — Running a command · 0:18\" and \"Write summary — Waiting for Read email list\" and the footer \"1 of 3 done · 1 running · 1 waiting · 0:18\""
 rule = "Supersedes the time parts of APP-718 (a running row's \"and the time\"), APP-723 (the status line's task time; row and status-line clocks) and APP-724 (a retrying row's elapsed time and \"the time stay\"): the task card's rows and its status line show no elapsed time. The spinner, the states and their words stay; the rest of APP-718, APP-723 and APP-724 stands. The count side is ORCH-543."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::RowDisplay", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::CardStatusLine", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift"]
+
+[APP-753]
+title = "File cards, site chips and links change colour on hover; \"+N\" sits in its own box"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "they are not changing color on hover - they shoudl adn also if its a link. the N number hsuodlb be ina  box or something"
+words_source = "Owner, 2026-11-06, about a FERB answer with blue inline links, a site chip \"example.com +1\" and a file card \"visit-note.txt\""
+rule = "File cards (reply files, file chips, composer attachments), the sites chip and its links, and links inside answers share one hover look (HoverLook): the card or chip fill brightens, link text lifts towards white, and a link shows the pointing hand. Only colour changes; nothing opens on hover and clicks stay as APP-715..717 and APP-589 say. The \"+N\" overflow count sits in its own small rounded box. Reduce Motion changes the colour at once. Refines APP-716's removal of the pointing hand for links."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/HoverLook.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::CardHover", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::OverflowBadge", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::FileChip"]

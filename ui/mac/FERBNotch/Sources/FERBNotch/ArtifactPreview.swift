@@ -43,6 +43,58 @@ struct FileUnavailableLine: View {
     }
 }
 
+/// The shared hover look (APP-753, `HoverLook`): the card's fill brightens under the pointer, a link's text lifts
+/// towards white and the pointer becomes the pointing hand; only colour changes, nothing opens (APP-715). Reduce Motion
+/// changes it at once.
+struct CardHover: ViewModifier {
+    var link = false
+    var cornerRadius: CGFloat = 9
+    var capsule = false
+    /// Draws the fill; off when the content draws its own from `hovered`.
+    var drawsFill = true
+    let hovered: Binding<Bool>
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if drawsFill {
+                    if capsule { Capsule().fill(.white.opacity(HoverLook.fill(hovered: hovered.wrappedValue))) }
+                    else {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(.white.opacity(HoverLook.fill(hovered: hovered.wrappedValue)))
+                    }
+                }
+            }
+            .onHover { inside in
+                withAnimation(HoverLook.duration(reduceMotion: reduceMotion).map { .easeOut(duration: $0) }) {
+                    hovered.wrappedValue = inside
+                }
+                guard link else { return }
+                if inside && !pushed { NSCursor.pointingHand.push(); pushed = true }
+                else if !inside && pushed { NSCursor.pop(); pushed = false }
+            }
+            .onDisappear { if pushed { NSCursor.pop(); pushed = false } }
+    }
+}
+
+extension View {
+    func cardHover(_ hovered: Binding<Bool>, link: Bool = false, cornerRadius: CGFloat = 9, capsule: Bool = false,
+                   drawsFill: Bool = true) -> some View {
+        modifier(CardHover(link: link, cornerRadius: cornerRadius, capsule: capsule, drawsFill: drawsFill,
+                           hovered: hovered))
+    }
+}
+
+extension NSColor {
+    /// A link's colour under the pointer (`HoverLook.linkLift`).
+    func hoverLifted(_ hovered: Bool) -> NSColor {
+        let lift = HoverLook.linkLift(hovered: hovered)
+        return lift > 0 ? (blended(withFraction: lift, of: .white) ?? self) : self
+    }
+}
+
 /// The text of a file card or link: selectable and copyable, while a plain click acts (APP-716). A drag or a
 /// double-click selects (Command-C copies through NotchPanel's routing); a single click that leaves nothing
 /// selected runs `click`. The card around it keeps its own click, drag-out and context menu.
@@ -164,6 +216,7 @@ struct ArtifactRow: View {
     let url: URL
     @ObservedObject var model: NotchModel
     @StateObject private var card = FileCardState()
+    @State private var hovered = false
     func reveal() { card.reveal(url, with: model) }
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -173,8 +226,11 @@ struct ArtifactRow: View {
                     SelectableName(text: url.lastPathComponent, size: 12, weight: .medium, click: reveal,
                                    actions: CardAction.file(url, model: model, card: card))
                 }
+                .padding(.horizontal, 9).frame(height: 28)
+                .cardHover($hovered)
+                .contentShape(RoundedRectangle(cornerRadius: 9))
             }
-            .buttonStyle(FerbButtonStyle(quiet: true))
+            .buttonStyle(.plain)
             .accessibilityLabel("Show \(url.lastPathComponent) in Finder")
             .modifier(FileCardMenu(url: url, model: model, card: card))
             if card.unavailable { FileUnavailableLine().padding(.leading, 7) }
@@ -187,6 +243,7 @@ struct ComposerAttachmentCard: View {
     let url: URL
     @ObservedObject var model: NotchModel
     @StateObject private var card = FileCardState()
+    @State private var hovered = false
     func reveal() { card.reveal(url, with: model) }
     var body: some View {
         Button(action: reveal) {
@@ -203,6 +260,7 @@ struct ComposerAttachmentCard: View {
             }
             .padding(10).frame(width: 116, height: 84)
             .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
+            .cardHover($hovered, cornerRadius: 10)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
@@ -253,11 +311,33 @@ struct SiteLink: View {
     let host: String
     @ObservedObject var model: NotchModel
     var size: CGFloat = 10
-    var color: NSColor = .secondaryLabelColor
+    var color: NSColor = .linkColor
+    /// The hover of the chip around it, when it has one; else the link's own.
+    var hovered: Bool? = nil
+    @State private var own = false
     var body: some View {
-        SelectableName(text: host, size: size, color: color, click: { model.openSite(host) },
+        SelectableName(text: host, size: size, color: color.hoverLifted(hovered ?? own), click: { model.openSite(host) },
                        actions: CardAction.link(host, model: model))
+            .cardHover($own, link: true, drawsFill: false)
             .accessibilityLabel("Open \(host)")
+    }
+}
+
+/// The "+N" overflow count in its own small rounded box (APP-753), brighter under the pointer like every link.
+struct OverflowBadge: View {
+    let count: Int
+    @State private var hovered = false
+    var body: some View {
+        if let text = HoverLook.overflow(count) {
+            Text(text).fixedSize()
+                .font(.system(size: 9.5, weight: .semibold)).monospacedDigit()
+                .foregroundStyle(hovered ? Palette.ink : Palette.secondary)
+                .padding(.horizontal, 5).frame(height: 15)
+                .background(.white.opacity(HoverLook.badgeFill(hovered: hovered)),
+                            in: RoundedRectangle(cornerRadius: 4.5, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 4.5))
+                .cardHover($hovered, link: true, drawsFill: false)
+        }
     }
 }
 
@@ -266,15 +346,13 @@ struct VisitedSitesView: View {
     @ObservedObject var model: NotchModel
     var leading: CGFloat = 10
     @State private var listOpen = false
+    @State private var hovered = false
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "globe").foregroundStyle(Palette.secondary)
-            SiteLink(host: sites.inline, model: model)
+            Image(systemName: "globe").foregroundStyle(hovered ? Palette.ink : Palette.secondary)
+            SiteLink(host: sites.inline, model: model, hovered: hovered)
             if sites.remainingCount > 0 {
-                Button { listOpen = true } label: {
-                    Text("+\(sites.remainingCount)").fixedSize().foregroundStyle(Palette.secondary)
-                        .contentShape(Rectangle())
-                }
+                Button { listOpen = true } label: { OverflowBadge(count: sites.remainingCount) }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Show all \(sites.all.count) visited sites")
                 .popover(isPresented: $listOpen) { list }
@@ -282,7 +360,7 @@ struct VisitedSitesView: View {
         }
         .font(.system(size: 10))
         .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(Color.primary.opacity(0.09), in: Capsule())
+        .cardHover($hovered, capsule: true)
         .padding(.leading, leading)
         .onChange(of: model.expanded) { _, visible in if !visible { listOpen = false } }
         .onChange(of: model.previewDismissalRevision) { _, _ in listOpen = false }
@@ -298,7 +376,7 @@ struct VisitedSitesView: View {
                     if index > 0 { Divider().padding(.vertical, 10) }
                     HStack(spacing: 6) {
                         Image(systemName: "globe")
-                        SiteLink(host: host, model: model, size: 13, color: .labelColor)
+                        SiteLink(host: host, model: model, size: 13)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
