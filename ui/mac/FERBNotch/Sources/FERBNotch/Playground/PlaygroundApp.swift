@@ -74,8 +74,10 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
                 await services.setup.refreshAI()
                 await services.setup.refreshPermissions()
                 await services.notch.refreshDaemonStatus()
-                review.play(.conversation)
-                review.show(.schedules)
+                if PlaygroundMode.startsPlay { review.startPlay() } else {
+                    review.play(.conversation)
+                    review.show(.schedules)
+                }
             }
         } else {
             Task { await appSetup.decideAtLaunch(fresh ? .install : .none) }
@@ -196,7 +198,9 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
             showTaskPreview: { [weak self] in self?.appReview?.showPreview() },
             previewSetup: { [weak self] in
                 self?.appSetup?.repair(.none)          // the service step in the notch (APP-685): no window
-            })
+            },
+            player: { [weak self] in self?.appReview.flatMap { services.state.exploringApp ? $0.player : nil } },
+            startPlay: { [weak self] in self?.appReview?.startPlay() })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 820),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = services.state.exploringApp ? "FERB app playground — controls" : PlaygroundMode.usesArrival ? "Arrival concept — controls" : "Notch concept — controls"

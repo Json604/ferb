@@ -159,6 +159,10 @@ public struct TurnCard: Codable, Equatable {
 
     public func row(_ part: String) -> CardRow? { rows.first { $0.part == part } }
 
+    /// The rows the card draws: every row, a part answered at once included, so they always agree with "N of M"
+    /// (ORCH-543). TurnCardView and the playground's play read this one list.
+    public var shownRows: [CardRow] { rows }
+
     /// Applies a part event to its row. A part this card doesn't list is added when the event names this card's turn.
     /// The count is the daemon's (`done`, `total` on the event, step 8e); an older daemon's event without them is
     /// counted here as before. Returns whether anything changed.

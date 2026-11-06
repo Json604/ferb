@@ -4,6 +4,7 @@
 #   ui/mac/FERBNotch/playground.sh               build, then open the playground fresh (the intro from the top)
 #   ui/mac/FERBNotch/playground.sh --reopen      build, then open it keeping the last run's state
 #   ui/mac/FERBNotch/playground.sh --build-only  build the app bundle, don't open it
+#   ui/mac/FERBNotch/playground.sh --play        open the app playground and start Play 0.27.1 at once
 set -euo pipefail
 PROJECT_DIR="${0:A:h}"
 REPO="${PROJECT_DIR:h:h:h}"
@@ -20,7 +21,8 @@ for arg in "$@"; do
     --build-only) OPEN=0 ;;
     --reopen) ARGS+=(--reopen) ;;
     --app) ARGS+=(--app) ;;
-    *) print -u2 "Usage: playground.sh [--arrival] [--app] [--reopen] [--build-only]"; exit 1 ;;
+    --play) ARGS+=(--app --play); CONCEPT_NAME="FERB Arrival Concept"; CONCEPT_ID="dev.ferb.playground.arrival"; CONCEPT_HOME="ferb-arrival-concept" ;;
+    *) print -u2 "Usage: playground.sh [--arrival] [--app] [--play] [--reopen] [--build-only]"; exit 1 ;;
   esac
 done
 

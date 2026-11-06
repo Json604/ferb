@@ -4,6 +4,27 @@ A dev-only copy of FERB's notch app that runs the **real** first-run intro (notc
 copy) with everything behind it faked. You change the intro's look and feel in the real source files, run one command
 and see the change. No real FERB is involved: no daemon, no `~/.ferb`, no Keychain, no permission prompts.
 
+## Play 0.27.1: watch every 0.27.1 change
+
+```sh
+ui/mac/FERBNotch/playground.sh --play
+```
+
+It builds the playground, opens the app playground and starts **Play 0.27.1** by itself. In the controls window the
+**Play 0.27.1** section has the same control (**Play 0.27.1**, ⌘P), **Pause/Resume**, **Restart** and **Show in:
+Notch | Window** (the same play in the sticky window). The play is a scripted, invented conversation through the real
+notch and chat (`Playground/PlaygroundPlay.swift`): a six-part request whose rows go waiting → starting → running
+(spinner, live line, no timer) → checking → done, a row waiting on a step with no row, a part answered at once as its
+own done row, a retrying row, a row that won't run, the count matching the rows, a steer mid-run, a long row with Show
+more and a short one open, a check-in with only its buttons, a question in a row answered in its box, FERB's safety
+check with "Yes but the cheaper one" as a correction, a confirmed part unmarked and a really unconfirmed one with its
+"Couldn't confirm" line, the notch opening itself to the answer (file card, sites chip with the boxed "+2", inline
+links: hover them), a long answer with Show all, a file drop waiting in the composer until sent, a timer and a schedule
+with short names (the timer card says Timer) and the timer's compact arrival, Settings' shortcut and double-tap,
+profile names with their accounts (Settings → Browsers), window mode with Keep on top and Hide the pill, and "Updated
+to 0.27.1" once. It never calls a model, the real daemon, `~/.ferb` or the network. Each beat checks the UI state it
+leaves; failed checks show under the controls and in the log, and `PlaygroundPlayTests` runs every beat hermetically.
+
 ## Whole-app review
 
 The startup/setup concept is accepted (APP-618). There is no global Skip intro control. To review the rest of the app:
@@ -37,6 +58,7 @@ From the repo root:
 ui/mac/FERBNotch/playground.sh            # build, then open the playground fresh (intro from the top)
 ui/mac/FERBNotch/playground.sh --reopen   # build, then open it keeping the last run's state
 ui/mac/FERBNotch/playground.sh --build-only   # build "build/FERB Playground.app" without opening it
+ui/mac/FERBNotch/playground.sh --play         # build, open the app playground and start Play 0.27.1
 ```
 
 The script builds the package (debug), assembles `ui/mac/FERBNotch/build/FERB Playground.app` with its own bundle id

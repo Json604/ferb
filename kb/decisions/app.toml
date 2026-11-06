@@ -2548,3 +2548,13 @@ words = "they are not changing color on hover - they shoudl adn also if its a li
 words_source = "Owner, 2026-11-06, about a FERB answer with blue inline links, a site chip \"example.com +1\" and a file card \"visit-note.txt\""
 rule = "File cards (reply files, file chips, composer attachments), the sites chip and its links, and links inside answers share one hover look (HoverLook): the card or chip fill brightens, link text lifts towards white, and a link shows the pointing hand. Only colour changes; nothing opens on hover and clicks stay as APP-715..717 and APP-589 say. The \"+N\" overflow count sits in its own small rounded box. Reduce Motion changes the colour at once. Refines APP-716's removal of the pointing hand for links."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/HoverLook.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::CardHover", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::OverflowBadge", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::FileChip"]
+
+[APP-754]
+title = "Play 0.27.1: the whole 0.27.1 UI as a scripted play in the playground"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "also i dont wanna run the tests to see this, jsut make a fake message adn whoel UI play. that will cover if its workign the way we wanted"
+words_source = "Owner, 2026-11-06, with \"fix all thsi with one agent, after fixing just runt he test, DONT AHVE THIS test sheet for me to push\""
+rule = "The UI playground (APP-619) has one control, Play 0.27.1 (also playground.sh --play), that plays a scripted, invented conversation through the real notch and chat, beat by beat with pauses, covering every 0.27.1 change that shows in the UI, with Pause, Restart and Notch | Window. It never calls a model, the real daemon, ~/.ferb or the network. A hermetic test runs every beat and its check of the UI state it leaves."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPlay.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundWorkspace.swift", "ui/mac/FERBNotch/PLAYGROUND.md", "ui/mac/FERBNotch/playground.sh"]

@@ -17,6 +17,9 @@ enum PlaygroundMode {
     static let reopenArgument = "--reopen"
     static let appReviewArgument = "--app"
     static var startsInAppReview: Bool { CommandLine.arguments.contains(appReviewArgument) }
+    /// Opens the app playground and starts Play 0.27.1 at once (playground.sh --play).
+    static let playArgument = "--play"
+    static var startsPlay: Bool { CommandLine.arguments.contains(playArgument) }
 
     static var requested: Bool { isPlayground(bundleID: Bundle.main.bundleIdentifier) }
 

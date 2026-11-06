@@ -21,6 +21,35 @@ struct PlaygroundActions {
     var finishTask: () -> Void = {}
     var showTaskPreview: () -> Void = {}
     var previewSetup: () -> Void = {}
+    /// Play 0.27.1: the player behind the controls (nil before the app playground opens).
+    var player: () -> PlaygroundPlayer? = { nil }
+    var startPlay: () -> Void = {}
+}
+
+/// Play 0.27.1's controls: Play, Pause, Restart, Notch / Window, and the beat now playing.
+struct PlayControls: View {
+    @ObservedObject var player: PlaygroundPlayer
+    let start: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Play 0.27.1").font(.headline)
+            Text("A scripted, invented conversation through the real notch and chat: every 0.27.1 change, beat by beat. "
+                 + "Nothing real runs.").font(.caption).foregroundStyle(.secondary)
+            Picker("Show in", selection: $player.mode) {
+                Text("Notch").tag(ChatHost.notch)
+                Text("Window").tag(ChatHost.window)
+            }.pickerStyle(.segmented)
+            HStack {
+                Button("Play 0.27.1", action: start).keyboardShortcut("p", modifiers: [.command])
+                Button(player.paused ? "Resume" : "Pause") { player.pause() }.disabled(!player.running)
+                Button("Restart") { player.restart() }
+            }
+            if !player.caption.isEmpty { Text(player.caption).font(.callout).fixedSize(horizontal: false, vertical: true) }
+            ProgressView(value: Double(player.index), total: Double(max(1, player.count)))
+            ForEach(player.failures, id: \.self) { Text($0).font(.caption).foregroundStyle(.red) }
+        }
+    }
 }
 
 /// The playground's control panel: a plain window, deliberately not styled like FERB. Functional, not pretty.
@@ -69,6 +98,7 @@ struct PlaygroundPanel: View {
             if !state.exploringApp {
                 Button("Open app playground") { actions.exploreApp() }
             } else {
+                if let player = actions.player() { PlayControls(player: player, start: actions.startPlay) }
                 HStack {
                     Button("Open notch / chat") { actions.openNotch() }
                     Button("Close notch") { actions.closeNotch() }

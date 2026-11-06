@@ -16,6 +16,9 @@ final class PlaygroundWorkspace {
     var settings = PlaygroundSamples.settings
     var banners = Dictionary(uniqueKeysWithValues: BannerCategory.allCases.map { ($0.rawValue, true) })
     var approvals: [[String: Any]] = []
+    /// Play 0.27.1 (PlaygroundPlay): the owner messages it sends, answered in order, and its questions.
+    var playTurns: [PlayFeed] = []
+    var playApprovals: Set<String> = []
     var stopped = false
     var listeners: [UUID: AsyncThrowingStream<[String: Any], Error>.Continuation] = [:]
     var seenNotices: Set<String> = []
@@ -43,6 +46,14 @@ final class PlaygroundWorkspace {
     }
 
     func answer(_ method: String, _ params: [String: Any]) throws -> [String: Any]? {
+        if ["chat.approve", "chat.answer", "chat.correct"].contains(method),
+           let id = params["approval_id"] as? String, playApprovals.contains(id) {
+            // the play's question: answered here, and the play's script carries the task on
+            playApprovals.remove(id)
+            approvals.removeAll { $0["approval_id"] as? String == id }
+            emit("approval.resolved", ["approval_id": id])
+            return ["ok": true]
+        }
         switch method {
         case "tasks.list": return ["tasks": tasks, "more": false]
         case "schedules.list": return ["schedules": schedules]
@@ -141,6 +152,44 @@ final class PlaygroundWorkspace {
     }
 
     var running: [[String: Any]] { tasks.filter { $0["status"] as? String == "running" } }
+
+    /// The play's task, listed as running (chat.status, Tasks) until its outcome.
+    func startPlay(task: String, request: String, goal: String) {
+        let row: [String: Any] = ["task_id": task, "request_id": request, "goal": goal, "name": "Inbox, keyboard and practice",
+                                  "status": "running", "created_at": PlaygroundSamples.time(),
+                                  "started_at": PlaygroundSamples.time()]
+        tasks.insert(row, at: 0)
+        emit("task.created", row)
+    }
+
+    /// The play's task ended (or the play restarted): no longer running, its result already shown in its turn.
+    func endPlay(task: String) {
+        seenResults.insert(task)
+        for index in tasks.indices where tasks[index]["task_id"] as? String == task {
+            tasks[index]["status"] = "done"
+        }
+        let open = approvals.filter { playApprovals.contains($0["approval_id"] as? String ?? "") }
+        approvals.removeAll { playApprovals.contains($0["approval_id"] as? String ?? "") }
+        for approval in open { emit("approval.resolved", ["approval_id": approval["approval_id"] ?? ""]) }
+        playApprovals.removeAll()
+    }
+
+    /// One of the play's owner messages: the ack, then its reply at once, or the task's events as the play pushes them.
+    func playChat(_ feed: PlayFeed, yield: ([String: Any]) -> Void) async throws {
+        yield(["type": "ack", "request_id": feed.requestID, "text": "On it.", "at": PlaygroundSamples.time()])
+        if let events = feed.events {
+            await state.pause(0.6)
+            for event in events {
+                try Task.checkCancellation()
+                yield(event.merging(["at": PlaygroundSamples.time()]) { old, _ in old })
+            }
+            return
+        }
+        for await event in feed.stream {
+            try Task.checkCancellation()
+            yield(event.merging(["at": PlaygroundSamples.time()]) { old, _ in old })
+        }
+    }
 
     func finishRunning(status: String = "done", answer: String = "The sample brief is ready to review.", ids: [String]? = nil) {
         for index in tasks.indices where tasks[index]["status"] as? String == "running" {

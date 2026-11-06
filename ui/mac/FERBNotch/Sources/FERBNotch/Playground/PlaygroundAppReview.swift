@@ -5,8 +5,10 @@ import NotchCore
 
 /// The product's own windows, connected to the playground transport and services.
 @MainActor
-final class PlaygroundAppReview {
+final class PlaygroundAppReview: PlayHost {
     let services: PlaygroundServices
+    /// Play 0.27.1: the scripted conversation through the real notch (PlaygroundPlay).
+    private(set) lazy var player = PlaygroundPlayer(workspace: services.daemon.workspace, model: coordinator.model, host: self)
     let coordinator: PanelCoordinator
     let window: FERBWindowController
     let updates: UpdateCoordinator
@@ -102,6 +104,22 @@ final class PlaygroundAppReview {
             services.notch.send(scene.request)
         }
     }
+
+    /// Starts Play 0.27.1 (from the top when it already finished).
+    func startPlay() {
+        guard services.state.exploringApp else { openReview(); return }
+        if player.index >= player.count { player.restart() } else { player.play() }
+    }
+
+    // MARK: PlayHost
+
+    func openNotch() { coordinator.showFromMenu() }
+    func closeNotch() { coordinator.model.collapse() }
+    func showSettings(_ tab: SettingsTab) { window.show(.settings, tab: tab) }
+    func closeSettings() { window.window?.orderOut(nil) }
+    func setChatHost(_ host: ChatHost) { UserDefaults.standard.set(host.rawValue, forKey: ChatHost.defaultsKey) }
+    func setKeepOnTop(_ on: Bool) { UserDefaults.standard.set(on, forKey: ChatHost.keepOnTopKey) }
+    func setHidePill(_ on: Bool) { UserDefaults.standard.set(on, forKey: ChatHost.hidePillKey) }
 
     func showPreview() {
         guard services.state.exploringApp else { openReview(); return }

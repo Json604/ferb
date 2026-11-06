@@ -25,6 +25,7 @@ enum PlaygroundChatScenario: String, CaseIterable, Identifiable {
 @MainActor
 extension PlaygroundWorkspace {
     func chat(_ request: String, yield: ([String: Any]) -> Void) async throws {
+        if !playTurns.isEmpty { return try await playChat(playTurns.removeFirst(), yield: yield) }
         let selected = scenario
         let requestID = "sample-request-" + UUID().uuidString
         yield(["type": "ack", "request_id": requestID, "text": "On it.", "at": PlaygroundSamples.time()])
