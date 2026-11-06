@@ -172,6 +172,18 @@ def test_a_multi_part_answer_is_saved_as_an_index_the_planner_reads_whole(daemon
     assert "Nothing pending." not in history                                    # rows past their first line aren't
 
 
+# decision: ORCH-549, APP-755
+def test_a_short_direct_answer_is_removed_from_the_plan_line_only_as_a_whole_line() -> None:
+    from ferb.orchestrator.supervisor import without_whole
+    assert without_whole("4\n\nI'll compare the 4 laptops.", "4") == "I'll compare the 4 laptops."
+    assert without_whole("I'll compare the 4 laptops.", "4") == "I'll compare the 4 laptops."
+    assert without_whole("Yes.\nYesterday's prices first, then I'll check stock.", "Yes.") == \
+        "Yesterday's prices first, then I'll check stock."
+    assert without_whole("Yes, I'll check.", "Yes") == "Yes, I'll check."
+    assert without_whole("I'm FERB.\nI run on your Mac.\n\nI'll research.", "I'm FERB.\nI run on your Mac.") == \
+        "I'll research."
+
+
 # decision: ORCH-319, ORCH-543, APP-755
 def test_a_direct_part_is_answered_in_the_first_reply_and_counts_as_done(daemon: RunningDaemon) -> None:
     """Scenario 3: "who are you" is answered at once: it is its own done row (APP-755: never also in the reply's text,

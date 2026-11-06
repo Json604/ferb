@@ -868,3 +868,12 @@ status = "active"
 rule = "Refines ORCH-546. The fix turn (<id>.fix) and the re-check (<id>.recheck) release what they hold (tabs, listening) like the worker and its checker: at the attempt's end, a loop round's end and the task's end, when they ran. Their rows end done when they finished (failed or cancelled otherwise), so the tree-end sweep leaves them alone. A plan row keeping a fix in progress also keeps the step's evidence, input notes, conversation proposals, part updates and how note, so after a restart the steps after it read them as before. Findings are taken with every accepting next."
 why = "Review of fixes8: a tab the fix turn opened stayed until the extension's next hello; finished fix rows read \"Task ended before this step completed\"; a restart mid-fix dropped a research step's proposals, blocking the converse step after it."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._release_resources", "ferb/orchestrator/supervisor.py::Supervisor._helper_ids", "ferb/orchestrator/supervisor.py::Supervisor._fix_turn", "ferb/orchestrator/supervisor.py::Supervisor._recheck", "ferb/orchestrator/supervisor.py::Supervisor._keep_fixing", "ferb/orchestrator/supervisor.py::Supervisor._restored_fix"]
+
+[ORCH-549]
+title = "A direct answer leaves the plan line only as a whole line or paragraph"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Refines APP-755's exact-match removal. The planner's copy of a part answered at once is taken out of the plan line only where a whole line or paragraph is exactly that answer (whitespace around it ignored), in the daemon (supervisor.without_whole) and in the app for live and restored turns (ConversationTurn.withoutWhole); never as text inside other words, so a short answer like \"4\" or \"Yes\" never cuts a word out of the plan line."
+why = "Review of fixes8, finding 7: \"I'll compare the 4 laptops\" lost its \"4\" (Python, first occurrence) or left a double space (Swift, every occurrence)."
+paths = ["ferb/orchestrator/supervisor.py::without_whole", "ferb/orchestrator/supervisor.py::Supervisor._plan_event", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationTurn"]

@@ -64,6 +64,15 @@ final class AnswersInStepsTests: XCTestCase {
         }
     }
 
+    // decision: ORCH-549, APP-755
+    func testAShortDirectAnswerLeavesThePlanLineOnlyAsAWholeLine() {
+        XCTAssertEqual(ConversationTurn.withoutWhole("4\n\nI'll compare the 4 laptops.", "4"), "I'll compare the 4 laptops.")
+        XCTAssertEqual(ConversationTurn.withoutWhole("I'll compare the 4 laptops.", "4"), "I'll compare the 4 laptops.")
+        XCTAssertEqual(ConversationTurn.withoutWhole("Yes\nYesterday's prices first.", "Yes"), "Yesterday's prices first.")
+        XCTAssertEqual(ConversationTurn.withoutWhole("Yes, I'll check.", "Yes"), "Yes, I'll check.")
+        XCTAssertEqual(ConversationTurn.withoutWhole("A.\nB.\n\nI'll go.", "A.\nB."), "I'll go.")
+    }
+
     func testAPlanWithoutACardIsTheOneAskTurnAsBefore() {
         let model = makeModel()
         let id = begin("easy piano pieces", in: model)

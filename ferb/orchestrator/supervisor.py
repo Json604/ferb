@@ -66,7 +66,7 @@ from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line,
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
-from ferb.orchestrator.answer_marks import only_quoted_changed, remove_quote, settle
+from ferb.orchestrator.answer_marks import only_quoted_changed, settle
 from ferb.orchestrator.schemas import (CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHEMA, RECHECK_SCHEMA, SUMMARY_SCHEMA,
                                        SUPERVISOR_SCHEMA, WORKER_SCHEMA, AnswerQuestion, Check, CheckerOutcome, Condition,
                                        Finding, FixOutcome, QuestionOutcome, RecheckOutcome, SummaryOutcome,
@@ -546,6 +546,20 @@ class _ChatLine:
         batch[0].role.set_result(("lead", self.holder))
         for other in batch[1:]:
             other.role.set_result(("merged", batch[0].request_id))
+
+
+def without_whole(text: str, piece: str) -> str:
+    """`text` without each paragraph or line that is exactly `piece` (ignoring the whitespace around it), and without
+    the blank lines that leaves. Never a match inside other words: "4" leaves "compare the 4 laptops" alone (ORCH-549)."""
+    piece = piece.strip()
+    if not piece or not any(line.strip() == piece for line in text.split("\n")) and \
+            not any(p.strip() == piece for p in re.split(r"\n[ \t]*\n", text)):
+        return text
+    paragraphs = [p for p in re.split(r"\n[ \t]*\n", text) if p.strip() != piece]
+    kept = "\n\n".join("\n".join(line for line in p.split("\n") if line.strip() != piece) for p in paragraphs)
+    while "\n\n\n" in kept:
+        kept = kept.replace("\n\n\n", "\n\n")
+    return kept.strip()
 
 
 def work_in(folders: list[str]) -> str:
@@ -3598,13 +3612,13 @@ class Supervisor(WorkerRuns):
         in …"). Several asks (ORCH-319): code's receipts for the turn's reminders, memory and schedules (said here, not
         again at the end), then the plan line; and the card, one row per part. A part answered at once shows only as its
         own done row (APP-755, owner 2026-11-06): its answer is in the event's `direct` field and the card, never in
-        the reply's text, and the planner's own copy of it is taken out of the plan line (the part's exact text, found
-        structurally). Each piece is also its own field, so the app renders them without parsing the text; `plan_line`
+        the reply's text, and the planner's own copy of it is taken out of the plan line (a line or paragraph that is
+        exactly the part's text, ORCH-549). Each piece is also its own field, so the app renders them without parsing the text; `plan_line`
         is what `plan_delta` streamed. A resumed task (`restored`) says nothing again: its card comes from the record."""
         spec = tree.spec
         if tree.card is not None:
             for answer in (p.direct for p in spec.parts if p.direct and p.direct.strip()):
-                text = remove_quote(text, answer.strip())
+                text = without_whole(text, answer)
         plan_line = confirm.from_task_lines(text)
         lines = [line for line in stated.split("\n") if line.strip()]
         event: dict[str, Any] = {

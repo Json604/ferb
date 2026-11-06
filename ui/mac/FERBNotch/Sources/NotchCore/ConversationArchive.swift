@@ -83,8 +83,8 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     }
     /// The first reply's bubble above a card (APP-755, owner 2026-11-06: "keep the row in the card. and dont show in
     /// the above reply"): a part answered at once shows only as its own card row, so with a card the bubble says no
-    /// direct answer, and the planner's own copy of one is taken out of the plan line (its exact text, found
-    /// structurally; a turn saved before this reads the same). Without a card nothing changes.
+    /// direct answer, and the planner's own copy of one is taken out of the plan line (a line or paragraph that is exactly
+    /// its text, ORCH-549; a turn saved before this reads the same). Without a card nothing changes.
     public var shownDirect: [String] { card == nil ? (direct ?? []) : [] }
     public var shownPlanLine: String? { planLine.map(withoutDirect) }
     public var shownPlan: String? { plan.map(withoutDirect) }
@@ -93,9 +93,24 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
         guard let card else { return text }
         let answers = (direct ?? []) + card.rows.filter(\.direct).compactMap(\.text)
         var shown = text
-        for answer in Set(answers.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !answer.isEmpty {
-            shown = shown.replacingOccurrences(of: answer, with: "")
-        }
+        for answer in Set(answers) { shown = Self.withoutWhole(shown, answer) }
+        return shown
+    }
+
+    /// `text` without each paragraph or line that is exactly `piece` (ignoring the whitespace around it), and without
+    /// the blank lines that leaves; never a match inside other words ("4" leaves "compare the 4 laptops" alone,
+    /// ORCH-549). The daemon's rule (supervisor.without_whole), for live and restored turns alike.
+    public static func withoutWhole(_ text: String, _ piece: String) -> String {
+        let piece = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+        func trimmed(_ part: Substring) -> String { part.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let paragraphs = text.components(separatedBy: "\n\n")
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard !piece.isEmpty, lines.contains(where: { trimmed($0) == piece })
+                || paragraphs.contains(where: { trimmed(Substring($0)) == piece }) else { return text }
+        var shown = paragraphs.filter { trimmed(Substring($0)) != piece }
+            .map { $0.split(separator: "\n", omittingEmptySubsequences: false).filter { trimmed($0) != piece }
+                .joined(separator: "\n") }
+            .joined(separator: "\n\n")
         while shown.contains("\n\n\n") { shown = shown.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
         return shown.trimmingCharacters(in: .whitespacesAndNewlines)
     }
