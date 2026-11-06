@@ -1,10 +1,16 @@
 import AppKit
+import OSLog
 import SwiftUI
 
 /// Keep the profile glyph outside NSPopUpButton/SwiftUI Menu's intrinsic layout.
 /// Lazy menu creation must never change the header's width or image position.
 struct ProfileMenuButton: NSViewRepresentable {
     let model: NotchModel
+    /// Shows the menu under the button (tests stand in their own; AppKit's runs its own event loop).
+    static let log = Logger(subsystem: "com.ferb.FERB", category: "spaces")
+    @MainActor static var present: (NSMenu, NSButton) -> Void = { menu, button in
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: button)
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
@@ -18,6 +24,7 @@ struct ProfileMenuButton: NSViewRepresentable {
         button.image = NSImage(systemSymbolName: "person.crop.circle.fill", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 18, weight: .regular))
         button.image?.size = NSSize(width: 18, height: 18)
+        button.alternateImage = button.image   // a press keeps the glyph (momentaryChange shows the alternate image)
         button.contentTintColor = .white.withAlphaComponent(0.65)
         button.focusRingType = .none
         button.toolTip = "Profile and options"
@@ -63,8 +70,12 @@ struct ProfileMenuButton: NSViewRepresentable {
             add("Hide FERB", to: menu) { [model] in model.collapse() }
             add("Quit FERB", to: menu) { NSApplication.shared.terminate(nil) }
             model.setProfileMenuOpen(true)
-            defer { model.setProfileMenuOpen(false) }
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: button)
+            ProfileMenuButton.log.notice("Profile menu opens (window key \(button.window?.isKeyWindow == true, privacy: .public))")
+            defer {
+                model.setProfileMenuOpen(false)
+                ProfileMenuButton.log.notice("Profile menu closes")
+            }
+            ProfileMenuButton.present(menu, button)
         }
 
         private func add(_ title: String, to menu: NSMenu, enabled: Bool = true,

@@ -3294,3 +3294,12 @@ request = "Install the new build over the same version, open FERB, quit and reop
 pass = "No new \"Updated to …\" line appears in the chat for the same version; the next new version adds one line once."
 decisions = ["APP-750"]
 sitting = "after this change is installed"
+
+[LIVE-803]
+title = "The window's header: no pin; the profile menu opens on every click"
+area = "app"
+surface = "FERB.app with this build in window mode (Keep on top off and on), the window open, another app in front with keyboard focus"
+request = "Look at the header. Click the profile circle ten times in a row, each time closing the menu with Esc, with another app focused before some of the clicks; then choose Settings… from it and switch Where FERB opens to Notch. Drag the window by the header's empty space; click ×."
+pass = "The header shows ferb., the profile circle and ×, no pin. Every click opens the menu at once without the window flickering or moving; Settings opens and the switch to Notch works. Dragging the header moves the window and it keeps that place; × closes it with one click. Keep on top is in Settings and still works."
+decisions = ["APP-758", "APP-759"]
+sitting = "after this change is installed"

@@ -2587,3 +2587,24 @@ status = "active"
 rule = "Implements APP-756. HoverSourceView (always-active tracking, never hit-tested) drives CardHover and the hand. Only openable areas get cursor updates, so a plain chip never resets a link's hand. Inline links get one always-active area per visible piece, so entering and leaving arrive while another app is in front. SkyLight's SetsCursorInBackground, resolved defensively once, lets FERB set the cursor while inactive. Leaving, hiding or losing the window puts the arrow back. Hover changes and areas are logged (category hover)."
 why = "Owner, after build 202611060408: hover did nothing. SwiftUI .onHover tracks only while FERB is the active app, which it almost never is. A live check over the playground with another app in front: AppKit tracking fires; NSCursor.set alone does not change the cursor."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/HoverSource.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView"]
+
+[APP-758]
+title = "No pin in the sticky window's header; Keep on top is a setting"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "theres still the pin icon in this window. fix it. also cant open settings by clicking on icon, it flcikers sometime adn many times dont even takes the click/ fix it cause i cant go abck to notch because of this"
+words_source = "Owner, 2026-11-06, about window mode's header (\"ferb.\" | profile circle | pin | ×), with chat.opensIn = window and Keep on top off"
+rule = "Refines APP-745 and APP-746 (D20's Keep on top toggle). The sticky window's header shows the title, the profile/options button and close; no pin. Keep on top stays a setting in Settings (Notch & Shortcuts → Where FERB opens), its stored value unchanged. The profile/options button opens its menu, Settings… included, on every click (APP-759)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowView", "ui/mac/FERBNotch/Sources/FERBNotch/ProfileMenuButton.swift"]
+live = ["LIVE-803"]
+
+[APP-759]
+title = "Every press on the sticky window reaches what it was on"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Implements APP-758. The sticky window isn't movable by the window server, so its title bar (under the header) is no server drag region and a press on any header control reaches it. The header's empty space moves the window app-side (WindowDragArea, press to release; windowDidMove keeps the place; a display change re-places it). A press while another window has focus makes the window key first, so that one press reaches the control. The profile button keeps its glyph while pressed and logs its menu opening and closing."
+why = "Owner couldn't reach Settings from the window. A movable window's title bar is a server-side drag region; once a server drag starts \"a mouseUp may not get sent\" (NSWindow.h). Tests click through NSApp's dispatch; the server path needs the owner's live check."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowPanel", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::WindowDragArea", "ui/mac/FERBNotch/Sources/FERBNotch/ProfileMenuButton.swift"]
+live = ["LIVE-803"]

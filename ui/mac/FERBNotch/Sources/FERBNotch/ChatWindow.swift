@@ -14,12 +14,15 @@ final class ChatWindowPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     /// Esc hides the window like its close button (D23), except while a field composes text with an input method
-    /// (the input method takes it). An open menu runs its own event loop, so its Esc never arrives here.
+    /// (the input method takes it). An open menu runs its own event loop, so its Esc never arrives here. A click while
+    /// another app is in front makes the window key first, so the click itself reaches what was clicked (a button, the
+    /// profile menu, a field) instead of only bringing the window to keyboard focus (APP-759).
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, Self.isPlainEscape(event), !composingText {
             onClose?()
             return
         }
+        if [.leftMouseDown, .rightMouseDown].contains(event.type), !isKeyWindow { makeKey() }
         super.sendEvent(event)
     }
 
@@ -72,12 +75,10 @@ enum HandOff {
     }
 }
 
-/// The window's own controls, observed by its header: Keep on top (D20; named so it isn't taken for the notch's
-/// removed pin, APP-743) and close.
+/// The window's state its header and level read: Keep on top (D20; set only in Settings, APP-758) and close.
 @MainActor
 final class ChatWindowControls: ObservableObject {
     @Published var keepOnTop: Bool
-    var toggleKeepOnTop: () -> Void = {}
     var close: () -> Void = {}
     init(keepOnTop: Bool) { self.keepOnTop = keepOnTop }
 }
@@ -130,6 +131,12 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
             panel.standardWindowButton(button)?.isHidden = true
         }
         panel.isFloatingPanel = false
+        // The header sits under the window's transparent title bar. A movable window's title bar is a window-server drag
+        // region: a press on a header control there could start a window drag in the window server, and the control
+        // never heard its click (the profile menu flickered or ignored it, owner 2026-11-06). Not movable by the window
+        // server, every press reaches the app; the header's empty space moves the window itself (WindowDragArea), and
+        // a display change re-places it (screensChanged) (APP-759).
+        panel.isMovable = false
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = false
         panel.isReleasedWhenClosed = false
@@ -142,11 +149,6 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         panel.delegate = self
         panel.onClose = { [weak self] in self?.onClose?() }
         controls.close = { [weak self] in self?.onClose?() }
-        controls.toggleKeepOnTop = { [weak self] in
-            guard let self else { return }
-            self.defaults.set(!self.controls.keepOnTop, forKey: ChatHost.keepOnTopKey)
-            self.settingsChanged()
-        }
         let hosting = NSHostingView(rootView: ChatWindowView(model: model, controls: controls))
         hosting.sizingOptions = []
         panel.contentView = hosting
@@ -290,8 +292,8 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     }
 }
 
-/// The window's content: a draggable header (title with its status dot, profile menu, Keep on top, close) over the
-/// one chat body (ChatBodyView), on black glass like the notch (APP-551).
+/// The window's content: a draggable header (title with its status dot, profile menu, close; Keep on top is a setting,
+/// APP-758) over the one chat body (ChatBodyView), on black glass like the notch (APP-551).
 struct ChatWindowView: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var controls: ChatWindowControls
@@ -337,15 +339,6 @@ struct ChatWindowView: View {
             ChatTitle(model: model)
             Spacer(minLength: 0)
             ProfileMenuButton(model: model).frame(width: 26, height: 26)
-            Button(action: controls.toggleKeepOnTop) {
-                Image(systemName: controls.keepOnTop ? "pin.fill" : "pin")
-                    .font(.system(size: 11)).frame(width: 24, height: 26)
-                    .foregroundStyle(controls.keepOnTop ? Palette.ink : Palette.secondary)
-            }
-            .buttonStyle(.plain)
-            .help(controls.keepOnTop ? "Keep on top: on" : "Keep on top: off")
-            .accessibilityLabel("Keep on top")
-            .accessibilityValue(controls.keepOnTop ? "On" : "Off")
             Button(action: controls.close) {
                 Image(systemName: "xmark").font(.system(size: 11, weight: .medium)).frame(width: 24, height: 26)
             }
@@ -358,10 +351,26 @@ struct ChatWindowView: View {
     }
 }
 
-/// The header's empty space moves the window (the window has no title bar of its own to drag).
-private struct WindowDragArea: NSViewRepresentable {
+/// The header's empty space moves the window. The window isn't movable by the window server (APP-759), so the drag is
+/// the app's own: the window follows the pointer from where the press began until it is released, and windowDidMove
+/// remembers its place as before.
+struct WindowDragArea: NSViewRepresentable {
     final class DragView: NSView {
-        override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+        /// Where the pointer is on screen (tests stand in their own).
+        var pointer: () -> NSPoint = { NSEvent.mouseLocation }
+        private var start: (pointer: NSPoint, origin: NSPoint)?
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
+            start = (pointer(), window.frame.origin)
+        }
+        override func mouseDragged(with event: NSEvent) {
+            guard let window, let start else { return }
+            let now = pointer()
+            window.setFrameOrigin(NSPoint(x: start.origin.x + now.x - start.pointer.x,
+                                          y: start.origin.y + now.y - start.pointer.y))
+        }
+        override func mouseUp(with event: NSEvent) { start = nil }
     }
     func makeNSView(context: Context) -> NSView { DragView() }
     func updateNSView(_ nsView: NSView, context: Context) {}
