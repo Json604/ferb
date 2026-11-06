@@ -21,6 +21,10 @@ final class WindowSpaceTests: XCTestCase {
     private func harness(keepOnTop: Bool = false) throws -> Harness {
         _ = NSApplication.shared
         guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
+        // Clicks and keyboard focus need an unlocked session (a locked screen keeps every window from becoming key)
+        if (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool == true {
+            throw XCTSkip("The screen is locked")
+        }
         let defaults = scratchDefaults()
         NotchDocking.save(true, in: defaults)
         defaults.set(ChatHost.window.rawValue, forKey: ChatHost.defaultsKey)
