@@ -772,6 +772,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "\"check <school> mail for the new assignment\"."
 pass = "The current item is picked by its dates."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-522]
 title = "Concert tickets now, and analysing every coding-agent session"
@@ -789,6 +790,7 @@ surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surface
 request = "Ask FERB to check three ZIP files for the name and student ID (disposable copies)."
 pass = "Only the intended replace happens; no box is drawn over PDF text."
 sitting = "step 13, sitting 9"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-524]
 title = "The Codex startup fix in VS Code asks before typing"
@@ -941,6 +943,7 @@ request = "Type into a field on FERB's line (an API key, FERB's address) while t
 pass = "The text stays and the caret stays in the field."
 decisions = ["APP-562", "APP-505"]
 sitting = "step 13, sitting 1"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-541]
 title = "The intro's answer buttons and fields work by click and by keyboard"
@@ -2954,6 +2957,7 @@ surface = "A FERB.app build with APP-704 on a notched Mac running macOS 27, dock
 request = "Hover the notch so the chat opens, press on the camera housing and drag down and to the right; drop it on the right edge. Wait for the resting line, hover it, drag it back into the notch. Switch apps a few times and swipe between desktops with FERB open, then drag again. Afterwards run: log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" AND category == \"notch\"' --info"
 pass = "The first press on the housing tears FERB out and it follows the pointer with its surface (the approved feel, APP-629); it stays on the edge where dropped and docks back into the notch; it still drags after app switches; during the desktop swipe it stays fixed to the notch (APP-562). The log shows \"attached to fixed overlay space\" and no \"attachment failed\"."
 decisions = ["APP-704", "APP-597", "APP-625", "APP-562"]
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-764]
 title = "A long planner answer is never cut while it is being written"
@@ -2963,6 +2967,7 @@ request = "Ask for something that takes the planner over 90 s to answer in one r
 pass = "The reply arrives whole even though the planner call ran past 90 s; no \"couldn't work out a reply within 90 seconds\"; `chat.failed` has no row for it."
 decisions = ["ORCH-528", "ORCH-529", "RUN-423"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-765]
 title = "A Codex message no longer spends seconds on a sign-in check"
@@ -2972,6 +2977,7 @@ request = "Send a few chat messages and start one small task; read each planner 
 pass = "start_steps_ms has no `account` step; initialize to turn_start takes well under a second; the first model call's ttft is not longer by the time the account step used to take (0.25-2.7 s), i.e. the routing lookup didn't just move into the call."
 decisions = ["RUN-422"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-766]
 title = "A sign-in the runtime refuses still says so with the one-tap switch"
@@ -2981,6 +2987,7 @@ request = "In Settings → AI sign out of ChatGPT for FERB (or let its sign-in l
 pass = "FERB says Codex isn't signed in for FERB and offers the other signed-in runtime with one tap; it never switches by itself; after signing in again the next message runs on Codex."
 decisions = ["RUN-422"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-768]
 title = "With hover off, a press on the closed notch opens FERB or drags it"
@@ -2990,6 +2997,7 @@ request = "With the chat closed, click once on the camera housing. Close it (Esc
 pass = "The click opens FERB with the cursor in the text field (as double-tap right Option does); the press-and-drag tears FERB out and it follows the pointer with the approved feel and docks back; clicks beside the housing reach the menu bar and a click on the strip below reaches the app underneath; nothing visible is added to the notch; hover opens FERB again once turned on; the pill opens and drags with hover off."
 decisions = ["APP-705", "APP-706", "APP-597", "APP-625", "APP-629"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-769]
 title = "A chat opened by a click on the notch stays open when the pointer leaves it"
@@ -2998,6 +3006,7 @@ surface = "A FERB.app build with APP-707 on a notched Mac (macOS 27), docked in 
 request = "With hover off and the chat closed, click the camera housing, then move the pointer away from the chat and wait a few seconds. Press Escape. Click the housing again, move away, then click into another app's window. Click the housing again and double-tap right Option. Turn hover on: hover the notch until the chat opens, then move the pointer away. Then click the housing quickly (before hover opens it) and move away."
 pass = "A click-opened chat stays open after the pointer leaves, with hover off or on, and the cursor is in its text field as before; Escape, the click into another app and the double-tap each close it; a hover-opened chat still folds as soon as the pointer leaves it, as before."
 decisions = ["APP-707", "APP-708", "APP-705", "APP-557"]
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-770]
 title = "Clicks on a page whose frames come and go land; a click that couldn't start can be retried"
@@ -3007,6 +3016,7 @@ request = "Ask FERB to open a page with ads or embedded frames (e.g. a news or c
 pass = "Each click lands. No browser.act step says background_input_unavailable with \"outcome unknown\"; if a click couldn't be prepared, its step is a plain failure (no \"outcome unknown\") and the worker tries it again or says why, instead of refusing to repeat it."
 decisions = ["HAND-422", "HAND-423"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-771]
 title = "A press on the very top of the notch opens or drags FERB"
@@ -3015,6 +3025,7 @@ surface = "A FERB.app build with APP-710 on a notched Mac (macOS 27), docked in 
 request = "Push the pointer all the way up against the top screen edge over the camera housing (centre, then each far corner of the housing) and press there: once to click, once to drag down and to the right; drop it on the right edge, then drag it back into the notch. Repeat with the chat open. Then click the menu bar right beside the housing and the strip just below it."
 pass = "A press at the topmost edge anywhere across the housing, corners included, behaves exactly like one lower down: the click opens (or closes) FERB, the drag tears it out with the approved feel and it docks back; it works with the chat closed and open, hover on and off. Clicks beside the housing reach the menu bar, a click on the strip below reaches the app underneath, and nothing visible is added at the notch."
 decisions = ["APP-710", "APP-711", "APP-705", "APP-706", "APP-629"]
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-772]
 title = "A pasted correction to a running task shows clean, and FERB's reply shows once"
@@ -3024,6 +3035,7 @@ request = "Ask FERB for a task that takes a minute or two in a disposable folder
 pass = "Your bubble shows exactly the words you pasted, with no \"[200~\" or \"[201~\", during the task and after the restart. FERB's reply to the correction appears once (one bubble, not two identical ones), and the task carries on with the correction."
 decisions = ["APP-712", "APP-713", "APP-714"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-773]
 title = "File cards and links: nothing on hover, a click reveals or opens, names copy"
@@ -3033,6 +3045,7 @@ request = "Ask FERB for a small task that writes a file in a disposable folder a
 pass = "Hovering opens nothing and FERB never quits. A click on a file or attachment shows it selected in Finder; a site opens in your default browser; \"+N\" opens the list and each site in it opens on click. Dragging across a name selects it and Command-C copies it, without revealing the file. Copy path and Copy link copy them. A deleted file's card says \"This file is no longer available.\" Space shows Quick Look's own window and the drag-out copies the file."
 decisions = ["APP-715", "APP-716", "APP-573", "APP-700"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-774]
 title = "Paste, undo and redo work in FERB's question boxes"
@@ -3042,6 +3055,7 @@ request = "With another app in front, copy some text there. When FERB's question
 pass = "Command-V pastes into the question box once; Command-Z removes it and Shift-Command-Z puts it back. The composer still pastes once, with no \"[200~\" markers. The secret field takes the paste and shows dots only."
 decisions = ["APP-717", "APP-596", "APP-713"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-775]
 title = "A multi-part task with dependent steps: each row says what it waits for, then works with a spinner"
@@ -3051,6 +3065,7 @@ request = "In one message ask FERB for three things where one needs another, e.g
 pass = "From the first reply the summary row says it is waiting for the notes row (not \"working…\"); the rows that run show their words, a small spinner after them and a running time; the line under the rows counts done / running / waiting with the task's time. When the notes row finishes the summary row starts. No list of background steps appears. After the task ends no spinner or clock remains."
 decisions = ["APP-718", "APP-723", "ORCH-531", "ORCH-532", "APP-724"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-776]
 title = "A steer mid-run and a failed prerequisite keep the rows truthful"
@@ -3060,6 +3075,7 @@ request = "Ask for two dependent things where the first can't be done (e.g. \"op
 pass = "As soon as the first part fails, the dependent row says it won't run because an earlier step couldn't be done (it doesn't stay \"working\" until the end). The correction is taken; rows that try again say so, the count line stays right, and the card ends with an honest done count."
 decisions = ["APP-718", "ORCH-532"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-777]
 title = "Only really long rows and answers collapse, with Show more / Show all"
@@ -3069,6 +3085,7 @@ request = "Ask for a multi-part task where one part gives a long answer (20+ lin
 pass = "The short row and the ~13-line answer show whole with no control. The long row shows 3 lines with a fade and Show more; the very long answer shows about half the chat area and Show all; a row asking you is open. Resizing the chat area moves the point where an answer collapses. Show less keeps the row's top in view. Copy works in both states. An opened row stays open when the card updates; after quitting and reopening FERB.app everything starts collapsed."
 decisions = ["APP-725", "APP-721", "ORCH-535"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-778]
 title = "A question in a row and a task's end come forward by themselves"
@@ -3078,6 +3095,7 @@ request = "Start a multi-part task where one part must ask you something (e.g. a
 pass = "With the chat left alone, the notch scrolls (animated) so the asking row's top is in view; the card stays where it is. Right after you scrolled, a pill names it (\"FERB asks you\") and tapping it scrolls there. A quietly filled row never moves the view; off-screen it shows a pill. The task's end brings the card's footer into view."
 decisions = ["APP-720", "APP-722"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-779]
 title = "The notch opens itself and lands on the answer when it was closed"
@@ -3087,6 +3105,7 @@ request = "Ask FERB something that takes a minute, close the notch and keep work
 pass = "The notch opens by itself without taking keyboard focus and already shows the answer's top (no visible jump). With Reduce motion on nothing animates; the result is the same."
 decisions = ["APP-720", "APP-722", "APP-571"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-780]
 title = "Answers are to the point and questions are only the question"
@@ -3096,6 +3115,7 @@ request = "Ask one quick question (\"what's on my calendar tomorrow?\" or a file
 pass = "The quick answer is the result in a few lines with its source in a few words, no narration of windows or background work. The content request lists every item. The vague one asks only the question, naming each Sam with its evidence, with no restatement of the request or explanation of what FERB can't do. `ferb trace` shows no checker edit that added a sentence."
 decisions = ["PRM-320", "PRM-321", "PRM-322", "PRM-323", "PRM-324"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-781]
 title = "A multi-part task's saved answer is a short index"
@@ -3105,6 +3125,7 @@ request = "Ask for three things at once that give long answers and visit several
 pass = "The card's rows hold each full answer. The Tasks page / history answer lists each part with its outcome line, where the note is, \"3 of 3 done\" and \"Sites contacted: N sites\" with the sites as link cards. The follow-up answer knows every part's outcome without starting a task."
 decisions = ["ORCH-535"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-782]
 title = "Every question card is one direct question"
@@ -3114,6 +3135,7 @@ request = "Ask FERB to email a short note to an address you haven't used with FE
 pass = "Each card shows one question and no Details: the send names the recipient and the text, the delete names the path, the Terminal one shows the exact command (a long one scrolls in its block), each with the task's reason as a small line. No tool names, element ids or raw errors appear. The Sam question is one question naming each Sam with its evidence and a small \"from the task\" tag, with no \"Question from the task:\" prefix."
 decisions = ["GATE-225", "PRM-324"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-783]
 title = "FERB's check-in takes only its buttons"
@@ -3123,6 +3145,7 @@ request = "Ask for something that keeps failing (e.g. \"open the file ~/Desktop/
 pass = "The check-in card shows only Keep going / Stop buttons, with no text box, in the task's row and at the bottom. Stop stops the task with what it found. Typing \"no, stop it\" in chat instead gets \"Is that Yes or No?\" and the task waits."
 decisions = ["ORCH-536", "APP-726"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-784]
 title = "A task's question answered in its row's box"
@@ -3132,6 +3155,7 @@ request = "Ask two things at once where one needs a choice, e.g. \"summarise my 
 pass = "The row's question shows its option buttons and a text box. After sending, the row carries on and the draft follows the typed instruction (newest email, two lines); no \"which one?\" comes back."
 decisions = ["ORCH-536", "ORCH-537", "APP-726"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-785]
 title = "\"Yes but the cheaper one\" in a safety check's box"
@@ -3141,6 +3165,7 @@ request = "Ask FERB to email a short note to an address it hasn't used (test-mod
 pass = "The card goes at once; no email is sent to the first address and the trace records no Yes or No for it (the check superseded). The task then asks again with the new address in the card; Yes sends to that address only."
 decisions = ["GATE-510", "ORCH-538", "APP-726"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-786]
 title = "The same correction typed in chat while the card waits"
@@ -3150,6 +3175,7 @@ request = "As LIVE-785, but type \"yes but send it to <your other test address> 
 pass = "FERB treats it as a correction of that task (not a Yes): the first card is set aside, nothing is sent to the first address, and a new card asks with the new address. A plain \"yes\" in chat on a later card still answers it."
 decisions = ["PRM-325", "ORCH-538", "GATE-510"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-787]
 title = "Reminders, timers, schedules and tasks show a short name"
@@ -3159,6 +3185,7 @@ request = "Ask FERB for \"a 1 minute timer\", then \"every day at 9 check Course
 pass = "The timer's set card and arrival say Timer with a short name (\"1-minute timer\"), not \"Reminder\"; the schedule's card, its run card and its row show a 2-5 word name, not the instruction; the task row in the notch and on the Tasks page shows a short name. The full instruction appears only after tapping the heading in the FERB window. An older schedule shows its first words cut with \"…\"."
 decisions = ["ORCH-542", "APP-727", "DMN-544", "PRM-328"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-788]
 title = "FERB knows FERB.app's settings as they are now"
@@ -3168,6 +3195,7 @@ request = "In Settings → Notch & Shortcuts turn \"Open when I hover over FERB\
 pass = "FERB answers off and Subtle the first time and on the second, naming where each lives in Settings, without a restart. Settings → About → Your settings lists FERB.app's settings with those values."
 decisions = ["APP-728", "DMN-545"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-789]
 title = "The open notch chat stays put through Space switches (owner's notched Mac)"
@@ -3177,6 +3205,7 @@ request = "Open the chat three ways in turn (hover the notch, click it, double-t
 pass = "The chat never closes, reopens, slides away or steps behind anything during or after a switch; it stays exactly in place with its text and the typing caret; a closed notch shows nothing new and Mission Control's Spaces bar opens nothing. Menus and the file picker still make it step aside and it comes back; press, drag and double-tap work as before. If anything moves, send `log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" && category == \"spaces\"'`."
 decisions = ["APP-729", "APP-731", "APP-732", "APP-733", "APP-734"]
 sitting = "after this change is installed"
+result = "passed 2026-11-06 v0.27.1: owner: the notch open close on space change is fully fixed - ive testes"
 
 [LIVE-790]
 title = "Nothing pops up on Space switches on a notchless Mac with hover off (the friend's M1)"
@@ -3186,6 +3215,7 @@ request = "With FERB closed, switch Spaces several times (Control-arrow and swip
 pass = "Nothing appears or pops up: no black panel, the resting line stays a line (on the full-screen Space it is the line too), and Mission Control opens nothing. The top-row click opens FERB. If anything appears, send `log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" && category == \"spaces\"'`."
 decisions = ["APP-729", "APP-730", "APP-733", "APP-734", "APP-735"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-791]
 title = "The browser account shows beside every profile name"
@@ -3195,6 +3225,7 @@ request = "Open Settings → Browsers and look at every row and the owner-profil
 pass = "Each signed-in profile shows its Chrome account after its name (a long one shortened in the middle, keeping the domain; the full one on hover); an unsigned profile shows only its name; FERB's own row shows FERB's address; the pair question names the profile with its account; FERB picks the profile signed in to the account you named. With Full Disk Access off no account shows anywhere."
 decisions = ["HAND-424", "DMN-546", "GATE-511", "APP-736"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-792]
 title = "Files and folders dropped on the notch, the pill or the chat open FERB and wait in the composer"
@@ -3204,6 +3235,7 @@ request = "Hover off, FERB closed: drag a file onto the notch, hold a moment, dr
 pass = "Each drop opens the chat with the files under the focused message box; nothing is sent until you send, with or without words (files alone arrive as yours). The chat stays open when the pointer leaves; a repeat file isn't added twice; a folder stays a folder. The drag that left with nothing dropped closes what it opened. The Mail attachment and the text slide back."
 decisions = ["APP-737", "APP-738", "APP-739", "APP-742"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-793]
 title = "A recorded shortcut opens FERB from any app; double-tap can be switched off"
@@ -3213,6 +3245,7 @@ request = "Record ⌃⌥F. From another app press it (open), again (close); in a
 pass = "⌃⌥F opens and closes FERB everywhere, focused for typing, and the chat stays when the pointer leaves. ⌥F and ⌘Q are refused with a reason; a macOS shortcut that records shows a warning. After Reset no shortcut works but double-tap. With double-tap off it does nothing while hold-to-talk still dictates. FERB names the shortcut as set."
 decisions = ["APP-740", "APP-741"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-794]
 title = "The notch has no pin, and nothing pinned is left behind"
@@ -3222,6 +3255,7 @@ request = "Open the chat by hover, press and double-tap. Look at the header. Hov
 pass = "The header has the title and the profile button only. Hover-opened chats fold on hover-out; press- and shortcut-opened ones stay until Escape, a click elsewhere or the shortcut; nothing ever stays as a header-only strip. Menus and the file picker keep the chat open until they close. Space switches leave the chat as it was."
 decisions = ["APP-743", "APP-744"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-795]
 title = "The sticky window opens every way, stays until closed and shows on every Space"
@@ -3231,6 +3265,7 @@ request = "Open FERB by double-tap, your shortcut, the menu bar's Open FERB, ope
 pass = "Each way opens the window focused for typing (the drop puts the file in the message box, unsent). It stays open on every Space in the same place, never sliding with the desktop (APP-760), isn't in the Dock or ⌘-Tab, and always floats over other apps' windows (APP-772). ×, ⌘W and Esc hide it; ⌘Q quits FERB."
 decisions = ["APP-745", "APP-746", "APP-748"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-796]
 title = "Hide the pill: no handle or pill, the menu bar icon shows the status and brings FERB back"
@@ -3240,6 +3275,7 @@ request = "Look at the notch and screen edges, hover and click the notch. Start 
 pass = "No handle, pill or edge line shows and the notch does nothing. The icon turns amber while working, red when FERB needs you, green when done. Each way brings the window back. In Notch mode the handle is back and Hide the pill isn't offered."
 decisions = ["APP-747"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-797]
 title = "The window keeps its place on each display and survives an unplugged one"
@@ -3249,6 +3285,7 @@ request = "Open the window on each display, move and resize it differently on ea
 pass = "Each display reopens the window where you left it there; after the unplug the window is fully on the remaining screen; a resolution change keeps it reachable."
 decisions = ["APP-745", "APP-746"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-798]
 title = "Questions, answers and reminders bring the window forward while you type elsewhere"
@@ -3258,6 +3295,7 @@ request = "Start a task that will ask you something, then a reminder due in a mi
 pass = "Each arrival shows the window (in front of the editor) with the question, answer or reminder, while your typing keeps going into the editor; sounds as before."
 decisions = ["APP-745"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-799]
 title = "The tour runs in the notch in window mode, and window mode returns after it"
@@ -3267,6 +3305,7 @@ request = "Settings → General → Replay intro and go through it (Skip tour on
 pass = "The window hides for the tour; every tour line is in the notch, and the shortcut works the notch there. After the tour (or Skip) the shortcut opens the window again."
 decisions = ["APP-745"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-800]
 title = "Stage Manager leaves the sticky window alone"
@@ -3276,6 +3315,7 @@ request = "With the window open, switch between Stage Manager's app groups, clic
 pass = "The window stays visible beside every group and is never swallowed into the strip or hidden by a group switch; the shortcut always brings it forward."
 decisions = ["APP-745", "APP-748"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-801]
 title = "FERB's Settings, Quick Look and what it opens show above the floating window"
@@ -3285,6 +3325,7 @@ request = "Open Settings from the menu-bar menu where it overlaps the window; cl
 pass = "Settings, Quick Look, the Finder window and the browser each show above the window; after Settings and Quick Look close and after you click the window, it floats on top again."
 decisions = ["APP-749"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-802]
 title = "\"Updated to\" once per version"
@@ -3294,6 +3335,7 @@ request = "Install the new build over the same version, open FERB, quit and reop
 pass = "No new \"Updated to …\" line appears in the chat for the same version; the next new version adds one line once."
 decisions = ["APP-750"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-803]
 title = "The window's header: no pin; the profile menu opens on every click"
@@ -3303,6 +3345,7 @@ request = "From another Space than the first (home) one: look at the header. Cli
 pass = "The header shows ferb., the profile circle and ×, no pin. Every click opens the menu at once without the window flickering or moving; Settings opens on the Space you are on, with no Space switch, from the window and from the notch (Tasks too), and the switch to Notch works. Dragging the header moves the window and it keeps that place; × closes it with one click. Settings has no Keep on top switch."
 decisions = ["APP-758", "APP-759", "APP-773", "APP-688"]
 sitting = "after this change is installed"
+result = "passed 2026-11-06 v0.27.1 (build 202611061446): owner: everyhting works now"
 
 [LIVE-804]
 title = "The sticky window stays put through Space switches"
@@ -3312,6 +3355,7 @@ request = "Switch Spaces with Control-arrow and a trackpad swipe, open and close
 pass = "Through every Space switch and Mission Control the window stays exactly where it is, never sliding out and back, and floats over other apps' windows: the other app's window never covers it, but its menu, Settings, the picker and Quick Look each show above it; the drop lands in the message box; clicking the window brings it back in front. Settings has no Keep on top switch."
 decisions = ["APP-760", "APP-761", "APP-772"]
 sitting = "after this change is installed"
+result = "passed 2026-11-06 v0.27.1 (build 202611061446): owner: rest stick on spac shift works fine"
 
 [LIVE-808]
 title = "FERB's window with the sticky window across Spaces"
@@ -3321,6 +3365,7 @@ request = "From the window's profile menu open Settings, then Tasks. Switch to t
 pass = "Every menu item opens its page on the first try, beside the window where there is room. If FERB switches you to another desktop as it opens, the page is on the desktop you land on, never left behind. The window never slides or blinks on a desktop switch while Settings is on another desktop or beside it."
 decisions = ["APP-774", "APP-775", "APP-773", "APP-772"]
 sitting = "after this change is installed"
+result = "passed 2026-11-06 v0.27.1 (build 202611061446): owner: ok fixed; everyhting works now"
 
 [LIVE-805]
 title = "A timer flows like Apple's, and a reminder's arrival is full"
@@ -3330,6 +3375,7 @@ request = "Ask FERB for a 2 minute tea timer. Watch its card, close FERB and wor
 pass = "The card shows Tea, a ticking countdown in a draining orange ring, Ends with a bell and Cancel. With FERB closed a timer glyph and the countdown sit beside the camera (in the pill without a notch); pressing, dragging and hovering it work as before. At the end one sound, the notch shows Tea large, Done in the full ring and Stop and Repeat; Repeat starts 2 minutes again, Stop dismisses; the chat keeps the message. The reminder arrives with its icon, title, due time and Done,."
 decisions = ["APP-762", "APP-763", "DMN-547"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-806]
 title = "One box per timer, reminder and schedule, at the bottom when it goes off"
@@ -3339,6 +3385,7 @@ request = "Ask FERB for a 1 minute tea timer and wait for its end; press Repeat 
 pass = "At a tea timer's end the Tea box leaves its request (no empty bubble there) and shows at the bottom as the done box with Stop and Repeat, no \"is up\" bubble; after Repeat ends, the one Tea box is at the bottom again. A reminder's box at the bottom carries its words. A daily schedule's box shows only at its latest run, with the next run; each run's result stays. After a restart the same boxes, no replayed arrival; an earlier day shows its cards without countdowns or buttons."
 decisions = ["APP-768", "APP-769", "APP-770", "DMN-549"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-807]
 title = "The closed notch's countdown grows out of the notch as one shape"
@@ -3348,3 +3395,4 @@ request = "Ask FERB for a 2 minute timer, close FERB and look at the notch while
 pass = "One black shape runs from the timer glyph, under the camera, to the countdown: no gap, seam, bite or step at the camera's edges, its bottom edge level with the notch's, rounded only at its two outer lower corners like the notch. Press, drag and hover work as before; the camera-edge glow still shows; on a notchless display the pill's ears look as before."
 decisions = ["APP-771"]
 sitting = "after this change is installed"
+waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"

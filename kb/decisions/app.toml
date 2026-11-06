@@ -2776,3 +2776,14 @@ words_source = "Owner, 2026-11-06, after build 202611061440 (APP-774), about ope
 rule = "Refines APP-773. When macOS switches the owner to another Space as FERB comes forward to show its window (Settings, Tasks, the other pages), the window goes to the Space the owner lands on: the first Space change within 1.5 s of showing it brings it there; a later switch is the owner's own and leaves it. The switch itself is accepted."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
 live = ["LIVE-808"]
+
+[APP-776]
+title = "The timer's countdown beside the camera stays like Apple's"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "keep the countdown like apple's."
+words_source = "Owner, 2026-11-06, asked whether the closed notch's countdown (it covers the menu bar icons next to the notch while a timer runs) should stay or show only when FERB is open"
+rule = "Confirms APP-762/763/771: while a timer runs and FERB is closed, the countdown draws beside the camera as one notch shape, covering the menu bar icons next to the notch for as long as it runs, as Apple's live activity does. It is not limited to when FERB is open."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.updateTimerActivity"]
+live = ["LIVE-807"]
