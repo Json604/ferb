@@ -26,6 +26,7 @@ struct NotchView: View {
                         .padding(.top, model.isNotchDocked ? model.cutoutHeight : 0)
                         .frame(height: presentation.size.height, alignment: .top)
                         .contentShape(Rectangle())
+                        .pointingHand("reminder")
                         .onTapGesture { model.openReminderChat() }
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.isButton)
@@ -42,6 +43,7 @@ struct NotchView: View {
                     .padding(.top, model.isNotchDocked ? model.cutoutHeight : 0)
                     .frame(height: presentation.size.height)
                     .contentShape(Rectangle())
+                    .pointingHand("plan")
                     .onTapGesture { model.expand() }
                     .accessibilityLabel("FERB is planning. Open chat.")
                 } else if model.indicatorHeaderAtBottom {

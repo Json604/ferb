@@ -387,6 +387,7 @@ private struct NoticeView: View {
                     if card.page == "memory" {
                         Button(card.line ?? "Open the Memory page") { model.onOpenMemory?(card.importedFrom) }
                             .buttonStyle(FerbButtonStyle())
+                            .pointingHand("page")
                     }
                 }
                 ForEach(Array(notice.quotes.enumerated()), id: \.offset) { _, quote in

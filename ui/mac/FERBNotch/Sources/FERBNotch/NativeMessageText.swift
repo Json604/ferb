@@ -75,6 +75,7 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     /// The link under the pointer, drawn lifted (APP-753, `HoverLook`): a temporary attribute, never the text.
     private(set) var hoveredLink: NSRange?
     private var hoverArea: NSTrackingArea?
+    private var linkAreas: [NSTrackingArea] = []
     private var measuredWidths: [CGFloat: CGSize] = [:]
     private(set) var displayRefreshCount = 0
 
@@ -136,6 +137,7 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
 
     override func layout() {
         super.layout()
+        defer { if window != nil { updateTrackingAreas() } }   // the links' areas follow the laid-out text
         guard bounds.width > 0, let container = textContainer, container.containerSize.width != bounds.width else { return }
         container.containerSize = CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager?.ensureLayout(for: container)
@@ -174,24 +176,69 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let hoverArea { removeTrackingArea(hoverArea) }
-        // Always active: FERB never activates, and a link still answers the pointer (APP-753)
+        for area in linkAreas { removeTrackingArea(area) }
+        // Always active: FERB never activates (APP-756). One area for the whole text (leaving it settles any hover) and
+        // one per visible piece of each link, whose entering and leaving AppKit reports even while another app is in
+        // front, where moves inside a view may never arrive.
+        // owned by a small responder of its own: NSTextView keeps its own pointer tracking, and the live check showed
+        // areas it owns never hearing the pointer while another app was in front
         let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                                  owner: self, userInfo: nil)
+                                  owner: linkOwner, userInfo: nil)
         addTrackingArea(area)
         hoverArea = area
+        linkAreas = linkRects().map { rect, range in
+            let piece = NSTrackingArea(rect: rect, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways],
+                                       owner: linkOwner, userInfo: ["location": range.location, "length": range.length])
+            addTrackingArea(piece)
+            return piece
+        }
+        logLinkAreas()
     }
 
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
+    /// Each link's visible rectangles in this view's coordinates, with its character range.
+    private func linkRects() -> [(CGRect, NSRange)] {
+        guard let storage = textStorage, let manager = layoutManager, let container = textContainer,
+              storage.length > 0 else { return [] }
+        var out: [(CGRect, NSRange)] = []
+        storage.enumerateAttribute(.link, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard value != nil else { return }
+            let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound,
+                                            length: 0), in: container) { rect, _ in
+                let shown = rect.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y)
+                    .intersection(self.visibleRect)
+                if !shown.isEmpty { out.append((shown, range)) }
+            }
+        }
+        return out
+    }
+
+    private lazy var linkOwner = LinkHoverOwner(view: self)
+
+    func pointerEntered(_ event: NSEvent) {
+        if let info = event.trackingArea?.userInfo, let location = info["location"] as? Int,
+           let length = info["length"] as? Int {
+            lift(NSRange(location: location, length: length))
+        }
+    }
+
+    func pointerMoved(_ event: NSEvent) {
         hover(at: convert(event.locationInWindow, from: nil))
     }
 
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        hover(at: nil)
+    func pointerExited(_ event: NSEvent) {
+        if let info = event.trackingArea?.userInfo, let location = info["location"] as? Int {
+            if hoveredLink?.location == location { lift(nil) }
+        } else {
+            lift(nil)                                     // left the text: no link stays lifted
+        }
     }
 
-    /// Lifts the link under `point` (none: every link at rest) and shows the pointing hand over it.
+    func pointerCursorUpdate() {
+        if hoveredLink != nil { NSCursor.pointingHand.set() }
+    }
+
+    /// Lifts the link under `point` (none: every link at rest).
     func hover(at point: NSPoint?) {
         var range: NSRange?
         if let point, let manager = layoutManager, let container = textContainer, let storage = textStorage,
@@ -207,19 +254,47 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
                 range = effective
             }
         }
+        lift(range)
+    }
+
+    /// The link drawn lifted (a temporary colour, never the text) with the pointing hand over it; nil: none.
+    private func lift(_ range: NSRange?) {
+        if range != nil {                                 // again on each change: the window server may reset it
+            BackgroundCursor.enable()
+            NSCursor.pointingHand.set()
+        }
         guard range != hoveredLink else { return }
         if let old = hoveredLink, let manager = layoutManager {
             manager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: old)
+            if let storage = textStorage, NSMaxRange(old) <= storage.length {
+                manager.invalidateDisplay(forCharacterRange: old)
+            }
         }
+        let had = hoveredLink != nil
         hoveredLink = range
         if let range, let manager = layoutManager {
             manager.addTemporaryAttribute(.foregroundColor, value: NSColor.linkColor.hoverLifted(true),
                                           forCharacterRange: range)
-            NSCursor.pointingHand.set()
-        } else if point != nil {
-            NSCursor.iBeam.set()
+            manager.invalidateDisplay(forCharacterRange: range)
+        } else if had {
+            NSCursor.arrow.set()                              // off the link: never left as the hand
         }
+        HoverSourceView.log.info("hover \(range != nil ? "on" : "off", privacy: .public) link pointing=true")
         needsDisplay = true
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if hoveredLink != nil { lift(nil) }
+    }
+
+    /// Where each link sits on screen, for a live check of the hover (numbers only, debug level).
+    private func logLinkAreas() {
+        guard let window else { return }
+        for (rect, _) in linkRects() {
+            let shown = window.convertToScreen(convert(rect, to: nil))
+            HoverSourceView.log.debug("hover area link \(Int(shown.minX)) \(Int(shown.minY)) \(Int(shown.width)) \(Int(shown.height))")
+        }
     }
 
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
@@ -227,4 +302,18 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
         if let url, MarkdownDocument.safeLink(url) { HandOff.open(url) }
         return true // Never delegate unsupported URLs to AppKit's default opener.
     }
+}
+
+/// The owner of a message's link tracking areas (APP-757): it hands the pointer's comings and goings to its text view.
+final class LinkHoverOwner: NSResponder {
+    private weak var view: MessageTextView?
+    init(view: MessageTextView) {
+        self.view = view
+        super.init()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func mouseEntered(with event: NSEvent) { view?.pointerEntered(event) }
+    override func mouseMoved(with event: NSEvent) { view?.pointerMoved(event) }
+    override func mouseExited(with event: NSEvent) { view?.pointerExited(event) }
+    override func cursorUpdate(with event: NSEvent) { view?.pointerCursorUpdate() }
 }

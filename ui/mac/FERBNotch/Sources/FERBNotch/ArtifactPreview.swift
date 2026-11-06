@@ -43,58 +43,6 @@ struct FileUnavailableLine: View {
     }
 }
 
-/// The shared hover look (APP-753, `HoverLook`): the card's fill brightens under the pointer, a link's text lifts
-/// towards white and the pointer becomes the pointing hand; only colour changes, nothing opens (APP-715). Reduce Motion
-/// changes it at once.
-struct CardHover: ViewModifier {
-    var link = false
-    var cornerRadius: CGFloat = 9
-    var capsule = false
-    /// Draws the fill; off when the content draws its own from `hovered`.
-    var drawsFill = true
-    let hovered: Binding<Bool>
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pushed = false
-
-    func body(content: Content) -> some View {
-        content
-            .background {
-                if drawsFill {
-                    if capsule { Capsule().fill(.white.opacity(HoverLook.fill(hovered: hovered.wrappedValue))) }
-                    else {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(.white.opacity(HoverLook.fill(hovered: hovered.wrappedValue)))
-                    }
-                }
-            }
-            .onHover { inside in
-                withAnimation(HoverLook.duration(reduceMotion: reduceMotion).map { .easeOut(duration: $0) }) {
-                    hovered.wrappedValue = inside
-                }
-                guard link else { return }
-                if inside && !pushed { NSCursor.pointingHand.push(); pushed = true }
-                else if !inside && pushed { NSCursor.pop(); pushed = false }
-            }
-            .onDisappear { if pushed { NSCursor.pop(); pushed = false } }
-    }
-}
-
-extension View {
-    func cardHover(_ hovered: Binding<Bool>, link: Bool = false, cornerRadius: CGFloat = 9, capsule: Bool = false,
-                   drawsFill: Bool = true) -> some View {
-        modifier(CardHover(link: link, cornerRadius: cornerRadius, capsule: capsule, drawsFill: drawsFill,
-                           hovered: hovered))
-    }
-}
-
-extension NSColor {
-    /// A link's colour under the pointer (`HoverLook.linkLift`).
-    func hoverLifted(_ hovered: Bool) -> NSColor {
-        let lift = HoverLook.linkLift(hovered: hovered)
-        return lift > 0 ? (blended(withFraction: lift, of: .white) ?? self) : self
-    }
-}
-
 /// The text of a file card or link: selectable and copyable, while a plain click acts (APP-716). A drag or a
 /// double-click selects (Command-C copies through NotchPanel's routing); a single click that leaves nothing
 /// selected runs `click`. The card around it keeps its own click, drag-out and context menu.
@@ -105,11 +53,17 @@ struct SelectableName: NSViewRepresentable {
     var color: NSColor = .labelColor
     let click: () -> Void
     var actions: [CardAction] = []
+    /// A click opens or reveals it: the pointing hand rather than the text cursor (APP-756).
+    var pointing = true
 
     func makeNSView(context: Context) -> SelectableNameView { SelectableNameView() }
     func updateNSView(_ view: SelectableNameView, context: Context) {
         view.click = click
         view.actions = actions
+        if view.pointing != pointing {
+            view.pointing = pointing
+            view.window?.invalidateCursorRects(for: view)
+        }
         view.show(text, font: .systemFont(ofSize: size, weight: weight), color: color)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: SelectableNameView, context: Context) -> CGSize? {
@@ -120,6 +74,18 @@ struct SelectableName: NSViewRepresentable {
 final class SelectableNameView: NSTextView {
     var click: (() -> Void)?
     var actions: [CardAction] = []
+    var pointing = true
+
+    // the card's pointing hand, not the text cursor, over a name a click opens (APP-756)
+    override func resetCursorRects() {
+        if pointing { addCursorRect(bounds, cursor: .pointingHand) } else { super.resetCursorRects() }
+    }
+    override func mouseMoved(with event: NSEvent) {
+        if pointing { NSCursor.pointingHand.set() } else { super.mouseMoved(with: event) }
+    }
+    override func cursorUpdate(with event: NSEvent) {
+        if pointing { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
+    }
     private var shownFont: NSFont = .systemFont(ofSize: 11)
 
     init() {
@@ -227,7 +193,7 @@ struct ArtifactRow: View {
                                    actions: CardAction.file(url, model: model, card: card))
                 }
                 .padding(.horizontal, 9).frame(height: 28)
-                .cardHover($hovered)
+                .cardHover($hovered, link: true, label: "file")
                 .contentShape(RoundedRectangle(cornerRadius: 9))
             }
             .buttonStyle(.plain)
@@ -260,7 +226,7 @@ struct ComposerAttachmentCard: View {
             }
             .padding(10).frame(width: 116, height: 84)
             .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
-            .cardHover($hovered, cornerRadius: 10)
+            .cardHover($hovered, link: true, cornerRadius: 10, label: "attachment")
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
@@ -318,7 +284,7 @@ struct SiteLink: View {
     var body: some View {
         SelectableName(text: host, size: size, color: color.hoverLifted(hovered ?? own), click: { model.openSite(host) },
                        actions: CardAction.link(host, model: model))
-            .cardHover($own, link: true, drawsFill: false)
+            .cardHover($own, link: true, drawsFill: false, label: "site")
             .accessibilityLabel("Open \(host)")
     }
 }
@@ -336,7 +302,7 @@ struct OverflowBadge: View {
                 .background(.white.opacity(HoverLook.badgeFill(hovered: hovered)),
                             in: RoundedRectangle(cornerRadius: 4.5, style: .continuous))
                 .contentShape(RoundedRectangle(cornerRadius: 4.5))
-                .cardHover($hovered, link: true, drawsFill: false)
+                .cardHover($hovered, link: true, drawsFill: false, label: "more")
         }
     }
 }
@@ -360,7 +326,7 @@ struct VisitedSitesView: View {
         }
         .font(.system(size: 10))
         .padding(.horizontal, 8).padding(.vertical, 4)
-        .cardHover($hovered, capsule: true)
+        .cardHover($hovered, capsule: true, label: "sites")
         .padding(.leading, leading)
         .onChange(of: model.expanded) { _, visible in if !visible { listOpen = false } }
         .onChange(of: model.previewDismissalRevision) { _, _ in listOpen = false }

@@ -10,7 +10,8 @@ and see the change. No real FERB is involved: no daemon, no `~/.ferb`, no Keycha
 ui/mac/FERBNotch/playground.sh --play
 ```
 
-It builds the playground, opens the app playground and starts **Play 0.27.1** by itself. In the controls window the
+It builds the playground, opens the app playground and starts **Play 0.27.1** by itself (add
+`--pause-before="A long chat answer"` to hold the play at that beat; Resume carries on). In the controls window the
 **Play 0.27.1** section has the same control (**Play 0.27.1**, ⌘P), **Pause/Resume**, **Restart** and **Show in:
 Notch | Window** (the same play in the sticky window). The play is a scripted, invented conversation through the real
 notch and chat (`Playground/PlaygroundPlay.swift`): a six-part request whose rows go waiting → starting → running

@@ -21,6 +21,7 @@ for arg in "$@"; do
     --build-only) OPEN=0 ;;
     --reopen) ARGS+=(--reopen) ;;
     --app) ARGS+=(--app) ;;
+    --pause-before=*) ARGS+=("$arg") ;;
     --play) ARGS+=(--app --play); CONCEPT_NAME="FERB Arrival Concept"; CONCEPT_ID="dev.ferb.playground.arrival"; CONCEPT_HOME="ferb-arrival-concept" ;;
     *) print -u2 "Usage: playground.sh [--arrival] [--app] [--play] [--reopen] [--build-only]"; exit 1 ;;
   esac

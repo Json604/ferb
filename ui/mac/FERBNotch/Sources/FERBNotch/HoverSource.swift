@@ -10,6 +10,29 @@ import NotchCore
 // thing shows the pointing hand, set again on every move and put back to the arrow when the pointer leaves, the view
 // goes away or its window stops being visible, so the hand is never left behind.
 
+/// macOS lets only the active app set the cursor; FERB is almost never active. SkyLight's per-connection
+/// "SetsCursorInBackground" lets FERB's own windows set it while another app is in front (the cursor still follows the
+/// window under the pointer). Resolved defensively, once, like FERB's other SkyLight calls (APP-563): without it the
+/// hand shows only while FERB is active.
+enum BackgroundCursor {
+    @MainActor private static var tried = false
+    @MainActor private(set) static var enabled = false
+
+    @MainActor static func enable() {
+        guard !tried else { return }
+        tried = true
+        typealias MainConnection = @convention(c) () -> Int32
+        typealias SetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+        guard let library = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight", RTLD_NOW),
+              let main = dlsym(library, "SLSMainConnectionID"),
+              let set = dlsym(library, "SLSSetConnectionProperty") else { return }
+        let connection = unsafeBitCast(main, to: MainConnection.self)()
+        enabled = unsafeBitCast(set, to: SetProperty.self)(connection, connection, "SetsCursorInBackground" as CFString,
+                                                           kCFBooleanTrue) == 0
+        HoverSourceView.log.info("background cursor \(enabled ? "on" : "unavailable", privacy: .public)")
+    }
+}
+
 /// The tracking view: invisible, never takes a click (hit-testing passes through to the card below it).
 final class HoverSourceView: NSView {
     static let log = Logger(subsystem: "com.ferb.FERB", category: "hover")
@@ -30,10 +53,27 @@ final class HoverSourceView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let area { removeTrackingArea(area) }
-        let made = NSTrackingArea(rect: .zero, options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved,
-                                                         .cursorUpdate, .inVisibleRect], owner: self, userInfo: nil)
+        // only an openable thing asks for cursor updates: a plain card under a link must never put the arrow back
+        var options: NSTrackingArea.Options = [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect]
+        if pointing { options.insert(.cursorUpdate) }
+        let made = NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil)
         addTrackingArea(made)
         area = made
+        logArea()
+    }
+
+    override func layout() {
+        super.layout()
+        logArea()
+    }
+
+    /// Where it shows on screen, for a live check of the hover (numbers only, debug level; nothing when hidden).
+    private func logArea() {
+        guard let window, !label.isEmpty else { return }
+        let visible = bounds.intersection(visibleRect)
+        guard !visible.isEmpty else { return }
+        let shown = window.convertToScreen(convert(visible, to: nil))
+        Self.log.debug("hover area \(self.label, privacy: .public) \(Int(shown.minX)) \(Int(shown.minY)) \(Int(shown.width)) \(Int(shown.height))")
     }
 
     override func mouseEntered(with event: NSEvent) { set(true) }
@@ -43,7 +83,7 @@ final class HoverSourceView: NSView {
     }
     override func mouseExited(with event: NSEvent) { set(false) }
     override func cursorUpdate(with event: NSEvent) {
-        if pointing && hovered { show(.pointingHand) } else { super.cursorUpdate(with: event) }
+        if pointing && hovered { show(.pointingHand) }     // a plain card leaves the cursor to what is under it
     }
 
     override func resetCursorRects() {
@@ -71,6 +111,7 @@ final class HoverSourceView: NSView {
     }
 
     private func show(_ cursor: NSCursor) {
+        BackgroundCursor.enable()
         cursor.set()
         cursorAsked = cursor
     }
@@ -100,6 +141,7 @@ struct HoverArea: NSViewRepresentable {
         view.label = label
         if view.pointing != pointing {
             view.pointing = pointing
+            view.updateTrackingAreas()
             view.window?.invalidateCursorRects(for: view)
         }
     }

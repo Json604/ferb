@@ -470,7 +470,7 @@ struct FileChip: View {
                 }
                 .foregroundStyle(Palette.ink)
                 .padding(.horizontal, 9).frame(height: 28)
-                .cardHover($hovered)
+                .cardHover($hovered, link: true, label: "file")
                 .contentShape(RoundedRectangle(cornerRadius: 9))
             }
             .buttonStyle(.plain)

@@ -125,6 +125,8 @@ final class PlaygroundPlayer: ObservableObject {
     @Published private(set) var failures: [String] = []
     /// Where the play shows the chat (the controls' Notch / Window); the window-mode beats come back to it.
     @Published var mode: ChatHost = .notch
+    /// The play holds before the first beat whose caption starts with this (playground.sh --pause-before=…), once.
+    var pauseBefore: String?
     private(set) var ids = PlayIDs(run: 1)
     private(set) var beats: [PlayBeat] = []
     private var task: Task<Void, Never>?
@@ -150,6 +152,12 @@ final class PlaygroundPlayer: ObservableObject {
         task = Task { [weak self] in
             guard let self else { return }
             while self.index < self.beats.count, !Task.isCancelled {
+                if let hold = self.pauseBefore, self.beats[self.index].caption.hasPrefix(hold) {
+                    self.pauseBefore = nil
+                    self.paused = true
+                    self.caption = "Paused before: " + self.beats[self.index].caption
+                    self.workspace.state.note("play: paused before \(self.index + 1)")
+                }
                 await self.workspace.state.pause(self.beats[self.index].wait)
                 while self.paused, !Task.isCancelled { await self.workspace.state.pause(0.2) }
                 guard !Task.isCancelled else { return }
@@ -351,13 +359,16 @@ enum PlayScript {
             }, check: { probe in probe.turn == nil ? "the message didn't show" : nil }),
             PlayBeat(caption: "The plan: one row per part; Tokyo's date is answered at once as its own done row", wait: 1.6, run: { p in
                 p.push(["type": "plan", "goal": request, "name": "Inbox, keyboard and practice",
-                        "text": "I'll read the list, write the summary, research and order a keyboard, and find a practice slot.",
+                        "text": "I'll read the list, write the summary, research and order a keyboard, and find a practice slot.\nWorking in ~/Desktop.",
+                        "plan_line": "I'll read the list, write the summary, research and order a keyboard, and find a practice slot.",
+                        "lines": ["Working in ~/Desktop."],
                         "direct": [["part": "tokyo", "label": "Tokyo date", "text": "Today in Tokyo it's Saturday, 7 November."]],
                         "card": ["request_id": p.ids.request, "rows": rows(p.ids), "done": 1, "total": 6,
                                  "steps": ["read": ["status": "starting"], "write": ["status": "waiting", "waits_on": ["read"]],
                                            "reviews": ["status": "starting"], "order": ["status": "waiting", "waits_on": ["reviews"]],
                                            "practice": ["status": "waiting", "waits_on": ["slot"]]]]])
             }, check: { probe in PlayProbe.all(probe.cardAgrees(), probe.expect("tokyo", .done),
+                                               probe.turn?.shownDirect.isEmpty == true ? nil : "the date shows above the card",
                                                probe.expect("summary", .waiting), probe.expect("practice", .waiting)) }),
             PlayBeat(caption: "Rows start, then run with a spinner and a live line (no timer)", wait: 1.4, run: { p in
                 p.step("read", "running", part: "emails")

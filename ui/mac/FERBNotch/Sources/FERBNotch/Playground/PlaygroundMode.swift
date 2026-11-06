@@ -20,6 +20,10 @@ enum PlaygroundMode {
     /// Opens the app playground and starts Play 0.27.1 at once (playground.sh --play).
     static let playArgument = "--play"
     static var startsPlay: Bool { CommandLine.arguments.contains(playArgument) }
+    /// --pause-before=<caption start>: the play holds before that beat (Resume in the controls carries on).
+    static var playPauseBefore: String? {
+        CommandLine.arguments.first { $0.hasPrefix("--pause-before=") }.map { String($0.dropFirst("--pause-before=".count)) }
+    }
 
     static var requested: Bool { isPlayground(bundleID: Bundle.main.bundleIdentifier) }
 

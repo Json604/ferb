@@ -19,6 +19,60 @@ final class HoverLookTests: XCTestCase {
         XCTAssertNil(HoverLook.overflow(0))
     }
 
+    // decision: APP-753, APP-756, APP-757
+    func testTheAppKitHoverSourceDrivesTheHoverFlagAndThePointingHand() throws {
+        let view = HoverSourceView(frame: CGRect(x: 0, y: 0, width: 80, height: 20))
+        var seen: [Bool] = []
+        view.onChange = { seen.append($0) }
+        view.pointing = true
+        let enter = try XCTUnwrap(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [],
+                                                         timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
+                                                         trackingNumber: 0, userData: nil))
+        let exit = try XCTUnwrap(NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [],
+                                                        timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
+                                                        trackingNumber: 0, userData: nil))
+        view.mouseEntered(with: enter)
+        XCTAssertTrue(view.hovered)
+        XCTAssertEqual(view.cursorAsked, NSCursor.pointingHand)
+        view.mouseExited(with: exit)
+        XCTAssertFalse(view.hovered)
+        XCTAssertEqual(view.cursorAsked, NSCursor.arrow)             // never left behind
+        view.mouseEntered(with: enter)
+        view.viewDidHide()                                          // the notch closed or the window hid
+        XCTAssertFalse(view.hovered)
+        XCTAssertEqual(view.cursorAsked, NSCursor.arrow)
+        XCTAssertEqual(seen, [true, false, true, false])
+        XCTAssertNil(view.hitTest(CGPoint(x: 10, y: 10)))           // the card below keeps every click
+        // tracking that works while another app is frontmost
+        view.updateTrackingAreas()
+        XCTAssertTrue(view.trackingAreas.contains { $0.options.contains(.activeAlways) })
+        XCTAssertTrue(view.trackingAreas.contains { $0.options.contains(.cursorUpdate) })
+        let plain = HoverSourceView()
+        plain.updateTrackingAreas()
+        XCTAssertFalse(plain.trackingAreas.contains { $0.options.contains(.cursorUpdate) })   // never resets a link's hand
+        plain.mouseEntered(with: enter)
+        XCTAssertTrue(plain.hovered)                                // colour only: no hand on a plain card
+        XCTAssertNil(plain.cursorAsked)
+    }
+
+    // decision: APP-757
+    func testEachVisibleLinkGetsItsOwnAlwaysActiveArea() {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 420, height: 80), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        let view = MessageTextView()
+        view.frame = CGRect(x: 0, y: 0, width: 400, height: 40)
+        window.contentView?.addSubview(view)
+        view.update(MessageTextAttributes.make("[example.com](https://example.com) then plain words",
+                                               size: 12, secondary: false, markdown: true, bold: false,
+                                               monospaced: false, alignment: .left), generation: 0)
+        view.layout()
+        view.updateTrackingAreas()
+        let pieces = view.trackingAreas.filter { $0.userInfo?["location"] != nil }
+        XCTAssertEqual(pieces.count, 1)
+        XCTAssertTrue(pieces.allSatisfy { $0.options.contains(.activeAlways) && !$0.rect.isEmpty })
+        XCTAssertTrue(pieces.allSatisfy { $0.owner is LinkHoverOwner })
+    }
+
     // decision: APP-753, APP-589
     func testAnAnswersLinkLiftsUnderThePointerAndPlainTextDoesNot() {
         let view = MessageTextView()

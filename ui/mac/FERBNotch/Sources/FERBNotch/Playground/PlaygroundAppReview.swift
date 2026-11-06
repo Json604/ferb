@@ -8,7 +8,12 @@ import NotchCore
 final class PlaygroundAppReview: PlayHost {
     let services: PlaygroundServices
     /// Play 0.27.1: the scripted conversation through the real notch (PlaygroundPlay).
-    private(set) lazy var player = PlaygroundPlayer(workspace: services.daemon.workspace, model: coordinator.model, host: self)
+    private(set) lazy var player: PlaygroundPlayer = {
+        let made = PlaygroundPlayer(workspace: services.daemon.workspace, model: coordinator.model, host: self)
+        made.mode = ChatHost.setting(.standard)          // Notch | Window starts as the playground's own setting
+        made.pauseBefore = PlaygroundMode.playPauseBefore
+        return made
+    }()
     let coordinator: PanelCoordinator
     let window: FERBWindowController
     let updates: UpdateCoordinator
