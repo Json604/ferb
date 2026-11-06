@@ -856,8 +856,8 @@ title = "The fix round never empties an answer and may change only the quoted se
 by = "agent"
 date = 2026-11-06
 status = "active"
-rule = "Refines ORCH-546. A fallback removal never leaves an answer or a part's row empty: when removing the contradicted sentences would leave no text, code marks them \"(I couldn't confirm this)\" instead (answer_marks.settle). The fix turn may change only the quoted sentences: code compares the revised answer with the original structurally (the text outside the quoted sentences must stand unchanged and in order, answer_marks.only_quoted_changed); otherwise the revision is discarded (journaled task.answer_fix_discarded), no re-check runs, and the fallback settles the original."
-why = "Review of fixes8: a one-sentence answer quoted as contradicted ended done and verified with no text when the fix turn failed; a fix turn could rewrite sentences the re-check never looks at. Structure only (rule 4)."
+rule = "Refines ORCH-546. A fallback removal never leaves an answer or row without a letter or digit: it marks the contradicted sentences \"(I couldn't confirm this)\" instead (answer_marks.settle), and that task, step or part is then never verified: done_unverified with code's standard \"Couldn't confirm\" line. The fix turn may change only the quoted sentences: outside them the revision must equal the original exactly, and a quote's place may hold no more sentences or lines than the quote (only_quoted_changed); otherwise it is discarded (task.answer_fix_discarded) and the fallback settles the original."
+why = "Review of fixes8, then review 2 (8a-8c): a marker like \"-\" counted as text; a new sentence beside a fixed one passed unchecked; an answer the evidence contradicts ended verified. Structure only (rule 4)."
 paths = ["ferb/orchestrator/answer_marks.py::settle", "ferb/orchestrator/answer_marks.py::only_quoted_changed", "ferb/orchestrator/supervisor.py::Supervisor._settle_findings"]
 
 [ORCH-548]

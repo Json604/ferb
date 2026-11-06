@@ -4,6 +4,7 @@ quoted text in the answer and removes or marks that occurrence; which of the two
 the finding (contradicted: removed; unsupported: marked). It also tells whether a fix turn's revised answer changed
 anything outside the quoted sentences (`only_quoted_changed`). Must not write new words into the answer."""
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
@@ -17,6 +18,7 @@ class Settled:
     removed: list[str] = field(default_factory=list)
     marked: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
+    kept_contradicted: list[str] = field(default_factory=list)   # contradicted, but marked: removing emptied the answer
 
 
 def removes_or_marks(find: str, replace: str) -> bool:
@@ -68,43 +70,63 @@ def remove_quote(answer: str, find: str) -> str:
 def settle(answer: str, findings: Iterable[tuple[str, str]]) -> Settled:
     """The answer with each quoted sentence removed (kind "contradicted") or marked once (kind "unsupported"), in the
     order given; a quote not in the answer (blank, or already gone) changes nothing and is listed as missing. A removal
-    never leaves the answer empty (ORCH-547): when removing the contradicted sentences would leave no text, they are
-    marked instead, so the owner is never told "done" with nothing said."""
+    never leaves the answer empty (ORCH-547): when removing the contradicted sentences would leave no letter or digit
+    (nothing, or only a list marker or emphasis such as "-" or "**"), they are marked instead, so the owner is never
+    told "done" with nothing said; `kept_contradicted` then lists the contradicted ones left standing, marked."""
     findings = list(findings)
     done = _settled(answer, findings)
-    if done.removed and not done.answer.strip():
+    if done.removed and not has_text(done.answer):
         done = _settled(answer, [(quote, "unsupported") for quote, _ in findings])
+        done.kept_contradicted = [q for q, kind in findings if kind == "contradicted" and q in done.marked]
     return done
 
 
+def has_text(text: str) -> bool:
+    """Whether a text says anything: it has a letter or a digit (structure, never meaning)."""
+    return any(ch.isalnum() for ch in text)
+
+
+def sentences(text: str) -> int:
+    """How many sentences a text holds, by structure only: the pieces between sentence ends (., ! or ? before a space)
+    and line breaks that have a letter or a digit."""
+    return sum(1 for piece in re.split(r"(?<=[.!?])\s+|\n+", text) if has_text(piece))
+
+
 def only_quoted_changed(original: str, revised: str, quotes: Iterable[str]) -> bool:
-    """Whether `revised` keeps everything of `original` outside the quoted sentences unchanged and in order (ORCH-547):
-    the text before the first quote starts it, the text after the last ends it, and each piece between two quotes
-    stands between them; a quote's own place may hold anything (its fix) or nothing (removed). Only the first
-    occurrence of each quote counts, as in `settle`; a quote not in `original` frees nothing. Structure only: text is
-    compared, never judged."""
-    spans = sorted((at, at + len(quote)) for quote in quotes if quote.strip() and (at := original.find(quote)) >= 0)
-    kept: list[str] = []
-    pos = 0
-    for start, end in spans:
-        kept.append(original[pos:start] if start > pos else "")
-        pos = max(pos, end)
-    kept.append(original[pos:])
-    pieces = [piece.strip() for piece in kept]
+    """Whether `revised` changed only the quoted sentences of `original` (ORCH-547): everything outside them stands
+    exactly as it was and in order (only the whitespace touching a quote's place may change), and each quote's place
+    holds nothing (removed) or its fix, with no more sentences or lines than the quotes it replaces, so nothing new can
+    be inserted beside a fixed sentence. Only the first occurrence of each quote counts, as in `settle`; a quote not in
+    `original` frees nothing; adjacent quotes share one place. Structure only: text is compared and counted, never
+    judged."""
+    spans: list[list[int]] = []                       # [start, end, sentences allowed, lines allowed]
+    for start, end in sorted((at, at + len(q)) for q in quotes if q.strip() and (at := original.find(q)) >= 0):
+        quote = original[start:end]
+        if spans and (start <= spans[-1][1] or not original[spans[-1][1]:start].strip()):
+            spans[-1][1] = max(spans[-1][1], end)
+            spans[-1][2] += sentences(quote)
+            spans[-1][3] += quote.strip().count("\n")
+        else:
+            spans.append([start, end, sentences(quote), quote.strip().count("\n")])
     text = revised.strip()
-    if len(pieces) == 1:
-        return text == pieces[0]
-    head, tail = pieces[0], pieces[-1]
-    if not text.startswith(head):
+    if not spans:
+        return text == original.strip()
+    pieces = [original[:spans[0][0]]] + [original[a[1]:b[0]] for a, b in zip(spans, spans[1:])] + \
+        [original[spans[-1][1]:]]
+    head, tail, middle = pieces[0].strip(), pieces[-1].strip(), [piece.strip() for piece in pieces[1:-1]]
+    if not text.startswith(head) or not text.endswith(tail) or len(head) + len(tail) > len(text):
         return False
-    at = len(head)
-    for piece in pieces[1:-1]:
-        if piece:
-            found = text.find(piece, at)
-            if found < 0:
-                return False
-            at = found + len(piece)
-    return text.endswith(tail) and len(text) - len(tail) >= at
+    places: list[str] = []
+    at, stop = len(head), len(text) - len(tail)
+    for piece in middle:
+        found = text.find(piece, at, stop)
+        if found < 0:
+            return False
+        places.append(text[at:found])
+        at = found + len(piece)
+    places.append(text[at:stop])
+    return all(sentences(place) <= allowed and place.strip().count("\n") <= lines
+               for place, (_, _, allowed, lines) in zip(places, spans))
 
 
 def _settled(answer: str, findings: list[tuple[str, str]]) -> Settled:

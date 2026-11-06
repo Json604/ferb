@@ -89,17 +89,39 @@ def test_when_the_fix_turn_fails_code_removes_or_marks_exactly_the_quoted_senten
     assert [d["how"] for d in _settled(daemon)] == ["marked"]
 
 
-# decision: ORCH-547
-def test_a_removal_never_leaves_the_answer_empty(daemon: RunningDaemon) -> None:
+# decision: ORCH-547, ORCH-309
+def test_a_removal_never_leaves_the_answer_empty_and_a_kept_contradiction_is_never_verified(
+        daemon: RunningDaemon) -> None:
     """The quoted sentence is the whole answer and the fix turn fails: removing it would leave "done" with nothing
-    said, so code marks it instead."""
+    said, so code marks it instead; and since the evidence contradicts a sentence that still stands, the task is not
+    shown as verified (review 2, 8c): done but not confirmed, with code's standard line, never the checker's words."""
     said = "The meeting is on Friday at 3pm."
     install(daemon, [sup("task", "On it.", task("Find when the meeting is"))], {
         "worker": done(said),
         "worker.verify": verdict(True, findings=((said, "contradicted", "The invite says Thursday."),)),
         "worker.fix": "not a report"})
     result = outcome(chat(daemon, "when is the meeting"))
-    assert result["status"] == "done"
+    assert result["status"] == "done_unverified" and result["verified"] is False
+    assert result["answer"].startswith("The meeting is on Friday at 3pm (I couldn't confirm this).")
+    assert "Couldn't confirm: every detail of this answer against what I saw." in result["answer"]
+    assert "Thursday" not in result["answer"]
+    assert [d.get("kept_contradicted") for d in _settled(daemon)] == [[said]]
+
+
+# decision: ORCH-547, ORCH-319
+def test_a_plan_steps_kept_contradiction_is_never_verified(daemon: RunningDaemon) -> None:
+    """The same in a plan: the answering step's whole answer is contradicted and its fix turn fails; the step and the
+    task end done but not confirmed, never with a check mark."""
+    from ferb.orchestrator.plans import Plan, Step
+    said = "The meeting is on Friday at 3pm."
+    spec = task("Find when the meeting is", conds=(cond("The meeting's time is found"),))
+    spec["plan"] = Plan(steps=[Step(id="find", kind="do", goal="Find when the meeting is")]).model_dump()
+    install(daemon, [sup("task", "On it.", spec)], {
+        "step.find": done(said),
+        "step.find.verify": verdict(True, findings=((said, "contradicted", "The invite says Thursday."),)),
+        "step.find.fix": "not a report"})
+    result = outcome(chat(daemon, "when is the meeting"))
+    assert result["status"] == "done_unverified" and result["verified"] is False
     assert result["answer"].startswith("The meeting is on Friday at 3pm (I couldn't confirm this).")
 
 
@@ -174,6 +196,24 @@ def test_only_the_quoted_sentences_may_change() -> None:
     assert not only_quoted_changed(said, "New. A is 1. B is 4. C is 3.", ["B is 2."])
     assert only_quoted_changed(said, "A is 1. B is 4. C is 5.", ["B is 2.", "C is 3."])
     assert not only_quoted_changed(said, "A is 1. B is 4.", ["Z."])
+    # ORCH-547, review 2 (8b): no insertion anywhere, a new sentence beside a fixed one included
+    assert not only_quoted_changed(said, "A is 1. B is 4. Also D is 9. C is 3.", ["B is 2."])
+    assert not only_quoted_changed(said, "A is 1. B is 4.\nD is 9. C is 3.", ["B is 2."])
+    assert not only_quoted_changed(said, "A is 1. B is 4. C is 5. D is 9.", ["B is 2.", "C is 3."])
+    assert not only_quoted_changed(said, "A is one. B is 4. C is 3.", ["B is 2."])
+    assert only_quoted_changed(said, "A is 1. B is 4. C is 5.", ["C is 3.", "B is 2."])   # adjacent: one place, two
+    assert only_quoted_changed(said, "A is 1.\nB is 4.\nC is 3.", ["B is 2."])           # only the joins changed
+
+
+# decision: ORCH-547
+def test_a_removal_that_would_leave_only_a_marker_or_a_label_marks_instead() -> None:
+    """Review 2 (8a): "never empty" means a letter or a digit is left, not just a list marker or emphasis."""
+    from ferb.orchestrator.answer_marks import settle
+    for answer, quote in (("- Friday.", "Friday."), ("* **Friday.**", "Friday.")):
+        done = settle(answer, [(quote, "contradicted")])
+        assert done.removed == [] and done.kept_contradicted == [quote] and "(I couldn't confirm this)" in done.answer
+    kept = settle("- Friday.\n- Saturday.", [("Friday.", "contradicted")])
+    assert kept.removed == ["Friday."] and kept.kept_contradicted == []
 
 
 # decision: ORCH-545

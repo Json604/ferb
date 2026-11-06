@@ -679,6 +679,7 @@ class _Tree:
     owner_question: str = ""
     stop_reason: str = ""                # why the work failed, in the owner's terms (the checker's reason, or code's)
     stands_unconfirmed: bool = False     # the last attempt's done report stands, though no check confirmed it (V4)
+    kept_contradicted: bool = False      # the fix round's fallback marked a contradicted sentence it couldn't remove
     check_problem: str = ""              # why the current attempt's check couldn't run, in the owner's words
     owner_answer: str = ''               # the worker's answer to the owner, with the checker's exact fixes applied
     reason: str = ''                     # the worker's reason for not finishing (not_done)
@@ -4320,7 +4321,8 @@ class Supervisor(WorkerRuns):
     def _finish_step(self, member: _Tree, out: Outcome) -> str:
         """A step's (or a conversation turn's) status from its attempt loop's outcome, written once: done but not
         confirmed stays its own status (V4), never stored as done."""
-        status = 'done_unverified' if out.status == 'done' and member.stands_unconfirmed else out.status
+        status = ('done_unverified' if out.status == 'done' and (member.stands_unconfirmed or member.kept_contradicted)
+                  else out.status)
         self._set_status(member.worker.id, status, {'summary': out.summary})
         return status
 
@@ -4795,8 +4797,8 @@ class Supervisor(WorkerRuns):
             return False
         finished = any(r.index == 0 for r in results) and all(r.met is True for r in results if r.index == 0)
         if finished and answers:
-            self._answer_checks[(member.id, step.id)] = self._answer_record(
-                [r for r in results if 1 <= r.index <= len(answers)], answers, offset=1)
+            self._answer_checks[(member.id, step.id)] = self._kept_record(member, self._answer_record(
+                [r for r in results if 1 <= r.index <= len(answers)], answers, offset=1))
         return finished
 
     async def _answer_check(self, member: _Tree, out: Outcome, answers: list[Condition],
@@ -4805,7 +4807,17 @@ class Supervisor(WorkerRuns):
         results = await self._judged(member, out, answers, span)
         if results is None:
             return {'verified': False, 'note': _clipped("the check couldn't run")}
-        return self._answer_record([r for r in results if r.index < len(answers)], answers)
+        return self._kept_record(member, self._answer_record([r for r in results if r.index < len(answers)], answers))
+
+    @staticmethod
+    def _kept_record(member: _Tree, record: dict[str, Any]) -> dict[str, Any]:
+        """An answer record of a member whose fix round kept a contradicted sentence marked: never verified, with code's
+        standard "Couldn't confirm" line (ORCH-547, `_kept_contradiction`)."""
+        if not member.kept_contradicted:
+            return record
+        note = record.get('note') or ''
+        return record | {'verified': False, 'note': _clipped("; ".join(
+            part for part in (note, REPORT_UNCONFIRMED) if part) if REPORT_UNCONFIRMED not in note else note)}
 
     async def _judged(self, member: _Tree, out: Outcome, conditions: list[Condition],
                       span: str) -> list[ConditionResult] | None:
@@ -5037,7 +5049,7 @@ class Supervisor(WorkerRuns):
             if tree.stop or out.status == "cancelled" or choice is None:
                 break
             if accepted:
-                tree.stands_unconfirmed = choice.action == "accept_unconfirmed"
+                tree.stands_unconfirmed = choice.action == "accept_unconfirmed" or tree.kept_contradicted
                 tree.outcome = Outcome(task.id, "done", tree.owner_answer, out.artifacts, [])
                 return tree.outcome
             if choice.action == "fail":
@@ -5302,8 +5314,21 @@ class Supervisor(WorkerRuns):
             done = settle(original, [(f.quote, f.kind) for f in findings])
             tree.owner_answer, how = done.answer, "marked"
         self.journal.append("task.answer_settled", {"task_id": task.id, "how": how, "removed": done.removed,
-                                                    "marked": done.marked, "missing": done.missing})
+                                                    "marked": done.marked, "missing": done.missing}
+                            | ({"kept_contradicted": done.kept_contradicted} if done.kept_contradicted else {}))
+        self._kept_contradiction(tree, done.kept_contradicted)
         self._keep_fixing(tree, task, None, [])
+
+    @staticmethod
+    def _kept_contradiction(tree: _Tree, kept: list[str]) -> None:
+        """ORCH-547 (review 2): the fallback had to mark a sentence the evidence contradicts (removing it would have left
+        nothing said), so the answer is never shown as verified: it stands unconfirmed with code's standard "Couldn't
+        confirm" line, never the checker's words."""
+        if not kept:
+            return
+        tree.kept_contradicted = tree.stands_unconfirmed = True
+        if REPORT_UNCONFIRMED not in tree.unconfirmed:
+            tree.unconfirmed = "; ".join(part for part in (tree.unconfirmed, REPORT_UNCONFIRMED) if part)
 
     def _fixing_step(self, tree: _Tree, task: Task) -> bool:
         """Whether this attempt loop is a plan step's own worker (a single task's, or a step's), whose plan row can keep
@@ -5346,7 +5371,9 @@ class Supervisor(WorkerRuns):
         tree.owner_answer, tree.answer_settled = done.answer, True
         self.journal.append("task.answer_settled", {"task_id": task.id, "how": "marked", "restart": True,
                                                     "removed": done.removed, "marked": done.marked,
-                                                    "missing": done.missing})
+                                                    "missing": done.missing}
+                            | ({"kept_contradicted": done.kept_contradicted} if done.kept_contradicted else {}))
+        self._kept_contradiction(tree, done.kept_contradicted)
         self._keep_fixing(tree, task, None, [])
         if not tree.hold_resources:
             if self._tree_of.get(tree.id) is tree:
@@ -6091,8 +6118,8 @@ class Supervisor(WorkerRuns):
         nothing to check against), without its prefix; and whether every outcome condition was verified. Nothing
         else: the checker's evidence stays in the record (ORCH-540)."""
         results, outcomes, attempted, conditions = self._results(src)
-        verified = (out.status == "done" and attempted and not src.stands_unconfirmed and bool(outcomes)
-                    and all(r.met is True for r in outcomes))
+        verified = (out.status == "done" and attempted and not src.stands_unconfirmed and not src.kept_contradicted
+                    and bool(outcomes) and all(r.met is True for r in outcomes))
         note = src.unconfirmed or ("" if verified else NOTHING_TO_CHECK if not conditions else
                                    "; ".join(self._owner_text(src, r) for r in outcomes if r.met is not True))
         return (src.owner_answer or out.summary).strip(), _clipped(note) if note else "", verified
